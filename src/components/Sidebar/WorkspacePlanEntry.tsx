@@ -46,7 +46,7 @@ export function WorkspacePlanEntry({
   const rowText = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
   const rowTouchText = pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"]);
   const iconSize = touchMode ? 14 : compact ? 11 : 12;
-  const iconBox = touchMode ? "h-6 w-6" : compact ? "h-5 w-5" : "h-5 w-5";
+  const iconBox = touchMode ? "h-6 w-6" : "h-5 w-5";
 
   if (compact) {
     return (
@@ -60,7 +60,8 @@ export function WorkspacePlanEntry({
         title={tip}
         onClick={onClick}
         className={`
-          sidebar-workspace-plan sidebar-workspace-plan-compact border-0
+          sidebar-workspace-plan-compact sidebar-tab-plan relative flex items-center justify-center border-0
+          ${isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)]"}
           ${pulsing ? "sidebar-workspace-plan-pulse" : ""}
           ${liveExecutor ? "sidebar-workspace-plan-live" : ""}
         `}
@@ -89,36 +90,48 @@ export function WorkspacePlanEntry({
       title={tip}
       onClick={onClick}
       className={`
-        sidebar-workspace-plan w-full border-0
-        ${touchMode ? "sidebar-workspace-plan-touch" : ""}
+        sidebar-tab sidebar-tab-plan group flex w-full items-center justify-between cursor-pointer transition-colors relative border-0
+        ${touchMode ? "sidebar-tab-touch min-h-11 pl-5 pr-2 py-2" : "pl-4 pr-2 py-1.5"}
+        ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
         ${pulsing ? "sidebar-workspace-plan-pulse" : ""}
         ${liveExecutor ? "sidebar-workspace-plan-live" : ""}
       `}
     >
-      <div className={`flex flex-1 items-center min-w-0 gap-2 ${touchMode ? "gap-2.5" : ""}`}>
-        <span className={`sidebar-workspace-plan-icon ${iconBox}${liveExecutor ? " sidebar-workspace-plan-icon-live" : ""}`}>
+      {isActive && (
+        <div
+          className="absolute inset-y-0 left-0 right-0 pointer-events-none"
+          style={{
+            background: "var(--ct-bg-selected, rgba(99, 102, 241, 0.12))",
+            transition: "transform 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease",
+          }}
+        />
+      )}
+      <div className={`flex flex-1 items-center min-w-0 relative z-[1] ${touchMode ? "gap-2.5" : "gap-2"}`}>
+        <span className={`sidebar-workspace-plan-icon shrink-0 ${iconBox}${liveExecutor ? " sidebar-workspace-plan-icon-live" : ""}`}>
           <Map
             size={iconSize}
             className={isActive ? "text-[var(--ct-accent)]" : "text-[var(--ct-muted)]"}
           />
         </span>
-        <span
-          data-testid="workspace-plan-title"
-          className={`sidebar-workspace-plan-title flex-1 min-w-0 truncate ${touchMode ? rowTouchText : rowText} ${isActive ? "font-medium" : ""}`}
-        >
-          {planTitle}
+        <span className="min-w-0 flex-1 overflow-hidden">
+          <span
+            data-testid="workspace-plan-title"
+            className={`sidebar-workspace-plan-title block truncate whitespace-nowrap ${touchMode ? rowTouchText : rowText} ${isActive ? "font-medium" : ""}`}
+          >
+            {planTitle}
+          </span>
         </span>
         {inflightCount > 0 && (
           <span
             data-testid="sidebar-inflight-badge"
-            className="sidebar-workspace-plan-inflight-badge"
+            className="sidebar-workspace-plan-inflight-badge shrink-0"
             title={inflightTip ?? undefined}
           >
             {inflightCount}
           </span>
         )}
         {hint && (
-          <span className="sidebar-workspace-plan-hint" data-testid="workspace-plan-hint">
+          <span className="sidebar-workspace-plan-hint shrink-0" data-testid="workspace-plan-hint">
             {hint}
           </span>
         )}

@@ -72,17 +72,60 @@ const slot = (planIndex: PlanIndexEntry[]) => (
   <WorkspacePlanTreeSlot workspace={workspace} panes={panes} planIndex={planIndex} canvasActive={false} />
 );
 
-test("present → distinct pinned entry carrying the plan title + task hint", async () => {
+test("present → tab-row plan entry with plan title + task hint", async () => {
   const { host, root } = await render(slot([mkEntry()]));
   const btn = host.querySelector('[data-testid="workspace-plan-entry"]');
   assert(btn, "entry renders for a matching plan");
   assert(btn.getAttribute("data-pinned") === "true", "entry is pinned, not a tab");
+  assert(btn.className.includes("sidebar-tab"), "uses tab row grammar");
+  assert(btn.className.includes("sidebar-tab-plan"), "keeps distinct plan identity");
+  assert(btn.getAttribute("data-active") === "false", "inactive until canvas opens");
   assert(btn.querySelector("svg"), "wears the plan/map glyph (visually distinct)");
   const title = host.querySelector('[data-testid="workspace-plan-title"]');
   assert(title?.textContent?.includes("Figma-grade"), `shows the real plan title (got ${title?.textContent})`);
+  assert(title?.className.includes("truncate"), "title uses ellipsis truncation");
+  assert(title?.className.includes("whitespace-nowrap"), "title avoids letter-shard wrapping");
   const hint = host.querySelector('[data-testid="workspace-plan-hint"]');
   assert(hint?.textContent === "12 tasks", `shows the task hint (got ${hint?.textContent})`);
   assert(!host.querySelector('[data-testid="workspace-plan-more"]'), "single plan → no +N");
+  await act(async () => root.unmount());
+});
+
+test("active plan entry sets data-active and shows selection pill", async () => {
+  const { host, root } = await render(
+    <WorkspacePlanEntry entries={[mkEntry()]} isActive onClick={() => {}} />,
+  );
+  const btn = host.querySelector('[data-testid="workspace-plan-entry"]');
+  assert(btn?.getAttribute("data-active") === "true", "active state exposed for sidebar tests");
+  assert(btn?.getAttribute("aria-pressed") === "true", "pressed for a11y");
+  const pill = btn?.querySelector(".pointer-events-none.absolute");
+  assert(pill, "active pill like session tabs");
+  await act(async () => root.unmount());
+});
+
+test("in-flight badge renders when count is positive", async () => {
+  const { host, root } = await render(
+    <WorkspacePlanEntry entries={[mkEntry()]} isActive={false} inflightCount={3} onClick={() => {}} />,
+  );
+  const badge = host.querySelector('[data-testid="sidebar-inflight-badge"]');
+  assert(badge?.textContent === "3", "badge shows inflight count");
+  await act(async () => root.unmount());
+});
+
+test("long plan title stays in a single truncated line", async () => {
+  const longTitle =
+    "Canvas rendering substrate — Figma-grade migration with extra words that should not shard";
+  const { host, root } = await render(
+    <WorkspacePlanEntry
+      entries={[mkEntry({ title: longTitle })]}
+      isActive={false}
+      onClick={() => {}}
+    />,
+  );
+  const title = host.querySelector('[data-testid="workspace-plan-title"]') as HTMLSpanElement | null;
+  assert(title?.textContent === longTitle, "full title in DOM for tooltip/ellipsis source");
+  assert(title?.className.includes("truncate"), "long title uses truncate");
+  assert(title?.className.includes("whitespace-nowrap"), "long title does not wrap per-letter");
   await act(async () => root.unmount());
 });
 

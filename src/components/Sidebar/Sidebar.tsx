@@ -41,6 +41,7 @@ import { useFullPlansOptional, usePlanIndexOptional } from "../Canvas/PlansProvi
 import { resolvePaneTabActivity } from "../Canvas/paneTabActivity";
 import { selectActiveWork } from "../Canvas/planView/activeWork";
 import { buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
+import { isWorkspacePlanEntryActive, isWorkspaceTabActive } from "./sidebarSelection";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -466,7 +467,7 @@ export function Sidebar({
                               workspace={ws}
                               panes={state.panes}
                               planIndex={planIndex}
-                              canvasActive={isActiveVisual && workspaceCanvasActive}
+                              canvasActive={isWorkspacePlanEntryActive(isActiveVisual, workspaceCanvasActive)}
                               touchMode={touchMode}
                               compact={isCompact}
                               uiFontScale={uiFontScale}
@@ -477,7 +478,12 @@ export function Sidebar({
                             />
                             {flattenSidebarTabs(ws.tabs, state.panes).map((tab) => {
                           const tabPaneIds = collectPaneIds(tab, state.panes);
-                          const isTabActive = isActiveVisual && tab.id === state.activeTabIds[ws.id];
+                          const isTabActive = isWorkspaceTabActive(
+                            isActiveVisual,
+                            workspaceCanvasActive,
+                            tab.id,
+                            state.activeTabIds[ws.id],
+                          );
                           return (
                             <button
                               key={tab.id}
@@ -598,7 +604,12 @@ export function Sidebar({
                                   <TabItem
                                     tab={tab}
                                     index={index}
-                                    isActive={isActiveVisual && tab.id === state.activeTabIds[ws.id]}
+                                    isActive={isWorkspaceTabActive(
+                                      isActiveVisual,
+                                      workspaceCanvasActive,
+                                      tab.id,
+                                      state.activeTabIds[ws.id],
+                                    )}
                                     onClick={() => {
                                       setActiveTab(ws.id, tab.id);
                                       onNavigateToTab?.();
@@ -675,7 +686,7 @@ export function Sidebar({
                                   workspace={ws}
                                   panes={state.panes}
                                   planIndex={planIndex}
-                                  canvasActive={isActiveVisual && workspaceCanvasActive}
+                                  canvasActive={isWorkspacePlanEntryActive(isActiveVisual, workspaceCanvasActive)}
                                   touchMode={touchMode}
                                   compact={isCompact}
                                   uiFontScale={uiFontScale}
@@ -735,7 +746,12 @@ export function Sidebar({
                           <TabItem
                             tab={activeTab}
                             index={0}
-                            isActive={isActiveVisual}
+                            isActive={isWorkspaceTabActive(
+                              isActiveVisual,
+                              workspaceCanvasActive,
+                              activeTab.id,
+                              state.activeTabIds[ws.id],
+                            )}
                             onClick={() => { setActiveTab(ws.id, activeTab.id); onNavigateToTab?.(); }}
                             onClose={() => animatedCloseTab(ws.id, activeTab.id)}
                             canClose={true}
