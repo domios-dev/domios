@@ -222,7 +222,7 @@ export function PaneSessionChat({
     for (const ws of muxState.workspaces) {
       for (const tab of ws.tabs) {
         const pane = muxState.panes[tab.pane_id];
-        const rawName = pane?.title ?? tab.title;
+        const rawName = pane?.title;
         const name = rawName?.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "").trim();
         if (name && tab.pane_id) byShort.set(tab.pane_id.slice(0, 8), name);
       }

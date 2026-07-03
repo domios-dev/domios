@@ -56,4 +56,9 @@ assert(
   "TabItem role marker must not hide when plan activity exists",
 );
 
+assert(
+  source.includes("pp.title === np.title"),
+  "TabItem memo must compare pane.title for rename re-renders",
+);
+
 console.log("✓ TabItem quiet tab chrome: no task bubbles, no working spin, subdued subtitles");

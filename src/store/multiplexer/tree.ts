@@ -26,7 +26,7 @@ export function makeTab(pane: Pane): Tab {
 }
 
 export function displayTitleForTab(tab: Tab, pane?: Pane | null): string {
-  const title = pane?.title?.trim() || tab.title?.trim();
+  const title = pane?.title?.trim();
   return title || tab.pane_id.slice(0, 8);
 }
 
