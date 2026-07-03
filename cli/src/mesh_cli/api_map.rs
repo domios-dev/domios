@@ -49,6 +49,40 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Orchestrator { .. } => {
             unsupported("orchestrator handoff is local-only — run it on the target machine")
         }
+        Commands::Orchestration { action } => match action {
+            crate::args::orchestration::OrchestrationAction::New {
+                orchestrator,
+                planner,
+                workspace,
+                title,
+            } => {
+                let (orchestrator_agent, orchestrator_model) =
+                    crate::cmd::orchestration::split_provider_model(orchestrator);
+                let (planner_agent, planner_model) =
+                    crate::cmd::orchestration::split_provider_model(planner);
+                let mut body = serde_json::json!({
+                    "orchestrator_agent": orchestrator_agent,
+                    "planner_agent": planner_agent,
+                });
+                if let Some(m) = orchestrator_model {
+                    body["orchestrator_model"] = serde_json::json!(m);
+                }
+                if let Some(m) = planner_model {
+                    body["planner_model"] = serde_json::json!(m);
+                }
+                if let Some(w) = workspace {
+                    body["workspace_id"] = serde_json::json!(w);
+                }
+                if let Some(t) = title {
+                    body["title"] = serde_json::json!(t);
+                }
+                (
+                    "POST".into(),
+                    "/api/orchestration/new".into(),
+                    Some(body.to_string()),
+                )
+            }
+        },
         Commands::Task { .. } => {
             unsupported("task management is local-only — run it on the target machine")
         }

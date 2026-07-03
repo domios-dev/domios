@@ -23,6 +23,7 @@ pub mod inject_verify;
 pub mod input_parser;
 pub mod messenger;
 pub mod notification;
+mod orchestration_pair;
 mod orchestrator;
 mod orchestrator_onboard;
 mod output;
@@ -75,6 +76,7 @@ pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_echo, wait_for_submit_shell,
     wait_for_submit_tui_drained, InjectionError, InjectionResult, VerifyOpts,
 };
+pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
 pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnResult};
 pub use pane::{normalize_pane_description, MAX_PANE_DESCRIPTION_CHARS};
 

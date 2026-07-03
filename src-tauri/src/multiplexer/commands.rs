@@ -418,6 +418,17 @@ pub fn mux_spawn_pane(
     svc.spawn_pane_atomic(params)
 }
 
+/// Paired creation (task_7e5f9354): desktop twin of `codeterm orchestration
+/// new` / `POST /api/orchestration/new` — all three call
+/// `ServiceContext::create_orchestration_pair`.
+#[tauri::command]
+pub async fn mux_create_orchestration_pair(
+    svc: State<'_, ServiceState>,
+    params: crate::service::OrchestrationPairParams,
+) -> Result<crate::service::OrchestrationPairResult, String> {
+    svc.create_orchestration_pair(params).await
+}
+
 // ── Agent Hierarchy Commands ─────────────────────────────────────────
 
 /// Set a pane's orchestration role.

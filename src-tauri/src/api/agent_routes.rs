@@ -237,6 +237,25 @@ pub async fn spawn_agent(
     Ok(Json(resp))
 }
 
+/// Paired creation (task_7e5f9354): create an Orchestrator + Planner in one
+/// action. The web-mirror twin of `codeterm orchestration new` — both call
+/// `ServiceContext::create_orchestration_pair`.
+pub async fn create_orchestration_pair(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<crate::service::OrchestrationPairParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let result = state
+        .svc
+        .create_orchestration_pair(body)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::to_value(result).map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?))
+}
+
 #[derive(Deserialize)]
 pub(crate) struct BatchBody {
     commands: Vec<BatchOp>,
