@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use crate::plan::cleanup_debt::CleanupDebtTask;
 use crate::plan::coverage::{compute_coverage_report, CoverageReport};
-use crate::plan::peer_contract::{resolve_planner, PlannerResolution};
+use crate::plan::peer::{resolve_planner_ref, PeerResolution};
 use crate::plan::reconcile::{DriftItem, PaneProbe};
 use crate::plan::{
     Goal, LoopStatus, OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef, QaState,
@@ -109,8 +109,8 @@ pub struct PlanStateSnapshot {
     pub canonical_project_path: String,
     pub planning_readiness: PlanningReadiness,
     pub owner: OrchestratorRef,
-    pub planner_ref: Option<PlannerRef>,
-    pub planner_resolution: PlannerResolution,
+    pub planner: Option<PlannerRef>,
+    pub planner_resolution: PeerResolution,
     pub goal: Option<Goal>,
     pub task_counts: TaskCounts,
     pub percent_done: f64,
@@ -256,7 +256,7 @@ pub fn build_plan_state_snapshot(
     live_agent_panes: &HashSet<String>,
     now_ms: u64,
 ) -> PlanStateSnapshot {
-    let planner_resolution = resolve_planner(&plan.planner_ref, &plan.owner, |pane_id| PaneProbe {
+    let planner_resolution = resolve_planner_ref(&plan.planner, &plan.owner, |pane_id| PaneProbe {
         exists: true,
         live_agent: live_agent_panes.contains(pane_id),
         role: None,
@@ -358,7 +358,7 @@ pub fn build_plan_state_snapshot(
         },
         planning_readiness: planning_readiness(plan),
         owner: plan.owner.clone(),
-        planner_ref: plan.planner_ref.clone(),
+        planner: plan.planner.clone(),
         planner_resolution,
         goal: plan.goal.clone(),
         task_counts: counts,
@@ -408,7 +408,7 @@ impl ServiceContext {
             }
         }
         // Probe the planner pane so its liveness is reflected in the snapshot.
-        if let Some(PlannerRef::Bound { pane_id, .. }) = &plan.planner_ref {
+        if let Some(PlannerRef::Pane { pane_id, .. }) = &plan.planner {
             if probed.insert(pane_id.clone()) && self.pane_probe(pane_id).live_agent {
                 live_panes.insert(pane_id.clone());
             }

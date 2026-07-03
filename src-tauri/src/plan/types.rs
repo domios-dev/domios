@@ -115,7 +115,7 @@ pub type AgentRef = OrchestratorRef;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PlannerRef {
-    Bound {
+    Pane {
         pane_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
@@ -622,7 +622,7 @@ pub struct Plan {
     #[serde(default)]
     pub owner_history: Vec<TransferRecord>,
     #[serde(default)]
-    pub planner_ref: Option<PlannerRef>,
+    pub planner: Option<PlannerRef>,
 }
 
 impl Plan {
@@ -654,7 +654,7 @@ impl Plan {
             heartbeat: OrchestratorHeartbeat::default(),
             canvas: PlanCanvas::default(),
             owner_history: vec![],
-            planner_ref: None,
+            planner: None,
         }
     }
 }
@@ -797,31 +797,31 @@ mod tests {
     }
 
     #[test]
-    fn planner_ref_bound_roundtrips() {
+    fn planner_ref_pane_roundtrips() {
         let mut p = Plan::new("P".into(), "/r".into(), Default::default());
-        p.planner_ref = Some(PlannerRef::Bound {
+        p.planner = Some(PlannerRef::Pane {
             pane_id: "pane_plan".into(),
             session_id: Some("sid".into()),
             title: None,
         });
         let json = serde_json::to_string(&p).unwrap();
-        assert!(json.contains("\"kind\":\"bound\""));
+        assert!(json.contains("\"kind\":\"pane\""));
         assert!(json.contains("\"pane_id\":\"pane_plan\""));
         let back: Plan = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.planner_ref, p.planner_ref);
+        assert_eq!(back.planner, p.planner);
     }
 
     #[test]
     fn planner_ref_waived_roundtrips() {
         let mut p = Plan::new("P".into(), "/r".into(), Default::default());
-        p.planner_ref = Some(PlannerRef::Waived {
+        p.planner = Some(PlannerRef::Waived {
             note: "solo — no review pairing needed".into(),
         });
         let json = serde_json::to_string(&p).unwrap();
         assert!(json.contains("\"kind\":\"waived\""));
         assert!(json.contains("solo"));
         let back: Plan = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.planner_ref, p.planner_ref);
+        assert_eq!(back.planner, p.planner);
     }
 
     #[test]
@@ -836,6 +836,6 @@ mod tests {
             "updated_at": 2
         }"#;
         let p: Plan = serde_json::from_str(raw).unwrap();
-        assert_eq!(p.planner_ref, None);
+        assert_eq!(p.planner, None);
     }
 }

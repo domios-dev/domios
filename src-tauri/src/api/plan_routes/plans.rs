@@ -234,7 +234,7 @@ pub(crate) struct UpdatePlanBody {
     #[serde(default)]
     mode: Option<String>,
     #[serde(default)]
-    planner_ref: Option<serde_json::Value>,
+    planner: Option<serde_json::Value>,
 }
 
 pub async fn update(
@@ -262,7 +262,7 @@ pub async fn update(
             now,
         )
         .map_err(plan_err)?;
-    if let Some(planner_val) = body.planner_ref {
+    if let Some(planner_val) = body.planner {
         let planner_ref: Option<PlannerRef> = serde_json::from_value(planner_val)
             .map_err(|e| text_err(StatusCode::UNPROCESSABLE_ENTITY, e))?;
         state

@@ -380,11 +380,11 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            if let Some(planner_val) = p.and_then(|x| x.get("planner_ref")) {
+            if let Some(planner_val) = p.and_then(|x| x.get("planner")) {
                 let planner_ref: Option<PlannerRef> = serde_json::from_value(planner_val.clone())
                     .map_err(|e| JsonRpcError {
                     code: -32602,
-                    message: format!("invalid planner_ref: {e}"),
+                    message: format!("invalid planner: {e}"),
                     data: None,
                 })?;
                 store

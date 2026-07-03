@@ -276,9 +276,23 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
-            p.planner_ref = planner_ref;
+            p.planner = planner_ref;
             Ok(())
         })
+    }
+
+    pub fn resolve_planner_pane<F>(
+        &self,
+        plan_id: &str,
+        pane_probe: F,
+    ) -> crate::plan::peer::PeerResolution
+    where
+        F: Fn(&str) -> crate::plan::reconcile::PaneProbe,
+    {
+        let Some(plan) = self.get(plan_id) else {
+            return crate::plan::peer::PeerResolution::Unbound;
+        };
+        crate::plan::peer::resolve_planner_ref(&plan.planner, &plan.owner, pane_probe)
     }
 
     pub fn set_mode(&self, plan_id: &str, mode: PlanMode, now_ms: u64) -> Result<(), PlanError> {

@@ -510,9 +510,9 @@ fn run_plan(
                     })?;
                     json!({ "kind": "waived", "note": n })
                 } else {
-                    json!({ "kind": "bound", "pane_id": p })
+                    json!({ "kind": "pane", "pane_id": p })
                 };
-                params["planner_ref"] = planner_ref;
+                params["planner"] = planner_ref;
             }
             call(client, "plan.update", params)
         }
