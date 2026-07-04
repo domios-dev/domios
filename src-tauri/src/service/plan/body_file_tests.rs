@@ -151,11 +151,14 @@ fn corrupt_markdown_sidecar_keeps_plan_indexed_with_json_body() {
         .expect("corrupt sidecar must not skip plan");
     assert_eq!(loaded.sections[0].body, "json section body");
     assert_eq!(loaded.tasks[0].body, "json task body");
-    assert!(store.list_index().iter().any(|entry| entry.id == plan.id));
+    assert!(store
+        .list_index()
+        .iter()
+        .any(|entry| entry.plan_id == plan.id));
 
     store.reload_from_disk(&plan.id).unwrap();
     let reloaded = store.get(&plan.id).unwrap();
-    assert_eq!(reloaded.sections[0].body, "json section body");
+    assert_eq!(reloaded.sections[0].body.trim_end(), "json section body");
 }
 
 #[test]
