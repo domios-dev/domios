@@ -226,13 +226,20 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
 
     let options_block = looks_like_options_block(input.screen_lines);
     let ready_prompt_visible = !options_block && ready_prompt_glyph(input.screen_lines);
+    let live_status_widget = extract_status_line(input.screen_lines).is_some();
+    let active_footer = active_turn_footer(input.screen_lines);
+    // A still-animating turn (fresh bytes, no completed-turn summary) is genuinely live:
+    // a long think repaints only the excluded status band, so semantic-idle keeps growing.
+    let live_turn = (live_status_widget || active_footer)
+        && input.byte_idle_ms < WORKING_GRACE_MS
+        && extract_completion_summary(input.screen_lines).is_none();
     let stale_working_status_at_prompt =
-        ready_prompt_visible && input.semantic_idle_ms >= WORKING_GRACE_MS;
+        ready_prompt_visible && input.semantic_idle_ms >= WORKING_GRACE_MS && !live_turn;
 
     // 2. Structurally active turn -> working. Do not treat raw PTY bytes as work:
     if !stale_working_status_at_prompt
-        && (extract_status_line(input.screen_lines).is_some()
-            || active_turn_footer(input.screen_lines)
+        && (live_status_widget
+            || active_footer
             || matches!(input.motion, Motion::Streaming | Motion::Animating))
     {
         return PaneVerdict {
