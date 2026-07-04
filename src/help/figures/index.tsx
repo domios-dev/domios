@@ -64,22 +64,15 @@ function AgentHierarchyFigure() {
       </defs>
       <Box x={130} y={8} w={120} h={44} label="General Agent" sub="always on" emphasis />
       <Arrow x1={190} y1={52} x2={190} y2={72} />
-      {/* Peer pair: Planner and Orchestrator on the SAME level, visually linked */}
-      <Box x={22} y={72} w={150} h={48} label="Planner" sub="owns the plan structure" emphasis />
-      <Box x={208} y={72} w={150} h={48} label="Orchestrator" sub="dispatches & gates" emphasis />
-      <line x1={172} y1={90} x2={208} y2={90} stroke={accent} strokeWidth={2} />
-      <line x1={172} y1={100} x2={208} y2={100} stroke={accent} strokeWidth={2} />
-      <text x={190} y={64} textAnchor="middle" fill={muted} fontSize={9}>
-        peers
-      </text>
-      <Arrow x1={283} y1={120} x2={110} y2={160} />
-      <Arrow x1={283} y1={120} x2={190} y2={160} />
-      <Arrow x1={283} y1={120} x2={300} y2={160} />
-      <Box x={60} y={160} w={92} h={44} label="Worker" sub="task A" />
-      <Box x={160} y={160} w={92} h={44} label="Worker" sub="task B" />
-      <Box x={260} y={160} w={92} h={44} label="Worker" sub="task C" />
-      <text x={97} y={135} textAnchor="middle" fill={muted} fontSize={9}>
-        shapes goal / spec / plan / tasks
+      <Box x={115} y={72} w={150} h={48} label="Orchestrator" sub="single authority" emphasis />
+      <Arrow x1={190} y1={120} x2={98} y2={150} />
+      <Arrow x1={190} y1={120} x2={190} y2={150} />
+      <Arrow x1={190} y1={120} x2={282} y2={150} />
+      <Box x={32} y={150} w={92} h={44} label="Planner" sub="specialist" />
+      <Box x={144} y={150} w={92} h={44} label="Worker" sub="task A" />
+      <Box x={256} y={150} w={92} h={44} label="Worker" sub="task B" />
+      <text x={190} y={215} textAnchor="middle" fill={muted} fontSize={9}>
+        Planner drafts; Orchestrator decides
       </text>
     </svg>
   );
