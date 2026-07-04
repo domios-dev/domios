@@ -74,17 +74,22 @@ fn parse_frontmatter(md: &str) -> (Option<String>, Option<String>, Option<String
         return (None, None, None);
     };
     let rest = rest.trim_start_matches(['\r', '\n']);
-    let Some((fm, body)) = rest
-        .split_once("\n---\n")
-        .or_else(|| rest.split_once("\n---\r\n"))
-        .or_else(|| rest.split_once("\r\n---\n"))
-        .or_else(|| rest.split_once("\r\n---\r\n"))
-    else {
+    let mut lines = rest.lines();
+    let mut frontmatter = Vec::new();
+    let mut body = String::new();
+    for line in lines.by_ref() {
+        if line.trim() == "---" {
+            body = lines.collect::<Vec<_>>().join("\n");
+            break;
+        }
+        frontmatter.push(line);
+    }
+    if body.is_empty() && !rest.lines().any(|line| line.trim() == "---") {
         return (None, None, None);
-    };
+    }
     let mut title = None;
     let mut check = None;
-    for line in fm.lines() {
+    for line in frontmatter {
         let Some((key, value)) = line.split_once(':') else {
             continue;
         };
@@ -95,7 +100,7 @@ fn parse_frontmatter(md: &str) -> (Option<String>, Option<String>, Option<String
             _ => {}
         }
     }
-    let purpose = first_summary_paragraph(body);
+    let purpose = first_summary_paragraph(&body);
     (title, Some(purpose), check.filter(|c| !c.is_empty()))
 }
 

@@ -273,7 +273,11 @@ mod tests {
 
         // First refresh installs the CLI.
         assert!(super::refresh_installed_cli(&src, home.path()).unwrap());
-        let dest = home.path().join(".codeterm").join("bin").join("codeterm");
+        let dest = home
+            .path()
+            .join(".codeterm")
+            .join("bin")
+            .join(super::cli_bin_name());
         assert!(dest.exists());
         assert_eq!(std::fs::read(&dest).unwrap(), b"v1.5.6-binary");
 
