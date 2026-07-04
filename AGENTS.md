@@ -197,6 +197,8 @@ Acquire in order, drop before awaiting. parking_lot is **not reentrant** — `mu
 
 After parallel Rust refactors, grep for nested `.lock()` to verify ordering.
 
+`clippy::await_holding_lock` is **DENIED** at the full gate — never hold a `std`/parking_lot guard across `.await`; extract the data and drop the guard first (scope it in a `{ }` or `let x = guard.field.clone();`), never silence with `-A`. The five ordered locks are wrapped in `lock_hold::{TimedMutex,TimedRwLock}`: debug builds log `[LOCK-HOLD] <name>.<op>() held Nms` past 50ms (`lock_hold::LOCK_HOLD_THRESHOLD`); release compiles to a transparent zero-overhead parking_lot wrapper.
+
 ## Async runtime & hot-path discipline (perf — learned the hard way)
 
 Blocking/heavy work on the Tauri async runtime starves ALL IPC and freezes the WHOLE UI (every pane + sidebar), not just the caller. A 3-4s full-UI freeze on every tab switch was `plugin_manager_snapshot` forking CLI subprocesses (including a network `channel diff`) on the async runtime.

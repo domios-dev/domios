@@ -99,7 +99,6 @@ CLIPPY_ALLOW=(
     -A clippy::field_reassign_with_default
     -A clippy::items_after_test_module
     -A clippy::too_many_arguments
-    -A clippy::await_holding_lock
     -A clippy::type_complexity
     -A clippy::unnecessary_get_then_check
     -A clippy::ptr_arg

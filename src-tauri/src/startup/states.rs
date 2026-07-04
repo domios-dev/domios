@@ -2,9 +2,10 @@
 
 use std::sync::Arc;
 
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 
 use crate::config::{self, ConfigState};
+use crate::lock_hold::{TimedMutex, TimedRwLock};
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::state::MultiplexerState;
 use crate::notification::store::NotificationStore;
@@ -43,13 +44,17 @@ pub(crate) fn init_states() -> AppStates {
     log::info!("Config loaded: theme={}", app_config.theme.name);
     let config_state: ConfigState = Arc::new(Mutex::new(app_config));
 
-    let pty_state: PtyState = Arc::new(Mutex::new(PtyManager::new()));
+    let pty_state: PtyState = Arc::new(TimedMutex::new("pty", PtyManager::new()));
     let notif_state: NotifState = Arc::new(Mutex::new(NotificationStore::new(500)));
     let session_state: SessionState = Arc::new(Mutex::new(SessionStore::new()));
-    let output_buffer: OutputBufferState = Arc::new(Mutex::new(OutputBuffer::new(65536)));
-    let screen_state: ScreenStateHandle = Arc::new(Mutex::new(ScreenState::new()));
-    let agent_tracker: AgentTrackerState =
-        Arc::new(Mutex::new(agent::status::PaneStatusTracker::new()));
+    let output_buffer: OutputBufferState =
+        Arc::new(TimedMutex::new("output_buf", OutputBuffer::new(65536)));
+    let screen_state: ScreenStateHandle =
+        Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+    let agent_tracker: AgentTrackerState = Arc::new(TimedMutex::new(
+        "agent_tracker",
+        agent::status::PaneStatusTracker::new(),
+    ));
     // Durable orchestration ledger backs the report store so worker state
     // survives daemon restart. If the db can't be opened, fall back to an
     let report_store: ReportStoreState = {
@@ -176,7 +181,7 @@ pub(crate) fn init_states() -> AppStates {
         }
     }
 
-    let mux_state: MuxState = Arc::new(RwLock::new(mux_state_inner));
+    let mux_state: MuxState = Arc::new(TimedRwLock::new("mux", mux_state_inner));
 
     AppStates {
         config: config_state,
