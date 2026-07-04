@@ -47,6 +47,10 @@ export interface SidebarTabItemRowProps {
   orchestrators: Pane[];
   touchMode: boolean;
   uiFontScale?: number;
+  collapsible?: boolean;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+  collapsedSummary?: string | null;
   onActivateTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   onRenameTab: (tabId: string, title: string) => void;
@@ -69,6 +73,10 @@ function SidebarTabItemRow({
   orchestrators,
   touchMode,
   uiFontScale,
+  collapsible,
+  collapsed,
+  onToggleCollapse,
+  collapsedSummary,
   onActivateTab,
   onCloseTab,
   onRenameTab,
@@ -98,6 +106,10 @@ function SidebarTabItemRow({
       touchMode={touchMode}
       uiFontScale={uiFontScale}
       activity={activity}
+      collapsible={collapsible}
+      collapsed={collapsed}
+      onToggleCollapse={onToggleCollapse}
+      collapsedSummary={collapsedSummary}
     />
   );
 }

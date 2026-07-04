@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { X, Pencil, UserMinus, MessageSquare, SquareTerminal, UserCog } from "lucide-react";
+import { X, Pencil, UserMinus, MessageSquare, SquareTerminal, UserCog, ChevronDown, ChevronRight } from "lucide-react";
 import {
   emitPaneUiMode,
   isChatUiSupported,
@@ -20,10 +20,9 @@ import type { Pane, PaneStatus, Tab } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
-import { RoleBadge } from "./RoleBadge";
+import { RoleModelBadge } from "./RoleModelBadge";
 import { roleBadgeLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
-import { TabActivityIndicator } from "./TabActivityIndicator";
 import { TabStatusRail } from "./TabStatusRail";
 import type { PaneTabActivity } from "../Canvas/paneTabActivity";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
@@ -49,6 +48,13 @@ interface TabItemProps {
   uiFontScale?: number;
   /** Plan-membership glance (resolved from the cheap index gate by the Sidebar). */
   activity?: PaneTabActivity | null;
+  /** Orchestration group head: renders a chevron that collapses/expands the
+   *  whole contained group (children + section headers). */
+  collapsible?: boolean;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+  /** Shown on the head only while collapsed — "1 manager · 2 workers". */
+  collapsedSummary?: string | null;
 }
 
 function TabItemInner({
@@ -69,6 +75,10 @@ function TabItemInner({
   touchMode = false,
   uiFontScale,
   activity,
+  collapsible = false,
+  collapsed = false,
+  onToggleCollapse,
+  collapsedSummary,
 }: TabItemProps) {
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
   // panes — drives the icon, tooltip, and (for shells) the model badge.
@@ -82,7 +92,6 @@ function TabItemInner({
   // Group leadership (Orchestrator/Planner) shows a role badge in the model-chip
   // slot; the model drops to the tooltip. Workers keep their model chip.
   const roleBadge = roleBadgeLabel(pane);
-  const roleBadgeTitle = tabModel ? `${roleBadge} · ${tabModel}` : roleBadge ?? undefined;
   const description = pane?.description ?? tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab, pane);
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
@@ -218,6 +227,26 @@ function TabItemInner({
       />
       {isActive && <ActiveTabPill />}
       <div className={`flex flex-1 items-center min-w-0 relative z-[1] ${touchMode ? "gap-2.5" : "gap-2"}`}>
+        {collapsible && (
+          <button
+            type="button"
+            data-testid="group-collapse-toggle"
+            data-collapsed={collapsed ? "true" : "false"}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleCollapse?.();
+            }}
+            className="sidebar-group-chevron shrink-0 -ml-2 flex items-center justify-center text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+            title={collapsed ? "Expand orchestration" : "Collapse orchestration"}
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? (
+              <ChevronRight size={12} strokeWidth={2} />
+            ) : (
+              <ChevronDown size={12} strokeWidth={2} />
+            )}
+          </button>
+        )}
         {provider ? (
           // Agent (descriptor) OR chatBackend shell (plugin snapshot) — both
           // resolve through usePaneProvider, so shell panes get their plugin
@@ -265,15 +294,21 @@ function TabItemInner({
             >
               {displayTitle}
             </span>
-            {description && !activity && (
-              <span className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">
-                {description}
+            {collapsed && collapsedSummary ? (
+              <span
+                data-testid="group-collapsed-summary"
+                className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]"
+              >
+                {collapsedSummary}
               </span>
+            ) : (
+              description && !activity && (
+                <span className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">
+                  {description}
+                </span>
+              )
             )}
           </span>
-        )}
-        {activity && pane && !editing && (
-          <TabActivityIndicator activity={activity} paneId={pane.id} />
         )}
         {/* Connected services */}
         {pane?.connected_services?.includes("telegram") && (
@@ -312,7 +347,7 @@ function TabItemInner({
           lives on .sidebar-tab-badge (its own max-width + ellipsis). */}
       <div className="shrink-0 relative z-[1] flex items-center min-w-5 justify-end">
         {roleBadge ? (
-          <RoleBadge label={roleBadge} title={roleBadgeTitle} />
+          <RoleModelBadge role={roleBadge} model={tabModelBadge} uiFontScale={uiFontScale} />
         ) : tabModelBadge && !touchMode ? (
           <SidebarModelBadge label={tabModelBadge} title={tabModel ?? undefined} />
         ) : null}
@@ -361,7 +396,11 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     prev.uiFontScale !== next.uiFontScale ||
     prev.index !== next.index ||
     prev.tab.id !== next.tab.id ||
-    prev.tab.description !== next.tab.description
+    prev.tab.description !== next.tab.description ||
+    prev.collapsible !== next.collapsible ||
+    prev.collapsed !== next.collapsed ||
+    prev.collapsedSummary !== next.collapsedSummary ||
+    prev.onToggleCollapse !== next.onToggleCollapse
   ) return false;
 
   // Plan-membership glance is a fresh object each Sidebar render — compare by value

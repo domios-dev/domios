@@ -1035,6 +1035,25 @@ button,
   }
 }
 
+/* Leadership badge (RoleModelBadge) — ROLE · MODEL. Fit-whole contract: the
+   role NEVER truncates and NEVER hides, even on a narrow tab; the model is the
+   only droppable part (handled in JS at the smallest font scale). Neutralize
+   the model-chip's max-width / ellipsis / narrow-tab hide inside this slot. */
+.sidebar-leadership-badge {
+  white-space: nowrap;
+  transition: opacity 150ms ease;
+}
+.sidebar-leadership-badge .sidebar-tab-badge,
+.sidebar-leadership-badge .sidebar-leadership-model {
+  display: inline-block;
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+}
+.sidebar-tab:hover .sidebar-leadership-badge {
+  opacity: 0;
+}
+
 /* Tab appear animation */
 @keyframes sidebar-tab-appear {
   from {
@@ -1076,12 +1095,6 @@ button,
 
 .sidebar-tab-dimmed:hover {
   color: var(--ct-fg, #c9d1d9);
-}
-
-/* Tab bar: plan glance is a fixed-size dot — no pulse, no layout jump. */
-.ct-tab-activity-quiet {
-  opacity: 0.58;
-  flex-shrink: 0;
 }
 
 /* Sidebar tabs keep provider icons static; liveness lives on the status rail. */
@@ -1284,6 +1297,42 @@ button,
     opacity: 1;
     transform: none;
   }
+}
+
+/* Orchestration group containment (SidebarWorkspaceTabs.tsx). One block per
+   orchestrator: a 2px left rule in the OWNER's presence color at ~35% alpha
+   runs the full height of the children — the eye follows it up to the owner.
+   Children indent inside the rule; section headers sit at child level. */
+.sidebar-orchestration-group {
+  margin-bottom: 8px; /* inter-group gap so two groups never read as one */
+}
+
+.sidebar-group-container {
+  position: relative;
+  margin-left: 10px; /* line sits just under the head glyph */
+  border-left: 2px solid
+    color-mix(in srgb, var(--ct-group-presence, var(--ct-accent)) 35%, transparent);
+}
+
+/* Normalize the child inset so managers (full tab rows) and workers (hierarchy
+   rows) align at one 14px indent inside the line, not each row's own padding. */
+.sidebar-group-container .sidebar-tab {
+  padding-left: 14px;
+}
+.sidebar-group-container .sidebar-hierarchy-row {
+  padding-left: 14px;
+}
+/* Section headers ride at child level — bands inside the block, not the
+   full-width flat rules that read as global dividers. */
+.sidebar-group-container [data-group-section] {
+  padding-left: 14px;
+}
+
+/* Collapse chevron on the group head — tucks into the row's left padding so it
+   doesn't shove the provider glyph out of line. */
+.sidebar-group-chevron {
+  width: 12px;
+  height: 12px;
 }
 
 /* Sidebar hierarchy — living subagent tree (HierarchyTree.tsx) */

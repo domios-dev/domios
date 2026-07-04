@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { Plus } from "lucide-react";
+import { presenceColor } from "../Canvas/presence/identity";
 import type { Pane, PaneStatus, Tab, Workspace } from "../../lib/types";
 import type { RemoteWorkersByOrchestrator } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
@@ -22,6 +23,8 @@ import {
   SidebarSingleTabRow,
 } from "./SidebarPlanPeerPair";
 import { OrchestrationGroupSection } from "./OrchestrationGroupSection";
+import { collectOrchestrationGroupMembers } from "./orchestrationGroupClose";
+import { countBySection, summarizeGroupCounts } from "./orchestrationSections";
 import { TabItem } from "./TabItem";
 import { aggregateTabStatus } from "./sidebarTabStatus";
 import { isWorkspaceTabActive } from "./sidebarSelection";
@@ -77,6 +80,16 @@ export function SidebarWorkspaceTabs({
   onRenameTab,
   onNewSession,
 }: SidebarWorkspaceTabsProps) {
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleGroupCollapsed = useCallback((orchestratorPaneId: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(orchestratorPaneId)) next.delete(orchestratorPaneId);
+      else next.add(orchestratorPaneId);
+      return next;
+    });
+  }, []);
+
   const renderTab = (
     tab: Tab,
     index: number,
@@ -126,8 +139,21 @@ export function SidebarWorkspaceTabs({
         ? buildHierarchySubtree(firstPane.id, panes, paneStatuses, peerCtx.peerExclude)
         : [];
 
+    // Group head is a collapse control: its chevron folds the whole contained
+    // group; a collapsed head carries the count of what it hides.
+    const groupCollapsed = isOrchestrator && firstPane ? collapsedGroups.has(firstPane.id) : false;
+    const groupSummary =
+      isOrchestrator && firstPane
+        ? summarizeGroupCounts(countBySection(collectOrchestrationGroupMembers(firstPane.id, panes)))
+        : null;
+
     return (
-      <div key={tab.id} style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}>
+      <div
+        key={tab.id}
+        data-orchestration-group={isOrchestrator && firstPane ? firstPane.id : undefined}
+        className={isOrchestrator ? "sidebar-orchestration-group" : undefined}
+        style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}
+      >
         <SidebarSingleTabRow
           tab={tab}
           index={index}
@@ -140,44 +166,57 @@ export function SidebarWorkspaceTabs({
           groupKey={groupKey}
           items={items}
           pinnedIds={pinnedIds}
+          collapsible={isOrchestrator}
+          collapsed={groupCollapsed}
+          onToggleCollapse={
+            isOrchestrator && firstPane ? () => toggleGroupCollapsed(firstPane.id) : undefined
+          }
+          collapsedSummary={groupSummary}
           {...sharedRow}
         />
         {isOrchestrator && firstPane ? (
-          <>
-            <OrchestrationGroupSection section="manager" count={plannerTab ? 1 : 0}>
-              {plannerTab && (
-                <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
-                  <SidebarSingleTabRow
-                    tab={plannerTab}
-                    index={childTabs.indexOf(plannerTab)}
-                    pane={panes[plannerTab.pane_id] ?? null}
-                    paneIds={collectPaneIds(plannerTab, panes)}
-                    activity={resolvePaneTabActivity(planIndex, plannerTab.pane_id, panes)}
-                    isClosing={closingTabIds.has(plannerTab.id)}
-                    isAppearing={appearingTabIds.has(plannerTab.id)}
-                    group="child"
-                    groupKey={firstPane.id}
-                    items={childIds}
-                    pinnedIds={[]}
-                    {...sharedRow}
-                  />
-                </SortableContext>
-              )}
-            </OrchestrationGroupSection>
-            <OrchestrationGroupSection section="worker" count={workerNodes.length}>
-              <HierarchyTree
-                nodes={workerNodes}
-                depth={depth + 1}
-                onJumpToPane={(paneId) => {
-                  const childTab = sortedTabs.find((t) => t.pane_id === paneId);
-                  if (childTab) onActivateTab(childTab.id);
-                }}
-                reportCounts={{}}
-                uiFontScale={uiFontScale}
-                activeWork={activeWork}
-              />
-            </OrchestrationGroupSection>
-          </>
+          !groupCollapsed && (
+            <div
+              data-testid="group-container"
+              data-group-container={firstPane.id}
+              className="sidebar-group-container"
+              style={{ ["--ct-group-presence" as string]: presenceColor(firstPane.id) }}
+            >
+              <OrchestrationGroupSection section="manager" count={plannerTab ? 1 : 0}>
+                {plannerTab && (
+                  <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
+                    <SidebarSingleTabRow
+                      tab={plannerTab}
+                      index={childTabs.indexOf(plannerTab)}
+                      pane={panes[plannerTab.pane_id] ?? null}
+                      paneIds={collectPaneIds(plannerTab, panes)}
+                      activity={resolvePaneTabActivity(planIndex, plannerTab.pane_id, panes)}
+                      isClosing={closingTabIds.has(plannerTab.id)}
+                      isAppearing={appearingTabIds.has(plannerTab.id)}
+                      group="child"
+                      groupKey={firstPane.id}
+                      items={childIds}
+                      pinnedIds={[]}
+                      {...sharedRow}
+                    />
+                  </SortableContext>
+                )}
+              </OrchestrationGroupSection>
+              <OrchestrationGroupSection section="worker" count={workerNodes.length}>
+                <HierarchyTree
+                  nodes={workerNodes}
+                  depth={depth + 1}
+                  onJumpToPane={(paneId) => {
+                    const childTab = sortedTabs.find((t) => t.pane_id === paneId);
+                    if (childTab) onActivateTab(childTab.id);
+                  }}
+                  reportCounts={{}}
+                  uiFontScale={uiFontScale}
+                  activeWork={activeWork}
+                />
+              </OrchestrationGroupSection>
+            </div>
+          )
         ) : (
           childTabs.length > 0 &&
           firstPane && (

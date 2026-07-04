@@ -20,9 +20,9 @@ assert(
   "TabItem should use the shared sidebar model badge",
 );
 assert(
-  source.includes('import { RoleBadge } from "./RoleBadge";') &&
+  source.includes('import { RoleModelBadge } from "./RoleModelBadge";') &&
     source.includes('import { roleBadgeLabel } from "./orchestrationSections";'),
-  "TabItem should use the role badge + shared role→section mapping (star deleted)",
+  "TabItem should use the leadership role+model badge + shared role→section mapping (star deleted)",
 );
 assert(
   source.includes("const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;"),
@@ -50,8 +50,8 @@ assert(
 );
 assert(
   source.includes("const roleBadge = roleBadgeLabel(pane);") &&
-    source.includes("<RoleBadge label={roleBadge}"),
-  "TabItem should show a role badge (ORCHESTRATOR/PLANNER) in the model-chip slot",
+    source.includes("<RoleModelBadge role={roleBadge}"),
+  "TabItem should show a leadership role+model badge (ORCHESTRATOR/PLANNER · MODEL) in the model-chip slot",
 );
 assert(
   !source.includes("RoleIcon") &&

@@ -120,6 +120,21 @@ fn degraded_fix_command(
     )
 }
 
+/// The Planner is a first-class spawned agent, so it earns its OWN generated
+/// mnemonic identity — never a copy of the Orchestrator's name, and never the
+/// literal role word "Planner" (the role is carried by the sidebar badge; the
+/// name is identity). Excludes the orchestrator's title and "Planner" on top of
+/// the workspace's existing names so the pair never reads as two of the same.
+fn derive_planner_name<'a>(
+    existing_titles: impl IntoIterator<Item = &'a str>,
+    orch_title: &str,
+) -> String {
+    let mut occupied: Vec<String> = existing_titles.into_iter().map(str::to_string).collect();
+    occupied.push(orch_title.to_string());
+    occupied.push("Planner".to_string());
+    crate::multiplexer::state::names::generate_unique_tab_name(occupied.iter().map(String::as_str))
+}
+
 fn orchestrator_pair_followup_degraded(fix_command: &str, error: &str) -> String {
     format!(
         "Planner spawn failed ({error}). This plan has no live Planner specialist yet.\n\n{}\n\nComplete attachment with:\n  {fix_command}",
@@ -253,9 +268,27 @@ impl ServiceContext {
             .filter(|m| !m.trim().is_empty())
             .or_else(|| crate::agent::model_catalog::resolve_default(&params.planner_agent));
 
+        // Give the Planner its own generated identity, computed against the
+        // live workspace names so it can never collide with the Orchestrator's.
+        let planner_name = {
+            let mux = self.mux.read();
+            let existing: Vec<String> = mux
+                .get_workspace(&workspace_id)
+                .map(|ws| {
+                    ws.tabs
+                        .iter()
+                        .filter_map(|t| mux.get_pane(&t.pane_id).map(|p| p.title.clone()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let orch_title = mux.display_label_for_pane(&orch_pane_id);
+            derive_planner_name(existing.iter().map(String::as_str), &orch_title)
+        };
+
         let planner_params = SpawnAgentParams {
             agent: Some(params.planner_agent.clone()),
             model: planner_model.clone(),
+            title: Some(planner_name),
             role: Some("Worker".into()),
             role_profile: Some("planner".into()),
             parent_pane_id: Some(orch_pane_id.clone()),
@@ -470,6 +503,34 @@ mod tests {
     fn degraded_fix_command_omits_model_flag_when_absent() {
         let cmd = degraded_fix_command("orch-1", "pl_123", "codex", None);
         assert!(!cmd.contains("--model"));
+    }
+
+    #[test]
+    fn planner_name_is_distinct_from_orchestrator_and_never_the_role_word() {
+        // Repeat: the generator is randomized, so prove the invariant holds
+        // across draws, not just one lucky one.
+        for _ in 0..64 {
+            let name = derive_planner_name(["Kepler", "Main"], "Kepler");
+            assert_ne!(
+                name, "Kepler",
+                "planner never copies the orchestrator's name"
+            );
+            assert_ne!(name, "Planner", "planner is never the literal role word");
+            assert!(!name.trim().is_empty(), "planner always gets a real name");
+        }
+    }
+
+    #[test]
+    fn planner_name_avoids_all_existing_workspace_titles() {
+        let existing = ["Euler", "Noether", "Bohr"];
+        for _ in 0..64 {
+            let name = derive_planner_name(existing, "Euler");
+            assert!(
+                !existing.contains(&name.as_str()),
+                "planner name '{name}' collided with an existing workspace tab"
+            );
+            assert_ne!(name, "Planner");
+        }
     }
 
     #[test]

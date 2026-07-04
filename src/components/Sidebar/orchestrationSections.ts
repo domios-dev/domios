@@ -98,3 +98,13 @@ export function summarizeGroupClose(counts: GroupSectionCounts): string {
   if (counts.workers > 0) parts.push(plural(counts.workers, "worker"));
   return parts.join(", ");
 }
+
+/** Collapsed group-head summary: "1 manager · 2 workers". Same count source as
+ *  the close dialog, mid-dot separated so it reads as one compact glance on the
+ *  orchestrator row rather than a sentence. Never renders a zero section. */
+export function summarizeGroupCounts(counts: GroupSectionCounts): string {
+  const parts: string[] = [];
+  if (counts.managers > 0) parts.push(plural(counts.managers, "manager"));
+  if (counts.workers > 0) parts.push(plural(counts.workers, "worker"));
+  return parts.join(" · ");
+}
