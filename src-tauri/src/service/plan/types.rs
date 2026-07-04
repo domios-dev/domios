@@ -35,6 +35,7 @@ pub enum PlanError {
     GateNotFound,
     GateAlreadyAnswered,
     GateRequiresQuestion,
+    GroupNotFound,
     WaitingFocusRequiresOpenGate,
     WritePending {
         operation: String,
@@ -118,6 +119,10 @@ impl fmt::Display for PlanError {
             PlanError::GateNotFound => write!(f, "decision gate not found"),
             PlanError::GateAlreadyAnswered => write!(f, "gate is already answered; answers are immutable"),
             PlanError::GateRequiresQuestion => write!(f, "gate requires a non-empty question"),
+            PlanError::GroupNotFound => write!(
+                f,
+                "task group not found; declare it first with `codeterm plan groups set <plan> --groups <key:label,...>`"
+            ),
             PlanError::WaitingFocusRequiresOpenGate => write!(
                 f,
                 "waiting-focus requires naming an open gate id; use `codeterm plan decision list <plan>`"
@@ -184,6 +189,7 @@ impl PlanError {
             PlanError::GateRequiresQuestion => {
                 serde_json::json!({ "type": "gate_requires_question" })
             }
+            PlanError::GroupNotFound => serde_json::json!({ "type": "group_not_found" }),
             PlanError::WaitingFocusRequiresOpenGate => {
                 serde_json::json!({ "type": "waiting_focus_requires_open_gate" })
             }
