@@ -1,10 +1,7 @@
-/**
- * Paired creation (task_7e5f9354): modal wrapper around OrchestrationPairForm.
- * Provider/model options come from descriptors — no hardcoded model ids.
- */
 import { useState } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
 import { OrchestrationPairForm } from "./OrchestrationPairForm";
+import { Button } from "../shared/Button";
 
 export interface OrchestrationCreateResult {
   orchestratorAgent: string;
@@ -76,19 +73,8 @@ export function OrchestrationCreate({
           />
         </div>
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--ct-border)]">
-          <button
-            onClick={onCancel}
-            className="px-3 py-1.5 text-[11px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] rounded-md hover:bg-[var(--ct-hover)] transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={!canConfirm}
-            className="px-4 py-1.5 text-[11px] font-medium text-white bg-[var(--ct-accent)] rounded-md hover:opacity-90 disabled:opacity-40 transition-opacity"
-          >
-            Create
-          </button>
+          <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
+          <Button variant="accent" size="sm" onClick={handleConfirm} disabled={!canConfirm}>Create</Button>
         </div>
       </div>
     </>

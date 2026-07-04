@@ -15,6 +15,7 @@ import { probeProviderInstallMap } from "../../lib/providerInstallStatus";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
 import { ModeCards, WorkspaceRow } from "./NewSessionPickerParts";
 import { FloatingTooltip } from "../shared/FloatingTooltip";
+import { Button } from "../shared/Button";
 
 export function NewSessionPicker({
   workspaceId,
@@ -324,15 +325,15 @@ export function NewSessionPicker({
         </div>
 
         <div className="relative mt-4 flex justify-end">
-          <button
-            type="button"
+          <Button
+            variant="primary"
             data-testid="picker-confirm"
-            disabled={!canStart || busy}
+            disabled={!canStart}
+            loading={busy}
             onClick={handleStart}
-            className="px-4 py-2 text-[12px] font-medium text-white bg-[var(--ct-accent)] rounded-md hover:opacity-90 disabled:opacity-40 transition-opacity"
           >
-            {busy ? "Starting…" : choice.mode === "pair" ? "Start orchestration" : "Start session"}
-          </button>
+            {choice.mode === "pair" ? "Start orchestration" : "Start session"}
+          </Button>
         </div>
       </div>
 
@@ -364,18 +365,8 @@ export function NewSessionPicker({
               </label>
             </div>
             <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--ct-border)]">
-              <button
-                onClick={() => setClaudeModalOpen(false)}
-                className="px-3 py-1.5 text-[11px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] rounded-md hover:bg-[var(--ct-hover)] transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleClaudeConfirm}
-                className="px-4 py-1.5 text-[11px] font-medium text-white bg-[var(--ct-accent)] rounded-md hover:opacity-90 transition-opacity"
-              >
-                Launch
-              </button>
+              <Button variant="ghost" size="sm" onClick={() => setClaudeModalOpen(false)}>Cancel</Button>
+              <Button variant="accent" size="sm" onClick={handleClaudeConfirm}>Launch</Button>
             </div>
           </div>
         </>
