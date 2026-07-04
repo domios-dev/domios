@@ -500,8 +500,11 @@ fn add_alias_carries_over_properties_into_canonical() {
 #[test]
 fn add_alias_cleans_alias_vectors() {
     let conn = fresh();
-    conn.execute_batch("CREATE TABLE mem_vectors (mem_id TEXT, embedding BLOB)")
-        .unwrap();
+    conn.execute_batch(
+        "DROP TABLE IF EXISTS mem_vectors;
+         CREATE TABLE mem_vectors (mem_id TEXT, embedding BLOB)",
+    )
+    .unwrap();
     insert_entity(
         &conn,
         &Entity {
@@ -522,10 +525,14 @@ fn add_alias_cleans_alias_vectors() {
         },
     )
     .unwrap();
-    // insert_entity() above already auto-embeds real 'alias' and 'canonical' rows;
-    // only add the synthetic chunk row here to exercise the LIKE 'alias_chunk_%' cleanup.
-    conn.execute("INSERT INTO mem_vectors VALUES ('alias_chunk_1', X'')", [])
-        .unwrap();
+    conn.execute(
+        "INSERT INTO mem_vectors VALUES
+            ('alias', X''),
+            ('canonical', X''),
+            ('alias_chunk_1', X'')",
+        [],
+    )
+    .unwrap();
 
     add_alias(&conn, "alias", "canonical").unwrap();
 
