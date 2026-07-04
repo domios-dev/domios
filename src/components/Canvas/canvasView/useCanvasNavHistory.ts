@@ -1,9 +1,5 @@
 import { useCallback, useState } from "react";
 
-// "Zoom IS navigation": the PLAN is home base. Every fly (task↔section↔spec↔agent)
-// pushes a hop here so there is ALWAYS a way back — Back pops the real path, Home
-// frames the plan. Pure state: the camera flight is the caller's job (it re-frames
-// an entry's `flyIds`); this only remembers WHERE you've been, in order.
 export type NavKind = "plan" | "section" | "task" | "spec" | "agent" | "node";
 
 export interface NavEntry {

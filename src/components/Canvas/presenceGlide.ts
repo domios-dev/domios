@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { PresenceOverlay } from "./presenceOverlays";
 
-// EMERGENCE: when an agent's task assignment changes, its presence pin eases from
-// the old task corner to the new one. Offsets are WORLD-space inside the camera
-// layer; the glide wrapper transform is written imperatively only.
 
 const GLIDE_DURATION_MS = 520;
 
@@ -37,9 +34,6 @@ export class PresenceGlideController {
     else this.elByTask.delete(taskId);
   }
 
-  // Reconcile against the current (budgeted, viewport-culled) overlay set: agents
-  // that changed task start/retarget a glide; agents that vanished are dropped so
-  // the tracked set never exceeds what's on screen.
   sync(overlays: readonly PresenceOverlay[]): void {
     const reduce = prefersReducedMotion();
     const seen = new Set<string>();
@@ -57,7 +51,6 @@ export class PresenceGlideController {
         prev.anchor = home; // same task: base follows the camera; keep any glide.
         continue;
       }
-      // Task changed → glide from the agent's CURRENT visual position to the new
       // corner (retarget-safe: continues from wherever a running glide is now).
       const cur = this.offsetNow(prev);
       const ox = prev.anchor.x + cur.x - home.x;
@@ -131,9 +124,6 @@ export interface PresenceGlideApi {
   pinRef: (taskId: string) => (el: HTMLElement | null) => void;
 }
 
-// Owns a controller for the layer's lifetime, syncs it after every overlay commit,
-// and hands out stable ref callbacks so the wrapper element isn't detached/reattached
-// (which would wipe an in-flight glide) on camera-coupled re-renders.
 export function usePresenceGlide(overlays: readonly PresenceOverlay[]): PresenceGlideApi {
   const ctrlRef = useRef<PresenceGlideController | null>(null);
   if (!ctrlRef.current) ctrlRef.current = new PresenceGlideController();

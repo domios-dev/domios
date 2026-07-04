@@ -1,4 +1,3 @@
-// Run: npx tsx src/components/Canvas/presenceReveal.test.ts
 import assert from "node:assert/strict";
 import { shouldRevealPresenceDetails } from "./presenceReveal";
 

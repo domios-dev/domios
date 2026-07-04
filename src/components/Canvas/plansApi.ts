@@ -2,7 +2,6 @@ import { authHeaders, baseUrl, jsonHeaders } from "../MemoryPanel/memoryApi";
 import type { ApiConfig } from "../../lib/types";
 import type { DriftItem, OrchestratorRef, Plan, PlanStatus, Section } from "./types";
 
-// Lightweight list row (GET /api/plans) — enough for PlanButton visibility/pulse
 // without fetching full plan bodies.
 export interface PlanIndexEntry {
   plan_id: string;
@@ -43,9 +42,6 @@ export async function fetchPlan(api: ApiConfig, planId: string, signal?: AbortSi
   return res.json();
 }
 
-// The REAL Spec entity's hydrated section tree (GET /api/specs/{id} → {spec:{...}}).
-// The canvas spec node renders THESE, not the plan's sections (they are distinct
-// entities — Spec=WHAT ⊥ Plan=HOW).
 export async function fetchSpecSections(api: ApiConfig, specId: string, signal?: AbortSignal): Promise<Section[]> {
   const res = await fetch(`${baseUrl(api)}/api/specs/${encodeURIComponent(specId)}`, {
     headers: authHeaders(api),

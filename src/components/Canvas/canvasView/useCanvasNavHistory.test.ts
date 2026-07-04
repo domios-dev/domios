@@ -11,7 +11,6 @@ function ok(label: string, cond: boolean) {
 
 const e = (id: string, kind: NavEntry["kind"] = "task"): NavEntry => ({ id, kind, label: id, flyIds: [id] });
 
-// ── push: appends, dedups the current top (re-fly same node = no new hop) ──
 {
   let p: NavEntry[] = [];
   p = pushEntry(p, e("sec"));
@@ -23,13 +22,11 @@ const e = (id: string, kind: NavEntry["kind"] = "task"): NavEntry => ({ id, kind
   ok("pushing a non-top id appends (no global dedup, real path)", back.length === 3);
 }
 
-// ── back: pop one hop ──
 {
   const p = [e("sec"), e("task"), e("spec")];
   ok("back pops the last hop", p.slice(0, -1).length === 2);
 }
 
-// ── truncate: crumb click flies to that hop, drops everything after ──
 {
   const p = [e("sec"), e("task"), e("spec")];
   ok("truncate(0) keeps only the first hop", truncatePath(p, 0).length === 1 && truncatePath(p, 0)[0].id === "sec");

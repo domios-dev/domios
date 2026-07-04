@@ -1,8 +1,3 @@
-// Run: npx tsx src/components/Canvas/layout/nodeFootprints.test.ts
-//
-// Proof-of-seam for plugin-extensible canvas nodes (Phase C): a registered custom
-// node kind gets its declared footprint honored by the layout, and an unregistered
-// kind falls back to the default element box — zero core surgery, capability dispatch.
 import { layoutPlanIntra } from "./intraPlan";
 import { plan } from "./fixtures";
 import { DEFAULT_CANVAS_SETTINGS as S } from "../settings";

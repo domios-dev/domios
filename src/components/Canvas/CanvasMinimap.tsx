@@ -31,7 +31,6 @@ export interface CanvasMinimapProps {
   lodMarkers?: readonly LodMarker[];
 }
 
-// Minimap HUD (§23.4): the whole board framed small + a rect for the live viewport
 // so you always know where the camera is on a big board. Read-only (no drag yet).
 export function CanvasMinimap({ bounds, nodes, transform, viewport, hiddenNodeIds, lodMarkers }: CanvasMinimapProps) {
   if (bounds.width <= 0 || bounds.height <= 0) return null;

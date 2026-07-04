@@ -112,7 +112,6 @@ function plannerBinding(
   return { label, paneId };
 }
 
-// Mirror of `Plan::execution_tasks_unlocked`: planning_state authoritative,
 // approved/execution lifecycle mode bridges plans predating planning_state.
 export function planExecutionUnlocked(plan: Plan): boolean {
   if (plan.mode === "complete") return false;

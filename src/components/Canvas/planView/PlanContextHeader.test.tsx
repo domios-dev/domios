@@ -139,7 +139,6 @@ test("toggle expands inline, aria-expanded flips, goal + chips render", async ()
   assert(host.querySelector('[data-testid="plan-context-expanded"]'), "expanded panel mounted");
   assert(host.querySelector('[data-testid="plan-board-plan-goal"]'), "goal rendered when expanded");
   assert(host.querySelector('[data-testid="plan-context-header-chips"]'), "peer chips rendered when expanded");
-  // Collapse again
   await act(async () => {
     bar.click();
     await Promise.resolve();
@@ -167,9 +166,7 @@ test("choice persists per width class in UI prefs (localStorage)", async () => {
     bar.click();
     await Promise.resolve();
   });
-  // expanded now => collapsed=false persisted under narrow key
   assert(readHeaderCollapsed("narrow", true) === false, "narrow expand persisted");
-  // wide class is independent and untouched
   assert(readHeaderCollapsed("wide", true) === true, "wide class independent of narrow");
   writeHeaderCollapsed("wide", false);
   assert(readHeaderCollapsed("wide", true) === false, "wide write independent");

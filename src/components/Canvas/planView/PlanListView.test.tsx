@@ -273,7 +273,6 @@ test("list: archive action removes plan from active switcher and switches select
   const { host, unmount } = await render(<PlanListView mode="workspace" plans={[planA, planB]} />);
   assert(host.querySelector('[data-testid="plan-switcher"]'), "switcher visible");
 
-  // Beta is selected (most recent); archive it
   const kebab = host.querySelector(
     '[data-testid="plan-switcher-kebab"][data-plan-id="plan-b"]',
   ) as HTMLElement;
@@ -284,14 +283,12 @@ test("list: archive action removes plan from active switcher and switches select
   await act(async () => { archiveItem.click(); });
   await act(async () => { await Promise.resolve(); });
 
-  // plan-b is no longer an active pill
   const activePills = host.querySelectorAll('[data-testid="plan-switcher-option"]');
   const bPill = Array.from(activePills).find(
     (el) => el.getAttribute("data-plan-id") === "plan-b",
   );
   assert(!bPill, "plan-b no longer active pill");
 
-  // Archived toggle appeared
   const toggle = host.querySelector('[data-testid="plan-switcher-archived-toggle"]') as HTMLElement;
   assert(toggle, "archived toggle appears");
   assert(toggle.textContent?.includes("1 archived"), "count = 1");

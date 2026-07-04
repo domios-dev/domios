@@ -12,10 +12,6 @@ export interface CompanionPlanInput {
   owner: OrchestratorRef;
 }
 
-// Mirrors src-tauri/src/plan/peer.rs resolve_planner_ref: a live planner binding
-// wins; otherwise fall back to the orchestrator owner pane; else nothing live
-// resolves (bubble hidden). Keys strictly off THIS plan's bindings — never a
-// newest-global pane. Wave-21 upgrade path: prefer planner over orchestrator.
 export function resolveCompanionPane(
   plan: CompanionPlanInput,
   isPaneLive: (paneId: string) => boolean,

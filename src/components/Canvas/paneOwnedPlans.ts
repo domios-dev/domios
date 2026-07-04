@@ -5,9 +5,6 @@ import { buildTaskPresence } from "./taskPresence";
 import type { PresenceAgent } from "./presence/identity";
 import { TaskStatus, type Plan } from "./types";
 
-// EMERGENCE (north-star #2), OUTSIDE the canvas, ORCHESTRATOR side: a pane that
-// OWNS a plan wears that plan's live progress above its composer — "how much of the
-// plan is left" at a glance, plus who is driving it. Companion to the worker strip.
 export interface OrchestratorPlanSummary {
   plan: Plan;
   /** Tasks resolved (done). */
@@ -54,10 +51,6 @@ function summarize(plan: Plan, panes: Record<string, Pane>): OrchestratorPlanSum
   };
 }
 
-// Plans this pane DRIVES — owner is the pane ITSELF (its pane id or its own agent
-// session), never an ancestor: a child worker must NOT inherit its orchestrator's
-// plan. Distinct from plans where the pane merely executes one task. Most active
-// first so a multi-plan orchestrator's strip leads with the plan that's moving.
 export function resolvePaneOwnedPlans(
   plans: readonly Plan[],
   paneId: string | null | undefined,

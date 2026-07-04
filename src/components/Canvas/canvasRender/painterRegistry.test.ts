@@ -1,15 +1,8 @@
-// Run: npx tsx src/components/Canvas/canvasRender/painterRegistry.test.ts
-//
-// The canvas render seam is LIVE: a plugin registers a painter for its kind, drawScene
-// dispatches through it, and hitTestScene resolves a click to the painter's region.
 
 import { Window } from "happy-dom";
 import type { LaidOutNode } from "../layout";
 import type { ViewportTransform } from "../useCanvasViewport";
 
-// The bitmap cache calls document.createElement("canvas"); give it a DOM (getContext
-// returns null headlessly → the cache skips painting, which is fine: we assert the
-// dispatch + hit-test, and exercise paint() directly).
 Object.defineProperty(globalThis, "document", { value: new Window().document, configurable: true });
 import type { HitRegion } from "./drawCard";
 import { drawScene, hitTestScene, type SceneDrawInput } from "./drawScene";
