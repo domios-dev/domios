@@ -320,10 +320,22 @@ mod tests {
     fn peer_planner_greeting_names_orchestrator_and_reuses_subordination_constants() {
         let g = peer_planner_greeting("Opus Orchestrator", "pane_orch_9");
         assert!(g.contains("pane_orch_9"), "names the orchestrator pane id");
-        assert!(g.contains("Opus Orchestrator"), "names the orchestrator label");
-        assert!(g.contains("work under Orchestrator"), "planner is subordinate");
-        assert!(g.contains(PEER_PLANNER_CHARTER_LINE), "reuses the charter constant");
-        assert!(g.contains(PEER_ORCH_DEFERENCE_LINE), "reuses the deference constant");
+        assert!(
+            g.contains("Opus Orchestrator"),
+            "names the orchestrator label"
+        );
+        assert!(
+            g.contains("work under Orchestrator"),
+            "planner is subordinate"
+        );
+        assert!(
+            g.contains(PEER_PLANNER_CHARTER_LINE),
+            "reuses the charter constant"
+        );
+        assert!(
+            g.contains(PEER_ORCH_DEFERENCE_LINE),
+            "reuses the deference constant"
+        );
     }
 
     #[test]
