@@ -53,6 +53,26 @@ pub fn milestone_gate_suggestion(key: &str, label: &str) -> String {
         .replace("{key}", key)
 }
 
+/// Heartbeat heading for the one-shot self-review block.
+pub const REFLECTION_HEARTBEAT_TITLE: &str = "Reflection:";
+
+/// One-shot reflection block. `{trigger}` names why it fired; `{closed}`/`{bounces}`/`{leaks}`
+/// are honest window counts (zero when not derivable). Routes lessons to existing primitives —
+/// it invents no storage; recording a learning clears it until the next trigger.
+pub const REFLECTION_BLOCK: &str = "{trigger} — pause and self-review this window (tasks closed: {closed}, bounces: {bounces}, gate leaks: {leaks}). Route every lesson to an existing home, do not invent a store: a durable orchestration lesson -> `codeterm orchestrator learn \"<lesson>\"`; a reusable recipe/procedure -> `codeterm plan skill new <slug>` or edit an existing one; a prompt or process defect -> propose the prompt change to your Planner. Recording a learning clears this block until the next group close or gate window.";
+
+/// Fills [`REFLECTION_BLOCK`] placeholders from a reflection window.
+pub fn reflection_block(
+    trigger: &str,
+    window: &crate::service::plan::reflection::ReflectionWindow,
+) -> String {
+    REFLECTION_BLOCK
+        .replace("{trigger}", trigger)
+        .replace("{closed}", &window.tasks_closed.to_string())
+        .replace("{bounces}", &window.bounces.to_string())
+        .replace("{leaks}", &window.gate_leaks.to_string())
+}
+
 pub fn worker_suffix() -> String {
     format!("{TESTING_DISCIPLINE}\n{QA_PIPELINE_DISCIPLINE}\n{WORKER_SUFFIX}")
 }
@@ -111,7 +131,8 @@ pub const PLAN_ARCHIVE_SUGGESTION: &str =
 
 /// Pinned verbatim by the Planner — do not reword.
 pub const PLAN_RETROSPECTIVE_NUDGE: &str = "This plan is complete. Before archiving, write its retrospective:\n\
-`codeterm plan retrospective <plan> --body \"...\"` — what worked, what failed and why, which plan skills proved out, and which deserve promotion to machine memory (`codeterm mem skill`). Honest beats flattering: the discarded approaches are the most useful part.";
+`codeterm plan retrospective <plan> --body \"...\"` — what worked, what failed and why, which plan skills proved out, and which deserve promotion to machine memory (`codeterm mem skill`). Honest beats flattering: the discarded approaches are the most useful part.\n\
+Graduate the proven ones: a durable know-how skill or helper script earned in this effort belongs in machine mem (`codeterm mem skill`) and, when it is repo-shaped, in `.agents/skills/` or `scripts/` — landed through a reviewed lane, never edited straight into the integration checkout.";
 
 /// Planner role line — attached specialist, not a co-owner.
 pub const PEER_PLANNER_CHARTER_LINE: &str = "Planner is the attached planning specialist: \
@@ -407,6 +428,56 @@ mod tests {
         assert!(ORCHESTRATION_DOC.contains(MILESTONE_GATE_LADDER));
         assert_eq!(REGRESSION_MILESTONE_KIND, "regression");
         assert!(!MILESTONE_GATE_HEARTBEAT_TITLE.trim().is_empty());
+    }
+
+    #[test]
+    fn reflection_block_fills_counts_and_routes_to_existing_primitives() {
+        use crate::service::plan::reflection::ReflectionWindow;
+        let filled = reflection_block(
+            "group Wave 1 closed",
+            &ReflectionWindow {
+                tasks_closed: 3,
+                bounces: 1,
+                gate_leaks: 2,
+            },
+        );
+        assert!(filled.contains("group Wave 1 closed"));
+        assert!(filled.contains("tasks closed: 3"));
+        assert!(filled.contains("bounces: 1"));
+        assert!(filled.contains("gate leaks: 2"));
+        assert!(!filled.contains("{trigger}") && !filled.contains("{closed}"));
+        // Routes to existing homes; invents no new store.
+        assert!(filled.contains("codeterm orchestrator learn"));
+        assert!(filled.contains("codeterm plan skill new"));
+        assert!(filled.contains("Planner"));
+        assert!(!REFLECTION_HEARTBEAT_TITLE.trim().is_empty());
+    }
+
+    #[test]
+    fn orchestrator_suffix_pins_scratch_and_open_risk_lines_and_tripwire() {
+        assert!(ORCHESTRATOR_SUFFIX.contains(
+            "Inspecting or prototyping? Scratch worktree — the integration checkout stays clean; a dirty checkout is a gate hazard."
+        ));
+        assert!(ORCHESTRATOR_SUFFIX.contains(
+            "An accepted lane with deferred/skipped evidence is OPEN RISK: track it as such until the evidence lands or the user explicitly accepts the substitute."
+        ));
+        assert!(ORCHESTRATOR_SUFFIX
+            .contains("Editing a non-scratch integration file while orchestrating = STOP"));
+        assert!(orchestrator_suffix().contains("codeterm orchestrator learn"));
+    }
+
+    #[test]
+    fn planner_suffix_has_reflection_symmetry_line() {
+        assert!(PLANNER_SUFFIX.contains("At reflection points"));
+        assert!(PLANNER_SUFFIX.contains("task or test-plan quality"));
+    }
+
+    #[test]
+    fn retrospective_nudge_graduates_skills_and_scripts_via_reviewed_lane() {
+        assert!(PLAN_RETROSPECTIVE_NUDGE.contains("codeterm mem skill"));
+        assert!(PLAN_RETROSPECTIVE_NUDGE.contains(".agents/skills/"));
+        assert!(PLAN_RETROSPECTIVE_NUDGE.contains("scripts/"));
+        assert!(PLAN_RETROSPECTIVE_NUDGE.contains("reviewed lane"));
     }
 
     #[test]
