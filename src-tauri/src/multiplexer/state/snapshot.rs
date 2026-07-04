@@ -144,12 +144,9 @@ impl MultiplexerState {
                         .tabs
                         .iter()
                         .filter(|tab| {
-                            // Skip hidden worker panes — they're ephemeral and shouldn't persist across restarts. Prevents ghost tabs in sidebar.
-                            !self
-                                .panes
-                                .get(&tab.pane_id)
-                                .map(|p| p.hidden)
-                                .unwrap_or(false)
+                            // Exclude hidden worker panes and ephemeral picker panes from persisting across restarts.
+                            let pane = self.panes.get(&tab.pane_id);
+                            !pane.map(|p| p.hidden || p.skip_snapshot).unwrap_or(false)
                         })
                         .map(|tab| TabSnapshot {
                             id: tab.id.clone(),
@@ -888,6 +885,101 @@ mod tests {
             } => {
                 assert_eq!(spawned_by_pane_id.as_deref(), Some("spawner"));
                 assert_eq!(report_target_pane_id.as_deref(), None);
+            }
+            _ => panic!("expected a leaf"),
+        }
+    }
+
+    // ── Ghost-tab repro harness ───────────────────────────────────────────────
+
+    /// Repro: a pane marked skip_snapshot (first-run picker or any ephemeral
+    /// onboarding pane) must be absent from the serialised session snapshot.
+    /// Without the fix this test fails — the tab IS included, then restores as
+    /// a ghost after a daemon restart.
+    #[test]
+    fn ghost_repro_skip_snapshot_pane_excluded_from_snapshot() {
+        let (mut state, _root) = MultiplexerState::new();
+        let wsid = state.list_workspaces()[0].id.clone();
+        let (_tab, pane_id) = state.create_tab(&wsid).unwrap();
+        state.get_pane_mut(&pane_id).unwrap().skip_snapshot = true;
+
+        let snap = state.to_session_snapshot();
+        assert_eq!(
+            snap.workspaces[0].tabs.len(),
+            0,
+            "skip_snapshot pane must be excluded from the session snapshot — \
+             if it weren't, a daemon restart would restore it as a ghost tab"
+        );
+    }
+
+    /// Happy path: a regular (non-ephemeral) pane must survive the round-trip
+    /// and not be accidentally dropped by the ghost-tab fix.
+    #[test]
+    fn ghost_repro_normal_pane_survives_snapshot_round_trip() {
+        let (mut state, _root) = MultiplexerState::new();
+        let wsid = state.list_workspaces()[0].id.clone();
+        let (_tab, pane_id) = state.create_tab(&wsid).unwrap();
+        state.get_pane_mut(&pane_id).unwrap().title = "My session".to_string();
+        // skip_snapshot defaults to false
+
+        let snap = state.to_session_snapshot();
+        assert_eq!(
+            snap.workspaces[0].tabs.len(),
+            1,
+            "regular pane must survive the session snapshot round-trip"
+        );
+
+        let restored = MultiplexerState::from_session_snapshot(&snap);
+        assert!(
+            restored.panes.contains_key(&pane_id),
+            "restored state must include the regular pane"
+        );
+    }
+
+    /// Picker pane (first-run) is excluded from snapshot so it cannot restore
+    /// as a ghost tab — verified end-to-end through ensure_first_run_tab.
+    #[test]
+    fn ghost_repro_first_run_picker_excluded_from_snapshot() {
+        use crate::service::general_agent::first_run::ensure_first_run_tab;
+
+        let mut state = MultiplexerState::empty();
+        ensure_first_run_tab(&mut state);
+
+        // Sanity: picker pane was created.
+        assert!(!state.list_workspaces().is_empty());
+        assert!(!state.list_workspaces()[0].pane_ids.is_empty());
+
+        let snap = state.to_session_snapshot();
+        assert_eq!(
+            snap.workspaces[0].tabs.len(),
+            0,
+            "first-run picker pane must be excluded from the session snapshot \
+             to prevent ghost tabs after a daemon restart"
+        );
+    }
+
+    /// Mixed workspace: only the ephemeral pane is dropped; the real pane survives.
+    #[test]
+    fn ghost_repro_mixed_workspace_drops_only_ephemeral() {
+        let (mut state, _root) = MultiplexerState::new();
+        let wsid = state.list_workspaces()[0].id.clone();
+
+        let (_tab_real, pane_real) = state.create_tab(&wsid).unwrap();
+        state.get_pane_mut(&pane_real).unwrap().title = "Real session".to_string();
+
+        let (_tab_picker, pane_picker) = state.create_tab(&wsid).unwrap();
+        state.get_pane_mut(&pane_picker).unwrap().skip_snapshot = true;
+
+        let snap = state.to_session_snapshot();
+        assert_eq!(
+            snap.workspaces[0].tabs.len(),
+            1,
+            "only the real pane must survive; the ephemeral picker must be excluded"
+        );
+        let surviving_leaf = &snap.workspaces[0].tabs[0].split_tree;
+        match surviving_leaf {
+            crate::session::store::SplitNodeSnapshot::Leaf { pane_id, .. } => {
+                assert_eq!(pane_id, &pane_real, "surviving tab must be the real pane");
             }
             _ => panic!("expected a leaf"),
         }

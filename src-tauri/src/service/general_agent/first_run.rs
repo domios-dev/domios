@@ -47,6 +47,10 @@ pub fn ensure_first_run_tab(mux: &mut crate::multiplexer::state::MultiplexerStat
             let _ = mux.rename_tab(&ws_id, &tab_id, FIRST_RUN_TAB_TITLE);
             let _ = mux.rename_pane(&pane_id, FIRST_RUN_TAB_TITLE);
             let _ = mux.set_pane_description(&pane_id, Some(FIRST_RUN_PANE_MARKER.to_string()));
+            // Picker is ephemeral — must not survive a daemon restart as a ghost tab.
+            if let Some(pane) = mux.get_pane_mut(&pane_id) {
+                pane.skip_snapshot = true;
+            }
             let _ = mux.set_active_workspace(&ws_id);
             let _ = mux.set_focused_pane(&pane_id);
             log::info!("[general-agent] Opened first-run picker tab {}", pane_id);
@@ -148,5 +152,18 @@ mod tests {
         let count = mux.list_workspaces()[0].pane_ids.len();
         ensure_first_run_tab(&mut mux);
         assert_eq!(mux.list_workspaces()[0].pane_ids.len(), count);
+    }
+
+    #[test]
+    fn first_run_picker_pane_has_skip_snapshot_set() {
+        // The picker must not survive a daemon restart as a ghost tab.
+        let mut mux = MultiplexerState::empty();
+        ensure_first_run_tab(&mut mux);
+        let pane_id = mux.list_workspaces()[0].pane_ids[0].clone();
+        let pane = mux.get_pane(&pane_id).expect("picker pane exists");
+        assert!(
+            pane.skip_snapshot,
+            "first-run picker pane must have skip_snapshot=true to be excluded from the session snapshot"
+        );
     }
 }
