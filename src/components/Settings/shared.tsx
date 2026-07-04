@@ -3,6 +3,10 @@ import { CheckIcon, CopyIcon } from "../Icons";
 import { isMac } from "../../lib/keybindings";
 import type { LucideIcon } from "lucide-react";
 import { UI_PANEL } from "../shared/design";
+import { Button } from "../shared/Button";
+import { Card } from "../shared/Card";
+import { Chip, type ChipVariant } from "../shared/Chip";
+import { FormRow } from "../shared/FormRow";
 
 function testIdPart(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -54,10 +58,9 @@ export function SettingsCard({
   className?: string;
 }) {
   return (
-    <section
-      className={`rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 p-4 ${className ?? ""}`}
+    <Card
+      className={`p-4 ${className ?? ""}`}
       data-testid="settings-card"
-      data-settings-card={typeof title === "string" ? testIdPart(title) : undefined}
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-[var(--ct-fg)] text-sm font-medium min-w-0">
@@ -70,16 +73,16 @@ export function SettingsCard({
         <p className="text-xs text-[var(--ct-muted-fg)] mt-2 leading-relaxed">{description}</p>
       )}
       {children && <div className="mt-3 space-y-2.5">{children}</div>}
-    </section>
+    </Card>
   );
 }
 
-const PILL_TONES = {
-  green: "bg-[var(--ct-green)]/15 text-[var(--ct-green)]",
-  red: "bg-[var(--ct-red)]/15 text-[var(--ct-red)]",
-  muted: "bg-[var(--ct-border)] text-[var(--ct-muted-fg)]",
-  accent: "bg-[var(--ct-accent)]/15 text-[var(--ct-accent)]",
-  amber: "bg-[var(--ct-yellow)]/15 text-[var(--ct-yellow)]",
+const PILL_TONES: Record<string, ChipVariant> = {
+  green: "success",
+  red: "danger",
+  muted: "muted",
+  accent: "accent",
+  amber: "warning",
 } as const;
 
 export function SettingsPill({
@@ -90,7 +93,7 @@ export function SettingsPill({
   tone?: keyof typeof PILL_TONES;
 }) {
   return (
-    <span className={`${UI_PANEL.smallPill} ${PILL_TONES[tone]}`} data-testid="settings-pill">{children}</span>
+    <Chip variant={PILL_TONES[tone]} data-testid="settings-pill">{children}</Chip>
   );
 }
 
@@ -110,10 +113,7 @@ export function SettingsRow({
 
 export function Label({ text, children }: { text: string; children: React.ReactNode }) {
   return (
-    <label className="block" data-testid="settings-label" data-settings-label={testIdPart(text)}>
-      <span className="block text-sm text-[var(--ct-muted-fg)] mb-1">{text}</span>
-      {children}
-    </label>
+    <FormRow label={text} data-testid="settings-label">{children}</FormRow>
   );
 }
 
@@ -149,7 +149,9 @@ export function CopyRow({ label, value }: { label: string; value: string }) {
       <span className="text-[var(--ct-muted)] shrink-0">{label}</span>
       <div className="flex items-center gap-1 min-w-0">
         <code className="bg-[var(--ct-bg)] px-1.5 py-0.5 rounded text-[var(--ct-fg)] text-[10px] truncate">{value}</code>
-        <button
+        <Button
+          variant="icon"
+          size="compact"
           data-testid="settings-copy-button"
           data-settings-copy-row={testIdPart(label)}
           onClick={() => {
@@ -158,7 +160,7 @@ export function CopyRow({ label, value }: { label: string; value: string }) {
               setTimeout(() => setCopied(false), 1500);
             });
           }}
-          className="shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+          className="shrink-0 !w-5 !h-5 !min-h-5 text-[var(--ct-muted)]"
           title="Copy"
         >
           {copied ? (
@@ -166,7 +168,7 @@ export function CopyRow({ label, value }: { label: string; value: string }) {
           ) : (
             <CopyIcon />
           )}
-        </button>
+        </Button>
       </div>
     </div>
   );
