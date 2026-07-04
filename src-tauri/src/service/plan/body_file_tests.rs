@@ -1,5 +1,5 @@
 use super::*;
-use crate::plan::{AgentRef, CanvasElement, Goal, OrchestratorRef, Plan};
+use crate::plan::{AgentRef, CanvasElement, Goal, OrchestratorRef, Plan, TaskStatus};
 
 fn markdown_body(text: &str) -> &str {
     let Some(rest) = text.strip_prefix("---\n") else {
@@ -78,6 +78,84 @@ fn section_and_task_bodies_roundtrip_through_markdown_files() {
     let loaded = store.get(&plan.id).unwrap();
     assert_eq!(loaded.sections[0].body, "section\nbody\n");
     assert_eq!(loaded.tasks[0].body, "task\nbody\n");
+}
+
+#[test]
+fn corrupt_markdown_sidecar_keeps_plan_indexed_with_json_body() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let project = paths::project_root(dir.path());
+    let mut plan = Plan::new(
+        "Corrupt sidecar".into(),
+        project.display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    plan.sections.push(crate::plan::Section {
+        id: "sec_spec".into(),
+        title: "Spec".into(),
+        handle: Some("spec".into()),
+        tags: vec![],
+        body: "json section body".into(),
+        subsections: vec![],
+        canvas: Default::default(),
+        attachments: vec![],
+    });
+    plan.tasks.push(crate::plan::Task {
+        id: "task_impl".into(),
+        name: "Implement".into(),
+        kind: "implement".into(),
+        model: None,
+        model_rationale: None,
+        acceptance_criteria: vec![],
+        test_plan: None,
+        correctness: None,
+        status: TaskStatus::Pending,
+        review_stage: Default::default(),
+        qa_state: None,
+        status_label: None,
+        priority: Default::default(),
+        created_at: 0,
+        updated_at: 0,
+        status_changed_at: 0,
+        handle: Some("implement".into()),
+        tags: vec![],
+        section_ids: vec![],
+        body: "json task body".into(),
+        role_guidance: None,
+        executor_role: None,
+        competition: None,
+        intent: None,
+        parent_task_id: None,
+        assigned_pane_id: None,
+        lane: Default::default(),
+        taken_by_role: None,
+        peer: None,
+        group: None,
+        canvas: Default::default(),
+        milestones: vec![],
+        execution_attempts: vec![],
+        park_reason: None,
+        attachments: vec![],
+    });
+    let json_path = paths::plan_json_path(&project, &plan.status, &plan.id).unwrap();
+    std::fs::create_dir_all(json_path.parent().unwrap()).unwrap();
+    std::fs::write(&json_path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();
+    let section_path = json_path.parent().unwrap().join("sections/spec.md");
+    std::fs::create_dir_all(section_path.parent().unwrap()).unwrap();
+    std::fs::write(&section_path, [0xff, 0xfe, b'#']).unwrap();
+
+    store.scan_project(dir.path()).unwrap();
+
+    let loaded = store
+        .get(&plan.id)
+        .expect("corrupt sidecar must not skip plan");
+    assert_eq!(loaded.sections[0].body, "json section body");
+    assert_eq!(loaded.tasks[0].body, "json task body");
+    assert!(store.list_index().iter().any(|entry| entry.id == plan.id));
+
+    store.reload_from_disk(&plan.id).unwrap();
+    let reloaded = store.get(&plan.id).unwrap();
+    assert_eq!(reloaded.sections[0].body, "json section body");
 }
 
 #[test]

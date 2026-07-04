@@ -567,7 +567,9 @@ fn hydrate_sections(
 fn hydrate_plain_markdown(path: &Path, body: &mut String) -> std::io::Result<bool> {
     let had_inline_body = !body.is_empty();
     if path.exists() {
-        let text = std::fs::read_to_string(path)?;
+        let Some(text) = read_markdown_sidecar(path) else {
+            return Ok(false);
+        };
         let (_, stripped) = parse_frontmatter_tags(&text);
         *body = stripped;
         return Ok(had_inline_body);
@@ -582,7 +584,9 @@ fn hydrate_plain_markdown(path: &Path, body: &mut String) -> std::io::Result<boo
 fn hydrate_element_markdown(path: &Path, element: &mut CanvasElement) -> std::io::Result<bool> {
     let had_inline_body = should_externalize_element(element);
     if path.exists() {
-        let text = std::fs::read_to_string(path)?;
+        let Some(text) = read_markdown_sidecar(path) else {
+            return Ok(false);
+        };
         let (_, stripped) = parse_frontmatter_tags(&text);
         set_element_markdown(element, stripped);
         return Ok(had_inline_body);
@@ -609,7 +613,9 @@ fn hydrate_body(
         fallback.filter(|fallback| fallback.exists())
     };
     if let Some(read_path) = read_path {
-        let text = std::fs::read_to_string(read_path)?;
+        let Some(text) = read_markdown_sidecar(read_path) else {
+            return Ok(false);
+        };
         let (frontmatter_tags, stripped) = parse_frontmatter_tags(&text);
         if !frontmatter_tags.is_empty() {
             *tags = frontmatter_tags;
@@ -625,6 +631,20 @@ fn hydrate_body(
         return Ok(true);
     }
     Ok(false)
+}
+
+fn read_markdown_sidecar(path: &Path) -> Option<String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Some(text),
+        Err(err) => {
+            log::warn!(
+                "[plan] ignoring unreadable markdown sidecar {}: {}",
+                path.display(),
+                err
+            );
+            None
+        }
+    }
 }
 
 fn clear_section_bodies(sections: &mut [Section]) {
