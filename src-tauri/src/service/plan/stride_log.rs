@@ -3,8 +3,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::path::Path;
 
 #[derive(Debug)]
 pub enum StrideLogError {
@@ -60,38 +59,15 @@ pub fn rewrite_milestones(
     path: &Path,
     milestones: Vec<Milestone>,
 ) -> Result<Vec<Milestone>, StrideLogError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
     let folded = fold_milestones(milestones);
-    let tmp = unique_tmp_path(path);
-    let result = (|| -> Result<(), StrideLogError> {
-        let mut file = File::create(&tmp)?;
-        for milestone in &folded {
-            let json = serde_json::to_string(milestone).map_err(StrideLogError::Serialize)?;
-            append_line(&mut file, &json)?;
-        }
-        file.sync_all()?;
-        std::fs::rename(&tmp, path)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+    let mut buf = String::new();
+    for milestone in &folded {
+        let json = serde_json::to_string(milestone).map_err(StrideLogError::Serialize)?;
+        buf.push_str(&json);
+        buf.push('\n');
     }
-    result?;
+    super::atomic_write::write_atomic(path, buf.as_bytes())?;
     Ok(folded)
-}
-
-// Per-writer unique tmp: a fixed name lets concurrent daemons clobber each other's tmp mid-write.
-fn unique_tmp_path(path: &Path) -> PathBuf {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let pid = std::process::id();
-    let name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("strides.jsonl");
-    path.with_file_name(format!(".{name}.{pid}.{seq}.tmp"))
 }
 
 pub fn read_milestones(path: &Path) -> Result<Vec<Milestone>, StrideLogError> {
@@ -326,13 +302,17 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_rewrites_use_disjoint_tmp_paths() {
+    fn rewrite_then_read_roundtrips_after_shared_atomic_write() {
         let dir = tempfile::tempdir().unwrap();
-        let base = dir.path().join("strides.jsonl");
-        let a = unique_tmp_path(&base);
-        let b = unique_tmp_path(&base);
-        assert_ne!(a, b);
-        assert_ne!(a, base);
-        assert!(a.file_name().unwrap().to_str().unwrap().ends_with(".tmp"));
+        let path = dir.path().join("nested/strides.jsonl");
+        let a = milestone("m-1", 10, "a");
+        let b = milestone("m-2", 20, "b");
+        rewrite_milestones(&path, vec![b.clone(), a.clone()]).unwrap();
+        assert_eq!(read_milestones(&path).unwrap(), vec![a, b]);
+        let leftovers = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| e.file_name().to_str().unwrap().ends_with(".tmp"));
+        assert!(!leftovers, "temp file left behind after rewrite");
     }
 }

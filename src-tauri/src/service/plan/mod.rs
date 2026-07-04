@@ -1,3 +1,4 @@
+pub mod atomic_write;
 pub mod attachments;
 pub mod batch;
 pub mod body_files;
@@ -116,10 +117,6 @@ impl PlanStore {
 
     fn write_atomic(plan: &Plan) -> std::io::Result<PathBuf> {
         let path = Self::file_path(plan)?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let tmp = path.with_extension("json.tmp");
         let mut normalized = plan.clone();
         if normalized.canonical_project_path.trim().is_empty() {
             normalized.canonical_project_path = normalized.project_path.clone();
@@ -129,8 +126,7 @@ impl PlanStore {
         let json_plan = body_files::strip_bodies(&normalized);
         let json = serde_json::to_string_pretty(&json_plan)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        std::fs::write(&tmp, json)?;
-        std::fs::rename(&tmp, &path)?;
+        atomic_write::write_atomic(&path, json)?;
         Self::remove_other_status_dir(plan, &path)?;
         Ok(path)
     }
@@ -155,7 +151,6 @@ impl PlanStore {
 
     fn write_spec_atomic(spec: &Spec) -> std::io::Result<PathBuf> {
         let path = Self::spec_file_path(spec)?;
-        let tmp = path.with_extension("json.tmp");
         let mut normalized = spec.clone();
         if normalized.canonical_project_path.trim().is_empty() {
             normalized.canonical_project_path = normalized.project_path.clone();
@@ -165,8 +160,7 @@ impl PlanStore {
         let json_spec = spec_files::strip_bodies(&normalized);
         let json = serde_json::to_string_pretty(&json_spec)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        std::fs::write(&tmp, json)?;
-        std::fs::rename(&tmp, &path)?;
+        atomic_write::write_atomic(&path, json)?;
         Ok(path)
     }
 
