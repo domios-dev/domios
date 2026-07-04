@@ -1,4 +1,3 @@
-import { useLayoutEffect, useMemo, useRef } from "react";
 import type { AgentRole, Pane, PaneStatus } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { TelegramIcon } from "../Icons";
@@ -8,10 +7,6 @@ import {
   displayTaskTitle,
   type ActiveWorkSnapshot,
 } from "../Canvas/planView/activeWork";
-import {
-  sortHierarchyNodes,
-  type HierarchySortState,
-} from "./sortHierarchyNodes";
 
 export const ROLE_ICONS: Record<string, string> = {
   Orchestrator: "★",
@@ -224,7 +219,6 @@ function HierarchyTreeLevel({
   uiFontScale,
   activeWork,
   workingVariant,
-  statuses,
 }: {
   nodes: HierarchyNodeData[];
   depth: number;
@@ -233,45 +227,15 @@ function HierarchyTreeLevel({
   uiFontScale?: number;
   activeWork: ActiveWorkSnapshot | null;
   workingVariant: HierarchyWorkingVariant;
-  statuses?: Record<string, PaneStatus>;
 }) {
-  const sortStateRef = useRef<HierarchySortState | null>(null);
-  const rowRefs = useRef(new Map<string, HTMLButtonElement>());
-  const prevTops = useRef(new Map<string, number>());
-
-  const sorted = useMemo(() => {
-    if (!statuses || nodes.length === 0) return nodes;
-    const result = sortHierarchyNodes(nodes, statuses, sortStateRef.current, Date.now());
-    sortStateRef.current = result.state;
-    return result.nodes;
-  }, [nodes, statuses]);
-
-  useLayoutEffect(() => {
-    for (const node of sorted) {
-      const el = rowRefs.current.get(node.pane.id);
-      if (!el) continue;
-      const top = el.getBoundingClientRect().top;
-      const prev = prevTops.current.get(node.pane.id);
-      if (prev != null && prev !== top) {
-        const delta = prev - top;
-        el.style.transform = `translateY(${delta}px)`;
-        el.style.transition = "transform 0s";
-        void el.offsetHeight;
-        el.style.transition = "transform 320ms cubic-bezier(0.16, 1, 0.3, 1)";
-        el.style.transform = "";
-      }
-      prevTops.current.set(node.pane.id, top);
-    }
-  }, [sorted]);
-
-  if (sorted.length === 0) return null;
+  if (nodes.length === 0) return null;
 
   return (
     <div
       className={depth > 0 ? "ml-3 border-l border-[var(--ct-border)] sidebar-hierarchy-level" : "sidebar-hierarchy-level"}
       data-hierarchy-depth={depth}
     >
-      {sorted.map((node) => (
+      {nodes.map((node) => (
         <HierarchyRow
           key={node.pane.id}
           node={node}
@@ -281,10 +245,6 @@ function HierarchyTreeLevel({
           uiFontScale={uiFontScale}
           activeWork={activeWork}
           workingVariant={workingVariant}
-          rowRef={(el) => {
-            if (el) rowRefs.current.set(node.pane.id, el);
-            else rowRefs.current.delete(node.pane.id);
-          }}
         />
       ))}
     </div>
@@ -298,7 +258,6 @@ export function HierarchyTree({
   reportCounts,
   uiFontScale,
   activeWork = null,
-  statuses,
   workingVariant = "aurora",
 }: {
   nodes: HierarchyNodeData[];
@@ -307,7 +266,6 @@ export function HierarchyTree({
   reportCounts: Record<string, number>;
   uiFontScale?: number;
   activeWork?: ActiveWorkSnapshot | null;
-  statuses?: Record<string, PaneStatus>;
   workingVariant?: HierarchyWorkingVariant;
 }) {
   return (
@@ -319,7 +277,6 @@ export function HierarchyTree({
       uiFontScale={uiFontScale}
       activeWork={activeWork}
       workingVariant={workingVariant}
-      statuses={statuses}
     />
   );
 }

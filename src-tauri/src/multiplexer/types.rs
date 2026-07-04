@@ -314,6 +314,11 @@ pub struct Pane {
     /// simply drops it; it is not required to survive a daemon restart).
     #[serde(skip, default)]
     pub pending_greeting: Option<String>,
+    /// Current agent-boot stage, surfaced to late UI attachers via the live
+    /// snapshot. Runtime-only — recomputed at spawn, never persisted (the
+    /// hand-built session snapshot omits it).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub boot_stage: Option<crate::service::boot_stage::BootStage>,
 }
 
 fn default_show_in_tabbar() -> bool {
@@ -400,6 +405,7 @@ mod tests {
             worker_id: None,
             restored_from_snapshot: false,
             pending_greeting: None,
+            boot_stage: None,
         }
     }
 
@@ -407,6 +413,22 @@ mod tests {
     fn pty_pane_is_not_chat_backend() {
         let p = pane_with("a", PaneBacking::Pty);
         assert!(!p.is_chat_backend());
+    }
+
+    #[test]
+    fn mid_boot_snapshot_exposes_current_stage() {
+        use crate::service::boot_stage::BootStage;
+        // A pane caught mid-boot surfaces its stage to a late attacher reading
+        // the live snapshot.
+        let mut p = pane_with("a", PaneBacking::Pty);
+        p.boot_stage = Some(BootStage::AgentLaunching);
+        let v = serde_json::to_value(&p).unwrap();
+        assert_eq!(v["boot_stage"], "agent_launching");
+
+        // Before any boot progress the field is omitted entirely (skip_if None).
+        let idle = pane_with("b", PaneBacking::Pty);
+        let v = serde_json::to_value(&idle).unwrap();
+        assert!(v.as_object().unwrap().get("boot_stage").is_none());
     }
 
     #[test]

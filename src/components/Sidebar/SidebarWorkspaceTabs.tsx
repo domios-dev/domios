@@ -169,7 +169,6 @@ export function SidebarWorkspaceTabs({
               reportCounts={{}}
               uiFontScale={uiFontScale}
               activeWork={activeWork}
-              statuses={paneStatuses}
             />
           ) : (
             <SortableContext items={childIds} strategy={verticalListSortingStrategy}>

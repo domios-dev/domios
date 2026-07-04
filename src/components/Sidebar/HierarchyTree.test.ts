@@ -41,8 +41,12 @@ assert(
   "HierarchyTree binds task line via activeWorkForPane",
 );
 assert(
-  source.includes("sortHierarchyNodes"),
-  "HierarchyTree uses sortHierarchyNodes for calm reorder",
+  !source.includes("sortHierarchyNodes"),
+  "HierarchyTree must keep natural spawn order; status-based sorting is revoked",
+);
+assert(
+  !source.includes("getBoundingClientRect") && !source.includes("translateY"),
+  "HierarchyTree must not run FLIP row animations",
 );
 assert(
   source.includes("sidebar-hierarchy-working--aurora") &&
@@ -72,4 +76,4 @@ assert(
   "HierarchyTree buildHierarchySubtree accepts excludePaneIds for attached Planners",
 );
 
-console.log("✓ HierarchyTree: row states, task line, sort, variants, no StatusDot clutter");
+console.log("✓ HierarchyTree: row states, task line, static order, variants, no StatusDot clutter");
