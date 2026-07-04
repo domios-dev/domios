@@ -3,6 +3,7 @@ import { AgentIcon } from "../AgentIcon";
 import { FloatingTooltip } from "../shared/FloatingTooltip";
 import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
 import type { NewSessionMode } from "../../lib/newSessionChoice";
+import { Button } from "../shared/Button";
 
 interface ModeCardProps {
   mode: NewSessionMode;
@@ -140,21 +141,17 @@ export function WorkspaceRow({
             placeholder="Workspace name"
             className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none"
           />
-          <button
-            type="button"
+          <Button
+            variant="accent"
+            size="compact"
             onClick={onConfirmCreateWorkspace}
             disabled={!newWorkspaceName.trim()}
-            className="px-2.5 py-1.5 text-[11px] font-medium text-white bg-[var(--ct-accent)] rounded-md disabled:opacity-40"
           >
             Create
-          </button>
-          <button
-            type="button"
-            onClick={onCancelCreateWorkspace}
-            className="px-2 py-1.5 text-[11px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
-          >
+          </Button>
+          <Button variant="ghost" size="compact" onClick={onCancelCreateWorkspace}>
             Cancel
-          </button>
+          </Button>
         </div>
       ) : (
         <DropdownSelect
