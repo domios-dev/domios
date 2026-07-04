@@ -1386,11 +1386,50 @@ Create a new plan
 - `--spec_file`
 - `--title`
 
+#### `codeterm plan decision`
+
+Decision gates — structured blocking questions routed to the planner
+
+#### `codeterm plan decision answer`
+
+Answer an open gate (immutable audit record, unparks blocked tasks)
+
+- `--answer`
+- `--answered_by_pane`
+- `<gate_id>`
+- `<plan_id>`
+
+#### `codeterm plan decision ask`
+
+Create a decision gate, park blocking tasks, and route the question to the planner
+
+- `--asked_by_pane`
+- `--blocking_task_ids` — Task ids (or handles) to park until this gate is answered
+- `--context`
+- `<plan_id>`
+- `--question`
+
+#### `codeterm plan decision escalate`
+
+Escalate a stale open gate
+
+- `<gate_id>`
+- `--note`
+- `<plan_id>`
+
+#### `codeterm plan decision list`
+
+List decision gates for a plan
+
+- `--open` — Show only open gates
+- `<plan_id>`
+
 #### `codeterm plan delete`
 
 Delete a plan
 
 - `<plan_id>`
+- `--yes` — Confirm permanent deletion
 
 #### `codeterm plan disown`
 
@@ -1731,6 +1770,15 @@ Update a free-form canvas note
 - `--text`
 - `--text_file`
 
+#### `codeterm plan planning-state`
+
+Advance planner-owned planning state: drafting | structure_ready | approved
+
+- `--note`
+- `--pane` — Planner pane id advancing the state (records author as planner; omit = user)
+- `<plan_id>`
+- `--set`
+
 #### `codeterm plan prune`
 
 Preview or delete smoke/empty project-local plan files (dry-run by default)
@@ -1752,9 +1800,10 @@ Mark QA failed, bounce to in_progress, and nudge the implementer
 
 #### `codeterm plan qa next`
 
-Show the next queued QA task, or claim it as the running tester
+Show the next queued QA task, claim it, or record a group's full-gate regression run
 
 - `--claim`
+- `--group` — Record ONE group-scoped regression working point instead of claiming a task
 - `--note`
 - `<plan_id>`
 
@@ -1808,6 +1857,14 @@ Show structural neighbors for a plan/spec/task/section unit
 
 - `--depth`
 - `--id`
+
+#### `codeterm plan retrospective`
+
+Write the plan completion retrospective (plan-level stride, kind retrospective)
+
+- `--body`
+- `--body_file`
+- `<plan_id>`
 
 #### `codeterm plan search`
 
@@ -1872,6 +1929,44 @@ Update a plan section's title, body, tags, or handle
 - `<section_id>`
 - `--tags`
 - `--title`
+
+#### `codeterm plan skill`
+
+Plan-scoped reusable skills (folder-on-disk, ledgered, mem-indexed)
+
+#### `codeterm plan skill edit`
+
+Record a keep|discard|superseded ledger entry; --body-file replaces SKILL.md
+
+- `--body_file`
+- `--plan`
+- `--rationale`
+- `<slug>`
+- `--verdict`
+
+#### `codeterm plan skill list`
+
+List plan skills with their latest ledger verdict
+
+- `--plan`
+
+#### `codeterm plan skill new`
+
+Create a new plan skill folder (SKILL.md + scripts/)
+
+- `--area`
+- `--check` — Optional verification command persisted in SKILL.md frontmatter
+- `--plan` — Plan id (omit to use $CODETERM_PLAN_ID or the single active plan)
+- `--rationale` — One-line ledger rationale (default: "created")
+- `<slug>`
+- `--title`
+
+#### `codeterm plan skill show`
+
+Print a plan skill's SKILL.md and ledger history
+
+- `--plan`
+- `<slug>`
 
 #### `codeterm plan spec`
 
@@ -2118,7 +2213,7 @@ Update plan metadata
 - `--mode`
 - `--note` — Waiver note (required when --planner none)
 - `<plan_id>`
-- `--planner` — Set planner peer: <pane_id> to bind, or "none" to waive (requires --note)
+- `--planner` — Set attached Planner: <pane_id> to bind, or "none" to waive (requires --note)
 - `--spec`
 - `--spec_file`
 - `--status`

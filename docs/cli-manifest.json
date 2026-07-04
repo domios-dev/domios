@@ -5035,6 +5035,158 @@
           "subcommands": []
         },
         {
+          "name": "decision",
+          "about": "Decision gates — structured blocking questions routed to the planner",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "answer",
+              "about": "Answer an open gate (immutable audit record, unparks blocked tasks)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "answer",
+                  "positional": false,
+                  "value_name": "ANSWER",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "answered_by_pane",
+                  "positional": false,
+                  "value_name": "ANSWERED_BY_PANE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "gate_id",
+                  "positional": true,
+                  "value_name": "GATE_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "ask",
+              "about": "Create a decision gate, park blocking tasks, and route the question to the planner",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "asked_by_pane",
+                  "positional": false,
+                  "value_name": "ASKED_BY_PANE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "blocking_task_ids",
+                  "positional": false,
+                  "value_name": "BLOCKING_TASK_IDS",
+                  "default": null,
+                  "help": "Task ids (or handles) to park until this gate is answered",
+                  "aliases": []
+                },
+                {
+                  "name": "context",
+                  "positional": false,
+                  "value_name": "CONTEXT",
+                  "default": "",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "question",
+                  "positional": false,
+                  "value_name": "QUESTION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "escalate",
+              "about": "Escalate a stale open gate",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "gate_id",
+                  "positional": true,
+                  "value_name": "GATE_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "note",
+                  "positional": false,
+                  "value_name": "NOTE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List decision gates for a plan",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "open",
+                  "positional": false,
+                  "value_name": "OPEN",
+                  "default": null,
+                  "help": "Show only open gates",
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "delete",
           "about": "Delete a plan",
           "aliases": [],
@@ -5045,6 +5197,14 @@
               "value_name": "PLAN_ID",
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "yes",
+              "positional": false,
+              "value_name": "YES",
+              "default": null,
+              "help": "Confirm permanent deletion",
               "aliases": []
             }
           ],
@@ -6339,6 +6499,46 @@
           ]
         },
         {
+          "name": "planning-state",
+          "about": "Advance planner-owned planning state: drafting | structure_ready | approved",
+          "aliases": [],
+          "args": [
+            {
+              "name": "note",
+              "positional": false,
+              "value_name": "NOTE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Planner pane id advancing the state (records author as planner; omit = user)",
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "set",
+              "positional": false,
+              "value_name": "SET",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "prune",
           "about": "Preview or delete smoke/empty project-local plan files (dry-run by default)",
           "aliases": [],
@@ -6402,7 +6602,7 @@
             },
             {
               "name": "next",
-              "about": "Show the next queued QA task, or claim it as the running tester",
+              "about": "Show the next queued QA task, claim it, or record a group's full-gate regression run",
               "aliases": [],
               "args": [
                 {
@@ -6411,6 +6611,14 @@
                   "value_name": "CLAIM",
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "group",
+                  "positional": false,
+                  "value_name": "GROUP",
+                  "default": null,
+                  "help": "Record ONE group-scoped regression working point instead of claiming a task",
                   "aliases": []
                 },
                 {
@@ -6643,6 +6851,38 @@
               "name": "id",
               "positional": false,
               "value_name": "ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "retrospective",
+          "about": "Write the plan completion retrospective (plan-level stride, kind retrospective)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "body",
+              "positional": false,
+              "value_name": "BODY",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "body_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
               "default": null,
               "help": null,
               "aliases": []
@@ -6937,6 +7177,158 @@
                   "name": "title",
                   "positional": false,
                   "value_name": "TITLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "skill",
+          "about": "Plan-scoped reusable skills (folder-on-disk, ledgered, mem-indexed)",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "edit",
+              "about": "Record a keep|discard|superseded ledger entry; --body-file replaces SKILL.md",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "body_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan",
+                  "positional": false,
+                  "value_name": "PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "rationale",
+                  "positional": false,
+                  "value_name": "RATIONALE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "slug",
+                  "positional": true,
+                  "value_name": "SLUG",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "verdict",
+                  "positional": false,
+                  "value_name": "VERDICT",
+                  "default": "keep",
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List plan skills with their latest ledger verdict",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan",
+                  "positional": false,
+                  "value_name": "PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "new",
+              "about": "Create a new plan skill folder (SKILL.md + scripts/)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "area",
+                  "positional": false,
+                  "value_name": "AREA",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "check",
+                  "positional": false,
+                  "value_name": "CHECK",
+                  "default": null,
+                  "help": "Optional verification command persisted in SKILL.md frontmatter",
+                  "aliases": []
+                },
+                {
+                  "name": "plan",
+                  "positional": false,
+                  "value_name": "PLAN",
+                  "default": null,
+                  "help": "Plan id (omit to use $CODETERM_PLAN_ID or the single active plan)",
+                  "aliases": []
+                },
+                {
+                  "name": "rationale",
+                  "positional": false,
+                  "value_name": "RATIONALE",
+                  "default": null,
+                  "help": "One-line ledger rationale (default: \"created\")",
+                  "aliases": []
+                },
+                {
+                  "name": "slug",
+                  "positional": true,
+                  "value_name": "SLUG",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "title",
+                  "positional": false,
+                  "value_name": "TITLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "show",
+              "about": "Print a plan skill's SKILL.md and ledger history",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan",
+                  "positional": false,
+                  "value_name": "PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "slug",
+                  "positional": true,
+                  "value_name": "SLUG",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -8156,7 +8548,7 @@
               "positional": false,
               "value_name": "PLANNER",
               "default": null,
-              "help": "Set planner peer: <pane_id> to bind, or \"none\" to waive (requires --note)",
+              "help": "Set attached Planner: <pane_id> to bind, or \"none\" to waive (requires --note)",
               "aliases": []
             },
             {
