@@ -32,6 +32,7 @@ export function Button({
   size = "md",
   loading = false,
   disabled,
+  type = "button",
   children,
   className,
   "data-testid": testId,
@@ -44,6 +45,7 @@ export function Button({
   return (
     <button
       {...rest}
+      type={type}
       className={cls}
       disabled={disabled || loading}
       aria-busy={loading || undefined}

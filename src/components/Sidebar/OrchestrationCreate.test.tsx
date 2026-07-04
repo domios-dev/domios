@@ -29,6 +29,12 @@ function setupDom() {
   Object.defineProperty(globalThis, "Element", { value: window.Element, configurable: true });
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
   Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
+  if (typeof (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame !== "function") {
+    (globalThis as { requestAnimationFrame: (cb: FrameRequestCallback) => number }).requestAnimationFrame = (
+      cb: FrameRequestCallback,
+    ) => { cb(0); return 0; };
+    (globalThis as { cancelAnimationFrame: (id: number) => void }).cancelAnimationFrame = () => {};
+  }
 }
 
 async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
@@ -48,12 +54,20 @@ async function click(el: Element | null | undefined) {
   });
 }
 
-async function selectValue(el: Element | null | undefined, value: string) {
-  assert(el, "select target must exist");
-  const select = el as HTMLSelectElement;
+async function openDropdown(trigger: Element | null | undefined): Promise<void> {
+  assert(trigger, "dropdown trigger must exist");
   await act(async () => {
-    select.value = value;
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    trigger.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true }));
+  });
+}
+
+async function selectDropdownValue(testId: string, value: string) {
+  const trigger = document.querySelector(`[data-testid="${testId}"]`);
+  await openDropdown(trigger);
+  const option = document.querySelector(`[data-testid="${testId}-option-${value}"]`);
+  assert(option, `dropdown option ${testId}/${value} must exist`);
+  await act(async () => {
+    (option as HTMLButtonElement).click();
   });
 }
 
@@ -90,12 +104,12 @@ test("renders an Orchestrator row and a Planner row with provider options", asyn
   );
   assert(host.textContent?.includes("Orchestrator"), "shows an Orchestrator row label");
   assert(host.textContent?.includes("Planner"), "shows a Planner row label");
-  const selects = Array.from(host.querySelectorAll("select"));
-  // 2 rows x (provider select + model select) = 4 selects, plus the title text input separately.
-  assert(selects.length === 4, `expected 4 selects (2 provider + 2 model), got ${selects.length}`);
-  const providerOptionLabels = Array.from(selects[0].querySelectorAll("option")).map((o) => o.textContent);
-  assert(providerOptionLabels.includes("claude"), "orchestrator provider select lists claude");
-  assert(providerOptionLabels.includes("codex"), "orchestrator provider select lists codex");
+  assert(host.querySelector("select") === null, "uses DropdownSelect, not native selects");
+  const providerTrigger = host.querySelector('[data-testid="orchestration-create-orchestrator-provider"]');
+  assert(providerTrigger, "orchestrator provider dropdown exists");
+  await openDropdown(providerTrigger);
+  assert(document.querySelector('[data-testid="orchestration-create-orchestrator-provider-option-claude"]'), "provider dropdown lists claude");
+  assert(document.querySelector('[data-testid="orchestration-create-orchestrator-provider-option-codex"]'), "provider dropdown lists codex");
   const titleInput = host.querySelector('input[type="text"]') as HTMLInputElement | null;
   assert(titleInput, "renders an optional plan-title text input");
   assert(titleInput.placeholder === "Orchestration", "title input has a sensible placeholder");
@@ -106,9 +120,8 @@ test("defaults each role's model to the provider's default_model", async () => {
   const { host, root } = await render(
     <OrchestrationCreate providers={PROVIDERS} onCancel={() => {}} onConfirm={() => {}} />,
   );
-  const selects = Array.from(host.querySelectorAll("select")) as HTMLSelectElement[];
-  const [, orchestratorModelSelect] = selects;
-  assert(orchestratorModelSelect.value === "sonnet", `expected default model "sonnet", got ${orchestratorModelSelect.value}`);
+  const orchestratorModel = host.querySelector('[data-testid="orchestration-create-orchestrator-model"]') as HTMLButtonElement | null;
+  assert(orchestratorModel?.dataset.value === "sonnet", `expected default model "sonnet", got ${orchestratorModel?.dataset.value}`);
   await act(async () => root.unmount());
 });
 
@@ -116,10 +129,9 @@ test("switching a role's provider resets that role's model to the new default", 
   const { host, root } = await render(
     <OrchestrationCreate providers={PROVIDERS} onCancel={() => {}} onConfirm={() => {}} />,
   );
-  const selects = Array.from(host.querySelectorAll("select")) as HTMLSelectElement[];
-  const [orchestratorProviderSelect, orchestratorModelSelect] = selects;
-  await selectValue(orchestratorProviderSelect, "codex");
-  assert(orchestratorModelSelect.value === "gpt-5", `expected model reset to codex default, got ${orchestratorModelSelect.value}`);
+  await selectDropdownValue("orchestration-create-orchestrator-provider", "codex");
+  const orchestratorModel = host.querySelector('[data-testid="orchestration-create-orchestrator-model"]') as HTMLButtonElement | null;
+  assert(orchestratorModel?.dataset.value === "gpt-5", `expected model reset to codex default, got ${orchestratorModel?.dataset.value}`);
   await act(async () => root.unmount());
 });
 
@@ -134,9 +146,7 @@ test("confirm calls onConfirm with both roles' selections and an unset title by 
       }}
     />,
   );
-  const selects = Array.from(host.querySelectorAll("select")) as HTMLSelectElement[];
-  const [, , plannerProviderSelect] = selects;
-  await selectValue(plannerProviderSelect, "codex");
+  await selectDropdownValue("orchestration-create-planner-provider", "codex");
 
   const buttons = Array.from(host.querySelectorAll("button"));
   const createButton = buttons.find((b) => b.textContent === "Create");

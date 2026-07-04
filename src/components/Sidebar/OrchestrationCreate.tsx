@@ -58,6 +58,12 @@ export function OrchestrationCreate({
             values={pairValues}
             onChange={setPairValues}
             layout="stack"
+            roleTestIds={{
+              orchestratorProvider: "orchestration-create-orchestrator-provider",
+              orchestratorModel: "orchestration-create-orchestrator-model",
+              plannerProvider: "orchestration-create-planner-provider",
+              plannerModel: "orchestration-create-planner-model",
+            }}
             titleField={(
               <div className="flex flex-col gap-1.5">
                 <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Plan title (optional)</div>
