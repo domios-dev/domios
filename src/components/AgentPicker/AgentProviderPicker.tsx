@@ -8,7 +8,7 @@ import {
   preselectProviderId,
 } from "./preselectProvider";
 import { useProviderAvailability } from "./useProviderAvailability";
-import { UI_BUTTON } from "../shared/design";
+import { Button } from "../shared/Button";
 
 interface AgentProviderPickerProps {
   headline: string;
@@ -107,15 +107,16 @@ export function AgentProviderPicker({
 
         {anyInstalled && (
           <div className="flex justify-center">
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="lg"
               data-testid="agent-picker-confirm"
-              className={UI_BUTTON.accent}
-              disabled={!canConfirm || busy || state === "checking"}
+              disabled={!canConfirm || state === "checking"}
+              loading={busy}
               onClick={() => selectedId && onConfirm(selectedId)}
             >
-              {busy ? "Starting…" : confirmLabel}
-            </button>
+              {confirmLabel}
+            </Button>
           </div>
         )}
       </div>
