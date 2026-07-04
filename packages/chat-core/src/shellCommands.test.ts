@@ -1,4 +1,3 @@
-// Run: npx tsx packages/chat-core/src/shellCommands.test.ts
 import {
   applyShellLifecycle,
   shellSnapshotToMessages,
@@ -32,7 +31,6 @@ function ok(cond: unknown, name: string) {
 
 const live = (i: number) => ({ id: `live-${i}`, timestampMs: 2_000 + i });
 
-// snapshot hydration → finished items, ordered, monotonic timestamps
 {
   const msgs = shellSnapshotToMessages(
     {
@@ -70,7 +68,6 @@ const live = (i: number) => ({ id: `live-${i}`, timestampMs: 2_000 + i });
   eq(msgs[0].shellStatus, "ok", "finished exit 0 → ok");
 }
 
-// failed exit code
 {
   let msgs: NormalizedChatMessage[] = [];
   msgs = applyShellLifecycle(msgs, { kind: "started", commandLine: "boom" }, live(0));
@@ -79,7 +76,6 @@ const live = (i: number) => ({ id: `live-${i}`, timestampMs: 2_000 + i });
   eq(msgs[0].shellExitCode, 127, "exit code surfaced");
 }
 
-// A/D-only graceful degradation: finished with NO preceding started
 {
   let msgs: NormalizedChatMessage[] = [];
   msgs = applyShellLifecycle(msgs, { kind: "finished", commandLine: "git status", exitCode: 0, cwd: "/x" }, live(0));
@@ -89,14 +85,12 @@ const live = (i: number) => ({ id: `live-${i}`, timestampMs: 2_000 + i });
   eq(msgs[0].shellCwd, "/x", "A/D-only item carries cwd");
 }
 
-// cwdChanged is informational — no chat item, same array reference
 {
   const before: NormalizedChatMessage[] = [];
   const after = applyShellLifecycle(before, { kind: "cwdChanged", cwd: "/new" }, live(0));
   ok(after === before, "cwdChanged returns the same array (no spurious item)");
 }
 
-// two sequential commands stay distinct
 {
   let msgs: NormalizedChatMessage[] = [];
   msgs = applyShellLifecycle(msgs, { kind: "started", commandLine: "a" }, live(0));

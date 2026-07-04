@@ -1,5 +1,3 @@
-// Subcommand paths the card has hand-written templates for. recognize.test.ts
-// asserts each exists in docs/cli-manifest.json so a template can't point at a
 export const TEMPLATE_PATHS: string[][] = [
   ["send"],
   ["agent", "spawn"],

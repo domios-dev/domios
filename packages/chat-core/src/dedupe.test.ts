@@ -1,4 +1,3 @@
-// Run: npx tsx packages/chat-core/src/dedupe.test.ts
 import { matchedOptimisticEchoes, type OptimisticEcho } from "./dedupe";
 import { markPane, markVoice } from "./markers";
 import type { NormalizedChatMessage } from "./types";
@@ -20,12 +19,9 @@ function eq(actual: unknown, expected: unknown, name: string) {
 function user(id: string, content: string, tsMs: number): NormalizedChatMessage {
   return { id, type: "user", content, timestamp: new Date(tsMs).toISOString() };
 }
-// Provider echo whose transcript timestamp is a Unix-SECONDS number (codex floors
-// to seconds; RichMessage.ts is documented in seconds). The matcher must treat
 function userSec(id: string, content: string, tsMs: number): NormalizedChatMessage {
   return { id, type: "user", content, timestamp: String(Math.floor(tsMs / 1000)) };
 }
-// Provider echo whose timestamp is a millisecond epoch NUMBER as a string
 // (opencode hands the frontend String(time_created) in ms).
 function userMsNum(id: string, content: string, tsMs: number): NormalizedChatMessage {
   return { id, type: "user", content, timestamp: String(tsMs) };
@@ -36,7 +32,6 @@ function echo(id: string, content: string, sentAtMs: number): OptimisticEcho {
 
 const T0 = 1_700_000_000_000;
 
-// 1. No real echo yet -> bubble stays pending. This helper clears only when
 //    the provider transcript proves the message landed.
 {
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
@@ -47,7 +42,6 @@ const T0 = 1_700_000_000_000;
   eq(pendingIds, ["opt-1"], "no echo → stays pending");
 }
 
-// 9. Several quick sends may be accepted by a terminal TUI as one real user
 //    turn. The combined transcript turn claims each covered optimistic bubble.
 {
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
@@ -61,7 +55,6 @@ const T0 = 1_700_000_000_000;
   eq(pendingIds, [], "combined user turn leaves no covered bubble pending");
 }
 
-// 10. Coverage is token-based and consume-once, so a one-token echo does not
 //     match inside a longer token and repeated short sends need repeated tokens.
 {
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
@@ -82,8 +75,6 @@ const T0 = 1_700_000_000_000;
   eq(pendingIds, ["opt-1"], "fresh bubble remains pending");
 }
 
-// 12. CodeTerm voice markers are matched by their file identity. Provider
-//     timestamps can be older than the optimistic update because transcription
 {
   const file = "C:\\tmp\\voice-note-123.webm";
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
@@ -103,7 +94,6 @@ const T0 = 1_700_000_000_000;
   eq(matchedIds, ["opt-1"], "real echo after send → matched");
 }
 
-// 2b. Provider transcripts may store CodeTerm transport prefixes around the
 //     user turn while the optimistic bubble contains only the visible body.
 {
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
@@ -124,7 +114,6 @@ const T0 = 1_700_000_000_000;
   eq(pendingIds, ["opt-1"], "fresh bubble stays pending until its own echo");
 }
 
-// 4. Same short message sent twice → two real echoes consume-once → both cleared
 //    distinctly. The old loose/substring + content-dedup collapsed these.
 {
   const { matchedIds } = matchedOptimisticEchoes(
@@ -134,7 +123,6 @@ const T0 = 1_700_000_000_000;
   eq(matchedIds.sort(), ["opt-1", "opt-2"], "two sends → two distinct echoes matched");
 }
 
-// 5. Two identical pending bubbles but only ONE real echo → consume-once: exactly
 //    one cleared, the other stays pending (no double-clear off a single message).
 {
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
@@ -172,8 +160,6 @@ const T0 = 1_700_000_000_000;
   eq(matchedIds, ["opt-1"], "sub-second floored echo within skew → matched");
 }
 
-// 13. A stray leaked prefix on the echoed line (e.g. "YT" glued onto the first
-//     word from a focus-leaked keystroke) still clears the bubble via fuzzy
 {
   const real = "cannot scroll inside the input make it bigger and move the timer";
   const leaked = "YT" + real; // "YTcannot scroll ..." — first token diverges
@@ -186,7 +172,6 @@ const T0 = 1_700_000_000_000;
 }
 
 // 14. Optimistic bubbles carry the raw attachment path appended to the text;
-//     the real echo renders the file as a chip (path stripped). They must still
 {
   const text = "each time I press record this happens please fix";
   const optimistic = `${text} /Users/me/.codeterm/uploads/2b9df9f1-shot.png /Users/me/.codeterm/uploads/2faa7ab5-shot.png`;
@@ -198,8 +183,6 @@ const T0 = 1_700_000_000_000;
   eq(pendingIds, [], "text+attachment echo leaves no duplicate pending");
 }
 
-// 15. Short message + attachment path: meaningful text is identical once paths
-//     are stripped, so it matches even though there are too few shared tokens
 {
   const { matchedIds } = matchedOptimisticEchoes(
     [echo("opt-1", "fix this /Users/me/.codeterm/uploads/x.png", T0)],
@@ -208,7 +191,6 @@ const T0 = 1_700_000_000_000;
   eq(matchedIds, ["opt-1"], "short text+attachment matches by stripped-path equality");
 }
 
-// 16. Fuzzy matching must NOT collapse two genuinely different short messages
 //     that merely share a couple of words.
 {
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
@@ -240,7 +222,6 @@ const T0 = 1_700_000_000_000;
   eq(pendingIds, [], "seconds-stamped fresh echo leaves no stuck bubble");
 }
 
-// 19. The seconds scaling must NOT regress the stale-echo guard: a seconds-stamped
 //     message a minute older than the send still must NOT clear a fresh bubble.
 {
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
@@ -251,7 +232,6 @@ const T0 = 1_700_000_000_000;
   eq(pendingIds, ["opt-1"], "fresh bubble stays pending despite old seconds echo");
 }
 
-// 20. Re-sent short message with seconds stamps: consume-once + guard still pick
 //     the NEW echo, never the stale identical line (units normalized to ms first).
 {
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
@@ -262,7 +242,6 @@ const T0 = 1_700_000_000_000;
   eq(pendingIds, [], "fresh bubble cleared by its own (not the stale) echo");
 }
 
-// 21. Millisecond-number string echo (opencode shape) still matches as ms — the
 //     normalization must leave genuine ms values untouched.
 {
   const { matchedIds } = matchedOptimisticEchoes(
@@ -286,7 +265,6 @@ const T0 = 1_700_000_000_000;
   eq(pendingIds, [], "no stuck pill after local_command /new echo");
 }
 
-// 23. local_command echo with bare name (no leading slash) also clears the pill
 //     via coverage token matching.
 {
   const localCmd = (id: string, content: string, tsMs: number): NormalizedChatMessage => ({
@@ -296,10 +274,8 @@ const T0 = 1_700_000_000_000;
     [echo("opt-clear", "/clear", T0)],
     [localCmd("lc-1", "clear", T0 + 200)],
   );
-  // coverage pass: tokenNeedle("/clear") = ["/clear"]; tokens("clear") = ["clear"] — no match
   // but exact: "/clear" vs "clear" — no match, so pill stays pending (expected — content diverged)
   eq(pendingIds, ["opt-clear"], "bare-name local_command /clear stays pending (content mismatch)");
-  // The real fix for this case is the session-boundary clear in useChatSession.ts
   void matchedIds; // suppress unused warning
 }
 
