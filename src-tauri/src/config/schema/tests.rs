@@ -66,6 +66,16 @@ fn orchestration_plan_reminder_defaults() {
     assert_eq!(cfg.idle_poke.live_lane_cap, 3);
     assert_eq!(cfg.idle_poke.max_per_day, 4);
     assert_eq!(cfg.idle_poke.backoff_base_secs, 90);
+    assert_eq!(
+        cfg.reflect.every_gates,
+        crate::service::plan::reflection::DEFAULT_REFLECT_EVERY_GATES
+    );
+}
+
+#[test]
+fn orchestration_reflect_every_gates_override() {
+    let cfg: OrchestrationConfig = toml::from_str("[reflect]\nevery_gates = 25\n").unwrap();
+    assert_eq!(cfg.reflect.every_gates, 25);
 }
 
 #[test]
