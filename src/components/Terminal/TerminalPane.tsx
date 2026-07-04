@@ -38,6 +38,7 @@ import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { claimResizeOwner, getResizeClientId } from "../../lib/resizeOwner";
 import { shouldShowDropOverlay } from "./dropOverlay";
+import { BusyState } from "../shared/BusyState";
 import { terminalOwnsLivePty } from "./terminalOwnership";
 
 interface TerminalPaneProps {
@@ -725,8 +726,14 @@ export const TerminalPane = memo(function TerminalPane({
           }}
         >
           {!shell.shellReady && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
-              <div className="terminal-breathing-bar" />
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
+              <BusyState
+                labelKey="paneBoot"
+                label={pane?.boot_stage ?? undefined}
+                phase="work"
+                data-testid="pane-boot-busy"
+                style={{ color: "var(--ct-muted-fg, #8b949e)", fontSize: 12 }}
+              />
             </div>
           )}
         </div>

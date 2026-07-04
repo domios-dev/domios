@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Bot, Check, Loader2 } from "lucide-react";
 import { invoke } from "../lib/bridge";
+import { BusySpinner } from "../components/shared/BusyState";
 
 type AskState = "idle" | "sending" | "sent" | "error";
 
@@ -36,7 +37,7 @@ export function AskButton({ label, question }: { label: string; question: string
     >
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_srgb,var(--ct-accent)_14%,transparent)] text-[var(--ct-accent)]">
         {state === "sending" ? (
-          <Loader2 size={14} className="animate-spin" />
+          <BusySpinner icon={Loader2} size={14} />
         ) : state === "sent" ? (
           <Check size={14} />
         ) : (

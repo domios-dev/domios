@@ -139,6 +139,10 @@ export interface Pane {
   /** Live 3-state agent classification from the backend state engine. Drives
    *  the chat-view AgentStateIndicator. Absent until the backend classifies. */
   agent_state?: PaneAgentState | null;
+  /** Truthful spawn-progress label from the daemon boot-stage events (sibling
+   *  backend lane). Absent until that lands; the boot overlay falls back to a
+   *  generic label. */
+  boot_stage?: string | null;
   protected?: boolean;
   connected_services?: string[];
   hidden?: boolean;
