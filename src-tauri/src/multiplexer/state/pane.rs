@@ -44,6 +44,7 @@ impl MultiplexerState {
             worker_id: None,
             restored_from_snapshot: false,
             pending_greeting: None,
+            boot_stage: None,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id

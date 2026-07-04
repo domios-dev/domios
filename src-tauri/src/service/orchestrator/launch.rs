@@ -1,4 +1,5 @@
 use super::types::SpawnAgentParams;
+use crate::service::boot_stage::BootStage;
 use crate::service::ServiceContext;
 
 /// A cross-mesh worker (mesh report target set, no local parent) must NOT be
@@ -150,6 +151,11 @@ pub(crate) fn launch_agent_in_background(
                             pane_id,
                             e
                         );
+                        svc.emit_boot_stage(
+                            &pane_id,
+                            BootStage::SpawnFailed,
+                            Some(&format!("backend PTY spawn failed: {}", e)),
+                        );
                         // Clean up the orphaned pane — it has no PTY and is unreachable
                         let _ = svc.close_tab(&ws_id, &tab_id);
                         set_booting(false);
@@ -162,6 +168,7 @@ pub(crate) fn launch_agent_in_background(
             }
             std::thread::sleep(std::time::Duration::from_millis(300));
         };
+        svc.emit_boot_stage(&pane_id, BootStage::PtySpawned, None);
 
         // 2. Wait for readiness using provider strategy
         let (readiness, delivery) = registry
@@ -181,6 +188,7 @@ pub(crate) fn launch_agent_in_background(
                 std::thread::sleep(duration);
             }
         }
+        svc.emit_boot_stage(&pane_id, BootStage::ShellReady, None);
 
         // 3. Send launch command (verified). Shell prompt was already polled in step 2, so require_prompt_first=false avoids a redundant wait.
         let launch_opts = crate::service::inject_verify::VerifyOpts {
@@ -198,6 +206,7 @@ pub(crate) fn launch_agent_in_background(
             .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
                 timeout: std::time::Duration::from_secs(15),
             });
+        svc.emit_boot_stage(&pane_id, BootStage::AgentLaunching, None);
         // Use shell dispatch (bash script on Unix, bracketed paste on Windows) so bash 3.2 hosts (macOS Intel system shell) never see raw ESC markers
         // (#93 — keeps shell-level launch off the bracketed-paste path).
         if let Err(e) =
@@ -208,6 +217,11 @@ pub(crate) fn launch_agent_in_background(
                 pane_id,
                 pty_id,
                 e
+            );
+            svc.emit_boot_stage(
+                &pane_id,
+                BootStage::SpawnFailed,
+                Some(&format!("launch_cmd failed: {}", e)),
             );
             set_booting(false);
             if let Some(tx) = ready_tx {
@@ -274,6 +288,11 @@ pub(crate) fn launch_agent_in_background(
                         pty_id,
                         e
                     );
+                    svc.emit_boot_stage(
+                        &pane_id,
+                        BootStage::SpawnFailed,
+                        Some(&format!("task delivery failed: {}", e)),
+                    );
                     set_booting(false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(format!("task delivery failed: {}", e)));
@@ -284,6 +303,7 @@ pub(crate) fn launch_agent_in_background(
         }
 
         set_booting(false);
+        svc.emit_boot_stage(&pane_id, BootStage::AgentReady, None);
         log::info!("launch_agent: agent ready in pane {}", pane_id);
         if let Some(tx) = ready_tx {
             let _ = tx.send(Ok(()));

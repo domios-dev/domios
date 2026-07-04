@@ -329,6 +329,7 @@ impl MultiplexerState {
                     worker_id: None,
                     restored_from_snapshot: true,
                     pending_greeting: None,
+                    boot_stage: None,
                 },
             );
             Some(pane_id.clone())
