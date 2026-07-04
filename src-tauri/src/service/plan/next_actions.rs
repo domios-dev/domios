@@ -15,6 +15,7 @@ pub enum NextActionKind {
     Dispatch,
     ClaimQa,
     SpawnTester,
+    RegressionGate,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -96,6 +97,16 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
                 message: format!("gate {} ({})", lane.task_id, lane.name),
             });
         }
+    }
+
+    for gate in &s.pending_regression_gates {
+        actions.push(NextAction {
+            priority: 2,
+            kind: NextActionKind::RegressionGate,
+            task_id: None,
+            loop_id: None,
+            message: crate::prompts::milestone_gate_suggestion(&gate.key, &gate.label),
+        });
     }
 
     for lane in &s.blocked_lanes {
@@ -224,6 +235,7 @@ mod tests {
             blocked_lanes: vec![],
             live_agents: vec![],
             recent_strides: vec![],
+            pending_regression_gates: vec![],
             next_actions: vec![],
         }
     }
@@ -317,6 +329,26 @@ mod tests {
             ]
         );
         assert!(a.windows(2).all(|w| w[0].priority <= w[1].priority));
+    }
+
+    #[test]
+    fn regression_gate_fires_from_pending_group_and_is_advisory() {
+        let mut s = empty();
+        s.pending_regression_gates = vec![super::super::milestone_gates::RegressionGate {
+            key: "phase-1".into(),
+            label: "Phase 1".into(),
+        }];
+        let a = compute_next_actions(&s);
+        assert_eq!(a.len(), 1);
+        assert_eq!(a[0].kind, NextActionKind::RegressionGate);
+        assert!(a[0].message.contains("Phase 1"));
+        assert!(a[0].message.contains("--group phase-1"));
+        assert!(a[0].task_id.is_none());
+
+        s.pending_regression_gates = vec![];
+        assert!(compute_next_actions(&s)
+            .iter()
+            .all(|x| x.kind != NextActionKind::RegressionGate));
     }
 
     #[test]

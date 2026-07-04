@@ -32,6 +32,27 @@ pub const WORKER_COMPETITIVE_ISOLATION_RULES: [&str; 3] = [
 /// Orchestrator heartbeat heading for live concurrent attempts.
 pub const HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE: &str = "Competitive attempts:";
 
+/// Milestone kind for a group-scoped regression working point (the full-gate record).
+pub const REGRESSION_MILESTONE_KIND: &str = "regression";
+
+/// Heartbeat / next-action heading for completed groups awaiting their full-gate run.
+pub const MILESTONE_GATE_HEARTBEAT_TITLE: &str = "Regression gates:";
+
+/// The three-tier testing ladder. Single source shared by next-actions/heartbeat prose
+/// and asserted verbatim in the ORCHESTRATION doc so the wording never drifts.
+pub const MILESTONE_GATE_LADDER: &str = "Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit + playwright golden, serialized in the warm checkout); per-release = the farm matrix across every platform.";
+
+/// Regression-gate suggestion template emitted when a task group (milestone) closes.
+/// `{label}` / `{key}` are the group's display label and key. Shared by next-actions and heartbeat.
+pub const MILESTONE_GATE_SUGGESTION: &str = "group {label} complete — run the full gate once: cargo suite + ts-unit + playwright golden, serialized in the warm checkout / remote-test farm, then record it with `codeterm plan qa next --group {key} --claim --note \"<scope>\"`.";
+
+/// Fills the `{label}` and `{key}` placeholders in [`MILESTONE_GATE_SUGGESTION`].
+pub fn milestone_gate_suggestion(key: &str, label: &str) -> String {
+    MILESTONE_GATE_SUGGESTION
+        .replace("{label}", label)
+        .replace("{key}", key)
+}
+
 pub fn worker_suffix() -> String {
     format!("{TESTING_DISCIPLINE}\n{QA_PIPELINE_DISCIPLINE}\n{WORKER_SUFFIX}")
 }
@@ -367,6 +388,25 @@ mod tests {
             oracle < executable,
             "oracle-first paragraph must come first"
         );
+    }
+
+    #[test]
+    fn milestone_gate_constants_wire_into_orchestration_ladder() {
+        const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
+
+        // Suggestion fills both placeholders and names the record command.
+        let msg = milestone_gate_suggestion("phase-1", "Phase 1");
+        assert!(msg.contains("group Phase 1 complete"));
+        assert!(msg.contains("codeterm plan qa next --group phase-1"));
+        assert!(!msg.contains("{label}") && !msg.contains("{key}"));
+
+        // Three-tier ladder wording lives in a shared constant AND the doc verbatim.
+        assert!(MILESTONE_GATE_LADDER.contains("per-task = focused filters only"));
+        assert!(MILESTONE_GATE_LADDER.contains("per-group (milestone) = one full regression gate"));
+        assert!(MILESTONE_GATE_LADDER.contains("per-release = the farm matrix"));
+        assert!(ORCHESTRATION_DOC.contains(MILESTONE_GATE_LADDER));
+        assert_eq!(REGRESSION_MILESTONE_KIND, "regression");
+        assert!(!MILESTONE_GATE_HEARTBEAT_TITLE.trim().is_empty());
     }
 
     #[test]
