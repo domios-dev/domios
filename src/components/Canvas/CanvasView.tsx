@@ -877,7 +877,12 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
   const activeWs = state.workspaces.find((ws) => ws.id === state.active_workspace_id);
   const projectPath = activeWs?.cwd ?? null;
   const workspaceTarget = useCanvasWorkspaceTarget();
-  const { plans: livePlans, loading, reconnecting, error, refetch } = useCanvasPlans(mode, projectPath);
+  const [allPlans, setAllPlans] = useState(false);
+  // All-plans mode lifts the workspace filter: fetch with no project scope.
+  const { plans: livePlans, loading, reconnecting, error, refetch } = useCanvasPlans(
+    mode,
+    allPlans ? null : projectPath,
+  );
   // Dev harness: real exported plan, or a synthetic N-task plan, when flagged.
   const perfN = perfFixtureCount();
   const perfProfile = perfFixtureProfile();
@@ -917,6 +922,8 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
       onClose={onClose}
       onOpenPane={onOpenPane}
       api={api}
+      allPlans={allPlans}
+      onAllPlansChange={setAllPlans}
     />
   );
 }

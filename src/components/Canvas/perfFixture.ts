@@ -160,6 +160,11 @@ export function buildPerfFixturePlans(n: number): Plan[] {
   return [plan("perf_plan", "perf_orch", 1, PERF_PLAN_SECTIONS, [...tasks, ...subtasks], {
     primary_spec_id: PERF_SPEC_ID,
     spec_links: PERF_SPEC_LINKS,
+    task_groups: [
+      { key: "layout", label: "Layout", color: null },
+      { key: "navigation", label: "Navigation", color: null },
+      { key: "isolation", label: "Isolation", color: null },
+    ],
     goal: {
       vector: "Render every plan at any scale with crisp text, zero reflow and full field coverage — the canvas is the orchestrator's command center.",
       postulates: ["Object size is the camera matrix, never a per-card re-rasterization hack"],

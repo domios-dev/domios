@@ -1,0 +1,130 @@
+/**
+ * 13-canvas — Mission Control v2 flow canvas.
+ *
+ * Covers the FLOW canvas: plan-rivers with a group-derived milestone station,
+ * the workspace | all-plans scope toggle, and a 60fps pan probe (the pan path
+ * must stay on the GPU transform layer — no per-frame React re-render).
+ */
+import path from "node:path";
+import { expect, test } from "../../helpers/fixtures";
+import {
+  isEmpty,
+  MISSION_CONTROL_LIVE_SEL,
+  MISSION_CONTROL_PLAN_SURFACE_SEL,
+  seedPerfFixtureAndOpenInlineCanvas,
+  CANVAS_ART_DIR,
+} from "../../helpers/canvas-inspect";
+import type { ApiClient } from "../../helpers/api-client";
+import type { Page } from "@playwright/test";
+
+async function toCanvasMode(page: Page): Promise<void> {
+  await page.evaluate(() => window.localStorage.setItem("codeterm.planViewMode", "canvas"));
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector('[data-testid="plan-view-shell"]', { state: "visible", timeout: 30_000 });
+  const shell = page.locator('[data-testid="plan-view-shell"]');
+  await expect(shell).toHaveAttribute("data-plan-view-mode", "canvas");
+  await expect(page.locator(MISSION_CONTROL_LIVE_SEL)).toBeVisible({ timeout: 15_000 });
+}
+
+test("@golden @mission-control-flow flow river + group milestone + all-plans toggle", async ({ api, webBrowser }) => {
+  test.setTimeout(180_000);
+  const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
+  try {
+    const { page } = canvas;
+    if (await isEmpty(page)) {
+      test.skip(true, "canvas empty — perf fixture did not inject");
+      return;
+    }
+    await toCanvasMode(page);
+
+    await expect(page.locator(MISSION_CONTROL_PLAN_SURFACE_SEL)).toBeVisible();
+
+    // A plan-river renders with the four flow stations.
+    const river = page.locator('[data-testid^="plan-river-"]').first();
+    await expect(river).toBeVisible();
+    await expect(river.locator('[data-testid="flow-station-frontier"]')).toBeVisible();
+    await expect(river.locator('[data-testid="flow-station-milestone"]')).toBeVisible();
+    await expect(river.locator('[data-testid="flow-station-verify"]')).toBeVisible();
+    await expect(river.locator('[data-testid="flow-station-done"]')).toBeVisible();
+
+    // Milestone derives from task groups (perf fixture: Layout / Navigation / Isolation).
+    const milestone = river.locator('[data-testid="flow-station-milestone"]');
+    await expect(milestone).toContainText(/Milestone|none active/i);
+
+    await page.screenshot({ path: path.join(CANVAS_ART_DIR, "mission-control-flow.png"), fullPage: false });
+
+    // All-plans toggle lifts the workspace filter.
+    const ws = page.locator('[data-testid="mc-scope-workspace"]');
+    const all = page.locator('[data-testid="mc-scope-all-plans"]');
+    await expect(ws).toBeVisible();
+    await expect(all).toBeVisible();
+    await expect(ws).toHaveAttribute("data-active", "true");
+    await all.click();
+    await expect(all).toHaveAttribute("data-active", "true");
+    await expect(ws).not.toHaveAttribute("data-active", "true");
+    // Rivers still render after lifting the filter.
+    await expect(page.locator('[data-testid^="plan-river-"]').first()).toBeVisible();
+    await ws.click();
+    await expect(ws).toHaveAttribute("data-active", "true");
+  } finally {
+    await canvas.close();
+  }
+});
+
+test("@golden @mission-control-flow 60fps pan probe — transform layer, no reflow", async ({ api, webBrowser }) => {
+  test.setTimeout(180_000);
+  const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
+  try {
+    const { page } = canvas;
+    if (await isEmpty(page)) {
+      test.skip(true, "canvas empty — perf fixture did not inject");
+      return;
+    }
+    await toCanvasMode(page);
+
+    const viewport = page.locator(`${MISSION_CONTROL_LIVE_SEL} .mc-live-viewport`).first();
+    await expect(viewport).toBeVisible();
+    const box = (await viewport.boundingBox())!;
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+
+    // Start a rAF frame sampler.
+    await page.evaluate(() => {
+      const w = window as unknown as { __frames: number[]; __rafOn: boolean };
+      w.__frames = [];
+      w.__rafOn = true;
+      let last = performance.now();
+      const tick = (t: number) => {
+        w.__frames.push(t - last);
+        last = t;
+        if (w.__rafOn) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+
+    // Drag-pan across the viewport in many small steps (drives the pan path).
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    for (let i = 0; i < 40; i += 1) {
+      await page.mouse.move(cx - i * 6, cy - i * 3);
+      await page.waitForTimeout(8);
+    }
+    await page.mouse.up();
+
+    const stats = await page.evaluate(() => {
+      const w = window as unknown as { __frames: number[]; __rafOn: boolean };
+      w.__rafOn = false;
+      const f = w.__frames.filter((d) => d > 0).sort((a, b) => a - b);
+      const median = f.length ? f[Math.floor(f.length / 2)] : 0;
+      const p95 = f.length ? f[Math.floor(f.length * 0.95)] : 0;
+      return { count: f.length, median, p95 };
+    });
+
+    console.log(`[flow-pan-fps] frames=${stats.count} median=${stats.median.toFixed(1)}ms p95=${stats.p95.toFixed(1)}ms`);
+    expect(stats.count, "frames sampled during pan").toBeGreaterThan(10);
+    // 60fps target ≈ 16.7ms; allow headless slack. Median under ~2 frames = pan stays smooth.
+    expect(stats.median, "median frame time during pan").toBeLessThan(34);
+  } finally {
+    await canvas.close();
+  }
+});

@@ -5,6 +5,12 @@ import { MISSION_CONTROL_VARIANTS, VARIANT_LABELS } from "./types";
 import { VariantAssemblyLine } from "./variants/VariantAssemblyLine";
 import { VariantControlRoom } from "./variants/VariantControlRoom";
 import { VariantHangar } from "./variants/VariantHangar";
+import { FlowCanvasPreview } from "./FlowCanvasPreview";
+
+function prototypeView(): "flow" | "gallery" {
+  if (typeof window === "undefined") return "flow";
+  return new URLSearchParams(window.location.search).get("view") === "gallery" ? "gallery" : "flow";
+}
 
 const VARIANT_COMPONENTS = {
   hangar: VariantHangar,
@@ -13,6 +19,11 @@ const VARIANT_COMPONENTS = {
 } as const;
 
 export function MissionControlPrototype() {
+  if (prototypeView() === "flow") return <FlowCanvasPreview />;
+  return <MissionControlGallery />;
+}
+
+function MissionControlGallery() {
   const [variant, setVariant] = useState<MissionControlVariant>("assembly-line");
   const [lod, setLod] = useState<MissionControlLod>("detail");
   const snapshot = MISSION_CONTROL_FIXTURE;
