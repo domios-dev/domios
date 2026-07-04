@@ -52,6 +52,12 @@ const WORK: PaneComposerActivity = {
   taskStatus: "in_progress",
 };
 
+const PLAN: PaneComposerActivity = {
+  kind: "planning",
+  planId: "pl_hidden",
+  planTitle: "Canvas v2 — the full build (dogfood)",
+};
+
 async function run() {
   setupDom();
 
@@ -84,6 +90,24 @@ async function run() {
     ok("no raw ids in visible text", !strip?.textContent?.includes("task_hidden") && !strip?.textContent?.includes("pl_hidden"));
     await act(async () => { strip?.click(); });
     ok("click fires onOpen", clicks === 1);
+    await act(async () => root.unmount());
+  }
+
+  {
+    let clicks = 0;
+    const { host, root } = await render(
+      <ComposerPlanActivityStrip activity={PLAN} onOpen={() => { clicks += 1; }} />,
+    );
+    const strip = host.querySelector('[data-testid="composer-plan-activity-strip"]') as HTMLButtonElement | null;
+    ok("planner strip renders", !!strip);
+    ok("kind planning", strip?.getAttribute("data-activity-kind") === "planning");
+    ok("prefix planning", host.querySelector('[data-testid="composer-plan-activity-prefix"]')?.textContent === "Planning:");
+    ok("plan title shown", host.querySelector('[data-testid="composer-plan-activity-primary"]')?.textContent?.includes("Canvas v2") === true);
+    ok("no task status chip for planning", host.querySelector('[data-testid="composer-current-task"]') === null);
+    ok("no secondary for planning", host.querySelector('[data-testid="composer-plan-activity-secondary"]') === null);
+    ok("no raw plan id in visible text", !strip?.textContent?.includes("pl_hidden"));
+    await act(async () => { strip?.click(); });
+    ok("planning click fires onOpen (opens plan)", clicks === 1);
     await act(async () => root.unmount());
   }
 
