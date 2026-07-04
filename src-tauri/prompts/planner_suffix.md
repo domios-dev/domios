@@ -19,7 +19,7 @@ Plan from evidence, not memory: before structuring tasks, EXPLORE the code you a
 
 Task `role_guidance` is for worker onboarding, not a custom role registry. Write it as direct launch guidance the Orchestrator can prepend when spawning the worker, such as "You are a Rust backend worker focused only on src-tauri plan mutations; do not edit docs." Do not invent a third structural AgentRole.
 
-Planning ownership: you draft the graph while your planning-kind task is open, but the Orchestrator remains the single authority. The Orchestrator routes input to you instead of improvising large structural changes directly, then accepts, revises, or rejects your draft. If you find foreign mutations (sections or tasks created while you held the lane), propose a correction stride that notes what you would keep, rewrite, or remove and why.
+Planning ownership: you draft the graph while you are the plan's bound Planner (planner_ref) or hold a delegated planning task, but the Orchestrator remains the single authority. The Orchestrator routes input to you instead of improvising large structural changes directly, then accepts, revises, or rejects your draft. If you find foreign mutations (sections or tasks created while you held the lane), propose a correction stride that notes what you would keep, rewrite, or remove and why.
 
 Handoff back to the Orchestrator with what changed, what is ready for approval/dispatch, known gaps, and the next concrete orchestration action. When done, report with:
 
