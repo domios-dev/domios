@@ -94,8 +94,6 @@ test("tsx diff renders highlighted tokens on +/- backgrounds", async () => {
   assert(host.textContent?.includes("answer = 42;"), "added line content should render");
   assert(host.textContent?.includes("answer = 1;"), "removed line content should render");
 
-  // The highlighted token must live *inside* a +/- gutter row — that's what
-  // "tokens on the +/- backgrounds" means structurally. (The color-mix
   const rowWithMarker = (marker: string) =>
     Array.from(host.querySelectorAll<HTMLElement>("div")).find((d) => {
       const first = d.querySelector("span");
@@ -133,7 +131,6 @@ test("large diff over the cap skips per-token highlight (plain fallback)", async
     <DiffView edits={[{ old: "", new: big }]} language="tsx" />,
   );
 
-  // Content still renders…
   assert(host.textContent?.includes("const v0 = 0;"), "large diff content should still render");
   // …but the cap means no per-token Prism span for the `const` keyword.
   assert(!tokenSpan(host, "const"), "large diff should not produce per-token highlight spans");

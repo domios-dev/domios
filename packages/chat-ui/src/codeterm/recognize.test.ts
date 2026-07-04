@@ -1,4 +1,3 @@
-// Run: npx tsx packages/chat-ui/src/codeterm/recognize.test.ts
 import { recognize } from "./recognize";
 
 let passed = 0,

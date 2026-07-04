@@ -1,4 +1,3 @@
-// Run: npx tsx packages/chat-ui/src/codeterm/ReminderCard.test.tsx
 import { Window } from "happy-dom";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -36,7 +35,6 @@ async function renderCard(props: Parameters<typeof ReminderCard>[0]): Promise<HT
   return host;
 }
 
-// relativeTime humanizer
 {
   const now = 1_000_000_000_000;
   assert(relativeTime(now - 5 * 60_000, now) === "5m ago", "relativeTime past minutes");
