@@ -132,7 +132,19 @@ fn derive_planner_name<'a>(
     let mut occupied: Vec<String> = existing_titles.into_iter().map(str::to_string).collect();
     occupied.push(orch_title.to_string());
     occupied.push("Planner".to_string());
-    crate::multiplexer::state::names::generate_unique_tab_name(occupied.iter().map(String::as_str))
+    // Airtight against the role word: reject any candidate that even starts with
+    // "planner" (feeding it back as occupied), so the pair can never label its
+    // planner "Planner …" regardless of what the name pool holds.
+    for _ in 0..8 {
+        let candidate = crate::multiplexer::state::names::generate_unique_tab_name(
+            occupied.iter().map(String::as_str),
+        );
+        if !candidate.to_ascii_lowercase().starts_with("planner") {
+            return candidate;
+        }
+        occupied.push(candidate);
+    }
+    "Specialist".to_string()
 }
 
 fn orchestrator_pair_followup_degraded(fix_command: &str, error: &str) -> String {
@@ -516,6 +528,10 @@ mod tests {
                 "planner never copies the orchestrator's name"
             );
             assert_ne!(name, "Planner", "planner is never the literal role word");
+            assert!(
+                !name.to_ascii_lowercase().starts_with("planner"),
+                "planner name never even STARTS with the role word (got '{name}')"
+            );
             assert!(!name.trim().is_empty(), "planner always gets a real name");
         }
     }
