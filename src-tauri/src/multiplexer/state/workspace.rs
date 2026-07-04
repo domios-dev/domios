@@ -33,6 +33,13 @@ impl MultiplexerState {
         self.workspaces.iter().find(|w| w.id == id)
     }
 
+    /// Live pane count for a single workspace (one pane per tab). Scoped to the
+    /// given workspace only — other workspaces never contribute — so the pane
+    /// budget can't couple unrelated workspaces. Unknown id → 0.
+    pub fn pane_count_in_workspace(&self, id: &str) -> usize {
+        self.get_workspace(id).map(|w| w.tabs.len()).unwrap_or(0)
+    }
+
     /// Find a workspace whose `cwd` refers to the same folder as `query`.
     /// Uses `paths::normalize_cwd` on both sides so trailing slashes, case
     /// differences on Windows, and symlink variants all collapse to a match.
@@ -230,5 +237,32 @@ impl MultiplexerState {
                 }
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod pane_count_tests {
+    use super::*;
+
+    #[test]
+    fn pane_count_is_scoped_to_one_workspace() {
+        let (mut state, _root) = MultiplexerState::new();
+        let small = state.create_workspace("small".into(), None).id;
+        let crowded = state.create_workspace("crowded".into(), None).id;
+
+        state.create_tab(&small).unwrap();
+        for _ in 0..25 {
+            state.create_tab(&crowded).unwrap();
+        }
+
+        // The crowded workspace's 25 panes must never leak into the small one.
+        assert_eq!(state.pane_count_in_workspace(&small), 1);
+        assert_eq!(state.pane_count_in_workspace(&crowded), 25);
+    }
+
+    #[test]
+    fn pane_count_unknown_workspace_is_zero() {
+        let (state, _root) = MultiplexerState::new();
+        assert_eq!(state.pane_count_in_workspace("does-not-exist"), 0);
     }
 }

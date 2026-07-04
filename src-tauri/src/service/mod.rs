@@ -30,6 +30,7 @@ mod orchestrator_onboard;
 mod output;
 mod output_feed;
 mod pane;
+pub mod pane_budget;
 pub mod pane_chat;
 pub mod pane_transport;
 pub mod pane_transport_chat;
@@ -80,6 +81,7 @@ pub use inject_verify::{
 pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
 pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnResult};
 pub use pane::{normalize_pane_description, MAX_PANE_DESCRIPTION_CHARS};
+pub use pane_budget::{evaluate_pane_budget, PaneBudgetLevel, PaneBudgetNotice};
 
 /// Shared service context — all state needed for multiplexer operations.
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.

@@ -98,6 +98,7 @@ impl ServiceContext {
             role,
             role_profile,
             warning: handle.warning,
+            budget_notice: handle.budget_notice,
         })
     }
 
@@ -141,6 +142,7 @@ impl ServiceContext {
                 role,
                 role_profile,
                 warning: handle.warning,
+                budget_notice: handle.budget_notice,
             });
         }
 
@@ -425,6 +427,7 @@ impl ServiceContext {
             .map(|p| p.title.clone())
             .unwrap_or_default();
 
+        let budget_notice = self.workspace_pane_budget_notice(&ws_id);
         Ok(SpawnResult {
             pane_id,
             tab_id,
@@ -436,6 +439,7 @@ impl ServiceContext {
             role: params.role,
             role_profile: params.role_profile,
             warning,
+            budget_notice,
         })
     }
 
