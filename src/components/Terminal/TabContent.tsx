@@ -4,8 +4,6 @@ import { PaneTopBar } from "./PaneTopBar";
 import { NewSessionPicker } from "./NewSessionPicker";
 import { isPaneVisible } from "../MemoryPanel/workerFocusStore";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
-import { isSessionPickerPane, subscribeSessionPickerPanes } from "../../lib/sessionPickerPanes";
-import { useEffect, useState } from "react";
 import { FirstRunGeneralPicker, isFirstRunGeneralPane } from "../AgentPicker";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import type {
@@ -57,15 +55,6 @@ export function TabContent({
   agentsConfig,
 }: TabContentProps) {
   const descriptor = useAgentDescriptor(pane?.agent_type);
-  const [pickerPane, setPickerPane] = useState(() => (pane ? isSessionPickerPane(pane.id) : false));
-
-  useEffect(() => {
-    if (!pane) return;
-    setPickerPane(isSessionPickerPane(pane.id));
-    return subscribeSessionPickerPanes(() => {
-      setPickerPane(isSessionPickerPane(pane.id));
-    });
-  }, [pane?.id]);
   const { providers } = useAgentProviders();
 
   if (!pane) return null;
@@ -79,7 +68,7 @@ export function TabContent({
     );
   }
 
-  if (pickerPane && !pane.agent_type) {
+  if (pane.virtual && !pane.agent_type) {
     return (
       <PaneWrapper paneId={pane.id}>
         <NewSessionPicker

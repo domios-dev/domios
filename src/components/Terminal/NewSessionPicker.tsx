@@ -11,19 +11,19 @@ import {
   type NewSessionMode,
 } from "../../lib/newSessionChoice";
 import { buildDestinationPreview, MODE_HELP_TEXT, WORKSPACE_HELP_TEXT } from "../../lib/newSessionPickerContent";
-import { clearSessionPickerPane } from "../../lib/sessionPickerPanes";
 import { probeProviderInstallMap } from "../../lib/providerInstallStatus";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
 import { ModeCards, WorkspaceRow } from "./NewSessionPickerParts";
 import { FloatingTooltip } from "../shared/FloatingTooltip";
 
 export function NewSessionPicker({
-  paneId,
   workspaceId,
   tabId,
   workspaceCwd,
   agentsConfig,
 }: {
+  /** Virtual picker pane id — kept for the caller's prop shape; the confirm
+   *  flow works off the workspace + virtual tab id, not the pane. */
   paneId: string;
   workspaceId: string;
   tabId: string;
@@ -31,7 +31,7 @@ export function NewSessionPicker({
   agentsConfig?: AppConfig["agents"];
 }) {
   const { providers } = useAgentProviders();
-  const { spawnAgentTab, createOrchestrationPair, closeTab, addNotification, state, createWorkspace } = useMultiplexer();
+  const { spawnAgentTab, createOrchestrationPair, closeSessionPicker, addNotification, state, createWorkspace } = useMultiplexer();
   const visibleProviders = useMemo(
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
     [providers, agentsConfig],
@@ -104,24 +104,20 @@ export function NewSessionPicker({
     if (info?.id) setSelectedWorkspaceId(info.id);
   }, [newWorkspaceName, createWorkspace]);
 
+  // Confirm materializes the FIRST real pane, then retires the virtual picker
+  // tab. The real spawn (single or pair) creates the backend pane/tab and
+  // activates it; dropping the virtual tab afterwards leaves the session tab
+  // sitting where the picker was — the "in-place" transform, minus the husk.
   const finishSpawn = useCallback(async (
     runner: () => Promise<void>,
-    opts?: { skipClose?: boolean },
   ) => {
     setBusy(true);
     try {
       await runner();
-      clearSessionPickerPane(paneId);
-      // In-place spawns (orchestration pair, same workspace) claim this exact
-      // tab/pane for the Orchestrator — closing it here would destroy the
-      // agent we just spawned. Cross-workspace spawns still close it, since
-      // the picker's own tab was never touched by the spawn.
-      if (!opts?.skipClose) {
-        await closeTab(workspaceId, tabId);
-      }
+      closeSessionPicker(workspaceId, tabId);
     } catch (e) {
       addNotification({
-        pane_id: paneId,
+        pane_id: null,
         workspace_id: workspaceId,
         title: "Session start failed",
         body: e instanceof Error ? e.message : String(e),
@@ -131,7 +127,7 @@ export function NewSessionPicker({
     } finally {
       setBusy(false);
     }
-  }, [addNotification, closeTab, paneId, tabId, workspaceId]);
+  }, [addNotification, closeSessionPicker, tabId, workspaceId]);
 
   const runSingleSpawn = useCallback(async (skipPermissions: boolean) => {
     if (choice.mode !== "single") return;
@@ -156,10 +152,9 @@ export function NewSessionPicker({
     ) {
       return;
     }
-    // Only claim the picker's own tab in place when the destination IS this
-    // tab's workspace — a cross-workspace spawn leaves this tab alone to close
-    // normally, since the group is being created somewhere else entirely.
-    const sameWorkspace = selectedWorkspaceId === workspaceId;
+    // The picker is virtual — there is no real tab to reuse. The backend mints
+    // the Orchestrator's own tab (already titled); we just retire the virtual
+    // one afterwards.
     await finishSpawn(async () => {
       await createOrchestrationPair({
         orchestratorAgent: choice.orchestratorProviderId,
@@ -167,10 +162,9 @@ export function NewSessionPicker({
         plannerAgent: choice.plannerProviderId,
         plannerModel: choice.plannerModelId,
         workspaceId: selectedWorkspaceId,
-        existingTabId: sameWorkspace ? tabId : undefined,
       });
-    }, { skipClose: sameWorkspace });
-  }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, tabId, selectedWorkspaceId, workspaceId]);
+    });
+  }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, selectedWorkspaceId]);
 
   const handleStart = useCallback(() => {
     if (choice.mode === "pair") {
