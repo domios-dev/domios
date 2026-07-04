@@ -167,11 +167,11 @@ impl PlanStore {
     }
 
     fn note_write(&self, path: &Path) {
-        if let Ok(meta) = std::fs::metadata(path) {
+        // Canonicalize so the key is stable across \\?\ vs plain-drive representations on Windows.
+        let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        if let Ok(meta) = std::fs::metadata(&key) {
             if let Ok(modified) = meta.modified() {
-                self.last_writes
-                    .write()
-                    .insert(path.to_path_buf(), modified);
+                self.last_writes.write().insert(key, modified);
             }
         }
     }
@@ -195,7 +195,8 @@ impl PlanStore {
     }
 
     pub fn is_own_recent_write(&self, path: &Path) -> bool {
-        let Ok(meta) = std::fs::metadata(path) else {
+        let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let Ok(meta) = std::fs::metadata(&key) else {
             return false;
         };
         let Ok(modified) = meta.modified() else {
@@ -203,7 +204,7 @@ impl PlanStore {
         };
         self.last_writes
             .read()
-            .get(path)
+            .get(&key)
             .is_some_and(|last| *last == modified)
     }
 
