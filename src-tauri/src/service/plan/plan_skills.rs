@@ -110,7 +110,7 @@ fn first_summary_paragraph(body: &str) -> String {
             .lines()
             .find(|line| {
                 let t = line.trim();
-                !t.is_empty() && !t.starts_with('#') && !t.starts_with('_')
+                !t.is_empty() && !t.starts_with('#')
             })
             .unwrap_or("");
         let t = line.trim();
