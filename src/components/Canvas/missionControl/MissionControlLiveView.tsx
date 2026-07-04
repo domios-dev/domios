@@ -12,24 +12,38 @@ import { FlyToActiveControl } from "../FlyToActiveControl";
 import { selectActiveWork } from "../planView/activeWork";
 import type { Plan } from "../types";
 import { buildMissionControl } from "./missionControl";
-import { missionControlHealth, modelToSnapshot } from "./modelAdapter";
+import { modelToSnapshot } from "./modelAdapter";
+import { buildFlowRiver, type FlowRiverModel } from "./flowModel";
 import { missionControlInputRevision } from "./missionControlInputRevision";
 import { resolveMissionControlLod, type MissionControlLodLevel } from "./missionControlLod";
-import { MissionControlStage } from "./MissionControlStage";
+import { PlanRiver } from "./PlanRiver";
+import { RIVER_WIDTH } from "./flowLayout";
 import { useReducedMotion } from "./useReducedMotion";
-import type { MissionControlSnapshot } from "./types";
-
 import { MC_PAN_IGNORE } from "./missionControlViewport";
 
 export interface MissionControlLiveViewProps {
-  plan: Plan;
+  plans: Plan[];
+  activePlanId: string;
   panes?: Record<string, Pane>;
   onTaskClick?: (taskId: string) => void;
-  onOpenPlan?: () => void;
+  onOpenPlan?: (planId: string) => void;
   onAgentClick?: (paneId: string) => void;
 }
 
-export function MissionControlLiveView({ plan, panes = {}, onTaskClick, onOpenPlan, onAgentClick }: MissionControlLiveViewProps) {
+interface RiverEntry {
+  planId: string;
+  model: FlowRiverModel;
+  compact: boolean;
+}
+
+export function MissionControlLiveView({
+  plans,
+  activePlanId,
+  panes = {},
+  onTaskClick,
+  onOpenPlan,
+  onAgentClick,
+}: MissionControlLiveViewProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const scaleLabelRef = useRef<HTMLSpanElement | null>(null);
   const lodRef = useRef<MissionControlLodLevel>("close");
@@ -38,33 +52,46 @@ export function MissionControlLiveView({ plan, panes = {}, onTaskClick, onOpenPl
   const reducedMotion = useReducedMotion();
 
   const inputRevision = useMemo(
-    () => missionControlInputRevision(plan, panes),
-    [plan, panes],
+    () => plans.map((p) => missionControlInputRevision(p, panes)).join("|"),
+    [plans, panes],
   );
 
-  const sectionTitleById = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const s of flattenSections(plan.sections)) {
-      const t = s.title?.trim();
-      if (t) m.set(s.id, t);
-    }
-    return m;
-  }, [plan.id, inputRevision]);
+  // Active plan renders full-height first; the rest stack compact below.
+  const orderedPlans = useMemo(() => {
+    const active = plans.find((p) => p.id === activePlanId);
+    const rest = plans.filter((p) => p.id !== activePlanId);
+    return active ? [active, ...rest] : plans;
+  }, [plans, activePlanId]);
 
-  const model = useMemo(() => buildMissionControl(plan, panes), [inputRevision, plan, panes]);
-  const snapshot: MissionControlSnapshot = useMemo(
-    () =>
-      modelToSnapshot({
+  const rivers = useMemo<RiverEntry[]>(() => {
+    return orderedPlans.map((plan, i) => {
+      const sectionTitle = new Map<string, string>();
+      for (const s of flattenSections(plan.sections)) {
+        const t = s.title?.trim();
+        if (t) sectionTitle.set(s.id, t);
+      }
+      const model = buildMissionControl(plan, panes);
+      const snapshot = modelToSnapshot({
         plan,
         model,
         panes,
-        sectionTitleOf: (id) => sectionTitleById.get(id) ?? null,
-      }),
-    [inputRevision, plan, model, panes, sectionTitleById],
-  );
-  const health = useMemo(() => missionControlHealth(snapshot), [snapshot]);
+        sectionTitleOf: (id) => sectionTitle.get(id) ?? null,
+      });
+      return {
+        planId: plan.id,
+        model: buildFlowRiver(plan, model, snapshot, panes),
+        compact: i > 0,
+      };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inputRevision, orderedPlans, panes]);
 
-  const activeWork = useMemo(() => selectActiveWork([plan], panes), [inputRevision, plan, panes]);
+  const activeWork = useMemo(() => selectActiveWork(plans, panes), [inputRevision, plans, panes]);
+  const taskPlanId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const plan of plans) for (const t of plan.tasks) m.set(t.id, plan.id);
+    return m;
+  }, [plans]);
 
   const syncLod = useCallback((scale: number) => {
     const next = resolveMissionControlLod(scale);
@@ -82,25 +109,16 @@ export function MissionControlLiveView({ plan, panes = {}, onTaskClick, onOpenPl
     [syncLod],
   );
 
-  const {
-    transform,
-    handlers,
-    fitToView,
-    zoomBy,
-    setTransform,
-    isDragging,
-    containerRef,
-    layerRef,
-    transformRef,
-  } = useCanvasViewport({
-    width: size.width,
-    height: size.height,
-    minScale: CANVAS_MIN_SCALE,
-    maxScale: CANVAS_MAX_SCALE,
-    panButton: "any",
-    ignoreSelector: MC_PAN_IGNORE,
-    onPaint,
-  });
+  const { transform, handlers, fitToView, zoomBy, setTransform, isDragging, containerRef, layerRef, transformRef } =
+    useCanvasViewport({
+      width: size.width,
+      height: size.height,
+      minScale: CANVAS_MIN_SCALE,
+      maxScale: CANVAS_MAX_SCALE,
+      panButton: "any",
+      ignoreSelector: MC_PAN_IGNORE,
+      onPaint,
+    });
 
   useLayoutEffect(() => {
     paintLayer(layerRef.current, transformRef.current);
@@ -127,47 +145,36 @@ export function MissionControlLiveView({ plan, panes = {}, onTaskClick, onOpenPl
     setTransform({ scale: 1, x: 0, y: 0 });
   }, [size.width, setTransform]);
 
-  const fitStage = useCallback(() => fitToView({ x: 0, y: 0, width: 1120, height: 700 }), [fitToView]);
-
-  const focusTaskBay = useCallback(
-    (taskId: string) => {
-      const lane = snapshot.lanes.find((l) => {
-        const tasks = l.activeTasks ?? (l.activeTask ? [l.activeTask] : []);
-        return tasks.some((t) => t.id === taskId);
-      });
-      if (lane) {
-        const el = shellRef.current?.querySelector(`[data-testid="lane-bay-${lane.id}"]`);
-        el?.scrollIntoView({ block: "nearest", inline: "center", behavior: reducedMotion ? "auto" : "smooth" });
-      }
-    },
-    [snapshot.lanes, reducedMotion],
+  const stackHeight = 260 + Math.max(0, rivers.length - 1) * 180;
+  const fitStage = useCallback(
+    () => fitToView({ x: 0, y: 0, width: RIVER_WIDTH + 60, height: stackHeight }),
+    [fitToView, stackHeight],
   );
 
-  const showEvents = !reducedMotion && lod === "close";
+  const flyToTask = useCallback(
+    (taskId: string) => {
+      const planId = taskPlanId.get(taskId);
+      if (!planId) return;
+      const el = shellRef.current?.querySelector(`[data-testid="plan-river-${planId}"]`);
+      el?.scrollIntoView({ block: "center", behavior: reducedMotion ? "auto" : "smooth" });
+    },
+    [taskPlanId, reducedMotion],
+  );
 
   return (
     <div
       ref={shellRef}
-      className={`mc-root mc-live-shell${reducedMotion ? " mc-reduced-motion" : ""}`}
+      className={`mc-root mc-live-shell mc-flow-shell${reducedMotion ? " mc-reduced-motion" : ""}`}
       data-testid="mission-control-live"
     >
       <header className="mc-live-toolbar">
-        <button type="button" className="mc-pill" data-active="true" onClick={onOpenPlan}>
-          {snapshot.planTitle}
-        </button>
         <div className="mc-live-zoom">
-          <button type="button" className="mc-pill" onClick={() => zoomBy(-0.15)} aria-label="Zoom out">
-            −
-          </button>
+          <button type="button" className="mc-pill" onClick={() => zoomBy(-0.15)} aria-label="Zoom out">−</button>
           <span ref={scaleLabelRef} className="mc-live-scale" data-testid="mission-control-scale">
             {Math.round(transform.scale * 100)}%
           </span>
-          <button type="button" className="mc-pill" onClick={() => zoomBy(0.15)} aria-label="Zoom in">
-            +
-          </button>
-          <button type="button" className="mc-pill" onClick={fitStage}>
-            Fit
-          </button>
+          <button type="button" className="mc-pill" onClick={() => zoomBy(0.15)} aria-label="Zoom in">+</button>
+          <button type="button" className="mc-pill" onClick={fitStage}>Fit</button>
         </div>
       </header>
       <div
@@ -177,18 +184,23 @@ export function MissionControlLiveView({ plan, panes = {}, onTaskClick, onOpenPl
         style={{ cursor: isDragging ? "grabbing" : "grab" }}
       >
         <div ref={layerRef} className="mc-stage-wrap mc-live-stage-wrap">
-          <MissionControlStage
-            snapshot={snapshot}
-            lod={lod}
-            dispatchGap={health.dispatchGap}
-            qaBottleneck={health.qaBottleneck}
-            showEvents={showEvents}
-            onTaskClick={onTaskClick}
-            onAgentClick={onAgentClick}
-          />
+          <div className="mc-flow-stack" style={{ width: RIVER_WIDTH }}>
+            {rivers.map((r) => (
+              <PlanRiver
+                key={r.planId}
+                model={r.model}
+                compact={r.compact}
+                lod={lod}
+                reducedMotion={reducedMotion}
+                onTaskClick={onTaskClick}
+                onAgentClick={onAgentClick}
+                onOpenPlan={onOpenPlan}
+              />
+            ))}
+          </div>
         </div>
       </div>
-      <FlyToActiveControl entries={activeWork.entries} onFly={focusTaskBay} />
+      <FlyToActiveControl entries={activeWork.entries} onFly={flyToTask} />
     </div>
   );
 }

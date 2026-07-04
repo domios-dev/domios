@@ -28,7 +28,7 @@ export const MISSION_CONTROL_PLAN_SURFACE_SEL = '[data-testid="mission-control-p
 export const PLAN_CANVAS_VISIBLE_SEL = MISSION_CONTROL_LIVE_SEL;
 
 export const CANVAS_BOARD_SEL =
-  '[data-testid="canvas-plan-node"], [data-testid="canvas-world-canvas"], [data-testid="variant-assembly-line"], [data-testid="dispatch-rail"]';
+  '[data-testid="canvas-plan-node"], [data-testid="canvas-world-canvas"], [data-testid="mission-control-live"], [data-testid="plan-river"]';
 
 export const CANVAS_BOARD_OR_EMPTY_SEL =
   `${CANVAS_BOARD_SEL}, [data-testid="canvas-empty"], [data-testid="mission-control-empty"]`;

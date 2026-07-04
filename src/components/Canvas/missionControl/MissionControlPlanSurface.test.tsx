@@ -1,0 +1,146 @@
+// Run: npx tsx src/components/Canvas/missionControl/MissionControlPlanSurface.test.tsx
+
+import { act, type ReactElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { Window } from "happy-dom";
+import { FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
+import { TaskStatus, type Plan, type Task, type TaskGroup } from "../types";
+import { MissionControlPlanSurface } from "./MissionControlPlanSurface";
+
+type TestFn = () => void | Promise<void>;
+const tests: Array<[string, TestFn]> = [];
+function test(name: string, fn: TestFn) {
+  tests.push([name, fn]);
+}
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
+function setupDom() {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const window = new Window({ url: "http://localhost/mc-surface" });
+  (window as unknown as { __TAURI_INTERNALS__: Record<string, unknown> }).__TAURI_INTERNALS__ = {};
+  (window as unknown as { matchMedia: (q: string) => unknown }).matchMedia = () => ({
+    matches: false,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+  });
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  (globalThis as { ResizeObserver?: unknown }).ResizeObserver = ResizeObserverStub;
+  (window as unknown as { ResizeObserver: unknown }).ResizeObserver = ResizeObserverStub;
+  if (typeof (window as unknown as { requestAnimationFrame?: unknown }).requestAnimationFrame !== "function") {
+    (window as unknown as { requestAnimationFrame: (cb: () => void) => number }).requestAnimationFrame = () => 0;
+    (window as unknown as { cancelAnimationFrame: () => void }).cancelAnimationFrame = () => {};
+  }
+  for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLButtonElement", "Node", "requestAnimationFrame", "cancelAnimationFrame"]) {
+    const value = (window as unknown as Record<string, unknown>)[key];
+    if (value !== undefined) Object.defineProperty(globalThis, key, { value, configurable: true });
+  }
+}
+
+async function render(ui: ReactElement) {
+  setupDom();
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root: Root = createRoot(host);
+  await act(async () => {
+    root.render(ui);
+  });
+  return {
+    host,
+    unmount: async () => {
+      await act(async () => root.unmount());
+      host.remove();
+    },
+  };
+}
+
+const GROUPS: TaskGroup[] = [
+  { key: "wave-26", label: "Wave 26", color: null },
+  { key: "wave-27", label: "Wave 27", color: null },
+];
+
+function mkTask(id: string, status: TaskStatus, group: string): Task {
+  return { ...FIXTURE_TASK, id, name: id, status, group, section_ids: [], milestones: [] };
+}
+
+function mkPlan(): Plan {
+  return {
+    ...FIXTURE_PLAN,
+    id: "pl_flow",
+    title: "Plan views UX redesign",
+    task_groups: GROUPS,
+    loops: [],
+    tasks: [
+      mkTask("t1", TaskStatus.InProgress, "wave-26"),
+      mkTask("t2", TaskStatus.Pending, "wave-26"),
+      mkTask("t3", TaskStatus.Done, "wave-26"),
+      mkTask("t4", TaskStatus.Pending, "wave-27"),
+    ],
+  };
+}
+
+test("renders the flow river with milestone derived from task groups", async () => {
+  const { host, unmount } = await render(
+    <MissionControlPlanSurface mode="workspace" plans={[mkPlan()]} onAllPlansChange={() => {}} allPlans={false} />,
+  );
+  assert(host.querySelector('[data-testid="plan-river-pl_flow"]'), "plan river rendered");
+  assert(host.textContent?.includes("Wave 26"), "milestone label from task group");
+  assert(host.textContent?.includes("2 of 3 left"), "N-of-M from group members");
+  await unmount();
+});
+
+test("all-plans toggle is present and fires onAllPlansChange", async () => {
+  let scope: boolean | null = null;
+  const { host, unmount } = await render(
+    <MissionControlPlanSurface
+      mode="workspace"
+      plans={[mkPlan()]}
+      allPlans={false}
+      onAllPlansChange={(v) => (scope = v)}
+    />,
+  );
+  const wsBtn = host.querySelector('[data-testid="mc-scope-workspace"]') as HTMLElement | null;
+  const allBtn = host.querySelector('[data-testid="mc-scope-all-plans"]') as HTMLElement | null;
+  assert(wsBtn, "workspace scope button");
+  assert(allBtn, "all-plans scope button");
+  assert(wsBtn!.getAttribute("data-active") === "true", "workspace active by default");
+  await act(async () => allBtn!.click());
+  assert(scope === true, `all-plans click lifts filter, got ${scope}`);
+  await unmount();
+});
+
+test("all-plans active state reflects the prop", async () => {
+  const { host, unmount } = await render(
+    <MissionControlPlanSurface mode="workspace" plans={[mkPlan()]} allPlans onAllPlansChange={() => {}} />,
+  );
+  const allBtn = host.querySelector('[data-testid="mc-scope-all-plans"]');
+  assert(allBtn?.getAttribute("data-active") === "true", "all-plans reflects active prop");
+  await unmount();
+});
+
+async function main() {
+  let failed = 0;
+  for (const [name, fn] of tests) {
+    try {
+      await fn();
+      console.log(`  ✓ ${name}`);
+    } catch (e) {
+      failed += 1;
+      console.error(`  ✗ ${name}: ${(e as Error).message}`);
+    }
+  }
+  if (failed > 0) {
+    console.error(`\n${failed} of ${tests.length} surface test(s) failed`);
+    process.exit(1);
+  }
+  console.log(`\n✓ all ${tests.length} surface test(s) green`);
+}
+
+void main();

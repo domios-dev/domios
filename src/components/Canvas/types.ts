@@ -75,6 +75,12 @@ export interface MilestoneKind {
   color: string | null;
 }
 
+export interface TaskGroup {
+  key: string;
+  label: string;
+  color?: string | null;
+}
+
 export interface TagFacetValue {
   v: string;
   label?: string | null;
@@ -281,6 +287,7 @@ export interface Plan {
   created_at: number;
   updated_at: number;
   milestone_kinds: MilestoneKind[];
+  task_groups?: TaskGroup[];
   tag_facets?: TagFacet[];
   loops: LoopSpec[];
   elements: CanvasElement[];
