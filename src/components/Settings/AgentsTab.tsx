@@ -8,6 +8,7 @@ import { ProviderInstallCard } from "./ProviderInstallCard";
 import { ProviderNotifications } from "./ProviderNotifications";
 import { SettingsCard, SettingsPill, Toggle } from "./shared";
 import { AgentIcon } from "../AgentIcon";
+import { Button } from "../shared/Button";
 
 export function AgentsOverview({
   config,
@@ -57,15 +58,17 @@ export function AgentsOverview({
                     <option key={p.id} value={p.id}>{p.display_name}</option>
                   ))}
                 </select>
-                <button
+                <Button
+                  variant="ghost"
+                  size="compact"
                   data-testid="settings-general-agent-restart"
                   onClick={() => {
                     invoke("restart_general_agent").catch((e) => console.error("GA restart failed:", e));
                   }}
-                  className="px-2.5 py-1.5 text-[11px] font-medium rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors"
+                  className="text-[11px]"
                 >
                   Restart
-                </button>
+                </Button>
               </div>
             </div>
             <Toggle
@@ -103,17 +106,19 @@ export function AgentsOverview({
         icon={<Server size={16} />}
         title="Providers"
         headerRight={
-          <button
+          <Button
+            variant="accent"
+            size="compact"
             type="button"
             data-testid="settings-open-provider-plugins"
             onClick={onOpenPlugins}
-            className="flex items-center gap-1 rounded-full bg-[var(--ct-accent)]/12 px-2.5 py-1 text-[10px] font-medium text-[var(--ct-accent)] transition-colors hover:bg-[var(--ct-accent)]/20 active:scale-95"
+            className="gap-1 text-[10px]"
             title="Providers are installed and managed as plugins"
           >
             <Puzzle size={11} strokeWidth={2.2} />
             managed by plugins
             <ChevronRight size={11} className="opacity-70" />
-          </button>
+          </Button>
         }
       >
         {error && (
@@ -126,12 +131,13 @@ export function AgentsOverview({
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {providers.map((p) => (
-            <button
+            <Button
+              variant="ghost"
               key={p.id}
+              className="h-auto min-h-0 justify-start gap-3 p-4 text-left"
               data-testid="settings-agent-provider-row"
               data-provider-id={p.id}
               onClick={() => onOpenProvider(p.id)}
-              className="flex items-center gap-3 p-4 rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 hover:bg-[var(--ct-hover)] hover:border-[var(--ct-accent)]/50 transition-colors text-left"
             >
               <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-[18px] shrink-0">
                 <AgentIcon providerId={p.id} title={p.display_name} />
@@ -141,7 +147,7 @@ export function AgentsOverview({
                 <div className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5">{p.id}</div>
               </div>
               <ChevronRight size={14} className="shrink-0 text-[var(--ct-muted)]" />
-            </button>
+            </Button>
           ))}
         </div>
       </SettingsCard>
