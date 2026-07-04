@@ -8,15 +8,15 @@ interface RoleBadgeProps {
   className?: string;
 }
 
-/** Occupies the model-chip slot for group leadership (Orchestrator/Planner),
- *  making the subordination model legible at a glance. Accent-tinted so it
- *  reads as an identity, not the muted model chip it replaces. */
+/** Group-leadership identity in the model-chip slot (Orchestrator/Planner).
+ *  Borderless accent-colored small-caps — an identity, not a boxed chip. No
+ *  border/background: the color alone carries the role. */
 export function RoleBadge({ label, title, className = "" }: RoleBadgeProps) {
   return (
     <span
       data-testid={roleBadgeTestId(label)}
       data-role-badge={label}
-      className={`sidebar-tab-badge sidebar-role-badge px-1 py-0 text-[8px] leading-tight rounded font-mono uppercase tracking-wider border border-[var(--ct-accent)]/40 bg-[var(--ct-accent)]/10 text-[var(--ct-accent)] ${className}`}
+      className={`sidebar-role-badge text-[8px] leading-tight font-mono font-semibold uppercase tracking-wider text-[var(--ct-accent)] ${className}`}
       title={title}
     >
       {label}

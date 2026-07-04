@@ -47,6 +47,20 @@ test("smallest scale drops the MODEL, always keeps the ROLE", () => {
   assert(shouldDropModelAtScale(LARGEST) === false, "model kept at the largest scale");
 });
 
+test("role badge is borderless — no box, border, background, or rounded chrome", async () => {
+  const { host, root } = await render(
+    <RoleModelBadge role="ORCHESTRATOR" model="OPUS" uiFontScale={DEFAULT} />,
+  );
+  const roleEl = host.querySelector<HTMLElement>('[data-testid="role-badge-orchestrator"]')!;
+  const cls = roleEl.className;
+  assert(!/\bborder\b|\bborder-/.test(cls), `no border class (got "${cls}")`);
+  assert(!/\bbg-/.test(cls), `no background class (got "${cls}")`);
+  assert(!/\brounded\b|\brounded-/.test(cls), `no rounded class (got "${cls}")`);
+  // Color still carries the role identity.
+  assert(/text-\[var\(--ct-accent\)\]/.test(cls), "role text keeps the accent color");
+  await act(async () => root.unmount());
+});
+
 test("ORCHESTRATOR · OPUS renders whole (role + model) at default and largest scales", async () => {
   for (const scale of [DEFAULT, LARGEST]) {
     const { host, root } = await render(
