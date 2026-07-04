@@ -1,0 +1,92 @@
+tests/playwright/suites/12-web/tab-status-rail.spec.ts:132 Playwright test title is missing @smoke, @golden, or @quarantine.
+tests/playwright/suites/12-web/tab-status-rail.spec.ts:137 Playwright test title is missing @smoke, @golden, or @quarantine.
+tests/playwright/suites/12-web/tab-status-rail.spec.ts:157 Playwright test title is missing @smoke, @golden, or @quarantine.
+tests/playwright/suites/12-web/tab-status-rail.spec.ts:197 Playwright test title is missing @smoke, @golden, or @quarantine.
+tests/playwright/suites/12-web/tab-status-rail.spec.ts:206 Playwright test title is missing @smoke, @golden, or @quarantine.
+tests/playwright/suites/12-web/tab-status-rail.spec.ts:233 Playwright test title is missing @smoke, @golden, or @quarantine.
+tests/playwright/suites/12-web/tab-status-rail.spec.ts:253 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/12-web/tab-status-rail.spec.ts:263 Playwright test title is missing @smoke, @golden, or @quarantine.
+tests/playwright/suites/12-web/tab-status-rail.spec.ts:294 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/12-web/tab-status-rail.spec.ts:307 Playwright test title is missing @smoke, @golden, or @quarantine.
+tests/playwright/suites/12-web/tab-status-rail.spec.ts:324 Playwright test title is missing @smoke, @golden, or @quarantine.
+tests/playwright/suites/12-web/tab-status-rail.spec.ts:357 Playwright test title is missing @smoke, @golden, or @quarantine.
+tests/playwright/suites/12-web/tab-status-rail.spec.ts:381 Playwright test title is missing @smoke, @golden, or @quarantine.
+tests/playwright/suites/12-web/tab-status-rail.spec.ts:433 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/12-web/tab-status-rail.spec.ts:437 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/12-web/tab-status-rail.spec.ts:443 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/_diag.spec.ts:12 Playwright test title is missing @smoke, @golden, or @quarantine.
+tests/playwright/suites/13-canvas/_diag.spec.ts:12 Playwright test has no expect() assertion.
+tests/playwright/suites/13-canvas/_diag.spec.ts:22 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-calm-ux.spec.ts:33 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-calm-ux.spec.ts:37 Playwright force: true is banned; wait for an actionable element instead.
+tests/playwright/suites/13-canvas/canvas-calm-ux.spec.ts:38 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-calm-ux.spec.ts:43 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-nav.spec.ts:50 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-nav.spec.ts:57 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-nav.spec.ts:67 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-perf.spec.ts:123 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-perf.spec.ts:144 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-perf.spec.ts:161 Playwright test title is missing @smoke, @golden, or @quarantine.
+tests/playwright/suites/13-canvas/canvas-perf.spec.ts:192 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-perf.spec.ts:196 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-plan-document.spec.ts:45 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-plan-document.spec.ts:76 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-plan-document.spec.ts:80 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-plan-document.spec.ts:118 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-plan-document.spec.ts:150 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-presence.spec.ts:32 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-presence.spec.ts:46 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-presence.spec.ts:53 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-reconnecting-banner.spec.ts:123 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-reconnecting-banner.spec.ts:156 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-section-agent.spec.ts:30 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-section-agent.spec.ts:73 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-section-zones.spec.ts:30 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-section-zones.spec.ts:60 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-section-zones.spec.ts:64 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-spec-plan-link.spec.ts:55 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-spec-plan-link.spec.ts:58 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-spec-plan-link.spec.ts:76 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-task-titles.spec.ts:114 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-task-titles.spec.ts:120 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-ux1-schematic.spec.ts:35 Playwright test title is missing @smoke, @golden, or @quarantine.
+tests/playwright/suites/13-canvas/canvas-ux1-schematic.spec.ts:70 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-ux1-schematic.spec.ts:74 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-visual-sweep.spec.ts:42 Playwright test has no expect() assertion.
+tests/playwright/suites/13-canvas/canvas-visual-sweep.spec.ts:89 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-visual.spec.ts:27 Playwright test title is missing @smoke, @golden, or @quarantine.
+tests/playwright/suites/13-canvas/canvas-working-points.spec.ts:57 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-worlds-v2.spec.ts:123 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-worlds-v3.spec.ts:175 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/canvas-zoom-drift.spec.ts:64 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/mission-control-flow.spec.ts:110 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/plan-header-mobile.spec.ts:303 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/tab-switch-latency.spec.ts:73 Playwright test title is missing @smoke, @golden, or @quarantine.
+tests/playwright/suites/13-canvas/tab-switch-latency.spec.ts:105 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/tab-switch-latency.spec.ts:107 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/tab-switch-latency.spec.ts:112 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/tab-switch-latency.spec.ts:119 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/tab-switch-latency.spec.ts:121 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/tab-switch-latency.spec.ts:128 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/tab-switch-latency.spec.ts:130 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/13-canvas/workspace-plan-entry.spec.ts:94 Playwright force: true is banned; wait for an actionable element instead.
+tests/playwright/suites/16-chat-view/composer-focus-steal.spec.ts:111 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/16-chat-view/cursor-new-rebinds-session.spec.ts:139 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/16-chat-view/cursor-new-rebinds-session.spec.ts:195 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/16-chat-view/opencode-assistant-replies.spec.ts:101 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/16-chat-view/send-on-fresh-pane.spec.ts:63 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/18-reorder/pin-general.spec.ts:71 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/18-reorder/pin-general.spec.ts:74 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/18-reorder/pin-general.spec.ts:77 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/18-reorder/pin-general.spec.ts:82 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/18-reorder/pin-general.spec.ts:112 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/18-reorder/pin-general.spec.ts:136 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/18-reorder/pin-general.spec.ts:160 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/18-reorder/pin-general.spec.ts:165 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/18-reorder/reorder.spec.ts:65 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/18-reorder/reorder.spec.ts:68 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/18-reorder/reorder.spec.ts:71 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/18-reorder/reorder.spec.ts:79 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/18-reorder/reorder.spec.ts:140 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/20-new-session/picker.spec.ts:201 Raw new ApiClient() is banned in specs; use the api fixture.
+tests/playwright/suites/20-new-session/picker.spec.ts:216 Raw new ApiClient() is banned in specs; use the api fixture.
