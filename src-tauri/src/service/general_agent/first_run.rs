@@ -59,6 +59,38 @@ pub fn ensure_first_run_tab(mux: &mut crate::multiplexer::state::MultiplexerStat
     }
 }
 
+/// Called once at daemon startup after `attach_closed_store`. Scans all
+/// restored workspaces for ephemeral panes (e.g. first-run picker tabs that
+/// leaked into the session snapshot before `skip_snapshot` was set), drops
+/// them via `close_tab` so they appear in Recently Closed, and emits an INFO
+/// log per drop. Returns the number of tabs purged.
+pub fn purge_snapshot_ghosts(mux: &mut crate::multiplexer::state::MultiplexerState) -> usize {
+    // Collect (ws_id, tab_id) while holding only an immutable borrow.
+    let mut to_drop: Vec<(String, String)> = Vec::new();
+    for ws_info in mux.list_workspaces() {
+        if let Some(ws) = mux.get_workspace(&ws_info.id) {
+            for tab in &ws.tabs {
+                if mux
+                    .get_pane(&tab.pane_id)
+                    .and_then(|p| p.description.as_deref())
+                    == Some(FIRST_RUN_PANE_MARKER)
+                {
+                    to_drop.push((ws_info.id.clone(), tab.id.clone()));
+                }
+            }
+        }
+    }
+    let count = to_drop.len();
+    for (ws_id, tab_id) in to_drop {
+        log::info!(
+            "[restore] dropping ghost tab {} in workspace {} — ephemeral picker pane leaked into session snapshot; moved to Recently Closed",
+            tab_id, ws_id
+        );
+        let _ = mux.close_tab(&ws_id, &tab_id);
+    }
+    count
+}
+
 fn close_first_run_tabs(
     mux: &mut crate::multiplexer::state::MultiplexerState,
 ) -> Result<(), String> {
@@ -165,5 +197,46 @@ mod tests {
             pane.skip_snapshot,
             "first-run picker pane must have skip_snapshot=true to be excluded from the session snapshot"
         );
+    }
+
+    #[test]
+    fn purge_snapshot_ghosts_drops_picker_pane_and_records_to_closed() {
+        // When a picker pane leaks into the session snapshot (pre-fix snapshots),
+        // purge_snapshot_ghosts must drop it and record it in Recently Closed.
+        let mut mux = MultiplexerState::empty();
+        ensure_first_run_tab(&mut mux);
+        let ws_id = mux.list_workspaces()[0].id.clone();
+        // Pane is present in live state (just not in the snapshot after the fix).
+        assert!(!mux.get_workspace(&ws_id).unwrap().tabs.is_empty());
+
+        let dropped = purge_snapshot_ghosts(&mut mux);
+        assert_eq!(dropped, 1);
+
+        // Tab removed from workspace.
+        assert_eq!(mux.get_workspace(&ws_id).unwrap().tabs.len(), 0);
+        // Pane removed from map.
+        assert!(!mux.list_workspaces()[0].pane_ids.iter().any(|pid| {
+            mux.get_pane(pid)
+                .and_then(|p| p.description.as_deref())
+                == Some(FIRST_RUN_PANE_MARKER)
+        }));
+        // Appears in Recently Closed.
+        assert!(
+            !mux.list_recently_closed(&ws_id).is_empty(),
+            "purged ghost must appear in Recently Closed"
+        );
+    }
+
+    #[test]
+    fn purge_snapshot_ghosts_preserves_real_panes() {
+        // A real pane (no ephemeral marker) must survive purge_snapshot_ghosts.
+        let (mut mux, _) = MultiplexerState::new();
+        let ws_id = mux.list_workspaces()[0].id.clone();
+        let (_tab, pane_id) = mux.create_tab(&ws_id).unwrap();
+        mux.get_pane_mut(&pane_id).unwrap().title = "claude".to_string();
+
+        let dropped = purge_snapshot_ghosts(&mut mux);
+        assert_eq!(dropped, 0);
+        assert!(mux.get_pane(&pane_id).is_some(), "real pane must survive purge");
     }
 }
