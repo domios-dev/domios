@@ -3,16 +3,13 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug)]
 pub enum StrideLogError {
     Io(io::Error),
     Serialize(serde_json::Error),
-    MalformedLine {
-        line: usize,
-        source: serde_json::Error,
-    },
 }
 
 impl fmt::Display for StrideLogError {
@@ -21,9 +18,6 @@ impl fmt::Display for StrideLogError {
             StrideLogError::Io(source) => write!(f, "stride log io error: {source}"),
             StrideLogError::Serialize(source) => {
                 write!(f, "stride log serialization error: {source}")
-            }
-            StrideLogError::MalformedLine { line, source } => {
-                write!(f, "malformed stride log line {line}: {source}")
             }
         }
     }
@@ -34,7 +28,6 @@ impl std::error::Error for StrideLogError {
         match self {
             StrideLogError::Io(source) => Some(source),
             StrideLogError::Serialize(source) => Some(source),
-            StrideLogError::MalformedLine { source, .. } => Some(source),
         }
     }
 }
@@ -51,8 +44,16 @@ pub fn append_milestone(path: &Path, milestone: &Milestone) -> Result<(), Stride
     }
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     let json = serde_json::to_string(milestone).map_err(StrideLogError::Serialize)?;
-    writeln!(file, "{json}")?;
+    append_line(&mut file, &json)?;
     Ok(())
+}
+
+// One O_APPEND write per line so concurrent prod/dev/worker appends cannot tear a JSONL record.
+fn append_line(file: &mut File, json: &str) -> io::Result<()> {
+    let mut buf = String::with_capacity(json.len() + 1);
+    buf.push_str(json);
+    buf.push('\n');
+    file.write_all(buf.as_bytes())
 }
 
 pub fn rewrite_milestones(
@@ -63,16 +64,34 @@ pub fn rewrite_milestones(
         std::fs::create_dir_all(parent)?;
     }
     let folded = fold_milestones(milestones);
-    let tmp = path.with_extension("jsonl.tmp");
-    {
+    let tmp = unique_tmp_path(path);
+    let result = (|| -> Result<(), StrideLogError> {
         let mut file = File::create(&tmp)?;
         for milestone in &folded {
             let json = serde_json::to_string(milestone).map_err(StrideLogError::Serialize)?;
-            writeln!(file, "{json}")?;
+            append_line(&mut file, &json)?;
         }
+        file.sync_all()?;
+        std::fs::rename(&tmp, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
-    std::fs::rename(&tmp, path)?;
+    result?;
     Ok(folded)
+}
+
+// Per-writer unique tmp: a fixed name lets concurrent daemons clobber each other's tmp mid-write.
+fn unique_tmp_path(path: &Path) -> PathBuf {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("strides.jsonl");
+    path.with_file_name(format!(".{name}.{pid}.{seq}.tmp"))
 }
 
 pub fn read_milestones(path: &Path) -> Result<Vec<Milestone>, StrideLogError> {
@@ -83,13 +102,30 @@ pub fn read_milestones(path: &Path) -> Result<Vec<Milestone>, StrideLogError> {
     };
     let mut milestones = Vec::new();
     for (index, line) in BufReader::new(file).lines().enumerate() {
-        let line = line?;
-        let milestone =
-            serde_json::from_str(&line).map_err(|source| StrideLogError::MalformedLine {
-                line: index + 1,
-                source,
-            })?;
-        milestones.push(milestone);
+        let line = match line {
+            Ok(line) => line,
+            Err(error) => {
+                log::warn!(
+                    "[plan] skip unreadable stride line {} in {}: {error}",
+                    index + 1,
+                    path.display()
+                );
+                continue;
+            }
+        };
+        if line.trim().is_empty() {
+            continue;
+        }
+        match serde_json::from_str(&line) {
+            Ok(milestone) => milestones.push(milestone),
+            Err(source) => {
+                log::warn!(
+                    "[plan] skip malformed stride line {} in {}: {source}",
+                    index + 1,
+                    path.display()
+                );
+            }
+        }
     }
     Ok(milestones)
 }
@@ -227,10 +263,11 @@ mod tests {
     }
 
     #[test]
-    fn malformed_line_reports_line_number() {
+    fn malformed_line_is_skipped_not_fatal() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("malformed.jsonl");
-        append_milestone(&path, &milestone("m-1", 1, "valid")).unwrap();
+        let valid = milestone("m-1", 1, "valid");
+        append_milestone(&path, &valid).unwrap();
         std::fs::OpenOptions::new()
             .append(true)
             .open(&path)
@@ -238,11 +275,63 @@ mod tests {
             .write_all(b"{bad json}\n")
             .unwrap();
 
-        let error = read_milestones(&path).unwrap_err();
+        assert_eq!(read_milestones(&path).unwrap(), vec![valid]);
+    }
 
-        match error {
-            StrideLogError::MalformedLine { line, .. } => assert_eq!(line, 2),
-            other => panic!("expected malformed line error, got {other:?}"),
+    // Mirrors the live incident: a torn whitespace-only line + a truncated line
+    // (the strides.jsonl.corrupt.bak shape) must not drop the surviving records.
+    #[test]
+    fn corrupt_bak_shape_recovers_intact_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("strides.jsonl");
+        let first = milestone("m-1", 10, "before tear");
+        let second = milestone("m-2", 20, "after tear");
+        let first_json = serde_json::to_string(&first).unwrap();
+        let second_json = serde_json::to_string(&second).unwrap();
+        let truncated = &first_json[..first_json.len() / 2];
+        let raw = format!("{first_json}\n   \n{truncated}\n{second_json}\n");
+        std::fs::write(&path, raw).unwrap();
+
+        assert_eq!(read_milestones(&path).unwrap(), vec![first, second]);
+    }
+
+    #[test]
+    fn concurrent_appends_never_tear_a_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("strides.jsonl");
+        std::fs::File::create(&path).unwrap();
+
+        let threads: Vec<_> = (0..8)
+            .map(|t| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    for i in 0..50 {
+                        let id = format!("m-{t}-{i}");
+                        append_milestone(&path, &milestone(&id, (t * 100 + i) as u64, "x")).unwrap();
+                    }
+                })
+            })
+            .collect();
+        for handle in threads {
+            handle.join().unwrap();
         }
+
+        let raw = std::fs::read_to_string(&path).unwrap();
+        for line in raw.lines().filter(|l| !l.trim().is_empty()) {
+            serde_json::from_str::<Milestone>(line)
+                .unwrap_or_else(|e| panic!("torn line {line:?}: {e}"));
+        }
+        assert_eq!(read_milestones(&path).unwrap().len(), 8 * 50);
+    }
+
+    #[test]
+    fn concurrent_rewrites_use_disjoint_tmp_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().join("strides.jsonl");
+        let a = unique_tmp_path(&base);
+        let b = unique_tmp_path(&base);
+        assert_ne!(a, b);
+        assert_ne!(a, base);
+        assert!(a.file_name().unwrap().to_str().unwrap().ends_with(".tmp"));
     }
 }
