@@ -5,6 +5,7 @@ import type { Milestone, Plan } from "../types";
 import { fetchPlanSkill, fetchPlanSkills, type PlanSkillSummary } from "./planSkillsApi";
 import { skillTimelineForSlug } from "./planRetrospective";
 import { milestoneKindLabel, milestoneTimestampLabel } from "./taskActivityModel";
+import { PlanFetchErrorState } from "./PlanFetchErrorState";
 
 export interface PlanSkillsSectionProps {
   planId: string;
@@ -134,7 +135,8 @@ export function PlanSkillsSection({
   onSkillNavigate,
 }: PlanSkillsSectionProps) {
   const [skills, setSkills] = useState<PlanSkillSummary[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const [internalSlug, setInternalSlug] = useState<string | null>(null);
   const activeSlug = selectedSlug ?? internalSlug;
 
@@ -146,18 +148,18 @@ export function PlanSkillsSection({
       .then((rows) => {
         if (cancelled) return;
         setSkills(rows);
-        setLoadError(null);
+        setLoadFailed(false);
       })
-      .catch((e: unknown) => {
+      .catch(() => {
         if (cancelled) return;
-        setLoadError(e instanceof Error ? e.message : String(e));
+        setLoadFailed(true);
         setSkills([]);
       });
     return () => {
       cancelled = true;
       ctrl.abort();
     };
-  }, [api, planId]);
+  }, [api, planId, reloadNonce]);
 
   const pick = (slug: string | null) => {
     if (onSelectSlug) onSelectSlug(slug);
@@ -165,12 +167,16 @@ export function PlanSkillsSection({
   };
 
   if (!api) return null;
-  if (loadError) {
+  if (loadFailed) {
     return (
-      <section data-testid="plan-skills-section" className="plan-skills-section">
-        <div className="plan-skills-label">Plan skills</div>
-        <p className="plan-skills-error">{loadError}</p>
-      </section>
+      <PlanFetchErrorState
+        loading={false}
+        error="Couldn't load plan skills."
+        itemCount={0}
+        onRetry={() => setReloadNonce((n) => n + 1)}
+        testId="plan-skills-error"
+        className="plan-skills-error-state"
+      />
     );
   }
   if (skills.length === 0 && compact) return null;
