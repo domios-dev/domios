@@ -136,7 +136,8 @@ test("plans-loaded event refetches the sidebar plan index immediately", async ()
     emitPlansLoaded();
     await new Promise((r) => setTimeout(r, 20));
   });
-  assert(indexCalls === 2, `plans-loaded refetches index (got ${indexCalls})`);
+  const callsAfterEvent: number = indexCalls;
+  assert(callsAfterEvent === 2, `plans-loaded refetches index (got ${indexCalls})`);
   await act(async () => root.unmount());
 });
 

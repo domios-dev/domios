@@ -14,6 +14,7 @@
 
 pub mod activity;
 pub mod agent_restart;
+pub mod boot_stage;
 pub mod cron;
 pub mod general_agent;
 pub mod health;

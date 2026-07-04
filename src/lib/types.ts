@@ -108,6 +108,22 @@ export interface PaneAgentState {
     | "unknown";
 }
 
+/** Truthful pane-boot progress, emitted by the daemon at real launch
+ *  transitions (never timer-driven). Mirrors Rust `service::boot_stage::BootStage`. */
+export type BootStage =
+  | "pty_spawned"
+  | "shell_ready"
+  | "agent_launching"
+  | "agent_ready"
+  | "spawn_failed";
+
+/** Payload of the `pane-boot-stage` event. */
+export interface PaneBootStageEvent {
+  pane_id: string;
+  stage: BootStage;
+  reason?: string | null;
+}
+
 export interface Pane {
   id: string;
   pty_id: string | null;
@@ -144,6 +160,9 @@ export interface Pane {
   hidden?: boolean;
   show_in_tabbar?: boolean;
   worker_id?: string | null;
+  /** Current agent-boot stage for late attachers reading the live snapshot.
+   *  Absent once boot completes or before it begins. */
+  boot_stage?: BootStage | null;
 }
 
 export interface MultiplexerState {
