@@ -59,13 +59,15 @@ pub fn append_entry(
     };
     let root = skills_root(plan_dir);
     std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
-    let line = serde_json::to_string(&entry).map_err(|e| e.to_string())?;
+    let mut line = serde_json::to_string(&entry).map_err(|e| e.to_string())?;
+    line.push('\n');
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(ledger_path(plan_dir))
         .map_err(|e| e.to_string())?;
-    writeln!(file, "{line}").map_err(|e| e.to_string())?;
+    // Single O_APPEND write: concurrent writers cannot interleave a torn JSONL line.
+    file.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
     Ok(entry)
 }
 
