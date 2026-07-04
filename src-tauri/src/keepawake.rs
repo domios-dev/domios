@@ -259,37 +259,36 @@ fn active_child_health_with<I>(inspect: I) -> ChildHealth
 where
     I: Fn(u32) -> Option<ProcessSnapshot>,
 {
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
-    {
-        let entries = child_registry().lock().clone();
-        if entries.is_empty() {
-            return ChildHealth {
-                alive: false,
-                warning: Some("keepawake child registry is empty".to_string()),
-            };
-        }
+    let entries = child_registry().lock().clone();
 
-        let missing: Vec<u32> = entries
-            .iter()
-            .filter(|child| {
-                inspect(child.pid)
-                    .as_ref()
-                    .is_none_or(|snapshot| !should_reap_child(snapshot))
-            })
-            .map(|child| child.pid)
-            .collect();
-
-        if !missing.is_empty() {
-            return ChildHealth {
-                alive: false,
-                warning: Some(format!("keepawake child process not alive: {:?}", missing)),
-            };
-        }
+    if entries.is_empty() {
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        return ChildHealth {
+            alive: false,
+            warning: Some("keepawake child registry is empty".to_string()),
+        };
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        return ChildHealth {
+            alive: true,
+            warning: None,
+        };
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        let _ = inspect;
+    let missing: Vec<u32> = entries
+        .iter()
+        .filter(|child| {
+            inspect(child.pid)
+                .as_ref()
+                .is_none_or(|snapshot| !should_reap_child(snapshot))
+        })
+        .map(|child| child.pid)
+        .collect();
+
+    if !missing.is_empty() {
+        return ChildHealth {
+            alive: false,
+            warning: Some(format!("keepawake child process not alive: {:?}", missing)),
+        };
     }
 
     ChildHealth {
