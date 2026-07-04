@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
 import { baseUrl, authHeaders } from "./memoryApi";
+import { BusySpinner } from "../shared/BusyState";
 import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 import { RunChatPopup } from "../AgentRun/RunChatPopup";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
@@ -301,7 +302,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
           >
             {running || inflight ? (
               <>
-                <Loader2 size={13} className="animate-spin" />
+                <BusySpinner icon={Loader2} size={13} />
                 {inflight ? "Dreaming…" : "Starting…"}
               </>
             ) : (

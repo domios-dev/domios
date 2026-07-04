@@ -10,6 +10,7 @@ import { MessageBubble } from "@codeterm/chat-ui";
 import { attachToolResults, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { AlertTriangle, File } from "lucide-react";
 import { SendIcon, ChevronUpIcon } from "../Icons";
+import { BusyState } from "../shared/BusyState";
 
 // ChatView is a placeholder for future direct API chat mode (pick model, call /chat directly).
 // Current UI shows only local optimistic input while PTY path remains unchanged.
@@ -448,16 +449,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             {/* Thinking indicator — shown after sending message, before Claude responds */}
             {waitingForReply && !pendingPrompt && (
               <div className="mb-3 max-w-4xl mx-auto" data-testid="direct-chat-waiting-reply">
-                <span
-                  className="inline-flex items-center gap-1 text-sm"
-                  style={{ color: "var(--ct-muted-fg, #8b949e)" }}
-                >
-                  <span className="inline-flex gap-0.5">
-                    <span className="animate-bounce" style={{ animationDelay: '0ms', animationDuration: '1s' }}>.</span>
-                    <span className="animate-bounce" style={{ animationDelay: '200ms', animationDuration: '1s' }}>.</span>
-                    <span className="animate-bounce" style={{ animationDelay: '400ms', animationDuration: '1s' }}>.</span>
-                  </span>
-                </span>
+                <BusyState labelKey="chatPending" phase="thinking" inline hideLabel />
               </div>
             )}
             {/* Permission prompt — interactive buttons */}

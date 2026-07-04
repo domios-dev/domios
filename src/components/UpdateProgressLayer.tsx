@@ -1,5 +1,6 @@
 import { AlertTriangle, CheckCircle2, Download, Loader2, RotateCw, X } from "lucide-react";
 import { useUpdate, type UpdateStatus } from "../hooks/useUpdate";
+import { BusySpinner } from "./shared/BusyState";
 
 const STATUS_COPY: Record<UpdateStatus, { title: string; body: string }> = {
   idle: { title: "Update", body: "Ready" },
@@ -83,7 +84,7 @@ function UpdateBlockingOverlay() {
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 px-4 backdrop-blur-sm">
       <div className="w-full max-w-[380px] rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)] p-5 shadow-2xl">
         <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--ct-accent)]/15 text-[var(--ct-accent)]">
-          {status === "restarting" ? <RotateCw size={20} className="animate-spin" /> : <Loader2 size={20} className="animate-spin" />}
+          {status === "restarting" ? <BusySpinner icon={RotateCw} size={20} /> : <BusySpinner icon={Loader2} size={20} />}
         </div>
         <div className="mt-4 text-center text-base font-semibold text-[var(--ct-fg)]">
           {latestVersion ? `${copy.title} v${latestVersion}` : copy.title}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { KeyRound, LogIn, FlaskConical, Settings2, Clock, RefreshCw } from "lucide-react";
+import { BusySpinner } from "../shared/BusyState";
 import type { AppConfig, SecretsConfig } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
 import { setPendingCommand } from "../../lib/pendingCommands";
@@ -391,7 +392,7 @@ export function SecretsTab({
               disabled={statusBusy}
               className={`${statusBtnClass} gap-1 disabled:opacity-50`}
             >
-              <RefreshCw size={11} className={statusBusy ? "animate-spin" : ""} />
+              <BusySpinner icon={RefreshCw} size={11} spinning={statusBusy} />
               Refresh
             </button>
           </div>
