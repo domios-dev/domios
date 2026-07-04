@@ -1,7 +1,3 @@
-// Run: npx tsx src/lib/stateCache.test.ts
-//
-// Mocks `window`/`localStorage` BEFORE importing stateCache.ts, since
-// webApi.ts's IS_WEB is computed once at module load from `typeof window`.
 
 class FakeStorage {
   private map = new Map<string, string>();

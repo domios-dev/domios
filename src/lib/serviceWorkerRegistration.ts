@@ -17,7 +17,6 @@ function recordRegistrationFailure(): void {
       });
     }
   } catch {
-    // storage unavailable — skip kill-switch bookkeeping
   }
 }
 
@@ -25,7 +24,6 @@ function clearRegistrationFailures(): void {
   try {
     localStorage.removeItem(REG_FAIL_KEY);
   } catch {
-    // ignore
   }
 }
 
@@ -53,13 +51,6 @@ function watchForUpdates(registration: ServiceWorkerRegistration): void {
 export function registerServiceWorker(): void {
   if (!IS_WEB || !("serviceWorker" in navigator)) return;
 
-  // A page with NO prior controller (first-ever visit, or a hard refresh
-  // after the SW was gone) still fires exactly one "controllerchange" the
-  // moment the newly-registered worker claims it. That is not an update —
-  // reloading here would abort whatever the user is mid-doing (e.g.
-  // confirming the new-session picker) for no reason. Only a REAL update —
-  // an already-controlled page whose worker changes underneath it — needs
-  // the reload, since stale cached assets could otherwise mismatch the API.
   const hadController = Boolean(navigator.serviceWorker.controller);
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (!hadController || refreshing) return;

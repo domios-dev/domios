@@ -80,8 +80,6 @@ function reconcilePaneStatuses(
 export function reducer(state: ExtendedState, action: Action): ExtendedState {
   switch (action.type) {
     case "SET_STATE": {
-      // Monotonic guard: drop a stale snapshot (older generation) that resolved
-      // after a newer one — kills the spawn-then-blink race where a pre-pane
       const incomingGen = action.state.generation;
       if (typeof incomingGen === "number" && incomingGen <= state.generation) {
         return state;
@@ -95,10 +93,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         const backendLevel = backendPane.title_level || TitleLevel.Default;
         const frontendLevel = existing?.title_level || TitleLevel.Default;
         const highestLevel = highestTitleLevel(backendLevel, frontendLevel);
-        // Level alone can't tell a genuine in-flight local rename (must win a
-        // tie) from a title merely carried over from a stale snapshot or cache
-        // hydration (must yield to the backend on a tie) — only the former
-        // sets title_pending_local (see SET_PANE_TITLE below).
         const keepFrontendTitle =
           existing &&
           existing.title_pending_local === true &&
@@ -137,7 +131,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       for (const w of mergedWorkspaces) {
         if (w.active_tab_id) activeTabIds[w.id] = w.active_tab_id;
       }
-      // Re-inject client-only picker tabs the backend never knew about, so an
       // open picker survives every authoritative snapshot without a husk pane.
       const injected = injectVirtualTabs(
         state.virtualTabs,
@@ -146,7 +139,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         activeTabIds,
         state.activeTabIds,
       );
-      // Adopt incoming focus when it names a live pane; otherwise fall back to
       // the prior focus only if that pane still exists in the merged set.
       const incomingFocus = action.state.focused_pane_id;
       const focused_pane_id =
@@ -163,10 +155,8 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         active_workspace_id: action.state.active_workspace_id,
         toasts: [...state.toasts, ...newToasts],
         activeTabIds: injected.activeTabIds,
-        // Backend-authoritative, sqlite-sourced closed-tab history; carry it
         // from the incoming snapshot or the list silently stays empty.
         recently_closed: action.state.recently_closed ?? state.recently_closed,
-        // Seed the tab-rail status from the snapshot so reload doesn't blank
         // it out while waiting for the next live pane-status-changed event.
         paneStatuses: reconcilePaneStatuses(
           state.paneStatuses,
@@ -271,10 +261,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     }
 
     case "REORDER_TABS": {
-      // Optimistic: assign sort_order = position within the dragged group.
-      // Reconciled by the next backend SET_STATE (authoritative). Other groups
-      // keep their values; cross-group collisions are harmless (each group is
-      // sorted independently in the sidebar).
       const orderById = new Map(action.orderedTabIds.map((id, i) => [id, i]));
       return {
         ...state,
@@ -485,7 +471,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     case "OPEN_SESSION_PICKER": {
       const ws = state.workspaces.find((w) => w.id === action.workspaceId);
       if (!ws) return state;
-      // One picker per workspace: re-activate the existing virtual tab instead
       // of stacking a second.
       const existing = state.virtualTabs[action.workspaceId];
       if (existing) {
@@ -534,11 +519,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       };
     }
 
-    // Daemon restart (boot-changed) resets the backend's own generation
-    // counter to a low value; without this, the monotonic guard above would
-    // reject every post-restart snapshot forever since a long-lived client
-    // already holds a higher pre-restart generation. Only fired on a genuine
-    // boot change, so the spawn-blink race guard stays intact otherwise.
     case "RESET_GENERATION":
       return state.generation === 0 ? state : { ...state, generation: 0 };
 

@@ -40,11 +40,6 @@ import { MultiplexerContext, type MultiplexerContextType } from "./context";
 export { useMultiplexer } from "./context";
 export { highestTitleLevel } from "./tree";
 
-// Sentinel generation for cache-painted state: strictly above the empty
-// initial state's 0 (so the cache actually applies) and strictly below any
-// real backend generation, which is always >= 1 (so the first live snapshot
-// always wins the reducer's monotonic guard, regardless of daemon restarts
-// resetting its own generation counter back to 1).
 const HYDRATED_GENERATION = 0.5;
 
 function buildInitialState(): ExtendedState {
@@ -89,22 +84,18 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, null, buildInitialState);
   const stateRef = useRef(state);
   stateRef.current = state;
-  // Per-button in-flight guard: a 2nd click while a spawn is pending is ignored
   // so one click = exactly one tab (no duplicate on double-fire).
   const spawnInFlight = useRef<Set<string>>(new Set());
-  // Cache-painted UI can't be trusted to target a live daemon until the first
   // authoritative reconcile lands; native boots never lock (no cache path).
   const writeGateRef = useRef<WriteGate>(createWriteGate(false));
   const reconciledRef = useRef(false);
 
   const applyBackendState = useCallback((s: MultiplexerState) => {
-    // Pass the FULL snapshot (incl. recently_closed) — cherry-picking fields
     // here silently dropped the closed-history on every reload.
     dispatch({ type: "SET_STATE", state: s });
     if (IS_WEB) saveStateSnapshot(s);
   }, []);
 
-  // Rejects mutating daemon calls while the write gate is locked instead of
   // letting a cache-painted UI act on a target that may no longer exist.
   const guardedInvoke = useCallback(
     <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
@@ -133,9 +124,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       writeGateRef.current.lock();
       window.dispatchEvent(new Event("codeterm-cache-hydrated"));
     } else if (IS_WEB) {
-      // The sync (localStorage) cache was empty/too large — try the
-      // IndexedDB fallback so a large cached snapshot still paints before
-      // the network round-trip resolves.
       loadCachedStateAsync().then((cached) => {
         if (!cached || reconciledRef.current) return;
         writeGateRef.current.lock();
@@ -228,12 +216,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     window.addEventListener("codeterm-refresh-mux-state", refreshMuxState);
     unlisteners.push(() => window.removeEventListener("codeterm-refresh-mux-state", refreshMuxState));
 
-    // Daemon restart: the backend's generation counter restarted too, so the
-    // client's high pre-restart generation must be dropped BEFORE the
-    // refresh-triggered snapshot resolves, or the reducer's monotonic guard
-    // rejects it forever. Fired synchronously alongside (before, in program
-    // order) codeterm-refresh-mux-state's async fetch resolves, so this
-    // always lands first.
     const onBootChanged = () => dispatch({ type: "RESET_GENERATION" });
     window.addEventListener("codeterm-web-boot-changed", onBootChanged);
     unlisteners.push(() => window.removeEventListener("codeterm-web-boot-changed", onBootChanged));
@@ -318,10 +300,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshFromBackend, guardedInvoke]);
 
-  // Open the New-session picker as a VIRTUAL tab: no backend pane, no PTY, no
-  // session-snapshot entry — the first real pane is materialized only on
-  // confirm. Re-opening in a workspace that already has a picker just
-  // re-activates it (one picker per workspace).
   const openSessionPicker = useCallback((workspaceId: string, cwd?: string) => {
     guardedInvoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
     const ws = stateRef.current.workspaces.find((w) => w.id === workspaceId);
@@ -426,7 +404,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const reorderTabs = useCallback(
     (args: { workspaceId?: string; parentPaneId?: string; orderedTabIds: string[] }) => {
-      // Optimistic local order so the dragged item stays put until the
       // authoritative SET_STATE (mux-state-changed) arrives.
       dispatch({ type: "REORDER_TABS", orderedTabIds: args.orderedTabIds });
       if (args.parentPaneId) {
@@ -478,7 +455,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     if (spawnInFlight.current.has(guardKey)) return;
     spawnInFlight.current.add(guardKey);
     try {
-      // One atomic backend command: create + cwd + agent_type + chat_view +
       // activate + focus, picking the transport (PTY vs chat) on the backend.
       const res = await guardedInvoke<AtomicSpawn>("mux_spawn_pane", {
         params: { agentId, workspaceId, cwd, skipPermissions },
@@ -513,16 +489,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshFromBackend, guardedInvoke, guardedWebJson, applyBackendState]);
 
-  // Default-agent spawn (new-tab affordance). Resolves the provider by capability
   // from the descriptor registry rather than hardcoding a vendor id.
   const spawnClaudeTab = useCallback(async (workspaceId: string, skipPermissions: boolean, cwd?: string) => {
     spawnAgentTab(workspaceId, defaultSpawnProviderId(), skipPermissions, cwd);
   }, [spawnAgentTab]);
 
-  // Paired creation (task_7e5f9354): one call creates a plan plus an
-  // Orchestrator + Planner pane bound to it. Same wire shape (snake_case)
-  // over REST and Tauri invoke, so CLI/web/desktop all hit the identical
-  // backend service — see `ServiceContext::create_orchestration_pair`.
   const createOrchestrationPair = useCallback(
     async (input: OrchestrationPairInput): Promise<OrchestrationPairResult> => {
       const body = {
@@ -549,7 +520,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const ws = workspaces.find((w) => w.id === workspaceId);
       const tab = ws?.tabs.find((t) => t.id === tabId);
       if (!tab) return;
-      // A virtual picker tab has no backend pane — drop it locally only, never
       // send a close to the daemon for a pane it never knew about.
       if (stateRef.current.virtualTabs[workspaceId]?.tab.id === tabId) {
         dispatch({ type: "CLOSE_SESSION_PICKER", workspaceId, tabId });

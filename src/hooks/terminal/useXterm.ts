@@ -53,14 +53,12 @@ export function useXterm({
   const [termReady, setTermReady] = useState(false);
   const [winBuildNumber, setWinBuildNumber] = useState<number>(19041);
 
-  // Fetch Windows build number once
   useEffect(() => {
     if (navigator.platform.startsWith("Win")) {
       invoke<number>("get_windows_build_number").then(setWinBuildNumber).catch(() => {});
     }
   }, []);
 
-  // Initialize xterm. Heavy work (Terminal + addons + open + WebGL + fit) is
   // staggered one-per-frame so parallel pane mounts don't stack into one long task.
   useEffect(() => {
     if (!containerRef.current) return;
@@ -134,7 +132,6 @@ export function useXterm({
       // Copy-on-select is disabled to avoid overwriting the clipboard on highlight.
       // Use Ctrl+Shift+C / Cmd+C / context menu Copy instead.
 
-      // Visual bell
       term.onBell(() => {
         setBellFlash(true);
         setTimeout(() => setBellFlash(false), 200);
@@ -159,7 +156,6 @@ export function useXterm({
     };
   }, []);
 
-  // Hot-reload theme, font, terminal config
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;

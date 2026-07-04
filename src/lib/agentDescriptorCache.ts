@@ -1,9 +1,7 @@
 import type { ProviderDescriptor } from "./types";
 
-// React-free store so pure helpers (chatUiMode, paneProvider) can read it under
 // the tsx unit-test runner. The React hook lives in `useAgentDescriptor.ts`.
 let cache: Record<string, ProviderDescriptor> = {};
-// Registry-order snapshot; stable identity between updates so useSyncExternalStore
 // (useAgentDescriptors) doesn't see a fresh array every render.
 let ordered: ProviderDescriptor[] = [];
 const subscribers = new Set<() => void>();
@@ -25,8 +23,6 @@ export function listAgentDescriptors(): ProviderDescriptor[] {
   return ordered;
 }
 
-// Capability-driven default for "spawn an agent" affordances (new-tab button,
-// command palette, memory worker dialog) and as a display fallback for records
 export function defaultSpawnProviderId(): string {
   for (const d of ordered) {
     if (d.transport === "pty") return d.id;

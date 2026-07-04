@@ -28,12 +28,10 @@ function assertEqual<T>(label: string, actual: T, expected: T) {
 
 console.log("highestTitleLevel:");
 
-// Same level returns itself
 assertTitle("Default == Default", highestTitleLevel(TitleLevel.Default, TitleLevel.Default), TitleLevel.Default);
 assertTitle("User == User", highestTitleLevel(TitleLevel.User, TitleLevel.User), TitleLevel.User);
 assertTitle("Agent == Agent", highestTitleLevel(TitleLevel.Agent, TitleLevel.Agent), TitleLevel.Agent);
 
-// Higher wins over lower
 assertTitle("User > Default", highestTitleLevel(TitleLevel.User, TitleLevel.Default), TitleLevel.User);
 assertTitle("Default < User", highestTitleLevel(TitleLevel.Default, TitleLevel.User), TitleLevel.User);
 assertTitle("User > Auto", highestTitleLevel(TitleLevel.User, TitleLevel.Auto), TitleLevel.User);
@@ -44,7 +42,6 @@ assertTitle("Agent > Default", highestTitleLevel(TitleLevel.Agent, TitleLevel.De
 assertTitle("User > Agent", highestTitleLevel(TitleLevel.User, TitleLevel.Agent), TitleLevel.User);
 assertTitle("Agent < User", highestTitleLevel(TitleLevel.Agent, TitleLevel.User), TitleLevel.User);
 
-// Full chain: Default < Auto < Agent < User
 assertTitle("Auto > Default", highestTitleLevel(TitleLevel.Auto, TitleLevel.Default), TitleLevel.Auto);
 assertTitle("Default < Auto", highestTitleLevel(TitleLevel.Default, TitleLevel.Auto), TitleLevel.Auto);
 
