@@ -60,13 +60,17 @@ pub(super) fn dispatch(
                     message: e,
                     data: None,
                 })?;
-            Ok(serde_json::json!({
+            let mut resp = serde_json::json!({
                 "id": handle.pane_id,
                 "pane_id": handle.pane_id,
                 "workspace_id": handle.workspace_id,
                 "tab_id": handle.tab_id,
                 "pty_id": handle.pty_id
-            }))
+            });
+            if let Some(ref notice) = handle.budget_notice {
+                resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
+            }
+            Ok(resp)
         }
 
         "pane.focus" => {

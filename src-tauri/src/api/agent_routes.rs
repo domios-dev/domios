@@ -238,6 +238,9 @@ pub async fn spawn_agent(
     if let Some(ref warning) = result.warning {
         resp["warning"] = serde_json::json!(warning);
     }
+    if let Some(ref notice) = result.budget_notice {
+        resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
+    }
     Ok(Json(resp))
 }
 

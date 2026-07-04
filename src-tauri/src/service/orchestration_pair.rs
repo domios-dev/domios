@@ -41,6 +41,10 @@ pub struct OrchestrationPairResult {
     pub planner_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    /// Advisory pane-budget nudge (task_4d649dfd) for the workspace AFTER both
+    /// panes land — a pair adds two, so its count is the authoritative one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget_notice: Option<crate::service::pane_budget::PaneBudgetNotice>,
 }
 
 fn epoch_ms() -> u64 {
@@ -261,6 +265,9 @@ impl ServiceContext {
                         "[orchestration-pair] failed to notify orchestrator {orch_pane_id} of live Planner specialist: {e}"
                     );
                 }
+                // Recompute after BOTH panes exist — the pair adds two, so this
+                // final count is the authoritative one for the nudge.
+                let budget_notice = self.workspace_pane_budget_notice(&workspace_id);
                 Ok(OrchestrationPairResult {
                     plan_id,
                     orchestrator_pane_id: orch_pane_id,
@@ -268,6 +275,7 @@ impl ServiceContext {
                     planner_pane_id,
                     planner_model,
                     warning: orch_result.warning.or(planner_result.warning),
+                    budget_notice,
                 })
             }
             Err(e) => {

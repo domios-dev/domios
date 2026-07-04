@@ -121,13 +121,17 @@ pub async fn create_shell_pane(
     }
     // Mirror `pane_id` as `id` so the conventional CRUD idiom (`jq '.id'`, resp.get("id")) reaches the new pane without anyone having to learn our
     // per-resource naming. Both fields hold the same value.
-    Ok(Json(serde_json::json!({
+    let mut resp = serde_json::json!({
         "id": handle.pane_id,
         "pane_id": handle.pane_id,
         "workspace_id": handle.workspace_id,
         "tab_id": handle.tab_id,
         "pty_id": handle.pty_id,
-    })))
+    });
+    if let Some(ref notice) = handle.budget_notice {
+        resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
+    }
+    Ok(Json(resp))
 }
 
 /// Validate a `chat_backend` spawn target for POST /api/panes. `Ok(())` ⇒ the id
