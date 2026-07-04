@@ -5,8 +5,11 @@ use rusqlite::Connection;
 #[test]
 fn repair_orphan_vectors_finds_and_deletes() {
     let conn = fresh_conn();
-    conn.execute_batch("CREATE TABLE mem_vectors (mem_id TEXT, embedding BLOB)")
-        .unwrap();
+    conn.execute_batch(
+        "DROP TABLE IF EXISTS mem_vectors;
+         CREATE TABLE mem_vectors (mem_id TEXT, embedding BLOB)",
+    )
+    .unwrap();
     use crate::mem::graph::{insert_entity, Entity};
     insert_entity(
         &conn,
@@ -18,9 +21,10 @@ fn repair_orphan_vectors_finds_and_deletes() {
         },
     )
     .unwrap();
-    // the synthetic chunk + ghost rows here.
+    // Seed vectors explicitly so this test doesn't depend on embed side effects.
     conn.execute(
         "INSERT INTO mem_vectors VALUES
+            ('person_real', X''),
             ('person_real_chunk_1', X''),
             ('person_ghost', X''),
             ('person_ghost_chunk_2', X'')",
