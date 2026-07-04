@@ -8,7 +8,7 @@ use super::types::{AgentRole, Pane, PaneBacking, PaneType, Tab, TitleLevel, Work
 
 mod alias;
 mod closed;
-mod names;
+pub(crate) mod names;
 mod pane;
 mod reorder;
 mod role;
