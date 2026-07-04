@@ -92,6 +92,28 @@ test("owner wins over own task assignment", () => {
   assert(activity?.kind === "orchestrating", "orchestrator label beats worker task");
 });
 
+test("planner-bound pane → planning with plan title", () => {
+  const plan = mkPlan({ planner: { pane_id: "planner-1" } } as Partial<Plan>);
+  const activity = resolvePaneComposerActivity([plan], "planner-1", {});
+  assert(activity?.kind === "planning", `kind planning, got ${activity?.kind}`);
+  assert(activity?.planTitle === "Canvas v2 — dogfood", "plan title");
+});
+
+test("planner identity beats an assigned task (planning over working)", () => {
+  const task = mkTask("task-1", "in_progress", {
+    name: "Draft the spec",
+    assigned_pane_id: "planner-1",
+  });
+  const plan = mkPlan({ planner: { pane_id: "planner-1" }, tasks: [task] } as Partial<Plan>);
+  const activity = resolvePaneComposerActivity([plan], "planner-1", {});
+  assert(activity?.kind === "planning", "planning wins over own task assignment");
+});
+
+test("waived planner ref does not make a pane a planner", () => {
+  const plan = mkPlan({ planner: { kind: "waived", note: "solo" } } as unknown as Partial<Plan>);
+  assert(resolvePaneComposerActivity([plan], "planner-1", {}) === null, "waived → no planning strip");
+});
+
 test("unrelated pane → null", () => {
   const plan = mkPlan({ tasks: [mkTask("task-1", "in_progress", { assigned_pane_id: "worker-1" })] });
   assert(resolvePaneComposerActivity([plan], "stranger", {}) === null, "no activity");

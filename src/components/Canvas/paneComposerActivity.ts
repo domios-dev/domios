@@ -1,4 +1,5 @@
 import type { Pane } from "../../lib/types";
+import { resolvePlannerPaneIdFromPlan } from "../shared/resolvePlanPeerPair";
 import { resolvePaneCurrentTask } from "./paneCurrentTask";
 import { resolvePaneOwnedPlans } from "./paneOwnedPlans";
 import type { Plan, Task } from "./types";
@@ -19,6 +20,7 @@ function displayTaskTitle(task: Task): string {
 
 export type PaneComposerActivity =
   | { kind: "orchestrating"; planId: string; planTitle: string; extraPlans: number }
+  | { kind: "planning"; planId: string; planTitle: string }
   | { kind: "working"; planId: string; planTitle: string; taskId: string; taskTitle: string; taskStatus: import("./types").TaskStatus };
 
 // Above-composer context: same ownership/assignment rules as paneTabActivity, but
@@ -38,6 +40,14 @@ export function resolvePaneComposerActivity(
       planTitle: displayPlanTitle(lead.plan),
       extraPlans: owned.length - 1,
     };
+  }
+  // A Planner pane (bound as a plan's `planner` ref) wears its plan under
+  // "Planning:", the manager-tier mirror of the orchestrator strip.
+  const planned = plans.find(
+    (p) => p.status === "active" && resolvePlannerPaneIdFromPlan(p) === paneId,
+  );
+  if (planned) {
+    return { kind: "planning", planId: planned.id, planTitle: displayPlanTitle(planned) };
   }
   const current = resolvePaneCurrentTask(plans, paneId);
   if (!current) return null;
