@@ -254,6 +254,15 @@ impl ServiceContext {
                     pane.pending_greeting =
                         Some(crate::prompts::peer_orch_greeting(&planner_label));
                 }
+                // Mirror the greeting mechanism for the Planner so it never
+                // boots into silence — names its Orchestrator + charter.
+                let orch_label = self.mux.read().display_label_for_pane(&orch_pane_id);
+                if let Some(pane) = self.mux.write().get_pane_mut(&planner_pane_id) {
+                    pane.pending_greeting = Some(crate::prompts::peer_planner_greeting(
+                        &orch_label,
+                        &orch_pane_id,
+                    ));
+                }
                 let followup = orchestrator_pair_followup_ready(&plan_id, &planner_pane_id);
                 let envelope = MessageEnvelope::reminder("CodeTerm", "orchestration-pair");
                 if let Err(e) = Messenger::deliver(self, &orch_pane_id, envelope, &followup) {

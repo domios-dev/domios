@@ -367,6 +367,18 @@ impl ServiceContext {
                 Some(plan_id) => {
                     self.bind_planner_spawn(Some(plan_id), Some("planner"), &pane_id);
                     let orch_pane = self.plan_store.owner_of(plan_id).and_then(|o| o.pane_id);
+                    // Mirror the Orchestrator's greeting mechanism: a first
+                    // assistant message so a bound Planner never boots silent.
+                    let orch_label = orch_pane
+                        .as_deref()
+                        .map(|p| self.mux.read().display_label_for_pane(p))
+                        .unwrap_or_else(|| "your Orchestrator".to_string());
+                    if let Some(pane) = self.mux.write().get_pane_mut(&pane_id) {
+                        pane.pending_greeting = Some(crate::prompts::peer_planner_greeting(
+                            &orch_label,
+                            orch_pane.as_deref().unwrap_or("unknown"),
+                        ));
+                    }
                     let intro = crate::service::plan::peer_mandate::planner_peer_intro_line(
                         plan_id,
                         orch_pane.as_deref(),

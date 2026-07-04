@@ -4,6 +4,9 @@ export interface OrchestrationGroupMember {
   paneId: string;
   title: string;
   role: string | null;
+  /** Specialization (e.g. "planner") — the discriminator the section taxonomy
+   *  keys off, since the structural `role` is only Orchestrator|Worker. */
+  roleProfile: string | null;
 }
 
 /** All descendants of an Orchestrator pane (Planner + Workers), depth-first —
@@ -16,7 +19,12 @@ export function collectOrchestrationGroupMembers(
   const visit = (parentId: string) => {
     for (const pane of Object.values(panes)) {
       if (pane.parent_pane_id === parentId) {
-        members.push({ paneId: pane.id, title: pane.title, role: pane.role ?? null });
+        members.push({
+          paneId: pane.id,
+          title: pane.title,
+          role: pane.role ?? null,
+          roleProfile: pane.role_profile ?? null,
+        });
         visit(pane.id);
       }
     }
