@@ -502,7 +502,6 @@ pub async fn upload(
     Err((StatusCode::BAD_REQUEST, "missing 'file' field".to_string()))
 }
 
-
 #[derive(Deserialize)]
 pub(crate) struct SaveTempFileBody {
     data: String,

@@ -461,7 +461,6 @@ pub async fn mesh_relay(
     }))
 }
 
-
 /// The only two cursor'd SSE streams a relay target may serve. Both carry D1
 /// frames unmodified so the browser's `?since=` resume works over the relay.
 fn is_streamable_relay_path(bare: &str) -> bool {

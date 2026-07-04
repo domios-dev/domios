@@ -544,7 +544,6 @@ fn claude_active_question_picker_still_classifies_question() {
     );
 }
 
-
 #[test]
 fn claude_current_gen_long_think_stays_working_while_status_band_animates() {
     let screen = lines(&[

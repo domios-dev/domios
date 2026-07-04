@@ -1,4 +1,3 @@
-
 // Minimum length below which a test plan reads as an intention, not a scenario.
 pub const TEST_PLAN_MIN_CHARS: usize = 120;
 
