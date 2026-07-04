@@ -41,7 +41,7 @@ pub(crate) fn refresh_installed_cli(
     let bin_name = cli_bin_name();
     let dest_dir = home.join(".codeterm").join("bin");
     let dest = dest_dir.join(bin_name);
-    let mut installed = false;
+    let mut needs_copy = true;
 
     if dest.exists() {
         match (file_sha256(src), file_sha256(&dest)) {
@@ -50,6 +50,7 @@ pub(crate) fn refresh_installed_cli(
                     "[cli-install] CLI already up-to-date (sha256={}), skipping",
                     &src_hash[..12.min(src_hash.len())]
                 );
+                needs_copy = false;
             }
             (Some(src_hash), Some(dest_hash)) => {
                 log::info!(
@@ -65,7 +66,7 @@ pub(crate) fn refresh_installed_cli(
     }
 
     std::fs::create_dir_all(&dest_dir)?;
-    if !installed {
+    if needs_copy {
         let bytes = std::fs::copy(src, &dest)?;
         let hash_short = file_sha256(&dest)
             .map(|h| h[..12.min(h.len())].to_string())
@@ -76,13 +77,12 @@ pub(crate) fn refresh_installed_cli(
             hash_short,
             dest.display()
         );
-        installed = true;
     }
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if installed {
+        if needs_copy {
             let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755));
         }
         // Repair stale ~/.local/bin symlinks (e.g. old launcher) so PATH calls hit this install.
@@ -126,7 +126,7 @@ pub(crate) fn refresh_installed_cli(
     #[cfg(windows)]
     add_to_user_path(&dest_dir);
 
-    Ok(installed)
+    Ok(needs_copy)
 }
 
 /// Install bundled CLI binary to ~/.codeterm/bin/ on startup (runs in background).
