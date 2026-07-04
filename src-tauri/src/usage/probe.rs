@@ -58,10 +58,6 @@ impl UsageProbe {
             return Err(ProbeError::BinaryMissing(provider_owned));
         }
 
-        // Non-TUI providers (e.g. cursor) fetch usage via CLI/API — no hidden
-        // agent pane, no `/usage` screen. The fetch shells out + blocks on an
-        // HTTP call, so run it off the async runtime; the poller parses the raw
-        // payload like any captured text.
         let svc_for_fetch = svc.clone();
         let provider_for_fetch = provider_owned.clone();
         let fetched = tokio::task::spawn_blocking(move || {
@@ -150,7 +146,6 @@ impl UsageProbe {
         }
         tokio::time::sleep(Duration::from_millis(800)).await;
 
-        // ESC clears any partial input / open menu and warms the ConPTY input
         // path before the real command write.
         let pty_owned = pty_id.to_string();
         let svc_for_send = svc.clone();
@@ -211,7 +206,6 @@ async fn write_slash_command(
     .map_err(|e| ProbeError::Internal(format!("paste join: {}", e)))?
     .map_err(|e| ProbeError::Internal(format!("paste write: {}", e)))?;
 
-    // Submit twice with a settle between: a freshly-rendered TUI can swallow a
     // too-early `\r`, leaving the command typed-but-never-sent.
     for settle_ms in [150u64, 600] {
         tokio::time::sleep(Duration::from_millis(settle_ms)).await;
@@ -391,7 +385,6 @@ async fn wait_for_output_after(
             if output_is_parseable(&svc, provider, &text) {
                 return Ok(text);
             }
-            // "Loading usage data…" is normal progress, not a failure — keep
             // polling through the full budget instead of bailing early.
         }
         tokio::time::sleep(POLL_INTERVAL).await;

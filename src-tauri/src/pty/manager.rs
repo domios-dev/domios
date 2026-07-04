@@ -407,7 +407,6 @@ impl PtyManager {
             }
             Err(e) => log::warn!("PTY {} child mutex poisoned during kill: {}", pty_id, e),
         }
-        // Reap in background — wait() can block indefinitely if descendants ignore SIGKILL or zombie isn't reaped promptly. Move session ownership to
         // background thread so PTY lock is released immediately.
         let id = pty_id.to_string();
         std::thread::spawn(move || {

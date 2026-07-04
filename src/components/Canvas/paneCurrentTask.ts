@@ -10,16 +10,12 @@ export function isActiveTaskStatus(status: TaskStatusType): boolean {
   return status !== TaskStatus.Done && status !== TaskStatus.Cancelled && status !== TaskStatus.Parked;
 }
 
-// A worker pane owns its task via either binding: the explicit assignment or the
 // lane it physically runs in. We honor both (the index only carries the former).
 export function taskBoundToPane(task: Task, paneId: string): boolean {
   if (!isActiveTaskStatus(task.status)) return false;
   return task.assigned_pane_id === paneId || task.lane?.pane_id === paneId;
 }
 
-// "Current" = the most live of this pane's tasks. A pane normally executes one,
-// but a re-bound lane can leave stale done rows — rank by liveness so the strip
-// shows what's actually in flight, freshest first on a tie.
 const STATUS_RANK: Record<TaskStatusType, number> = {
   [TaskStatus.InProgress]: 0,
   [TaskStatus.InReview]: 1,
@@ -40,7 +36,6 @@ export function compareTaskLiveness(a: Task, b: Task): number {
   return rank !== 0 ? rank : freshnessOf(b) - freshnessOf(a);
 }
 
-// One live pane → one current task per plan. Reassignment can leave stale
 // assigned_pane_id / lane.pane_id rows; presence must follow the winner only.
 export function resolvePlanExclusivePaneTasks(plan: Plan): Map<string, string> {
   const winners = new Map<string, Task>();

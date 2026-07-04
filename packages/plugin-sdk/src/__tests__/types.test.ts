@@ -13,7 +13,6 @@ import type {
 } from "../capabilities";
 import type { Host, Backend, PaneRef, UsageSnapshot } from "../host";
 
-// ── ChatBackend: the four required methods + optional listModels ──
 const backend: ChatBackend = {
   openSession: (ctx) => ({ sessionId: ctx.paneId }),
   sendMessage: (_sessionId, _text) => {},
@@ -53,13 +52,11 @@ const brokenBackend: ChatBackend = {
 };
 void brokenBackend;
 
-// ── NormalizedChatMessage: minimal { id, type, content } ──
 const msg: NormalizedChatMessage = { id: "1", type: "assistant", content: "hi" };
 void msg;
 const polled: NormalizedChatMessage[] = backend.poll("s").messages;
 void polled;
 
-// ── ChatPreprocessor: match slot + passthrough (null) ──
 const pre: ChatPreprocessor = {
   match: "text",
   chatPreprocess: (ctx) =>
@@ -75,7 +72,6 @@ const wrongSlot: ChatPreprocessor = {
 };
 void wrongSlot;
 
-// ── AgentCommandHandler / AgentCommandCtx: the inverse seam ──
 const cmd: AgentCommandHandler = {
   onAgentCommand: (ctx: AgentCommandCtx) =>
     ctx.verb === "ping"
@@ -84,14 +80,12 @@ const cmd: AgentCommandHandler = {
 };
 void cmd;
 
-// ── Model: id + camelCase displayName ──
 const model: Model = { id: "gpt", displayName: "GPT" };
 void model;
 // @ts-expect-error SDK uses camelCase displayName, not snake_case display_name
 const snakeModel: Model = { id: "gpt", display_name: "GPT" };
 void snakeModel;
 
-// ── AgentProvider: optional live model discovery ──
 const provider: AgentProvider = {
   discoverModels: () => [{ id: "gpt-5.5", displayName: "GPT-5.5", description: "live" }],
 };
@@ -102,7 +96,6 @@ void providerModel;
 const brokenProvider: AgentProvider = { discoverModels: () => [{ id: "x", display_name: "X" }] };
 void brokenProvider;
 
-// ── host compute base: worker/workspace/agent/mem (job-id + poll) ──
 declare const host: Host;
 
 async function exercise() {

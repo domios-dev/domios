@@ -294,7 +294,6 @@ test("archived plans show toggle in segmented mode; Unarchive fires onAction", a
       onAction={(a) => actions.push(a)}
     />,
   );
-  // No archived plans visible yet
   assert(!host.querySelector('[data-testid="plan-switcher-archived-list"]'), "footer hidden initially");
   const toggle = host.querySelector('[data-testid="plan-switcher-archived-toggle"]') as HTMLElement;
   assert(toggle, "archived toggle button present");

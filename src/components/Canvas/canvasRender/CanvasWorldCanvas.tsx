@@ -91,7 +91,6 @@ export function CanvasWorldCanvas({
   const paletteRef = useRef(palette);
   paletteRef.current = palette;
 
-  // The painter cache signature per node, memoized by model identity so the per-frame
   // cull/blit never rebuilds it (only re-derives when a node's model object changes).
   const signatureOf = useMemo(() => {
     const cc = sigCacheRef.current;
@@ -131,7 +130,6 @@ export function CanvasWorldCanvas({
   useEffect(() => {
     const blit = () => {
       rafRef.current = null;
-      // Live camera (updated every paint) for the perf probe — the canvas has no CSS
       // transform to sniff, and the committed transform is debounced to gesture-end.
       if (typeof window !== "undefined") {
         (window as unknown as { __codetermCamera?: ViewportTransform }).__codetermCamera = transformRef.current;
@@ -183,7 +181,6 @@ export function CanvasWorldCanvas({
     return () => obs.disconnect();
   }, []);
 
-  // Resharpen the cards visible at the COMMITTED camera (gesture-settle / data change),
   // then blit. The blit loop above scale-blits stale bitmaps during the gesture.
   useEffect(() => {
     if (palette !== paletteVersionRef.current) {

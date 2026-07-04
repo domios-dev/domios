@@ -21,7 +21,6 @@ const hasSection = (c: { sections: { title: string }[] }, title: string) => c.se
   ok("plan top tags from color-lane facet", c.tags.some((t) => t.text === "Navigation"));
 }
 
-// Spec content: section titles, per-section coverage glyphs, task-count buttons only
 // when tasks exist; no fields; coverage chips in the tags row.
 {
   const specModel: Plan = { ...FIXTURE_PLAN, tasks: [] };

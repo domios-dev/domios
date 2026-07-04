@@ -61,9 +61,6 @@ test("hovering the anchor shows the tooltip with zero added delay (no timers inv
   assert(!document.body.querySelector('[data-testid="tip-body"]'), "tooltip hidden before hover");
 
   await act(async () => {
-    // React implements onPointerEnter via the bubbling native "pointerover"
-    // event (pointerenter itself doesn't bubble) — dispatch that, matching
-    // what a real browser actually fires under the hood.
     const event = new (globalThis as unknown as { PointerEvent: typeof MouseEvent }).PointerEvent("pointerover", {
       bubbles: true,
     }) as PointerEvent;
@@ -71,9 +68,6 @@ test("hovering the anchor shows the tooltip with zero added delay (no timers inv
     anchor.dispatchEvent(event);
   });
 
-  // No fake-timer advance, no await-a-tick-for-a-delay — the tooltip must
-  // already be in the DOM synchronously off the same event, proving the
-  // "instant" (0ms) requirement structurally rather than by racing a clock.
   assert(document.body.querySelector('[data-testid="tip-body"]'), "tooltip visible immediately on hover");
 
   await act(async () => root.unmount());
@@ -88,9 +82,6 @@ test("a disabled tooltip never shows on hover", async () => {
   const anchor = host.querySelector('[data-testid="anchor-2"]') as HTMLElement;
 
   await act(async () => {
-    // React implements onPointerEnter via the bubbling native "pointerover"
-    // event (pointerenter itself doesn't bubble) — dispatch that, matching
-    // what a real browser actually fires under the hood.
     const event = new (globalThis as unknown as { PointerEvent: typeof MouseEvent }).PointerEvent("pointerover", {
       bubbles: true,
     }) as PointerEvent;

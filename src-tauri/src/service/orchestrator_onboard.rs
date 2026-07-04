@@ -36,9 +36,6 @@ pub fn should_deliver_orchestrator_onboarding(pane: Option<&Pane>, was_orchestra
 }
 
 pub fn orchestrator_onboarding_body(pane_id: &str) -> String {
-    // No plan is claimed yet at promotion time, so PLAN_ID stays a
-    // placeholder token — consistent with the other PLAN_ID placeholders
-    // below — until the Orchestrator claims/creates a real plan.
     let spawn_cmd =
         crate::service::plan::peer_mandate::planner_spawn_cmd_hint(Some(pane_id), "PLAN_ID");
     let mandate = crate::prompts::peer_pairing_mandate_full(&spawn_cmd);

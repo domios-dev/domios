@@ -17,7 +17,6 @@ impl PlanStore {
         if kind == "planning" {
             return Ok(());
         }
-        // Single gate: execution-task creation unlocks only once the plan state
         // says so (planner-advanced planning_state, or an already-approved lifecycle).
         if plan.execution_tasks_unlocked() {
             Ok(())
@@ -34,7 +33,6 @@ impl PlanStore {
         kinds: Vec<MilestoneKind>,
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
-        // Canonicalize to the git toplevel so storage + index + queries agree on
         // one root (not a sub-path like src-tauri/ or the daemon cwd).
         let project_path =
             crate::service::plan::paths::project_root(std::path::Path::new(&project_path))

@@ -115,7 +115,6 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
             />
           );
         },
-        // Strip default <pre> wrapper — SyntaxHighlighter renders its own via PreTag
         pre: ({ node: _node, children }) => <>{children}</>,
         a: ({ node: _node, ...props }) => (
           <a
@@ -477,7 +476,6 @@ export function FileIcon({ className = "" }: { className?: string }) {
 
 /** Extract filename from path. */
 export function fileName(path: string): string {
-  // Split on both separators — Windows upload paths use backslashes, so a
   // `/`-only split returned the entire C:\…\file.webm path (clipped the bubble).
   const parts = path.split(/[/\\]/).filter(Boolean);
   return parts[parts.length - 1] || path;
@@ -596,7 +594,6 @@ export function renderUserContent(content: string): React.ReactNode {
       </div>
     );
   }
-  // Match both new marker (\x00«file:...») and legacy [attached: ...] format
   const attachRe = /(?:\x00\u00ABfile:([^\u00BB]+)\u00BB|\[attached:\s*([^\]]+)\])/g;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -604,12 +601,10 @@ export function renderUserContent(content: string): React.ReactNode {
   let key = 0;
 
   while ((match = attachRe.exec(content)) !== null) {
-    // Text before the match
     const before = content.slice(lastIndex, match.index).trim();
     if (before) {
       parts.push(<pre key={key++} className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{before}</pre>);
     }
-    // File badge — group 1 = new marker, group 2 = legacy format
     const filePath = (match[1] || match[2]).trim();
     const name = fileName(filePath);
     const ext = name.split(".").pop()?.toUpperCase() || "FILE";
@@ -631,13 +626,11 @@ export function renderUserContent(content: string): React.ReactNode {
     lastIndex = match.index + match[0].length;
   }
 
-  // Remaining text
   const rest = content.slice(lastIndex).trim();
   if (rest) {
     parts.push(<pre key={key++} className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{rest}</pre>);
   }
 
-  // No attachments found — plain text
   if (parts.length === 0) {
     return <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{content}</pre>;
   }

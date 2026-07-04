@@ -234,7 +234,6 @@ mod tests {
 
     #[test]
     fn registered_providers_match_fallback_mapping() {
-        // Sanity: the trait-level exit_command for the providers we ship must agree with our compile-time fallback. If a provider rewords /exit to
         // something else, both this test and the fallback must change together.
         use crate::agent::provider::AgentProvider;
         use crate::plugin::agent_claude::ClaudeProvider;
@@ -243,7 +242,6 @@ mod tests {
         assert_eq!(claude.exit_command(), Some("/exit"));
         assert_eq!(provider_exit_command(claude.id()), claude.exit_command());
 
-        // codex/opencode are JS plugins now; their /exit fallback is asserted in
         // their plugin-side tests (plugins/provider-*/tests).
     }
 
@@ -253,7 +251,6 @@ mod tests {
         let (busy, log_frames, checkpointed) = mem
             .checkpoint_and_close()
             .expect("checkpoint should succeed on a fresh in-memory db");
-        // In-memory dbs don't use WAL, so log_frames/checkpointed are -1 per SQLite docs ("PRAGMA wal_checkpoint returns -1 columns when not in WAL
         // mode"). We only assert the call path is wired.
         assert!(busy >= -1);
         assert!(log_frames >= -1);

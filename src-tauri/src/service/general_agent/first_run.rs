@@ -201,7 +201,6 @@ mod tests {
 
     #[test]
     fn purge_snapshot_ghosts_drops_picker_pane_and_records_to_closed() {
-        // When a picker pane leaks into the session snapshot (pre-fix snapshots),
         // purge_snapshot_ghosts must drop it and record it in Recently Closed.
         let mut mux = MultiplexerState::empty();
         ensure_first_run_tab(&mut mux);

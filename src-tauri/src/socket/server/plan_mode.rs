@@ -24,7 +24,6 @@ pub(super) fn dispatch(
             let mode = serde_json::from_value::<PlanMode>(Value::String(mode))
                 .map_err(|_| plan_rpc_err(PlanError::BadMode))?;
             let note = optional_string(params, "note");
-            // Planning<->approved is planner state; approve/unapprove advance
             // planning_state (which mirrors mode). Execution/complete are lifecycle.
             match mode {
                 PlanMode::Approved => svc

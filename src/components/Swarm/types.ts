@@ -8,7 +8,6 @@ export interface SwarmNode {
   y: number;
   targetX: number;     // layout target
   targetY: number;
-  // Animation state
   spawnTime: number;    // timestamp when node appeared
   deadTime: number | null; // timestamp when node died (null = alive)
   flashColor: string | null; // transient border flash color

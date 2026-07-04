@@ -1,9 +1,3 @@
-// The LIVE canvas render seam: a node kind is drawn ON the canvas by a CanvasPainter.
-// A painter is a pure fn (ctx, {node, model, w, h, palette}) => hitRegions that paints
-// the node to the 2D context and returns its hit regions — the exact shape drawCard
-// already implements. drawScene dispatches through this registry; plan/spec/task are
-// the built-in painters (builtinPainters.ts). A plugin registers its own painter to
-// draw a custom node ON the canvas and be hit-tested — extensibility without DOM.
 
 import type { LaidOutNode } from "../layout";
 import type { HitRegion } from "./drawCard";
@@ -35,7 +29,6 @@ export function getCanvasPainter(kind: string): CanvasPainter | undefined {
   return painters.get(kind);
 }
 
-// Whether a node kind shows the Open/expand pill. Default true (built-ins expand); a
 // plugin opts out with capabilities.expandable=false — drawCard reads this.
 export function setCanvasNodeExpandable(kind: string, expandable: boolean): void {
   expandableByKind.set(kind, expandable);

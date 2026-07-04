@@ -1,11 +1,3 @@
-// Universal waiting grammar. ONE canon: the three-dot phase motion from
-// agent-state.css (.ct-phase-dots), reused by every awaitable surface so a
-// pane boot, a chat pending turn, a plan load, and a mem/mesh fetch all read
-// the same. Reduced-motion + static fallback live in agent-state.css.
-//
-// This file is the ONLY place bespoke spinner / loading strings may live —
-// the grep gate (BusyState.grepgate.test.ts) enforces it. New waiting surface
-// → render <BusyState>, never a fresh animate-spin or "Loading..." literal.
 
 import React from "react";
 import { type BusyLabelKey, busyLabel } from "./busyStateLabels";
@@ -67,9 +59,6 @@ export interface BusySpinnerProps {
   "data-testid"?: string;
 }
 
-// Icon-affordance form of the busy grammar (refresh buttons, inline pending
-// icons). Single owner of the animate-spin class; reduced-motion neutralized
-// via .ct-busy-spinner in agent-state.css.
 export function BusySpinner({
   spinning = true,
   size = 14,

@@ -99,7 +99,6 @@ test("@tab-switch-latency sidebar tab switch reaches paint under budget", async 
     await page.waitForSelector("#root > *", { state: "attached", timeout: 60_000 });
     await page.waitForSelector(`[data-testid="tab-item"][data-tab-id="${tabs[0].tab_id}"]`, { timeout: 30_000 });
 
-    // Warm: visit every tab once so it enters mountedTabIds — the realistic
     // "already open" state a real warm session would be in, not a cold mount.
     for (const t of tabs) {
       await page.click(`[data-testid="tab-item"][data-tab-id="${t.tab_id}"]`);
@@ -107,15 +106,11 @@ test("@tab-switch-latency sidebar tab switch reaches paint under budget", async 
     }
     await page.waitForTimeout(300);
 
-    // Touch the canvas overlay once so its lazy data (plans/panes) is fetched
-    // before the timed windows — the timed runs measure render/mount cost,
-    // not the one-time network fetch.
     await page.click('[data-testid="canvas-toolbar-button"]');
     await page.waitForSelector('[data-testid="mission-control-plan-surface"]', { state: "attached", timeout: 15_000 });
     await page.click('[data-testid="canvas-toolbar-button"]');
     await page.waitForTimeout(300);
 
-    // ---- Timed window 1: round-robin terminal tab switches ----
     await startInpSampler(page);
     const N = 24;
     for (let i = 0; i < N; i++) {
@@ -126,7 +121,6 @@ test("@tab-switch-latency sidebar tab switch reaches paint under budget", async 
     await page.waitForTimeout(300);
     const tabSamples = await collectInp(page);
 
-    // ---- Timed window 2: canvas overlay open/close (the "plan/canvas" surface) ----
     await resetInp(page);
     const M = 12;
     for (let i = 0; i < M; i++) {

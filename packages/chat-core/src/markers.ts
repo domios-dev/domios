@@ -69,7 +69,6 @@ export function parseMarker(text: string): ParsedMarker | null {
   return { kind, attrs, payload };
 }
 
-// ── Convenience constructors (mirror the Rust ones) ──
 const opt = (k: string, v: string | null | undefined): Array<[string, string]> =>
   v ? [[k, v]] : [];
 

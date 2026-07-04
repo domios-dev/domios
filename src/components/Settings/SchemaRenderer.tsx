@@ -68,7 +68,6 @@ export function SchemaRenderer({
   );
 }
 
-// Provider-specific toggle inherits [agent] defaults when unset (matches backend
 // fallback). Only meaningful for agent providers; plugin surfaces pass values.
 function globalToggleFallback(key: string, config: AppConfig, agentNamespace: boolean): boolean | undefined {
   if (!agentNamespace) return undefined;

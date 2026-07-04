@@ -408,8 +408,6 @@ pub fn start_scheduler(svc: ServiceState) {
 }
 
 async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), String> {
-    // Route through the storage-aware Messenger gateway at fire time: a PTY
-    // recipient gets the reminder text prefix, a chatBackend recipient gets a
     let envelope = reminder_envelope(&msg);
     let svc_for_deliver = svc.clone();
     let pane_id = msg.pane_id.clone();

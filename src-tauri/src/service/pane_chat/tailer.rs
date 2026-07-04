@@ -113,7 +113,6 @@ pub fn spawn_tailer(
     let join = thread::spawn(move || {
         let mut cached_path: Option<PathBuf> = None;
         while !stop.load(Ordering::Acquire) {
-            // Re-resolve the JSONL path each iteration. Cheap (plugin call + string concat) and lets the plugin transparently handle session-file
             // rotation. The `cached_path` is only for logging — we always re-ask the plugin.
             let path: Option<PathBuf> = registry
                 .with_provider(&cfg.provider_id, |p| {
@@ -146,12 +145,9 @@ pub fn spawn_tailer(
                     path.display()
                 );
                 cached_path = Some(path.clone());
-                // TODO: future improvement — also re-fetch pane.agent_session_id from mux so an opencode model-swap that mints a new session retargets the
                 // tailer. Today the session_id is fixed at spawn.
             }
             if !path.exists() {
-                // The session JSONL may not exist YET: a fresh agent creates it
-                // only on its first completed turn (seconds out on a slow first
                 thread::sleep(cfg.poll_interval);
                 continue;
             }
@@ -206,8 +202,6 @@ pub fn spawn_raw_tailer(cfg: RawTailConfig, sink: Arc<dyn RawTextSink>) -> Taile
             if stop.load(Ordering::Acquire) {
                 return;
             }
-            // A fresh session's JSONL lags the session id (first write lands
-            // with the first reply) — keep waiting; the registry's stop flag
             if !cfg.path.exists() {
                 thread::sleep(cfg.poll_interval);
                 continue;
@@ -229,8 +223,6 @@ pub fn spawn_raw_tailer(cfg: RawTailConfig, sink: Arc<dyn RawTextSink>) -> Taile
                     .rposition(|&b| b == b'\n')
                     .map(|idx| idx + 1)
                     .unwrap_or(0);
-                // The segment AFTER the last newline may already be a COMPLETE
-                // JSON object the provider just hasn't newline-terminated yet —
                 let tail = &slice[nl_consumed..];
                 let tail_end = tail.iter().rposition(|&b| !b.is_ascii_whitespace());
                 let tail_complete = tail_end

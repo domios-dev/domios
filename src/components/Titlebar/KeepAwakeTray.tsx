@@ -21,7 +21,6 @@ const PRESETS: { label: string; title: string; secs: number | null }[] = [
   { label: "12h", title: "12 hours", secs: 43200 },
 ];
 
-// "Keep display awake" preference — centralized in backend config so the toggle
 // is shared across clients instead of per-localStorage.
 function loadDisplay(): boolean {
   return getCachedConfig()?.ui?.keepawake_display === true;
@@ -68,7 +67,6 @@ export function KeepAwakeTray() {
     if (s.active) setDisplaySleep(s.display);
   }, []);
 
-  // Mount: subscribe first, THEN fetch current status — this order guarantees no backend state change slips through the gap between snapshot and
   // subscription. Guarded with `cancelled` so StrictMode double-mount and async-race teardowns both unlisten cleanly.
   useEffect(() => {
     let cancelled = false;
@@ -89,14 +87,12 @@ export function KeepAwakeTray() {
     return () => { cancelled = true; if (unlisten) unlisten(); };
   }, [applyStatus]);
 
-  // Heartbeat: 500ms tick drives blinking colon + minute countdown when timed
   useEffect(() => {
     if (!status.active || status.expires_at === null) return;
     const id = setInterval(() => setTick((t) => t + 1), 500);
     return () => clearInterval(id);
   }, [status.active, status.expires_at]);
 
-  // Start/stop/toggle do NOT mutate local state optimistically. The backend emits "keepawake-changed" on every transition and our listener
   // applies the authoritative payload — a single source of truth avoids flicker and out-of-sync races.
   const start = useCallback(async (secs: number | null) => {
     try {
@@ -118,7 +114,6 @@ export function KeepAwakeTray() {
     setDisplaySleep(next);
     saveDisplay(next);
     if (!status.active) return;
-    // Preserve the remaining duration when flipping the flag on an active timed session. Math.ceil keeps sub-second remainders on the positive
     // side; clamp to ≥ 1s so a near-expiry toggle doesn't collapse into `Duration::from_secs(0)` which the backend would treat as instant expiry. Indefinite sessions stay indefinite.
     let durSecs: number | undefined;
     if (status.expires_at !== null) {
@@ -129,7 +124,6 @@ export function KeepAwakeTray() {
       .catch(() => {});
   }, [displaySleep, status.active, status.expires_at]);
 
-  // Outside click + Escape close
   useEffect(() => {
     if (!open) return;
     const click = (e: MouseEvent) => {

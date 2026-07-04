@@ -29,7 +29,6 @@ function parseBinding(binding: string): ParsedBinding {
     } else if (lower === "alt" || lower === "opt" || lower === "option") {
       result.alt = true;
     } else {
-      // Key part — decide code vs key
       if (/^[a-zA-Z]$/.test(part)) {
         result.code = `Key${part.toUpperCase()}`;
       } else if (/^[0-9]$/.test(part)) {
@@ -66,7 +65,6 @@ function getParsed(binding: string): ParsedBinding {
 export function matchesBinding(e: KeyboardEvent, binding: string): boolean {
   const p = getParsed(binding);
 
-  // Check modifiers
   const modKey = IS_MAC ? e.metaKey : e.ctrlKey;
   if (p.mod !== modKey) return false;
   if (p.shift !== e.shiftKey) return false;
@@ -76,7 +74,6 @@ export function matchesBinding(e: KeyboardEvent, binding: string): boolean {
 // Explicit `Ctrl` always requires `ctrlKey`, including on mac.
   if (p.ctrl && !e.ctrlKey) return false;
 
-  // Check key
   if (p.code) {
     return e.code === p.code;
   }

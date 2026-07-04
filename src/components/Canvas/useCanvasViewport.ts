@@ -61,20 +61,12 @@ const FIT_MARGIN = DEFAULT_CANVAS_SETTINGS.zoomFitMargin;
 // Fly-to camera ease: long enough to read as travel, short enough to feel instant.
 const FLY_DURATION_MS = 460;
 const LINE_PX = 16;
-// Pinch / cmd-wheel zoom sensitivity. ~2.5x the old 0.0016 so a pinch feels
 // immediate/Figma-like; the exponential keeps it smooth. Pan path is unchanged.
 export const CANVAS_MIN_SCALE = DEF_MIN_SCALE;
 export const CANVAS_MAX_SCALE = DEF_MAX_SCALE;
 export const CANVAS_FIT_MARGIN = FIT_MARGIN;
 export const CANVAS_ZOOM_INTENSITY = 0.004;
 const ZOOM_INTENSITY = CANVAS_ZOOM_INTENSITY;
-// The layer transform paints every rAF (smooth 60fps camera); the React state
-// commit that drives viewport-derived memos (culling/overlays/LOD) is throttled
-// to ~15fps during a continuous gesture, with a trailing commit so culling
-// settles exactly at gesture end. Decouples scene re-render from frame rate.
-// Commit the React state (culling/overlays/LOD) only this long after the last
-// pan/zoom event — i.e. once the gesture settles. During the gesture only the layer
-// transform paints. Keeps WebKit/WKWebView from repainting the DOM/SVG mid-gesture.
 const GESTURE_SETTLE_MS = 130;
 
 export function formatLayerTransform(t: ViewportTransform): string {
@@ -88,7 +80,6 @@ export function paintLayer(el: HTMLElement | null, t: ViewportTransform): void {
   if (!el) return;
   el.style.transform = formatLayerTransform(t);
   el.style.transformOrigin = "0 0";
-  // Composite-promote only while moving; demoting on settle makes WebKit
   // re-rasterize text at the final scale instead of stretching a 1x bitmap.
   el.style.willChange = "transform";
   const prev = rasterSettleTimers.get(el);
@@ -146,9 +137,6 @@ export function viewportShowsBounds(t: ViewportTransform, bounds: ViewportBox, v
   return ix > 0 && iy > 0;
 }
 
-// Figma-grade pan/zoom (§3): two-finger scroll pans, cmd/ctrl+scroll (and pinch,
-// which the browser reports as ctrlKey) zooms around the pointer. Middle-drag and
-// space+drag pan. Wheel is bound non-passive so preventDefault stops rubber-band.
 export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasViewportResult {
   const {
     width,
@@ -178,9 +166,6 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
   // Throttle bookkeeping for the React state commit (see STATE_COMMIT_THROTTLE_MS).
   const lastStateTsRef = useRef(0);
   const trailRef = useRef<number | null>(null);
-  // §35 scroll-trap escape state: the scroll-body currently caught at its boundary
-  // and whether it has already broken free to canvas pan, plus the timestamp of the
-  // last wheel tick (to tell a fresh deliberate gesture from a momentum-fling tail).
   const boundaryArmRef = useRef<{ el: HTMLElement; released: boolean } | null>(null);
   const lastWheelTsRef = useRef(0);
   const fitContentScaleRef = useRef<number | null>(null);
@@ -191,7 +176,6 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
     return fitZoomFloor(fit, minScale, FIT_MARGIN);
   }, [minScale]);
 
-  // Stop any in-flight fly-to. Called whenever the user takes the wheel — a fly
   // must yield to direct manipulation instantly, never fight the pointer.
   const cancelAnim = useCallback(() => {
     if (animRef.current != null) {
@@ -200,7 +184,6 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
     }
   }, []);
 
-  // Commit a transform to ref + layer paint + React state in one shot (the fly-to
   // frame writer — bypasses setTransform so it doesn't self-cancel the animation).
   const commit = useCallback((next: ViewportTransform) => {
     transformRef.current = next;
@@ -226,10 +209,6 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
     // Paint the camera to the layer EVERY event (cheap GPU transform — smooth pan/zoom).
     paintLayer(layerRef.current, next);
     onPaintRef.current?.(next);
-    // Defer the React commit (culling/overlays/LOD) to gesture-END only: re-arm a
-    // debounce on each event so we commit ONCE when the gesture settles. WebKit
-    // repaints the visible DOM/SVG ~hundreds of ms per commit; committing mid-gesture
-    // is the pan/zoom jank. During the gesture the layer transform alone moves the scene.
     if (trailRef.current != null) clearTimeout(trailRef.current);
     trailRef.current = window.setTimeout(() => {
       trailRef.current = null;
@@ -254,9 +233,6 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
     [fitTransform, setTransform],
   );
 
-  // Ease the camera to an exact transform. Reduced-motion (or a zero delta) lands
-  // instantly; otherwise an ease-out-cubic rAF loop drives ref+paint+state together
-  // so every layer (canvas, overlays, world DOM) flies in lockstep.
   const animateTo = useCallback(
     (next: ViewportTransform, durationMs = FLY_DURATION_MS) => {
       cancelAnim();
@@ -330,12 +306,6 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
       const gap = e.timeStamp - lastWheelTsRef.current;
       lastWheelTsRef.current = e.timeStamp;
       const newGesture = gap > 220; // a deliberate re-scroll, not a momentum tail
-      // §35 scroll-trap escape: a node body owns the VERTICAL wheel while it can still
-      // scroll that way. When it hits the top/bottom boundary the first ticks are
-      // ABSORBED (a rubber-band beat — content "catches" at the edge); only the NEXT
-      // deliberate scroll in that direction breaks free to canvas pan. A sideways
-      // (horizontal-dominant) wheel always pans — a second exit hatch. Pinch/⌘-zoom
-      // (handled above) is never trapped.
       const body = (e.target as HTMLElement | null)?.closest?.("[data-canvas-scroll-body]") as HTMLElement | null;
       const sideways = Math.abs(dx) > Math.abs(dy);
       if (body && !sideways) {
@@ -360,7 +330,6 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
             return;
           }
         }
-        // a non-scrollable body falls through to canvas pan immediately
       } else {
         boundaryArmRef.current = null;
       }

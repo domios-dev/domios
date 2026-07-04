@@ -328,7 +328,6 @@ impl PluginManager {
             if let Some(plugin) = entry.plugin.as_mut() {
                 match plugin.activate() {
                     Ok(()) => {
-                        // Register agent providers contributed by this plugin
                         if let Some(ref registry) = self.agent_registry {
                             for provider in plugin.agent_providers() {
                                 registry.register_provider(provider);
@@ -365,7 +364,6 @@ impl PluginManager {
             let Some(entry) = guard.get_mut(id) else {
                 return Ok(());
             };
-            // Unregister agent providers contributed by this plugin
             if let Some(ref registry) = self.agent_registry {
                 for provider_id in &entry.manifest.capabilities.agent_providers {
                     if registry.unregister_provider(provider_id) {

@@ -19,7 +19,6 @@ async function passTokenGate(page: Page): Promise<void> {
   await page.waitForSelector('[data-testid="web-token-input"]', { timeout: 15_000 });
   await page.fill('[data-testid="web-token-input"]', readDevToken());
   await page.click('[data-testid="web-token-submit"]');
-  // Past the gate: the titlebar's peer picker is always present; phones
   // additionally boot with the sidebar collapsed behind a floating hamburger.
   await page
     .locator('[data-testid="peer-picker-button"], [data-testid="web-sidebar-open"]')
@@ -58,7 +57,6 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
   const stub = new MeshStub({ services: 1, webToken: STUB_TOKEN });
   let peerId: string | undefined;
 
-  // Stale stub peers persist in peers.json when an earlier run crashed
   // before its cleanup — drop them so selectors stay unambiguous.
   const existing = await api.get<{ paired: { instance_id: string; instance_name: string }[] }>(
     "/mesh/peers",
@@ -70,7 +68,6 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
   }
 
   try {
-    // Seed the stub with this daemon's real config so the SPA's boot path
     // has every field it expects when pointed at the stub.
     stub.configPayload = await api.get("/config");
     await stub.start("happy");
@@ -96,13 +93,11 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
     await expect(item).toBeVisible({ timeout: 15_000 });
     await expect(item).toHaveAttribute("data-peer-online", "true");
 
-    // Switch: the current daemon mints the stub's web token over mesh,
     // stores it for the target host, then reloads directly into the stub.
     const before = stub.requests.length;
     await item.click();
     await expect(page.locator('[data-testid="web-token-input"]')).toHaveCount(0);
 
-    // PROOF of routing: the stub's workspace renders in the sidebar and
     // the stub actually received the web client's API calls.
     await expect(
       page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.instanceName}-workspace"]`),
@@ -136,7 +131,6 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
 test("@golden unreachable peer fails gracefully at the gate, back-to-self recovers", async ({ webBrowser }) => {
   test.setTimeout(120_000);
   const page = await newWebPage(webBrowser);
-  // Point the app at a dead host directly (sessionStorage), as if a peer
   // went down after being selected.
   await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
   await page.evaluate(() => {
@@ -161,7 +155,6 @@ test("@golden mobile viewport: no horizontal scroll, sidebar overlays, picker re
   const scrollW = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(scrollW, "horizontal scroll on phone viewport").toBeLessThanOrEqual(375);
 
-  // Sidebar starts collapsed on phones — everything (peer picker,
   // workspaces, nav) lives in the overlay the hamburger opens.
   const burger = page.locator('[data-testid="web-sidebar-open"]');
   if (await burger.isVisible()) {
@@ -205,7 +198,6 @@ test("@golden fully live on mobile: General Agent responds, read from the render
     });
     agentPaneId = spawned.pane_id;
 
-    // Mobile defaults supported agent panes to chat mode, so the reply may
     // render as a chat bubble instead of xterm a11y text — accept either.
     await pollMarkerInDom(marker, { page, includeChatMessages: true });
     await expect(page.locator(`[data-pane-id="${agentPaneId!}"]`)).toContainText(marker);
@@ -251,7 +243,6 @@ test("@golden web chrome: titlebar present, hosts peer picker + keep-awake (pari
   await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 20_000 });
 
-  // The native titlebar strip now mounts in the browser too (01-smoke
   // asserts the same for the Tauri window).
   const titlebar = page.locator('[data-testid="titlebar"]');
   await expect(titlebar).toBeVisible();
@@ -275,7 +266,6 @@ test("@golden web chrome: titlebar present, hosts peer picker + keep-awake (pari
 test("@golden web mobile: hamburger reopens the dismissed sidebar overlay", async ({ webBrowser }) => {
   const page = await newWebPage(webBrowser, { width: 375, height: 812 });
   await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
-  // Phones boot with the sidebar collapsed — the floating hamburger is the
   // only way in, so its absence bricks mobile navigation.
   const burger = page.locator('[data-testid="web-sidebar-open"]');
   await expect(burger).toBeVisible({ timeout: 20_000 });
@@ -344,8 +334,6 @@ test("@golden close sync: web close updates the desktop window, desktop close up
 // ── chat view in the browser — the mirror's core demo path ──────────
 
 test("@golden web chat: a live assistant reply streams in AND history survives a reload", async ({ api, webBrowser, spawnAgent }) => {
-  // Regression for the 'No messages yet' bug: chat_start in web returned
-  // the wrong shape (parsed snapshot instead of raw JSONL), and assistant
   test.setTimeout(300_000);
 
   const spawned = await spawnAgent({
@@ -358,7 +346,6 @@ test("@golden web chat: a live assistant reply streams in AND history survives a
   const paneId = spawned.pane_id;
   const page = await newWebPage(webBrowser);
   try {
-    // The chat source is ready once the claude CLI has booted a session —
     // until then chat-raw/start 409s.
     await pollUntil(async () => {
       try {
@@ -380,13 +367,11 @@ test("@golden web chat: a live assistant reply streams in AND history survives a
     const composer = pane.locator('[data-testid="chat-composer"]');
     await composer.waitFor({ timeout: 30_000 });
 
-    // Live round-trip: send through the real composer, read the assistant
     // bubble that must stream back over SSE.
     const marker = `CHATMARKER-${Date.now()}`;
     await composer.fill(
       `Reply with a single line containing exactly ${marker} and nothing else.`,
     );
-    // Send via the explicit button — the touch-screen path (Enter is
     // covered by desktop usage daily; the button only exists here).
     await pane.locator('[data-testid="composer-send-button"]').click();
 
@@ -405,7 +390,6 @@ test("@golden web chat: a live assistant reply streams in AND history survives a
     }
     await expect(reply).toBeVisible();
 
-    // History: reload drops all live SSE state — the same bubbles must
     // re-render purely from the chat-raw JSONL window (was: empty chat).
     await page.reload({ waitUntil: "domcontentloaded" });
     await composer.waitFor({ timeout: 30_000 });
@@ -415,7 +399,6 @@ test("@golden web chat: a live assistant reply streams in AND history survives a
         .filter({ hasText: marker }),
     ).toBeVisible({ timeout: 30_000 });
 
-    // Attach pipeline (no LLM): a browser file uploads to the daemon and
     // shows up as a chip with the SERVER-side filename.
     await pane
       .locator('[data-testid="composer-attach-input"]')

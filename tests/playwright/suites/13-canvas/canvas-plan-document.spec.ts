@@ -37,7 +37,6 @@ async function planWorld(page: Page): Promise<string | null> {
   return page.getAttribute(PLAN_SEL, "data-world").catch(() => null);
 }
 
-// Drive the camera until the plan node reaches (or passes) a target band, sampling
 // scales. Returns the band actually reached.
 async function reachPlanWorld(page: Page, target: string, scales: number[]): Promise<string | null> {
   let band = await planWorld(page);
@@ -73,10 +72,6 @@ test("@golden @canvas-plan-document plan section reads as a document with spec b
   }
   await expect(page.locator(PLAN_SEL).first()).toBeVisible({ timeout: 30_000 });
 
-  // ── FAR GLANCE (W0/W1): big-kind glance, no document body. Viewport-center
-  // zoom-out (the wide node culls if anchored). Best-effort band reach: the far
-  // bands are unchanged code covered by canvas-worlds specs; here we just capture
-  // them and assert prose is gone WHEN a glance band is actually reached. ──
   await setCanvasScale(page, 0.12);
   await page.waitForTimeout(250);
   const w0 = await planWorld(page);
@@ -86,7 +81,6 @@ test("@golden @canvas-plan-document plan section reads as a document with spec b
   const w1 = await planWorld(page);
   await shot(page, "plan-doc-W1");
 
-  // ── READING BANDS (W2/W3): full document bodies + spec bubbles + 0 overflow. ──
   const w2 = await reachPlanWorld(page, "W2", [1.8, 2.2, 2.6, 3.0]);
   await shot(page, "plan-doc-W2");
   const w3 = await reachPlanWorld(page, "W3", [3.8, 4.6, 5.4, 6.2]);
@@ -109,7 +103,6 @@ test("@golden @canvas-plan-document plan section reads as a document with spec b
   await page.locator('[data-testid="canvas-plan-row"]', { has: page.locator('[data-testid="canvas-plan-spec-ref"]') })
     .first().screenshot({ path: "/tmp/plan-doc-section-closeup.png" }).catch(() => {});
 
-  // Node-internal scroll: the plan body column overflows (a real document), while
   // the OUTER node clips it — zero overflow on the card itself.
   const scrollable = await page.evaluate(() => {
     const body = document.querySelector('[data-testid="canvas-plan-body"]') as HTMLElement | null;
@@ -121,11 +114,6 @@ test("@golden @canvas-plan-document plan section reads as a document with spec b
   const overflows = await findOverflows(page, 2);
   expect(overflows, `zero overflow on plan/task cards: ${JSON.stringify(overflows)}`).toEqual([]);
 
-  // ── FLY-TO-SPEC: clicking a bubble flies the camera to the bound spec node (which
-  // is off-screen, triptych-left, while reading the plan). Native element.click()
-  // bubbles through the delegated container handler — Playwright positional clicks
-  // can miss through the GPU-composited overlay; the resolve logic is unit-tested
-  // in flyToTarget.test.ts.
   await firstBubble.evaluate((el) => (el as HTMLElement).click());
   await page.waitForTimeout(2200);
   await shot(page, "plan-doc-spec-arrival");
@@ -135,10 +123,6 @@ test("@golden @canvas-plan-document plan section reads as a document with spec b
   console.log("plan-doc bands:", JSON.stringify({ w0, w2, w3 }), "— screenshots in /tmp/plan-doc-*.png", farFile);
 });
 
-// Perf contract (the document changes are render-path on the single plan/spec node,
-// N-independent — task cards, layout, scene and overlay budget are untouched). This
-// probe confirms it holds at scale: 20k tasks mount, a zoom sweep stays smooth, and
-// the rich-overlay count stays budget-bounded (not O(N)).
 test("@golden @canvas-plan-document 20k-task perf: smooth zoom, overlay budget bounded", async ({ ui }) => {
   test.setTimeout(300_000);
   const { page } = ui;
@@ -189,7 +173,6 @@ test("@golden @canvas-plan-document 20k-task perf: smooth zoom, overlay budget b
   const medianFrameMs = await sample;
   const medianFps = Math.round(1000 / medianFrameMs);
 
-  // Overlay budget is bounded (rich overlays + presence pins are viewport/budget
   // capped, NOT proportional to 20k tasks).
   const counts = await page.evaluate(() => ({
     richOverlays: document.querySelectorAll('[data-testid="canvas-rich-overlay"]').length,

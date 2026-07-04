@@ -138,7 +138,6 @@ console.log("\n--- discoverModels ---\n");
   );
 }
 
-// Install must write the x-codeterm-binding-nonce header into the generated
 // opencode plugin so the session-start report can prove pane ownership.
 {
   let body = "";
@@ -187,13 +186,10 @@ console.log("\n--- discoverModels ---\n");
   );
 }
 
-// detectSessionModel keys off the pane's OWN session_id (capability rule #3),
 // never a "latest model in cwd" fallback that would surface a SIBLING's model.
 console.log("\n--- detectSessionModel (identity-bound, no cwd fallback) ---\n");
 {
   const dbPath = "~/.local/share/opencode/opencode.db";
-  // The session row carries no assistant message → the per-session scan finds
-  // nothing. A cwd-wide scan WOULD find a sibling's model — we assert it does
   let cwdScanRan = false;
   const p = loadOpencodeWithHost(ocHost({
     fs: {
@@ -203,7 +199,6 @@ console.log("\n--- detectSessionModel (identity-bound, no cwd fallback) ---\n");
       writeFile: () => true,
       writeJson: () => true,
       sqliteQuery: (_db: string, sql: string, params: unknown[]) => {
-        // The (forbidden) cwd fallback joins session ON message and filters by
         // s.directory — never by the pane's session_id.
         if (sql.indexOf("s.directory") !== -1 || sql.indexOf("JOIN session") !== -1) {
           cwdScanRan = true;

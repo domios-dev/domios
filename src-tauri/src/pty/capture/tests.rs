@@ -47,7 +47,6 @@ fn header_records_geometry_and_timestamp() {
 fn output_round_trips_byte_identical_across_multibyte_chunk_split() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("rt.cast");
-    // ANSI escapes + a box-drawing char (╭ = E2 95 AD) deliberately split across
     // two write_output calls — the real PTY-read boundary case.
     let full = "\x1b[1mhi\x1b[0m ╭─╮\r\n".as_bytes().to_vec();
     let split = "\x1b[1mhi\x1b[0m ".len() + 2; // 2 bytes into the 3-byte ╭ (E2 95 AD)

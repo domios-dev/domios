@@ -51,14 +51,11 @@ fn ignores_plain_numbered_prose_without_terminal_choice_footer() {
 
 #[test]
 fn ignores_terminal_choice_shape_when_cursor_is_visible() {
-    // ↑↓/submit/dismiss footer without the broader confirm-footer wording: with a
     // VISIBLE cursor this stays None (the strict path needs hidden cursor).
     let screen = lines(&["┃  1. Alpha", "┃  2. Beta", "┃  press the keys"]);
     assert_eq!(classify_terminal_menu_question(&screen, false), None);
 }
 
-// Permission/choice box with a VISIBLE cursor + a confirm-style key-hint footer
-// (`… Enter to confirm, Esc to cancel`) must be Question — not false-idled by
 #[test]
 fn permission_box_with_visible_cursor_and_confirm_footer_is_question() {
     let screen = lines(&[
@@ -98,7 +95,6 @@ fn terminal_menu_question_does_not_preempt_working_grace() {
     assert_eq!(verdict.state, TimelineState::Question);
 }
 
-// Plain numbered prose WITHOUT a confirm/choice footer stays not-a-question even
 // with a visible cursor (no false Question on normal lists).
 #[test]
 fn numbered_prose_without_confirm_footer_is_not_question_visible_cursor() {
@@ -158,8 +154,6 @@ fn idle_composer_with_trailing_blank_padding_returns_idle() {
     );
 }
 
-// Safety net: even when no provider-specific ready-prompt glyph is on screen,
-// a long-quiescent pane with no active-work evidence (no status widget, no
 #[test]
 fn long_quiescent_unknown_layout_does_not_stay_working_forever() {
     let screen = lines(&["some completed assistant output", "with no composer glyph"]);
@@ -174,7 +168,6 @@ fn long_quiescent_unknown_layout_does_not_stay_working_forever() {
     );
 }
 
-// Cursor (app) post-turn composer: footer arrow `→` (no stop-hint) must read
 // Idle promptly once Working grace has elapsed (structural, not the 5s timeout).
 #[test]
 fn cursor_composer_arrow_returns_idle_promptly() {
@@ -284,7 +277,6 @@ fn claude_recent_status_near_ready_prompt_stays_working_during_grace() {
     );
 }
 
-// Opencode full-screen composer: no glyph, but a visible cursor parked in the
 // bottom input region of an alt-screen ⇒ composer_ready ⇒ Idle promptly.
 #[test]
 fn opencode_visible_cursor_in_composer_returns_idle_promptly() {
@@ -293,7 +285,6 @@ fn opencode_visible_cursor_in_composer_returns_idle_promptly() {
         "  9.4K (5%)  ctrl+p commands",
     ]);
     let mut input = quiescent_input(&screen);
-    // Past WORKING_GRACE_MS: composer_ready is the post-grace structural idle
     // (it must NOT pre-empt grace — see composer_ready_does_not_preempt_working_grace).
     input.byte_idle_ms = 2000;
     input.semantic_idle_ms = 2000;
@@ -327,7 +318,6 @@ fn composer_ready_visible_cursor_in_bottom_region_primary_or_alt() {
     );
 }
 
-// composer_ready must NOT pre-empt the working-grace window: a visible cursor in
 // the box appears mid-turn too, so within grace the verdict stays Working.
 #[test]
 fn composer_ready_does_not_preempt_working_grace() {
@@ -344,7 +334,6 @@ fn composer_ready_does_not_preempt_working_grace() {
     );
 }
 
-// composer_ready must NOT mask a real (even uncaught) PTY question: a horizontal
 // button / options block at the bottom vetoes the composer-ready idle path.
 #[test]
 fn composer_ready_vetoed_by_options_block() {
@@ -404,8 +393,6 @@ fn options_block_horizontal_only_not_vertical_or_idle_box() {
         "Allow?",
         "❯ Yes      No      Cancel"
     ])));
-    // Vertical numbered menu is NOT vetoed here (handled by
-    // classify_terminal_menu_question when active; answered ones sit above the
     assert!(!super::looks_like_options_block(&lines(&[
         "┃ 1. Alpha",
         "┃ 2. Beta",
@@ -428,21 +415,17 @@ fn options_block_horizontal_only_not_vertical_or_idle_box() {
 
 #[test]
 fn active_turn_footer_fires_on_real_active_footers() {
-    // claude: bypass marker + interrupt hint
     assert!(super::active_turn_footer(&lines(&[
         "Working on it…",
         "⏵⏵ accept edits on · esc to interrupt",
     ])));
-    // claude: interrupt hint + elapsed timer
     assert!(super::active_turn_footer(&lines(&[
         "Thinking…",
         "✶ Cogitating (3m 54s · esc to interrupt)",
     ])));
-    // claude: interrupt hint + progress-meter shape
     assert!(super::active_turn_footer(&lines(&[
         "■■■■──────  esc to interrupt",
     ])));
-    // codex: arrow prefix + ctrl+c stop hint
     assert!(super::active_turn_footer(&lines(&[
         "→ Working (ctrl+c to stop)",
     ])));
@@ -461,7 +444,6 @@ fn active_turn_footer_silent_on_idle_and_completed_screens() {
     assert!(!super::active_turn_footer(&lines(&[
         "⏵⏵ auto mode on (shift+tab to cycle) · + for agents",
     ])));
-    // claude IDLE mode footer can still advertise the interrupt key; the
     // mode-cycle footer itself is not active turn evidence.
     assert!(!super::active_turn_footer(&lines(&[
         "⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt",
@@ -499,10 +481,6 @@ fn claude_auto_mode_footer_does_not_mask_active_spinner() {
     );
 }
 
-// Regression: after the user ANSWERS a claude AskUserQuestion, the resolved
-// picker's options + "Enter to select …" footer can stay painted BELOW the
-// composer (stale scrollback). With the idle mode-cycle footer + ready composer
-// glyph both present, the pane is at its ready prompt → Idle, not a live Question.
 #[test]
 fn claude_answered_question_with_stale_picker_below_composer_is_idle() {
     let screen = lines(&[
@@ -538,9 +516,6 @@ fn claude_answered_question_with_stale_picker_below_composer_is_idle() {
     );
 }
 
-// No-regression companion: a GENUINELY active claude AskUserQuestion (picker
-// overlay focused, cursor hidden, NO idle mode-cycle footer, no free composer)
-// must still classify Question.
 #[test]
 fn claude_active_question_picker_still_classifies_question() {
     let screen = lines(&[
@@ -569,16 +544,6 @@ fn claude_active_question_picker_still_classifies_question() {
     );
 }
 
-// ── chat-status divergence: a long "thinking" turn must not read as Idle ──────
-// Regression for the P1 where the chat view froze at a completed-turn summary
-// ("Crunched for 53s") while the TUI showed a live "Inferring… (58s …)" footer:
-// a pure think repaints only the status-bar-excluded band, so semantic-idle grows
-// past the working grace even though the agent is genuinely working. The live
-// (animating) status widget must win over that stale-status heuristic.
-
-// Real Claude Code v2.1.x working screen (captured): the spinner status line
-// carries the elapsed/token widget; the interrupt hint sits ONLY on the excluded
-// mode-switch footer, and an empty ❯ composer is visible mid-turn.
 #[test]
 fn claude_current_gen_long_think_stays_working_while_status_band_animates() {
     let screen = lines(&[
@@ -603,7 +568,6 @@ fn claude_current_gen_long_think_stays_working_while_status_band_animates() {
     );
 }
 
-// A whimsical verb never seen before must still read as working: the widget is
 // recognized by structure (spinner + ellipsis + elapsed/token), not a verb list.
 #[test]
 fn claude_novel_spinner_verb_classifies_working_by_structure_not_dictionary() {
@@ -624,7 +588,6 @@ fn claude_novel_spinner_verb_classifies_working_by_structure_not_dictionary() {
     assert_eq!(verdict.state, TimelineState::Working);
 }
 
-// Legacy Claude footer generation: the interrupt hint rode on the spinner line
 // itself. Still working despite a visible composer + high semantic idle.
 #[test]
 fn claude_legacy_gen_footer_with_inline_interrupt_hint_stays_working() {
@@ -642,9 +605,6 @@ fn claude_legacy_gen_footer_with_inline_interrupt_hint_stays_working() {
     assert_eq!(verdict.state, TimelineState::Working);
 }
 
-// codex shares this oracle: its active footer is an arrow + ctrl+c stop hint. The
-// arrow also reads as a ready-prompt glyph, so semantic idle alone must not demote
-// a live turn.
 #[test]
 fn codex_working_footer_stays_working_during_long_turn() {
     let screen = lines(&[
@@ -659,7 +619,6 @@ fn codex_working_footer_stays_working_during_long_turn() {
     assert_eq!(verdict.state, TimelineState::Working);
 }
 
-// opencode animated meter footer: interrupt hint + progress-meter shape. Coverage
 // that the shared oracle keeps it working through a long turn.
 #[test]
 fn opencode_progress_meter_footer_stays_working_during_long_turn() {
@@ -674,9 +633,6 @@ fn opencode_progress_meter_footer_stays_working_during_long_turn() {
     assert_eq!(verdict.state, TimelineState::Working);
 }
 
-// Honest degradation companion: the SAME long-think screen, but now the status
-// band has gone quiet too (byte idle high) AND a completed-turn summary is on
-// screen — that is a genuinely settled turn and must resolve Idle, not stick.
 #[test]
 fn claude_settled_turn_with_summary_resolves_idle() {
     let screen = lines(&[

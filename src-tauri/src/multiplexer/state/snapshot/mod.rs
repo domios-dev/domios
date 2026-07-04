@@ -43,8 +43,6 @@ impl MultiplexerState {
             active_workspace_id: self.active_workspace_id.clone(),
             focused_pane_id: self.focused_pane_id.clone(),
             generation,
-            // Bounded indexed query against the local sqlite store — cheap, not
-            // the multi-second blocking work the hot-path rule warns about, and
             recently_closed: self.recent_closed_view(),
             pane_statuses: HashMap::new(),
         }
@@ -226,8 +224,6 @@ impl MultiplexerState {
                 return None;
             };
 
-            // Re-attach a chatBackend backing so the pane restores as a chat
-            // shell (not a PTY). On first send the transport lazily re-opens the
             let restored_backing = match (chatbackend_plugin_id, chatbackend_session_id) {
                 (Some(plugin_id), Some(session_id)) => PaneBacking::ChatBackend {
                     plugin_id: plugin_id.clone(),
@@ -286,8 +282,6 @@ impl MultiplexerState {
                 Pane {
                     id: pane_id.clone(),
                     pty_id: None,
-                    // R3 restore-gap fix: `backing` is persisted now, so a
-                    // chatBackend (shell) pane restores as a chatBackend and
                     backing: restored_backing,
                     pane_type: PaneType::Terminal,
                     title: restored_title,
@@ -306,7 +300,6 @@ impl MultiplexerState {
                     parent_pane_id: parent_pane_id.clone(),
                     can_spawn: *can_spawn,
                     depth: *depth,
-                    // P3: hierarchy map survives restart — restore the real
                     // spawner / report target instead of hardcoding None.
                     report_target_pane_id: report_target_pane_id.clone(),
                     report_target_mesh_peer: report_target_mesh_peer.clone(),
@@ -371,7 +364,6 @@ impl MultiplexerState {
             pty_to_pane: HashMap::new(),
             pane_aliases: HashMap::new(),
             generation: std::sync::atomic::AtomicU64::new(0),
-            // Closed history lives in the durable sqlite store (attached at
             // startup), not the session snapshot.
             closed_store: super::ClosedPanesStore::in_memory(),
         }

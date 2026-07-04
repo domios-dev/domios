@@ -110,7 +110,6 @@ impl JsonRpcResponse {
 /// `GenericNamespaced` on Unix prepends `/tmp/` automatically,
 /// so we only provide the bare name here.
 pub fn socket_path() -> String {
-    // Dev builds use a stable socket name (no PID) so CLI tools in existing PTY sessions survive dev server restarts. Only one dev instance at a
     // time. Prod builds include PID to allow multiple instances.
     #[cfg(debug_assertions)]
     {
@@ -193,7 +192,6 @@ impl SocketServer {
     ) -> Result<(), String> {
         Self::cleanup_stale_sockets();
 
-        // Dev builds use a fixed socket name — remove stale file before binding
         #[cfg(all(debug_assertions, not(target_os = "windows")))]
         {
             let display = socket_display_path();
@@ -515,8 +513,6 @@ fn dispatch(
         _ => {}
     }
 
-    // Domain prefix → submodule. Each submodule owns its own per-method match (and returns Method-not-found for anything within its prefix it
-    // doesn't know). The split also breaks on `:` so the reserved `plugin:<id>.<verb>`
     let prefix = method.split(['.', ':']).next().unwrap_or("");
     match prefix {
         "workspace" => workspace::dispatch(method, &params, mux, app, svc),

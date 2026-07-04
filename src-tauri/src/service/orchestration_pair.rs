@@ -203,7 +203,6 @@ impl ServiceContext {
             (ws_id, cwd, name)
         };
 
-        // Default plan title carries the workspace + a timestamp so a dozen
         // pairs don't pile up as indistinguishable bare "Orchestration" rows.
         let title = params
             .title
@@ -255,11 +254,6 @@ impl ServiceContext {
                 "[orchestration-pair] failed to claim plan {plan_id} for orchestrator {orch_pane_id}: {e}"
             );
         }
-        // The on-disk PlanWatcher deliberately ignores the store's own writes
-        // (avoids a self-triggered reload loop), so a direct PlanStore call
-        // like `claim` above is otherwise invisible to the UI until some
-        // unrelated refetch happens — the sidebar's pair grouping (PairAffordance)
-        // never resolves for a freshly-created pair without this.
         emit_everywhere(
             &self.app_handle,
             "plan-changed",
@@ -311,7 +305,6 @@ impl ServiceContext {
                     pane.pending_greeting =
                         Some(crate::prompts::peer_orch_greeting(&planner_label));
                 }
-                // Mirror the greeting mechanism for the Planner so it never
                 // boots into silence — names its Orchestrator + charter.
                 let orch_label = self.mux.read().display_label_for_pane(&orch_pane_id);
                 if let Some(pane) = self.mux.write().get_pane_mut(&planner_pane_id) {
@@ -327,7 +320,6 @@ impl ServiceContext {
                         "[orchestration-pair] failed to notify orchestrator {orch_pane_id} of live Planner specialist: {e}"
                     );
                 }
-                // Recompute after BOTH panes exist — the pair adds two, so this
                 // final count is the authoritative one for the nudge.
                 let budget_notice = self.workspace_pane_budget_notice(&workspace_id);
                 Ok(OrchestrationPairResult {
@@ -378,7 +370,6 @@ mod tests {
 
     #[test]
     fn default_plan_title_disambiguates_by_workspace_and_stamp() {
-        // 2021-01-01T00:00:00Z
         let t = default_orchestration_plan_title("my-ws", 1_609_459_200_000);
         assert!(t.contains("my-ws"), "title carries the workspace name: {t}");
         assert!(t.contains("2021-01-01"), "title carries a date stamp: {t}");

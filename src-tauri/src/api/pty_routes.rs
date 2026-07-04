@@ -75,7 +75,6 @@ pub async fn pty_read(
         let (data, next_offset) = state.svc.output_buf.lock().read_since(&pty_id, offset);
         offset = next_offset;
         if !data.is_empty() || tokio::time::Instant::now() >= deadline {
-            // Fewer bytes returned than the gap from the client's cursor means the
             // ring evicted bytes ahead of it — surface the gap, never hide it.
             let truncated_from =
                 (offset - requested_offset > data.len() as u64).then(|| offset - data.len() as u64);
@@ -114,7 +113,6 @@ pub async fn pty_write(
         crate::commands::write_pty_string_core(&state.svc, pty_id, body.data)
             .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     } else {
-        // Verified injection blocks (drain-checked Enter retries) — keep it
         // off the async runtime.
         let svc = state.svc.clone();
         tokio::task::spawn_blocking(move || {

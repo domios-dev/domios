@@ -17,9 +17,6 @@ async function screenshot(page: import("@playwright/test").Page, name: string): 
   return file;
 }
 
-// ---------------------------------------------------------------------------
-// Board task card → detail overlay → Esc restores board
-// ---------------------------------------------------------------------------
 
 test(
   "@golden @plan-detail-overlay board task card opens detail overlay and Esc closes it",
@@ -33,7 +30,6 @@ test(
         return;
       }
 
-      // Ensure board mode
       const shell = page.locator('[data-testid="plan-view-shell"]');
       const modeSwitch = page.locator('[data-testid="plan-view-mode-switch"]');
       await expect(shell).toBeVisible({ timeout: 30_000 });
@@ -41,7 +37,6 @@ test(
       await expect(shell).toHaveAttribute("data-plan-view-mode", "board");
       await expect(page.locator('[data-testid="plan-board-view"]')).toBeVisible();
 
-      // Find and click the first interactive task card
       const firstCard = page.locator('[data-testid="plan-board-task-card"]').first();
       await firstCard.waitFor({ state: "visible", timeout: 20_000 });
 
@@ -49,7 +44,6 @@ test(
 
       await firstCard.click();
 
-      // Overlay should appear
       const overlay = page.locator('[data-testid="plan-detail-overlay"]');
       await expect(overlay).toBeVisible({ timeout: 10_000 });
       await expect(page.locator('[data-testid="plan-detail-panel"]')).toBeVisible();
@@ -57,7 +51,6 @@ test(
 
       await screenshot(page, "plan-view-board-detail-task");
 
-      // Esc closes the overlay and restores the board
       await page.keyboard.press("Escape");
       await expect(overlay).toBeHidden({ timeout: 5_000 });
       await expect(page.locator('[data-testid="plan-board-view"]')).toBeVisible();
@@ -67,9 +60,6 @@ test(
   },
 );
 
-// ---------------------------------------------------------------------------
-// List row → detail overlay → Esc restores list
-// ---------------------------------------------------------------------------
 
 test(
   "@golden @plan-detail-overlay list row opens detail overlay and Esc closes it",
@@ -83,7 +73,6 @@ test(
         return;
       }
 
-      // Switch to list mode
       const shell = page.locator('[data-testid="plan-view-shell"]');
       const modeSwitch = page.locator('[data-testid="plan-view-mode-switch"]');
       await expect(shell).toBeVisible({ timeout: 30_000 });
@@ -93,11 +82,9 @@ test(
       const listView = page.locator('[data-testid="plan-list-view"]');
       await expect(listView).toBeVisible();
 
-      // Find a task row and click it
       const taskRow = page.locator('[data-testid="plan-list-task"]').first();
       await taskRow.waitFor({ state: "visible", timeout: 20_000 });
 
-      // Note scroll position of list before opening detail
       const scrollContainer = page.locator('[data-testid="plan-list-scroll"]');
       const scrollTopBefore = await scrollContainer.evaluate((el) => el.scrollTop).catch(() => 0);
 
@@ -111,7 +98,6 @@ test(
 
       await screenshot(page, "plan-view-list-detail-task");
 
-      // Esc closes overlay, list is restored
       await page.keyboard.press("Escape");
       await expect(overlay).toBeHidden({ timeout: 5_000 });
       await expect(listView).toBeVisible();
@@ -125,9 +111,6 @@ test(
   },
 );
 
-// ---------------------------------------------------------------------------
-// Canvas (mission control) task card → detail overlay
-// ---------------------------------------------------------------------------
 
 test(
   "@golden @plan-detail-overlay canvas card opens detail overlay and Esc closes it",

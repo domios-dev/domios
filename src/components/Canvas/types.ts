@@ -3,7 +3,6 @@
 
 export type PlanStatus = "active" | "archived";
 export type TaskStatus = "pending" | "in_progress" | "in_review" | "blocked" | "parked" | "done" | "cancelled";
-// Value-level mirror of the TaskStatus union — use these in comparisons/switches
 // instead of bare string literals (type + value namespaces merge by design).
 export const TaskStatus = {
   Pending: "pending",

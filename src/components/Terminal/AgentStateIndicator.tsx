@@ -13,8 +13,6 @@ import {
   X,
 } from "lucide-react";
 
-// The live state of a pane's agent, as a single small shape. `subtype` only
-// carries meaning for the `question` state; `phase`/`status_line`/`elapsed_ms`
 export type AgentStateKind = "working" | "idle" | "question";
 
 export type AgentQuestionSubtype =
@@ -131,7 +129,6 @@ function Cursor({ color }: { color: string }) {
   return <span aria-hidden className="ct-agent-cursor" style={{ color }} />;
 }
 
-// The working sub-phase (best-effort) morphs the dots' rhythm + hue; it never
 // changes the state.
 type WorkPhase = "thinking" | "streaming" | "work";
 const STATUS_MESSAGE_MAX_CHARS = 80;
@@ -146,8 +143,6 @@ function compactStatusMessage(text: string): string {
   return `${chars.slice(0, STATUS_MESSAGE_MAX_CHARS - 1).join("").trimEnd()}…`;
 }
 
-// Hold a phase until a NEW one has been stable for `dwellMs`. The live signal
-// flips as the status widget appears/disappears mid-turn; without this the dots
 function useStablePhase(phase: WorkPhase, dwellMs = 700): WorkPhase {
   const [shown, setShown] = useState(phase);
   const shownRef = useRef(shown);
@@ -160,8 +155,6 @@ function useStablePhase(phase: WorkPhase, dwellMs = 700): WorkPhase {
   return shown;
 }
 
-// Inline, in-canvas agent state line. Working and idle share ONE persistent row
-// so the transition flows: the three dots keep their slot and SETTLE into one
 export function AgentStateIndicator({
   state,
   className,

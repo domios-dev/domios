@@ -63,7 +63,6 @@ fn chatbackend_backing_restores_from_snapshot() {
         },
         "restored as chatBackend, not Pty"
     );
-    // The frontend (TabContent.tsx) renders the chat UI iff this is true and
     // never mounts a terminal — the "comes back as a terminal" guard.
     assert!(pane.is_chat_backend(), "renders chat, not terminal");
     assert!(pane.restored_from_snapshot, "marked for lazy re-open");
@@ -92,7 +91,6 @@ fn chatbackend_backing_round_trips_through_snapshot() {
 
 #[test]
 fn pty_pane_round_trips_without_chatbackend_fields() {
-    // A plain PTY pane (agent_type, no backing) must NOT gain a chatBackend
     // backing on round-trip.
     let leaf = SplitNodeSnapshot::Leaf {
         pane_id: "p2".into(),
@@ -171,8 +169,6 @@ fn pane_description_round_trips_through_snapshot() {
 
 #[test]
 fn spawned_by_and_report_target_restore_intact_not_none() {
-    // Regression for the snapshot.rs gap that hardcoded
-    // spawned_by_pane_id: None / report_target_pane_id: None on restore,
     let leaf = SplitNodeSnapshot::Leaf {
         pane_id: "worker-1".into(),
         cwd: None,
@@ -247,7 +243,6 @@ fn legacy_tab_title_seeds_default_provider_pane_title() {
 
 #[test]
 fn remote_report_target_round_trips_through_snapshot() {
-    // A remote (mesh) worker's report target must survive save+restore so a
     // restarted worker still relays its reports back across the mesh.
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
@@ -269,7 +264,6 @@ fn remote_report_target_round_trips_through_snapshot() {
 
 #[test]
 fn session_snapshot_no_longer_carries_closed_history() {
-    // The closed-tab history moved to the sqlite store; the persisted
     // session snapshot must stay lean and not round-trip it.
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
@@ -335,11 +329,6 @@ fn chatbackend_pane_stays_chat_backend_after_snapshot_resave() {
 
 #[test]
 fn snapshot_with_status_mirrors_tracked_pty_status_only() {
-    // Regression for the web reload bug: `mux_get_state`/`mux_state` used to
-    // carry no status at all, so a reload blanked the tab rail for EVERY
-    // status (Working included), not just the pending_prompt/Waiting case.
-    // This proves both a Working pane and a Waiting (pending_prompt) pane
-    // hydrate their correct rail color straight from the snapshot.
     use crate::agent::status::{PaneStatus, PaneStatusTracker};
 
     let (mut state, _root) = MultiplexerState::new();
@@ -389,12 +378,6 @@ fn test_pending_prompt() -> crate::multiplexer::types::PendingPrompt {
 
 #[test]
 fn snapshot_with_status_derives_waiting_from_pending_prompt_over_working() {
-    // Regression for the attention-after-reload bug: a hook-driven prompt
-    // (POST /hook/permission on a plain shell pane) sets pane.pending_prompt
-    // directly and never calls PaneStatusTracker::set_waiting. If the PTY
-    // keeps producing output (e.g. a shell loop), update_output() forces the
-    // tracker back to Working on every chunk, so a raw tracker mirror alone
-    // shows Working after reload even while a prompt is actively pending.
     use crate::agent::status::{PaneStatus, PaneStatusTracker};
 
     let (mut state, _root) = MultiplexerState::new();
@@ -420,9 +403,6 @@ fn snapshot_with_status_derives_waiting_from_pending_prompt_over_working() {
 
 #[test]
 fn snapshot_with_status_derives_waiting_from_pending_prompt_when_untracked() {
-    // A chatBackend pane (no pty_id) or a pane the tracker has never seen a
-    // chunk from yet must still surface Waiting once pending_prompt is set —
-    // the tracker's silence must not suppress attention.
     use crate::agent::status::{PaneStatus, PaneStatusTracker};
 
     let (mut state, _root) = MultiplexerState::new();
@@ -441,7 +421,6 @@ fn snapshot_with_status_derives_waiting_from_pending_prompt_when_untracked() {
 
 #[test]
 fn snapshot_with_status_keeps_dead_over_stale_pending_prompt() {
-    // A confirmed-Dead pty must not flip back to Waiting because of a
     // pending_prompt that never got cleared on exit — Dead is terminal.
     use crate::agent::status::{PaneStatus, PaneStatusTracker};
 
@@ -521,7 +500,6 @@ fn spawned_by_round_trips_through_snapshot() {
 fn ghost_repro_restore_from_old_snapshot_drops_picker_pane() {
     use crate::service::general_agent::{purge_snapshot_ghosts, FIRST_RUN_PANE_MARKER};
 
-    // Build a snapshot as it would have been saved BEFORE the fix —
     // the picker pane IS present with its marker description.
     let old_snapshot = SessionSnapshot {
         version: "test".into(),
@@ -566,7 +544,6 @@ fn ghost_repro_restore_from_old_snapshot_drops_picker_pane() {
         }],
     };
 
-    // Step 1 (PROVE THE BUG): restore from the old snapshot — the picker
     // pane IS present in the restored state (it leaked in before the fix).
     let mut restored = MultiplexerState::from_session_snapshot(&old_snapshot);
     assert!(
@@ -579,12 +556,10 @@ fn ghost_repro_restore_from_old_snapshot_drops_picker_pane() {
         "pre-purge: workspace must have the ghost tab"
     );
 
-    // Step 2 (APPLY THE FIX): purge_snapshot_ghosts drops the tab and
     // records it in Recently Closed.
     let dropped = purge_snapshot_ghosts(&mut restored);
     assert_eq!(dropped, 1, "purge must drop exactly one ghost tab");
 
-    // Step 3 (VERIFY): the ghost tab is gone; the pane is removed from
     // /api/panes; Recently Closed records the drop.
     assert!(
         !restored.panes.contains_key("pane-picker"),

@@ -144,7 +144,6 @@ pub async fn mem_save(
         .scope
         .map(|s| MemScope::from_str(&s))
         .unwrap_or(MemScope::Global);
-    // Check BEFORE moving fields — prevents extraction cascade
     let is_auto_extracted = body.tags.iter().any(|t| t == "auto-extracted")
         || body
             .source

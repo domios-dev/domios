@@ -60,7 +60,6 @@ pub(crate) fn launch_agent_in_background(
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
     let registry = svc.agent_registry.clone();
-    // A booting TUI silently swallows bracket-paste — gate sends (send_text_when_ready) until the background launch clears this. Set BEFORE the
     // thread spawns: callers get the pane id immediately and may send right away.
     if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
         p.agent_booting = true;
@@ -116,10 +115,6 @@ pub(crate) fn launch_agent_in_background(
                 let spawn_result = svc.pty.lock().spawn(None, cwd, 120, 40, env_vars);
                 match spawn_result {
                     Ok((pid, _)) => {
-                        // Claim the stream (reader clone + frontend channel) BEFORE
-                        // linking the pane: once linked, the frontend's read_pty may
-                        // attach instantly, and without the channel it would clone a
-                        // second raw reader — two readers split the byte stream.
                         let svc_arc = std::sync::Arc::new(svc.clone());
                         let prepared =
                             crate::service::pty_lifecycle::prepare_backend_reader(&svc_arc, &pid);
@@ -164,7 +159,6 @@ pub(crate) fn launch_agent_in_background(
                             BootStage::SpawnFailed,
                             Some(&format!("backend PTY spawn failed: {}", e)),
                         );
-                        // Clean up the orphaned pane — it has no PTY and is unreachable
                         let _ = svc.close_tab(&ws_id, &tab_id);
                         set_booting(false);
                         if let Some(tx) = ready_tx {
@@ -178,7 +172,6 @@ pub(crate) fn launch_agent_in_background(
         };
         svc.emit_boot_stage(&pane_id, BootStage::PtySpawned, None);
 
-        // 2. Wait for readiness using provider strategy
         let (readiness, delivery) = registry
             .with_provider(&agent_cmd, |p| (p.readiness_strategy(), p.task_delivery()))
             .unwrap_or((
@@ -215,7 +208,6 @@ pub(crate) fn launch_agent_in_background(
                 timeout: std::time::Duration::from_secs(15),
             });
         svc.emit_boot_stage(&pane_id, BootStage::AgentLaunching, None);
-        // Use shell dispatch (bash script on Unix, bracketed paste on Windows) so bash 3.2 hosts (macOS Intel system shell) never see raw ESC markers
         // (#93 — keeps shell-level launch off the bracketed-paste path).
         if let Err(e) =
             svc.send_shell_spawn_verified(&pty_id, &launch_cmd, launch_strategy, launch_opts)

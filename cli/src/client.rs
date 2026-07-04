@@ -58,18 +58,15 @@ impl SocketClient {
     /// NOT the full `\\.\pipe\codeterm-1234` path.
     /// Tries both with and without `.sock` suffix for compatibility across versions.
     pub fn connect(socket_path: &str) -> Result<Self, String> {
-        // Try as-is first
         if let Ok(client) = Self::try_connect(socket_path) {
             return Ok(client);
         }
-        // Try with .sock suffix if not already present
         if !socket_path.ends_with(".sock") {
             let with_sock = format!("{}.sock", socket_path);
             if let Ok(client) = Self::try_connect(&with_sock) {
                 return Ok(client);
             }
         }
-        // Try without .sock suffix if present
         if let Some(without) = socket_path.strip_suffix(".sock") {
             if let Ok(client) = Self::try_connect(without) {
                 return Ok(client);
@@ -121,7 +118,6 @@ impl SocketClient {
         let payload = serde_json::to_string(&req)
             .map_err(|e| SocketCallError::Transport(format!("Serialize error: {}", e)))?;
 
-        // Write request line
         let writer = self.reader.get_mut();
         writer
             .write_all(payload.as_bytes())
@@ -133,7 +129,6 @@ impl SocketClient {
             .flush()
             .map_err(|e| SocketCallError::Transport(format!("Flush error: {}", e)))?;
 
-        // Read response line
         let mut line = String::new();
         let bytes_read = self
             .reader
@@ -190,10 +185,6 @@ pub fn discover_socket() -> Result<String, String> {
             {
                 return Ok(normalized);
             }
-            // Dead pipe (post-restart stale env). Fall through to deterministic
-            // dev-instance discovery or filesystem scanning. A mismatched
-            // inherited socket also falls through when CODETERM_INSTANCE asks
-            // for a named dev daemon.
         }
     }
 
@@ -260,7 +251,6 @@ fn normalize_socket_path(path: &str) -> String {
 
     #[cfg(not(target_os = "windows"))]
     {
-        // GenericNamespaced on Unix prepends /tmp/, so strip it to avoid /tmp//tmp/
         if let Some(name) = path.strip_prefix("/tmp/") {
             return name.to_string();
         }
@@ -369,7 +359,6 @@ fn pick_preferred_socket_for(
 
 #[cfg(target_os = "windows")]
 fn discover_windows_pipe() -> Result<String, String> {
-    // Scan \\.\pipe\ directory for codeterm-* pipes
     use std::fs;
     let pipe_dir = "\\\\.\\pipe";
     match fs::read_dir(pipe_dir) {
@@ -410,7 +399,6 @@ fn discover_unix_socket() -> Result<String, String> {
         }
     }
 
-    // Fallback: find running CodeTerm process and try connecting by PID
     if let Ok(output) = std::process::Command::new("pgrep")
         .arg("-f")
         .arg("codeterm")

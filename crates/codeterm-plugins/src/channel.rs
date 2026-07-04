@@ -89,7 +89,6 @@ pub(super) fn list_channels() -> Result<serde_json::Value, String> {
             removable: ch.name != SYSTEM_CHANNEL_NAME && ch.name != DEFAULT_PLUGIN_CHANNEL_NAME,
         })
         .collect();
-    // The system marketplace is intrinsic — listed without a network fetch even
     // before it has been registered/cloned.
     if !rows.iter().any(|r| r.name == SYSTEM_CHANNEL_NAME) {
         rows.push(virtual_system_channel());

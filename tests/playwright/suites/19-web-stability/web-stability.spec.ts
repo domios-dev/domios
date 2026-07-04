@@ -54,9 +54,6 @@ function terminalScope(page: Page, paneId: string) {
 
 async function focusTab(page: Page, tabId: string): Promise<void> {
   const row = tab(page, tabId).first();
-  // A reload/sever mid-test destroys the CDP context; toBeVisible auto-retries
-  // against the fresh context and click() auto-scrolls (raw scrollIntoViewIfNeeded
-  // throws "cannot find context" during navigation).
   await expect(row).toBeVisible({ timeout: 20_000 });
   await row.click();
 }

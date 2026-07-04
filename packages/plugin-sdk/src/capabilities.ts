@@ -68,7 +68,6 @@ export interface LaunchParams {
   [key: string]: unknown;
 }
 
-// A permission prompt the provider parsed itself when the host's universal
 // picker can't read its layout (e.g. opencode's single-row options).
 export interface ParsedPrompt {
   question: string;
@@ -101,9 +100,6 @@ export interface AgentProvider {
   detectSessionModel?(cwd: string, sessionId: string): string | null;
   enumerateSessions?(): unknown[];
   parseUsage?(rawText: string, nowMs: number): unknown;
-  // Non-TUI usage source: providers whose usage lives behind a CLI/API (e.g.
-  // cursor) fetch the raw payload here. The host feeds it to parseUsage,
-  // skipping any /usage-screen probe. Return null on fetch failure.
   fetchUsage?(nowMs: number): unknown;
   discoverModels?(): ModelInfo[];
   parseSessionMessages?(text: string): unknown[];
@@ -128,7 +124,6 @@ export interface SecretCreds {
   [key: string]: unknown;
 }
 
-// Most secret ops return an envelope the JsSecretBackend adapter maps onto the
 // core SecretStore trait: `{ ok }` / `{ ok: <payload> }` / `{ error: <kind> }`.
 export type SecretError = { kind: string; message?: string; candidates?: string[] };
 export type SecretEnvelope<T = unknown> = { ok: T } | { error: SecretError };
@@ -236,7 +231,6 @@ export interface ChatSessionInfo {
   model?: string;
 }
 
-// Manifest form for `capabilities.chatBackend`. Bare `true` = registered but not
 // user-spawnable (host-/agent-driven); `{ spawnable: true }` = user-openable in the picker.
 export type ChatBackendCapability = boolean | { spawnable?: boolean };
 

@@ -19,7 +19,6 @@ function pane(overrides: Partial<Pane> = {}): Pane {
   return { id: "p", title: "p", role: null, role_profile: null, ...overrides } as Pane;
 }
 
-// --- role_profile → section matrix (incl. unknown-role fallback) -----------
 const debugCalls: string[] = [];
 const origDebug = console.debug;
 console.debug = (...args: unknown[]) => {
@@ -47,7 +46,6 @@ try {
   console.debug = origDebug;
 }
 
-// --- role badge labels ------------------------------------------------------
 assert(roleBadgeLabel(pane({ role: "Orchestrator" })) === "ORCHESTRATOR", "orchestrator badge");
 assert(
   roleBadgeLabel(pane({ role: "Worker", role_profile: "planner" })) === "PLANNER",
@@ -63,7 +61,6 @@ assert(roleBadgeLabel(null) === null, "null pane → no badge");
 assert(roleBadgeTestId("ORCHESTRATOR") === "role-badge-orchestrator", "orchestrator testid");
 assert(roleBadgeTestId("PLANNER") === "role-badge-planner", "planner testid");
 
-// --- partition preserves spawn order within each section --------------------
 const nodes = [
   { pane: pane({ id: "w1", role_profile: null }) },
   { pane: pane({ id: "planner", role_profile: "planner" }) },
@@ -73,7 +70,6 @@ const part = partitionBySection(nodes);
 assert(part.managers.map((n) => n.pane.id).join(",") === "planner", "managers = planner only");
 assert(part.workers.map((n) => n.pane.id).join(",") === "w1,w2", "workers keep spawn order");
 
-// --- group-close section summary -------------------------------------------
 assert(SECTION_LABEL.manager === "Managers" && SECTION_LABEL.worker === "Workers", "section labels");
 const counts = countBySection([
   { roleProfile: "planner" },

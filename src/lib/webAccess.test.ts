@@ -21,7 +21,6 @@ function assert(label: string, actual: unknown, expected: unknown) {
   }
 }
 
-// ── priority chain ────────────────────────────────────────────────
 console.log("buildWebAccessUrls priority:");
 
 const full = buildWebAccessUrls(
@@ -68,11 +67,9 @@ assert("loopback-only is fallback", empty.usingFallback, true);
 
 assert("api_port from net overrides fallback", buildWebAccessUrls({ api_port: 1234 }, 9999).primary, "http://127.0.0.1:1234/");
 
-// dedup: loopback already implied; ensure no dupes when ips coincide
 const dup = buildWebAccessUrls({ local_ip: "127.0.0.1", api_port: 7685 }, 9999);
 assert("dedups loopback collision", dup.urls, ["http://127.0.0.1:7685/"]);
 
-// ── token fragment ────────────────────────────────────────────────
 console.log("\nwebLinkWithToken:");
 assert(
   "appends token as fragment on https root",
@@ -86,11 +83,9 @@ assert(
 );
 assert("no token → unchanged", webLinkWithToken("http://127.0.0.1:7685/", null), "http://127.0.0.1:7685/");
 
-// ── hint carries the live port ────────────────────────────────────
 console.log("\nserveHint:");
 assert("hint includes port", serveHint(7685).includes("127.0.0.1:7685"), true);
 
-// ── planServeSetup (Enable Web Access decision) ────────────────────
 console.log("\nplanServeSetup:");
 
 const notInstalled = planServeSetup(

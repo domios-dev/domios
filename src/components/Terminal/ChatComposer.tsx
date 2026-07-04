@@ -26,7 +26,6 @@ const COMPOSER_MIN_HEIGHT = 20;
 const COMPOSER_HEIGHT_EPSILON = 2;
 const COMPOSER_MAX_HEIGHT = 230;
 const AUDIO_ATTACHMENT_RE = /\.(webm|ogg|oga|opus|mp3|wav|m4a|aac|mp4|flac)$/i;
-// Shown the instant a voice note is sent — transcription (cold Whisper can take
 // several seconds) then morphs this bubble into the transcript, or an error.
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
 const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
@@ -484,9 +483,6 @@ export function ChatComposer({
     const dupKey = `${text} ${allAttachments.join("|")}`;
     if (dupKey === lastSendRef.current.text && nowTs - lastSendRef.current.at < 500) return;
     lastSendRef.current = { text: dupKey, at: nowTs };
-    // Voice notes: show the bubble immediately so the user sees progress during
-    // the (possibly multi-second, cold-Whisper) transcription gap, then morph it
-    // into the transcript — instead of staring at silence until the text lands.
     const hasAudio = allAttachments.some((p) => AUDIO_ATTACHMENT_RE.test(p));
     const placeholderId = hasAudio ? addOptimistic(VOICE_TRANSCRIBING_PLACEHOLDER) : null;
     const { composed, transcribeFailed } = await composeDraft(text, allAttachments);
@@ -536,7 +532,6 @@ export function ChatComposer({
     refocusComposer();
     try {
       if (chatBackend) {
-        // No PTY — route to the pane send seam, which dispatches to the
         // plugin's sendMessage (chat_send_text → send_text_when_ready).
         await invoke("chat_send_text", { paneId, text: composed, enter: true });
       } else {
@@ -547,10 +542,6 @@ export function ChatComposer({
           onOpenTerminalFallback?.();
           await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
         } else {
-          // Regular sends go through chat_send_text, whose backend implementation
-          // (send_text_when_ready → await_pty_link_blocking) waits up to 15s for
-          // the PTY to start — safe to call even when currentPtyId is still null
-          // on a freshly created pane.
           await invoke("chat_send_text", { paneId, text: composed, enter: true });
         }
       }

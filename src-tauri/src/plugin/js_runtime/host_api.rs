@@ -153,7 +153,6 @@ impl PluginSandbox {
         let host = host.trim();
         self.net_allow.iter().any(|allowed| {
             allowed == host
-                // allow `host` to match an `host:port` rule and vice-versa
                 || host.split(':').next() == Some(allowed.as_str())
                 || allowed.split(':').next() == Some(host)
         })
@@ -204,7 +203,6 @@ impl PluginSandbox {
     }
 
     fn path_under(roots: &[PathBuf], path: &str) -> bool {
-        // Compare canonical forms so `..` and symlinks can't escape. Fall back
         // to the lexical path when the target doesn't exist yet (writes).
         let target = std::fs::canonicalize(path)
             .ok()
@@ -283,7 +281,6 @@ pub(super) fn install(
         manifest_owned.clone()
     });
 
-    // ── Identity / paths ────────────────────────────────────────────
     bind!("platform", || -> String {
         std::env::consts::OS.to_string()
     });
@@ -304,7 +301,6 @@ pub(super) fn install(
     bind!("unixNow", || -> i64 { since_epoch().as_secs() as i64 });
     bind!("unixNowMs", || -> i64 { since_epoch().as_millis() as i64 });
 
-    // ── Filesystem (path-gated for confined plugins) ────────────────
     let sb = sandbox.clone();
     bind!("fileExists", move |path: String| -> bool {
         sb.can_read(&path) && Path::new(&path).exists()
@@ -356,7 +352,6 @@ pub(super) fn install(
         walk_dir_json(&path, max_depth.max(0) as usize)
     });
 
-    // ── Shell / process help ────────────────────────────────────────
     bind!("shellQuote", |s: String| -> String {
         posix_single_quote(&s)
     });
@@ -390,7 +385,6 @@ pub(super) fn install(
         out
     });
 
-    // ── Sqlite (read-only, db path gated for confined plugins) ──────
     let sb = sandbox.clone();
     bind!("sqliteQueryAllJson", move |db: String,
                                       sql: String,
@@ -403,7 +397,6 @@ pub(super) fn install(
         sqlite_query_all_json(&db, &sql, params_json.as_deref())
     });
 
-    // ── Logging ─────────────────────────────────────────────────────
     bind!("log", |level: String, msg: String| {
         match level.as_str() {
             "trace" => log::trace!("[plugin] {msg}"),
@@ -414,7 +407,6 @@ pub(super) fn install(
         }
     });
 
-    // ── host_api v2: subprocess / network / per-plugin secrets ──────
     // Each is gated by the manifest permission baked into the sandbox.
     let sb = sandbox.clone();
     bind!("settingsJson", move || -> String { sb.settings_json() });

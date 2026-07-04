@@ -204,7 +204,6 @@ fn resolve_plan_ctx_stale_plan_falls_through_to_binding() {
     let (store, _plan_id, task_id) = make_store_with_assigned_task("pane-y");
     let mut notices = Vec::new();
     let (p, t) = resolve_plan_ctx(&store, "pane-y", Some("pl_stale"), None, &mut notices).unwrap();
-    // Should resolve via binding even though stale plan was provided
     assert!(p.is_some(), "should auto-resolve to bound plan");
     assert!(t.is_some(), "should auto-resolve to bound task");
     assert!(
@@ -212,7 +211,6 @@ fn resolve_plan_ctx_stale_plan_falls_through_to_binding() {
         "must emit a notice about the stale plan"
     );
     assert!(notices[0].contains("pl_stale"));
-    // The resolved task should match what we assigned
     assert_eq!(t.as_deref(), Some(task_id.as_str()));
 }
 
@@ -385,7 +383,6 @@ fn orchestrator_falls_back_to_spawned_by_when_no_parent() {
 
 #[test]
 fn never_routes_back_to_self_when_all_targets_unset() {
-    // Top-level orchestrator with no parent / no report_target / no spawner. The previous implementation walked the parent chain and returned the
     // pane's own id, so reports got injected into the orchestrator's own PTY and `agent reports` against the spawning agent stayed empty.
     let (mux, orch) = MultiplexerState::new();
     let (_, target) = resolve_report_target(&mux, &orch).unwrap();
@@ -509,7 +506,6 @@ fn report_format_basic() {
 
 #[test]
 fn report_format_no_trailing_cr() {
-    // Enter is delivered as a separate write by send_text — the body itself must NOT contain trailing \r, otherwise Claude's prompt submits before
     // the bracket-paste end marker is processed.
     let msg = format_report("Worker-1", "done");
     assert!(!msg.ends_with('\r'), "Report body must not end with \\r");
@@ -545,7 +541,6 @@ fn report_format_message_with_special_chars() {
 
 #[test]
 fn mesh_target_resolves_when_peer_and_pane_set() {
-    // A worker spawned via `agent spawn --mesh PEER --report-to main` carries
     // both fields; it must resolve to a Mesh target, never a local pane.
     let (mut mux, _orch) = MultiplexerState::new();
     let worker = mux.create_pane();
@@ -568,7 +563,6 @@ fn mesh_target_resolves_when_peer_and_pane_set() {
 
 #[test]
 fn mesh_target_wins_over_local_parent() {
-    // Even with a local role parent, an explicit remote target takes priority
     // so the report crosses the mesh instead of landing in a stale local pane.
     let (mux, _orch, worker) = build_orchestrator_with_worker("Remote-Pri");
     let mut mux = mux;
@@ -589,7 +583,6 @@ fn mesh_target_wins_over_local_parent() {
 
 #[test]
 fn mesh_peer_without_target_pane_falls_back_to_local() {
-    // A dangling peer with no target pane is incomplete — don't synthesize a
     // half-addressed remote target; fall through to the local chain.
     let (mux, orch, worker) = build_orchestrator_with_worker("Half-Remote");
     let mut mux = mux;
@@ -618,9 +611,6 @@ fn storage_keys_distinguish_local_and_mesh() {
 
 #[test]
 fn resolve_plan_ctx_foreign_plan_with_no_binding_returns_none_with_notice() {
-    // A remote worker has no local plan store and no pane binding.
-    // When it passes --plan pl_foreign --task task_yyy, resolve_plan_ctx must
-    // return (None, None) with a notice so the caller can detect the homing case.
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let mut notices = Vec::new();
@@ -646,7 +636,6 @@ fn resolve_plan_ctx_foreign_plan_with_no_binding_returns_none_with_notice() {
 
 #[test]
 fn mesh_peer_extracted_from_default_target_before_or_consumes_it() {
-    // Verify that a Mesh default target exposes a peer name we can use for
     // homing — this is the detection step that decides whether to relay.
     let default_target: Option<ReportTarget> = Some(ReportTarget::Mesh {
         peer: "eight".into(),
@@ -733,13 +722,11 @@ fn not_foreign_for_empty_explicit_plan() {
 
 #[test]
 fn resolve_plan_ctx_explicit_plan_overridden_by_binding_triggers_foreign() {
-    // Integration-style: resolve_plan_ctx falls through to local binding when
     // the explicit plan isn't found. is_explicit_plan_foreign must detect this.
     let (store, _local_plan, _local_task) = make_store_with_assigned_task("pane-q");
     let mut notices = Vec::new();
     let (eff, _) =
         resolve_plan_ctx(&store, "pane-q", Some("pl_foreign_x"), None, &mut notices).unwrap();
-    // eff may be Some (local binding) or None (if no binding) — either way,
     // is_explicit_plan_foreign must report true since "pl_foreign_x" != eff.
     assert!(
         is_explicit_plan_foreign(Some("pl_foreign_x"), eff.as_deref()),

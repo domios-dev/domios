@@ -128,7 +128,6 @@ impl PromptDetector {
         pane_id: &str,
         prompt: PendingPrompt,
     ) -> PromptDecision {
-        // Hooks are authoritative — skip cooldown check
         let state = self.states.get(pane_id);
         match state {
             Some(PanePromptState::Active {
@@ -273,10 +272,6 @@ impl PromptDetector {
                             }
                         }
                     }
-                    // This path only ever carries a STRUCTURED scan result (see
-                    // output.rs) — an explicit/hook-driven prompt has no live
-                    // source to reconcile against here, so "nothing parsed this
-                    // chunk" must not be read as "the user answered it".
                     None if explicit => PromptDecision::None,
                     None => {
                         self.states
@@ -451,7 +446,6 @@ mod tests {
     fn test_active_same_prompt_returns_none() {
         let mut det = PromptDetector::new();
         det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
-        // Same prompt again
         let decision = det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::None));
     }
@@ -460,7 +454,6 @@ mod tests {
     fn test_active_different_options_returns_updated() {
         let mut det = PromptDetector::new();
         det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
-        // Different options
         let decision = det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_three_opts);
         assert!(matches!(decision, PromptDecision::PromptUpdated { .. }));
     }
@@ -477,7 +470,6 @@ mod tests {
         let mut det = PromptDetector::new();
         det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
         det.mark_responded("pane-1");
-        // Immediately after response — should be suppressed
         let decision = det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::None));
     }
@@ -488,7 +480,6 @@ mod tests {
         det.cooldown_ms = 0; // Expire immediately
         det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
         det.mark_responded("pane-1");
-        // Cooldown expired (0ms) — should detect new prompt
         let decision = det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
     }
@@ -516,7 +507,6 @@ mod tests {
         let prompt = make_prompt("Proceed?", &[("Yes", "1"), ("No", "2")]);
         det.hook_detected_explicit("pane-1", prompt.clone());
         det.mark_responded("pane-1");
-        // Hook should bypass cooldown
         let prompt2 = make_prompt("Allow?", &[("Yes", "1"), ("No", "2")]);
         let decision = det.hook_detected_explicit("pane-1", prompt2);
         assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
@@ -555,20 +545,11 @@ mod tests {
         assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
     }
 
-    // Regression: a hook-driven explicit prompt (test driver, or a real hook
-    // with no structured backing) has no live source to reconcile against on
-    // the routine per-chunk PTY scan. Before this fix, the very next chunk of
-    // ordinary shell output (e.g. a still-running working loop) would race the
-    // hook and immediately wipe the prompt via the structured-scan-found-none
-    // path, making the attention state flicker away before anything observed
-    // it — the root cause of the RAIL-3 reload flake.
     #[test]
     fn test_explicit_prompt_survives_unrelated_pty_output() {
         let mut det = PromptDetector::new();
         let prompt = make_prompt("Allow probe?", &[("Yes", "1"), ("No", "2")]);
         det.hook_detected_explicit("pane-1", prompt);
-        // Structured/raw-output scan finds nothing this chunk (ordinary shell
-        // output, no permission text) — must NOT clear an explicit prompt.
         let decision = det.evaluate_pty_output("pane-1", true, Some("pw-rail-42"), |_| None);
         assert!(matches!(decision, PromptDecision::None));
         assert!(det.active_prompt("pane-1").is_some());
@@ -585,9 +566,6 @@ mod tests {
         assert!(det.active_prompt("pane-1").is_some());
     }
 
-    // A genuinely structured detection (never hook-driven) must still clear
-    // normally when the source stops reporting it — this is the real "user
-    // answered the actual agent prompt" signal and must not be muted.
     #[test]
     fn test_structured_prompt_still_clears_when_gone() {
         let mut det = PromptDetector::new();
@@ -598,10 +576,6 @@ mod tests {
         assert!(det.active_prompt("pane-1").is_none());
     }
 
-    // An explicit prompt IS superseded by a genuine structured detection
-    // (e.g. the real agent surfaces its own prompt right after a test/hook
-    // seeded one) — explicit immunity only blocks "nothing found", not a
-    // real competing prompt.
     #[test]
     fn test_structured_prompt_supersedes_explicit() {
         let mut det = PromptDetector::new();
@@ -690,7 +664,6 @@ mod tests {
         let mut det = PromptDetector::new();
         det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
         det.mark_responded("pane-1");
-        // pane-2 should not be affected by pane-1's cooldown
         let decision = det.evaluate_pty_output("pane-2", true, Some("proceed"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
     }

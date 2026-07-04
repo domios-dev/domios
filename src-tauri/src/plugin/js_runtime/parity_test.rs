@@ -294,7 +294,6 @@ fn classify_pane_state_native_js_parity() {
 
 #[test]
 fn classify_pane_state_unimplemented_matches_native_default_none() {
-    // Discipline rule #2: a JS drop-in that doesn't export classifyPaneState
     // returns the SAME default (None) as the native trait default.
     let native_default = DiscoverModelsNativeStub; // does not override classify_pane_state
     let js = load_inline_js(
@@ -337,7 +336,6 @@ Prose after."#;
     let native = super::toolcall_parse::parse_to_json(raw, schema);
     assert_eq!(via_js, native);
 
-    // Tri-state parity: a tool-call-shaped but unparseable block must surface the
     // SAME malformed signal through the JS binding as native (not a silent null).
     let malformed_raw = r#"{"tool":"exec","args":{"cmd":"ls"#;
     let via_js_malformed: String = super::call_json(
@@ -494,8 +492,6 @@ fn supports_stop_matches_stop_keystroke() {
 /// now matches the native control instead of overflowing the stack.
 mod no_native_fallback_recursion;
 
-// JS-only provider parity. Codex/cursor/opencode have NO native Rust
-// counterpart, so "parity" here means: the real bundled plugin.js, driven
 mod codex;
 mod cursor;
 mod opencode;

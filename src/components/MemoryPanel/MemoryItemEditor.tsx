@@ -24,7 +24,6 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
   const backdropRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
-  // Draft state for editable fields
   const [draftTitle, setDraftTitle] = useState("");
   const [draftBody, setDraftBody] = useState("");
   const [draftArea, setDraftArea] = useState("");
@@ -45,7 +44,6 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
     return () => { active = false; };
   }, [api, itemId]);
 
-  // Track dirty
   useEffect(() => {
     if (!item) return;
     const d = draftTitle !== item.title

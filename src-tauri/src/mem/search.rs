@@ -23,7 +23,6 @@ use serde::{Deserialize, Serialize};
 use super::store::MemItem;
 
 const STOP_WORDS: &[&str] = &[
-    // English
     "what",
     "when",
     "where",
@@ -109,7 +108,6 @@ const STOP_WORDS: &[&str] = &[
     "she",
     "his",
     "her",
-    // Russian
     "что",
     "как",
     "где",
@@ -293,7 +291,6 @@ impl Default for SearchConfig {
             keyword_overlap_weight: 0.5,
             // A/B proven: +10pp Recall@1 on 30-query bench (30 EN queries). RU stop words added too but not yet bench-validated on RU queries.
             fts_drop_stopwords: true,
-            // A/B on 251-item fixture: 1.0 hits 86.7% Recall@1, 96.7% Recall@5. The formula is cliff-shaped (0.8-0.95 all ≈60%, jumps at 1.0) because (1.0
             // - bonus) × bm25 is non-zero until bonus=1.0. 1.0 guarantees title-matchers rank first, which is what we want.
             title_match_bonus: 1.0,
             graph_entity_boost: 1.0,
@@ -423,7 +420,6 @@ fn sanitize_fts_query(q: &str, drop_stopwords: bool) -> String {
         .map(|w| w.to_string())
         .collect();
     if words.is_empty() {
-        // If stop-word filter wiped everything, fall back to original behaviour
         if drop_stopwords {
             return sanitize_fts_query(q, false);
         }
@@ -597,7 +593,6 @@ pub fn hybrid_rrf_with_config(
     // 1. FTS5 candidates (may be empty on typos)
     let fts_hits = run_with_config(conn, q, blobs_dir, cfg).unwrap_or_default();
 
-    // 2. Vector candidates
     #[cfg(feature = "embeddings")]
     let vec_hits = {
         let pool = limit * 5;
@@ -605,7 +600,6 @@ pub fn hybrid_rrf_with_config(
         let mut out = Vec::new();
         for (id, dist) in raw {
             if let Ok(Some(item)) = super::store::get_or_synthesize_entity(conn, &id, blobs_dir) {
-                // Filter by kind/scope/area if specified
                 if let Some(ref k) = q.kind {
                     if item.kind != *k {
                         continue;
@@ -629,7 +623,6 @@ pub fn hybrid_rrf_with_config(
     #[cfg(not(feature = "embeddings"))]
     let vec_hits: Vec<SearchHit> = Vec::new();
 
-    // 3. If only one source has results, return it directly
     if fts_hits.is_empty() && vec_hits.is_empty() {
         return Ok(Vec::new());
     }
@@ -642,7 +635,6 @@ pub fn hybrid_rrf_with_config(
         return Ok(sorted);
     }
 
-    // 4. RRF fusion: combine ranks from both sources
     let mut rrf_scores: HashMap<String, (f64, MemItem)> = HashMap::new();
 
     for (rank, hit) in fts_hits.iter().enumerate() {

@@ -1,6 +1,3 @@
-// Per-frame scene paint: cull to the viewport, blit each visible node's cached
-// bitmap at its world→screen rect, and draw edges + zone labels as cheap canvas
-// primitives. No DOM, no per-frame text shaping — pan/zoom is just re-blitting.
 
 import { resolveEdgeEnds } from "../edges";
 import type { LaidOutEdge, LaidOutNode, Point } from "../layout";
@@ -64,7 +61,6 @@ export interface SceneDrawInput {
   taskById?: Map<string, Task>;
 }
 
-// Transient interaction/emphasis state — separate from the (camera-decoupled) data so
 // a hover/highlight never invalidates a bitmap; it's painted as a primitive overlay.
 export interface SceneExtras {
   hoveredId?: string | null;
@@ -87,7 +83,6 @@ function resolveLod(input: SceneDrawInput, t: ViewportTransform): ResolvedSceneL
   return resolveSceneLod(t.scale, input.lodGroups, input.taskById);
 }
 
-// Screen point → the most specific node + sub-region under it (smallest node wins, then
 // the highest-rank region inside it). Drives clicks + hover without any DOM hit targets.
 export function hitTestScene(input: SceneDrawInput, t: ViewportTransform, point: Point): { node: LaidOutNode; action: RegionAction } | null {
   const { nodes, cache } = input;
@@ -149,7 +144,6 @@ function drawEdge(ctx: CanvasRenderingContext2D, a: Point, b: Point): void {
   ctx.stroke();
 }
 
-// Re-rasterize the cards visible at the committed camera so they are 1:1 crisp once
 // a gesture settles (the blit loop scale-blits stale bitmaps during the gesture).
 export function resharpenVisible(input: SceneDrawInput, t: ViewportTransform): Set<string> {
   const { nodes, signatureOf, paintNode, cache, dpr, width, height } = input;
@@ -168,7 +162,6 @@ export function resharpenVisible(input: SceneDrawInput, t: ViewportTransform): S
   return keep;
 }
 
-// What the canvas WOULD draw at the committed camera — a DOM-free, testable surface
 // (the cards are pixels, not queryable elements). Published to window for specs.
 export interface RenderReadbackNode {
   id: string;
@@ -295,7 +288,6 @@ export function drawScene(ctx: CanvasRenderingContext2D, input: SceneDrawInput, 
     ctx.restore();
   }
 
-  // Edges (under the cards): one quiet pass, viewport-culled. Edges touching a
   // highlighted node light up — brighter (alpha) AND thicker so they clearly stand out.
   ctx.save();
   ctx.lineCap = "round";

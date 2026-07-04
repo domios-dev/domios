@@ -26,7 +26,6 @@ pub struct NextAction {
     pub message: String,
 }
 
-// Planning-phase next action: delegate structure drafting to the Planner by
 // name and surface any approval blockers. Shared wording lives in prompts.
 fn planning_next_action_message(s: &PlanStateSnapshot) -> String {
     let peer = crate::service::plan::peer_mandate::planner_peer_label(&s.planner_resolution);
@@ -271,18 +270,15 @@ mod tests {
     #[test]
     fn consider_stop_only_for_running_near_limit() {
         let mut s = empty();
-        // running, 4/5 -> near limit
         s.loops = vec![loop_snap("lp", 4, 5, LoopStatus::Running)];
         let a = compute_next_actions(&s);
         assert_eq!(a.len(), 1);
         assert_eq!(a[0].kind, NextActionKind::ConsiderStop);
         assert_eq!(a[0].loop_id.as_deref(), Some("lp"));
 
-        // running but plenty of headroom -> silent
         s.loops = vec![loop_snap("lp", 1, 5, LoopStatus::Running)];
         assert!(compute_next_actions(&s).is_empty());
 
-        // near limit but already stopped -> silent
         s.loops = vec![loop_snap("lp", 5, 5, LoopStatus::Stopped)];
         assert!(compute_next_actions(&s).is_empty());
     }
@@ -320,7 +316,6 @@ mod tests {
                 NextActionKind::Dispatch,
             ]
         );
-        // priorities must be non-decreasing
         assert!(a.windows(2).all(|w| w[0].priority <= w[1].priority));
     }
 

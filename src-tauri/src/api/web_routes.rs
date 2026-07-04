@@ -195,7 +195,6 @@ pub async fn events_stream(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
 
     use crate::api::events::ReplayPlan;
-    // Race-free attach: subscribe FIRST, then snapshot the ring; the overlap
     // between the snapshot and buffered live events is deduped by seq below.
     let mut rx = state.events.subscribe();
     let snap = state.events.snapshot_ring();
@@ -206,7 +205,6 @@ pub async fn events_stream(
     let events = state.events.clone();
 
     let stream = async_stream::stream! {
-        // Overflow frame first (if any), then the replay set; `replayed_max`
         // tracks the highest seq yielded so the live loop drops the overlap.
         let mut replayed_max: u64;
         let replay = match plan {
@@ -504,11 +502,6 @@ pub async fn upload(
     Err((StatusCode::BAD_REQUEST, "missing 'file' field".to_string()))
 }
 
-// ── chat image paste — save a pasted image on the daemon host, then push it
-// into the daemon's OS clipboard so a verified paste keystroke to the PTY
-// delivers it (the agent CLI and its clipboard both live on the daemon
-// machine, not the browser).
-
 #[derive(Deserialize)]
 pub(crate) struct SaveTempFileBody {
     data: String,
@@ -636,7 +629,6 @@ pub async fn plugin_snapshot(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    // snapshot() does blocking filesystem work + clones channels via `git` —
     // never on the async runtime (mirrors the Tauri command's spawn_blocking wrap).
     let svc = state.svc.clone();
     tokio::task::spawn_blocking(move || {
@@ -655,7 +647,6 @@ pub async fn plugin_action(
     Json(action): Json<crate::commands::plugins::PluginManagerAction>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    // run_action does blocking plugin filesystem work (+ `git` for channels) —
     // keep it off the async runtime (mirrors the Tauri command's spawn_blocking wrap).
     let svc = state.svc.clone();
     tokio::task::spawn_blocking(move || crate::commands::plugins::run_action(action, svc.as_ref()))

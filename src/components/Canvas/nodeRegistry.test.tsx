@@ -1,8 +1,3 @@
-// Run: npx tsx src/components/Canvas/nodeRegistry.test.tsx
-//
-// The plugin seam: registerCanvasNode({kind, painter, footprint}) registers a CANVAS
-// painter (drawn + hit-tested by drawScene — see painterRegistry.test) and a layout
-// footprint. Confirms the extensibility path compiles + forwards both halves.
 
 import { registerCanvasNode } from "./nodeRegistry";
 import { __unregisterCanvasPainterForTest, getCanvasPainter, isCanvasNodeExpandable } from "./canvasRender/painterRegistry";

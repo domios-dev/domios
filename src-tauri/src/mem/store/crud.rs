@@ -76,7 +76,6 @@ fn insert_with_options(
             (Some(item.body.clone()), None)
         };
 
-    // source_path stores the raw "file:..." form (it's also a tag for librarian's source-missing handling). Strip the scheme before any std::fs
     // call — both here and in mem/file_sync.rs::sync_one.
     let (source_size, source_mtime) = item
         .source_path
@@ -255,7 +254,6 @@ pub fn get(conn: &Connection, id: &str, blobs_dir: &Path) -> Result<Option<MemIt
 
     if let Some(ref src) = source {
         if let Some(path) = src.strip_prefix("file:") {
-            // Debounce the disk-touching freshness check: only run it if we haven't read this row in the last 10 seconds. Hot search loops (mem search
             // Skip redundant stat+UPDATE when row was just touched recently; opportunistic refresh only.
             let recently_accessed = accessed_at
                 .as_ref()
@@ -492,7 +490,6 @@ pub fn update(
     )
     .map_err(|e| format!("update fts: {}", e))?;
 
-    // Record only the fields that changed. If nothing changed (e.g. patch touched only tags/area/summary), still emit an update row so the caller
     // can see the write happened — but leave old_/new_ at None for fields that were unchanged.
     let mut old = HistorySnapshot::default();
     let mut new = HistorySnapshot::default();

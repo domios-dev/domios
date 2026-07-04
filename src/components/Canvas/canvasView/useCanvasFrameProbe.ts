@@ -1,9 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { ViewportTransform } from "../useCanvasViewport";
 
-// Dev-only frame-time probe: samples real rAF deltas during a gesture (pan / zoom /
-// load fit), then logs p50/p95/max ms + dropped-frame % to console and window.__ctPerf.
-// Independent of the throttled React commit — it measures actual paint cadence.
 
 export interface FrameProbeStats {
   label: string;
@@ -90,9 +87,6 @@ export const canvasFrameSampler = new FrameSampler();
 
 const IDLE_MS = 220; // gesture considered over after this quiet gap (matches commit throttle tail)
 
-// Drives the sampler off transform changes: any pan/zoom/fit commits a new transform,
-// which starts a sampling window; an idle gap closes it and reports. Also exposes a
-// manual handle (window.__ctCanvasProbe) for explicit before/after sessions.
 export function useCanvasFrameProbe(transform: ViewportTransform): void {
   const idleRef = useRef<number | null>(null);
   const activeRef = useRef(false);

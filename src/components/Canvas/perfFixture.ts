@@ -9,10 +9,6 @@ import {
   PERF_SPEC_SECTIONS,
 } from "./perfFixtureSections";
 
-// Dev harness, LOCAL-ONLY: to validate rendering against a real exported plan,
-// a dev stores the plan JSON in localStorage["canvas.realPlanJson"] and flips
-// localStorage["canvas.realPlan"]="1". No real plan data is committed — the JSON
-// lives only in the browser at dev time. Off (and side-effect-free) unless both set.
 export function realFixtureEnabled(): boolean {
   if (typeof window === "undefined") return false;
   try {
@@ -33,9 +29,6 @@ export function realFixturePlans(): Plan[] {
   }
 }
 
-// Scale harness: localStorage "canvas.perfFixtureN" injects a synthetic N-task
-// plan client-side so the canvas can be exercised at scale without the daemon
-// ingestion path. Off (0) unless the flag is explicitly set — safe in any build.
 export function perfFixtureCount(): number {
   if (typeof window === "undefined") return 0;
   try {
@@ -101,9 +94,6 @@ const PRIORITIES = [TaskPriority.P0, TaskPriority.P1, TaskPriority.P2, TaskPrior
 const ROLES = ["backend-dev", "frontend-dev", "code-reviewer", "docs-sync", null];
 const GROUPS = ["layout", "navigation", null, "isolation", null];
 const CLEANUP_STATES = ["pending", "not_applicable", "done", "failed"];
-// Synthetic presence (EMERGENCE audit): an active task names its executing peer(s).
-// A comma-list exercises the multiplayer +N stack; flag = synthetic until live
-// taskPresence data is wired from the pane/agent registry.
 function syntheticPeer(i: number): string | null {
   if (i % 12 === 0) return "claude-sonnet, gpt-5-codex, gemini-2";
   if (i % 6 === 0) return "claude-sonnet";
@@ -111,10 +101,6 @@ function syntheticPeer(i: number): string | null {
   return null;
 }
 
-// Complex cards (not bare placeholders): long title, multi-line body, and several
-// milestone bubbles each — representative of real card rendering cost at scale.
-// Field spread (priority/role/branch/peer/group) is synthetic-only so the new
-// field-surfacing can be visually audited without a real plan that populates them.
 export function buildPerfFixturePlans(n: number): Plan[] {
   const sectionIds = PERF_PLAN_SECTION_IDS;
   const tasks = Array.from({ length: n }, (_, i) => {
@@ -122,7 +108,6 @@ export function buildPerfFixturePlans(n: number): Plan[] {
       milestone(`perf_t${i}_m${m}`, MS_KINDS[m % MS_KINDS.length], null),
     );
     const active = i % 6 === 0;
-    // Spread tasks across the rich plan sections so every section carries real
     // coverage (its glyph + count) while the document body stays readable.
     return task(`perf_t${i}`, [sectionIds[i % sectionIds.length]], {
       status: active ? TaskStatus.InProgress : i % 9 === 0 ? TaskStatus.Done : TaskStatus.Pending,
@@ -156,7 +141,6 @@ export function buildPerfFixturePlans(n: number): Plan[] {
       milestones,
     });
   });
-  // A few parents carry subtasks so the satellite sizing (UX-3) is exercised: each
   // gets 2-3 children with realistic short titles, swarming their parent tile.
   const SUBTASK_TITLES = ["wire the data layer", "add the failing test first", "render + a11y pass", "handle the empty + error states"];
   const subtaskParents = tasks.filter((_, i) => i % 5 === 0); // spread satellites across the cloud
@@ -197,9 +181,6 @@ export function buildPerfFixturePlans(n: number): Plan[] {
   })];
 }
 
-// Fixture-only live panes for the synthetic swarm: a Pane per task's assigned/lane
-// pane id so taskPresence's live-pane gate passes and the worker avatars render. Real
-// plans never use this — their presence comes from the actual daemon pane registry.
 export function buildPerfFixturePanes(plans: Plan[]): Record<string, Pane> {
   const panes: Record<string, Pane> = {};
   const add = (id: string | null | undefined, title: string) => {
@@ -215,10 +196,6 @@ export function buildPerfFixturePanes(plans: Plan[]): Record<string, Pane> {
   return panes;
 }
 
-// The synthetic SPEC sections a fixture plan derives from. The daemon's spec-fetch
-// path can't serve these (no real Spec entity exists at dev time), so CanvasView
-// seeds the spec node + bubble titles from here for any plan bound to the synthetic
-// spec id. Real plans (with a real primary_spec_id) still fetch from the API.
 export function fixtureSpecSectionsByPlan(plans: Plan[]): Map<string, Section[]> {
   const out = new Map<string, Section[]>();
   for (const p of plans) {

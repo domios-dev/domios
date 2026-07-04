@@ -164,7 +164,6 @@ for (const f of [
 
 console.log("\n--- ensemble: a single weak signal must NOT reach threshold ---\n");
 {
-  // A lone limit phrase + reset clock in prose, but NO menu → below threshold and
   // not actionable (no wait option to navigate to).
   const weak = "Heads up: your usage limit resets 5pm today. Continuing for now.\n";
   const r = classify(plugin, weak);
@@ -173,7 +172,6 @@ console.log("\n--- ensemble: a single weak signal must NOT reach threshold ---\n
 }
 
 console.log("\n--- CRLF robustness: Windows pane output (\\r\\n) classifies identically to LF ---\n");
-// Real Windows agent panes emit CRLF; the classifier must normalize internally
 // so the verdict (state + confidence + actions) is byte-identical to the LF read.
 const toCrlf = (s: string) => s.replace(/\r\n?/g, "\n").replace(/\n/g, "\r\n");
 for (const f of ["rate-limit-menu.txt", "rate-limit-wait-not-default.txt", "clarifying-question.txt", "auth-login.txt"]) {

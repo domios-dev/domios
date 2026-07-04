@@ -20,7 +20,6 @@ function task(id: string, sections: string[]): Task {
   };
 }
 
-// ── live-only: idle tasks add nothing ────────────────────────────────
 {
   const tasks = [task("t1", ["s1"]), task("t2", ["s1"])];
   const src = new Map<string, SectionAgentSource>([
@@ -31,7 +30,6 @@ function task(id: string, sections: string[]): Task {
   ok("only the LIVE task's agent rolls up to the section", m.get("s1")?.length === 1 && m.get("s1")?.[0].id === "a1");
 }
 
-// ── a live task contributes to EACH of its sections ──────────────────
 {
   const tasks = [task("t1", ["s1", "s2"])];
   const src = new Map<string, SectionAgentSource>([["t1", { agents: [agent("a1")], live: true }]]);
@@ -39,7 +37,6 @@ function task(id: string, sections: string[]): Task {
   ok("agent appears in both bound sections", m.get("s1")?.[0].id === "a1" && m.get("s2")?.[0].id === "a1");
 }
 
-// ── dedup: same agent on two tasks in one section = one entry ─────────
 {
   const tasks = [task("t1", ["s1"]), task("t2", ["s1"])];
   const src = new Map<string, SectionAgentSource>([
@@ -50,7 +47,6 @@ function task(id: string, sections: string[]): Task {
   ok("section dedups by agent id, counts distinct", m.get("s1")?.length === 2);
 }
 
-// ── no live work → no entry (indicator absent) ───────────────────────
 {
   const tasks = [task("t1", ["s1"])];
   const src = new Map<string, SectionAgentSource>([["t1", { agents: [agent("a1")], live: false }]]);

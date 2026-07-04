@@ -1,4 +1,3 @@
-// Run: npx tsx packages/chat-core/src/merge.test.ts
 import { mergeById } from "./merge";
 import type { NormalizedChatMessage } from "./types";
 
@@ -21,7 +20,6 @@ function msg(id: string, opts: Partial<M> = {}): M {
   return { id, type: "user", content: id, ...opts };
 }
 
-// ── codex: ISO-string timestamps. The old comparator did Number("2026-..") = NaN
 //    → no real sort, leaving order to chance. (timestamp,seq) must hold send order.
 {
   const incoming = [
@@ -86,8 +84,6 @@ function msg(id: string, opts: Partial<M> = {}): M {
   eq(merged.map((m) => m.id), ["a", "b", "c"], "no signals → stable arrival order");
 }
 
-// ── codex REAL rollout pairs (ms-precision ISO, user precedes its assistant by
-//    1.5–3.8s, plus a same-second context-injection user). Verbatim timestamps
 {
   const incoming = [
     msg("ctx", { type: "user", timestamp: "2026-06-21T08:35:53.795Z", seq: 0 }),

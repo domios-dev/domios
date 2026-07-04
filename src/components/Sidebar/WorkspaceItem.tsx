@@ -68,7 +68,6 @@ function WorkspaceItemInner({
 
   const { config } = useConfig();
   const agentsConfig = config.agents ?? {};
-  // Backend descriptors — single source of truth across bundled + user-installed JS plugins. Frontend `getAllProviders()` only knew about
   // plugins with a `src/index.ts` FE module, which left drop-in `~/.codeterm/plugins/<id>/plugin.js` plugins invisible in the workspace menu.
   const { providers } = useAgentProviders();
   const workspaceText = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
@@ -203,8 +202,6 @@ function WorkspaceItemInner({
   );
 }
 
-// Workspace objects are new references after every SET_STATE. Compare by value
-// for display-relevant fields so a pane-status tick on a different workspace
 function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps): boolean {
   return (
     prev.isActive === next.isActive &&

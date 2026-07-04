@@ -75,7 +75,6 @@ export function MissionControlPlanSurface({
     try {
       window.sessionStorage.setItem(SELECTED_PLAN_STORAGE_KEY, id);
     } catch {
-      // best-effort
     }
   }, []);
 

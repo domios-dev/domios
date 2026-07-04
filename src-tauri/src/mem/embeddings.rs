@@ -43,7 +43,6 @@ pub mod inner {
 
     static EXT_REGISTERED: Once = Once::new();
 
-    // How many inferences to run in one child before recycling it. Bounds the fastembed/ort memory leak on Windows (~100 MB per call) to a
     // predictable ceiling (~CHILD_MAX_CALLS × 100 MB), then kills and respawns the child to drop all leaked pages.
     const CHILD_MAX_CALLS: u64 = 200;
 
@@ -195,7 +194,6 @@ pub mod inner {
     fn preprocess(text: &str) -> String {
         let lower = text.to_lowercase();
         let collapsed: String = lower.split_whitespace().collect::<Vec<_>>().join(" ");
-        // Expand common abbreviations for better embedding alignment
         expand_abbreviations(&collapsed)
     }
 
@@ -268,14 +266,12 @@ pub mod inner {
             return vec![preprocessed];
         }
 
-        // First try paragraph-aware splitting
         let paragraphs: Vec<&str> = preprocessed
             .split("\n\n")
             .map(|p| p.trim())
             .filter(|p| p.len() >= MIN_CHUNK_LEN)
             .collect();
 
-        // If paragraphs are small enough, use them directly
         if paragraphs.len() > 1 && paragraphs.iter().all(|p| p.len() <= CHUNK_SIZE) {
             return paragraphs.into_iter().map(String::from).collect();
         }
@@ -418,7 +414,6 @@ pub mod inner {
     pub fn recall(conn: &Connection, query: &str, k: usize) -> Result<Vec<(String, f64)>, String> {
         let qvec = embed(query)?;
         let bytes: Vec<u8> = qvec.iter().flat_map(|f| f.to_le_bytes()).collect();
-        // Overfetch to account for chunk deduplication
         let overfetch = k * 3;
         let mut stmt = conn
             .prepare(
@@ -434,7 +429,6 @@ pub mod inner {
             })
             .map_err(|e| format!("query: {}", e))?;
 
-        // Deduplicate chunks → parent mem_item, keep best distance
         let mut best: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
         for r in rows {
             let (raw_id, dist) = r.map_err(|e| e.to_string())?;

@@ -51,7 +51,6 @@ async function main() {
       threw = true;
     }
 
-    // Wait one microtask tick for the async mismatch check to resolve
     await new Promise((r) => setTimeout(r, 0));
 
     assert(threw, "invoke should still throw");
@@ -106,7 +105,6 @@ async function main() {
     try {
       await invoke("mux_get_state", {});
     } catch {
-      // expected
     }
 
     await new Promise((r) => setTimeout(r, 0));

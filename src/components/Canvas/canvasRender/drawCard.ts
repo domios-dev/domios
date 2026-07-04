@@ -1,7 +1,3 @@
-// Paints a CardContent into a 2D context at a given on-screen logical size. The card
-// is a CONTAINED unit: everything is clipped to the rounded rect (hard no-overflow
-// floor) and titles wrap + ellipsize to the lines that FIT — nothing ever spills.
-// Returns hit regions (node body, section rows, "-> tasks", View) for interaction.
 
 import type { CardContent, CardLevel, CardTag } from "./cardContent";
 import { FIT, GLYPH_ACCENT } from "./cardContent";
@@ -111,14 +107,10 @@ export function drawCard(
   roundRectPath(ctx, 1, 1, w - 2, h - 2, 12);
   ctx.stroke();
 
-  // HARD no-overflow floor: clip every glyph to the card's rounded rect. The size
-  // ladder is ONE card growing — kicker-on-top at every distance (far → mid → near),
-  // status carried by the card's coloured border, text always clipped/ellipsised.
   ctx.save();
   roundRectPath(ctx, 2, 2, w - 4, h - 4, 11);
   ctx.clip();
 
-  // DEEP band: once the card is past its kind's W3 apparent width (it dominates the
   // screen), render a readable inline DOCUMENT — bigger type + the body — not NEAR blown up.
   const deepW = worldThresholds(content.kind)[2];
   if (w < 54 || h < 30) drawFarLabel(ctx, content, w, h, accent, p);
@@ -131,9 +123,6 @@ export function drawCard(
   return regions;
 }
 
-// FAR (most-zoomed-out): name the KIND ("TASK"/"PLAN"/"SPEC"/…) in the status colour —
-// same kicker-on-top language as the card, no bare dot. Title beneath when it fits;
-// when the node is too small for the word, one clean kind INITIAL (never a half-cut word).
 function drawFarLabel(ctx: CanvasRenderingContext2D, content: CardContent, w: number, h: number, accent: string, p: CanvasPalette): void {
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
@@ -167,7 +156,6 @@ function drawFarLabel(ctx: CanvasRenderingContext2D, content: CardContent, w: nu
   ctx.textBaseline = "alphabetic";
 }
 
-// MID (title-only band): kicker on top (status colour) + the title BELOW in smaller text,
 // no leading dot — the same header the near card uses, just tighter. Ellipsised, contained.
 function drawCompact(ctx: CanvasRenderingContext2D, content: CardContent, w: number, h: number, accent: string, p: CanvasPalette): void {
   ctx.textAlign = "left";
@@ -194,7 +182,6 @@ function drawCompact(ctx: CanvasRenderingContext2D, content: CardContent, w: num
 
 function drawNear(ctx: CanvasRenderingContext2D, content: CardContent, w: number, h: number, accent: string, p: CanvasPalette, regions: HitRegion[], expandable: boolean): void {
   ctx.textBaseline = "alphabetic";
-  // The View pill is the expand affordance — only an expandable node shows it; a plugin
   // node can opt out (capabilities.expandable=false) and reclaim the full title width.
   let titleRight = w - PAD;
   if (expandable) {
@@ -207,7 +194,6 @@ function drawNear(ctx: CanvasRenderingContext2D, content: CardContent, w: number
   ctx.fillStyle = accent;
   ctx.fillText(content.kicker, PAD, PAD + 8);
 
-  // Title: wrap to the width left of the View pill, truncated to the lines that fit
   // above the content (sections/fields) — never past the box.
   const availW = Math.max(40, titleRight - PAD);
   const rows = content.sections.length || content.fields.length;
@@ -296,13 +282,11 @@ function drawMore(ctx: CanvasRenderingContext2D, remaining: number, pad: number,
   ctx.fillText(`+${remaining} more - View`, pad, y + 12);
 }
 
-// Light markdown->text so a description reads cleanly as canvas text (the rich version
 // lives behind View). Drops fences/emphasis/heading marks; collapses to flowing prose.
 function cleanMarkdown(text: string): string {
   return text.replace(/`+/g, "").replace(/\*\*/g, "").replace(/^#{1,6}\s*/gm, "").replace(/^[-*]\s+/gm, "• ");
 }
 
-// Wrap body text from y down to `bottom`; the last fitting line absorbs + ellipsizes the
 // remainder (wrapLines), and a short bg fade softens the cut. Returns the y after.
 function drawBodyText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxW: number, bottom: number, fontPx: number, lineH: number, p: CanvasPalette): number {
   ctx.font = `400 ${fontPx}px ${FONT}`;
@@ -321,9 +305,6 @@ function drawBodyText(ctx: CanvasRenderingContext2D, text: string, x: number, y:
   return yy;
 }
 
-// DEEP "deep-read" band: the card dominates the screen, so it reads like a document —
-// big title + key fields + the DESCRIPTION (task) or sections-as-prose (plan/spec). The
-// full criteria/strides/links stay behind View. Bounds: everything clipped to the card.
 function drawDeep(ctx: CanvasRenderingContext2D, content: CardContent, w: number, h: number, accent: string, p: CanvasPalette, regions: HitRegion[], expandable: boolean): void {
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";

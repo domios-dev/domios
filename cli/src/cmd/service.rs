@@ -449,11 +449,9 @@ mod terse_tests {
         assert!(out.contains("endpoint: http://localhost:8080 (health /health)"));
         assert!(out.contains("health: healthy (mode=http, 42ms)"));
         assert!(out.contains("push: enabled"));
-        // terse view must not leak raw timestamps / ttl
         assert!(!out.contains("registered_at"));
         assert!(!out.contains("1700000000"));
         assert!(!out.contains("health_ttl"));
-        // a disabled-only cron line shouldn't show for a daemon
         assert!(!out.contains("schedule:"));
     }
 

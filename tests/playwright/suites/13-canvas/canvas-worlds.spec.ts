@@ -45,12 +45,10 @@ test("@golden @canvas-worlds bodies reveal at W2 for spec/plan/task; footprint f
     return;
   }
 
-  // Footprint reference: the plan node's CSS width is set from the layout box and
   // must NOT change with zoom (§22.1/§26.4 — content adapts, the frame does not).
   await setCanvasScale(page, 0.9);
   const widthMid = await planNodeCssWidth(page);
 
-  // ── W0 MASS: zoom far out — bodies hidden (board reads as territories). ──
   await zoomBy(page, 240);
   await zoomBy(page, 240);
   await captureBoard(page, "worlds-W0-far");
@@ -58,7 +56,6 @@ test("@golden @canvas-worlds bodies reveal at W2 for spec/plan/task; footprint f
   expect(await visible(page, "canvas-task-body"), "task body hidden at far zoom (W0)").toBe(false);
   const widthFar = await planNodeCssWidth(page);
 
-  // ── W2/W3 CONTENT: zoom in until a node's appW enters the body band. ──
   let specBody = false;
   let planBody = false;
   let taskBody = false;

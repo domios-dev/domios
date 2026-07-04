@@ -37,7 +37,6 @@ pub(crate) fn write_workspace_create_reuse_output<W: Write, E: Write>(
 }
 
 pub(crate) fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
-    // 1. Explicit --pane/--id arg
     if let Some(id) = id {
         return id;
     }
@@ -47,7 +46,6 @@ pub(crate) fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> Str
             return env_id;
         }
     }
-    // 3. Fallback: ask server for focused pane
     match client.call("pane.list", None) {
         Ok(value) => {
             if let Some(arr) = value.as_array() {

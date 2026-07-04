@@ -36,7 +36,6 @@ async function taskWorld(page: Page, id: string): Promise<string | null> {
   return page.getAttribute(`${CARD(id)} >> nth=0`, "data-world").catch(() => null);
 }
 
-// Pan so the probe card sits near the viewport center (clearer screenshots; the
 // card drifts to an edge after the cloud sweep). panBy maps wheel deltas → pan.
 async function recenterCard(page: Page, id: string): Promise<void> {
   const d = await page.evaluate((sel) => {
@@ -108,7 +107,6 @@ test("@golden @canvas-working-points strides distinguishable W1/W2, deep-read W3
     return;
   }
 
-  // worlds-v3 parks the task cloud off-screen at fit; pan it into view, then pick a
   // task that actually carries strides (perf fixture gives every task 4).
   const cards = await panToMountTaskCards(page, 1.6);
   if (cards.length === 0) {
@@ -122,7 +120,6 @@ test("@golden @canvas-working-points strides distinguishable W1/W2, deep-read W3
   expect(probe, "probe task id from DOM").toBeTruthy();
   const id = probe!;
 
-  // ── W1 STRUCTURE: each working point is named by KIND (kind-colored), not a dot. ──
   const w1 = await reachTaskWorld(page, id, "W1", [0.7, 0.95, 1.2, 1.5]);
   await shot(page, "wp-W1");
   const kindsW1 = await page.locator(`${CARD(id)} [data-testid="canvas-stride-kind"]`).allInnerTexts().catch(() => []);
@@ -131,7 +128,6 @@ test("@golden @canvas-working-points strides distinguishable W1/W2, deep-read W3
     expect(kindsW1.some((t) => t.trim().length > 0), "kind labels carry text").toBe(true);
   }
 
-  // ── W2 CONTENT: beads carry a kind glyph + callout names the kind; NO overlap. ──
   const w2 = await reachTaskWorld(page, id, "W2", [1.9, 2.3, 2.7, 3.1]);
   await recenterCard(page, id);
   await shot(page, "wp-W2");
@@ -146,7 +142,6 @@ test("@golden @canvas-working-points strides distinguishable W1/W2, deep-read W3
       .screenshot({ path: "/tmp/wp-W2-snake.png" }).catch(() => {});
   }
 
-  // ── W3 DEEP: beads bloom to full stride cards with text + provenance, scrollable. ──
   const w3 = await reachTaskWorld(page, id, "W3", [3.9, 4.8, 5.6, 6.4]);
   await recenterCard(page, id);
   await shot(page, "wp-W3");

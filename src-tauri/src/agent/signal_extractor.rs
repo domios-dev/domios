@@ -203,8 +203,6 @@ impl SignalExtractor {
             bottom: changed_rows.last().unwrap() + 1,
         });
 
-        // Append == the change is confined to the tail (prior last-nonblank row and
-        // below): new rows, or an extension of the line being typed. A change to an
         let appended = match self.prev.as_ref().map(|p| p.last_nonblank) {
             Some(Some(ln)) => !changed_rows.is_empty() && changed_rows.iter().all(|&r| r >= ln),
             Some(None) => !changed_rows.is_empty(),
@@ -240,7 +238,6 @@ impl SignalExtractor {
             None
         };
 
-        // reset on real change; seed the clock the first time any content appears
         if semantic_change || (self.last_semantic_ms.is_none() && last_nonblank.is_some()) {
             self.last_semantic_ms = Some(now_ms);
         }

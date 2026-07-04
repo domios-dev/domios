@@ -71,10 +71,6 @@ pub(crate) fn assert_quality_ready(plan_id: &str) -> Result<(), String> {
     Err(render_quality_approval_error(plan_id, &report))
 }
 
-// task_aa01c0db: an orchestrator without a bound/waived Planner is only
-// a WARNING day-to-day (`codeterm plan doctor`), but approval is the one
-// hard gate — escalate it to an ERROR here rather than in `inspect_quality`
-// so the ladder doesn't leak into every other `inspect_plan` call site.
 fn escalate_planner_unpaired_for_approval(report: &mut Value) {
     let Some(findings) = report.get_mut("findings").and_then(Value::as_array_mut) else {
         return;

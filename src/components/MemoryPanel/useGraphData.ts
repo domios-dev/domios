@@ -89,7 +89,6 @@ export function useGraphData(api: ApiConfig) {
           setState((prev) => {
             const next = new Map<string, MemNode>();
             for (const n of resp.nodes) {
-              // Preserve any local updates that haven't been persisted yet
               const prior = prev.nodes.get(n.id);
               next.set(n.id, prior ?? n);
             }

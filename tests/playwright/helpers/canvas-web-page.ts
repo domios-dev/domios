@@ -19,7 +19,6 @@ export type CanvasWebInit = {
   perfFixtureN?: number;
   clearHarness?: boolean;
   viewport?: { width: number; height: number };
-  // "block" keeps API fetches on the page thread so page.route() can intercept
   // them (the SW proxies /api/* via its own fetch, bypassing page.route).
   serviceWorkers?: "allow" | "block";
 };

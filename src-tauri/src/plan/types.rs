@@ -53,7 +53,6 @@ impl TaskStatus {
         matches!(self, TaskStatus::Done | TaskStatus::Cancelled)
     }
 
-    // Single source of truth for the heartbeat / open-work predicate: a task
     // counts as open work only while it is non-terminal AND not parked.
     pub fn counts_as_open_work(&self) -> bool {
         matches!(

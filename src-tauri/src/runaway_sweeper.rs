@@ -46,7 +46,6 @@ pub fn is_runaway_test_binary(exe: &str) -> bool {
 fn exe_contains_target_deps(exe: &str) -> bool {
     // Match both Unix and hypothetical Windows paths; separator may be / or \.
     let normalized = exe.replace('\\', "/");
-    // Pattern: /target/<anything>/deps/
     // Use a simple contains check on the normalized path segments.
     if let Some(after_target) = normalized.split("/target/").nth(1) {
         // after_target looks like "debug/deps/binary" or "release/deps/binary"
@@ -245,7 +244,6 @@ mod tests {
     #[test]
     fn runaway_sweeper_predicate_matches_test_binary() {
         let cases: &[(&str, bool)] = &[
-            // should match
             ("/home/user/proj/target/debug/deps/mytest-abc123", true),
             ("/Users/dev/codeterm/cli/target/debug/deps/codeterm-b2534ae3cdc1559f", true),
             ("/root/repo/target/release/deps/integration_test-deadbeef", true),
@@ -254,20 +252,16 @@ mod tests {
                 "/Users/rollacode/Developer/codeterm-worktrees/task-x/cli/target/debug/deps/codeterm-b2534ae3cdc1559f",
                 true,
             ),
-            // should NOT match — toolchain
             ("/usr/bin/cargo", false),
             ("/usr/local/bin/rustc", false),
             ("/usr/bin/cc", false),
             ("/usr/bin/ld", false),
             ("/usr/bin/clang", false),
-            // should NOT match — codeterm daemon itself
             ("/usr/local/bin/codeterm", false),
-            // should NOT match — not in deps
             ("/home/user/proj/target/debug/mytest", false),
             ("/home/user/proj/src/main.rs", false),
             ("cargo", false),
             ("", false),
-            // should NOT match — target exists but no /deps/
             ("/home/user/proj/target/debug/build/foo-12345/out/foo", false),
         ];
         for (exe, expected) in cases {

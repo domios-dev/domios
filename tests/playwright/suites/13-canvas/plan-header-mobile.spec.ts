@@ -52,7 +52,6 @@ async function applyViewportAndReload(
     await page.mouse.click(vp.width - 8, Math.floor(vp.height / 2));
     await page.locator('[data-testid="web-sidebar-open"]').waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
   }
-  // The inline-canvas seed leaves the shell in "canvas" (mission-control) mode,
   // which mounts no plan-context header. Force a task surface without reloading.
   if (mode !== "canvas") {
     await shell.locator('[data-testid="plan-view-mode-switch"]').getByRole("tab", { name: new RegExp(mode, "i") }).click();
@@ -166,7 +165,6 @@ test(
       await expect(header.locator('[data-testid="plan-context-header-chips"]')).toBeVisible();
       await expect(header.locator('[data-testid="plan-board-plan-title"]')).toBeVisible();
 
-      // Touch hit-target bumps must NOT leak to desktop: the sidebar nav / new-session
       // rows keep their compact (non-touch) classes above the breakpoint.
       const navCls = (await page.locator('[data-testid="nav-extensions"]').first().getAttribute("class")) ?? "";
       expect(navCls, "nav row has no touch min-height on desktop").not.toContain("min-h-[44px]");
@@ -328,7 +326,6 @@ test(
           asserted += 1;
         }
       }
-      // The nav footer + new-session always render in this fixture — guard against
       // a false green if selectors silently match nothing.
       expect(asserted, "at least the nav + new-session rows were measured").toBeGreaterThanOrEqual(4);
       await shot(page, "plan-header-mobile-hit-targets");

@@ -1,7 +1,3 @@
-// Pure card-content model: WHAT a node card shows, independent of geometry/paint.
-// Two levels — FAR (kicker + big title + tags) and NEAR (plan: tags + section
-// titles w/ per-section tags; spec: coverage chips + section titles w/ glyphs +
-// task-count buttons; task: tags + status/priority/assignee fields). Unit-tested.
 
 import { TASK_STATUS_COLORS } from "../settings";
 import { flatSections, flattenSections, sectionRows, type SectionRowGlyph } from "../sectionRows";
@@ -66,7 +62,6 @@ function sectionTags(section: Section, colors: Map<string, string>): CardTag[] {
   return (section.tags ?? []).slice(0, 3).map((t) => chipFor(t, colors));
 }
 
-// The plan's tag taxonomy (legend chips from its color-lane facets) — a stable,
 // glanceable "what this plan is tagged by" row, capped so it never overflows.
 function planTopTags(plan: PlanModel, colors: Map<string, string>): CardTag[] {
   const out: CardTag[] = [];
@@ -106,9 +101,6 @@ function planContent(plan: PlanModel): CardContent {
   };
 }
 
-// Coverage summary for a spec: how many sections are covered (≥1 task), partial
-// (in-progress tasks exist), or unplanned (zero tasks). Drives both the card
-// summary fields and the per-section glyph.
 export interface SpecCoverage {
   total: number;
   covered: number;   // all tasks done/cancelled
@@ -238,7 +230,6 @@ interface HandoffData {
   plan_snapshot?: { coverage_pct?: number };
 }
 
-// §27.4 handoff coin → a canvas card on the timeline lane (kicker + goal + a couple of
 // fields). Migrated to a painter so it stays VISIBLE under the canvas renderer.
 function handoffContent(model: unknown): CardContent {
   const c = ((model as { content?: HandoffData }).content ?? {}) as HandoffData;
@@ -269,7 +260,6 @@ export function buildCardContent(kind: string, model: unknown): CardContent | nu
   return null;
 }
 
-// NEAR is shown only when the card is physically big enough to fit ALL near content
 // at the reading font with no scroll (north-star: everything fits). Otherwise FAR.
 export interface FitMetrics {
   headerH: number;
@@ -281,9 +271,6 @@ export interface FitMetrics {
   padY: number;
 }
 
-// THE single source of near-card vertical metrics. drawCard renders against these and
-// taskFootprint sizes against them (via nearContentHeight) — so a change here moves the
-// footprint and the render together and titles can never overflow the box again.
 export const FIT: FitMetrics = { headerH: 34, titleLineH: 18, titleGap: 2, rowH: 19, tagRowH: 20, fieldH: 18, padY: 14 };
 
 export interface NearRows {
@@ -293,9 +280,6 @@ export interface NearRows {
   fields: number;
 }
 
-// On-screen height to fit ALL near content with no scroll — exactly drawNear's layout
-// (header band + wrapped title + gap + tags + section/field rows + bottom pad). The
-// footprint target, so footprint height == rendered near-content height.
 export function nearContentHeight(rows: NearRows): number {
   return FIT.headerH + rows.titleLines * FIT.titleLineH + FIT.titleGap
     + (rows.hasTags ? FIT.tagRowH : 0)
@@ -305,9 +289,6 @@ export function nearContentHeight(rows: NearRows): number {
 }
 
 export const MIN_NEAR_W = 150;
-// Enough on-screen height to show the header + tags + a couple of content rows. NEAR
-// becomes available here; drawCard renders the rows that fit and a "+N more" tail when
-// the card can't hold them all (the full list lives behind the ⤢ expand → detail).
 export const MIN_NEAR_H = 96;
 
 export function pickLevel(c: CardContent, screenW: number, screenH: number): CardLevel {

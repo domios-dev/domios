@@ -43,9 +43,6 @@ test("@golden @canvas-visual-sweep capture every band + task cloud for visual re
   test.setTimeout(300_000);
   const { page } = ui;
 
-  // REAL mode (CANVAS_SWEEP_REAL=1): inject the ACTUAL dogfood plan JSON from disk
-  // via canvas.realPlan — the faithful gate on what the user really sees, and the
-  // path that carries the real owner/orchestrator. Default: synthetic perf fixture.
   const real = process.env.CANVAS_SWEEP_REAL === "1";
   const planPath =
     process.env.CANVAS_SWEEP_PLAN ||
@@ -69,7 +66,6 @@ test("@golden @canvas-visual-sweep capture every band + task cloud for visual re
     },
     [PERF_KEY, SUBSTRATE_KEY, PERF_N, real ? "1" : "0", realPlanJson],
   );
-  // addInitScript only takes effect on a navigation — reload so the fixture injects
   // (without this the canvas mounts empty unless localStorage leaked from a prior run).
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
@@ -88,7 +84,6 @@ test("@golden @canvas-visual-sweep capture every band + task cloud for visual re
     console.log(`SWEEP plan ${band.name}: target=${band.scale} actual=${actual.toFixed(2)} -> /tmp/sweep-plan-${band.name}.png`);
   }
 
-  // 1b) Overview / orchestrator avatar — fit the whole board, capture the floating
   // orchestrator chip + its connector (only present when owner groups exist).
   await page.locator('[data-testid="canvas-preset-overview"]').click().catch(() => {});
   await page.waitForTimeout(500);

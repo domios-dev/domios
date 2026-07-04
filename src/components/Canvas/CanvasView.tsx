@@ -118,10 +118,6 @@ export function CanvasViewInner({
     bumpCanvasChurn("canvasCommits");
   });
 
-  // Computed every render (value-based change detector) so an in-place plan-body
-  // mutation is still caught — downstream memos key on the STRING value, so they
-  // only recompute when content actually changes. (The heavier layout fingerprint is
-  // memoized below; it chains off this via filteredPlans, so in-place still propagates.)
   const plansRevision = layoutInputRevision(plans);
   const planFilterRevision = plans
     .map((p) => [p.id, p.status, p.owner.pane_id ?? "", p.owner.session_id ?? ""].join(":"))
@@ -148,10 +144,6 @@ export function CanvasViewInner({
   );
   const driftByPlan = usePlanDrift(api, filteredPlanIds);
 
-  // Fetch the REAL linked Spec entity per plan (Spec=WHAT ⊥ Plan=HOW). The spec
-  // node renders THESE sections, not the plan's — they are distinct entities. Dev
-  // fixtures have no real Spec entity to fetch, so their spec sections are seeded
-  // synthetically and the API fetch skips them.
   const fixtureSpecSections = useMemo(() => fixtureSpecSectionsByPlan(filteredPlans), [filteredPlans]);
   const [fetchedSpecSections, setFetchedSpecSections] = useState<Map<string, Section[]>>(new Map());
   useEffect(() => {
@@ -178,9 +170,6 @@ export function CanvasViewInner({
     for (const [k, v] of fixtureSpecSections) merged.set(k, v);
     return merged;
   }, [fetchedSpecSections, fixtureSpecSections]);
-  // Region labels resolve from the plan's OWN sections (sec_… ids + titles). The layout
-  // plan gets its sections OVERLAID with spec sections (plansForLayout), so its ids no
-  // longer match the tasks' section_ids — resolve titles from the original plans here.
   const sectionTitleById = useMemo(() => {
     const m = new Map<string, string>();
     for (const p of filteredPlans) {
@@ -202,7 +191,6 @@ export function CanvasViewInner({
     return m;
   }, [specSectionsByPlan]);
 
-  // The <canvas> renderer publishes its blit-scheduler here; the viewport calls it
   // on every camera paint so the canvas re-blits in lockstep with the gesture.
   const drawRequestRef = useRef<(() => void) | null>(null);
   const canvasApiRef = useRef<CanvasRenderApi | null>(null);
@@ -229,32 +217,22 @@ export function CanvasViewInner({
     paintLayer(layerRef.current, transformRef.current);
   }, [transform, layerRef, transformRef]);
 
-  // §24.1: ONE behavior — no manual view modes. Node frames are fixed; content
   // adapts to camera zoom (content-LOD). The toolbar is camera-only.
   const [minimapOn, setMinimapOn] = useState(true);
 
-  // Memoize the layout source + its fingerprint: plansForLayout maps a NEW array when
-  // spec sections are present, so an unmemoized call minted a fresh ref every render →
-  // the scene memo (dep: layoutSourcePlans) rebuilt every render. Stable now.
   const layoutSourcePlans = useMemo(() => plansForLayout(filteredPlans, specSectionsByPlan), [filteredPlans, specSectionsByPlan]);
   const layoutRevision = useMemo(() => layoutInputRevision(layoutSourcePlans, specSectionsByPlan), [layoutSourcePlans, specSectionsByPlan]);
   const lineageCatalog = useMemo(() => buildLineageCatalog(plans), [plansRevision]);
   const layout = useMemo(() => layoutWorkspace(layoutSourcePlans, undefined, sectionTitleById), [layoutRevision, sectionTitleById]);
-  // Scale-independent: scene structure does not depend on camera zoom, so it
   // rebuilds only when the layout changes — not on every pan/zoom frame.
   const scene = useMemo(() => {
     bumpCanvasChurn("sceneBuilds");
     return buildCanvasScene({ layout, plans: layoutSourcePlans });
   }, [layout, layoutSourcePlans]);
 
-  // #8: a pane heartbeat mutates the whole `panes` map ref, but buildTaskPresence
-  // reads only EXISTENCE + title of the panes referenced by tasks (assigned/lane +
-  // milestone authors). Key on exactly that so a heartbeat that changes nothing
-  // presence-relevant does NOT rebuild all ~N task models.
   const panesContentKey = useMemo(() => buildTaskPresenceFingerprint(filteredPlans, panes), [filteredPlans, panes]);
   const lookups = useCanvasLookups(layout, filteredPlans, driftByPlan, panes, panesContentKey);
 
-  // Per plan: sectionId → LIVE agents working it (task→section roll-up). Live-only,
   // deduped — a section shows who's on it RIGHT NOW. Camera-decoupled (presence + data).
   const sectionAgentsByPlan = useMemo(() => {
     const out = new Map<string, Map<string, PresenceAgent[]>>();
@@ -270,9 +248,6 @@ export function CanvasViewInner({
     return out;
   }, [filteredPlans, lookups.taskModelById]);
 
-  // #4: pre-mint ONE stable model object per plan/spec/ghost, rebuilt only on a data
-  // change — resolveModel returns the cached identity so CanvasNodeCard's memo holds
-  // across pan/zoom (the old per-call spread minted a fresh object every render).
   const planModelById = useMemo(() => {
     const m = new Map<string, unknown>();
     for (const p of filteredPlans) {
@@ -358,9 +333,6 @@ export function CanvasViewInner({
 
   const padding = viewportPadding ?? DEFAULT_CANVAS_SETTINGS.cullPadding;
   const canvasSize = useMemo(() => ({ width: size.width, height: size.height }), [size.width, size.height]);
-  // Build the visible-id set, then collapse identity when membership is unchanged
-  // (#2 cascade root): a pan that reveals no new node keeps the SAME Set reference,
-  // so every memo'd child below skips its re-render instead of cascading.
   const nodeIds = useStableSet(
     useMemo(
       () => new Set(visibleNodeIds(layout, transform, canvasSize, padding)),
@@ -368,12 +340,6 @@ export function CanvasViewInner({
     ),
   );
 
-  // §26 worlds: each node's content band is driven by its OWN appW (footprint ×
-  // camera scale), not the global scale. Hysteresis (prev band, ±10%) kills flicker.
-  // #1: only VISIBLE nodes (+ every plan node — the zone-label site needs plan-level
-  // bands even when the plan node is off-screen) are banded; and the returned Map keeps
-  // its identity across scale ticks while no band actually crosses, so memo'd consumers
-  // skip re-render during a zoom that doesn't change any node's band.
   const bandRef = useRef<Map<string, World>>(new Map());
   const worldByNodeRef = useRef<Map<string, World>>(new Map());
   const worldByNode = useMemo(() => {
@@ -395,7 +361,6 @@ export function CanvasViewInner({
 
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-  // UX-2 READ surface: the node whose fullscreen detail is open (null = none). It
   // OVERLAYS the map without moving the camera, so closing returns to the exact spot.
   const [detailNodeId, setDetailNodeId] = useState<string | null>(null);
   const nav = useCanvasNavHistory();
@@ -478,16 +443,12 @@ export function CanvasViewInner({
     [mode, workspaceTarget, filteredPlans],
   );
 
-  // §31: auto-fit runs ONLY on mount / when the mount CONTEXT changes (mode or the
-  // focused pane) — NEVER on a data change. A new task/plan/stride updates nodes in
-  // place; the camera transform stays byte-identical (no surprise pan/recenter).
   const fittedRef = useRef<string | null>(null);
   const fitContextKey = canvasFitContextKey(mode, focusPaneId, workspaceTarget);
   useEffect(() => {
     if (size.width <= 0 || size.height <= 0 || layout.bounds.width <= 0) return;
     if (fittedRef.current === fitContextKey) return;
     fittedRef.current = fitContextKey;
-    // Task context -> fly to assigned task(s) on the full board. Normal Plan open
     // frames the active plan (§23.4), not fit-all (which lands at 5% on a big board).
     if (workspaceFocusIds.length) focusOnNodes(workspaceFocusIds);
     else if (paneTaskIds.length) focusOnNodes(paneTaskIds);
@@ -498,9 +459,6 @@ export function CanvasViewInner({
     } else fitToView(layout.bounds);
   }, [fitContextKey, fitToView, fitCameraToNodes, focusOnNodes, workspaceFocusIds, paneTaskIds, activePlanId, size.width, size.height]);
 
-  // canvas-focus event (camera + blink). Backends emit {task_id, plan_id, pane_id}
-  // (a task/plan node id == its id; a pane resolves to its assigned tasks). Optional
-  // `scale` lands centered at an exact zoom for deterministic "go to id @ zoom" nav.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let active = true;
@@ -544,7 +502,6 @@ export function CanvasViewInner({
     return [...byKey.values()];
   }, [filteredPlans]);
 
-  // Canvas-renderer inputs: ALL laid-out nodes/edges (the draw loop culls live to the
   // camera), and the zone name labels. Camera-decoupled — rebuilt only on layout change.
   const allNodes = useMemo(() => layout.frames.flatMap((f) => f.nodes), [layout]);
   const allEdges = useMemo(() => [...layout.frames.flatMap((f) => f.edges), ...(layout.crossEdges ?? [])], [layout]);
@@ -685,9 +642,6 @@ export function CanvasViewInner({
     return () => window.removeEventListener("keydown", onKey);
   }, [nav.path.length, focusedNodeId, goBack]);
 
-  // The world is a <canvas> now — no per-node DOM to hit-test. Double-click uses the
-  // SAME smallest-area hit-test as single-click (canvasApiRef.hitTest), so a click and a
-  // double-click at one point always resolve to the same node — then focuses it.
   const onWorldDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       const rect = containerRef.current?.getBoundingClientRect();
@@ -701,9 +655,6 @@ export function CanvasViewInner({
     [containerRef, focusNodeCamera, onSectionFrame],
   );
 
-  // Single-click → canvas hit-test → action: ⤢ opens the full detail overlay; a
-  // section / "→ tasks" button navigates to that section's tasks; node body focuses.
-  // Falls through to the delegated fly-click (rich-overlay chips, swarm rows).
   const onCanvasClick = useCallback(
     (e: React.MouseEvent) => {
       const rect = containerRef.current?.getBoundingClientRect();
@@ -727,7 +678,6 @@ export function CanvasViewInner({
     [containerRef, onSectionFrame, focusNodeCamera, onCanvasFlyClick],
   );
 
-  // Hover → highlight the node/region under the pointer (rAF-throttled hit-test; the
   // canvas paints the ring as a primitive — no per-frame DOM). Skipped while panning.
   const onCanvasPointerMove = useCallback(
     (e: React.MouseEvent) => {
@@ -943,7 +893,6 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
             : livePlans,
     [useReal, perfProfile, perfN, livePlans],
   );
-  // Fixture-only: synthesize live panes for the synthetic swarm so presence renders
   // (the live-pane gate filters real plans correctly; this only feeds the demo plan).
   const panes = useMemo(
     () => (perfN > 0 && !useReal ? { ...state.panes, ...buildPerfFixturePanes(plans) } : state.panes),

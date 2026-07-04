@@ -103,7 +103,6 @@ pub fn read_api_config() -> (String, Option<String>) {
         }
     }
 
-    // Override port from env — CodeTerm sets this in spawned PTYs
     if let Ok(env_port) = std::env::var("CODETERM_API_PORT") {
         if let Ok(p) = env_port.parse::<i64>() {
             port = p;
@@ -123,7 +122,6 @@ pub fn read_api_config() -> (String, Option<String>) {
             })
     };
 
-    // Try Ed25519 signed token first, fall back to simple API token from config
     let signed_token = read_mesh_signed_token();
 
     let env_token = std::env::var("CODETERM_API_TOKEN")
@@ -189,7 +187,6 @@ pub fn build_http(token: &Option<String>) -> Result<reqwest::blocking::Client, r
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(60))
         .build()
-    // No fallback — propagate the error so callers know auth headers were dropped
 }
 
 mod args;
@@ -242,7 +239,6 @@ fn main() {
         return;
     }
 
-    // --mesh TARGET: proxy entire command to a remote peer via relay
     if let Some(ref mesh_target) = cli.mesh {
         // Secrets are local-only — refuse to proxy them across the mesh. Cross-mesh secret access needs a trust model we haven't designed yet.
         if matches!(
@@ -272,7 +268,6 @@ fn main() {
         return;
     }
 
-    // Config command uses HTTP API directly — no socket needed
     let json_output = cli.json;
     if let Commands::Config { ref action } = cli.command {
         let (base_url, token) = read_api_config();
@@ -324,7 +319,6 @@ fn main() {
                 if json_output {
                     println!("{}", serde_json::to_string_pretty(&value).unwrap());
                 } else if let Some(v) = value.get("value") {
-                    // For config get: print just the value
                     match v {
                         serde_json::Value::String(s) => println!("{}", s),
                         serde_json::Value::Null => println!("null"),
@@ -342,7 +336,6 @@ fn main() {
         return;
     }
 
-    // `mem run-worker` opens knowledge.db directly via --db-path and never talks to the daemon socket — short-circuit before discover_socket so a
     // stale CODETERM_SOCKET_PATH inherited from a previous daemon PID (e.g. after update install --auto restarts the binary) doesn't make the worker exit 1 before it can do any work.
     if let Commands::Mem {
         action: MemAction::RunWorker {
@@ -380,7 +373,6 @@ fn main() {
         }
     }
 
-    // `system` writes OS-level autostart triggers (schtasks / launchd / systemd). No daemon dependency — short-circuit so it works pre-install and
     // during recovery when the daemon is wedged.
     if matches!(cli.command, Commands::System { .. }) {
         let json_mode = cli.json;

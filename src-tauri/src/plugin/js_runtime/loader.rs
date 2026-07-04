@@ -104,15 +104,12 @@ pub fn load_one(manifest_path: &Path) -> Result<JsProvider, String> {
     let manifest_json = serde_json::to_string(&manifest)
         .map_err(|e| format!("serialize manifest for {}: {e}", manifest.id))?;
 
-    // Trust check: compute the bundle hash and compare against the build-time SYSTEM_PLUGIN_HASHES table. CODETERM_DEV=1 bypasses — every plugin
     // is treated as third-party in dev so live edits don't trip the verifier.
     let bundle_dir = manifest_path
         .parent()
         .ok_or_else(|| "manifest has no parent dir".to_string())?;
     let trust = compute_trust(&manifest.id, bundle_dir);
 
-    // Validate-before-load: refuse to instantiate a non-conforming third-party
-    // drop-in. Doing it BEFORE the VM spins means untrusted, incompatible code
     if let Err(reason) = validate_conformance(&manifest, &trust) {
         log::warn!("[plugin/{}] {reason}", manifest.id);
         return Err(reason);
@@ -140,8 +137,6 @@ fn compute_sandbox(
     use crate::agent::provider::ProviderTrust;
     use crate::plugin::js_runtime::host_api::PluginSandbox;
 
-    // Dev is a trusted developer environment AND it force-marks every plugin
-    // ThirdParty (so live edits don't trip the hash verifier) — confining there
     let dev = std::env::var("CODETERM_DEV").as_deref() == Ok("1");
     let user_plugins = crate::paths::data_dir().join("plugins");
     let is_user_dropin = std::fs::canonicalize(bundle_dir)
@@ -153,9 +148,6 @@ fn compute_sandbox(
     let base = if dev || matches!(trust, ProviderTrust::System) || !is_user_dropin {
         PluginSandbox::unrestricted()
     } else {
-        // Confined: read/write its own dir + dedicated data dir + declared session root + temp.
-        // The data dir (~/.codeterm/<plugin-id>/) is the standard place for downloaded assets
-        // (models, binaries, tmp files) that must survive plugin updates.
         let data_dir = crate::paths::data_dir().join(&manifest.id);
         let mut read_roots = vec![
             bundle_dir.to_path_buf(),
@@ -171,17 +163,12 @@ fn compute_sandbox(
         PluginSandbox::restricted(read_roots, write_roots)
     };
 
-    // The plugin's user-configured settings, delivered to the VM via
-    // host.settingsJson(). Per §1.7 storage is the per-plugin `config.yaml`
     let settings_json =
         crate::plugin::js_runtime::plugin_config::resolve_settings_json(bundle_dir, &manifest.id);
 
-    // Effective perms = manifest request OR the user's persisted grants (§1.10
-    // grant persistence): a user-edited grant/revocation in the per-plugin dir
     let mut perms = manifest.permissions.clone();
     crate::plugin::js_runtime::grants::apply_persisted(&mut perms, bundle_dir);
 
-    // Stamp identity (for the per-plugin secret bucket) + host_api v2 allowlists
     // onto every path, including unrestricted/dev.
     base.with_identity_and_perms(&manifest.id, &perms)
         .with_settings(settings_json)
@@ -339,7 +326,6 @@ mod tests {
         let root = tmp.path().to_path_buf();
         let dir = root.join("transcriber");
 
-        // --- install v0.1.0 ---
         write(
             &dir.join("plugin.json"),
             &cap_manifest("transcriber", "0.1.0", HOST_API_VERSION),
@@ -361,7 +347,6 @@ mod tests {
             "v0.1.0"
         );
 
-        // --- update to v0.1.1 with changed behaviour ---
         write(
             &dir.join("plugin.json"),
             &cap_manifest("transcriber", "0.1.1", HOST_API_VERSION),
@@ -387,7 +372,6 @@ mod tests {
             "the updated version's behaviour is active"
         );
 
-        // --- compat gate: incompatible hostApi is skipped, daemon survives ---
         let bad = root.join("badplug");
         write(
             &bad.join("plugin.json"),
@@ -549,7 +533,6 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join("noscript");
         write(&dir.join("plugin.json"), &min_manifest("noscript"));
-        // intentionally no plugin.js
         let (providers, report) = scan_roots(&[root.path().to_path_buf()]);
         assert!(providers.is_empty());
         match &report[0] {

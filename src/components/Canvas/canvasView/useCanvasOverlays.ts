@@ -22,16 +22,12 @@ interface OverlaysDeps {
 
 const EMPTY_STALE_ACTIVE_TASK_IDS = new Set<string>();
 
-// Camera-coupled overlay layers (rich content, presence pins, swarm roster) + the
-// scene readback publish. Each memo keeps its original dep array so it recomputes
-// only on the same triggers as before — swarmRoster stays transform-DECOUPLED.
 export function useCanvasOverlays({ scene, transform, mode, planId, lookups, nodeIds, worldByNode, staleActiveTaskIds = EMPTY_STALE_ACTIVE_TASK_IDS }: OverlaysDeps) {
   useEffect(
     () => publishCanvasSceneReadback(scene, transform, `${mode}:${planId ?? "workspace"}`),
     [scene, transform, mode, planId],
   );
 
-  // EMERGENCE: the swarm (only tasks with executing agents). Built off the existing
   // per-task presence — O(tasks) once per data change, NOT per pan/zoom.
   const demoOn = presenceAnimateDemoEnabled();
   const [demoTick, setDemoTick] = useState(0);
@@ -47,7 +43,6 @@ export function useCanvasOverlays({ scene, transform, mode, planId, lookups, nod
     for (const [id, model] of lookups.taskModelById) {
       const p = model.presence;
       if (!p || !p.agents.length || !p.agents[0]) continue;
-      // What it's doing now: orchestrator focus or latest stride — prefixed so it
       // never reads like plan progress (e.g. subtasks 0/8) or an ambiguous fraction.
       const action = p.focus
         ? `focus · ${p.focus}`
@@ -64,7 +59,6 @@ export function useCanvasOverlays({ scene, transform, mode, planId, lookups, nod
     }
     return demoOn ? rotatePresenceForDemo(m, demoTick) : m;
   }, [lookups.taskModelById, demoOn, demoTick, staleActiveTaskIds]);
-  // Floating presence pins: budget-bounded + viewport-culled → constant pin count on
   // a 20k board, recomputed only when camera/visibility/swarm change (no per-frame O(N)).
   const presenceOverlays = useMemo(
     () => {
@@ -73,9 +67,6 @@ export function useCanvasOverlays({ scene, transform, mode, planId, lookups, nod
     },
     [presenceByTask, lookups.nodeById, nodeIds, worldByNode, transform.scale],
   );
-  // EMERGENCE top-right cluster: the WHOLE swarm deduped to one circle per distinct
-  // agent. Camera-DECOUPLED (no transform dep) so the screen-space faces stay put
-  // while you fly; recomputed only when the swarm/task data changes.
   const swarmRoster = useMemo(
     () => {
       bumpCanvasChurn("swarmRosterBuilds");

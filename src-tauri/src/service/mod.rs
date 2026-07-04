@@ -109,7 +109,6 @@ pub struct ServiceContext {
     pub prompt_detector: PromptDetectorState,
     // Stable pane→pty map for hidden agent runs; survives close_pane so the unified AgentRun log endpoints can read closed-worker output.
     pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
-    // Auto-completes hidden agent runs from claude stream-json result events, idle silence, or hard timeout — replaces relying on claude calling
     // codeterm cron complete / mem worker report itself.
     pub run_watcher: Arc<crate::agent::run_watcher::RunWatcherRegistry>,
     /// Orchestrator-side view of remote (cross-mesh) workers, populated from
@@ -209,7 +208,6 @@ impl ServiceContext {
     /// One payload shape for every mutation site (spawn registration, UI relay
     /// hook, inbound report) so the sidebar refreshes consistently.
     pub(crate) fn emit_remote_workers_changed(&self, orchestrator_pane: &str) {
-        // emit_everywhere (not raw app.emit): reaches the native webview AND the
         // SSE bus, so the web mirror updates live too — not only on next remount.
         crate::api::events::emit_everywhere(
             &self.app_handle,
@@ -233,8 +231,6 @@ impl ServiceContext {
         let mux = self.mux.clone();
         let agent_tracker = self.agent_tracker.clone();
         std::thread::spawn(move || {
-            // Snapshot is read AFTER the coalesce window so the emitted payload
-            // reflects the latest state — a fast follow-up mutation during the
             let snapshot = Self::coalesce_snapshot(
                 &mux,
                 &agent_tracker,

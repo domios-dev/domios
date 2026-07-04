@@ -1,4 +1,3 @@
-// Left column of the Extensions surface: search box, filter tabs, and the
 // plugin rows (installed + marketplace) with status/update/installed badges.
 import { useState } from "react";
 import type { CatalogEntry, CatalogFilter } from "./pluginCatalog";

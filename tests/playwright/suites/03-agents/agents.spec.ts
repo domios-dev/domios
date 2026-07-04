@@ -142,8 +142,6 @@ test("@golden real agent spawn → works → reports back (structural asserts)",
     expect(pane, "spawned agent pane missing from pane list").toBeDefined();
     expect(pane!.agent_type).toBe("claude");
 
-    // The agent runs the report command; poll the inbox. Single LLM call,
-    // no retries — if the model never reports within budget, that is a
     const reportText = await pollUntil(async () => {
       const reports = await api.get<unknown>(`/panes/${inbox.id}/reports`);
       const text = JSON.stringify(reports);
@@ -178,8 +176,6 @@ async function spawnWorker(spawnAgent: SpawnAgent, inboxId: string, task: string
 }
 
 test("@golden multi-turn + tool round-trip observed in the live terminal DOM", async ({ api, paneCleanup, spawnAgent, pollMarkerInDom }) => {
-  // Turn 1 makes the agent EXECUTE a command (tool use — the echoed marker
-  // only reaches the terminal if the tool actually ran); turn 2 sends a
   test.setTimeout(420_000);
 
   const inbox = await paneCleanup.createPane({ title: "pw-mt-inbox" });
@@ -263,7 +259,6 @@ test("@golden agent restart mid-session resumes and stays usable", async ({ api,
     });
     await pollMarkerInDom(resumeMarker);
 
-    // Resume (not a fresh session): the session id survives when it was
     // known before the restart.
     if (sessionBefore?.agent_session_id) {
       const after = (await api.panes()).find((p) => p.id === agentPaneId) as
@@ -279,8 +274,6 @@ test("@golden agent restart mid-session resumes and stays usable", async ({ api,
 });
 
 test("@golden fully live: agent response read from the rendered terminal DOM", async ({ api, paneCleanup, spawnAgent, pollMarkerInDom }) => {
-  // Real UI → real PTY → real LLM → real DOM. The WebGL canvas has no
-  // readable text; the screenReaderMode accessibility tree
   test.setTimeout(300_000);
 
   const inbox = await paneCleanup.createPane({ title: "pw-dom-inbox" });
@@ -302,11 +295,9 @@ test("@golden fully live: agent response read from the rendered terminal DOM", a
     });
     agentPaneId = spawned.pane_id;
 
-    // The model's reply lands in the agent pane's terminal; the active
     // pane's accessibility tree mirrors the viewport text.
     await pollMarkerInDom(marker);
 
-    // Cross-check the same content through the PTY text API — DOM and
     // daemon-side buffer must agree.
     const text = await api.get<{ text?: string } | string>(`/panes/${agentPaneId}/text`);
     const buffer = typeof text === "string" ? text : (text.text ?? JSON.stringify(text));

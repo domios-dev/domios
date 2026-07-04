@@ -1,9 +1,3 @@
-// Run: npx tsx src/components/shared/BusyState.grepgate.test.ts
-//
-// Enforces the universal busy grammar: the bespoke-spinner / static-loading
-// vocabulary (animate-spin, "Loading...", "Loading…") may exist ONLY inside the
-// shared BusyState component. Any other hit is a dead surface that skipped the
-// grammar — fix it, don't extend the allowlist.
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";

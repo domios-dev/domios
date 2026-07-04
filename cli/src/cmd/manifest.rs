@@ -199,8 +199,6 @@ mod tests {
         Some(cur)
     }
 
-    // Every `codeterm <subcmd...>` head referenced in the prompt must resolve in
-    // the clap tree. Conservative: only flags a line whose command head matches
     #[test]
     fn prompt_cli_commands_exist() {
         let root = build();
@@ -211,7 +209,6 @@ mod tests {
             let Some(rest) = line.strip_prefix("codeterm ") else {
                 continue;
             };
-            // `codeterm --version` / `--help` etc. is the root + a global flag,
             // not a subcommand — valid, skip.
             if rest.trim_start().starts_with('-') {
                 continue;
@@ -242,7 +239,6 @@ mod tests {
         );
     }
 
-    // Every non-hidden leaf command (one with no subcommands) must carry an
     // `about` string so docs/CLI.md and chat cards never render a blank line.
     #[test]
     fn every_leaf_command_has_about() {

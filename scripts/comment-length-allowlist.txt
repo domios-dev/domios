@@ -1,14 +1,3 @@
 # Comment-length allowlist — files with residual inline // blocks >2 lines.
 # Format: <relative-path><TAB><baseline-violation-count>
 # Baseline-locked: entries must shrink, not grow. Remove entry when clean.
-#
-# These files had in-flight uncommitted changes during the initial sweep
-# (2026-06-22) and could not be safely trimmed. Orchestrator handles them
-# after their current fixes are committed.
-src-tauri/src/service/output.rs	11
-src/components/Terminal/PaneSessionChat.tsx	4
-plugins/provider-opencode/src/plugin.ts	5
-tests/playwright/suites/16-chat-view/cursor-new-rebinds-session.spec.ts	5
-tests/playwright/suites/16-chat-view/opencode-assistant-replies.spec.ts	3
-src/components/Terminal/ChatComposer.tsx	2
-src-tauri/src/plugin/js_runtime/parity_test/opencode.rs	1

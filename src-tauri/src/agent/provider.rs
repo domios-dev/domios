@@ -47,7 +47,6 @@ pub struct AgentLaunchParams {
     pub task: Option<String>,
     pub args: Option<Vec<String>>,
     pub skip_permissions: bool,
-    // Pre-generated session id to use when starting a NEW conversation. Honored only by providers reporting `SessionIdInjection != None` — others
     // ignore it (they generate ids themselves and CodeTerm has to detect after launch).
     pub session_id: Option<String>,
     /// Fixed local server the host wants the agent's structured-prompt handle to
@@ -194,7 +193,6 @@ pub enum SettingField {
         fields: Vec<SettingField>,
     },
 
-    // ── Inputs ───────────────────────────────────────────────────
     Toggle {
         /// Config path relative to the plugin's namespace
         /// (e.g. `"resume_sessions"` → `agents.<id>.resume_sessions`).

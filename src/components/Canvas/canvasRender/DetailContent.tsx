@@ -13,10 +13,6 @@ import { PlanSkillsSection } from "../planView/PlanSkillsSection.tsx";
 import { TaskActivityTimeline } from "../planView/TaskActivityTimeline.tsx";
 import { GLYPH_ACCENT } from "./cardContent";
 
-// The READ surface body for the detail overlay. Plain (no section tint) — structure
-// + rendered markdown only. Task: description + structured fields. Plan/spec: progress
-// (plan) + the SECTIONS as the hero, each body rendered as markdown; meta is a compact
-// secondary strip, never the headline.
 
 export interface DetailContentProps {
   kind: PlanDetailKind;
@@ -34,9 +30,6 @@ export interface DetailContentProps {
   renderTaskAttachmentThumbnails?: (task: Task) => ReactNode;
 }
 
-// Natural-height content; the overlay BODY wrapper is the scroll container (overflow-y
-// auto + min-height:0). The content must NOT be height:100% — it has to grow past the
-// body so the body actually scrolls (the iter3 centering trap clipped it otherwise).
 const wrap: CSSProperties = {
   padding: "20px 24px 28px",
   display: "flex",

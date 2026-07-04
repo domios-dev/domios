@@ -11,8 +11,6 @@ export interface CodetermInvocation {
 
 const BINARIES = new Set(["codeterm", "codeterm-dev"]);
 
-// Minimal hint so a depth-2 subcommand (e.g. `agent spawn`) is captured as the
-// path while trailing words (e.g. the agent name) stay positional. Full
 const KNOWN_SUBCOMMANDS: Record<string, Set<string>> = {
   agent: new Set([
     "spawn", "report", "list", "model", "models", "restart", "providers",
