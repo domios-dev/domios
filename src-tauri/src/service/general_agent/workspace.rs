@@ -1,19 +1,37 @@
 //! General workspace + pane setup in [`MultiplexerState`].
 
 use super::{general_dir, GENERAL_ALIAS, GENERAL_PANE_TITLE, GENERAL_WORKSPACE_NAME, MAIN_ALIAS};
+use crate::agent::registry::AgentRegistry;
 use crate::service::spawn::{should_default_agent_pane_to_chat, PaneVisibility};
-
-const BUNDLED_CHAT_UI_PROVIDERS: &[&str] = &["claude", "codex", "opencode", "cursor"];
 
 pub fn default_chat_view_for_provider(
     config: &crate::config::schema::AppConfig,
+    registry: &AgentRegistry,
     provider_id: &str,
 ) -> bool {
+    let supports_chat_ui = registry
+        .with_provider(provider_id, |provider| provider.supports_chat_ui())
+        .unwrap_or(false);
     should_default_agent_pane_to_chat(
         config.ui.default_new_agent_pane_chat,
         PaneVisibility::Visible,
-        BUNDLED_CHAT_UI_PROVIDERS.contains(&provider_id),
+        supports_chat_ui,
     )
+}
+
+pub fn apply_general_chat_view_default(
+    mux: &mut crate::multiplexer::state::MultiplexerState,
+    default_chat_view: bool,
+) {
+    if !default_chat_view {
+        return;
+    }
+    let Some(pane_id) = mux.resolve_pane_id(GENERAL_ALIAS) else {
+        return;
+    };
+    if let Some(pane) = mux.get_pane_mut(&pane_id) {
+        pane.chat_view = true;
+    }
 }
 
 /// Ensure General workspace + pane exist in MultiplexerState.
@@ -202,5 +220,37 @@ mod tests {
         assert_eq!(pane.title, GENERAL_PANE_TITLE);
         assert!(pane.protected);
         assert!(pane.chat_view);
+    }
+
+    #[test]
+    fn general_agent_chat_default_uses_provider_capability_not_bundled_id() {
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(
+            crate::agent::test_provider::MockProvider::with_chat_ui("community-chat"),
+        ));
+        let mut config = crate::config::schema::AppConfig::default();
+        config.ui.default_new_agent_pane_chat = true;
+
+        assert!(super::default_chat_view_for_provider(
+            &config,
+            &registry,
+            "community-chat"
+        ));
+    }
+
+    #[test]
+    fn general_agent_chat_default_rejects_provider_without_chat_capability() {
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "community-terminal",
+        )));
+        let mut config = crate::config::schema::AppConfig::default();
+        config.ui.default_new_agent_pane_chat = true;
+
+        assert!(!super::default_chat_view_for_provider(
+            &config,
+            &registry,
+            "community-terminal"
+        ));
     }
 }

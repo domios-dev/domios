@@ -127,7 +127,8 @@ pub fn complete_first_run_core(
         cfg.general_agent.agent_provider = provider_id.to_string();
         cfg.general_agent.first_run_complete = true;
         let snapshot = cfg.clone();
-        let default_chat_view = default_chat_view_for_provider(&snapshot, provider_id);
+        let default_chat_view =
+            default_chat_view_for_provider(&snapshot, &svc.agent_registry, provider_id);
         drop(cfg);
         crate::config::save_config_pub(&snapshot)?;
         (

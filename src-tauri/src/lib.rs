@@ -703,6 +703,21 @@ pub fn run() {
                 plan_startup_loaded: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
+            {
+                let config = states.config.lock().clone();
+                if config.general_agent.enabled && config.general_agent.first_run_complete {
+                    let default_chat_view =
+                        crate::service::general_agent::default_chat_view_for_provider(
+                            &config,
+                            &service_state.agent_registry,
+                            &config.general_agent.agent_provider,
+                        );
+                    crate::service::general_agent::apply_general_chat_view_default(
+                        &mut service_state.mux.write(),
+                        default_chat_view,
+                    );
+                }
+            }
             // Late-bind the ServiceContext into every loaded plugin's sandbox. Weak so VMs never keep the service alive past teardown.
             for vm in &plugin_vms {
                 vm.set_service(Arc::downgrade(&service_state));

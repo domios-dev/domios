@@ -169,14 +169,7 @@ pub(crate) fn init_states() -> AppStates {
         }
         if general_config.first_run_complete {
             service::general_agent::generate_instructions(&general_config.agent_provider, None);
-            let default_chat_view = service::general_agent::default_chat_view_for_provider(
-                &config_state.lock(),
-                &general_config.agent_provider,
-            );
-            service::general_agent::ensure_general_workspace(
-                &mut mux_state_inner,
-                default_chat_view,
-            );
+            service::general_agent::ensure_general_workspace(&mut mux_state_inner, false);
         } else {
             service::general_agent::ensure_first_run_tab(&mut mux_state_inner);
         }
@@ -199,69 +192,5 @@ pub(crate) fn init_states() -> AppStates {
         mesh: mesh_state,
         keepawake: keepawake::new_state(),
         resize_owner,
-    }
-}
-
-#[cfg(test)]
-fn default_chat_view_for_general_agent(default_enabled: bool, provider_id: &str) -> bool {
-    crate::service::spawn::should_default_agent_pane_to_chat(
-        default_enabled,
-        crate::service::spawn::PaneVisibility::Visible,
-        bundled_agent_provider_supports_chat_ui(provider_id),
-    )
-}
-
-/// Startup bootstrap allowlist of chat-UI-capable bundled providers.
-///
-/// This is documented debt, not a leak we can close yet. The honest capability
-/// (`AgentProvider::supports_chat_ui`) is derived at RUNTIME from a loaded
-/// plugin VM (`has_js("sessionJsonlPath") || uses_structured_chat() || …`), so
-/// it cannot be computed statically. And `init_states` runs (lib.rs) *before*
-/// the agent registry is created and the embedded plugins are bootstrapped to
-/// disk and loaded — so there is no provider to query here. Until chat-view
-/// defaulting is deferred to a post-registry startup hook (see the loop notes),
-/// this single list is the one source of truth, cross-checked against the
-/// embedded plugin set by the test below so it can't name a provider we no
-/// longer ship.
-#[cfg(test)]
-const BUNDLED_CHAT_UI_PROVIDERS: &[&str] = &["claude", "codex", "opencode", "cursor"];
-
-#[cfg(test)]
-fn bundled_agent_provider_supports_chat_ui(provider_id: &str) -> bool {
-    BUNDLED_CHAT_UI_PROVIDERS.contains(&provider_id)
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn general_agent_chat_default_on_capable_provider_sets_chat_view() {
-        assert!(super::default_chat_view_for_general_agent(true, "claude"));
-    }
-
-    #[test]
-    fn general_agent_chat_default_off_capable_provider_stays_terminal() {
-        assert!(!super::default_chat_view_for_general_agent(false, "claude"));
-    }
-
-    #[test]
-    fn general_agent_chat_default_on_unknown_provider_stays_terminal() {
-        assert!(!super::default_chat_view_for_general_agent(true, "unknown"));
-    }
-
-    /// Drift guard: every provider in the startup chat-UI bootstrap allowlist
-    /// must actually ship as an embedded plugin (`provider-<id>`). This uses
-    /// the one capability source available before the registry loads — the
-    /// statically-embedded plugin set — so the allowlist can't silently
-    /// reference a provider that was removed from the build (which would
-    /// default panes to a chat view no loaded provider serves).
-    #[test]
-    fn chat_ui_allowlist_entries_are_all_embedded_plugins() {
-        let embedded = crate::plugin::embedded::ids();
-        for id in super::BUNDLED_CHAT_UI_PROVIDERS {
-            assert!(
-                embedded.contains(id),
-                "chat-UI allowlist names '{id}' but it is not an embedded plugin (embedded: {embedded:?})"
-            );
-        }
     }
 }
