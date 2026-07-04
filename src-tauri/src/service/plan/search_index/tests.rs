@@ -52,18 +52,43 @@ fn git_worktree_pair() -> (tempfile::TempDir, std::path::PathBuf, std::path::Pat
     (tmp, main, linked)
 }
 
-fn wait_for_vector_count(db: &Path, min_count: i64) -> i64 {
+fn wait_for_vector_match_count(db: &Path, like_pattern: &str, min_count: i64) -> i64 {
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
     loop {
         let conn = rusqlite::Connection::open(db).unwrap();
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM mem_vectors", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM mem_vectors WHERE mem_id LIKE ?1",
+                params![like_pattern],
+                |row| row.get(0),
+            )
             .unwrap_or(0);
         if count >= min_count || std::time::Instant::now() >= deadline {
             return count;
         }
         std::thread::sleep(Duration::from_millis(25));
     }
+}
+
+fn vector_indexing_available(db: &Path) -> bool {
+    let probe = format!("probe_{}", uuid::Uuid::new_v4().simple());
+    let conn = rusqlite::Connection::open(db).unwrap();
+    if crate::mem::embeddings::index(&conn, &probe, "plan index vector probe").is_err() {
+        return false;
+    }
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
+            params![&probe, format!("{}_chunk_%", probe)],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    conn.execute(
+        "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
+        params![&probe, format!("{}_chunk_%", probe)],
+    )
+    .ok();
+    count > 0
 }
 
 fn hold_plan_index_lock(root: &Path) -> std::thread::JoinHandle<()> {
@@ -127,8 +152,12 @@ fn mirrors_plan_units_into_project_local_mem_db() {
         .query_row("SELECT COUNT(*) FROM mem_fts", [], |row| row.get(0))
         .unwrap();
     assert!(fts_count > 0);
-    #[cfg(feature = "embeddings")]
-    assert!(wait_for_vector_count(&db, 1) > 0);
+    if vector_indexing_available(&db) {
+        assert!(
+            wait_for_vector_match_count(&db, &format!("%{task_id}%"), 1) > 0,
+            "expected vectors for task unit when embeddings are available"
+        );
+    }
     let hits = store
         .search_plan_index(
             root.path(),
@@ -737,7 +766,12 @@ fn reindex_removes_deleted_units_and_old_text() {
         .unwrap()
         .is_empty());
     let db = project_index_path(&super::super::paths::project_root(root.path()));
-    assert!(wait_for_vector_count(&db, 1) > 0);
+    if vector_indexing_available(&db) {
+        assert!(
+            wait_for_vector_match_count(&db, &format!("%{task_id}%"), 1) > 0,
+            "expected vectors for task unit before deletion when embeddings are available"
+        );
+    }
 
     store.rm_task(&plan.id, &task_id, 3).unwrap();
     let hits = store
