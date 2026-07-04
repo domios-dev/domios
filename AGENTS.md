@@ -127,6 +127,29 @@ UI automation runs Playwright on **both** platforms — `tests/playwright/helper
 
 Run (any OS, against a healthy dev on 7686): `npx playwright test --config=tests/playwright/playwright.config.ts --project=golden` (projects: `smoke` / `golden` / `full`). On macOS this needs the dev running and Chromium installed (`npx playwright install chromium`). So a UI/chat-view fix on macOS IS gateable locally via web-mode — do not skip it. Operational docs: `tests/playwright/README.md`.
 
+**Playwright discipline — a new test is unverified code (learned at 20+ min
+per hang).** The failure pattern: specs get written and immediately run as a
+whole suite; one never-verified test awaits a selector that never resolves,
+and the run sits silent for 20+ minutes. Rules, same spirit as the cargo caps:
+
+1. **Verify in isolation first.** A freshly written or edited test runs ALONE
+   before it ever joins a batch: `npx playwright test <file> -g "<test title>"
+   --timeout=30000 --reporter=line`. A test that has never passed alone does
+   not get committed or included in a suite run.
+2. **Caps are mandatory on every agent-driven run**: `--timeout=30000`
+   (per-test) and `--global-timeout=600000` (whole run). A run without a
+   global timeout is a violation — nothing may be able to sit forever.
+3. **Check dev health BEFORE starting**: `curl -s http://127.0.0.1:7686/api/health`.
+   Half of all "hangs" are a down or mid-restart dev daemon; Playwright will
+   happily wait on a dead server.
+4. **Lanes run only their own specs.** Worker lanes run the file(s) they
+   touched with `-g` filters; `golden`/`full` suite runs are integration/QA
+   gate work, serialized like every broad gate.
+5. **A hang is information, not bad luck.** When the cap fires: run the single
+   test with `--trace on`, read the trace (it names the awaited selector), fix
+   the selector/await — do not re-run the batch blind, and never raise the cap
+   to "give it time".
+
 **Cargo tests on Windows — never lose 10 min to a hang:**
 - From PowerShell, run repo commands through `.\build.ps1 ...`; it selects Git
   Bash directly. Do not call plain `bash` from PowerShell because that can hit
