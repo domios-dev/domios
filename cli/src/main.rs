@@ -230,6 +230,16 @@ fn main() {
         e.exit()
     });
 
+    if let Commands::Plan {
+        action: PlanAction::Delete { plan_id, yes },
+    } = &cli.command
+    {
+        if let Err(e) = cmd::plan::validate_plan_delete_confirmation(plan_id, *yes) {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    }
+
     // `plugin` is filesystem-local (no daemon) — handle before socket/mesh.
     if matches!(cli.command, Commands::Plugin { .. }) {
         match cli.command {
