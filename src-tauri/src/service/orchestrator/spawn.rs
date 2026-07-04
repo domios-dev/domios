@@ -1,5 +1,6 @@
 use super::launch::{
-    build_agent_command, launch_agent_in_background, role_onboarding_task, skip_local_worker_role,
+    build_agent_command, launch_agent_in_background, planner_profile_task, role_onboarding_task,
+    skip_local_worker_role,
 };
 use super::types::{SpawnAgentParams, SpawnResult};
 use crate::service::{spawn_title, ServiceContext};
@@ -395,7 +396,7 @@ impl ServiceContext {
                         plan_id,
                         orch_pane.as_deref(),
                     );
-                    bg_task.map(|t| format!("{intro}\n\n{t}"))
+                    Some(planner_profile_task(intro, bg_task))
                 }
                 None => bg_task,
             }

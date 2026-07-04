@@ -1,4 +1,5 @@
 use super::*;
+use crate::service::orchestrator::launch::planner_profile_task;
 use crate::shell::ShellSyntax;
 
 #[test]
@@ -58,6 +59,18 @@ fn planner_profile_uses_planner_suffix() {
     assert!(task.contains(crate::prompts::PLAN_SKILLS_PRINCIPLES));
     assert!(!task.contains("{planner_testing_methodology}"));
     assert!(!task.contains(crate::prompts::WORKER_SUFFIX));
+}
+
+#[test]
+fn planner_profile_task_keeps_intro_when_no_user_task_exists() {
+    let task = planner_profile_task("planner intro".into(), None);
+    assert_eq!(task, "planner intro");
+}
+
+#[test]
+fn planner_profile_task_prepends_intro_to_user_task() {
+    let task = planner_profile_task("planner intro".into(), Some("draft structure".into()));
+    assert_eq!(task, "planner intro\n\ndraft structure");
 }
 
 #[test]
