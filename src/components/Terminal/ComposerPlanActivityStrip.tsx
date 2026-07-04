@@ -14,6 +14,9 @@ function activityLabel(activity: PaneComposerActivity): { prefix: string; primar
   if (activity.kind === "orchestrating") {
     return { prefix: "Orchestrating:", primary: activity.planTitle };
   }
+  if (activity.kind === "planning") {
+    return { prefix: "Planning:", primary: activity.planTitle };
+  }
   return {
     prefix: "Working on:",
     primary: activity.taskTitle,
@@ -25,9 +28,9 @@ export function ComposerPlanActivityStrip({ activity, onOpen, taskStatus, stale 
   const { prefix, primary, secondary } = activityLabel(activity);
   const extraPlans = activity.kind === "orchestrating" ? activity.extraPlans : 0;
   const statusColor = taskStatus ? TASK_STATUS_COLORS[taskStatus] : null;
-  const title = activity.kind === "orchestrating"
-    ? `${prefix} ${primary}${extraPlans > 0 ? ` (+${extraPlans} more plan${extraPlans === 1 ? "" : "s"})` : ""}\nOpen plan on canvas`
-    : `${prefix} ${primary}${secondary ? ` · ${secondary}` : ""}${taskStatus ? ` · ${taskStatus.replace(/_/g, " ")}` : ""}\nOpen task on canvas`;
+  const title = activity.kind === "working"
+    ? `${prefix} ${primary}${secondary ? ` · ${secondary}` : ""}${taskStatus ? ` · ${taskStatus.replace(/_/g, " ")}` : ""}\nOpen task on canvas`
+    : `${prefix} ${primary}${extraPlans > 0 ? ` (+${extraPlans} more plan${extraPlans === 1 ? "" : "s"})` : ""}\nOpen plan on canvas`;
 
   return (
     <button

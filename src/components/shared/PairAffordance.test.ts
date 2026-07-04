@@ -24,15 +24,27 @@ assert(source.includes('data-pair-role="planner"'), "PairAffordance labels plann
 assert(source.includes("pair-affordance--${layout}"), "layout-specific class");
 assert(source.includes('data-pair-affordance-layout={layout}'), "layout data attribute");
 
-assert(sidebar.includes('data-testid="sidebar-peer-pair"'), "Sidebar renders orchestration group");
 assert(sidebar.includes("resolvePlanPeerPair"), "Sidebar derives pair from plan refs");
 assert(sidebarWorkspace.includes("peerExclude"), "Sidebar excludes planner from worker subtree");
+// The sidebar no longer renders the pair via PairAffordance's same-level rail —
+// it uses the Managers/Workers section taxonomy instead (round-21).
+assert(
+  sidebarWorkspace.includes("OrchestrationGroupSection") &&
+    sidebarWorkspace.includes('section="manager"') &&
+    sidebarWorkspace.includes('section="worker"'),
+  "Sidebar renders the orchestration group as Managers/Workers sections",
+);
+assert(
+  !sidebar.includes("<PairAffordance") && !sidebarWorkspace.includes("<PairAffordance"),
+  "Sidebar stopped rendering the same-level PairAffordance pair",
+);
 
 assert(header.includes("<PairAffordance"), "PlanContextHeader uses PairAffordance");
 assert(header.includes('data-testid="plan-peer-pair"'), "plan header orchestration marker");
 
 assert(hierarchy.includes("excludePaneIds"), "Hierarchy subtree can exclude attached Planner");
 
-assert(css.includes(".pair-affordance-rail"), "pair affordance rail styles");
+assert(!css.includes(".pair-affordance-rail"), "dead sidebar rail styles removed");
+assert(!source.includes('layout === "sidebar"'), "PairAffordance sidebar layout removed");
 
-console.log("✓ PairAffordance: shared component wired to sidebar + plan header");
+console.log("✓ PairAffordance: chips/card only; sidebar uses Managers/Workers sections");

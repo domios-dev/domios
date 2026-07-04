@@ -20,8 +20,9 @@ assert(
   "TabItem should use the shared sidebar model badge",
 );
 assert(
-  source.includes('import { RoleIcon } from "./HierarchyTree";'),
-  "TabItem should use the shared role icon for real orchestrator/worker roles",
+  source.includes('import { RoleBadge } from "./RoleBadge";') &&
+    source.includes('import { roleBadgeLabel } from "./orchestrationSections";'),
+  "TabItem should use the role badge + shared role→section mapping (star deleted)",
 );
 assert(
   source.includes("const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;"),
@@ -48,12 +49,19 @@ assert(
   "TabItem should hide description subtitles when plan activity is shown elsewhere",
 );
 assert(
-  source.includes('data-testid="tab-role-indicator"') && source.includes("data-tab-role={pane.role}"),
-  "TabItem should expose a role marker tied to explicit pane.role",
+  source.includes("const roleBadge = roleBadgeLabel(pane);") &&
+    source.includes("<RoleBadge label={roleBadge}"),
+  "TabItem should show a role badge (ORCHESTRATOR/PLANNER) in the model-chip slot",
 );
 assert(
-  source.includes("pane?.role && !editing") && !source.includes("pane?.role && !activity"),
-  "TabItem role marker must not hide when plan activity exists",
+  !source.includes("RoleIcon") &&
+    !source.includes('tab-role-indicator') &&
+    !source.includes("★"),
+  "TabItem must not render the deleted role star / icon",
+);
+assert(
+  source.includes("roleBadge ? (") && source.includes("tabModelBadge && !touchMode ?"),
+  "Role badge replaces the model chip only for leadership; workers keep the model chip",
 );
 
 assert(
