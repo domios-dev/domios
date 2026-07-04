@@ -1043,9 +1043,8 @@ button,
   white-space: nowrap;
   transition: opacity 150ms ease;
 }
-.sidebar-leadership-badge .sidebar-tab-badge,
+.sidebar-leadership-badge .sidebar-role-badge,
 .sidebar-leadership-badge .sidebar-leadership-model {
-  display: inline-block;
   max-width: none;
   overflow: visible;
   text-overflow: clip;
@@ -1300,32 +1299,33 @@ button,
 }
 
 /* Orchestration group containment (SidebarWorkspaceTabs.tsx). One block per
-   orchestrator: a 2px left rule in the OWNER's presence color at ~35% alpha
-   runs the full height of the children — the eye follows it up to the owner.
-   Children indent inside the rule; section headers sit at child level. */
+   orchestrator: a 1px hairline in the OWNER's presence color (30% alpha) runs
+   the full group height — the eye follows it up to the owner. It brightens on
+   group-head hover. Rhythm: 10px indent, 10px child inset, 8px inter-group gap. */
 .sidebar-orchestration-group {
   margin-bottom: 8px; /* inter-group gap so two groups never read as one */
 }
 
 .sidebar-group-container {
   position: relative;
-  margin-left: 10px; /* line sits just under the head glyph */
-  border-left: 2px solid
-    color-mix(in srgb, var(--ct-group-presence, var(--ct-accent)) 35%, transparent);
+  margin-left: 10px; /* hairline sits just under the head glyph */
+  border-left: 1px solid
+    color-mix(in srgb, var(--ct-group-presence, var(--ct-accent)) 30%, transparent);
+  transition: border-color 150ms ease;
 }
 
-/* Normalize the child inset so managers (full tab rows) and workers (hierarchy
-   rows) align at one 14px indent inside the line, not each row's own padding. */
-.sidebar-group-container .sidebar-tab {
-  padding-left: 14px;
+/* Head hover brightens the whole group's hairline — the head is the group's
+   first child, the container its next sibling. */
+.sidebar-orchestration-group > *:first-child:hover ~ .sidebar-group-container {
+  border-left-color: color-mix(in srgb, var(--ct-group-presence, var(--ct-accent)) 48%, transparent);
 }
-.sidebar-group-container .sidebar-hierarchy-row {
-  padding-left: 14px;
-}
-/* Section headers ride at child level — bands inside the block, not the
-   full-width flat rules that read as global dividers. */
+
+/* One 10px inset inside the hairline — managers (tab rows), workers (hierarchy
+   rows) and section headers all align at child level, not each row's padding. */
+.sidebar-group-container .sidebar-tab,
+.sidebar-group-container .sidebar-hierarchy-row,
 .sidebar-group-container [data-group-section] {
-  padding-left: 14px;
+  padding-left: 10px;
 }
 
 /* Collapse chevron on the group head — tucks into the row's left padding so it

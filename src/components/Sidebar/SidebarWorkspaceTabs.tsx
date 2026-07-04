@@ -24,7 +24,11 @@ import {
 } from "./SidebarPlanPeerPair";
 import { OrchestrationGroupSection } from "./OrchestrationGroupSection";
 import { collectOrchestrationGroupMembers } from "./orchestrationGroupClose";
-import { countBySection, summarizeGroupCounts } from "./orchestrationSections";
+import {
+  countBySection,
+  shouldShowSectionHeader,
+  summarizeGroupCounts,
+} from "./orchestrationSections";
 import { TabItem } from "./TabItem";
 import { aggregateTabStatus } from "./sidebarTabStatus";
 import { isWorkspaceTabActive } from "./sidebarSelection";
@@ -182,7 +186,14 @@ export function SidebarWorkspaceTabs({
               className="sidebar-group-container"
               style={{ ["--ct-group-presence" as string]: presenceColor(firstPane.id) }}
             >
-              <OrchestrationGroupSection section="manager" count={plannerTab ? 1 : 0}>
+              <OrchestrationGroupSection
+                section="manager"
+                count={plannerTab ? 1 : 0}
+                showHeader={shouldShowSectionHeader("manager", {
+                  managers: plannerTab ? 1 : 0,
+                  workers: workerNodes.length,
+                })}
+              >
                 {plannerTab && (
                   <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
                     <SidebarSingleTabRow
@@ -202,7 +213,14 @@ export function SidebarWorkspaceTabs({
                   </SortableContext>
                 )}
               </OrchestrationGroupSection>
-              <OrchestrationGroupSection section="worker" count={workerNodes.length}>
+              <OrchestrationGroupSection
+                section="worker"
+                count={workerNodes.length}
+                showHeader={shouldShowSectionHeader("worker", {
+                  managers: plannerTab ? 1 : 0,
+                  workers: workerNodes.length,
+                })}
+              >
                 <HierarchyTree
                   nodes={workerNodes}
                   depth={depth + 1}

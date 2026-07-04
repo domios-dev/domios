@@ -99,6 +99,20 @@ export function summarizeGroupClose(counts: GroupSectionCounts): string {
   return parts.join(", ");
 }
 
+/** A section header earns its row ONLY when it disambiguates: either both
+ *  sections are present (so the reader needs to tell them apart) or this section
+ *  has more than one member (so the label groups a set). The common one-planner
+ *  group therefore drops the MANAGERS row entirely — the containment line and
+ *  the single indented row already say everything. */
+export function shouldShowSectionHeader(
+  section: OrchestrationSection,
+  counts: GroupSectionCounts,
+): boolean {
+  const bothPresent = counts.managers > 0 && counts.workers > 0;
+  const self = section === "manager" ? counts.managers : counts.workers;
+  return bothPresent || self > 1;
+}
+
 /** Collapsed group-head summary: "1 manager · 2 workers". Same count source as
  *  the close dialog, mid-dot separated so it reads as one compact glance on the
  *  orchestrator row rather than a sentence. Never renders a zero section. */

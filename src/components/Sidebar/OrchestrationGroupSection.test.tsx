@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { OrchestrationGroupSection } from "./OrchestrationGroupSection";
 import { RoleBadge } from "./RoleBadge";
-import { roleBadgeLabel } from "./orchestrationSections";
+import { roleBadgeLabel, shouldShowSectionHeader } from "./orchestrationSections";
 import type { Pane } from "../../lib/types";
 
 type TestFn = () => void | Promise<void>;
@@ -51,13 +51,18 @@ function Group({ panes }: { panes: Pane[] }) {
   const managers = children.filter((p) => roleBadgeLabel(p) != null);
   const workers = children.filter((p) => roleBadgeLabel(p) == null);
   const orchBadge = roleBadgeLabel(orch);
+  const counts = { managers: managers.length, workers: workers.length };
   return (
     <div>
       <div data-testid="group-head">
         {orch.title}
         {orchBadge && <RoleBadge label={orchBadge} title="opus" />}
       </div>
-      <OrchestrationGroupSection section="manager" count={managers.length}>
+      <OrchestrationGroupSection
+        section="manager"
+        count={managers.length}
+        showHeader={shouldShowSectionHeader("manager", counts)}
+      >
         {managers.map((m) => (
           <div key={m.id} data-row={m.id}>
             {m.title}
@@ -65,7 +70,11 @@ function Group({ panes }: { panes: Pane[] }) {
           </div>
         ))}
       </OrchestrationGroupSection>
-      <OrchestrationGroupSection section="worker" count={workers.length}>
+      <OrchestrationGroupSection
+        section="worker"
+        count={workers.length}
+        showHeader={shouldShowSectionHeader("worker", counts)}
+      >
         {workers.map((w) => (
           <div key={w.id} data-row={w.id}>
             {w.title}
@@ -109,21 +118,23 @@ test("seeded group (orch + planner + 2 workers) renders both section headers, pl
   await act(async () => root.unmount());
 });
 
-test("group with no workers renders NO Workers header", async () => {
+test("one-planner group drops the MANAGERS header (single section, one member) but keeps the row", async () => {
   const { host, root } = await render(
     <Group
       panes={[
         pane({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
-        pane({ id: "planner", title: "Planner", role: "Worker", role_profile: "planner" }),
+        pane({ id: "planner", title: "Kepler", role: "Worker", role_profile: "planner" }),
       ]}
     />,
   );
-  assert(host.querySelector('[data-testid="group-section-managers"]'), "Managers header present");
+  assert(!host.querySelector('[data-testid="group-section-managers"]'), "no MANAGERS header for a lone planner");
   assert(!host.querySelector('[data-testid="group-section-workers"]'), "no Workers header when no workers");
+  // The planner row itself still renders, bare, inside the manager wrap.
+  assert(host.querySelector('[data-group-section-wrap="manager"] [data-row="planner"]'), "planner row still present");
   await act(async () => root.unmount());
 });
 
-test("solo orchestrator (planner waived) renders NO Managers header", async () => {
+test("lone worker (no planner) drops the WORKERS header but keeps the row", async () => {
   const { host, root } = await render(
     <Group
       panes={[
@@ -133,8 +144,38 @@ test("solo orchestrator (planner waived) renders NO Managers header", async () =
     />,
   );
   assert(!host.querySelector('[data-testid="group-section-managers"]'), "no Managers header when no managers");
-  assert(host.querySelector('[data-testid="group-section-workers"]'), "Workers header present");
+  assert(!host.querySelector('[data-testid="group-section-workers"]'), "no WORKERS header for a lone worker");
+  assert(host.querySelector('[data-group-section-wrap="worker"] [data-row="w1"]'), "worker row still present");
   await act(async () => root.unmount());
+});
+
+test("headers RETURN when a section disambiguates: >1 worker, or both sections present", async () => {
+  // Two workers, no planner → WORKERS header returns (groups a set), still no Managers.
+  const many = await render(
+    <Group
+      panes={[
+        pane({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
+        pane({ id: "w1", title: "Worker A", role: "Worker" }),
+        pane({ id: "w2", title: "Worker B", role: "Worker" }),
+      ]}
+    />,
+  );
+  assert(many.host.querySelector('[data-testid="group-section-workers"]'), "WORKERS header returns for >1 worker");
+  assert(!many.host.querySelector('[data-testid="group-section-managers"]'), "still no Managers header");
+  await act(async () => many.root.unmount());
+  // Planner + one worker → both sections present → both headers show.
+  const both = await render(
+    <Group
+      panes={[
+        pane({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
+        pane({ id: "planner", title: "Kepler", role: "Worker", role_profile: "planner" }),
+        pane({ id: "w1", title: "Worker A", role: "Worker" }),
+      ]}
+    />,
+  );
+  assert(both.host.querySelector('[data-testid="group-section-managers"]'), "MANAGERS header shows when both present");
+  assert(both.host.querySelector('[data-testid="group-section-workers"]'), "WORKERS header shows when both present");
+  await act(async () => both.root.unmount());
 });
 
 async function main() {

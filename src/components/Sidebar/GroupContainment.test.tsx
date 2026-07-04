@@ -9,7 +9,12 @@ import { act, useState, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { OrchestrationGroupSection } from "./OrchestrationGroupSection";
-import { countBySection, summarizeGroupCounts } from "./orchestrationSections";
+import {
+  countBySection,
+  shouldShowSectionHeader,
+  summarizeGroupCounts,
+} from "./orchestrationSections";
+import { RoleModelBadge } from "./RoleModelBadge";
 import { presenceColor } from "../Canvas/presence/identity";
 
 type TestFn = () => void | Promise<void>;
@@ -49,7 +54,8 @@ function GroupBlock({ orchId, members }: { orchId: string; members: Member[] }) 
   const [collapsed, setCollapsed] = useState(false);
   const managers = members.filter((m) => m.roleProfile === "planner");
   const workers = members.filter((m) => m.roleProfile !== "planner");
-  const summary = summarizeGroupCounts(countBySection(members));
+  const counts = countBySection(members);
+  const summary = summarizeGroupCounts(counts);
   return (
     <div className="sidebar-orchestration-group" data-orchestration-group={orchId}>
       <div data-testid="group-head" data-orch={orchId}>
@@ -70,14 +76,25 @@ function GroupBlock({ orchId, members }: { orchId: string; members: Member[] }) 
           className="sidebar-group-container"
           style={{ ["--ct-group-presence" as string]: presenceColor(orchId) }}
         >
-          <OrchestrationGroupSection section="manager" count={managers.length}>
+          <OrchestrationGroupSection
+            section="manager"
+            count={managers.length}
+            showHeader={shouldShowSectionHeader("manager", counts)}
+          >
             {managers.map((m) => (
-              <div key={m.id} data-row={m.id}>{m.id}</div>
+              <div key={m.id} data-row={m.id} className="sidebar-tab">
+                {m.id}
+                <RoleModelBadge role="PLANNER" model="fable" uiFontScale={1} />
+              </div>
             ))}
           </OrchestrationGroupSection>
-          <OrchestrationGroupSection section="worker" count={workers.length}>
+          <OrchestrationGroupSection
+            section="worker"
+            count={workers.length}
+            showHeader={shouldShowSectionHeader("worker", counts)}
+          >
             {workers.map((w) => (
-              <div key={w.id} data-row={w.id}>{w.id}</div>
+              <div key={w.id} data-row={w.id} className="sidebar-tab">{w.id}</div>
             ))}
           </OrchestrationGroupSection>
         </div>
@@ -138,6 +155,33 @@ test("collapse hides children + headers and shows the count; expand restores", a
   await act(async () => { toggle.click(); });
   assert(host.querySelector('[data-testid="group-container"]'), "expanded again: container back");
   assert(host.querySelector('[data-row="bohr"]'), "expanded again: worker row back");
+  await act(async () => root.unmount());
+});
+
+test("one-planner group = exactly 3 visual elements: head, hairline, planner row — no header, no box, no dot", async () => {
+  const { host, root } = await render(
+    <GroupBlock orchId="planck" members={[{ id: "kepler", roleProfile: "planner" }]} />,
+  );
+  const group = host.querySelector('[data-orchestration-group="planck"]')!;
+  // (1) group head, (2) containment hairline (the container), (3) planner row.
+  assert(group.querySelector('[data-testid="group-head"]'), "element 1: group head");
+  const container = group.querySelector('[data-testid="group-container"]')!;
+  assert(container, "element 2: containment hairline (container)");
+  const rows = container.querySelectorAll("[data-row]");
+  assert(rows.length === 1, `element 3: exactly one planner row (got ${rows.length})`);
+  // NO section-header row.
+  assert(!group.querySelector('[data-testid="group-section-managers"]'), "no MANAGERS header");
+  assert(!group.querySelector('[data-testid="group-section-workers"]'), "no WORKERS header");
+  // NO boxed role badge — nothing in the group carries border/bg/rounded chrome.
+  const boxed = Array.from(group.querySelectorAll("*")).find((el) => {
+    const c = (el as HTMLElement).className;
+    return typeof c === "string" && (/\bborder\b|\bborder-/.test(c) || /\bbg-/.test(c) || /\brounded\b|\brounded-/.test(c));
+  });
+  assert(!boxed, `no boxed chrome in the group (found "${boxed ? (boxed as HTMLElement).className : ""}")`);
+  // NO activity dot.
+  assert(!group.querySelector('[data-testid="tab-activity"]'), "no activity dot");
+  // The role badge is present but borderless.
+  assert(group.querySelector('[data-testid="role-badge-planner"]'), "planner role text present (borderless)");
   await act(async () => root.unmount());
 });
 
