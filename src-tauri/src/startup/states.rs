@@ -154,8 +154,7 @@ pub(crate) fn init_states() -> AppStates {
     // Post-restore integrity: drop ephemeral panes (picker tabs, etc.) that
     // leaked into the session snapshot before skip_snapshot was enforced.
     // Runs after attach_closed_store so dropped tabs appear in Recently Closed.
-    let ghost_count =
-        service::general_agent::purge_snapshot_ghosts(&mut mux_state_inner);
+    let ghost_count = service::general_agent::purge_snapshot_ghosts(&mut mux_state_inner);
     if ghost_count > 0 {
         log::info!(
             "[restore] purged {} ephemeral ghost tab(s) from restored session snapshot",

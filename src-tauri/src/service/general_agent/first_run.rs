@@ -216,9 +216,7 @@ mod tests {
         assert_eq!(mux.get_workspace(&ws_id).unwrap().tabs.len(), 0);
         // Pane removed from map.
         assert!(!mux.list_workspaces()[0].pane_ids.iter().any(|pid| {
-            mux.get_pane(pid)
-                .and_then(|p| p.description.as_deref())
-                == Some(FIRST_RUN_PANE_MARKER)
+            mux.get_pane(pid).and_then(|p| p.description.as_deref()) == Some(FIRST_RUN_PANE_MARKER)
         }));
         // Appears in Recently Closed.
         assert!(
@@ -237,6 +235,9 @@ mod tests {
 
         let dropped = purge_snapshot_ghosts(&mut mux);
         assert_eq!(dropped, 0);
-        assert!(mux.get_pane(&pane_id).is_some(), "real pane must survive purge");
+        assert!(
+            mux.get_pane(&pane_id).is_some(),
+            "real pane must survive purge"
+        );
     }
 }

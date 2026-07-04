@@ -1,7 +1,5 @@
 use super::*;
-use crate::session::store::{
-    SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
-};
+use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
 
 fn chatbackend_leaf(pane_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
@@ -521,9 +519,7 @@ fn spawned_by_round_trips_through_snapshot() {
 /// PTY — a meaningless ghost that confuses the user.
 #[test]
 fn ghost_repro_restore_from_old_snapshot_drops_picker_pane() {
-    use crate::service::general_agent::first_run::{
-        purge_snapshot_ghosts, FIRST_RUN_PANE_MARKER,
-    };
+    use crate::service::general_agent::first_run::{purge_snapshot_ghosts, FIRST_RUN_PANE_MARKER};
 
     // Build a snapshot as it would have been saved BEFORE the fix —
     // the picker pane IS present with its marker description.
