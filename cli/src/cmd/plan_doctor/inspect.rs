@@ -349,8 +349,6 @@ fn inspect_structure(path: &Path, plan: &Value) -> Vec<Finding> {
     findings
 }
 
-// Structural milestone gate: a group whose last task closed but that never recorded
-// its one full regression run (or whose record predates the latest close) is flagged.
 fn inspect_group_regression_gates(path: &Path, plan: &Value, tasks: &[Value]) -> Vec<Finding> {
     let mut by_group: HashMap<String, Vec<&Value>> = HashMap::new();
     for task in tasks {

@@ -105,6 +105,9 @@ After approval/execution starts, set heartbeat with:\n\
         "gate_requires_question" => Some(
             "✗ decision gate requires a question.\nfix: codeterm plan decision ask <plan_id> \"<question>\"".into()
         ),
+        "group_not_found" => Some(format!(
+            "✗ no such task group on plan '{plan_id}'.\nfix: declare the group first, then record the run:\n  codeterm plan groups set {plan_id} --groups \"<key:label>\"\n  codeterm plan qa next {plan_id} --group <key> --claim --note \"<scope>\""
+        )),
         "waiting_focus_requires_open_gate" => Some(format!(
             "✗ waiting_focus status requires an open decision gate.\nfix: ask a gate question first, then set the focus:\n  codeterm plan decision ask {plan_id} \"<question>\"\n  codeterm orchestrator heartbeat set --plan {plan_id} --focus waiting_focus"
         )),
