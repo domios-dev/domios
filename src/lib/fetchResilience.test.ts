@@ -29,6 +29,22 @@ test("formatPlanFetchError hides raw transport strings", () => {
   assert(msg.includes("Reconnecting"), "friendly reconnect copy");
 });
 
+test("non-gateway 5xx and 4xx are not transient (surface real error, no silent retry-only)", () => {
+  assert(!isTransientFetchError(new Error("plans list failed: 500 internal")), "500 is a real error");
+  assert(!isTransientFetchError(new Error("plans list failed: 404 not found")), "404 is a real error");
+  assert(!isTransientFetchError(new Error("plans list failed: 401 unauthorized")), "401 is a real error");
+});
+
+test("formatPlanFetchError passes through status-prefixed messages verbatim", () => {
+  assert(formatPlanFetchError(new Error("500 internal error")).includes("500"), "keeps 500 code");
+  const generic = formatPlanFetchError(new Error("boom"));
+  assert(generic.includes("Try again"), "unknown non-transient error gets generic copy");
+});
+
+test("empty/unknown error is treated as transient (reconnect, not hard error)", () => {
+  assert(isTransientFetchError(new Error("")), "empty message reconnects rather than hard-fails");
+});
+
 test("computeBackoffDelay grows with attempt and stays bounded", () => {
   const d1 = computeBackoffDelay(1, 1_000, 15_000);
   const d3 = computeBackoffDelay(3, 1_000, 15_000);

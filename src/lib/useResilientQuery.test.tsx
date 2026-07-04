@@ -148,6 +148,58 @@ test("stale refetch is silent until two consecutive failures and clears on succe
   await act(async () => root.unmount());
 });
 
+test("a success between failures resets the counter (no flap)", async () => {
+  fetchAttempts = 0;
+  shouldFail = false;
+  const holder: { current: UseResilientQueryResult<string[]> | null } = { current: null };
+  const { root } = await renderProbe((state) => {
+    holder.current = state;
+  });
+
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 30));
+  });
+  assert(holder.current?.data.length === 1, "initial data loaded");
+
+  shouldFail = true;
+  await act(async () => {
+    await holder.current!.refetch();
+  });
+  assert(!currentReconnect(holder.current), "one failure stays quiet");
+
+  shouldFail = false;
+  await act(async () => {
+    await holder.current!.refetch();
+  });
+  assert(!currentReconnect(holder.current), "intervening success resets counter");
+
+  shouldFail = true;
+  await act(async () => {
+    await holder.current!.refetch();
+  });
+  assert(!currentReconnect(holder.current), "isolated failure after success stays quiet");
+
+  await act(async () => root.unmount());
+});
+
+test("reconnecting never shows before any data exists", async () => {
+  fetchAttempts = 0;
+  shouldFail = true;
+  const holder: { current: UseResilientQueryResult<string[]> | null } = { current: null };
+  const { root } = await renderProbe((state) => {
+    holder.current = state;
+  });
+
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 30));
+  });
+  assert(holder.current?.data.length === 0, "no data on cold failure");
+  assert(!currentReconnect(holder.current), "cold-start failure surfaces error, not reconnecting");
+  assert(holder.current?.error?.includes("Reconnecting"), "cold failure uses blocking error state");
+
+  await act(async () => root.unmount());
+});
+
 async function main() {
   setupDom();
   let failed = 0;
