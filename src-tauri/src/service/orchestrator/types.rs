@@ -25,6 +25,10 @@ pub struct SpawnResult {
     /// Warning when agent cwd differs from workspace cwd
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    /// Advisory workspace pane-budget nudge (task_4d649dfd), computed via the
+    /// shared `ServiceContext::workspace_pane_budget_notice` helper. Never blocks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget_notice: Option<crate::service::pane_budget::PaneBudgetNotice>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
