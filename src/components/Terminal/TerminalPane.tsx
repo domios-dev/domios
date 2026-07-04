@@ -105,6 +105,7 @@ export const TerminalPane = memo(function TerminalPane({
   // --- Terminal lifecycle ---
   const { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady } = useXterm({
     containerRef, theme, fontConfig, terminalConfig,
+    priority: isVisible || isFocused,
   });
 
   // --- UI state ---
