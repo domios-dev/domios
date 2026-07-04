@@ -61,6 +61,8 @@ mod task_attempt_tests;
 mod tests;
 #[cfg(test)]
 mod timestamp_tests;
+#[cfg(test)]
+mod watch_reconcile_tests;
 
 use crate::plan::{Plan, PlanMode, PlanStatus, Spec, TaskStatus};
 use parking_lot::{Mutex, RwLock};
@@ -786,18 +788,79 @@ impl PlanStore {
     }
 
     pub fn delete(&self, id: &str) -> std::io::Result<()> {
+        let (plan, entry_path) = self.forget_plan(id);
+        if let Some(path) = entry_path {
+            let _ = std::fs::remove_file(&path);
+        }
+        if let Some(plan) = plan {
+            let _ = body_files::remove_body_dir(&plan);
+        }
+        Ok(())
+    }
+
+    /// Drop a plan from the in-memory index + search units without touching disk.
+    fn forget_plan(&self, id: &str) -> (Option<Plan>, Option<PathBuf>) {
         let plan = self
             .plans
             .write()
             .remove(id)
             .map(|plan| plan.lock().clone());
-        if let Some(entry) = self.index.write().remove(id) {
-            let _ = std::fs::remove_file(&entry.file_path);
+        let entry_path = self.index.write().remove(id).map(|e| e.file_path);
+        if let Some(plan) = plan.as_ref() {
+            let _ = search_index::delete_plan_units(plan);
         }
-        if let Some(plan) = plan {
-            let _ = search_index::delete_plan_units(&plan);
-            let _ = body_files::remove_body_dir(&plan);
+        (plan, entry_path)
+    }
+
+    fn find_plan_json_on_disk(&self, project_root: &Path, plan_id: &str) -> Option<PathBuf> {
+        for status in [PlanStatus::Active, PlanStatus::Archived] {
+            let path = paths::plan_json_path_unchecked(project_root, &status, plan_id);
+            if path.is_file() {
+                return Some(path);
+            }
         }
-        Ok(())
+        None
+    }
+
+    /// Reconcile one plan against its on-disk sidecar after an external FS event.
+    /// Loaded=added/updated, Removed=external delete, Unchanged=own write, Absent=nothing.
+    pub fn reconcile_watched_plan(
+        &self,
+        project_root: &Path,
+        plan_id: &str,
+    ) -> Result<WatchOutcome, PlanError> {
+        match self.find_plan_json_on_disk(project_root, plan_id) {
+            Some(path) => {
+                if self.is_own_recent_write(&path) {
+                    return Ok(WatchOutcome::Unchanged);
+                }
+                self.load_file_into_index(path, project_root)?;
+                Ok(WatchOutcome::Loaded)
+            }
+            None => {
+                let known = self.plans.read().contains_key(plan_id)
+                    || self.index.read().contains_key(plan_id);
+                if known {
+                    self.forget_plan(plan_id);
+                    Ok(WatchOutcome::Removed)
+                } else {
+                    Ok(WatchOutcome::Absent)
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WatchOutcome {
+    Loaded,
+    Removed,
+    Unchanged,
+    Absent,
+}
+
+impl WatchOutcome {
+    pub fn should_emit(self) -> bool {
+        matches!(self, WatchOutcome::Loaded | WatchOutcome::Removed)
     }
 }
