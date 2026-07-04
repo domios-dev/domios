@@ -703,7 +703,6 @@ fn orchestrator_handoff_reseed_dry_run_parses() {
 
 #[test]
 fn pane_new_chat_backend_parses() {
-    // P1: `codeterm pane new --chat-backend <id> --config <json>` is the CLI
     // entry point that opens a plugin-driven chat pane.
     let parsed = Cli::try_parse_from([
         "codeterm",

@@ -397,10 +397,6 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             skipped,
             attachments,
         }) => {
-            // Footgun guard: `--pane X` sets the SENDER (you report AS X), NOT the
-            // destination. Reports route to your parent automatically. An agent passing
-            // another pane's id here (the "report TO" misconception) silently mis-routes
-            // to that pane's parent — refuse it. Drivers without an own pane are unaffected.
             if let Some(ref explicit) = pane {
                 if let Ok(own) = std::env::var("CODETERM_PANE_ID") {
                     let differs = !own.is_empty()
@@ -859,7 +855,6 @@ mod tests {
     fn print_report_notices_is_noop_in_json_mode() {
         // json=true should not print anything (we rely on the JSON output channel)
         let val = serde_json::json!({ "ok": true, "notices": ["stale plan"] });
-        // No assertion on output — just ensure it doesn't panic
         print_report_notices(true, &val);
     }
 

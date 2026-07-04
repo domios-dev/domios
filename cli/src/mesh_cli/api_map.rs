@@ -447,9 +447,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 if let Some(pl) = plan {
                     body["plan_id"] = serde_json::json!(pl);
                 }
-                // Remote worker report target on the ORIGIN peer (this machine).
-                // Default to the caller's pane so a spawned worker reports back to
-                // whoever ran the spawn; `--report-to main` targets General.
                 let report_to = report_to.clone().or_else(|| {
                     std::env::var("CODETERM_PANE_ID")
                         .ok()

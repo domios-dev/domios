@@ -32,11 +32,6 @@ fn plans_dir(project_root: &Path) -> PathBuf {
     project_root.join(".codeterm").join("plans")
 }
 
-// Resolve a plan sidecar directory. Precedence: explicit --plan id ->
-// $CODETERM_PLAN_ID -> the single active plan on disk. The env var is only a
-// convenience shortcut, never a hard dependency: worker panes without it still
-// resolve via the on-disk single-active-plan fallback. Ambiguous (0 or >1
-// active plans, no id) is an explicit error asking for --plan.
 pub fn resolve_plan_dir(
     project_root: &Path,
     plan_id: Option<String>,
