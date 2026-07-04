@@ -12,6 +12,7 @@ import { FlyToActiveControl } from "../FlyToActiveControl";
 import { selectActiveWork } from "../planView/activeWork";
 import type { Plan } from "../types";
 import { buildMissionControl } from "./missionControl";
+import { bumpMissionControlChurn } from "./missionControlChurn";
 import { missionControlHealth, modelToSnapshot } from "./modelAdapter";
 import { missionControlInputRevision } from "./missionControlInputRevision";
 import { resolveMissionControlLod, type MissionControlLodLevel } from "./missionControlLod";
@@ -33,6 +34,10 @@ export function MissionControlLiveView({ plan, panes = {}, onTaskClick, onOpenPl
   const shellRef = useRef<HTMLDivElement | null>(null);
   const scaleLabelRef = useRef<HTMLSpanElement | null>(null);
   const lodRef = useRef<MissionControlLodLevel>("close");
+  const planRef = useRef(plan);
+  const panesRef = useRef(panes);
+  planRef.current = plan;
+  panesRef.current = panes;
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [lod, setLod] = useState<MissionControlLodLevel>("close");
   const reducedMotion = useReducedMotion();
@@ -44,27 +49,32 @@ export function MissionControlLiveView({ plan, panes = {}, onTaskClick, onOpenPl
 
   const sectionTitleById = useMemo(() => {
     const m = new Map<string, string>();
-    for (const s of flattenSections(plan.sections)) {
+    for (const s of flattenSections(planRef.current.sections)) {
       const t = s.title?.trim();
       if (t) m.set(s.id, t);
     }
     return m;
-  }, [plan.id, inputRevision]);
+  }, [inputRevision]);
 
-  const model = useMemo(() => buildMissionControl(plan, panes), [inputRevision, plan, panes]);
-  const snapshot: MissionControlSnapshot = useMemo(
-    () =>
-      modelToSnapshot({
-        plan,
-        model,
-        panes,
-        sectionTitleOf: (id) => sectionTitleById.get(id) ?? null,
-      }),
-    [inputRevision, plan, model, panes, sectionTitleById],
-  );
+  const model = useMemo(() => {
+    bumpMissionControlChurn("builds");
+    return buildMissionControl(planRef.current, panesRef.current);
+  }, [inputRevision]);
+  const snapshot: MissionControlSnapshot = useMemo(() => {
+    bumpMissionControlChurn("snapshots");
+    return modelToSnapshot({
+      plan: planRef.current,
+      model,
+      panes: panesRef.current,
+      sectionTitleOf: (id) => sectionTitleById.get(id) ?? null,
+    });
+  }, [inputRevision, model, sectionTitleById]);
   const health = useMemo(() => missionControlHealth(snapshot), [snapshot]);
 
-  const activeWork = useMemo(() => selectActiveWork([plan], panes), [inputRevision, plan, panes]);
+  const activeWork = useMemo(() => {
+    bumpMissionControlChurn("activeWork");
+    return selectActiveWork([planRef.current], panesRef.current);
+  }, [inputRevision]);
 
   const syncLod = useCallback((scale: number) => {
     const next = resolveMissionControlLod(scale);
