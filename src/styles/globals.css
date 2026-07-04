@@ -1330,8 +1330,7 @@ button,
 
 /* Collapse chevron on the group head — right-aligned, last interactive element. */
 .sidebar-group-chevron {
-  width: 16px;
-  height: 16px;
+  color: var(--ct-muted);
 }
 
 /* Sidebar hierarchy — living subagent tree (HierarchyTree.tsx) */
