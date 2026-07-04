@@ -42,6 +42,11 @@ export { highestTitleLevel } from "./tree";
 
 const HYDRATED_GENERATION = 0.5;
 
+/** True when the web boot path paints sync cached mux state before reconcile. */
+export function webBootHasSyncCache(): boolean {
+  return IS_WEB && loadCachedStateSync() !== null;
+}
+
 function buildInitialState(): ExtendedState {
   const empty: ExtendedState = {
     workspaces: [],
@@ -87,7 +92,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   // so one click = exactly one tab (no duplicate on double-fire).
   const spawnInFlight = useRef<Set<string>>(new Set());
   // authoritative reconcile lands; native boots never lock (no cache path).
-  const writeGateRef = useRef<WriteGate>(createWriteGate(false));
+  const writeGateRef = useRef<WriteGate>(createWriteGate(webBootHasSyncCache()));
   const reconciledRef = useRef(false);
 
   const applyBackendState = useCallback((s: MultiplexerState) => {
