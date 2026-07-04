@@ -75,6 +75,10 @@ Spawn workers (2-level hierarchy — Workers report back here):\n\
 impl ServiceContext {
     pub fn deliver_orchestrator_onboarding(&self, pane_id: &str) {
         let body = orchestrator_onboarding_body(pane_id);
+        if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
+            pane.pending_greeting = Some(body.clone());
+        }
+        self.emit_state_changed();
         let envelope = MessageEnvelope::reminder("CodeTerm", "orchestrator-onboard");
         if let Err(e) = Messenger::deliver(self, pane_id, envelope, &body) {
             log::warn!("[orchestrator-onboard] deliver to {pane_id} failed: {e}");
