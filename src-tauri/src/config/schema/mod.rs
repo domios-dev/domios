@@ -381,6 +381,7 @@ pub struct OrchestrationConfig {
     pub nudge_after_turns: u32,
     pub nudge_interval_secs: u64,
     pub idle_poke: IdlePokeConfig,
+    pub reflect: ReflectConfig,
 }
 
 impl Default for OrchestrationConfig {
@@ -390,6 +391,28 @@ impl Default for OrchestrationConfig {
             nudge_after_turns: 12,
             nudge_interval_secs: 1800,
             idle_poke: IdlePokeConfig::default(),
+            reflect: ReflectConfig::default(),
+        }
+    }
+}
+
+fn default_reflect_every_gates() -> u32 {
+    crate::service::plan::reflection::DEFAULT_REFLECT_EVERY_GATES
+}
+
+/// Cadence for the orchestrator reflection loop. Section `[orchestration.reflect]`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ReflectConfig {
+    /// Emit a self-review block every N gate/bounce events. 0 disables the cadence trigger.
+    #[serde(default = "default_reflect_every_gates")]
+    pub every_gates: u32,
+}
+
+impl Default for ReflectConfig {
+    fn default() -> Self {
+        Self {
+            every_gates: default_reflect_every_gates(),
         }
     }
 }
