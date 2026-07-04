@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { X, Pencil, UserMinus, MessageSquare, SquareTerminal, UserCog, ChevronDown, ChevronRight } from "lucide-react";
+import { X, Pencil, UserMinus, MessageSquare, SquareTerminal, UserCog } from "lucide-react";
 import {
   emitPaneUiMode,
   isChatUiSupported,
@@ -217,26 +217,6 @@ function TabItemInner({
       />
       {isActive && <ActiveTabPill />}
       <div className={`flex flex-1 items-center min-w-0 relative z-[1] ${touchMode ? "gap-2.5" : "gap-2"}`}>
-        {collapsible && (
-          <button
-            type="button"
-            data-testid="group-collapse-toggle"
-            data-collapsed={collapsed ? "true" : "false"}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleCollapse?.();
-            }}
-            className="sidebar-group-chevron shrink-0 -ml-2 flex items-center justify-center text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
-            title={collapsed ? "Expand orchestration" : "Collapse orchestration"}
-            aria-expanded={!collapsed}
-          >
-            {collapsed ? (
-              <ChevronRight size={12} strokeWidth={2} />
-            ) : (
-              <ChevronDown size={12} strokeWidth={2} />
-            )}
-          </button>
-        )}
         {provider ? (
           <ProviderGlyph
             iconSvg={provider.iconSvg}
@@ -358,6 +338,34 @@ function TabItemInner({
           />
         )}
       </div>
+      {collapsible && (
+        <button
+          type="button"
+          data-testid="group-collapse-toggle"
+          data-collapsed={collapsed ? "true" : "false"}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleCollapse?.();
+          }}
+          className={`sidebar-group-chevron shrink-0 ${touchMode ? "w-8 h-8" : "w-4 h-4"} flex items-center justify-center text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] transition-colors relative z-[1]`}
+          title={collapsed ? "Expand orchestration" : "Collapse orchestration"}
+          aria-expanded={!collapsed}
+        >
+          <svg
+            width="8"
+            height="8"
+            viewBox="0 0 8 8"
+            fill="currentColor"
+            className="transition-transform duration-[320ms]"
+            style={{
+              transform: collapsed ? "rotate(0deg)" : "rotate(90deg)",
+              transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+            }}
+          >
+            <path d="M2 1l4 3-4 3V1z" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
