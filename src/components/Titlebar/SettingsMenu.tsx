@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowDownToLine, ChevronRight } from "lucide-react";
 import { GearIcon } from "../Icons";
+import { BusySpinner } from "../shared/BusyState";
 import { UI_TRAY_BTN } from "../shared/design";
 import { SETTINGS_SECTIONS, type SectionId } from "../Settings/sections";
 import { useUpdate } from "../../hooks/useUpdate";
@@ -190,17 +191,5 @@ export function SettingsMenu({ onOpenSection }: SettingsMenuProps) {
 }
 
 function Spinner() {
-  return (
-    <svg
-      width="10"
-      height="10"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className="animate-spin"
-    >
-      <path d="M8 2 a6 6 0 0 1 6 6" strokeLinecap="round" />
-    </svg>
-  );
+  return <BusySpinner size={10} />;
 }

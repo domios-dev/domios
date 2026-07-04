@@ -1,4 +1,5 @@
 import { planFetchShowsFullError } from "./planViewFetchGate";
+import { BusyState } from "../../shared/BusyState";
 
 interface PlanFetchErrorStateProps {
   loading?: boolean;
@@ -19,9 +20,9 @@ export function PlanFetchErrorState({
 }: PlanFetchErrorStateProps) {
   if (loading && itemCount === 0) {
     return (
-      <p data-testid={`${testId}-loading`} className={`plan-fetch-state ${className}`.trim()}>
-        Loading plans…
-      </p>
+      <div data-testid={`${testId}-loading`} className={`plan-fetch-state ${className}`.trim()}>
+        <BusyState labelKey="planLoad" inline />
+      </div>
     );
   }
 
@@ -68,12 +69,12 @@ export function PlanFetchReconnectingBanner({
 }) {
   if (!reconnecting || itemCount === 0) return null;
   return (
-    <p
+    <div
       data-testid={testId}
       className={`plan-fetch-reconnecting text-xs ${className}`.trim()}
       style={{ color: "var(--ct-muted-fg)" }}
     >
-      Reconnecting…
-    </p>
+      <BusyState labelKey="planReconnect" inline />
+    </div>
   );
 }
