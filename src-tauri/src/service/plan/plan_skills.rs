@@ -70,18 +70,18 @@ fn read_ledger(plan_dir: &Path) -> Vec<PlanSkillLedgerEntry> {
 
 fn parse_frontmatter(md: &str) -> (Option<String>, Option<String>, Option<String>) {
     let trimmed = md.trim_start();
-    if !trimmed.starts_with("---") {
-        return (None, None, None);
-    }
-    let rest = trimmed
-        .trim_start_matches('-')
-        .trim_start_matches('-')
-        .trim_start();
-    let Some(end) = rest.find("\n---") else {
+    let Some(rest) = trimmed.strip_prefix("---") else {
         return (None, None, None);
     };
-    let fm = &rest[..end];
-    let body = rest[end + 4..].trim_start_matches('-').trim_start();
+    let rest = rest.trim_start_matches(['\r', '\n']);
+    let Some((fm, body)) = rest
+        .split_once("\n---\n")
+        .or_else(|| rest.split_once("\n---\r\n"))
+        .or_else(|| rest.split_once("\r\n---\n"))
+        .or_else(|| rest.split_once("\r\n---\r\n"))
+    else {
+        return (None, None, None);
+    };
     let mut title = None;
     let mut check = None;
     for line in fm.lines() {
