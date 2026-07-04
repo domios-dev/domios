@@ -5,6 +5,7 @@ const TRANSIENT_PATTERNS = [
   /networkerror/i,
   /network request failed/i,
   /the internet connection appears to be offline/i,
+  /\b(?:502|503|504)\b/,
 ];
 
 export function isTransientFetchError(err: unknown): boolean {

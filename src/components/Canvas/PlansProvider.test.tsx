@@ -27,6 +27,8 @@ const API: ApiConfig = {
 
 let indexCalls = 0;
 let fullCalls = 0;
+type ListenHandler = (ev: { payload: unknown }) => void;
+const listenHandlers = new Map<string, Set<ListenHandler>>();
 
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -69,7 +71,19 @@ function setupDom() {
 
 async function installListenMock() {
   const { __setListenForTest } = await import("../../lib/bridge");
-  __setListenForTest(async () => () => {});
+  __setListenForTest(async (event, handler) => {
+    if (!listenHandlers.has(event)) listenHandlers.set(event, new Set());
+    listenHandlers.get(event)!.add(handler as ListenHandler);
+    return () => {
+      listenHandlers.get(event)?.delete(handler as ListenHandler);
+    };
+  });
+}
+
+function emitPlansLoaded() {
+  for (const handler of listenHandlers.get("plans-loaded") ?? []) {
+    handler({ payload: {} });
+  }
 }
 
 function FullProbe() {
@@ -106,6 +120,23 @@ test("N PlanButton consumers trigger exactly ONE index fetch", async () => {
   assert(buttons.length === 5, "five buttons rendered");
   assert(indexCalls === 1, `one index fetch for N consumers (got ${indexCalls})`);
   assert(fullCalls === 0, `no full fetch without an open canvas (got ${fullCalls})`);
+  await act(async () => root.unmount());
+});
+
+test("plans-loaded event refetches the sidebar plan index immediately", async () => {
+  indexCalls = 0;
+  fullCalls = 0;
+  const { root } = await renderTree(
+    <PlansProvider api={API}>
+      <PlanButton paneId="orch-1" panes={{}} />
+    </PlansProvider>,
+  );
+  assert(indexCalls === 1, `one index fetch before event (got ${indexCalls})`);
+  await act(async () => {
+    emitPlansLoaded();
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  assert(indexCalls === 2, `plans-loaded refetches index (got ${indexCalls})`);
   await act(async () => root.unmount());
 });
 

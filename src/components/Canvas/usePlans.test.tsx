@@ -73,6 +73,12 @@ function emitPlanChanged(planId: string) {
   }
 }
 
+function emitPlansLoaded() {
+  for (const handler of listenHandlers.get("plans-loaded") ?? []) {
+    handler({ payload: {} });
+  }
+}
+
 async function renderProbe(
   usePlans: (api: ApiConfig) => UsePlansResult,
   onUpdate: (state: UsePlansResult) => void,
@@ -137,6 +143,25 @@ async function main() {
     assert(fetchCalls > callsAfterLoad, "refetch after plan-changed");
     if (!holder.current) throw new Error("state captured");
     assert(holder.current.plans[0]?.id === FIXTURE_PLAN.id, "plan still present");
+    await act(async () => root.unmount());
+  });
+
+  test("usePlans refetches full plans on plans-loaded", async () => {
+    fetchCalls = 0;
+    const holder: { current: UsePlansResult | null } = { current: null };
+    const { root } = await renderProbe(usePlans, (state) => {
+      holder.current = state;
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    const callsAfterLoad = fetchCalls;
+    await act(async () => {
+      emitPlansLoaded();
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    assert(fetchCalls > callsAfterLoad, "plans-loaded refetches full plans");
+    assert(holder.current?.plans[0]?.id === FIXTURE_PLAN.id, "plan still present");
     await act(async () => root.unmount());
   });
 

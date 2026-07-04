@@ -18,6 +18,7 @@ function assert(condition: unknown, message: string): asserts condition {
 test("isTransientFetchError flags WKWebView load failures", () => {
   assert(isTransientFetchError(new TypeError("Load failed")), "TypeError: Load failed");
   assert(isTransientFetchError(new TypeError("Failed to fetch")), "Failed to fetch");
+  assert(isTransientFetchError(new Error("plans list failed: 503 plans are still loading")), "503 loading is retryable");
   assert(!isTransientFetchError(new DOMException("Aborted", "AbortError")), "AbortError is not transient");
 });
 

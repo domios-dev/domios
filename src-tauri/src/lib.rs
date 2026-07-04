@@ -724,6 +724,7 @@ pub fn run() {
                 loaded_plan_projects: Arc::new(parking_lot::Mutex::new(
                     std::collections::HashSet::new(),
                 )),
+                plan_startup_loaded: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             // Late-bind the ServiceContext into every loaded plugin's sandbox. Weak so VMs never keep the service alive past teardown.
@@ -751,6 +752,7 @@ pub fn run() {
                     log::warn!("[plan] startup scan failed for {}: {}", cwd, e);
                 }
             }
+            service_state.mark_plans_startup_loaded();
 
             {
                 let store = service_state.services_store.clone();
