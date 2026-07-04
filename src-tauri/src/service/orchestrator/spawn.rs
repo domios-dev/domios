@@ -67,6 +67,7 @@ impl ServiceContext {
         params.normalize_role_profile();
         let role = params.role.clone();
         let role_profile = params.role_profile.clone();
+        let plan_id = params.plan_id.clone();
         let agent = params
             .agent
             .clone()
@@ -85,6 +86,7 @@ impl ServiceContext {
             params,
         );
         let handle = self.spawn_pane_with_ready(spec, ready_tx)?;
+        self.bind_planner_spawn(plan_id.as_deref(), role_profile.as_deref(), &handle.pane_id);
         Ok(SpawnResult {
             pane_id: handle.pane_id,
             tab_id: handle.tab_id,
@@ -363,35 +365,7 @@ impl ServiceContext {
         let bg_task = if params.role_profile.as_deref() == Some("planner") {
             match params.plan_id.as_deref() {
                 Some(plan_id) => {
-                    let now_ms = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_millis() as u64)
-                        .unwrap_or(0);
-                    match self.plan_store.set_planner_ref(
-                        plan_id,
-                        Some(crate::plan::PlannerRef::Pane {
-                            pane_id: pane_id.clone(),
-                            session_id: None,
-                            title: None,
-                        }),
-                        now_ms,
-                    ) {
-                        Ok(()) => {
-                            // The on-disk PlanWatcher ignores the store's own writes
-                            // (avoids a self-reload loop) — a direct PlanStore call
-                            // like this is otherwise invisible to the UI until an
-                            // unrelated refetch, so the sidebar's Orchestrator+Planner
-                            // pair grouping never resolves for a fresh spawn.
-                            crate::api::events::emit_everywhere(
-                                &self.app_handle,
-                                "plan-changed",
-                                serde_json::json!({ "plan_id": plan_id }),
-                            );
-                        }
-                        Err(e) => {
-                            log::warn!("[spawn] failed to bind planner ref for plan {plan_id}: {e}")
-                        }
-                    }
+                    self.bind_planner_spawn(Some(plan_id), Some("planner"), &pane_id);
                     let orch_pane = self.plan_store.owner_of(plan_id).and_then(|o| o.pane_id);
                     let intro = crate::service::plan::peer_mandate::planner_peer_intro_line(
                         plan_id,
@@ -451,6 +425,35 @@ impl ServiceContext {
             role_profile: params.role_profile,
             warning,
         })
+    }
+
+    fn bind_planner_spawn(&self, plan_id: Option<&str>, role_profile: Option<&str>, pane_id: &str) {
+        if role_profile != Some("planner") {
+            return;
+        }
+        let Some(plan_id) = plan_id.filter(|id| !id.trim().is_empty()) else {
+            return;
+        };
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        match self.plan_store.set_planner_ref(
+            plan_id,
+            Some(crate::plan::PlannerRef::Pane {
+                pane_id: pane_id.to_string(),
+                session_id: None,
+                title: None,
+            }),
+            now_ms,
+        ) {
+            Ok(()) => crate::api::events::emit_everywhere(
+                &self.app_handle,
+                "plan-changed",
+                serde_json::json!({ "plan_id": plan_id }),
+            ),
+            Err(e) => log::warn!("[spawn] failed to bind planner ref for plan {plan_id}: {e}"),
+        }
     }
 
     /// Origin prefix for a spawned agent's first task, derived from the target pane's recorded spawner (spawned_by/parent) — same canonical attribution as cross-pane sends. None for raw spawns (no spawner).
