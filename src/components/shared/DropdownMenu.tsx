@@ -6,6 +6,12 @@ export interface DropdownMenuItem {
   icon?: ReactNode;
   onClick: () => void;
   danger?: boolean;
+  /** Renders inert (no click, no hover state) with reduced opacity — e.g. a
+   *  group child's close action, replaced by an explanation via `title`. */
+  disabled?: boolean;
+  /** Native tooltip text — mainly meant for the `disabled` explanation. */
+  title?: string;
+  "data-testid"?: string;
 }
 
 interface DropdownMenuProps {
@@ -102,15 +108,21 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
             {items.map((item, i) => (
               <button
                 key={i}
+                data-testid={item["data-testid"]}
+                title={item.title}
+                disabled={item.disabled}
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (item.disabled) return;
                   setOpen(false);
                   item.onClick();
                 }}
                 className={`flex items-center gap-2 w-full px-3 py-1.5 text-[11px] whitespace-nowrap transition-colors rounded-sm mx-0.5 ${
-                  item.danger
-                    ? "text-[var(--ct-muted-fg)] hover:bg-[rgba(239,68,68,0.15)] hover:text-[var(--ct-red)]"
-                    : "text-[var(--ct-fg)] hover:bg-[rgba(255,255,255,0.08)]"
+                  item.disabled
+                    ? "text-[var(--ct-muted-fg)] opacity-50 cursor-not-allowed"
+                    : item.danger
+                      ? "text-[var(--ct-muted-fg)] hover:bg-[rgba(239,68,68,0.15)] hover:text-[var(--ct-red)]"
+                      : "text-[var(--ct-fg)] hover:bg-[rgba(255,255,255,0.08)]"
                 }`}
               >
                 {item.icon && <span className="shrink-0 w-3 h-3 flex items-center justify-center">{item.icon}</span>}

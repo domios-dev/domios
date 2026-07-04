@@ -223,6 +223,8 @@ pub async fn resume_session_api(
         task: None,
         workspace_id: Some(ws_id.clone()),
         force_tab: None,
+        existing_tab_id: None,
+        skip_orchestrator_onboarding: None,
         report_target_pane_id: None,
         report_target_mesh_peer: None,
         skip_permissions: Some(true),

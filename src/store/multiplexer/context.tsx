@@ -10,7 +10,7 @@ import type { ExtendedState } from "./tree";
 
 export interface MultiplexerContextType {
   state: ExtendedState;
-  createWorkspace: (name: string, cwd?: string) => void;
+  createWorkspace: (name: string, cwd?: string) => Promise<{ id: string; name: string } | undefined>;
   setActiveWorkspace: (id: string) => void;
   closeWorkspace: (id: string) => void;
   renameWorkspace: (id: string, name: string) => void;

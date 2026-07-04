@@ -37,6 +37,8 @@ import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { deriveWorkspacePlanEntries, openWorkspacePlanForEntries } from "../Canvas/workspacePlanEntry";
 import { matchesBinding } from "../../lib/keybindings";
 import { SidebarCollapsedActiveTab, SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
+import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
+import { collectOrchestrationGroupMembers, type OrchestrationGroupMember } from "./orchestrationGroupClose";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -353,10 +355,21 @@ export function Sidebar({
     const timer = setTimeout(() => setAppearingTabs(new Set()), 250);
     return () => clearTimeout(timer);
   }, [appearingTabs]);
-  const animatedCloseTab = useCallback((wsId: string, tabId: string) => {
+  const [pendingGroupClose, setPendingGroupClose] = useState<{
+    wsId: string;
+    tabId: string;
+    orchestratorTitle: string;
+    members: OrchestrationGroupMember[];
+  } | null>(null);
+
+  const performCloseTab = useCallback((wsId: string, tabId: string) => {
     const ws = state.workspaces.find((w) => w.id === wsId);
     const tab = ws?.tabs.find((t) => t.id === tabId);
     if (tab) {
+      // A single mux_close_pane on the Orchestrator's own pane cascade-closes
+      // every child (Planner + Workers) server-side — see
+      // `close_pane` doc comment. Children-first/head-last is that cascade's
+      // own guarantee; there is nothing extra to sequence from here.
       invoke("mux_close_pane", { paneId: tab.pane_id }).catch(() => {});
     }
     setClosingTabs((prev) => {
@@ -373,6 +386,22 @@ export function Sidebar({
       });
     }, 350);
   }, [closeTab, state.workspaces]);
+
+  const animatedCloseTab = useCallback((wsId: string, tabId: string) => {
+    const ws = state.workspaces.find((w) => w.id === wsId);
+    const tab = ws?.tabs.find((t) => t.id === tabId);
+    const pane = tab ? state.panes[tab.pane_id] : undefined;
+    if (pane?.role === "Orchestrator") {
+      const members = collectOrchestrationGroupMembers(pane.id, state.panes);
+      if (members.length > 0) {
+        // Group closable as a unit (task_e0ddee08 item 2): confirm before
+        // taking out the Orchestrator + every Planner/Worker beneath it.
+        setPendingGroupClose({ wsId, tabId, orchestratorTitle: pane.title, members });
+        return;
+      }
+    }
+    performCloseTab(wsId, tabId);
+  }, [performCloseTab, state.workspaces, state.panes]);
   useEffect(() => {
     const kb = config?.keybindings ?? {};
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -536,7 +565,7 @@ export function Sidebar({
                 );
 
                 return (
-                  <div key={ws.id}>
+                  <div key={ws.id} data-testid="workspace-group" data-workspace-id={ws.id}>
                     <SortableRow
                       id={`${WS_PREFIX}${ws.id}`}
                       disabled={ws.protected}
@@ -820,6 +849,18 @@ export function Sidebar({
           providers={visibleProviders}
           onCancel={() => setOrchestrationModal(null)}
           onConfirm={handleOrchestrationConfirm}
+        />
+      )}
+
+      {pendingGroupClose && (
+        <GroupCloseConfirmDialog
+          orchestratorTitle={pendingGroupClose.orchestratorTitle}
+          members={pendingGroupClose.members}
+          onCancel={() => setPendingGroupClose(null)}
+          onConfirm={() => {
+            performCloseTab(pendingGroupClose.wsId, pendingGroupClose.tabId);
+            setPendingGroupClose(null);
+          }}
         />
       )}
     </>

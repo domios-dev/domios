@@ -81,7 +81,7 @@ function TabItemInner({
   const description = pane?.description ?? tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab, pane);
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
-  const isSubPane = Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0;
+  const isSubPane = pane?.role !== "Orchestrator" && (Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(canonicalTitle);
   // Mirror TerminalPane's mode resolution: no client override falls back to
@@ -158,15 +158,29 @@ function TabItemInner({
       });
     }
     if (canClose && !pane?.protected) {
-      items.push({
-        label: hasAgent ? "Close Session" : "Close Tab",
-        icon: <X size={11} strokeWidth={2} />,
-        onClick: onClose,
-        danger: true,
-      });
+      // A pane with a parent is a Worker (planner or otherwise) inside an
+      // orchestration group — it closes only as part of the group, from the
+      // Orchestrator head, never individually (task_e0ddee08 item 2).
+      if (isSubPane) {
+        items.push({
+          label: "Close",
+          icon: <X size={11} strokeWidth={2} />,
+          onClick: () => {},
+          disabled: true,
+          title: "Part of the orchestration — close the group",
+        });
+      } else {
+        items.push({
+          label: hasAgent ? "Close Session" : "Close Tab",
+          icon: <X size={11} strokeWidth={2} />,
+          onClick: onClose,
+          danger: true,
+          "data-testid": "tab-menu-close",
+        });
+      }
     }
     return items;
-  }, [canonicalTitle, pane, chatView, canClose, hasAgent, onClose]);
+  }, [canonicalTitle, pane, chatView, canClose, hasAgent, onClose, isSubPane]);
 
   // Build animation CSS class
   const animClass = isClosing

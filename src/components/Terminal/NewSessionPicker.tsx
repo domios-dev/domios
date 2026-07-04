@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AppConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer } from "../../store/multiplexer";
@@ -10,16 +10,12 @@ import {
   type NewSessionChoice,
   type NewSessionMode,
 } from "../../lib/newSessionChoice";
+import { buildDestinationPreview, MODE_HELP_TEXT, WORKSPACE_HELP_TEXT } from "../../lib/newSessionPickerContent";
 import { clearSessionPickerPane } from "../../lib/sessionPickerPanes";
 import { probeProviderInstallMap } from "../../lib/providerInstallStatus";
-import { OrchestrationPairForm } from "../Sidebar/OrchestrationPairForm";
-import { OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
-import { Segmented, type SegmentedOption } from "../shared/Segmented";
-
-const MODE_OPTIONS: SegmentedOption<NewSessionMode>[] = [
-  { value: "single", label: "Single agent" },
-  { value: "pair", label: "Orchestrator + Planner" },
-];
+import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
+import { ModeCards, WorkspaceRow } from "./NewSessionPickerParts";
+import { FloatingTooltip } from "../shared/FloatingTooltip";
 
 export function NewSessionPicker({
   paneId,
@@ -35,7 +31,7 @@ export function NewSessionPicker({
   agentsConfig?: AppConfig["agents"];
 }) {
   const { providers } = useAgentProviders();
-  const { spawnAgentTab, createOrchestrationPair, closeTab, addNotification } = useMultiplexer();
+  const { spawnAgentTab, createOrchestrationPair, closeTab, addNotification, state, createWorkspace } = useMultiplexer();
   const visibleProviders = useMemo(
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
     [providers, agentsConfig],
@@ -53,10 +49,37 @@ export function NewSessionPicker({
     [visibleProviders, installMap],
   );
 
+  // Destination workspace: preselected to the CURRENT one (this tab's own
+  // workspace) but never persisted — reopening the picker always resets here.
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(workspaceId);
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const workspaces = state.workspaces;
+  const selectedWorkspace = useMemo(
+    () => workspaces.find((w) => w.id === selectedWorkspaceId),
+    [workspaces, selectedWorkspaceId],
+  );
+
+  // Providers load async, so the very first render's `choice` is the
+  // placeholder default from before any provider existed. Track whether
+  // we've restored the real persisted choice yet — the persist-effect below
+  // must not write until then, or it clobbers the saved choice with that
+  // placeholder before it's ever read back.
+  const hasRestoredRef = useRef(false);
+
   useEffect(() => {
     if (visibleProviders.length === 0) return;
     setChoice(readPersistedNewSessionChoice(visibleProviders));
+    hasRestoredRef.current = true;
   }, [visibleProviders]);
+
+  // "Your last choice is remembered" (the picker's own copy) means every
+  // edit, not just a completed spawn — persist live so abandoning the picker
+  // mid-edit doesn't silently discard the change.
+  useEffect(() => {
+    if (!hasRestoredRef.current) return;
+    writePersistedNewSessionChoice(choice);
+  }, [choice]);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,12 +91,34 @@ export function NewSessionPicker({
     };
   }, [visibleProviders]);
 
-  const finishSpawn = useCallback(async (runner: () => Promise<void>) => {
+  const handleStartCreateWorkspace = useCallback(() => {
+    setNewWorkspaceName("");
+    setCreatingWorkspace(true);
+  }, []);
+  const handleCancelCreateWorkspace = useCallback(() => setCreatingWorkspace(false), []);
+  const handleConfirmCreateWorkspace = useCallback(async () => {
+    const name = newWorkspaceName.trim();
+    if (!name) return;
+    const info = await createWorkspace(name);
+    setCreatingWorkspace(false);
+    if (info?.id) setSelectedWorkspaceId(info.id);
+  }, [newWorkspaceName, createWorkspace]);
+
+  const finishSpawn = useCallback(async (
+    runner: () => Promise<void>,
+    opts?: { skipClose?: boolean },
+  ) => {
     setBusy(true);
     try {
       await runner();
       clearSessionPickerPane(paneId);
-      await closeTab(workspaceId, tabId);
+      // In-place spawns (orchestration pair, same workspace) claim this exact
+      // tab/pane for the Orchestrator — closing it here would destroy the
+      // agent we just spawned. Cross-workspace spawns still close it, since
+      // the picker's own tab was never touched by the spawn.
+      if (!opts?.skipClose) {
+        await closeTab(workspaceId, tabId);
+      }
     } catch (e) {
       addNotification({
         pane_id: paneId,
@@ -91,17 +136,17 @@ export function NewSessionPicker({
   const runSingleSpawn = useCallback(async (skipPermissions: boolean) => {
     if (choice.mode !== "single") return;
     if (disabledProviderIds.has(choice.providerId)) return;
-    writePersistedNewSessionChoice(choice);
+    const targetCwd = selectedWorkspace?.cwd ?? workspaceCwd ?? undefined;
     await finishSpawn(async () => {
       await spawnAgentTab(
-        workspaceId,
+        selectedWorkspaceId,
         choice.providerId,
         skipPermissions,
-        workspaceCwd ?? undefined,
+        targetCwd ?? undefined,
         choice.modelId,
       );
     });
-  }, [choice, disabledProviderIds, finishSpawn, spawnAgentTab, workspaceCwd, workspaceId]);
+  }, [choice, disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, selectedWorkspaceId, workspaceCwd]);
 
   const runPairSpawn = useCallback(async () => {
     if (choice.mode !== "pair") return;
@@ -111,17 +156,21 @@ export function NewSessionPicker({
     ) {
       return;
     }
-    writePersistedNewSessionChoice(choice);
+    // Only claim the picker's own tab in place when the destination IS this
+    // tab's workspace — a cross-workspace spawn leaves this tab alone to close
+    // normally, since the group is being created somewhere else entirely.
+    const sameWorkspace = selectedWorkspaceId === workspaceId;
     await finishSpawn(async () => {
       await createOrchestrationPair({
         orchestratorAgent: choice.orchestratorProviderId,
         orchestratorModel: choice.orchestratorModelId,
         plannerAgent: choice.plannerProviderId,
         plannerModel: choice.plannerModelId,
-        workspaceId,
+        workspaceId: selectedWorkspaceId,
+        existingTabId: sameWorkspace ? tabId : undefined,
       });
-    });
-  }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, workspaceId]);
+    }, { skipClose: sameWorkspace });
+  }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, tabId, selectedWorkspaceId, workspaceId]);
 
   const handleStart = useCallback(() => {
     if (choice.mode === "pair") {
@@ -149,6 +198,26 @@ export function NewSessionPicker({
     void runSingleSpawn(claudeSkipPerms);
   }, [claudeRememberChoice, claudeSkipPerms, runSingleSpawn]);
 
+  const handleModeSelect = useCallback((mode: NewSessionMode) => {
+    setChoice((prev) => {
+      if (prev.mode === mode) return prev;
+      if (mode === "single") {
+        return {
+          mode: "single",
+          providerId: prev.mode === "pair" ? prev.orchestratorProviderId : prev.providerId,
+          modelId: prev.mode === "pair" ? prev.orchestratorModelId : prev.modelId,
+        };
+      }
+      return {
+        mode: "pair",
+        orchestratorProviderId: prev.mode === "single" ? prev.providerId : prev.orchestratorProviderId,
+        orchestratorModelId: prev.mode === "single" ? prev.modelId : prev.orchestratorModelId,
+        plannerProviderId: prev.mode === "pair" ? prev.plannerProviderId : prev.providerId,
+        plannerModelId: prev.mode === "pair" ? prev.plannerModelId : prev.modelId,
+      };
+    });
+  }, []);
+
   const canStart = choice.mode === "single"
     ? choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId)
     : choice.orchestratorProviderId.length > 0
@@ -156,93 +225,135 @@ export function NewSessionPicker({
       && !disabledProviderIds.has(choice.orchestratorProviderId)
       && !disabledProviderIds.has(choice.plannerProviderId);
 
+  const previewText = useMemo(() => {
+    const destinationName = selectedWorkspace?.name ?? "…";
+    if (choice.mode === "pair") {
+      return buildDestinationPreview({ mode: "pair", workspaceName: destinationName });
+    }
+    const provider = visibleProviders.find((p) => p.id === choice.providerId);
+    const model = provider?.available_models?.find((m) => m.id === choice.modelId);
+    return buildDestinationPreview({
+      mode: "single",
+      workspaceName: destinationName,
+      singleProviderLabel: provider?.display_name,
+      singleModelLabel: model?.display_name,
+    });
+  }, [choice, selectedWorkspace, visibleProviders]);
+
+  const singleProviderId = choice.mode === "single" ? choice.providerId : (visibleProviders[0]?.id ?? "");
+  const orchestratorProviderId = choice.mode === "pair" ? choice.orchestratorProviderId : singleProviderId;
+  const plannerProviderId = choice.mode === "pair" ? choice.plannerProviderId : singleProviderId;
+
   return (
     <div
       data-testid="new-session-picker"
       className="new-session-picker flex h-full w-full items-center justify-center p-6"
       style={{ background: "var(--ct-bg)" }}
     >
-      <div className="new-session-picker-card w-full max-w-lg rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-5 shadow-lg">
-        <div className="mb-4">
+      <div className="new-session-picker-card picker-stagger w-full max-w-lg rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-5 shadow-lg relative overflow-hidden">
+        <span
+          aria-hidden
+          className="picker-ambient-wash"
+          data-mode={choice.mode}
+        />
+        <div className="relative mb-4">
           <div className="text-[15px] font-medium text-[var(--ct-fg)]">Start a session</div>
           <div className="mt-1 text-[12px] text-[var(--ct-muted-fg)]">
             Choose a single agent or an Orchestrator + Planner pair. Your last choice is remembered.
           </div>
         </div>
 
-        <div className="mb-4">
-          <Segmented
-            data-testid="new-session-mode-switch"
-            value={choice.mode}
-            options={MODE_OPTIONS}
-            onChange={(mode) => {
-              setChoice((prev) => {
-                if (prev.mode === mode) return prev;
-                if (mode === "single") {
-                  return {
-                    mode: "single",
-                    providerId: prev.mode === "pair" ? prev.orchestratorProviderId : prev.providerId,
-                    modelId: prev.mode === "pair" ? prev.orchestratorModelId : prev.modelId,
-                  };
-                }
-                return {
-                  mode: "pair",
-                  orchestratorProviderId: prev.mode === "single" ? prev.providerId : prev.orchestratorProviderId,
-                  orchestratorModelId: prev.mode === "single" ? prev.modelId : prev.orchestratorModelId,
-                  plannerProviderId: prev.mode === "pair" ? prev.plannerProviderId : prev.providerId,
-                  plannerModelId: prev.mode === "pair" ? prev.plannerModelId : prev.modelId,
-                };
-              });
-            }}
+        <div className="relative mb-4">
+          <ModeCards
+            mode={choice.mode}
+            singleProviderId={singleProviderId}
+            orchestratorProviderId={orchestratorProviderId}
+            plannerProviderId={plannerProviderId}
+            onSelect={handleModeSelect}
           />
         </div>
 
-        {choice.mode === "single" ? (
-          <OrchestrationRoleRow
-            label="Agent"
-            providers={visibleProviders}
-            providerId={choice.providerId}
-            modelId={choice.modelId ?? ""}
-            disabledProviderIds={disabledProviderIds}
-            onProviderChange={(providerId) => {
-              setChoice({
-                mode: "single",
-                providerId,
-                modelId: visibleProviders.find((p) => p.id === providerId)?.default_model,
-              });
-            }}
-            onModelChange={(modelId) => setChoice({ ...choice, modelId })}
-          />
-        ) : (
-          <OrchestrationPairForm
-            providers={visibleProviders}
-            values={{
-              orchestratorProviderId: choice.orchestratorProviderId,
-              orchestratorModelId: choice.orchestratorModelId ?? "",
-              plannerProviderId: choice.plannerProviderId,
-              plannerModelId: choice.plannerModelId ?? "",
-            }}
-            disabledProviderIds={disabledProviderIds}
-            onChange={(values) => setChoice({
-              mode: "pair",
-              orchestratorProviderId: values.orchestratorProviderId,
-              orchestratorModelId: values.orchestratorModelId || undefined,
-              plannerProviderId: values.plannerProviderId,
-              plannerModelId: values.plannerModelId || undefined,
-            })}
-            layout="card"
-          />
-        )}
+        <div className="relative mb-4 flex items-center gap-1.5">
+          <span className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Mode</span>
+          <FloatingTooltip content={<div>{MODE_HELP_TEXT}</div>} className="picker-help-glyph">
+            <span className="picker-help-glyph-mark">?</span>
+          </FloatingTooltip>
+        </div>
 
-        <div className="mt-5 flex justify-end">
+        <div className="relative mb-4">
+          <WorkspaceRow
+            workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
+            selectedWorkspaceId={selectedWorkspaceId}
+            onSelectWorkspace={setSelectedWorkspaceId}
+            creatingWorkspace={creatingWorkspace}
+            newWorkspaceName={newWorkspaceName}
+            onNewWorkspaceNameChange={setNewWorkspaceName}
+            onStartCreateWorkspace={handleStartCreateWorkspace}
+            onConfirmCreateWorkspace={() => void handleConfirmCreateWorkspace()}
+            onCancelCreateWorkspace={handleCancelCreateWorkspace}
+            helpText={WORKSPACE_HELP_TEXT}
+          />
+        </div>
+
+        <div className="relative">
+          {choice.mode === "single" ? (
+            <OrchestrationRoleRow
+              label="Agent"
+              providers={visibleProviders}
+              providerId={choice.providerId}
+              modelId={choice.modelId ?? ""}
+              disabledProviderIds={disabledProviderIds}
+              onProviderChange={(providerId) => {
+                setChoice({
+                  mode: "single",
+                  providerId,
+                  modelId: visibleProviders.find((p) => p.id === providerId)?.default_model,
+                });
+              }}
+              onModelChange={(modelId) => setChoice({ ...choice, modelId })}
+            />
+          ) : (
+            <OrchestrationPairForm
+              providers={visibleProviders}
+              values={{
+                orchestratorProviderId: choice.orchestratorProviderId,
+                orchestratorModelId: choice.orchestratorModelId ?? "",
+                plannerProviderId: choice.plannerProviderId,
+                plannerModelId: choice.plannerModelId ?? "",
+              }}
+              disabledProviderIds={disabledProviderIds}
+              onChange={(values) => setChoice({
+                mode: "pair",
+                orchestratorProviderId: values.orchestratorProviderId,
+                orchestratorModelId: values.orchestratorModelId || undefined,
+                plannerProviderId: values.plannerProviderId,
+                plannerModelId: values.plannerModelId || undefined,
+              })}
+              layout="card"
+              pairAffordanceTestId="pair-affordance"
+              roleTestIds={{
+                orchestratorProvider: "picker-provider-orchestrator",
+                orchestratorModel: "picker-model-orchestrator",
+                plannerProvider: "picker-provider-planner",
+                plannerModel: "picker-model-planner",
+              }}
+            />
+          )}
+        </div>
+
+        <div className="relative mt-4 text-[11px] text-[var(--ct-muted-fg)]" data-testid="picker-preview">
+          {previewText}
+        </div>
+
+        <div className="relative mt-4 flex justify-end">
           <button
             type="button"
-            data-testid="new-session-start"
+            data-testid="picker-confirm"
             disabled={!canStart || busy}
             onClick={handleStart}
             className="px-4 py-2 text-[12px] font-medium text-white bg-[var(--ct-accent)] rounded-md hover:opacity-90 disabled:opacity-40 transition-opacity"
           >
-            {busy ? "Starting…" : "Start session"}
+            {busy ? "Starting…" : choice.mode === "pair" ? "Start orchestration" : "Start session"}
           </button>
         </div>
       </div>

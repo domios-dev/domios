@@ -80,6 +80,8 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         can_spawn: None,
         workspace_id: None,
         force_tab: None,
+        existing_tab_id: None,
+        skip_orchestrator_onboarding: None,
         report_target_pane_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,

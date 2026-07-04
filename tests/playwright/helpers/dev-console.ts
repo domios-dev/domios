@@ -146,10 +146,19 @@ export interface UiSession {
   page: Page;
 }
 
-// A fresh context has no service-worker controller yet, so the first load can
-// trigger controllerchange -> location.reload() (serviceWorkerRegistration.ts) mid-wait.
+// A fresh context has no service-worker controller yet. serviceWorkerRegistration.ts
+// no longer reloads on that first-ever claim (only on a genuine update of an
+// already-controlled page) — but settle past the claim here anyway so a test's
+// FIRST real interaction never races it, belt-and-suspenders against regressions.
 async function waitForShellOnce(page: Page): Promise<void> {
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+  await page
+    .evaluate(() =>
+      "serviceWorker" in navigator ? navigator.serviceWorker.ready.then(() => undefined) : undefined,
+    )
+    .catch(() => {
+      /* no SW in this context (desktop CDP) or registration still pending — non-fatal */
+    });
   await page.evaluate(() => {
     try {
       localStorage.removeItem("codeterm-chat-ui-default-enabled");

@@ -81,6 +81,59 @@ fn test_create_tab_invalid_workspace() {
 }
 
 #[test]
+fn test_claim_existing_tab_reuses_blank_pane_in_place() {
+    let (mut state, _) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let (tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
+    let tabs_before = state.get_workspace(&ws_id).unwrap().tabs.len();
+
+    let (claimed_tab_id, claimed_pane_id) = state.claim_existing_tab(&ws_id, &tab_id).unwrap();
+    assert_eq!(claimed_tab_id, tab_id, "claim must not mint a new tab id");
+    assert_eq!(
+        claimed_pane_id, pane_id,
+        "claim must not mint a new pane id"
+    );
+    assert_eq!(
+        state.get_workspace(&ws_id).unwrap().tabs.len(),
+        tabs_before,
+        "claim must not create a stray tab"
+    );
+}
+
+#[test]
+fn test_claim_existing_tab_rejects_tab_with_agent_already_attached() {
+    let (mut state, _) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let (tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
+    state.get_pane_mut(&pane_id).unwrap().agent_type = Some("claude".into());
+
+    let result = state.claim_existing_tab(&ws_id, &tab_id);
+    assert!(
+        result.is_err(),
+        "an already-spawned tab must not be claimable"
+    );
+}
+
+#[test]
+fn test_claim_existing_tab_rejects_unknown_tab() {
+    let (mut state, _) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let result = state.claim_existing_tab(&ws_id, "nonexistent-tab");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_claim_existing_tab_rejects_protected_pane() {
+    let (mut state, _) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let (tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
+    state.get_pane_mut(&pane_id).unwrap().protected = true;
+
+    let result = state.claim_existing_tab(&ws_id, &tab_id);
+    assert!(result.is_err(), "a protected pane must not be claimable");
+}
+
+#[test]
 fn test_create_tab_generates_unique_titles() {
     let (mut state, _) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();

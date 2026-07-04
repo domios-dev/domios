@@ -708,6 +708,9 @@ export interface OrchestrationPairInput {
   plannerModel?: string;
   workspaceId?: string;
   title?: string;
+  /** Blank picker tab to claim for the Orchestrator in place (task_e0ddee08) —
+   *  confirming the picker transforms that tab instead of leaving it behind. */
+  existingTabId?: string;
 }
 
 /** Mirrors Rust `OrchestrationPairResult` (task_7e5f9354) — plain snake_case,

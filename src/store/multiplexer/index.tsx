@@ -360,11 +360,13 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const createWorkspace = useCallback(async (name: string, cwd?: string) => {
     try {
       // Reuse existing workspace for the same cwd; avoid duplicate tabs.
-      await guardedInvoke("mux_create_workspace", { name, cwd: cwd ?? null, activate: true });
+      const info = await guardedInvoke<{ id: string; name: string }>("mux_create_workspace", { name, cwd: cwd ?? null, activate: true });
       const s = await invoke<MultiplexerState>("mux_get_state");
       if (s && s.workspaces.length > 0) applyBackendState(s);
+      return info;
     } catch (e) {
       console.error("Failed to create workspace:", e);
+      return undefined;
     }
   }, [guardedInvoke, applyBackendState]);
 
@@ -510,6 +512,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         planner_model: input.plannerModel,
         workspace_id: input.workspaceId,
         title: input.title,
+        existing_tab_id: input.existingTabId,
       };
       const result = IS_WEB
         ? await guardedWebJson<OrchestrationPairResult>("POST", "/api/orchestration/new", body)

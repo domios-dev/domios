@@ -47,6 +47,16 @@ pub struct SpawnAgentParams {
     pub workspace_id: Option<String>,
     /// Force creation as a new tab instead of split pane (even with parent).
     pub force_tab: Option<bool>,
+    /// Claim this existing blank tab instead of creating a new one — used by
+    /// the new-session picker's in-place spawn so confirming transforms the
+    /// picker's own tab rather than leaving it behind as an orphan.
+    pub existing_tab_id: Option<String>,
+    /// Skip the generic orchestrator-promotion onboarding reminder. Set by
+    /// `create_orchestration_pair`, whose own `task` already carries the full
+    /// peer contract — the generic reminder duplicates it AND (with a
+    /// placeholder plan id the generic path can't resolve) told a live model
+    /// to spawn its own redundant Planner racing the one already in flight.
+    pub skip_orchestrator_onboarding: Option<bool>,
     /// Report target pane ID — for cron agents to report without joining hierarchy.
     /// With `report_target_mesh_peer` set, this is a pane id / `main` / `general`
     /// alias on that remote peer.

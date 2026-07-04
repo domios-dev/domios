@@ -328,6 +328,7 @@ impl MultiplexerState {
                     show_in_tabbar: true,
                     worker_id: None,
                     restored_from_snapshot: true,
+                    pending_greeting: None,
                 },
             );
             Some(pane_id.clone())

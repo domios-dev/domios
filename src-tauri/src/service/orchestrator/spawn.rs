@@ -196,10 +196,15 @@ impl ServiceContext {
                 .unwrap_or(false),
         );
 
-        // 2. Create new tab in the workspace (each agent gets its own tab)
+        // 2. Create new tab in the workspace (each agent gets its own tab),
+        // unless the caller asked to claim an existing blank tab in place
+        // (new-session picker's in-place pair spawn).
         let (tab_id, pane_id) = {
             let mut mux = self.mux.write();
-            let result = mux.create_tab(&ws_id)?;
+            let result = match params.existing_tab_id.as_deref() {
+                Some(existing) => mux.claim_existing_tab(&ws_id, existing)?,
+                None => mux.create_tab(&ws_id)?,
+            };
             if let Some(ref t) = params.title {
                 if !t.trim().is_empty() {
                     let _ = mux.rename_pane_at_level(
@@ -313,6 +318,7 @@ impl ServiceContext {
             .as_deref()
             .and_then(|role| Self::parse_role(role).ok())
             == Some(crate::multiplexer::types::AgentRole::Orchestrator)
+            && !params.skip_orchestrator_onboarding.unwrap_or(false)
         {
             self.maybe_deliver_orchestrator_promotion_onboarding(&pane_id, false);
         }
@@ -361,7 +367,7 @@ impl ServiceContext {
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_millis() as u64)
                         .unwrap_or(0);
-                    if let Err(e) = self.plan_store.set_planner_ref(
+                    match self.plan_store.set_planner_ref(
                         plan_id,
                         Some(crate::plan::PlannerRef::Pane {
                             pane_id: pane_id.clone(),
@@ -370,7 +376,21 @@ impl ServiceContext {
                         }),
                         now_ms,
                     ) {
-                        log::warn!("[spawn] failed to bind planner ref for plan {plan_id}: {e}");
+                        Ok(()) => {
+                            // The on-disk PlanWatcher ignores the store's own writes
+                            // (avoids a self-reload loop) — a direct PlanStore call
+                            // like this is otherwise invisible to the UI until an
+                            // unrelated refetch, so the sidebar's Orchestrator+Planner
+                            // pair grouping never resolves for a fresh spawn.
+                            crate::api::events::emit_everywhere(
+                                &self.app_handle,
+                                "plan-changed",
+                                serde_json::json!({ "plan_id": plan_id }),
+                            );
+                        }
+                        Err(e) => {
+                            log::warn!("[spawn] failed to bind planner ref for plan {plan_id}: {e}")
+                        }
                     }
                     let orch_pane = self.plan_store.owner_of(plan_id).and_then(|o| o.pane_id);
                     let intro = crate::service::plan::peer_mandate::planner_peer_intro_line(

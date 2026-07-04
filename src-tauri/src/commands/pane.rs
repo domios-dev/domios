@@ -231,6 +231,35 @@ pub async fn chat_start(
 /// Shared by the Tauri command and the web mirror's
 /// POST /api/panes/{id}/chat-raw/start — identical result shape, so the
 /// chat view renders the same in both shells.
+/// Prepends the pane's pending orchestrator greeting (task_e0ddee08) as a
+/// synthetic assistant `ChatMsg` — verbatim from [`crate::prompts::PEER_ORCH_GREETING`],
+/// never model-generated. Ordered first via a sentinel `seq` below any real
+/// transcript entry. No-op (returns `messages` unchanged) when unset.
+fn prepend_pending_greeting(
+    svc: &ServiceState,
+    pane_id: &str,
+    messages: Vec<crate::agent::chat_types::ChatMsg>,
+) -> Vec<crate::agent::chat_types::ChatMsg> {
+    let greeting = svc
+        .mux
+        .read()
+        .get_pane(pane_id)
+        .and_then(|p| p.pending_greeting.clone());
+    let Some(content) = greeting else {
+        return messages;
+    };
+    let mut out = Vec::with_capacity(messages.len() + 1);
+    out.push(crate::agent::chat_types::ChatMsg {
+        id: format!("greeting-{pane_id}"),
+        kind: "assistant".into(),
+        content,
+        seq: i64::MIN,
+        ..Default::default()
+    });
+    out.extend(messages);
+    out
+}
+
 pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartResult, String> {
     let started = std::time::Instant::now();
     // chatBackend pane: its transcript is the durable host-side JSONL, not an
@@ -243,7 +272,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             start_offset: 0,
             offset: 0,
             pending: false,
-            messages: Some(messages),
+            messages: Some(prepend_pending_greeting(svc, &pane_id, messages)),
             cursor: None,
         });
     }
@@ -254,7 +283,25 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
         let cwd = pane.cwd.clone().unwrap_or_default();
         let Some(sid) = pane.agent_session_id.clone() else {
-            // Fresh agent pane: the session file appears with the first agent reply.
+            // Fresh agent pane: the session file appears with the first agent
+            // reply — unless a greeting is already pending, in which case show
+            // it immediately rather than waiting on the agent to boot.
+            if let Some(content) = pane.pending_greeting.clone() {
+                return Ok(ChatStartResult {
+                    text: String::new(),
+                    start_offset: 0,
+                    offset: 0,
+                    pending: false,
+                    messages: Some(vec![crate::agent::chat_types::ChatMsg {
+                        id: format!("greeting-{pane_id}"),
+                        kind: "assistant".into(),
+                        content,
+                        seq: i64::MIN,
+                        ..Default::default()
+                    }]),
+                    cursor: None,
+                });
+            }
             return Ok(ChatStartResult {
                 text: String::new(),
                 start_offset: 0,
@@ -341,7 +388,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             start_offset: 0,
             offset: 0,
             pending: false,
-            messages: Some(delta.messages),
+            messages: Some(prepend_pending_greeting(svc, &pane_id, delta.messages)),
             cursor,
         });
     }
@@ -418,7 +465,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         start_offset: 0,
         offset: total,
         pending: false,
-        messages: Some(messages),
+        messages: Some(prepend_pending_greeting(svc, &pane_id, messages)),
         cursor: None,
     })
 }
