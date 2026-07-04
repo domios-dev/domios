@@ -1,10 +1,6 @@
 import type { CSSProperties } from "react";
 import { agentInitials, type PresenceAgent } from "./identity";
 
-// REUSABLE presence token (north-star #2). Position-agnostic on purpose: a card
-// renders it inline (this iter), iter-11 floats it between tasks, iter-12 packs a
-// top-right cluster. It owns ONLY its own circle — never margins/layout — so a
-// caller composes placement. `live` = currently executing → a pulsing identity ring.
 export interface AgentCircleProps {
   agent: PresenceAgent;
   size?: number;
@@ -64,7 +60,6 @@ export interface AgentStackProps {
   live?: boolean;
 }
 
-// Overlapping avatar stack (the multiplayer read). Lead sits on top; the tail
 // tucks left under it; overflow collapses to a neutral +N token.
 export function AgentStack({ agents, size = 18, max = 3, live = false }: AgentStackProps) {
   if (agents.length === 0) return null;

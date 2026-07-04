@@ -1,13 +1,5 @@
 import { DEFAULT_CANVAS_SETTINGS, type CanvasLayoutSettings } from "./settings";
 
-// §26 WORLDS: per-node content-LOD band driven by APPARENT on-screen width
-// (appW = nodeFootprintWorldWidth × cameraScale), NOT raw camera scale (§25.1).
-// Each node crosses its own bands when it is physically big enough to read, so a
-// wide SPEC and a small TASK reveal their interiors at the right moment.
-//   W0 MASS      — territories: titles/mass/coverage, status rings, volume cues.
-//   W1 STRUCTURE — section rows / handles / step-thread titles / subtask roster.
-//   W2 CONTENT   — bodies reveal (the bug fix): markdown excerpts, step/subtask cards.
-//   W3 DEEP      — full readable content, node-internal scroll.
 export type World = "W0" | "W1" | "W2" | "W3";
 export const World = { W0: "W0", W1: "W1", W2: "W2", W3: "W3" } as const satisfies Record<string, World>;
 export const WORLD_ORDER: readonly World[] = [World.W0, World.W1, World.W2, World.W3];
@@ -23,9 +15,6 @@ export function rawWorld(appW: number, t: [number, number, number]): World {
   return "W3";
 }
 
-// Hysteresis (±h, §26.2) at the band boundaries: a node parked near a threshold
-// must cross it by ±h to switch, so camera jitter never flickers the band. Large
-// jumps (programmatic fit) snap directly; only adjacent moves are damped.
 export function nextWorld(
   prev: World | undefined,
   appW: number,

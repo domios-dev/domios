@@ -1,8 +1,3 @@
-// Run: npx tsx src/components/Canvas/layout/cloudFlush.test.ts
-//
-// Zone-first v3: the task shelf sits columnGapX past the plan; uniform grid cells
-// start zonePad inside the zone hull (nearest tile == planRight + columnGapX + zonePad).
-// Zero plan overlap and a substantial vertical field must hold at every scale.
 
 import { largeCanvasLayout } from "./largeCanvasFixtures";
 import { DEFAULT_CANVAS_SETTINGS as S } from "../settings";
@@ -28,10 +23,6 @@ for (const n of [100, 500, 1000] as const) {
   const nearest = Math.min(...tasks.map((t) => t.box.x));
   const gap = Math.round(nearest - planRight);
   const overlap = tasks.filter((t) => intersect(t.box, plan.box)).length;
-  // Section-grouping (§zones) splits the field into per-section blobs, so the plan's
-  // flush CONTACT is the nearest section blob, not one full-height wall. The real
-  // invariants stay: exact flush gap, zero overlap, and a SUBSTANTIAL field — the
-  // overall task field still spans >= half the plan height vertically.
   const cys = tasks.map((t) => t.box.y + t.box.height / 2).sort((a, b) => a - b);
   const fieldSpan = cys.length ? cys[cys.length - 1] - cys[0] : 0;
 

@@ -29,9 +29,6 @@ export function resolveOrchestratorPaneId(
   return paneId;
 }
 
-// Ownership by the pane ITSELF — its own pane id or its own agent session, never
-// an ancestor. The shared rule behind both the orchestrator strip (paneOwnedPlans)
-// and the tab indicator (paneTabActivity) so they classify a pane identically.
 export function ownerIsPaneSelf(
   owner: OrchestratorRef,
   paneId: string,

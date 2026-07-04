@@ -83,7 +83,6 @@ function maxDeltaForIds(before: Map<string, Box>, after: Map<string, Box>, ids: 
   return max;
 }
 
-// ── multi-section: inserting into one section must not shuffle others ──
 console.log("multi-section insert stability:");
 {
   const sections = [section("s0"), section("s1"), section("s2")];
@@ -110,7 +109,6 @@ console.log("multi-section insert stability:");
   ok("plan node pinned on insert", boxDelta(planBefore, planAfter) <= TOL);
 }
 
-// ── single-section append: prior tiles byte-identical ──
 console.log("\nsingle-section append stability:");
 {
   const sections = [section("s0")];
@@ -127,7 +125,6 @@ console.log("\nsingle-section append stability:");
   ok(`all prior tiles stable (max Δ ${maxDeltaForIds(b, a, ids).toFixed(1)}px)`, maxDeltaForIds(b, a, ids) <= TOL);
 }
 
-// ── body update in another section: unrelated section stable ──
 console.log("\ncross-section body update stability:");
 {
   const sections = [section("s0"), section("s1")];

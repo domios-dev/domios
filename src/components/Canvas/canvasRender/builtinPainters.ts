@@ -1,6 +1,3 @@
-// Built-in canvas painters for the structured node kinds. Each wraps the pure card
-// model + drawCard so plan/spec/task render THROUGH the same registry a plugin uses —
-// one dispatch path, no special-casing in drawScene.
 
 import { buildCardContent, pickLevel } from "./cardContent";
 import { drawCard } from "./drawCard";

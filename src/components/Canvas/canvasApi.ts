@@ -1,9 +1,6 @@
 import { baseUrl, jsonHeaders } from "../MemoryPanel/memoryApi";
 import type { ApiConfig } from "../../lib/types";
 
-// Canvas → daemon calls that are NOT plan CRUD (those live in plansApi.ts): spawning an
-// orchestrator agent. One typed boundary so canvas components never hand-roll fetch
-// against the daemon.
 
 export interface SpawnOrchestratorOptions {
   title?: string;

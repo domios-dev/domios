@@ -1,10 +1,3 @@
-// Run: npx tsx src/components/Canvas/CanvasView.test.tsx
-//
-// The world is rendered to a <canvas> (no per-node DOM), so these specs assert
-// against the render readback (window.__codetermCanvasRender) and the scene geometry
-// readback (window.__codetermCanvasScene) rather than DOM card elements. Card-content
-// rules live in canvasRender/cardContent.test.ts; per-card chrome (presence, owner,
-// section bodies) is covered by cards/cards.test.tsx.
 
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -118,7 +111,6 @@ test("double-click focuses a node — no breadcrumb UI", async () => {
     dblclickAt(host, box!.x + box!.width / 2, box!.y + box!.height / 2);
   });
   await settle();
-  // The focus path runs (canvas stays mounted, scene still resolves the node) and the
   // breadcrumb bar is GONE for good — focusing/Esc-return work without that top UI.
   assert(host.querySelector('[data-testid="canvas-world-canvas"]'), "world canvas still mounted after focus");
   assert(window.__codetermCanvasScene?.get("workspace:workspace")?.nodeScreenBox(FIXTURE_TASK.id), "scene still resolves the focused node");

@@ -12,9 +12,6 @@ interface ChangeSignalDeps {
   fitCameraToNodes: (ids: string[], animate?: boolean) => void;
 }
 
-// §31 change signal: a plan whose updated_at advanced changed live. The camera never
-// moves on a data change — in-viewport plans pulse, off-screen ones surface a
-// directional edge marker (click = user fly-there). Auto-clears. Verbatim move.
 export function useCanvasChangeSignal({ filteredPlans, layout, transform, canvasSize, size, fitCameraToNodes }: ChangeSignalDeps) {
   const prevUpdatedRef = useRef<Map<string, number>>(new Map());
   const [changedPlanIds, setChangedPlanIds] = useState<Set<string>>(() => new Set());
@@ -33,9 +30,6 @@ export function useCanvasChangeSignal({ filteredPlans, layout, transform, canvas
     return () => clearTimeout(h);
   }, [filteredPlans]);
 
-  // §31: split changed plans into on-screen (pulse in place) vs off-screen
-  // (directional edge marker). Camera never moves on a data change — the marker is
-  // the only signal; clicking it is a USER-initiated fly-there.
   const { pulsePlanIds, changeMarkers } = useMemo(() => {
     const pulse = new Set<string>();
     const markers: { planId: string; x: number; y: number }[] = [];

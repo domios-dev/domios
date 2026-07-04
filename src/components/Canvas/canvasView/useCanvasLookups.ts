@@ -10,15 +10,11 @@ import type { CanvasElement, DriftItem, Plan, Section, Task } from "../types";
 export { buildTaskPresenceFingerprint } from "./presenceFingerprint";
 import { collectSections, type CanvasLookups, type TaskCardModel } from "./models";
 
-// Per-data lookups: id→node/task/model/section/milestone/cluster/element maps. Built
-// once per layout / plan / drift / panes change — NOT per pan/zoom frame (camera-
-// decoupled). Mirrors the original CanvasViewInner useMemo verbatim.
 export function useCanvasLookups(
   layout: WorkspaceLayout,
   filteredPlans: Plan[],
   driftByPlan: Map<string, DriftItem[]>,
   panes: Record<string, Pane>,
-  // Presence-relevant fingerprint of `panes` (existence + title of task-referenced
   // panes). Used as the rebuild trigger so a non-presence heartbeat is a no-op.
   panesContentKey: string,
 ): CanvasLookups {
@@ -42,7 +38,6 @@ export function useCanvasLookups(
         }
       }
       const colors = milestoneColorMap(plan);
-      // A task's REGION = its main (first) section. A subtask has no sections of its
       // own — it inherits the region of the top-level task that spawned it (walk up).
       const taskByIdLocal = new Map(plan.tasks.map((t) => [t.id, t]));
       const regionSectionOf = (t: Task): string | undefined => {

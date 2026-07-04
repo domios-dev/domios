@@ -217,7 +217,6 @@ export function createCanvasSceneReadback(
   scene: CanvasScene,
   transform: ViewportTransform,
 ): CanvasSceneReadback {
-  // Lazy: the O(N) id→box index only materializes when a debug/test consumer reads
   // it — publish itself stays O(1), off the per-frame gesture path.
   let worldBoxes: Map<string, Box> | null = null;
   const boxes = () => (worldBoxes ??= new Map(scene.nodes.map((node) => [node.id, node.worldBox])));
