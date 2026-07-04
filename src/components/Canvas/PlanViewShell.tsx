@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { memo, useCallback, useState } from "react";
 import { X } from "lucide-react";
 import { PlanViewModeSwitch } from "./PlanViewModeSwitch";
 import type { PlanViewSurfaceProps } from "./planViewSurfaceProps";
@@ -12,6 +12,14 @@ import { PlanBoardView } from "./planView/PlanBoardView";
 import { PlanListView } from "./planView/PlanListView";
 import { PlanCompanionBubble } from "./planView/PlanCompanionBubble";
 import { PaneSessionChat } from "../Terminal/PaneSessionChat";
+
+// All three surfaces stay mounted (toggled via `hidden`) to preserve their
+// state; memoizing keeps a pure view-mode switch from re-rendering the two
+// off-screen trees, which was a >250ms longtask source under load.
+const BoardSurface = memo(PlanBoardView);
+const ListSurface = memo(PlanListView);
+const CanvasSurface = memo(MissionControlPlanSurface);
+const CompanionSurface = memo(PlanCompanionBubble);
 
 const PLAN_VIEW_MODE_STORAGE_KEY = "codeterm.planViewMode";
 
@@ -40,6 +48,13 @@ function usePersistedPlanViewMode(): [PlanViewMode, (mode: PlanViewMode) => void
 
 export function PlanViewShell(props: PlanViewSurfaceProps) {
   const [viewMode, setViewMode] = usePersistedPlanViewMode();
+
+  const renderCompanionChat = useCallback(
+    ({ paneId, chatBackend }: { paneId: string; chatBackend: boolean }) => (
+      <PaneSessionChat paneId={paneId} chatBackend={chatBackend} isVisible />
+    ),
+    [],
+  );
 
   return (
     <div
@@ -74,31 +89,29 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
           hidden={viewMode !== "canvas"}
           aria-hidden={viewMode !== "canvas"}
         >
-          <MissionControlPlanSurface {...props} />
+          <CanvasSurface {...props} />
         </div>
         <div
           className="absolute inset-0"
           hidden={viewMode !== "list"}
           aria-hidden={viewMode !== "list"}
         >
-          <PlanListView {...props} onClose={undefined} />
+          <ListSurface {...props} onClose={undefined} />
         </div>
         <div
           className="absolute inset-0"
           hidden={viewMode !== "board"}
           aria-hidden={viewMode !== "board"}
         >
-          <PlanBoardView {...props} />
+          <BoardSurface {...props} />
         </div>
-        <PlanCompanionBubble
+        <CompanionSurface
           plans={props.plans}
           panes={props.panes ?? {}}
           planId={props.planId}
           orchestratorPaneId={props.orchestratorPaneId}
           onOpenPane={props.onOpenPane}
-          renderChat={({ paneId, chatBackend }) => (
-            <PaneSessionChat paneId={paneId} chatBackend={chatBackend} isVisible />
-          )}
+          renderChat={renderCompanionChat}
         />
       </div>
     </div>
