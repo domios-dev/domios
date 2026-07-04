@@ -1,5 +1,7 @@
 import { AgentIcon } from "../AgentIcon";
-import { UI_BUTTON } from "../shared/design";
+import { Button } from "../shared/Button";
+import { Card } from "../shared/Card";
+import { Chip } from "../shared/Chip";
 import type { ProviderDescriptor } from "../../lib/types";
 import { isProviderInstalled } from "./preselectProvider";
 
@@ -27,25 +29,18 @@ export function ProviderCard({
       disabled={disabled}
       onClick={onSelect}
       className={[
-        "flex flex-col items-center gap-2 rounded-xl border px-4 py-3 min-w-[7.5rem] transition-colors",
+        "ct-panel-card flex flex-col items-center gap-2 px-4 py-3 min-w-[7.5rem] transition-colors",
         selected
           ? "border-[var(--ct-accent)] bg-[var(--ct-accent)]/10 text-[var(--ct-fg)]"
-          : "border-[var(--ct-border)] bg-[var(--ct-bg)]/60 text-[var(--ct-muted-fg)] hover:border-[var(--ct-accent)]/40 hover:text-[var(--ct-fg)]",
+          : "text-[var(--ct-muted-fg)] hover:border-[var(--ct-accent)]/40 hover:text-[var(--ct-fg)]",
         disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
       ].join(" ")}
     >
       <AgentIcon providerId={provider.id} className="text-2xl" />
       <span className="text-xs font-medium">{provider.display_name}</span>
-      <span
-        className={[
-          "text-[9px] px-1.5 py-0.5 rounded-full",
-          installed
-            ? "bg-[var(--ct-green)]/15 text-[var(--ct-green)]"
-            : "bg-[var(--ct-border)]/50 text-[var(--ct-muted)]",
-        ].join(" ")}
-      >
+      <Chip variant={installed ? "success" : "muted"}>
         {installed ? "installed" : "not installed"}
-      </span>
+      </Chip>
     </button>
   );
 }
@@ -67,10 +62,7 @@ export function ProviderInstallPanel({
 }: ProviderInstallPanelProps) {
   const installCommand = provider.install_command;
   return (
-    <div
-      data-testid={`agent-picker-install-${provider.id}`}
-      className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2"
-    >
+    <Card data-testid={`agent-picker-install-${provider.id}`} className="p-4 space-y-2">
       <div className="flex items-center gap-2">
         <AgentIcon providerId={provider.id} className="text-lg" />
         <div className="min-w-0">
@@ -92,16 +84,16 @@ export function ProviderInstallPanel({
         </div>
       )}
       <div className="flex items-center justify-end gap-2">
-        <button type="button" onClick={onRecheck} disabled={checking} className={UI_BUTTON.ghost}>
+        <Button variant="ghost" size="sm" onClick={onRecheck} disabled={checking}>
           {checking ? "Checking…" : "Re-check"}
-        </button>
+        </Button>
         {installCommand && (
-          <button type="button" onClick={onInstall} disabled={busy} className={UI_BUTTON.accent}>
-            {busy ? "Spawning…" : "Install"}
-          </button>
+          <Button variant="accent" size="sm" onClick={onInstall} disabled={busy} loading={busy}>
+            Install
+          </Button>
         )}
       </div>
-    </div>
+    </Card>
   );
 }
 
