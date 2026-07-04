@@ -1328,11 +1328,10 @@ button,
   padding-left: 10px;
 }
 
-/* Collapse chevron on the group head — tucks into the row's left padding so it
-   doesn't shove the provider glyph out of line. */
+/* Collapse chevron on the group head — right-aligned, last interactive element. */
 .sidebar-group-chevron {
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
 }
 
 /* Sidebar hierarchy — living subagent tree (HierarchyTree.tsx) */
