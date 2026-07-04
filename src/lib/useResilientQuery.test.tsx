@@ -14,6 +14,10 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+function currentReconnect(state: UseResilientQueryResult<string[]> | null): boolean {
+  return state?.reconnecting === true;
+}
+
 let fetchAttempts = 0;
 let shouldFail = true;
 
@@ -102,6 +106,45 @@ test("stale data stays visible while reconnecting", async () => {
   });
   assert(holder.current?.data.length === 1, "stale data kept during failure");
   assert(!holder.current?.error, "no blocking error with stale data");
+  await act(async () => root.unmount());
+});
+
+test("stale refetch is silent until two consecutive failures and clears on success", async () => {
+  fetchAttempts = 0;
+  shouldFail = false;
+  const holder: { current: UseResilientQueryResult<string[]> | null } = { current: null };
+  const { root } = await renderProbe((state) => {
+    holder.current = state;
+  });
+
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 30));
+  });
+  assert(holder.current?.data.length === 1, "initial data loaded");
+  assert(!currentReconnect(holder.current), "success is not reconnecting");
+
+  await act(async () => {
+    await holder.current!.refetch();
+  });
+  assert(!currentReconnect(holder.current), "healthy stale refetch stays quiet");
+
+  shouldFail = true;
+  await act(async () => {
+    await holder.current!.refetch();
+  });
+  assert(!currentReconnect(holder.current), "first stale failure stays quiet");
+
+  await act(async () => {
+    await holder.current!.refetch();
+  });
+  assert(currentReconnect(holder.current), "second stale failure shows reconnecting");
+
+  shouldFail = false;
+  await act(async () => {
+    await holder.current!.refetch();
+  });
+  assert(!currentReconnect(holder.current), "first success clears reconnecting");
+
   await act(async () => root.unmount());
 });
 
