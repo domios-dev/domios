@@ -1,5 +1,7 @@
 // Run: npx tsx src/store/multiplexer/writeGate.test.tsx
 
+export {};
+
 class FakeStorage {
   private map = new Map<string, string>();
   getItem(key: string): string | null {
