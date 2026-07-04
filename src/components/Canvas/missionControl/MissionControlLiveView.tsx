@@ -11,13 +11,14 @@ import {
 import { FlyToActiveControl } from "../FlyToActiveControl";
 import { selectActiveWork } from "../planView/activeWork";
 import type { Plan } from "../types";
-import { buildMissionControl } from "./missionControl";
-import { modelToSnapshot } from "./modelAdapter";
 import { buildFlowRiver, type FlowRiverModel } from "./flowModel";
+import { RIVER_WIDTH } from "./flowLayout";
+import { buildMissionControl } from "./missionControl";
+import { bumpMissionControlChurn } from "./missionControlChurn";
+import { modelToSnapshot } from "./modelAdapter";
 import { missionControlInputRevision } from "./missionControlInputRevision";
 import { resolveMissionControlLod, type MissionControlLodLevel } from "./missionControlLod";
 import { PlanRiver } from "./PlanRiver";
-import { RIVER_WIDTH } from "./flowLayout";
 import { useReducedMotion } from "./useReducedMotion";
 import { MC_PAN_IGNORE } from "./missionControlViewport";
 
@@ -47,6 +48,10 @@ export function MissionControlLiveView({
   const shellRef = useRef<HTMLDivElement | null>(null);
   const scaleLabelRef = useRef<HTMLSpanElement | null>(null);
   const lodRef = useRef<MissionControlLodLevel>("close");
+  const plansRef = useRef(plans);
+  const panesRef = useRef(panes);
+  plansRef.current = plans;
+  panesRef.current = panes;
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [lod, setLod] = useState<MissionControlLodLevel>("close");
   const reducedMotion = useReducedMotion();
@@ -56,12 +61,12 @@ export function MissionControlLiveView({
     [plans, panes],
   );
 
-  // Active plan renders full-height first; the rest stack compact below.
   const orderedPlans = useMemo(() => {
-    const active = plans.find((p) => p.id === activePlanId);
-    const rest = plans.filter((p) => p.id !== activePlanId);
-    return active ? [active, ...rest] : plans;
-  }, [plans, activePlanId]);
+    const currentPlans = plansRef.current;
+    const active = currentPlans.find((p) => p.id === activePlanId);
+    const rest = currentPlans.filter((p) => p.id !== activePlanId);
+    return active ? [active, ...rest] : currentPlans;
+  }, [inputRevision, activePlanId]);
 
   const rivers = useMemo<RiverEntry[]>(() => {
     return orderedPlans.map((plan, i) => {
@@ -70,28 +75,33 @@ export function MissionControlLiveView({
         const t = s.title?.trim();
         if (t) sectionTitle.set(s.id, t);
       }
-      const model = buildMissionControl(plan, panes);
+      bumpMissionControlChurn("builds");
+      const model = buildMissionControl(plan, panesRef.current);
+      bumpMissionControlChurn("snapshots");
       const snapshot = modelToSnapshot({
         plan,
         model,
-        panes,
+        panes: panesRef.current,
         sectionTitleOf: (id) => sectionTitle.get(id) ?? null,
       });
       return {
         planId: plan.id,
-        model: buildFlowRiver(plan, model, snapshot, panes),
+        model: buildFlowRiver(plan, model, snapshot, panesRef.current),
         compact: i > 0,
       };
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inputRevision, orderedPlans, panes]);
+  }, [inputRevision, orderedPlans]);
 
-  const activeWork = useMemo(() => selectActiveWork(plans, panes), [inputRevision, plans, panes]);
+  const activeWork = useMemo(() => {
+    bumpMissionControlChurn("activeWork");
+    return selectActiveWork(plansRef.current, panesRef.current);
+  }, [inputRevision]);
+
   const taskPlanId = useMemo(() => {
     const m = new Map<string, string>();
-    for (const plan of plans) for (const t of plan.tasks) m.set(t.id, plan.id);
+    for (const plan of plansRef.current) for (const t of plan.tasks) m.set(t.id, plan.id);
     return m;
-  }, [plans]);
+  }, [inputRevision]);
 
   const syncLod = useCallback((scale: number) => {
     const next = resolveMissionControlLod(scale);
