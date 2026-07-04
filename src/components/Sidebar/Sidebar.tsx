@@ -681,7 +681,7 @@ export function Sidebar({
               <button
                 data-testid="nav-extensions"
                 onClick={onOpenExtensions}
-                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
+                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "min-h-[44px] py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
                   mainView === "extensions"
                     ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                     : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
@@ -694,7 +694,7 @@ export function Sidebar({
               <button
                 data-testid="nav-memory"
                 onClick={onOpenMemory}
-                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
+                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "min-h-[44px] py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
                   mainView === "memory"
                     ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                     : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
@@ -716,7 +716,7 @@ export function Sidebar({
                 <button
                   data-testid="nav-mesh"
                   onClick={onOpenMesh}
-                  className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 flex-1 min-w-0 px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
+                  className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 flex-1 min-w-0 px-2 ${touchMode ? "min-h-[44px] py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
                     mainView === "mesh"
                       ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                       : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"

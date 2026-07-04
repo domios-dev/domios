@@ -209,8 +209,9 @@ export function SidebarWorkspaceTabs({
   const newSessionTrigger = (
     <button
       type="button"
+      data-testid="sidebar-new-session"
       onClick={onNewSession}
-      className="flex items-center gap-2 min-w-0 max-w-full mx-2 mt-1 mb-0.5 px-3 py-1 rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+      className={`flex items-center gap-2 min-w-0 max-w-full mx-2 mt-1 mb-0.5 px-3 ${touchMode ? "min-h-[44px] py-2" : "py-1"} rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors`}
       title="New session in this workspace"
     >
       <Plus size={10} strokeWidth={1.5} className="shrink-0" />
