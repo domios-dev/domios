@@ -10,6 +10,8 @@ export {
 } from "./missionControl";
 
 export { modelToSnapshot, missionControlHealth, extractStreamEvents } from "./modelAdapter";
+export { buildFlowRiver, type FlowRiverModel, type MilestoneStation } from "./flowModel";
+export { PlanRiver } from "./PlanRiver";
 export { resolveMissionControlLod, MC_LOD_FAR_MAX, MC_LOD_MID_MAX, type MissionControlLodLevel } from "./missionControlLod";
 export { MissionControlLiveView } from "./MissionControlLiveView";
 export { MissionControlPlanSurface } from "./MissionControlPlanSurface";

@@ -40,6 +40,8 @@ export function MissionControlPlanSurface({
   panes = {},
   onOpenPane,
   api,
+  allPlans = false,
+  onAllPlansChange,
 }: PlanViewSurfaceProps) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
@@ -110,17 +112,26 @@ export function MissionControlPlanSurface({
 
   const openTask = useCallback(
     (taskId: string) => {
-      if (!selectedPlan) return;
-      const task = selectedPlan.tasks.find((t) => t.id === taskId);
-      if (task) setDetail({ kind: "task", task, plan: selectedPlan });
+      for (const plan of orderedPlans) {
+        const task = plan.tasks.find((t) => t.id === taskId);
+        if (task) {
+          setDetail({ kind: "task", task, plan });
+          return;
+        }
+      }
     },
-    [selectedPlan],
+    [orderedPlans],
   );
 
-  const openPlanDetail = useCallback(() => {
-    if (!selectedPlan) return;
-    setDetail({ kind: "plan", plan: selectedPlan, specSections: selectedSpecSections });
-  }, [selectedPlan, selectedSpecSections]);
+  const openPlanDetail = useCallback(
+    (id?: string) => {
+      const plan = id ? orderedPlans.find((p) => p.id === id) ?? selectedPlan : selectedPlan;
+      if (!plan) return;
+      const sections = plan.id === selectedPlan?.id ? selectedSpecSections : [];
+      setDetail({ kind: "plan", plan, specSections: sections });
+    },
+    [orderedPlans, selectedPlan, selectedSpecSections],
+  );
 
   const openSpecDetail = useCallback(() => {
     if (!selectedPlan) return;
@@ -150,6 +161,30 @@ export function MissionControlPlanSurface({
           testId="mission-control-reconnecting"
           className="ml-auto"
         />
+        {onAllPlansChange && mode === "workspace" && (
+          <div className="mc-scope-toggle" role="group" aria-label="Plan scope" style={{ marginLeft: reconnecting ? 8 : "auto" }}>
+            <button
+              type="button"
+              className="mc-scope-btn"
+              data-testid="mc-scope-workspace"
+              data-active={!allPlans ? "true" : undefined}
+              aria-pressed={!allPlans}
+              onClick={() => onAllPlansChange(false)}
+            >
+              workspace
+            </button>
+            <button
+              type="button"
+              className="mc-scope-btn"
+              data-testid="mc-scope-all-plans"
+              data-active={allPlans ? "true" : undefined}
+              aria-pressed={allPlans}
+              onClick={() => onAllPlansChange(true)}
+            >
+              all plans
+            </button>
+          </div>
+        )}
       </header>
       <div className="relative min-h-0 flex-1">
         <PlanFetchErrorState
@@ -167,7 +202,8 @@ export function MissionControlPlanSurface({
         )}
         {showsData && selectedPlan && (
           <MissionControlLiveView
-            plan={selectedPlan}
+            plans={orderedPlans}
+            activePlanId={selectedPlan.id}
             panes={panes}
             onTaskClick={openTask}
             onOpenPlan={openPlanDetail}
