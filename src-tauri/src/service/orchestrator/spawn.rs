@@ -109,6 +109,16 @@ impl ServiceContext {
     ) -> Result<SpawnResult, String> {
         params.title = spawn_title::normalize_agent_title(params.title.take());
         params.normalize_role_profile();
+        // Orchestrators must be pinned to an explicit workspace.
+        // Active-workspace fallback can silently land them in the wrong plan context.
+        if params.role.as_deref() == Some("Orchestrator")
+            && params.workspace_id.is_none()
+            && params.parent_pane_id.is_none()
+        {
+            return Err("--workspace is required when spawning --role Orchestrator \
+                 (orchestrators must be pinned to a workspace)"
+                .into());
+        }
         let default_provider = crate::config::default_agent_provider();
         let agent_cmd = params
             .agent
