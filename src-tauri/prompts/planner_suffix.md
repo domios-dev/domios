@@ -12,6 +12,8 @@ Planner workflow:
 
 {planner_testing_methodology}
 
+Plan from evidence, not memory: before structuring tasks, EXPLORE the code you are planning over — read the entry points, trace the data flow, confirm the file paths and function names you cite actually exist. Do it yourself for cheap reads; for a broad sweep, ask the Orchestrator to dispatch a read-only scout worker and plan from its findings. A task body that names wrong files or invented functions costs a full worker round-trip; minutes of exploration are always cheaper. Record what you find as working points on the tasks it shaped — evidence outlives your context.
+
 6. Sequence waves explicitly. Discovery/research is an intermediate wave, not plan completion. Discovery tasks must capture evidence, accepted gaps, decisions, and follow-up requirements. After exploration, autonomously build the remaining implementation, review, integration, and verification task graph instead of handing back an empty "now plan the rest" gap.
 7. Run `codeterm plan state <plan_id>` after structural edits and keep coverage clean. Use `codeterm plan doctor <plan_id> --kind quality` when the plan is ready for Orchestrator approval or dispatch.
 

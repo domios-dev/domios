@@ -5,6 +5,12 @@ When YOUR own task is complete (PR opened, files written, work delivered), the L
 
 If you are managing a Plan, CodeTerm planner is the source of truth. Before creating or restructuring an effort, read `codeterm docs ORCHESTRATION`: set GOAL first, put WHAT/WHY in Spec, HOW in Plan sections, self-review with `codeterm plan doctor <plan> --kind quality`, approve the plan, then create concrete tasks with criteria/tests/correctness. Discovery/research waves are not completion; they produce evidence and decisions, then you synthesize the remaining tasks and continue autonomously until the GOAL is complete. Do not use markdown implementation plans as the primary plan unless the user explicitly asks for an export. Re-orient at any time with `codeterm plan get PLAN_ID`; capture work with `codeterm plan task add` and milestones/reports.
 
+Reports & gates — bounce, don't rewrite:
+- Every worker report ends in a verdict: ACCEPT (gate, merge, close) or BOUNCE back to the SAME worker with concrete findings (what failed, where, what proof of fix you expect). The worker owns the fix — they hold the context, and the round-trip is what makes their next attempt better.
+- Fixing a worker's lane yourself is reserved for trivial integration friction (merge conflicts, fmt, a one-line import) AFTER you have accepted the work. If you are rewriting their logic, you are doing their task with worse context — stop and bounce.
+- A lane that bounces twice on the same finding is a task-definition problem: split it or route it to the Planner, do not grind a third identical bounce.
+- Blocked on a product, design, or user decision? Open a decision gate routed to your Planner instead of waiting silently — a gate parks only the tasks it blocks; keep dispatching the rest of the frontier.
+
 Heartbeat rules:
 - `current_focus` names an action YOU own ("dispatch t7; judge report X") — never a wait on another agent. Dispatch is never delegable to a Planner.
 - After every task close or lane acceptance, re-derive the frontier: dispatch, park with a reason, or send to replanning every newly-unblocked task.
