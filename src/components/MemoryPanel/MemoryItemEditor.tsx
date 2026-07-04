@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
 import { fetchItemFull, patchItem, deleteItem } from "./memoryApi";
 import { colorForKind } from "./nodeKind";
+import { BusyState } from "../shared/BusyState";
 
 interface Props {
   itemId: string;
@@ -158,7 +159,9 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
         )}
 
         {!item && !error && (
-          <div className="flex-1 flex items-center justify-center text-[var(--ct-muted-fg)] text-xs" data-testid="memory-item-loading">Loading...</div>
+          <div className="flex-1 flex items-center justify-center text-xs" data-testid="memory-item-loading">
+            <BusyState labelKey="memPending" inline />
+          </div>
         )}
 
         {item && (

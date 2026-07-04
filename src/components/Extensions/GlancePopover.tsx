@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "../../lib/bridge";
+import { BusyState } from "../shared/BusyState";
 import { configureWithAI } from "../../lib/pluginConfigure";
 import type { DaemonApiConfig } from "../../lib/webApi";
 import { GearIcon } from "../Icons";
@@ -143,7 +144,7 @@ export function GlancePopover({
       ) : view ? (
         <GlanceBody view={view} onAction={onAction} />
       ) : (
-        <div style={{ fontSize: 12, color: "var(--ct-muted)" }}>Loading…</div>
+        <BusyState labelKey="settingsPending" inline style={{ fontSize: 12 }} />
       )}
     </div>,
     document.body,

@@ -1,4 +1,5 @@
 import { Loader2 } from "lucide-react";
+import { BusySpinner } from "../shared/BusyState";
 import type { PluginActivity } from "../../lib/types";
 import type { PluginActivityDisplay } from "../../lib/usePluginActivity";
 
@@ -31,9 +32,9 @@ export function PluginActivityInline({
       }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: 6, minWidth: 0 }}>
-        <Loader2
+        <BusySpinner
+          icon={Loader2}
           size={compact ? 12 : 14}
-          className="animate-spin"
           style={{ color: "var(--ct-accent, #818cf8)", flex: "none", marginTop: compact ? 1 : 2 }}
         />
         <div style={{ minWidth: 0, flex: 1 }}>
