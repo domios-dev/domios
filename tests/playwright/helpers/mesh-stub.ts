@@ -194,7 +194,6 @@ export class MeshStub {
       return true;
     }
     if (path === "/api/events/stream") {
-      // Hold an empty SSE open so the web bundle's listener stays calm
       // instead of reconnect-spamming a JSON 200.
       res.writeHead(200, {
         "Content-Type": "text/event-stream",

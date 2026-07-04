@@ -113,7 +113,6 @@ test.describe("@golden network-disruption primitive", () => {
       expect((await sseState(page)).closed).toBe(false);
       await disruption.restore("pty-read");
 
-      // Hard sever of "sse" itself must kill the already-open connection immediately,
       // not wait for its own reconnect cycle.
       await disruption.sever("sse", { hard: true });
       await page.waitForFunction(() => (window as unknown as { __sseState?: { closed: boolean } }).__sseState?.closed === true, { timeout: 10_000 });

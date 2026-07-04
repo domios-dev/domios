@@ -17,9 +17,6 @@ import {
 } from "../../helpers/canvas-inspect";
 import type { ApiClient } from "../../helpers/api-client";
 
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
 
 async function clearMode(page: import("@playwright/test").Page): Promise<void> {
   await page.evaluate(() => window.localStorage.removeItem("codeterm.planViewMode"));
@@ -31,9 +28,6 @@ async function screenshot(page: import("@playwright/test").Page, name: string): 
   return file;
 }
 
-// ---------------------------------------------------------------------------
-// Board default + switch order Board / List / Canvas
-// ---------------------------------------------------------------------------
 
 test(
   "@golden @plan-view-mode plan surface exposes board list canvas switch",
@@ -57,7 +51,6 @@ test(
       const modeSwitch = page.locator('[data-testid="plan-view-mode-switch"]');
       await expect(modeSwitch).toBeVisible();
 
-      // Verify Board/List/Canvas tab order
       const tabs = modeSwitch.getByRole("tab");
       await expect(tabs.nth(0)).toHaveText(/board/i);
       await expect(tabs.nth(1)).toHaveText(/list/i);
@@ -68,7 +61,6 @@ test(
 
       await screenshot(page, "plan-view-board-default");
 
-      // Switch to List
       await modeSwitch.getByRole("tab", { name: /list/i }).click();
       await expect(shell).toHaveAttribute("data-plan-view-mode", "list");
       await expect(page.locator('[data-testid="plan-list-view"]')).toBeVisible();
@@ -76,7 +68,6 @@ test(
 
       await screenshot(page, "plan-view-list");
 
-      // Switch to Canvas — mission control is the only canvas surface
       await modeSwitch.getByRole("tab", { name: /canvas/i }).click();
       await expect(shell).toHaveAttribute("data-plan-view-mode", "canvas");
       await expect(page.locator(MISSION_CONTROL_PLAN_SURFACE_SEL)).toBeVisible();
@@ -92,9 +83,6 @@ test(
   },
 );
 
-// ---------------------------------------------------------------------------
-// Persistence: mode survives close/reopen
-// ---------------------------------------------------------------------------
 
 test(
   "@golden @plan-view-mode plan view mode persists across close and reopen",
@@ -115,7 +103,6 @@ test(
       const shell = page.locator('[data-testid="plan-view-shell"]');
       const modeSwitch = page.locator('[data-testid="plan-view-mode-switch"]');
 
-      // Switch to List and reload — mode should persist
       await modeSwitch.getByRole("tab", { name: /list/i }).click();
       await expect(shell).toHaveAttribute("data-plan-view-mode", "list");
 
@@ -123,7 +110,6 @@ test(
       await page.waitForSelector('[data-testid="plan-view-shell"]', { state: "visible", timeout: 30_000 });
       await expect(shell).toHaveAttribute("data-plan-view-mode", "list", { timeout: 15_000 });
 
-      // Now switch to Canvas, reload, verify
       await page.locator('[data-testid="plan-view-mode-switch"]').getByRole("tab", { name: /canvas/i }).click();
       await expect(shell).toHaveAttribute("data-plan-view-mode", "canvas");
 

@@ -16,7 +16,6 @@ function gitShortHash(): string {
 }
 
 export default defineConfig({
-  // Relative asset URLs: the same bundle loads from the Tauri webview root
   // AND from the daemon's /web mount (web mirror) without path rewrites.
   base: "./",
   define: {

@@ -28,9 +28,6 @@ async function screenshot(page: import("@playwright/test").Page, name: string): 
   return file;
 }
 
-// ---------------------------------------------------------------------------
-// Board: done column collapsed with "Show all" toggle
-// ---------------------------------------------------------------------------
 
 test(
   "@golden @plan-done-heavy board done column is collapsed by default with show-all toggle",
@@ -44,12 +41,10 @@ test(
     try {
       const { page } = canvas;
 
-      // Enable done-heavy profile after page open
       await page.evaluate((key) => window.localStorage.setItem(key, "done-heavy"), DONE_HEAVY_KEY);
       await page.reload({ waitUntil: "domcontentloaded" });
       await page.waitForSelector('[data-testid="plan-view-shell"]', { state: "visible", timeout: 30_000 });
 
-      // Switch to board
       const shell = page.locator('[data-testid="plan-view-shell"]');
       const modeSwitch = page.locator('[data-testid="plan-view-mode-switch"]');
       await modeSwitch.getByRole("tab", { name: /board/i }).click();
@@ -58,10 +53,8 @@ test(
       const boardView = page.locator('[data-testid="plan-board-view"]');
       await expect(boardView).toBeVisible({ timeout: 20_000 });
 
-      // Check done column is present
       const doneColumn = boardView.locator('[data-testid="plan-board-column"][data-column="done"]');
 
-      // Check if done column has meaningful content first
       const doneCount = await doneColumn.locator('[data-testid="plan-board-column-count"]').textContent().catch(() => null);
       if (!doneCount || parseInt(doneCount, 10) === 0) {
         await screenshot(page, "plan-view-board-done-heavy-nodone");
@@ -69,7 +62,6 @@ test(
         return;
       }
 
-      // The "Show all N" toggle should be visible when done cards exceed the collapsed limit
       const showAllBtn = doneColumn.locator('[data-testid="plan-board-done-toggle"]').first();
       const showAllVisible = await showAllBtn.isVisible().catch(() => false);
 
@@ -78,15 +70,12 @@ test(
       if (showAllVisible) {
         await expect(showAllBtn).toContainText(/show all/i);
 
-        // Click it — all done tasks should now be visible
         await showAllBtn.click();
         const collapseBtn = doneColumn.locator('[data-testid="plan-board-done-toggle"]').first();
         await expect(collapseBtn).toContainText(/show recent/i, { timeout: 5_000 });
         await screenshot(page, "plan-view-board-done-heavy-expanded");
       } else {
-        // If done count <= DONE_COLUMN_COLLAPSED_LIMIT, no toggle needed — pass
         const countInt = parseInt(doneCount, 10);
-        // DONE_COLUMN_COLLAPSED_LIMIT = 5
         expect(countInt, "done count should be ≤ 5 when no toggle shown").toBeLessThanOrEqual(5);
       }
     } finally {
@@ -95,9 +84,6 @@ test(
   },
 );
 
-// ---------------------------------------------------------------------------
-// List: done-only sections show rollup rows
-// ---------------------------------------------------------------------------
 
 test(
   "@golden @plan-done-heavy list view done sections show rollup rows",
@@ -125,7 +111,6 @@ test(
 
       await screenshot(page, "plan-view-list-done-heavy");
 
-      // With done-heavy fixture, collapsed done sections should emit rollup rows
       const rollups = listView.locator('[data-testid="plan-list-done-rollup"]');
       const rollupCount = await rollups.count();
 
@@ -146,9 +131,6 @@ test(
   },
 );
 
-// ---------------------------------------------------------------------------
-// Canvas: mission-control done shelf surfaces done-heavy count
-// ---------------------------------------------------------------------------
 
 test(
   "@golden @plan-done-heavy canvas done shelf shows compressed count under done-heavy fixture",
