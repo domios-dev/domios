@@ -77,9 +77,6 @@ function focusApplies(plan: Plan, task: Task, paneId: string, focus: string): bo
   return identityNeedles.some((needle) => haystack.includes(needle));
 }
 
-// Lead identity prefers the pane's own title; falls back to the orchestrator's
-// role label, then the short pane id — so a synthetic/headless lane still reads as
-// a handle ("backend-dev") rather than a bare id.
 function buildAgents(task: Task, paneId: string, panes: Record<string, Pane>): PresenceAgent[] {
   const role = clean(task.taken_by_role);
   const lead: PresenceAgent = {

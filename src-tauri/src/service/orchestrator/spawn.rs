@@ -15,12 +15,10 @@ impl ServiceContext {
         workspace_cwd: &Option<String>,
     ) -> (Option<String>, Option<String>) {
         match (agent_cwd, workspace_cwd) {
-            // No cwd specified — inherit from workspace
             (None, Some(ws_cwd)) => {
                 log::info!("[spawn] agent cwd inherited from workspace: {}", ws_cwd);
                 (Some(ws_cwd.clone()), None)
             }
-            // Both specified and different — warn
             (Some(agent_dir), Some(ws_dir)) if !Self::paths_equal(agent_dir, ws_dir) => {
                 let warning = format!(
                     "Agent cwd '{}' differs from workspace cwd '{}'. \
@@ -30,9 +28,7 @@ impl ServiceContext {
                 log::warn!("[spawn] {}", warning);
                 (Some(agent_dir.clone()), Some(warning))
             }
-            // cwd specified, matches workspace or no workspace cwd — use as-is
             (Some(dir), _) => (Some(dir.clone()), None),
-            // No cwd, no workspace cwd — leave empty
             (None, None) => (None, None),
         }
     }
@@ -79,8 +75,6 @@ impl ServiceContext {
             .or_else(|| params.agent_name.clone())
             .unwrap_or_else(|| agent.clone());
         let model = params.model.clone();
-        // Reject non-spawnable backends / unknown ids cleanly before building the
-        // spec, so the socket-RPC path errors identically to the HTTP path
         self.classify_spawn_target(&agent)?;
         let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params_with_chatbackends(
             self.chatbackend_registry.as_ref(),
@@ -125,8 +119,6 @@ impl ServiceContext {
             .agent
             .clone()
             .unwrap_or_else(|| default_provider.clone());
-        // Classify once: spawnable shell → ChatBackend path, ordinary agent →
-        // PTY path, anything else (non-spawnable backend or unknown id) → clean
         let is_shell = self.classify_spawn_target(&agent_cmd)?;
         if is_shell {
             let role = params.role.clone();
@@ -187,7 +179,6 @@ impl ServiceContext {
             (id, cwd)
         };
 
-        // Resolve cwd: inherit from workspace if not specified, warn if different
         let (resolved_cwd, cwd_warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
         let warning = match (cwd_warning, cli_warning) {
             (Some(a), Some(b)) => Some(format!("{}\n{}", a, b)),
@@ -211,9 +202,6 @@ impl ServiceContext {
                 .unwrap_or(false),
         );
 
-        // 2. Create new tab in the workspace (each agent gets its own tab),
-        // unless the caller asked to claim an existing blank tab in place
-        // (new-session picker's in-place pair spawn).
         let (tab_id, pane_id) = {
             let mut mux = self.mux.write();
             let result = match params.existing_tab_id.as_deref() {
@@ -245,9 +233,6 @@ impl ServiceContext {
                     pane.chat_view = true;
                 }
             }
-            // Set report target for cron agents and remote (mesh) workers. When
-            // a mesh peer is present the target pane id is a pane / alias on that
-            // peer, so persist both halves together.
             if let Some(ref rtid) = params.report_target_pane_id {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.report_target_pane_id = Some(rtid.clone());
@@ -272,7 +257,6 @@ impl ServiceContext {
         };
         self.emit_state_changed();
 
-        // 3. Set role in hierarchy. A cross-mesh worker has no local parent
         // (its hierarchy lives on the origin) — skip_local_worker_role avoids a 500.
         if let Some(ref role_str) = params.role {
             let role = Self::parse_role(role_str)?;
@@ -302,7 +286,6 @@ impl ServiceContext {
             }
         }
 
-        // 3b. Set auto_approve if spawned with skip_permissions
         if params.skip_permissions.unwrap_or(true) {
             let mut mux = self.mux.write();
             if let Some(pane) = mux.get_pane_mut(&pane_id) {
@@ -310,9 +293,6 @@ impl ServiceContext {
             }
         }
 
-        // 4. Rename pane immediately (metadata only), but only when an explicit
-        // title or a real agent name was supplied — otherwise the create_tab-
-        // generated name stands. The raw provider id is never a title.
         if let Some((title, level)) = crate::service::spawn_title::creation_title_override(
             params.title.as_deref(),
             params.agent_name.as_deref(),
@@ -358,8 +338,6 @@ impl ServiceContext {
             }
         }
 
-        // 4d. Structured-prompt server: capability-gated allocate + register +
-        // subscribe via the ONE shared chokepoint (also used by the desktop/CLI
         params.structured_prompt_server = crate::service::structured_prompt::ensure_for_spawn(
             self,
             &agent_cmd,
@@ -367,20 +345,17 @@ impl ServiceContext {
             &params.cwd.clone().unwrap_or_default(),
         );
 
-        // 5. Launch agent in background thread
         let bg_task = role_onboarding_task(
             params.task.as_deref(),
             params.role.as_deref(),
             params.role_profile.as_deref(),
         );
-        // task_aa01c0db: `--role Planner --plan <id>` binds Plan.planner to
         // this pane and tells the Planner who its Orchestrator peer is.
         let bg_task = if params.role_profile.as_deref() == Some("planner") {
             match params.plan_id.as_deref() {
                 Some(plan_id) => {
                     self.bind_planner_spawn(Some(plan_id), Some("planner"), &pane_id);
                     let orch_pane = self.plan_store.owner_of(plan_id).and_then(|o| o.pane_id);
-                    // Mirror the Orchestrator's greeting mechanism: a first
                     // assistant message so a bound Planner never boots silent.
                     let orch_label = orch_pane
                         .as_deref()
@@ -428,9 +403,6 @@ impl ServiceContext {
 
         // (subscriber already started inside ensure_for_spawn above)
 
-        // Report back whatever title actually landed on the pane (explicit,
-        // agent name, or the create_tab-generated name) — never a recomputed
-        // fallback that could reintroduce the provider-id clobber.
         let title = self
             .mux
             .read()

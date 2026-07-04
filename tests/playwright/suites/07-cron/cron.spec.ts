@@ -26,7 +26,6 @@ async function clockMocked(api: ApiClient): Promise<boolean> {
 }
 
 test.beforeEach(async ({ api }) => {
-  // A console started before this branch (or without the env) has a real
   // clock — restart so the mock gate is active.
   if (!(await clockMocked(api))) {
     killDevConsole();
@@ -93,8 +92,6 @@ test("@golden oneshot cron fires via time travel and spawns a real run", async (
       expect(String(e)).toContain("404");
     }
 
-    // The run is real: a hidden agent pane executes the task; the
-    // completion path then auto-deletes the oneshot job. Deletion within
     const gone = await pollUntil(async () => {
       try {
         await api.get<CronJob>(`/crons/${created.id}`);
@@ -117,7 +114,6 @@ test("@golden recurring cron fires exactly per boundary, not per advance call", 
     (w) => w.is_active,
   )!;
   const name = `pw-cron-rec-${Date.now()}`;
-  // Disabled at creation so it never spawns agents — this test asserts
   // pure scheduling math through the live API, not run execution.
   const created = await api.post<CronJob>("/crons", {
     name,

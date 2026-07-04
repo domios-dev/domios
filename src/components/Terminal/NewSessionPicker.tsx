@@ -49,7 +49,6 @@ export function NewSessionPicker({
     [visibleProviders, installMap],
   );
 
-  // Destination workspace: preselected to the CURRENT one (this tab's own
   // workspace) but never persisted — reopening the picker always resets here.
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(workspaceId);
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
@@ -60,11 +59,6 @@ export function NewSessionPicker({
     [workspaces, selectedWorkspaceId],
   );
 
-  // Providers load async, so the very first render's `choice` is the
-  // placeholder default from before any provider existed. Track whether
-  // we've restored the real persisted choice yet — the persist-effect below
-  // must not write until then, or it clobbers the saved choice with that
-  // placeholder before it's ever read back.
   const hasRestoredRef = useRef(false);
 
   useEffect(() => {
@@ -73,9 +67,6 @@ export function NewSessionPicker({
     hasRestoredRef.current = true;
   }, [visibleProviders]);
 
-  // "Your last choice is remembered" (the picker's own copy) means every
-  // edit, not just a completed spawn — persist live so abandoning the picker
-  // mid-edit doesn't silently discard the change.
   useEffect(() => {
     if (!hasRestoredRef.current) return;
     writePersistedNewSessionChoice(choice);
@@ -104,10 +95,6 @@ export function NewSessionPicker({
     if (info?.id) setSelectedWorkspaceId(info.id);
   }, [newWorkspaceName, createWorkspace]);
 
-  // Confirm materializes the FIRST real pane, then retires the virtual picker
-  // tab. The real spawn (single or pair) creates the backend pane/tab and
-  // activates it; dropping the virtual tab afterwards leaves the session tab
-  // sitting where the picker was — the "in-place" transform, minus the husk.
   const finishSpawn = useCallback(async (
     runner: () => Promise<void>,
   ) => {
@@ -152,9 +139,6 @@ export function NewSessionPicker({
     ) {
       return;
     }
-    // The picker is virtual — there is no real tab to reuse. The backend mints
-    // the Orchestrator's own tab (already titled); we just retire the virtual
-    // one afterwards.
     await finishSpawn(async () => {
       await createOrchestrationPair({
         orchestratorAgent: choice.orchestratorProviderId,

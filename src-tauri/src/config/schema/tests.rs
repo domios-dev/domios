@@ -2,7 +2,6 @@ use super::{IntegrationsConfig, MemoryConfig, OrchestrationConfig, UiConfig};
 
 #[test]
 fn ui_config_extra_keys_round_trip_over_json() {
-    // Centralized client settings ride the flatten `extra` map. The frontend
     // talks JSON over IPC, so the JSON round-trip is the load-bearing path.
     let json = r#"{
         "default_new_agent_pane_chat": true,

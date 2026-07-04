@@ -94,8 +94,6 @@ fn parse_full_manifest() {
 
 #[test]
 fn parse_chat_preprocessor_object_carries_match() {
-    // §6: chatPreprocessor authored as an OBJECT declaring its slot. The
-    // host must accept this (not only the bare bool) or the plugin never
     let json = r#"{
             "id": "chat-preprocessor",
             "version": "0.1.0",
@@ -126,7 +124,6 @@ fn parse_chat_preprocessor_bool_still_works() {
 
 #[test]
 fn chat_preprocessor_round_trips_symmetrically() {
-    // Disabled must not silently flip to enabled on re-parse (serialize as
     // bool when no slot, object when a slot is declared).
     let cap = Capabilities::default();
     let v = serde_json::to_value(&cap.chat_preprocessor).unwrap();
@@ -137,7 +134,6 @@ fn chat_preprocessor_round_trips_symmetrically() {
 
 #[test]
 fn parse_chat_backend_bool_is_enabled_not_spawnable() {
-    // Bare `chatBackend: true` registers the backend but it is NOT
     // user-spawnable (a host-/agent-driven pane, e.g. the NPC plugin).
     let json = r#"{
             "id": "codeterm-npc",
@@ -172,7 +168,6 @@ fn parse_chat_backend_object_spawnable() {
 
 #[test]
 fn chat_backend_round_trips_symmetrically() {
-    // Disabled ⇒ bare `false` (never silently re-enabling); spawnable ⇒
     // object (never silently dropping the flag).
     let disabled = Capabilities::default();
     let v = serde_json::to_value(&disabled.chat_backend).unwrap();
@@ -190,7 +185,6 @@ fn chat_backend_round_trips_symmetrically() {
 
 #[test]
 fn parse_agent_doc_field() {
-    // §1.7 agent-doc: codeterm-npc declares `agentDoc`; deny_unknown_fields
     // would reject it without the schema entry → plugin fails to load.
     let json = r#"{
             "id": "codeterm-npc",
@@ -205,8 +199,6 @@ fn parse_agent_doc_field() {
 
 #[test]
 fn parse_config_help_field() {
-    // Self-setup: every plugin declares `configHelp` for the Configure-with-AI
-    // button. deny_unknown_fields would reject it without the schema entry →
     let json = r#"{
             "id": "transcriber",
             "version": "0.3.0",
@@ -223,7 +215,6 @@ fn parse_config_help_field() {
 
 #[test]
 fn parse_snake_case_new_permissions() {
-    // codeterm-npc authors the powerful grants in snake_case — the casing the
     // grant store / snapshot / frontend all use. The manifest must accept it.
     let json = r#"{
             "id": "codeterm-npc",

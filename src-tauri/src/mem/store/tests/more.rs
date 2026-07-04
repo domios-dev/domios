@@ -38,13 +38,11 @@ fn stats_counts_by_kind() {
 fn history_logs_create_update_delete_events() {
     let (conn, blobs) = fresh();
 
-    // create
     let id = with_changed_by("user", || {
         insert(&conn, &mk_item("hist one", "original body"), &blobs)
     })
     .unwrap();
 
-    // update title, body, importance
     with_changed_by("user", || {
         update(
             &conn,
@@ -64,7 +62,6 @@ fn history_logs_create_update_delete_events() {
         .unwrap();
     });
 
-    // delete
     with_changed_by("worker:extract", || {
         delete(&conn, &id).unwrap();
     });
@@ -97,7 +94,6 @@ fn history_merge_records_winner_reference() {
     let a = insert(&conn, &mk_item("dup a", "body a"), &blobs).unwrap();
     let b = insert(&conn, &mk_item("dup b", "body b"), &blobs).unwrap();
 
-    // simulate the merge path — loser `a` collapses into winner `b`
     delete_with_reason(&conn, &a, Some("merge_into=item_b")).unwrap();
     let _ = b;
 
@@ -173,7 +169,6 @@ fn tail_recent_returns_items_newest_first() {
 
     let rows = tail_recent(&conn, None, 10).unwrap();
     assert_eq!(rows.len(), 2);
-    // newest-first
     assert_eq!(rows[0].id, b);
     assert_eq!(rows[1].id, a);
     assert_eq!(rows[0].changed_by, "dreaming:rem");

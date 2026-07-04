@@ -52,9 +52,6 @@ test("@canvas-ux1 schematic task face across scales — title fits, body cut, sc
     test.skip(true, "canvas empty — perf fixture did not inject");
     return;
   }
-  // Two reliable framings: GLANCE (zoom out → whole board) and READING (pan into the
-  // cloud at ~1.6×). Both assert the schematic invariants; the reading view also
-  // checks subtask legibility. Deep-band schematic-ness is unit-covered (TaskCard).
   const checkBand = async (label: string) => {
     const cards = await collectBoxes(page, "canvas-task-card");
     if (cards.length === 0) return;
@@ -77,7 +74,6 @@ test("@canvas-ux1 schematic task face across scales — title fits, body cut, sc
   await page.waitForTimeout(200);
   await checkBand("reading");
 
-  // UX-3 subtask legibility: any subtask satellite in view must read at a comfortable
   // size (the world floor is unit-verified in taskFootprint.test). Logged for evidence.
   const subBoxes = await page.$$eval('[data-testid="canvas-task-card"][data-task-id*="_sub"]', (els) =>
     els.map((el) => { const r = el.getBoundingClientRect(); return { id: el.getAttribute("data-task-id"), w: Math.round(r.width), h: Math.round(r.height) }; }),

@@ -296,7 +296,6 @@ const LEGACY_COLUMNS: &[&str] = &[
     "raw_text",
 ];
 
-// Spend columns post-date the original schema; add them to pre-existing DBs
 // (CREATE TABLE IF NOT EXISTS leaves an already-created table untouched).
 const ADDED_COLUMNS: &[(&str, &str)] = &[
     ("spend_cents", "REAL"),

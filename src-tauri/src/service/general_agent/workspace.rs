@@ -25,7 +25,6 @@ pub fn ensure_general_workspace(
 ) {
     let general_cwd = general_dir().to_string_lossy().to_string();
 
-    // Check by protected flag — the only reliable marker
     let protected_ws: Vec<_> = mux
         .list_workspaces()
         .iter()
@@ -33,7 +32,6 @@ pub fn ensure_general_workspace(
         .cloned()
         .collect();
 
-    // Clean up duplicates: keep first protected, close rest
     if protected_ws.len() > 1 {
         for ws in &protected_ws[1..] {
             mux.set_workspace_protected(&ws.id, false);
@@ -74,8 +72,6 @@ pub fn ensure_general_workspace(
         if let Some(pid) = pane_id {
             let pid = pid.clone();
             let _ = mux.rename_pane(&pid, GENERAL_PANE_TITLE);
-            // The sidebar reads tab.title, which create_tab seeded with a
-            // random scientist name — pin the GA tab to "Main" too so the
             if let Some(tab_id) = mux.find_tab_for_pane(&pid) {
                 let _ = mux.rename_tab(&ws_id, &tab_id, GENERAL_PANE_TITLE);
             }
@@ -98,7 +94,6 @@ pub fn ensure_general_workspace(
         return;
     }
 
-    // Create General workspace
     let ws_info = mux.create_workspace(
         GENERAL_WORKSPACE_NAME.to_string(),
         Some(general_cwd.clone()),
@@ -120,7 +115,6 @@ pub fn ensure_general_workspace(
             }
             mux.register_alias(GENERAL_ALIAS, &pane_id);
             mux.register_alias(MAIN_ALIAS, &pane_id);
-            // Make General the active workspace + focused pane on first create
             let _ = mux.set_active_workspace(&ws_info.id);
             let _ = mux.set_focused_pane(&pane_id);
             log::info!(

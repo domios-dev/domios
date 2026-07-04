@@ -62,7 +62,6 @@ export function devDataDirName(): string {
   return ".codeterm-dev";
 }
 
-// Default data dir is ~/.codeterm-dev. An isolated instance can override via
 // CT_E2E_DATADIR, or CT_E2E_PORT when its config.toml records that port.
 export function readDevToken(): string {
   const dir = devDataDirName();

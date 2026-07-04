@@ -13,9 +13,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { readDevToken } from "./api-client";
 
-// Default targets the canonical dev (7686). An isolated instance (e.g. a worktree
-// running CODETERM_INSTANCE=worlds2 on 7696) sets CT_E2E_PORT to point the harness
-// at it without touching the canonical dev.
 export const E2E_PORT = process.env.CT_E2E_PORT ?? "7686";
 export const API_BASE = `http://127.0.0.1:${E2E_PORT}`;
 export const CDP_PORT = 9223;
@@ -44,7 +41,6 @@ export async function isCdpUp(): Promise<boolean> {
   }
 }
 
-// A bare "bash" resolves to WSL's System32 stub when the runner is launched
 // from PowerShell — build.sh then dies in a WSL world. Pin git-bash.
 const BASH_EXE =
   process.platform === "win32"
@@ -65,11 +61,7 @@ function bash(args: string[], timeoutMs: number): void {
     env: {
       ...process.env,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
-      // Harness-only terminal test mode: enables xterm screenReaderMode
-      // (the .xterm-accessibility DOM the suites read) and skips the
       VITE_CODETERM_TEST: "1",
-      // Debug builds run cron on a MockClock so 07-cron can time-travel
-      // via /api/debug/clock. Harmless elsewhere: only cron reads it, and
       CODETERM_TEST_CLOCK: "1",
     },
   });
@@ -77,8 +69,6 @@ function bash(args: string[], timeoutMs: number): void {
 
 export function killDevConsole(): void {
   bash(["build.sh", "kill"], 60_000);
-  // build.sh kill only targets the 7686 listener; its vite child survives
-  // holding port 1420 and orphan dev binaries keep the exe locked — both
   killDevLeftovers();
 }
 
@@ -122,7 +112,6 @@ export async function ensureDevConsole(): Promise<void> {
   try {
     bash(["build.sh", "dev", "--wait"], 600_000);
   } catch {
-    // First start attempt can lose to crash leftovers (orphan dev exe
     // locking the binary, vite squatting 1420) — sweep and retry once.
     killDevLeftovers();
     bash(["build.sh", "dev", "--wait"], 600_000);
@@ -146,10 +135,6 @@ export interface UiSession {
   page: Page;
 }
 
-// A fresh context has no service-worker controller yet. serviceWorkerRegistration.ts
-// no longer reloads on that first-ever claim (only on a genuine update of an
-// already-controlled page) — but settle past the claim here anyway so a test's
-// FIRST real interaction never races it, belt-and-suspenders against regressions.
 async function waitForShellOnce(page: Page): Promise<void> {
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
   await page

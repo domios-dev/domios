@@ -181,7 +181,6 @@ test("a cascade renders as one collapsed group entry, distinct from singles", as
   assert(groupEls.length === 1, `expected 1 group entry, got ${groupEls.length}`);
   const restore = host.querySelector('[data-testid="recently-closed-group-restore"]');
   assert(restore?.textContent?.includes("Orchestrator"), `group label: ${restore?.textContent}`);
-  // collapsed by default — child panes not rendered
   assert(
     host.querySelectorAll('[data-testid="recently-closed-item"]').length === 0,
     "children hidden until the group is expanded",

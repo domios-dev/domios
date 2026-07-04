@@ -112,8 +112,6 @@ impl Default for ApiConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            // 0.0.0.0 by default because mesh peers connect directly to this
-            // host's Tailscale/LAN IP (transport.rs builds http://<ip>:<port>) —
             host: "0.0.0.0".to_string(),
             #[cfg(debug_assertions)]
             port: std::env::var("CODETERM_API_PORT")
@@ -156,7 +154,6 @@ pub struct ThemeConfig {
 
 impl Default for ThemeConfig {
     fn default() -> Self {
-        // GitHub Dark as default
         Self {
             name: "github-dark".to_string(),
             background: "#0d1117".to_string(),

@@ -43,7 +43,6 @@ pub fn insert_entity(conn: &Connection, e: &Entity) -> Result<(), String> {
     )
     .map_err(|e| format!("insert entity: {}", e))?;
 
-    // Embed the entity (id + type + properties) into mem_vectors so unified `mem search` can find it semantically. Best-effort — embedding
     // failures log a warning but don't fail the upsert.
     let merged_props: String = conn
         .query_row(
@@ -90,7 +89,6 @@ pub fn insert_relation(conn: &Connection, r: &Relation) -> Result<(), String> {
 pub fn upsert_relation(conn: &Connection, r: &Relation) -> Result<(), String> {
     let now = chrono::Utc::now().to_rfc3339();
 
-    // Close any open duplicate
     conn.execute(
         r#"UPDATE relations
            SET valid_to = ?1
@@ -100,7 +98,6 @@ pub fn upsert_relation(conn: &Connection, r: &Relation) -> Result<(), String> {
     )
     .map_err(|e| format!("close open relation: {}", e))?;
 
-    // Insert new open relation
     insert_relation(conn, r)
 }
 
@@ -392,7 +389,6 @@ pub fn shortest_path(
             }
             visited.insert(neighbor.clone(), (node.clone(), rel));
             if neighbor == to {
-                // Reconstruct path
                 let mut path = Vec::new();
                 let mut cur = to.to_string();
                 while let Some((prev, via)) = visited.remove(&cur) {

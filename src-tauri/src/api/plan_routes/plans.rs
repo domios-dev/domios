@@ -298,7 +298,6 @@ pub async fn mode_set(
     let mode = serde_json::from_value::<PlanMode>(serde_json::Value::String(body.mode))
         .map_err(|_| plan_err(PlanError::BadMode))?;
     let now = epoch_ms();
-    // Planning<->approved advances planner state (mirrors mode); execution/complete
     // are lifecycle. Keeps the single execution-task gate authoritative.
     match mode {
         PlanMode::Approved => state

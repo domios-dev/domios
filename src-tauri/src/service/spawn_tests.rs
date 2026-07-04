@@ -500,7 +500,6 @@ fn from_agent_params_carries_model_into_spec() {
 
 #[test]
 fn to_agent_params_carries_model_as_dedicated_field() {
-    // Model travels as a dedicated `model` field through SpawnAgentParams, not as `--model X` baked into args. `build_agent_command` then asks the
     // provider via `model_launch_args` to render the correct flag syntax (`-m X` for codex/opencode, `--model X` for claude).
     let mut spec = agent_spec("claude");
     if let PaneCommand::Agent(ref mut a) = spec.command {
@@ -543,7 +542,6 @@ fn to_agent_params_fails_on_shell_spec() {
 
 #[test]
 fn can_spawn_none_round_trips_through_params() {
-    // Caller didn't pass --can-spawn → spec.can_spawn=None → params.can_spawn=None. This tells set_pane_role to keep the role's default
     // (Orchestrator=true, Worker=false).
     let mut spec = agent_spec("claude");
     if let PaneCommand::Agent(ref mut a) = spec.command {
@@ -567,7 +565,6 @@ fn can_spawn_some_false_explicitly_overrides() {
 
 #[test]
 fn from_agent_params_preserves_can_spawn_option() {
-    // CLI/REST/socket pass `can_spawn: Option<bool>` straight through — None means "don't override the role's default", Some(b) means "user said
     // --can-spawn=b explicitly". The spec must NOT collapse None → Some(false) (the pre-fix-#42 behavior that clobbered Orchestrator default to false on every spawn).
     let mut p = SpawnAgentParams {
         agent: Some("claude".into()),
@@ -761,7 +758,6 @@ fn chat_default_on_hidden_agent_stays_terminal() {
 
 #[test]
 fn chatbackend_pane_command_deserializes() {
-    // The spawn API contract for a chatBackend pane: kind "chat_backend" with a
     // plugin id and opaque config (B1.3 #1/#6).
     let json = r#"{"kind":"chat_backend","plugin_id":"local-shell","config":{"model":"qwen"}}"#;
     let cmd: PaneCommand = serde_json::from_str(json).unwrap();
@@ -885,8 +881,6 @@ impl ChatBackendProvider for BackendOnlyShell {
 
 #[test]
 fn spawn_agent_params_for_non_spawnable_chatbackend_does_not_route_to_chatbackend() {
-    // A registered-but-not-spawnable backend (bare `chatBackend: true`, e.g. the
-    // NPC plugin) must NOT be opened as a ChatBackend pane. It falls through to
     let registry = crate::chatbackend::ChatBackendRegistry::new();
     registry.register("npc", Arc::new(BackendOnlyShell));
 

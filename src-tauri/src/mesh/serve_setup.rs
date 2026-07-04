@@ -51,8 +51,6 @@ pub fn probe_serve_status(api_port: u16) -> ServeStatus {
         .as_ref()
         .and_then(|v| parse_serve_target(v, api_port))
         .map(|(host, port)| format_serve_url(&host, port));
-    // The CLI `status --json` returns the GUI-bridge error string (null DNS) when
-    // the daemon can't reach the macOS GUI shim; fall back to the serve-config's
     let self_dns = super::discovery::tailscale_self_dns_name()
         .or_else(|| cfg.as_ref().and_then(serve_config_self_dns));
     ServeStatus {
@@ -92,7 +90,6 @@ fn format_serve_url(host: &str, port: u16) -> String {
 }
 
 fn serve_status_json() -> Option<serde_json::Value> {
-    // macOS: read passively via the LocalAPI. The only CLI candidate here is the
     // app-bundle shim, which LAUNCHES the GUI app — we must never spawn it.
     #[cfg(target_os = "macos")]
     {
@@ -384,8 +381,6 @@ pub fn enable_web_serve(api_port: u16, https_port: Option<u16>) -> ServeResult {
         return ServeResult::err("would-clobber-codeterm-port", primary);
     }
 
-    // (4) macOS provisions a cert BEFORE serve; non-fatal if it fails (the cert
-    //     may already exist, or serve will surface the real error). cfg-gated so
     #[cfg(target_os = "macos")]
     {
         if let Some(dns) = super::discovery::tailscale_self_dns_name() {

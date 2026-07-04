@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 
 use crate::plan::Plan;
 
-// Shared one-line pointer for heartbeat/worker charter. Never inline skill
 // bodies into prompts — the registry stays a pointer, content is fetched on demand.
 pub const PLAN_SKILL_REGISTRY_POINTER: &str =
     "Plan skills registry: `codeterm plan skill list` to browse, `codeterm plan skill show <slug>` to read one — never inline skill bodies.";

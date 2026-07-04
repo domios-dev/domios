@@ -599,7 +599,6 @@ fn sfield<'a>(v: &'a serde_json::Value, key: &str) -> &'a str {
 }
 
 fn strip_separators(s: &str) -> String {
-    // Apostrophes get inserted by `deunicode` for Cyrillic soft signs (Дальтон → Dal'ton); strip them so the compact match still hits a plain
     // "Dalton" tab. Same for whitespace / dash / underscore which commonly differ between user input and stored titles.
     s.chars()
         .filter(|c| !c.is_whitespace() && *c != '-' && *c != '_' && *c != '\'')
@@ -695,7 +694,6 @@ pub fn render_pane_tree(panes: &[serde_json::Value]) -> String {
         description: String,
         parent: Option<String>,
     }
-    // Group by workspace. BTreeMap keeps a stable (name, id) ordering so the output doesn't reshuffle between calls (panes arrive
     // HashMap-unordered).
     let mut groups: std::collections::BTreeMap<(String, String), Vec<Row>> =
         std::collections::BTreeMap::new();

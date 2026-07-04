@@ -66,7 +66,6 @@ mod tests {
         queue.send(b"hello".to_vec()).unwrap();
         queue.send(b" world".to_vec()).unwrap();
 
-        // Drop sender to let writer thread finish
         drop(queue);
         std::thread::sleep(std::time::Duration::from_millis(50));
 
@@ -99,11 +98,9 @@ mod tests {
             data: collected.clone(),
         };
         let (sender, _receiver) = mpsc::channel::<WriteRequest>();
-        // Drop receiver immediately to simulate closed channel
         let queue = WriteQueue { sender };
         drop(_receiver);
 
-        // Give the dropped receiver a moment
         std::thread::sleep(std::time::Duration::from_millis(10));
 
         let result = queue.send(b"test".to_vec());

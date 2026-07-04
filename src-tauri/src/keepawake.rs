@@ -425,7 +425,6 @@ pub fn start(
     gnome_policy: Option<bool>,
     system_block: Option<bool>,
 ) -> Result<KeepAwakeStatus, String> {
-    // Stop any existing session first. Don't emit an intermediate "off" state — a `start` call is a single atomic transition from the frontend's
     // view.
     stop_inner(state);
 
@@ -762,7 +761,6 @@ mod platform {
                 }
                 SetThreadExecutionState(flags);
 
-                // Block until stop signal or timeout
                 let stopped_early = match duration_secs {
                     Some(secs) => stop_rx
                         .recv_timeout(std::time::Duration::from_secs(secs))
@@ -770,7 +768,6 @@ mod platform {
                     None => stop_rx.recv().is_ok(),
                 };
 
-                // Reset execution state
                 SetThreadExecutionState(ES_CONTINUOUS);
 
                 // On natural expiry, clear shared state only if still owned; a rapid restart may replace the owner.
@@ -809,7 +806,6 @@ mod platform {
         app: AppHandle,
         session_id: u64,
     ) -> Result<(), String> {
-        // Spawn eagerly so failure surfaces as an Err before we record any session state. The shell wrapper owns the real caffeinate process and
         // terminates it if CodeTerm disappears and launchd reparents the wrapper to PID 1.
         let (child, caffeinate_pid) = spawn_keepawake_child(display, session_id)?;
         let child_pid = child.id();
@@ -833,12 +829,9 @@ mod platform {
                 };
 
                 if let Some(mut c) = child_for_thread.lock().take() {
-                    // SIGTERM (not Child::kill, which is SIGKILL) so the wrapper's trap runs and
-                    // reaps its caffeinate. SIGKILL bypasses the trap, orphaning caffeinate to PID 1
                     let _ = terminate_pid(c.id());
                     let _ = c.wait();
                 }
-                // Safety net: kill the caffeinate directly too, in case the wrapper trap was missed
                 // (pid-file race) or it had already been reparented away from the wrapper.
                 if let Some(pid) = caffeinate_pid {
                     let _ = terminate_pid(pid);
@@ -854,7 +847,6 @@ mod platform {
             })
             .map(|_| ())
             .map_err(|e| {
-                // Thread spawn failed after caffeinate was already running — reap it here so we don't orphan the child process. SIGTERM (not SIGKILL) so
                 // the wrapper trap reaps its caffeinate; then kill the caffeinate directly as a safety net.
                 if let Some(mut c) = child_slot.lock().take() {
                     let _ = terminate_pid(c.id());

@@ -62,7 +62,6 @@ impl NotificationStore {
 
         self.notifications.push(notification);
 
-        // Evict oldest if over capacity
         while self.notifications.len() > self.max_notifications {
             self.notifications.remove(0);
         }
@@ -166,7 +165,6 @@ mod tests {
         store.add("C".into(), None, NotificationLevel::Info, None, None);
         store.add("D".into(), None, NotificationLevel::Info, None, None);
         assert_eq!(store.list(false).len(), 3);
-        // A should be evicted, B/C/D remain
         let titles: Vec<&str> = store.list(false).iter().map(|n| n.title.as_str()).collect();
         assert_eq!(titles, vec!["B", "C", "D"]);
     }

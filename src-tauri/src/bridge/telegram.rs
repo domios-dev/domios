@@ -101,7 +101,6 @@ impl TelegramService {
         downloads_dir: &std::path::Path,
         filename_hint: Option<&str>,
     ) -> Option<String> {
-        // Step 1: getFile to get file_path
         let resp = self
             .client
             .post(&self.api_url("getFile"))
@@ -113,7 +112,6 @@ impl TelegramService {
         let body: serde_json::Value = resp.json().await.ok()?;
         let tg_path = body.get("result")?.get("file_path")?.as_str()?;
 
-        // Step 2: download from <api_base>/file/bot<token>/<file_path>
         let url = format!(
             "{}/file/bot{}/{}",
             self.api_base.trim_end_matches('/'),
@@ -137,7 +135,6 @@ impl TelegramService {
         }
         let bytes = resp.bytes().await.ok()?;
 
-        // Determine local filename
         let ext = std::path::Path::new(tg_path)
             .extension()
             .map(|e| format!(".{}", e.to_string_lossy()))
@@ -158,7 +155,6 @@ impl TelegramService {
             local_path.display()
         );
 
-        // Evict old files if total size exceeds limit
         evict_downloads(downloads_dir);
 
         Some(local_path.to_string_lossy().to_string())
@@ -182,7 +178,6 @@ impl TelegramService {
                 mime_type: Some("image/jpeg".into()),
             });
         }
-        // Document
         if let Some(doc) = msg.get("document") {
             let file_id = doc.get("file_id")?.as_str()?;
             let filename = doc
@@ -203,7 +198,6 @@ impl TelegramService {
                 mime_type: mime,
             });
         }
-        // Voice
         if let Some(voice) = msg.get("voice") {
             let file_id = voice.get("file_id")?.as_str()?;
             let mime = voice
@@ -218,7 +212,6 @@ impl TelegramService {
                 mime_type: mime,
             });
         }
-        // Video
         if let Some(video) = msg.get("video") {
             let file_id = video.get("file_id")?.as_str()?;
             let mime = video
@@ -254,7 +247,6 @@ impl TelegramService {
                 mime_type: mime,
             });
         }
-        // Sticker
         if let Some(sticker) = msg.get("sticker") {
             let file_id = sticker.get("file_id")?.as_str()?;
             let path = self.download_file(file_id, downloads_dir, None).await?;
@@ -289,7 +281,6 @@ impl TelegramService {
         let mut error_count: u32 = 0;
         let mut poll_count: u64 = 0;
 
-        // Create downloads directory for received media
         let downloads_dir = crate::service::general_agent::secrets_dir()
             .parent()
             .unwrap_or(std::path::Path::new("."))
@@ -425,7 +416,6 @@ impl TelegramService {
                         continue;
                     }
 
-                    // Answer callback to dismiss loading indicator
                     let _ = self
                         .client
                         .post(&self.api_url("answerCallbackQuery"))
@@ -449,7 +439,6 @@ impl TelegramService {
                     continue;
                 }
 
-                // Handle regular message
                 let Some(msg) = update.get("message") else {
                     continue;
                 };
@@ -484,13 +473,11 @@ impl TelegramService {
                     .unwrap_or("")
                     .to_string();
 
-                // Extract media attachments
                 let mut attachments = Vec::new();
                 if let Some(attachment) = self.extract_attachment(msg, &downloads_dir).await {
                     attachments.push(attachment);
                 }
 
-                // Skip if no text and no attachments
                 if text.is_empty() && attachments.is_empty() {
                     continue;
                 }

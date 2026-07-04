@@ -75,7 +75,6 @@ console.log("\n--- positive: update prompt, Skip is option 2 ---\n");
   eq(r?.state, "update_prompt", "state is update_prompt");
   assert((r?.confidence ?? 0) >= GLOBAL_THRESHOLD, "confidence >= threshold", `conf=${r?.confidence}`);
   eq(r?.action?.keys, ["down", "enter"], "navigates one down to Skip, then enter");
-  // The cardinal sin guard: a blind enter (or no down) would accept the default
   // highlight "Update now". The action must move OFF option 1 before enter.
   assert(
     Array.isArray(r?.action?.keys) && r.action.keys.indexOf("down") !== -1,
@@ -149,7 +148,6 @@ console.log("\n--- picker guard: model picker must not classify as rate_limited 
 
 console.log("\n--- ensemble: a single weak signal must NOT reach threshold ---\n");
 {
-  // "Update available" + a version arrow, but NO update/skip menu → below
   // threshold (this is the diff-and-shell npm-notice shape, isolated).
   const weak = "Some log line: New version available! 1.0.0 -> 1.1.0\nnothing actionable here\n";
   const r = classify(plugin, weak);
@@ -162,7 +160,6 @@ console.log("\n--- ensemble: a single weak signal must NOT reach threshold ---\n
 }
 
 console.log("\n--- CRLF robustness: Windows pane output (\\r\\n) classifies identically to LF ---\n");
-// Real Windows agent panes emit CRLF; the classifier must normalize internally
 // so the verdict (state + confidence + actions) is byte-identical to the LF read.
 const toCrlf = (s: string) => s.replace(/\r\n?/g, "\n").replace(/\n/g, "\r\n");
 for (const f of ["update-prompt-skip-option2.txt", "update-prompt-skip-option3.txt", "auth-login.txt", "rate-limit-try-again.txt"]) {

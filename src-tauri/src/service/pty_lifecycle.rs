@@ -155,8 +155,6 @@ async fn backend_read_loop(
                     }
                 }
 
-                // Answer CSI 6n only for hidden/headless panes. Visible panes let
-                // xterm answer with the REAL cursor position — answering here with a
                 if data.windows(4).any(|w| w == b"\x1b[6n") {
                     let is_hidden = {
                         let mux = svc.mux.write();
@@ -250,8 +248,6 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
             }
         }
 
-        // Worker-death watchdog (parallel to the cron fallback): a hierarchy
-        // worker whose PTY dies WITHOUT having emitted a report leaves its
         let watchdog = {
             let mux = svc.mux.read();
             let store = svc.report_store.lock();

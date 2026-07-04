@@ -254,7 +254,6 @@ mod tests {
         assert_eq!(read_milestones(&path).unwrap(), vec![valid]);
     }
 
-    // Mirrors the live incident: a torn whitespace-only line + a truncated line
     // (the strides.jsonl.corrupt.bak shape) must not drop the surviving records.
     #[test]
     fn corrupt_bak_shape_recovers_intact_records() {

@@ -92,9 +92,6 @@ function walk(dir: string, out: string[]): string[] {
   return out;
 }
 
-// Blank out import statements, bare re-exports, and the IS_WEB definition
-// itself (all non-decision mentions) while preserving newlines, so scanned
-// line numbers stay stable and comparable against INVENTORY.
 function redact(content: string): string {
   const blank = (m: string) => m.replace(/[^\n]/g, " ");
   let redacted = content.replace(/import\b[^;]*;/g, blank);

@@ -56,7 +56,6 @@ pub(super) fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
             "move planning-only policy into spec/plan sections or mem; keep heartbeat for active lanes",
         ));
     }
-    // Planning-kind tasks are the planning workflow itself, not premature execution work,
     // so they never trip the approval gate; only non-planning tasks do.
     let non_planning_tasks = tasks
         .iter()
@@ -88,7 +87,6 @@ pub(super) fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
     findings
 }
 
-// Mirror of `Plan::execution_tasks_unlocked` over raw JSON: planning_state is
 // authoritative; an approved/execution lifecycle mode bridges pre-state plans.
 fn execution_tasks_unlocked(plan: &Value) -> bool {
     let mode = plan
@@ -292,10 +290,6 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
             fix: "update the task with body, section links, criteria, test plan, and correctness before dispatch".into(),
         });
     }
-    // Vague test plan: a present-but-descriptive plan (too short, or naming no
-    // runnable command) lets non-working solutions slip past gates. Structural
-    // predicate only — planning-kind tasks are exempt. A wholly-missing test plan
-    // is already reported by task_quality_gap above.
     if !task_kind_is_planning(task) {
         if let Some(test_plan) = task
             .get("test_plan")
@@ -315,7 +309,6 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
             }
         }
     }
-    // executor_role is advisory for execution-kind tasks; planning-kind tasks are exempt
     if !task_kind_is_planning(task)
         && task
             .get("executor_role")
@@ -373,10 +366,6 @@ fn strip_sidecar_frontmatter(text: &str) -> &str {
     rest[end + "\n---".len()..].trim_start_matches('\n')
 }
 
-// task_aa01c0db: an Orchestrator (owner.pane_id set) works with a Planner
-// peer. Warning day-to-day; `assert_quality_ready` escalates this specific
-// kind to an error at approval time. Silent when no orchestrator is bound
-// yet, or once `planner` is a Pane or Waived ref.
 fn inspect_planner_pairing(path: &Path, plan: &Value) -> Option<Finding> {
     let has_orchestrator = plan
         .get("owner")

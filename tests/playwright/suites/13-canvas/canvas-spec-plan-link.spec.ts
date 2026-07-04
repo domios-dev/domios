@@ -50,7 +50,6 @@ test("@golden @canvas-spec-plan-link one calm spec→plan link, no per-section d
   }
   await expect(page.locator(PLAN_SEL).first()).toBeVisible({ timeout: 30_000 });
 
-  // Wide glance: both the spec node and the plan node (and the single connector
   // between them) fully in frame. The spec sits triptych-left of the plan.
   await setCanvasScale(page, 0.28);
   await page.waitForTimeout(300);
@@ -70,8 +69,6 @@ test("@golden @canvas-spec-plan-link one calm spec→plan link, no per-section d
   });
   expect(dots, "spec→plan link has no end dots").toBe(0);
 
-  // ── Reading bands: connector stays single + calm; inline "From spec" chips are
-  // the per-section provenance, and there is zero card overflow. ──
   const reach = async (target: string, scales: number[]) => {
     let band = await page.getAttribute(PLAN_SEL, "data-world").catch(() => null);
     for (const s of scales) {

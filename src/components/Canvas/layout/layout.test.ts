@@ -97,7 +97,6 @@ function samplePlans(): Plan[] {
   return [p1, p2, p3];
 }
 
-// ── determinism ───────────────────────────────────────────────────
 console.log("determinism:");
 {
   const a = layoutWorkspace(samplePlans());
@@ -109,7 +108,6 @@ console.log("determinism:");
   ok("bounds identical", JSON.stringify(a.bounds) === JSON.stringify(b.bounds));
 }
 
-// ── no overlap ────────────────────────────────────────────────────
 console.log("\nno overlap:");
 {
   const layout = layoutWorkspace(samplePlans());
@@ -121,7 +119,6 @@ console.log("\nno overlap:");
   }
   ok("no two frames overlap", !frameOverlap);
 
-  // tasks/spec/plan/bubble nodes inside one frame never overlap each other. The
   // cluster background intentionally sits UNDER its bubbles, so exclude it.
   const frame = layout.frames.find((f) => f.planId === "p1")!;
   const solid = frame.nodes.filter((n) => n.kind !== "cluster");
@@ -142,7 +139,6 @@ console.log("\nno overlap:");
   ok("orchestrator groups do not overlap", !groupOverlap);
 }
 
-// ── owner grouping ────────────────────────────────────────────────
 console.log("\ngrouping:");
 {
   const layout = layoutWorkspace(samplePlans());
@@ -158,7 +154,6 @@ console.log("\ngrouping:");
   ok("frames nested in their owner group", inside);
 }
 
-// ── section-row anchors ───────────────────────────────────────────
 console.log("\nsection-row anchors:");
 {
   const layout = layoutWorkspace(samplePlans());
@@ -169,7 +164,6 @@ console.log("\nsection-row anchors:");
   const a1 = frame.anchors.get("s1")!;
   ok("anchor on plan node right edge", Math.abs(a1.x - planRight) <= DEFAULT_CANVAS_SETTINGS.anchorInset + 1);
   ok("anchor y within plan node bounds", a1.y >= planNode.box.y && a1.y <= planNode.box.y + planNode.box.height);
-  // Rail outputs are evenly distributed (§23.1) inside the plan's OWN height: s1a
   // sits one rail-span below s1 (worlds-v3 §1: plan rows use plan height).
   const a1a = frame.anchors.get("s1a")!;
   const railSpan = (DEFAULT_CANVAS_SETTINGS.planHeight - DEFAULT_CANVAS_SETTINGS.planHeaderHeight) / 3;
@@ -184,7 +178,6 @@ console.log("\nsection-row anchors:");
   ok("task sits in the disk right of the plan", t1Node.box.x >= planNode.box.x + planNode.box.width - 1);
 }
 
-// ── SEPARATE spec + plan nodes (§24.3): three connected columns ──
 console.log("\nspec + plan nodes:");
 {
   const layout = layoutWorkspace(samplePlans());
@@ -192,10 +185,8 @@ console.log("\nspec + plan nodes:");
   const planNodes = frame.nodes.filter((n) => n.kind === "plan");
   const specNodes = frame.nodes.filter((n) => n.kind === "spec");
   ok("exactly one plan node + one spec node", planNodes.length === 1 && specNodes.length === 1);
-  // Spec ⊥ Plan: exactly ONE calm spec→plan link (per-section provenance is inline
   // "From spec" chips, not a wire fan).
   ok("exactly one spec→plan link", frame.edges.filter((e) => e.kind === "spec-plan").length === 1);
-  // worlds-v3 §1 size hierarchy: plan is the focal mass (biggest in both axes),
   // spec a smaller doc node; heights now differ.
   ok("plan node fixed height (planHeight)", planNodes[0].box.height === DEFAULT_CANVAS_SETTINGS.planHeight);
   ok("spec node fixed height + width", specNodes[0].box.height === DEFAULT_CANVAS_SETTINGS.specNodeH && specNodes[0].box.width === DEFAULT_CANVAS_SETTINGS.specNodeW);
@@ -207,7 +198,6 @@ console.log("\nspec + plan nodes:");
   ok("tasks sit right of the plan node", tasks.every((t) => t.box.x >= planRight - 1));
 }
 
-// ── standalone / inbox plan (no sections) ─────────────────────────
 console.log("\nstandalone plan:");
 {
   const inbox = plan("inbox", "orchA", 10, [], [task("ti", [])]);
@@ -219,12 +209,10 @@ console.log("\nstandalone plan:");
   ok("no anchors without sections", frame.anchors.size === 0);
 }
 
-// ── steps are INTERIOR to the task cell (§23.2 / §16.9) ───────────
 console.log("\ninterior steps:");
 {
   const layout = layoutWorkspace(samplePlans());
   const frame = layout.frames.find((f) => f.planId === "p1")!;
-  // Milestones no longer become separate canvas nodes — they render inside the
   // Document task card as step cards (Thread & Coil interior). No cluster chrome.
   ok("no separate milestone nodes (steps are interior)", !frame.nodes.some((n) => n.kind === "milestone"));
   ok("no cluster nodes / task-cluster edges", !frame.nodes.some((n) => n.kind === "cluster") && !frame.edges.some((e) => e.kind === "task-cluster"));
@@ -236,7 +224,6 @@ console.log("\ninterior steps:");
   ok("uniform grid cell height", withSteps.box.height === S.zoneTaskH && noSteps.box.height === S.zoneTaskH);
 }
 
-// ── subtasks (parent_task_id) ─────────────────────────────────────
 console.log("\nsubtasks:");
 {
   const parent = task("tp", ["s"]);
@@ -256,7 +243,6 @@ console.log("\nsubtasks:");
   ok("subtasks placed in same section zone", frame.zones.some((z) => z.sectionId === "s" && z.box));
 }
 
-// ── focus selection ───────────────────────────────────────────────
 console.log("\nfocus:");
 {
   const layout = layoutWorkspace(samplePlans());
@@ -276,7 +262,6 @@ console.log("\nfocus:");
   ok("empty layout → null plan", empty.planId === null);
 }
 
-// ── archived filtered ─────────────────────────────────────────────
 console.log("\nfiltering:");
 {
   const plans = samplePlans();
@@ -285,7 +270,6 @@ console.log("\nfiltering:");
   ok("archived plan excluded", !layout.frames.some((f) => f.planId === "p1"));
 }
 
-// ── virtualization ────────────────────────────────────────────────
 console.log("\nvirtualization:");
 {
   const layout = layoutWorkspace(samplePlans());

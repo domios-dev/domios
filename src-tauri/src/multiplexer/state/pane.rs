@@ -111,7 +111,6 @@ impl MultiplexerState {
     /// nothing" UX bug). Callers in service-layer close paths should compare
     /// pre/post focus and emit `pane-focused` if it actually changed.
     pub fn fallback_focus_to_general(&mut self) -> Option<String> {
-        // Hard-coded alias mirrors `service::general_agent::GENERAL_ALIAS`. Kept as a string literal to avoid pulling a service-layer constant into
         // the state layer; if the alias name ever changes, update both.
         let target = self.resolve_pane_id("general")?;
         self.focused_pane_id = Some(target.clone());
@@ -250,7 +249,6 @@ impl MultiplexerState {
             self.fallback_focus_to_general();
         }
 
-        // Children were already recorded as part of the cascade group in
         // close_pane; here we only tear them down.
         for cid in child_ids {
             if let Ok(child_ptys) = self.close_pane_inner(&cid) {

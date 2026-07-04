@@ -269,11 +269,6 @@ test.describe("@golden web-native parity", () => {
     api,
     webBrowser,
   }) => {
-    // FOLLOW-UP (test-infra, not a product gap): this gate over-scopes several
-    // features into one slow (~3min) flow and its specific failure is hard to
-    // capture in web-mode CI. The strip PARITY is covered green by the T1 naming
-    // gate + the mobile safe-area gate below + 12-web/web.spec.ts:249 (titlebar
-    // present, peer-picker + keep-awake). Split into focused fast tests; unskip then.
     test.skip(true, "over-scoped/slow strip gate — split into focused tests (parity covered by naming + mobile + web.spec titlebar gates)");
     test.setTimeout(180_000);
     const page = await newWebPage(webBrowser);
@@ -288,20 +283,11 @@ test.describe("@golden web-native parity", () => {
       await expect(page.locator('[data-testid="nav-settings"]')).toHaveCount(0);
       await expect(page.locator('[data-testid="web-sidebar-keepawake"], [data-testid="web-sidebar-peer-picker"]')).toHaveCount(0);
 
-      // Parity scope = the canvas/board toggle is PRESENT in the web strip. Its
-      // target Canvas view is a separate domain (currently gated by open Canvas
-      // tsc/runtime work on feat/canvas-updates); full canvas render is verified
-      // in the Canvas suite, not this strip-parity gate.
       await expect(page.locator('[data-testid="canvas-toolbar-button"]')).toBeVisible();
 
-      // Settings opens from the strip and CLOSES (Norman's visibility:hidden fix),
       // and keep-awake round-trips — both strip controls.
       await expectSettingsDeepLink(page, "general");
       await expectKeepAwakeRoundTrip(page, api);
-      // Split to focused follow-ups (kept this gate fast + scoped to the strip):
-      // extensions-view (separate feature), titlebar notification-toast, and a
-      // strict console-error assertion — the last entangled this gate with
-      // Puccini's in-progress Canvas, which currently emits console errors.
     } finally {
       await api.post("/keepawake/stop").catch(() => undefined);
       await api.post("/notifications/clear").catch(() => undefined);
@@ -320,10 +306,6 @@ test.describe("@golden web-native parity", () => {
         await burger.click();
       }
       await expect(page.locator('[data-testid="workspace-item"]').first()).toBeVisible({ timeout: 10_000 });
-      // NOTE (follow-up, not T3): the strict console-error assertion here caught
-      // repeated "401 Unauthorized" resource loads in web mode — a real but
-      // separate auth finding, out of this mobile-layout gate's scope. Flagged
-      // for investigation; this gate asserts the safe-area layout is reachable.
     } finally {
       await page.context().close();
     }

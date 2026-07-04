@@ -1,7 +1,3 @@
-// Per-node bitmap cache. Each node is rasterized ONCE to an offscreen canvas at its
-// on-screen logical size × dpr (crisp text) via its painter, keyed by a stable content
-// signature. Pan re-blits cached bitmaps (cheap); a node re-rasterizes only when its
-// signature changes or — at gesture-end resharpen — its on-screen size drifts.
 
 import type { HitRegion } from "./drawCard";
 
@@ -43,7 +39,6 @@ export class NodeBitmapCache {
     return entry;
   }
 
-  // Blit-loop path: render only when missing / signature / dpr changed — never on size
   // alone (a zoom gesture scale-blits the existing bitmap, staying smooth).
   ensure(id: string, signature: string, w: number, h: number, dpr: number, paint: PaintFn): CachedBitmap {
     const cur = this.map.get(id);
@@ -51,7 +46,6 @@ export class NodeBitmapCache {
     return this.render(id, signature, w, h, dpr, paint);
   }
 
-  // Gesture-settle path: also re-rasterize when the on-screen size drifted past the
   // tolerance, restoring 1:1 crispness after a continuous zoom.
   resharpen(id: string, signature: string, w: number, h: number, dpr: number, paint: PaintFn): CachedBitmap {
     const cur = this.map.get(id);

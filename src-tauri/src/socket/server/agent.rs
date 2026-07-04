@@ -81,7 +81,6 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("kind"))
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
-            // Optional structured fields (status/branch/sha/...) ride alongside
             // the freeform message; absent keys deserialize to None.
             let details = params
                 .as_ref()

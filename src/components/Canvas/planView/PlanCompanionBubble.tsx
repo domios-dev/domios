@@ -14,7 +14,6 @@ interface PlanCompanionBubbleProps {
   planId?: string;
   orchestratorPaneId?: string;
   onOpenPane?: (paneId: string) => void;
-  // Injected by the composition root so this module stays free of the xterm
   // chain; production wires the real PaneSessionChat (no forked chat).
   renderChat: (args: { paneId: string; chatBackend: boolean }) => ReactNode;
 }

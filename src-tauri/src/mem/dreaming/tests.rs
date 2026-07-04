@@ -62,7 +62,6 @@ async fn deep_phase_expires_old_unaccessed_conversations() {
         })
         .unwrap();
 
-    // Backdate to 60 days ago, never accessed
     {
         let conn = mem.conn();
         let conn = conn.lock();
@@ -221,7 +220,6 @@ fn dreaming_telegram_step_substitution() {
 
 #[test]
 fn legacy_schedule_migration_recomputes_next_run() {
-    // Issue #96: migrating "0 3 * * *" -> "0 6 * * *" must also reset next_run, else the on-disk value points at the OLD schedule's window and the
     // scheduler fires a recovery run on startup.
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("crons.json");

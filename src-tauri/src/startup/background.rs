@@ -14,7 +14,6 @@ use super::states::AppStates;
 pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &AppStates) {
     keepawake::start_supervisor(states.keepawake.clone(), app_handle.clone());
 
-    // Auto-save session every 30 seconds
     {
         let app_handle = app_handle.clone();
         std::thread::spawn(move || loop {
@@ -57,7 +56,6 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                     }
                     mesh::discovery::cleanup_stale_peers(&mesh);
                     mesh.lock().cleanup_expired_requests();
-                    // Ping all paired peers
                     let (peers, sync_payload, signed_token) = {
                         let m = mesh.lock();
                         let peers: Vec<_> = m.paired_peers.values().cloned().collect();
@@ -400,7 +398,6 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
         });
     }
 
-    // Agent idle check loop — transitions Working -> Idle after timeout
     {
         let tracker = states.agent_tracker.clone();
         let mux = states.mux.clone();

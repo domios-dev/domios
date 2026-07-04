@@ -97,7 +97,6 @@ pub fn strip_ansi(raw: &str) -> String {
                 }
             }
         } else if c == '\r' {
-            // Skip CR, keep LF
         } else {
             out.push(c);
         }
@@ -174,7 +173,6 @@ mod tests {
 
     #[test]
     fn strip_ansi_charset_designator() {
-        // ESC ( B selects ASCII, should be consumed without leaking
         assert_eq!(strip_ansi("\x1b(Btext"), "text");
     }
 

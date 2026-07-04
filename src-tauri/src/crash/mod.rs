@@ -154,7 +154,6 @@ mod tests {
 
     #[test]
     fn select_reports_ignores_pre_clean_exit_reports() {
-        // Clean exit at ts 150: the liveness report at 100 (written during the
         // shutdown window) is suppressed; the genuine crash at 200 surfaces.
         let candidates = vec![
             (100, PathBuf::from("crash-old-liveness.txt")),
@@ -176,7 +175,6 @@ mod tests {
 
     #[test]
     fn select_reports_surfaces_real_crash_after_clean_exit() {
-        // A crash strictly newer than the clean-exit sentinel is a real crash
         // in the new run and must surface (regression guard).
         let candidates = vec![(500, PathBuf::from("crash-segv-native.txt"))];
         let (reports, _) = select_reports(candidates, 0, Some(150));

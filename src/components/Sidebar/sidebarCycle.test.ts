@@ -122,7 +122,6 @@ assert.deepEqual(
   "unknown current (backward) → start from end",
 );
 
-// Tab-only cycle wraps
 const tabOnly = [
   { kind: "tab" as const, tabId: "t1" },
   { kind: "tab" as const, tabId: "t2" },

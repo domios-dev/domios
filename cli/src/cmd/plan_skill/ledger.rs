@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 
 use super::store::{skills_root, valid_verdict};
 
-// Append-only plan working-point ledger. Each create/edit records one
 // milestone of kind "skill" with a verdict and a one-line rationale.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LedgerEntry {

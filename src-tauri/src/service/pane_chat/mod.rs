@@ -173,8 +173,6 @@ fn attachment_from_image(data: &serde_json::Value, id: String) -> ChatAttachment
 /// place JSONL providers' rich rendering lives; the desktop renders the same
 /// output, so there is no second parser.
 pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
-    // `base_id` is the monotonic source ordinal (rich-message index in a snapshot,
-    // atomic counter in the stream). Stamp it as `seq` so the client can break
     let mut out = rich_to_chat_msgs_blocks(rich, base_id);
     for m in &mut out {
         m.seq = base_id as i64;
@@ -295,7 +293,6 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                     attachments.push(attachment_from_image(&b.data, aid));
                 }
                 "tool_result" => {
-                    // Real Claude pattern: bash/grep/read output arrives as a
                     // tool_result block in the user turn after the tool_use.
                     emitted_tool_result = true;
                     out.push(ChatMsg {
@@ -322,7 +319,6 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
             }
         }
         let content = text_parts.join("\n");
-        // Pure-text user turns may be a local-command echo or an isMeta system
         // row — mirror the desktop's string-content handling.
         if attachments.is_empty() && !emitted_tool_result && !content.is_empty() {
             if rich.is_visible_in_transcript_only == Some(true) {
@@ -513,8 +509,6 @@ pub fn pane_chat_snapshot(
     pane_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
-    // A chatBackend pane has no agent_type / agent_session_id — its transcript
-    // lives in the plugin session, not a JSONL/sqlite file. Branch on the pane
     let backing = {
         let m = svc.mux.write();
         m.get_pane(pane_id).ok_or("pane not found")?.backing.clone()
@@ -571,7 +565,6 @@ fn chatbackend_snapshot_from(
 ) -> Result<(Vec<ChatMsg>, usize), String> {
     let from_disk = chatbackend_history::read_messages(history_path);
     let all = if from_disk.is_empty() {
-        // No durable history yet ⇒ ask the live session (no cursor ⇒ the full
         // cumulative transcript), exactly like the agent path.
         provider
             .poll(session_id, None)
@@ -722,7 +715,6 @@ mod chat_snapshot_tests {
 
     #[test]
     fn chatbackend_snapshot_reads_hand_written_jsonl() {
-        // Durable JSONL is the source of truth: even when it differs from the
         // live `poll`, the persisted file wins (refresh shows real history).
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("s.jsonl");
@@ -742,7 +734,6 @@ mod chat_snapshot_tests {
 
     #[test]
     fn restored_pane_replays_history_from_jsonl_when_live_map_wiped() {
-        // Simulates a refresh / VM reload: the plugin's in-memory Map is empty
         // (poll → 0 messages) but the JSONL persisted the full transcript.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("s.jsonl");
@@ -775,8 +766,6 @@ mod chat_snapshot_tests {
 
     #[test]
     fn snapshot_after_poll_flush_includes_host_inbound_and_reply() {
-        // BUG B end-to-end at the snapshot layer: after the gateway writes a host
-        // inbound and the poll loop flushes the reply through the SHARED mirror,
         let plugin = "test-snapshot-single-writer-unique";
         let session = "snap-sw-sid";
         let path = chatbackend_history::session_path(plugin, session);
@@ -811,7 +800,6 @@ mod chat_snapshot_tests {
 
     #[test]
     fn chatbackend_snapshot_falls_back_to_live_poll_without_jsonl() {
-        // A brand-new session before the first delta was persisted: no JSONL on
         // disk ⇒ read the live plugin transcript.
         let dir = tempfile::tempdir().unwrap();
         let missing = dir.path().join("nope.jsonl");

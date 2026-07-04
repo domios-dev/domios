@@ -136,7 +136,6 @@ export function SidebarWorkspaceTabs({
 
     const isOrchestrator = firstPane?.role === "Orchestrator";
     const plannerTab = peerCtx.plannerTab;
-    // Workers = every child except the attached Planner (which renders under
     // the Managers section). Section taxonomy lives in orchestrationSections.
     const workerNodes =
       isOrchestrator && firstPane

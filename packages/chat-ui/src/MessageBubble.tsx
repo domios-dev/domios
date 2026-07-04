@@ -10,7 +10,6 @@ import {
   Pencil,
   Search,
   Terminal,
-  // Origin icons
   ArrowRight,      // pane -> pane
   Send,            // generic chat (telegram / service)
   Network,         // mesh
@@ -85,13 +84,9 @@ interface MessageBubbleProps {
   onJumpToShellCommand?: (message: ChatMessage) => void;
 }
 
-// Kill switch for interactive AskUserQuestion widgets (all providers). Detection
-// is mistimed — the prompt surfaces AFTER the user has already answered — so the
 const INTERACTIVE_QUESTIONS_ENABLED = false;
 
 export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
-  // Auto-expand for Write-style tool input (the file body being written) and
-  // for Edit/MultiEdit (always show the diff). A bash/grep result must NOT
   const shouldAutoExpand = message.type === "tool_call"
     && (message.toolInput?.content != null || extractEdits(message).length > 0);
   const [expanded, setExpanded] = useState(shouldAutoExpand);
@@ -116,7 +111,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     return null;
   }
 
-  // Image message (standalone, legacy) — compact placeholder
   if (message.type === "image") {
     return (
       <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
@@ -125,7 +119,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     );
   }
 
-  // User message — right-aligned by default; left-aligned with origin header for injected messages
   if (message.type === "user") {
     const attachments = message.attachments;
     const userText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
@@ -186,7 +179,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       );
     }
 
-    // Origin header rendered above the bubble when the message came from a
     // codeterm channel (cross-pane, telegram, mesh) or wraps slash-commands.
     const originHeader = effectiveOrigin ? (() => {
       // Cross-pane / report: model-avatar + "from <Name>" + mesh·model subtitle.
@@ -292,7 +284,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           <div
             className={`min-w-0 rounded-2xl rounded-br-sm px-4 py-2 ${userText} select-text cursor-text border ${TEXT_WRAP_CLASS}`}
             style={{
-              // The user voice is the ONE filled element in the feed — a clear accent
               // tint so it never blends with tool traces or assistant prose.
               background: effectiveOrigin
                 ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, var(--ct-surface, #161b22) 88%)"
@@ -379,7 +370,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     );
   }
 
-  // Assistant message — left-aligned, NO bubble, clean prose
   if (message.type === "assistant") {
     const assistantText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
     return (
@@ -413,7 +403,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       );
     }
     if (isTurnAborted) {
-      // Synthetic provider envelope (codex <turn_aborted>) — a meta event, not a
       // chat turn. Render as the centered status chip, never the raw XML text.
       return (
         <div className="flex w-full max-w-4xl min-w-0 justify-center mb-2 mx-auto">
@@ -479,8 +468,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     );
   }
 
-  // Interactive prompt — answerable widget rendered in place of the raw
-  // tool-call JSON (e.g. AskUserQuestion). Provider-agnostic: the backend
   if (INTERACTIVE_QUESTIONS_ENABLED && message.interactive && message.interactive.length > 0) {
     return (
       <div className="w-full">
@@ -496,7 +483,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     );
   }
 
-  // Tool call — compact pill/card
   if (message.type === "tool_call") {
     const toolName = message.toolName || "";
     const filePath = extractFilePath(message);
@@ -507,7 +493,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     const addedLines = edits.reduce((n, e) => n + (e.new ? e.new.split("\n").length : 0), 0);
     const removedLines = edits.reduce((n, e) => n + (e.old ? e.old.split("\n").length : 0), 0);
 
-    // Build summary text
     let summary = "";
     if (filePath) {
       summary = shortPath(filePath);
@@ -519,7 +504,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       summary = firstLine.length > 60 ? firstLine.slice(0, 60) + "..." : firstLine;
     }
 
-    // TodoWrite — render checklist inline
     if (message.toolName === "TodoWrite" && Array.isArray(message.toolInput?.todos)) {
       const todos = message.toolInput!.todos as Array<{ content: string; status: string; id?: string }>;
       const STATUS_ICON: Record<string, string> = { pending: "⏳", in_progress: "🚧", completed: "✅" };
@@ -538,7 +522,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       );
     }
 
-    // CodeTerm CLI command — render a branded semantic card across Claude/Codex
     // shell tool shapes.
     const shellCommand = command;
     if (shellCommand) {
@@ -776,7 +759,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     );
   }
 
-  // Tool result — subtle, compact
   if (message.type === "tool_result") {
     if (!hasMeaningfulToolResult(message.content)) return null;
     const standaloneResult = message.toolResult || message.content;
@@ -829,7 +811,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     );
   }
 
-  // Thinking block — minimal, collapsed by default
   if (message.type === "thinking") {
     return (
       <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
@@ -872,7 +853,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     );
   }
 
-  // Status message
   if (message.type === "status") {
     return (
       <div className="flex w-full max-w-4xl min-w-0 justify-center mb-2 mx-auto">

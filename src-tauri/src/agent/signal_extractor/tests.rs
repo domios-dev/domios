@@ -330,7 +330,6 @@ fn picker_inactive_for_shell_prompt_bracketed_paste_only() {
 #[test]
 fn picker_inactive_when_bracketed_paste_even_if_cursor_hidden_and_still() {
     let mut ex = SignalExtractor::new(6, 40, none_hint());
-    // Bracketed-paste is an ANTI-signal: a shell line editor with the cursor
     // transiently hidden must NOT read as a picker.
     ex.step(b"\x1b[?2004h\x1b[?25l$ ", 0);
     let idle = ex.step(b"", 500);

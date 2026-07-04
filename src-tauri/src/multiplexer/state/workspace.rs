@@ -97,7 +97,6 @@ impl MultiplexerState {
             return Err("Cannot close protected workspace".to_string());
         }
 
-        // Record the workspace + its live tabs as ONE closed group (kind =
         // workspace) before yanking it, so the whole workspace can be reopened.
         self.record_workspace_close(id);
 

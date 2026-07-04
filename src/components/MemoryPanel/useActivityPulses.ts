@@ -145,7 +145,6 @@ export function useActivityPulses(api: ApiConfig): UseActivityPulsesResult {
           const events = data.events ?? [];
           for (const ev of events) handleEvent(ev);
         } catch {
-          // ignore, keep polling
         }
       }, POLL_INTERVAL_MS);
     }

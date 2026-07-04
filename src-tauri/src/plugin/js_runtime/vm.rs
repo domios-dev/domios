@@ -72,7 +72,6 @@ const PLUGIN_PREAMBLE: &str = r#"
   };
   host.manifest = function () { return parseJson(host.manifestJson()); };
 
-  // host compute base — all binds are synchronous (worker/agent are job-id/poll,
   // sync per step). Not Promise-wrapped: QuickJS can't drain a Promise in a sync `call_json` dispatch.
   host.mem = {
     search: function (opts) { return parseJson(host.memSearch(JSON.stringify(opts))) || { hits: [] }; },
@@ -105,9 +104,6 @@ const PLUGIN_PREAMBLE: &str = r#"
 })();
 "#;
 
-// Compiled once per VM right after the bootstrap. Per-call dispatch sets
-// __ct_method__/__ct_args__ globals then invokes these cached Functions, so the
-// hot path never recompiles JS source (#186).
 const INVOKE_HELPERS: &str = r#"
 globalThis.__ct_invoke__ = function () {
     var m = globalThis.__ct_method__;
@@ -130,10 +126,6 @@ globalThis.__ct_has__ = function () {
 use std::cell::Cell;
 
 thread_local! {
-    // Per-thread count of QuickJS source-string compilations. The per-method
-    // invoke path compiles once at VM init, then calls a cached wrapper — never
-    // recompiling per call (#186 hot-path guard). Thread-local isolates the perf
-    // test from parallel tests sharing the process.
     static SOURCE_COMPILES: Cell<u64> = const { Cell::new(0) };
 }
 
@@ -142,7 +134,6 @@ pub(crate) fn source_compiles() -> u64 {
     SOURCE_COMPILES.with(|c| c.get())
 }
 
-// Every QuickJS source-string compile goes through here so the counter is the
 // single source of truth for "did we recompile". Cached-Function calls bypass it.
 fn eval_source<'js, V, S>(ctx: &rquickjs::Ctx<'js>, src: S) -> rquickjs::Result<V>
 where
@@ -427,7 +418,6 @@ pub fn call_json<R: serde::de::DeserializeOwned>(
     method: &str,
     args: &[serde_json::Value],
 ) -> Result<R, VmError> {
-    // Untrusted code runs below this point. Contain a plugin-side panic so one
     // bad drop-in can't unwind through the host and take the daemon down (#16).
     let run = std::panic::AssertUnwindSafe(|| call_json_inner::<R>(vm, method, args));
     match std::panic::catch_unwind(run) {
@@ -445,7 +435,6 @@ fn call_json_inner<R: serde::de::DeserializeOwned>(
 ) -> Result<R, VmError> {
     let inner = vm.inner.lock();
     let result_json: String = inner._ctx.with(|ctx| -> Result<String, VmError> {
-        // Pull the function off __plugin__
         let plugin_obj: Value = ctx
             .globals()
             .get("__plugin__")
@@ -459,9 +448,6 @@ fn call_json_inner<R: serde::de::DeserializeOwned>(
             .catch(&ctx)
             .map_err(|_| VmError::MissingFunction(method.to_string()))?;
 
-        // Encode args as one JSON string parsed inside the VM — avoids per-arg
-        // Value construction. Method + args go to globals; the cached invoke
-        // wrapper (compiled once at init) does the parse/call/serialize.
         let args_json = serde_json::to_string(args)
             .map_err(|e| VmError::ArgSerialize(method.to_string(), e))?;
         let globals = ctx.globals();
@@ -630,7 +616,6 @@ mod tests {
 
     #[test]
     fn hot_path_no_per_call_recompile() {
-        // Mirrors the PTY hot path: process_pty_output -> has_event_markers ->
         // try_call("hasEventMarkers") -> call_json, fired per output chunk (#186).
         let vm = fixture(
             r#"
@@ -673,7 +658,6 @@ mod tests {
         // esbuild output for `export default { ... }` produces `module.exports.default = ...` after the bootstrap interpret.
         let vm = fixture(
             r#"
-            // Pretend this is esbuild output for `export default { ... }`
             Object.defineProperty(module.exports, "__esModule", { value: true });
             module.exports.default = {
                 hello() { return "world"; }
@@ -686,7 +670,6 @@ mod tests {
 
     #[test]
     fn preamble_exposes_host_fs_and_host_manifest() {
-        // Plugin uses ONLY the convenience surface — no JSON.parse, no raw *Json suffix calls. If the preamble didn't load, host.fs / host.manifest
         // would be undefined and these calls would throw TypeError.
         let vm = PluginVm::from_source_with(
             "test",

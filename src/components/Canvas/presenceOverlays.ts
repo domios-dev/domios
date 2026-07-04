@@ -2,12 +2,6 @@ import type { LaidOutNode } from "./layout";
 import type { PresenceAgent } from "./presence/identity";
 import type { World } from "./worlds";
 
-// EMERGENCE (north-star #2): the swarm floats ON the canvas — each active agent is
-// a presence pin pinned to the corner of the task it executes, so you literally SEE
-// the swarm distributed by the work. Mirrors the rich-overlay budget discipline:
-// a HARD cap on simultaneously-rendered pins. Pins are light DOM (an avatar + flag),
-// so the budget is roomy vs the 2 heavy markdown rich overlays — but still bounded,
-// so a 20k-task board emits a constant pin count, never O(N) per frame.
 export const MAX_ACTIVE_PRESENCE_OVERLAYS = 48;
 
 export interface PresenceSource {
@@ -50,9 +44,6 @@ export interface BuildPresenceOverlaysInput {
   maxActive?: number;
 }
 
-// Pure + camera-decoupled in structure: iterates ONLY the (small) presence map,
-// culls to the already-computed visible set, then caps to the budget. No scan of
-// the full node set, so cost is O(active swarm), not O(total tasks).
 export function buildPresenceOverlays({
   presenceByTask,
   nodeById,
@@ -78,7 +69,6 @@ export function buildPresenceOverlays({
       apparentWidth: node.box.width * cameraScale,
     });
   }
-  // Budget: keep the most prominent (largest on-screen) pins first; live wins ties so
   // a working agent never loses its pin to an idle one. Deterministic id tiebreak.
   overlays.sort(
     (a, b) =>

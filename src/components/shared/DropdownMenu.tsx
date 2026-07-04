@@ -38,7 +38,6 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
     const menuHeight = items.length * 28 + 8;
     const spaceBelow = window.innerHeight - rect.bottom;
     const top = spaceBelow < menuHeight ? rect.top - menuHeight : rect.bottom + 2;
-    // Anchor to trigger left, clamp to viewport
     const menuWidth = menuRef.current?.offsetWidth || 160;
     const left = Math.max(4, Math.min(rect.left, window.innerWidth - menuWidth - 8));
     return { top, left };
@@ -58,12 +57,10 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
   // Reposition after render (menu width now known)
   useEffect(() => {
     if (!open) return;
-    // RAF to let the menu render and measure
     const id = requestAnimationFrame(() => setPos(calcPos()));
     return () => cancelAnimationFrame(id);
   }, [open, calcPos]);
 
-  // Close on click outside
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
@@ -76,7 +73,6 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
     return () => document.removeEventListener("mousedown", handler, true);
   }, [open]);
 
-  // Close on Escape
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {

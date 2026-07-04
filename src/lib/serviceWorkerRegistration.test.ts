@@ -1,11 +1,3 @@
-// Run: npx tsx src/lib/serviceWorkerRegistration.test.ts
-//
-// Regression for a real product bug (task_e0ddee08 live-dogfood finding):
-// on a fresh page with NO prior service-worker controller, the SW claiming
-// control for the first time used to force `location.reload()` — silently
-// aborting whatever the user was mid-doing (e.g. confirming the new-session
-// picker). Only a genuine update (an ALREADY-controlled page whose worker
-// changes) should reload.
 
 export {}; // force module scope — this file's `test`/`main` are otherwise
 // global-script declarations that collide with every other homegrown
@@ -43,13 +35,11 @@ class FakeServiceWorkerContainer {
 }
 
 async function withFreshModule(controllerAtRegisterTime: unknown) {
-  // IS_WEB is read at module scope by webApi.ts — force the web branch via
   // globalThis flags it inspects, then re-import for a clean module instance.
   const win: Record<string, unknown> = globalThis as unknown as Record<string, unknown>;
   const container = new FakeServiceWorkerContainer();
   container.controller = controllerAtRegisterTime;
   const reloadCalls: number[] = [];
-  // Node ships read-only `navigator`/`location` getters — override via
   // defineProperty rather than plain assignment.
   Object.defineProperty(win, "navigator", { value: { serviceWorker: container }, configurable: true });
   Object.defineProperty(win, "location", { value: { reload: () => reloadCalls.push(1) }, configurable: true });

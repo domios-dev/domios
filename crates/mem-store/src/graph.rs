@@ -178,15 +178,11 @@ pub fn revive_broken(
         ));
         binds.push(s.clone());
     }
-    // Never revive a closed relation when an active twin already exists for the
-    // same (from, rel, to, scope): re-opening it (valid_to = NULL) would create
     sql.push_str(
         " AND NOT EXISTS (SELECT 1 FROM relations a WHERE a.valid_to IS NULL \
           AND a.from_id = relations.from_id AND a.relation_type = relations.relation_type \
           AND a.to_id = relations.to_id AND a.scope = relations.scope)",
     );
-    // Prod can contain clusters of multiple CLOSED duplicate rows with the
-    // same (from, rel, to, scope). Reviving every row in such a cluster would
     sql.push_str(
         " AND relations.rowid = (SELECT c.rowid FROM relations c \
           WHERE c.valid_to IS NOT NULL \

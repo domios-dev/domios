@@ -7,14 +7,12 @@ fn titleize_from_slug() {
     assert_eq!(titleize(""), "");
 }
 
-// End-to-end store+ledger flow mirroring new -> edit -> list, without going
 // through cwd/git-based plan resolution.
 #[test]
 fn create_edit_list_round_trip() {
     let tmp = tempfile::tempdir().unwrap();
     let plan_dir = tmp.path();
 
-    // new
     let slug = store::slugify("Deploy To Staging");
     let dir = store::skill_dir(plan_dir, &slug);
     std::fs::create_dir_all(dir.join("scripts")).unwrap();
@@ -31,7 +29,6 @@ fn create_edit_list_round_trip() {
         Some("keep")
     );
 
-    // edit -> supersede
     ledger::append_entry(plan_dir, &slug, store::SUPERSEDED, "replaced by v2").unwrap();
     assert_eq!(
         ledger::latest_verdict(plan_dir, &slug).as_deref(),

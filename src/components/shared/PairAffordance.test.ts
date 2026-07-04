@@ -26,7 +26,6 @@ assert(source.includes('data-pair-affordance-layout={layout}'), "layout data att
 
 assert(sidebar.includes("resolvePlanPeerPair"), "Sidebar derives pair from plan refs");
 assert(sidebarWorkspace.includes("peerExclude"), "Sidebar excludes planner from worker subtree");
-// The sidebar no longer renders the pair via PairAffordance's same-level rail —
 // it uses the Managers/Workers section taxonomy instead (round-21).
 assert(
   sidebarWorkspace.includes("OrchestrationGroupSection") &&

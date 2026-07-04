@@ -40,7 +40,6 @@ function depthOf(sections: Section[], id: string, depth: number): number {
   return -1;
 }
 
-// Per-row stats: how many tasks cover the section and whether they're all done,
 // in progress, or the section is uncovered (n=0) — drives the row glyph (§2.1).
 export function sectionRows(plan: Plan): SectionRow[] {
   const flat = flatSections(plan);

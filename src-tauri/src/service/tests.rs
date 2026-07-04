@@ -174,8 +174,6 @@ fn test_batch_op_no_id() {
     assert!(op.id.is_none());
 }
 
-// `emit_state_changed` coalesces emits over a 50ms window. The snapshot that
-// gets emitted MUST be read AFTER the window so a fast follow-up mutation that
 #[test]
 fn coalesce_snapshot_reflects_latest_mutation_in_window() {
     use crate::agent::status::PaneStatusTracker;
@@ -208,7 +206,6 @@ fn coalesce_snapshot_reflects_latest_mutation_in_window() {
 
     let snapshot = handle.join().unwrap();
 
-    // Read happened AFTER the window, so the payload reflects BOTH mutations —
     // the latest being "second".
     assert_eq!(
         snapshot.workspaces.len(),

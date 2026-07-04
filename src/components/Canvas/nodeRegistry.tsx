@@ -8,11 +8,6 @@ export interface SectionNavArgs {
   variant: "plan" | "spec";
 }
 
-// Plugin-extensible canvas node: ONE capability descriptor adds a node kind with no
-// core surgery — a CANVAS PAINTER (draws the node ON the canvas + returns hit regions,
-// dispatched by drawScene) and an optional layout footprint (else the default element
-// box). The fullscreen read surface is rendered by canvasRender/DetailContent. Built-in
-// painters for plan/spec/task/handoff/plan-ghost live in canvasRender/builtinPainters.
 export interface CanvasNodePlugin {
   kind: string;
   painter?: CanvasPainter;

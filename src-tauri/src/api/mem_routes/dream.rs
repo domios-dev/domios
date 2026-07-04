@@ -69,7 +69,6 @@ pub async fn mem_dream(
         reports.push(report);
     }
 
-    // Calibration sweep is now a server-side phase, not an LLM-driven stage. The dreamer used to be instructed to invoke it from STAGE D, but the
     // Run calibration directly in daemon to ensure results are real and history rows are durable.
     if phase == "all" {
         let svc = state.svc.clone();

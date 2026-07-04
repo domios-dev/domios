@@ -878,7 +878,6 @@ mod tests {
             .observe_handoff_session_start("pane-a", "new-session", 50)
             .unwrap()
             .unwrap();
-        // The resume send is heartbeat-prepended (state-reconciliation block is
         // always injected); the authored seed remains the trailing payload.
         assert!(resume.text.contains("codeterm-state-reconciliation"));
         assert!(resume.text.trim_end().ends_with("resume seed"));

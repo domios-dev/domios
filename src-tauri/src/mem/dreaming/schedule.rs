@@ -111,7 +111,6 @@ pub fn ensure_dreaming_cron(
         tz: None,
         timeout_seconds: Some(mem_cfg.dreaming_timeout_seconds),
     })?;
-    // Mark as protected after creation
     if let Some(job) = cron_store
         .list()
         .iter()

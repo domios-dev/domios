@@ -33,7 +33,6 @@ async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: R
   return { host, root };
 }
 
-// ── resolveTabStatusRailVariant (precedence + idle) ───────────────────────────
 test("idle → no rail variant", () => {
   assert(resolveTabStatusRailVariant("Idle", false, false) === null, "idle is absent");
   assert(resolveTabStatusRailVariant(null, false, false) === null, "null is absent");
@@ -64,7 +63,6 @@ test("settle overrides idle absence", () => {
   assert(resolveTabStatusRailVariant("Idle", false, true) === "settle", "settle flash while idle");
 });
 
-// ── view: TabStatusRail ───────────────────────────────────────────────────────
 test("working renders green rail class", async () => {
   const { host, root } = await render(<TabStatusRail status="Working" />);
   const rail = host.querySelector('[data-testid="tab-status-rail"]');

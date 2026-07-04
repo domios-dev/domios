@@ -18,7 +18,6 @@ fn repair_orphan_vectors_finds_and_deletes() {
         },
     )
     .unwrap();
-    // insert_entity() above already auto-embeds a real 'person_real' row; only add
     // the synthetic chunk + ghost rows here.
     conn.execute(
         "INSERT INTO mem_vectors VALUES

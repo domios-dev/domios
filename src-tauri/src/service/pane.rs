@@ -31,12 +31,9 @@ fn epoch_ms() -> u64 {
 
 impl ServiceContext {
     pub fn close_pane(&self, pane_id: &str) -> Result<(), String> {
-        // Tear down the chat tailer (if any) BEFORE pane state goes away — the tailer thread reads provider/cwd/session_id from the mux on its first
         // iteration; once close_pane drops the entry, future polls would see Provider::None and bail anyway, but explicit stop joins the thread cleanly and frees the JSONL handle.
         self.chat_registry.stop(pane_id);
 
-        // Tear down the plugin chatBackend session BEFORE the pane entry is
-        // dropped — otherwise `pane_chat_backing` can no longer resolve it and
         if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
             let _ = self.chatbackend_close(&plugin_id, &session_id);
         }
@@ -208,8 +205,6 @@ impl ServiceContext {
                     }
                 }
             }
-            // Invariant: every agent pane surfaces exactly idle|working|question,
-            // never null. A restored pane has no `agent_state` until its first
             let seeded = {
                 use crate::agent::offline_state_classifier::{
                     AgentLiveState, PaneVerdict, TimelineState,
@@ -587,18 +582,14 @@ impl ServiceContext {
         // Transition PromptDetector to Cooldown — suppresses re-detection of the same prompt from PTY output that hasn't been cleared yet.
         self.prompt_detector.lock().mark_responded(pane_id);
 
-        // STRUCTURED handle (opencode SSE) answers over HTTP, not the PTY: the
-        // PTY is display-only for these prompt classes. When a structured route
         if let Some(result) = crate::service::structured_prompt::respond(self, pane_id, value) {
             self.emit_state_changed();
             return result;
         }
 
-        // Only send to PTY if there was an actual prompt — prevents phantom input
         if had_prompt {
             let pty_id = self.resolve_pty_id(pane_id)?;
 
-            // Verify prompt is on screen before sending keystrokes
             let screen = {
                 let buf = self.output_buf.lock();
                 buf.get_text(&pty_id).unwrap_or_default()
@@ -609,8 +600,6 @@ impl ServiceContext {
                 .read()
                 .get_pane(pane_id)
                 .and_then(|p| p.agent_type.clone());
-            // Providers whose prompts aren't the universal numbered-list shape
-            // (opencode's horizontal row, cursor overlays) verify via their own
             let prompt_on_screen = crate::agent::detector::detect_interactive_prompt(&clean)
                 || agent_type.as_deref().is_some_and(|at| {
                     crate::agent::prompt::parse_prompt_safely(|| {

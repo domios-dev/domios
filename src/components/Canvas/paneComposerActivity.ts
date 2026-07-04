@@ -23,7 +23,6 @@ export type PaneComposerActivity =
   | { kind: "planning"; planId: string; planTitle: string }
   | { kind: "working"; planId: string; planTitle: string; taskId: string; taskTitle: string; taskStatus: import("./types").TaskStatus };
 
-// Above-composer context: same ownership/assignment rules as paneTabActivity, but
 // resolved from full plan bodies so we can show human task titles (never raw ids).
 export function resolvePaneComposerActivity(
   plans: readonly Plan[],
@@ -41,7 +40,6 @@ export function resolvePaneComposerActivity(
       extraPlans: owned.length - 1,
     };
   }
-  // A Planner pane (bound as a plan's `planner` ref) wears its plan under
   // "Planning:", the manager-tier mirror of the orchestrator strip.
   const planned = plans.find(
     (p) => p.status === "active" && resolvePlannerPaneIdFromPlan(p) === paneId,

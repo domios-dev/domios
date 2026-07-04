@@ -208,9 +208,6 @@ test.describe("@golden tab status rail", () => {
     const question = "Allow pw-rail attention probe (RAIL-3)?";
     await withWeb(webBrowser, async ({ page }) => {
       const pane = await paneCleanup.createPane<CreatedPane>({ title: "pw-rail-attn-3" });
-      // Settle the spawn-transient "Working" status first so clearing the
-      // prompt later lands on a quiescent pane (no rail), not a race against
-      // the fresh-PTY status still winding down.
       await waitPaneStatus(api, pane.id, "Idle", "pane settles idle before attention hook");
       await openSidebarIfNeeded(page);
       if (pane.workspace_id) {
@@ -251,9 +248,6 @@ test.describe("@golden tab status rail", () => {
       await driveAttentionPrompt(api, pane.id, question);
       await waitPendingPrompt(api, pane.id, question);
 
-      // Output keeps flowing under the loop; attention must win the precedence
-      // (Dead > Waiting/attention > Working) and must not get raced back to
-      // "working" by the next chunk of ordinary shell output.
       await expect(rail).toHaveAttribute("data-rail-variant", "attention", { timeout: 5_000 });
       await expectRailToken(page, rail, "--ct-yellow");
       await page.waitForTimeout(1_000);

@@ -291,18 +291,15 @@ impl EventBroadcaster {
             timestamp,
         };
 
-        // Get matching webhooks
         let (matching, to_remove): (Vec<_>, Vec<_>) = {
             let hooks = self.webhooks.lock();
             let mut matching = Vec::new();
             let mut to_remove = Vec::new();
 
             for (id, hook) in hooks.iter() {
-                // Filter by event type
                 if !hook.events.is_empty() && !hook.events.contains(&event_type.to_string()) {
                     continue;
                 }
-                // Filter by pane_id
                 if let Some(ref filter_pane) = hook.pane_id {
                     if let Some(event_pane) = data.get("pane_id").and_then(|v| v.as_str()) {
                         if filter_pane != event_pane {
@@ -318,7 +315,6 @@ impl EventBroadcaster {
             (matching, to_remove)
         };
 
-        // Remove one-shot hooks
         if !to_remove.is_empty() {
             let mut hooks = self.webhooks.lock();
             for id in &to_remove {
@@ -326,7 +322,6 @@ impl EventBroadcaster {
             }
         }
 
-        // Fire webhooks
         for hook in matching {
             let url = hook.url.clone();
             let headers = hook.headers.clone();
@@ -653,7 +648,6 @@ mod tests {
             "frontend listen() scan found only {} names — path/regex broke",
             listened.len()
         );
-        // Listened via a runtime loop over a names array (useGraphWorkers.ts),
         // invisible to the literal scan — enforce them explicitly.
         for name in [
             "graph-worker-spawned",
@@ -682,7 +676,6 @@ mod tests {
             "type_name scan broke: {typed:?}"
         );
 
-        // Raw `.emit("literal")` sites — a free-fn `emit_everywhere(app, …)` has no
         // `.emit(` prefix so it is not matched. Multiline-aware via `\s`.
         let raw_re = regex::Regex::new(r#"\.emit\s*\(\s*"([a-zA-Z0-9:_-]+)""#).unwrap();
         let mut offenders = Vec::new();

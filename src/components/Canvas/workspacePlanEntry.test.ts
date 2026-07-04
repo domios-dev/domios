@@ -221,18 +221,15 @@ test("workspacePlanEntryHint prefers tasks then sections then items", () => {
 });
 
 test("open_task_count reflects counts_as_open_work semantics: excludes done, cancelled, parked", () => {
-  // 10 total: 3 pending/in-progress/in-review/blocked (open), 2 parked, 3 done, 2 cancelled
   // open_task_count from backend = 3 (only counts_as_open_work tasks)
   assert(
     workspacePlanEntryHint([indexEntry({ task_count: 10, open_task_count: 3 })]) === "3 tasks",
     "hint shows only the open-work count (done+cancelled+parked excluded)",
   );
-  // All tasks done/cancelled/parked → open_task_count 0 → falls through to sections
   assert(
     workspacePlanEntryHint([indexEntry({ task_count: 5, open_task_count: 0, section_count: 2 })]) === "2 sections",
     "zero open tasks (all terminal/parked) falls through to sections",
   );
-  // Only 1 remaining
   assert(
     workspacePlanEntryHint([indexEntry({ task_count: 8, open_task_count: 1 })]) === "1 task",
     "singular open task",

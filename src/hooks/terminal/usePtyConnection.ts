@@ -62,10 +62,8 @@ export function usePtyConnection({
     const term = termRef.current;
     if (!term || !termReady || !ioEnabled) return;
 
-    // Already connected to a PTY
     if (connectedPtyRef.current !== null) {
       if (ptyId && connectedPtyRef.current !== ptyId) {
-        // ptyId changed, will reconnect below
       } else {
         return;
       }
@@ -77,11 +75,9 @@ export function usePtyConnection({
     const setupAndConnect = async () => {
       const predictedId = ptyId || uid();
       connectedPtyRef.current = predictedId;
-      // Multiplexed SSE output stream replaces the per-pane long-poll below unless the
       // user killswitched it back via localStorage `codeterm-web-output-stream=off`.
       const useOutputStream = webOutputStreamActive();
 
-      // Replay scrollback only on first mount — xterm is keep-alive (never destroyed on tab switch),
       // so re-sending up to 2MB of ANSI on every tab activation is wasteful.
       if (ptyId && IS_WEB) {
         if (!webReplayedPtysRef.current.has(ptyId)) {
@@ -131,7 +127,6 @@ export function usePtyConnection({
         });
       }
 
-      // Read loop with flow control
       let reading = true;
       let firstData = true;
       let staleRespawnStarted = false;
@@ -198,7 +193,6 @@ export function usePtyConnection({
         }
       };
 
-      // Shared by both transports: the long-poll's 404 dead-PTY error and the
       // multiplexed output stream's `{ended: true}` frame both mean the same thing.
       const respawnStalePty = async () => {
         if (staleRespawnStarted) return;
@@ -254,22 +248,17 @@ export function usePtyConnection({
               break;
             }
 
-            // Transient transport error: retry with backoff, cursor untouched (bridge.ts
             // only advances it on a successful response), nothing printed.
             await new Promise((resolve) => setTimeout(resolve, transientRetryMs));
             transientRetryMs = Math.min(transientRetryMs * 2, TRANSIENT_RETRY_MAX_MS);
           }
         }
       };
-      // Resize sync
       const onResizeDisposable = term.onResize(({ cols, rows }) => {
         invoke("resize_pty", { ptyId: predictedId, cols, rows, clientId: resizeClientId });
       });
       cleanupFns.push(() => onResizeDisposable.dispose());
 
-      // A daemon restart invalidates the boot-scoped byte cursor; drop it so the
-      // next read_pty full-replays instead of comparing against a reset ring.
-      // The output stream tracks its own boot and self-heals on mismatch (outputStream.ts).
       if (IS_WEB && !useOutputStream) {
         const onBootChanged = () => resetWebPtyTail(predictedId);
         window.addEventListener("codeterm-web-boot-changed", onBootChanged);
@@ -278,7 +267,6 @@ export function usePtyConnection({
         );
       }
 
-      // Spawn PTY if needed
       if (!ptyId) {
         const cols = Math.max(term.cols, 80);
         const rows = Math.max(term.rows, 24);
@@ -288,7 +276,6 @@ export function usePtyConnection({
           cols, rows, predictedId, cwd, paneId,
         });
         if (disposed) {
-          // spawn_pty links the PTY to the pane before it resolves. If this component unmounts during a chat/terminal mode switch or tab remount,
           // killing here leaves backend pane state pointing at a dead PTY. Pane/tab close paths own real teardown.
           return;
         }
@@ -303,7 +290,6 @@ export function usePtyConnection({
 
         onShellReady();
 
-        // Sync PTY size with actual xterm dimensions
         requestAnimationFrame(() => {
           if (!localFitEnabledRef.current) return;
           try {
@@ -322,9 +308,6 @@ export function usePtyConnection({
         });
       }
 
-      // Pane output arrives over the single multiplexed SSE connection (subscribePaneOutput,
-      // keyed by pane id — matches the server's output_stream::sweep frame tagging) unless the
-      // killswitch fell back to the per-pane long-poll (readLoop).
       let unsubscribeOutputStream: (() => void) | null = null;
       if (useOutputStream) {
         const sink: PaneOutputSink = {

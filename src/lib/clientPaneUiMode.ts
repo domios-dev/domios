@@ -3,7 +3,6 @@ import type { PaneUiMode } from "./chatUiMode";
 const PREFIX = "codeterm:pane-ui-mode:";
 const TERMINAL_OVERRIDES_NORMALIZED_KEY =
   "codeterm:pane-ui-mode:terminal-overrides-normalized-for-chat-default";
-// Two channels on purpose. EVENT carries EXPLICIT choices (user toggle, spawn
 // default, remote-control) — TerminalPane records those as user overrides.
 const EVENT = "codeterm-client-pane-ui-mode";
 const EVENT_CURRENT = "codeterm-client-pane-ui-mode-current";

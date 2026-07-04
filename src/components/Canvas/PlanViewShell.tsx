@@ -13,9 +13,6 @@ import { PlanListView } from "./planView/PlanListView";
 import { PlanCompanionBubble } from "./planView/PlanCompanionBubble";
 import { PaneSessionChat } from "../Terminal/PaneSessionChat";
 
-// All three surfaces stay mounted (toggled via `hidden`) to preserve their
-// state; memoizing keeps a pure view-mode switch from re-rendering the two
-// off-screen trees, which was a >250ms longtask source under load.
 const BoardSurface = memo(PlanBoardView);
 const ListSurface = memo(PlanListView);
 const CanvasSurface = memo(MissionControlPlanSurface);

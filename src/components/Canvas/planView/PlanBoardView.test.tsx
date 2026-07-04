@@ -398,7 +398,6 @@ test("board: archive action removes plan from active switcher and switches selec
     "beta selected by default",
   );
 
-  // Archive plan-b (the selected plan) — selection should fall back to plan-a
   const kebab = host.querySelector(
     '[data-testid="plan-switcher-kebab"][data-plan-id="plan-b"]',
   ) as HTMLElement;
@@ -415,14 +414,12 @@ test("board: archive action removes plan from active switcher and switches selec
     "selection fell back to plan-a after archiving plan-b",
   );
 
-  // plan-b no longer shows as an active switcher pill
   const activePills = host.querySelectorAll('[data-testid="plan-switcher-option"]');
   const planBPill = Array.from(activePills).find(
     (el) => el.getAttribute("data-plan-id") === "plan-b",
   );
   assert(!planBPill, "plan-b no longer an active pill");
 
-  // plan-b appears in the archived footer instead
   const archivedToggle = host.querySelector('[data-testid="plan-switcher-archived-toggle"]') as HTMLElement;
   assert(archivedToggle, "archived toggle present after archive");
   await act(async () => { archivedToggle.click(); });
@@ -470,7 +467,6 @@ test("board: unarchive brings plan back to active switcher", async () => {
   await act(async () => { unarchive.click(); });
   await act(async () => { await Promise.resolve(); });
 
-  // plan-arch should now appear as an active pill
   const pill = host.querySelector(
     '[data-testid="plan-switcher-option"][data-plan-id="plan-arch"]',
   );

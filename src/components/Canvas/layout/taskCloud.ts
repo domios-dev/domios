@@ -9,33 +9,20 @@ import type { LaidOutEdge, LaidOutNode } from "./types";
 // Tasks with no section pack into one neutral, unlabeled group.
 export const UNSECTIONED = "__unsectioned__";
 
-// Min breathing space between cards of DIFFERENT sections after compaction — tight
 // enough that adjacent blobs nestle into one cohesive cloud, not scattered islands.
 export const SECTION_GROUP_GAP = 14;
 
-// worlds-v3 §2: golden-angle phyllotaxis pack. The irrational that gives maximal
 // angular spacing (137.5°) so successive tiles never align into spokes.
 export const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
-// §2.2 inter-tile gap (g) folded into each tile's enclosing radius. Kept tight so
 // the disk reads as a dense, FILLED cloud rather than a sparse ring.
 export const TILE_GAP = 5;
 
-// Subtask satellites: children pack as a SMALLER nested cloud swarming around the
-// parent (parent = slot 0 at the local center, children orbit it). The whole
-// parent+satellites cluster then packs as one circle among sibling clusters, so a
-// task reads as a main tile haloed by its subtasks at every zoom — all solid.
-// Subtasks are satellites — smaller than their parent, but UX-3: still big enough to
-// READ (a 2-line title + the glyph row). The floor fits that schematic face; the
-// scale keeps them clearly subordinate to a parent's volume-driven mass.
 export const SUBTASK_SCALE = 0.66; // satellite footprint vs. its own card footprint
 export const SUBTASK_MIN_W = 140;
 export const SUBTASK_MIN_H = 84;
 export const SUBTASK_GAP = 4; // intra-cluster gap (tighter than the outer disk)
 
-// §2.3 Alt C: innermost K slots reserved for in_progress tasks (≈1–2 rings). A
-// fixed K is what makes the history-spiral index status-independent — going
-// active/done ripples ≤K tiles, never the whole disk.
 export const ACTIVE_CORE_K = 9;
 
 function priorityRank(p: Task["priority"]): number {
@@ -47,7 +34,6 @@ function priorityRank(p: Task["priority"]): number {
   }
 }
 
-// Stable creation rank over the given tasks by (created_at, id). A newly created
 // task sorts last → outermost slot → existing tiles keep their indices (§31).
 function creationRanks(tasks: Task[]): Map<string, number> {
   const sorted = [...tasks].sort(
@@ -64,7 +50,6 @@ function isSunk(status: TaskStatus): boolean {
   return status === "done" || status === "cancelled";
 }
 
-// Active-core rank among NOT-done tasks (in_progress innermost, then idle). idle =
 // pending/blocked so they too occupy the plan-side core, not the history spiral.
 function activeRanks(tasks: Task[]): Map<string, number> {
   const statusRank = (s: TaskStatus) => (s === "in_progress" ? 0 : 1);
@@ -83,14 +68,12 @@ function activeRanks(tasks: Task[]): Map<string, number> {
   return m;
 }
 
-// Right-opening fold: all tiles on +x so a blob's plan-facing side is a flat edge and
 // its active core (small radius) sits nearest the plan — §35 active-left within a blob.
 function foldedTheta(slot: number): number {
   const base = slot * GOLDEN_ANGLE;
   return Math.atan2(Math.sin(base), Math.abs(Math.cos(base)));
 }
 
-// §2.3 two-zone sunflower index: active core (rank < K) at the eye, everything
 // else on the history spiral at K + creationRank (independent of active count).
 function slotIndex(task: Task, active: Map<string, number>, creation: Map<string, number>, k: number): number {
   const ar = active.get(task.id);
@@ -119,20 +102,8 @@ export interface CloudPack {
   radius: number;
 }
 
-// §2.2 area-accumulated golden-angle pack with outward-only collision resolve.
-// Tiles are placed in slot order; each only ever pushes ITSELF outward against
-// already-placed tiles → deterministic, append-stable, non-overlapping. Returns
-// centers relative to (0,0) and the disk radius R = max(r + ρ).
-//
-// CENTER-FILL: the seed radius uses the area of the tiles placed BEFORE this one,
-// so tile 0 lands at the origin (r=0) and the disk fills from the middle outward.
-// (The old `cumArea + area/2` seeded even tile 0 at ≈0.7ρ → a hollow center ring.)
 type Placed = { cx: number; cy: number; rho: number };
 
-// Uniform spatial-hash grid over placed tiles: a tile only ever overlaps another
-// whose centers are within ρ_i+ρ_j ≤ 2·maxρ, so collision checks query a fixed
-// neighborhood of cells instead of ALL placed tiles. Same placement output as the
-// brute-force O(N²) loop, but ~O(N) — the layout no longer blows up at scale.
 class PackGrid {
   private cells = new Map<number, Placed[]>();
   constructor(private cell: number) {}
@@ -164,10 +135,6 @@ class PackGrid {
   }
 }
 
-// `tight`: seed every item at the origin so the outward collision-resolve packs it
-// flush against its neighbours (tangent), independent of size disparity. The default
-// areal seed assumes uniform tiles — with one dominant circle it over-seeds the rest,
-// flinging small members far out. Tiles use the default; section blobs use `tight`.
 export function packCloud(items: CloudItem[], gap = TILE_GAP, tight = false): CloudPack {
   const ordered = [...items].sort((a, b) => a.slot - b.slot || a.id.localeCompare(b.id));
   const rhoOf = (w: number, h: number) => 0.5 * Math.hypot(w, h) + gap; // ρ = ½√(w²+h²) + g
@@ -204,7 +171,6 @@ export function packCloud(items: CloudItem[], gap = TILE_GAP, tight = false): Cl
   return { items: result, radius };
 }
 
-// Per section: the member task boxes (cloud-local coords) the zones layer hugs, plus
 // the reserved label-tile centre (cloud-local) where the region name pill sits.
 export interface TaskCloudGroup {
   sectionId: string;
@@ -212,10 +178,6 @@ export interface TaskCloudGroup {
   labelAnchor?: Point;
 }
 
-// A blob's MASS center + the radius of its content measured from THAT center. The
-// blob-local origin (0,0) is the plan-side tip, not the mass center (right-opening
-// fold), so packing on the origin-extent flung dense cores apart. Packing on the
-// centroid pulls the actual masses tangent — one cohesive cloud.
 function blobMetrics(pack: CloudPack): { cx: number; cy: number; r: number } {
   if (!pack.items.length) return { cx: 0, cy: 0, r: 1 };
   let sx = 0;
@@ -236,7 +198,6 @@ export interface TaskCloudLayout {
   groups: TaskCloudGroup[];
 }
 
-// A local placement = one tile's center OFFSET from its cluster center (0,0 = the
 // parent). The whole cluster translates together when the outer pack places it.
 interface LocalPlace {
   id: string;
@@ -254,13 +215,11 @@ interface Cluster {
   locals: LocalPlace[];
 }
 
-// Stable child order (created_at, id) → satellite slot, so a new subtask lands on
 // the outermost satellite ring and existing satellites keep their orbit.
 function childOrder(children: Task[]): Task[] {
   return [...children].sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0) || a.id.localeCompare(b.id));
 }
 
-// One cluster = a parent tile + its subtask satellites (nested sub-cloud). Childless
 // → a single tile (radius 0). Geometry only; the caller assigns the cluster's slot.
 function buildCluster(task: Task, children: Task[], slot: number, s: CanvasLayoutSettings): Cluster {
   const fp = taskFootprint(task, children, s);
@@ -287,7 +246,6 @@ function buildCluster(task: Task, children: Task[], slot: number, s: CanvasLayou
   return { task, slot, radius: localPack.radius, locals };
 }
 
-// Deterministic group order: sections in the plan's flat order first, then any
 // section ids not in the plan (sorted), then the neutral UNSECTIONED group last.
 function orderGroups(keys: string[], plan: Plan): string[] {
   const present = new Set(keys);
@@ -298,14 +256,6 @@ function orderGroups(keys: string[], plan: Plan): string[] {
   return [...flatOrder, ...extras, ...tail];
 }
 
-// worlds-v3 §2: circle-packed task disk with NESTED satellite sub-clouds. Each
-// top-level task is a MAIN tile; its subtasks are SMALLER tiles packed by the same
-// phyllotaxis logic, swarming around the parent (parent = local slot 0 at the
-// center, children orbit). The parent+satellites form one cluster that packs as a
-// single circle among sibling clusters — so from afar you SEE each main task haloed
-// by its solid subtasks, and zooming in reveals detail. No transparency, no stacked
-// super-cell, no hollow gap. Node positions are relative to the disk center (0,0);
-// the caller offsets by diskCenter.
 export function layoutTaskCloud(
   plan: Plan,
   s: CanvasLayoutSettings,
@@ -316,9 +266,6 @@ export function layoutTaskCloud(
   const edges: LaidOutEdge[] = [];
   const extraPoints: Point[] = [];
 
-  // Section title for label-tile sizing: the layout plan's sections may be spec-overlaid
-  // (ids won't match tasks), so prefer the passed map (from the original plans), then
-  // fall back to this plan's own sections (the test/fixture path).
   const planTitles = new Map(flatSections(plan).map((sec) => [sec.id, sec.title]));
   const titleOf = (sid: string): string | null => {
     const t = (sectionTitles?.get(sid) ?? planTitles.get(sid))?.trim();
@@ -337,12 +284,6 @@ export function layoutTaskCloud(
   }
   const topLevel = plan.tasks.filter((t) => !t.parent_task_id || !taskIds.has(t.parent_task_id));
 
-  // COHESIVE SECTION BLOBS: each section's tasks pack as their OWN tight right-opening
-  // sub-cloud (active core flush to the plan-side tip → §35 holds within every blob),
-  // with a reserved LABEL tile at the blob body so cards collision-resolve AROUND the
-  // name (it never overlaps a card / never clips). The blobs are then nestled into one
-  // cohesive mass — each a coherent shape the zone hull can visibly hug (a drawn
-  // territory, not a thin fan smear). A no-section plan = one blob = the original pack.
   const groupOf = (t: Task) => t.section_ids[0] ?? UNSECTIONED;
   const byGroup = new Map<string, Task[]>();
   for (const t of topLevel) {
@@ -369,7 +310,6 @@ export function layoutTaskCloud(
       const side = cl.radius * Math.SQRT2;
       return { id: cl.task.id, w: side, h: side, slot: cl.slot, theta };
     });
-    // Reserve a label tile sized to the FULL title (≤2 lines) in the blob body so
     // cards pack around the real pill — no truncation, no clip, no overlap.
     const title = sectionId === UNSECTIONED ? null : titleOf(sectionId);
     if (title) {
@@ -379,9 +319,6 @@ export function layoutTaskCloud(
     return { sectionId, clusters, pack: packCloud(items, TILE_GAP) };
   });
 
-  // Nestle section blobs with the same append-stable phyllotaxis pack used for tasks.
-  // Gravity-compaction re-ran on every mutation and shuffled unrelated sections; slot-
-  // keyed packCloud only places the new/changed outer member outward (§31 stability).
   const blobCenters = new Map<string, Point>();
   if (blobs.length === 1) blobCenters.set(blobs[0].sectionId, { x: 0, y: 0 });
   else if (blobs.length > 1) {

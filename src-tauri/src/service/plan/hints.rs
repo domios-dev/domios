@@ -248,7 +248,6 @@ mod tests {
         assert!(orchestration_reminder_for_count(6).is_none());
     }
 
-    // helpers for planner_ownership_nudge tests
     fn make_task(
         id: &str,
         kind: &str,

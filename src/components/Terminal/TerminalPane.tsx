@@ -76,12 +76,8 @@ export const TerminalPane = memo(function TerminalPane({
   const { state, updatePaneStatus } = useMultiplexer();
   const pane = state.panes[paneId];
   const agentType = pane?.agent_type;
-  // No session-readiness gate: PaneSessionChat renders an empty chat for fresh
   // panes and binds the session when the mux reports its id.
   const agentDescriptor = useAgentDescriptor(agentType);
-  // Optimistic while the descriptor is still loading: an agent pane is assumed
-  // chat-capable so a chat-default pane renders chat on the first frame (no
-  // terminal flash). Corrected to terminal only if the loaded descriptor says so.
   const chatCapable =
     pane?.backing?.kind === "chat_backend"
       ? true
@@ -102,17 +98,12 @@ export const TerminalPane = memo(function TerminalPane({
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
   }, []);
-  // --- Terminal lifecycle ---
   const { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady } = useXterm({
     containerRef, theme, fontConfig, terminalConfig,
     priority: isVisible || isFocused,
   });
 
-  // --- UI state ---
   const userModeOverrideRef = useRef<PaneUiMode | null>(null);
-  // Mode priority: explicit client-local choice > backend chat_view > global
-  // chat-default > terminal. Resolved synchronously (no descriptor await) so the
-  // pane opens in its final view with no flash, then settles on the same value.
   const computeMode = useCallback((): PaneUiMode => {
     if (userModeOverrideRef.current) {
       return userModeOverrideRef.current === "chat" && chatCapable ? "chat" : "terminal";
@@ -151,7 +142,6 @@ export const TerminalPane = memo(function TerminalPane({
       .catch(() => {});
   }, [paneId, ptyId, resizeClientId, ownsLivePty, termRef, connectedPtyRef]);
 
-  // --- Resize handling ---
   const { jiggleResize } = useTerminalResize({
     containerRef,
     termRef,
@@ -163,17 +153,14 @@ export const TerminalPane = memo(function TerminalPane({
     resizeClientId,
   });
 
-  // --- Shell integration (readiness, CWD, pending commands) ---
   const shell = useShellIntegration({
     termRef, connectedPtyRef, paneId, ptyId, termReady,
   });
 
-  // --- Tab completion ---
   const completion = useTabCompletion({
     termRef, containerRef, connectedPtyRef,
   });
 
-  // --- PTY connection ---
   const { writePty } = usePtyConnection({
     termRef, fitAddonRef, connectedPtyRef, paneId, ptyId, termReady,
     onPtySpawned,
@@ -188,10 +175,8 @@ export const TerminalPane = memo(function TerminalPane({
     resizeClientId,
   });
 
-  // --- Agent detection ---
   useAgentDetection({ termRef, paneId, termReady });
 
-  // --- Touch swipe scrolling (xterm has no native touch scroll) ---
   useTouchScroll({ containerRef, termRef, termReady });
 
   const touchUi = useTouchOptimizedUi();
@@ -202,16 +187,12 @@ export const TerminalPane = memo(function TerminalPane({
   const SHEET_TOP = "calc(var(--ct-safe-top, 0px) + 2.5rem)";
   const SHEET_HEADER = "2.5rem";
   const SHEET_FOOTER = "3.75rem";
-  // Desktop fallback flies out near-fullscreen but keeps margins + shadow so it
   // reads as a floating overlay above the chat, not an edge-to-edge takeover.
   const FB_TOP = "calc(var(--ct-safe-top, 0px) + 2.75rem)";
   const FB_SIDE = 16;
   const FB_HEADER = "2.5rem";
   const FB_BOTTOM = "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem))";
   const FB_SHADOW = "0 24px 64px rgba(0,0,0,0.5)";
-
-  // chat_start/chat_stop are owned exclusively by useChatSession's mount/
-  // unmount (PaneSessionChat is mounted iff uiMode === "chat"). A second
 
   useEffect(() => {
     if (isFocused && ownsLivePty) {
@@ -252,8 +233,6 @@ export const TerminalPane = memo(function TerminalPane({
     };
   }, [paneId]);
 
-  // The client-mode store records EXPLICIT choices only (user toggles, spawn
-  // default, bridge requests). Persisting every computed uiMode here used to
   useEffect(() => {
     publishCurrentPaneUiMode(paneId, uiMode);
   }, [paneId, uiMode]);
@@ -296,7 +275,6 @@ export const TerminalPane = memo(function TerminalPane({
     termReady,
   });
 
-  // --- Input handling ---
   const { copySelection, pasteFromClipboard } = useTerminalInput({
     termRef, connectedPtyRef, containerRef, termReady,
     terminalActive: terminalVisible,
@@ -366,7 +344,6 @@ export const TerminalPane = memo(function TerminalPane({
     termRef.current?.focus();
   }, [onFocus, paneId, termRef, claimTerminalOwnership]);
 
-  // --- Pane status events ---
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
@@ -377,7 +354,6 @@ export const TerminalPane = memo(function TerminalPane({
     return () => { cancelled = true; unlisten?.(); };
   }, [paneId, updatePaneStatus]);
 
-  // --- Search toggle ---
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -396,7 +372,6 @@ export const TerminalPane = memo(function TerminalPane({
     });
   }, [paneId, termRef]);
 
-  // --- Context menu ---
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY });
@@ -407,7 +382,6 @@ export const TerminalPane = memo(function TerminalPane({
     { label: "Paste", shortcut: "Ctrl+Shift+V", onClick: pasteFromClipboard },
   ];
 
-  // --- Style ---
   const topAccent = bellFlash
     ? "var(--ct-yellow, #d29922)"
     : hasSplits && isFocused
@@ -416,7 +390,6 @@ export const TerminalPane = memo(function TerminalPane({
   const terminalBackground = theme.background;
   const terminalKeyBar = <TerminalKeyBar onSendKey={writePty} className="w-full" />;
 
-  // --- Render ---
   return (
     <div
       ref={paneRootRef}
@@ -567,7 +540,6 @@ export const TerminalPane = memo(function TerminalPane({
             uiFontScale={uiFontScale}
             isVisible={isVisible}
             onError={() => {
-              // Automatic fallback, NOT a user choice: never write the
               // client-mode store here or the pane gets pinned to terminal.
               setUiMode("terminal");
             }}

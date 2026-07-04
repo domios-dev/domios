@@ -1,5 +1,3 @@
-// Humanize an epoch-ms timestamp (string or number) into a short relative
-// label like "5m ago" / "in 2h" / "just now". Returns null for unparseable
 export function relativeTime(value: string | number | undefined, now: number = Date.now()): string | null {
   if (value == null) return null;
   const ms = typeof value === "number" ? value : Number(value);
@@ -31,7 +29,6 @@ export function absoluteTime(value: string | number | undefined): string | null 
   return new Date(ms).toLocaleString();
 }
 
-// Per-message timestamp (ISO string from the provider JSONL) → short local
 // time for display plus a full absolute label for the title attribute.
 export function messageTimestamp(value: string | undefined): { short: string; full: string } | null {
   if (!value) return null;

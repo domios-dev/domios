@@ -716,9 +716,6 @@ fn owner_of_returns_current_owner() {
 
 #[test]
 fn set_layout_uses_the_real_id_the_frontend_sends() {
-    // The frontend (useCanvasNodeDrag) sends node.id — the bare 'task_<uuid>' id,
-    // NOT a 'task:<id>' namespace. Regression for the drag-never-persists 404:
-    // set_layout used split_once(':') which rejected every underscore id.
     let (store, id, tid) = store_with_task(&["status_update"]);
     store
         .set_layout(&id, &tid, Some(12.0), Some(34.0), 60)

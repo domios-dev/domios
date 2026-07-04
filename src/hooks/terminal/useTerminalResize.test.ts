@@ -1,7 +1,3 @@
-// Run: npx tsx src/hooks/terminal/useTerminalResize.test.ts
-// Regression: `codeterm-pane-resize` broadcasts to every mounted pane on every
-// mux-state change. A pane must refit ONLY when its own container geometry
-// changed, else a tab switch costs O(panes) reflows + resize_pty IPCs.
 
 import { paneResizeChanged } from "./paneResize";
 

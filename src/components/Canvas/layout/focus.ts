@@ -25,9 +25,6 @@ function pickFrame(frames: PlanFrame[], center: Point): PlanFrame | null {
   return best;
 }
 
-// Focus detection (§6.1): the frame under/nearest the viewport center is the
-// focused plan (its owner is the talk-to-area target); nodes inside the focus
-// zone are the in-view documents.
 export function focusAt(layout: WorkspaceLayout, center: Point, s: CanvasLayoutSettings): FocusResult {
   const frame = pickFrame(layout.frames, center);
   if (!frame) return { planId: null, sectionIds: [], taskIds: [], milestoneIds: [] };

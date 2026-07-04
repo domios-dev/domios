@@ -1,6 +1,3 @@
-// Run: npx tsx src/components/Canvas/canvasSpatialIndex.test.ts
-//
-// The raycast index: point-in-box containment, SMALLEST box when nested, fast at scale.
 
 import { buildSpatialIndex, type IndexedNode } from "./canvasSpatialIndex";
 

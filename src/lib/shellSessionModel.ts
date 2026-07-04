@@ -1,6 +1,5 @@
 import { invoke } from "./bridge";
 
-// chatBackend shell panes have no `agent_session_model` on the pane record; the
 // live model lives in the plugin VM and is read via `chatbackend_session_info`.
 interface ChatSessionInfo {
   model?: string | null;

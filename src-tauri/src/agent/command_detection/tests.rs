@@ -202,7 +202,6 @@ fn osc7_used_as_fallback_when_no_property() {
 
 #[test]
 fn a_d_only_sequence_yields_command_with_boundary_exit_cwd() {
-    // Windows PSReadLine degraded mode: pre-exec B/C absent. A + cwd + D alone
     // must still produce a command with boundary, exit code, and cwd.
     let mut det = CommandDetection::new();
     let out = ev_pairs(
@@ -274,7 +273,6 @@ fn command_line_text_is_decoded() {
 
 #[test]
 fn parser_runs_on_reader_without_disturbing_screen_state() {
-    // ShellIntegration feeds raw bytes through the OSC1 parser; the byte stream
     // is observed, never mutated — non-OSC text produces no events.
     let mut si = ShellIntegration::default();
     let plain = si.feed(b"just normal terminal output\r\n");
