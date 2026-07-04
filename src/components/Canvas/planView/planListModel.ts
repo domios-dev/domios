@@ -1,10 +1,13 @@
 import type { TaskStatus } from "../types";
+import { DONE_COLUMN_COLLAPSED_LIMIT } from "./boardModel";
 import {
   isPlanListSectionRow,
   isPlanListTaskRow,
   type PlanListRow,
   type PlanListVisibleRow,
 } from "./buildPlanListTree";
+
+export { DONE_COLUMN_COLLAPSED_LIMIT as DONE_LIST_FILTER_VISIBLE_LIMIT };
 
 export type PlanListStatusFilter = "all" | "active" | "done" | "blocked" | "cancelled";
 
@@ -142,4 +145,38 @@ export function buildVisiblePlanListRows(
   }
 
   return out;
+}
+
+function visibleDoneTaskRows(visible: readonly PlanListVisibleRow[]): Array<{ type: "row"; row: PlanListRow }> {
+  return visible.filter(
+    (entry): entry is { type: "row"; row: PlanListRow } =>
+      entry.type === "row" && isPlanListTaskRow(entry.row),
+  );
+}
+
+export function boundDoneFilterVisibleRows(
+  visible: readonly PlanListVisibleRow[],
+  expanded: boolean,
+  limit: number = DONE_COLUMN_COLLAPSED_LIMIT,
+): PlanListVisibleRow[] {
+  const taskRows = visibleDoneTaskRows(visible);
+  const total = taskRows.length;
+  if (total <= limit) return [...visible];
+
+  if (expanded) {
+    const withoutToggle = visible.filter((entry) => entry.type !== "done-filter-toggle");
+    return [
+      ...withoutToggle,
+      { type: "done-filter-toggle", totalCount: total, hiddenCount: 0, expanded: true },
+    ];
+  }
+
+  const keptIds = new Set(taskRows.slice(0, limit).map((entry) => entry.row.id));
+  const capped = visible.filter(
+    (entry) => entry.type !== "done-filter-toggle" && (entry.type !== "row" || !isPlanListTaskRow(entry.row) || keptIds.has(entry.row.id)),
+  );
+  return [
+    ...capped,
+    { type: "done-filter-toggle", totalCount: total, hiddenCount: total - limit, expanded: false },
+  ];
 }
