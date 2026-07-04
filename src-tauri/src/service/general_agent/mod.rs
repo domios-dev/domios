@@ -22,8 +22,8 @@ mod workspace;
 use std::path::PathBuf;
 
 pub use first_run::{
-    complete_first_run_core, ensure_first_run_tab, needs_first_run_picker,
-    purge_snapshot_ghosts, snapshot_has_protected_main, FIRST_RUN_PANE_MARKER,
+    complete_first_run_core, ensure_first_run_tab, needs_first_run_picker, purge_snapshot_ghosts,
+    snapshot_has_protected_main, FIRST_RUN_PANE_MARKER,
 };
 pub use instructions::{generate_instructions, sync_identity_to_mem};
 pub use lifecycle::{restart_general_agent, start_general_agent};
