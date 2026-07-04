@@ -121,6 +121,28 @@ test("Escape closes an open popover", async () => {
   await act(async () => root.unmount());
 });
 
+test("bubble face is a chat icon with an edge presence dot, name in tooltip", async () => {
+  const { host, root } = await render(
+    <PlanCompanionBubble plans={[plan({ kind: "pane", pane_id: "planner-1" })]} panes={LIVE_PANES} renderChat={renderChatStub} />,
+  );
+  const bubble = host.querySelector('[data-testid="plan-companion-bubble"]') as HTMLButtonElement;
+  assert(bubble, "bubble renders");
+  // Chat-bubble face, not an avatar: a MessageCircle svg lives inside the button.
+  const icon = bubble.querySelector("svg");
+  assert(icon, "chat icon svg present in button face");
+  assert(
+    (icon.getAttribute("class") ?? "").includes("message-circle"),
+    `expected message-circle icon, got class: ${icon.getAttribute("class")}`,
+  );
+  // Presence is an edge indicator, not a full avatar.
+  const presence = bubble.querySelector('[data-testid="plan-companion-presence"]');
+  assert(presence, "edge presence dot present on the button");
+  // Name lives in the tooltip (title), not painted on the face.
+  const title = bubble.getAttribute("title") ?? "";
+  assert(title.includes("Planner"), `name should be in tooltip, got: ${title}`);
+  await act(async () => root.unmount());
+});
+
 async function run() {
   let failed = 0;
   for (const [name, fn] of tests) {

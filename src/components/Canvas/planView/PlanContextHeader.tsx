@@ -1,9 +1,12 @@
+import { ChevronDown } from "lucide-react";
 import type { PlanningState } from "../types";
 import type { ApiConfig } from "../../../lib/types";
 import type { BoardPlanSummary, BoardSpecSummary } from "./boardModel";
 import type { Plan } from "../types";
 import { PairAffordance } from "../../shared/PairAffordance";
 import { PlanSkillsSection } from "./PlanSkillsSection";
+import { useTouchOptimizedUi } from "../../../hooks/useTouchOptimizedUi";
+import { usePlanHeaderCollapse } from "./usePlanHeaderCollapse";
 
 export interface PlanContextHeaderProps {
   summary: BoardPlanSummary;
@@ -27,7 +30,71 @@ const PLANNING_STATE_LABEL: Record<PlanningState, string> = {
   approved: "Approved",
 };
 
-export function PlanContextHeader({
+export function PlanContextHeader(props: PlanContextHeaderProps) {
+  const touch = useTouchOptimizedUi();
+  if (touch) return <PlanContextCompactHeader {...props} />;
+  return (
+    <header data-testid="plan-context-header" className="plan-context-header">
+      <PlanContextBody {...props} />
+    </header>
+  );
+}
+
+export function PlanContextCompactHeader(props: PlanContextHeaderProps) {
+  const { summary } = props;
+  const { collapsed, toggle } = usePlanHeaderCollapse("narrow", true);
+  const expanded = !collapsed;
+  const stateLabel = summary.planningState ? PLANNING_STATE_LABEL[summary.planningState] : null;
+
+  return (
+    <header
+      data-testid="plan-context-header"
+      className={`plan-context-header plan-context-header-compact${expanded ? " is-expanded" : ""}`}
+    >
+      <button
+        type="button"
+        data-testid="plan-context-compact-bar"
+        className="plan-context-compact-bar"
+        aria-expanded={expanded}
+        aria-controls="plan-context-expanded-panel"
+        onClick={toggle}
+        title={expanded ? "Collapse plan context" : "Expand plan context"}
+      >
+        {stateLabel && (
+          <span
+            data-testid="plan-state-chip"
+            className={`plan-context-chip plan-state-chip plan-state-${summary.planningState}`}
+          >
+            {stateLabel}
+          </span>
+        )}
+        <span data-testid="plan-context-compact-title" className="plan-context-compact-title">
+          {summary.title}
+        </span>
+        <span data-testid="plan-context-compact-progress" className="plan-context-compact-progress">
+          {summary.done}/{summary.total}
+        </span>
+        <ChevronDown
+          size={16}
+          aria-hidden={false}
+          aria-label={expanded ? "Collapse plan context" : "Expand plan context"}
+          className="plan-context-compact-chevron"
+        />
+      </button>
+      {expanded && (
+        <div
+          id="plan-context-expanded-panel"
+          data-testid="plan-context-expanded"
+          className="plan-context-expanded"
+        >
+          <PlanContextBody {...props} />
+        </div>
+      )}
+    </header>
+  );
+}
+
+function PlanContextBody({
   summary,
   spec,
   onOpenPlan,
@@ -41,7 +108,7 @@ export function PlanContextHeader({
   const stateLabel = summary.planningState ? PLANNING_STATE_LABEL[summary.planningState] : null;
 
   return (
-    <header data-testid="plan-context-header" className="plan-context-header">
+    <>
       <div className="plan-context-header-chips" data-testid="plan-context-header-chips">
         {stateLabel && (
           <span
@@ -125,7 +192,7 @@ export function PlanContextHeader({
       {planId && plan && api && (
         <PlanSkillsSection planId={planId} plan={plan} api={api} compact onSkillNavigate={onOpenPlan} />
       )}
-    </header>
+    </>
   );
 }
 

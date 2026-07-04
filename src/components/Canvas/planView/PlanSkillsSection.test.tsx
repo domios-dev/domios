@@ -92,6 +92,21 @@ test("opens skill detail on click", async () => {
   globalThis.fetch = originalFetch;
 });
 
+test("fetch error routes through quiet ErrorState, NEVER prints raw exception", async () => {
+  const RAW = "The string did not match the expected pattern.";
+  globalThis.fetch = async () => {
+    throw new Error(RAW);
+  };
+  const { host } = await render(
+    <PlanSkillsSection planId={FIXTURE_PLAN.id} plan={FIXTURE_PLAN} api={API} />,
+  );
+  assert(!host.textContent?.includes(RAW), "raw exception string must not render");
+  assert(host.querySelector('[data-testid="plan-skills-error"]'), "quiet error state shown");
+  assert(host.querySelector('[data-testid="plan-skills-error-retry"]'), "small retry affordance present");
+  assert(!host.querySelector('[data-testid="plan-skill-row"]'), "skills list hidden on error");
+  globalThis.fetch = originalFetch;
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {
