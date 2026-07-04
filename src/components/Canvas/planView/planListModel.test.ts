@@ -75,7 +75,6 @@ test("done filter expand toggle reveals all done tasks", () => {
     textQuery: "",
     expansionOverrides: new Map(),
   });
-  const collapsed = boundDoneFilterVisibleRows(visible, false);
   const expanded = boundDoneFilterVisibleRows(visible, true);
   assert(visibleDoneTaskIds(expanded).length === 250, "expanded shows all done tasks");
   assert(

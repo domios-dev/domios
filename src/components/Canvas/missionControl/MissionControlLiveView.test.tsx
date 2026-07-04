@@ -84,7 +84,7 @@ function identityChurnPlan(plan: Plan): Plan {
   return {
     ...plan,
     canvas: { ...plan.canvas, viewport: plan.canvas.viewport ? { ...plan.canvas.viewport } : null },
-    tasks: plan.tasks.map((task) => ({ ...task, tags: [...task.tags] })),
+    tasks: plan.tasks.map((task) => ({ ...task, tags: [...(task.tags ?? [])] })),
   };
 }
 
