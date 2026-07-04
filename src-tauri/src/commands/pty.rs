@@ -484,6 +484,48 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
         }
     }
 
+    // A backend reader may be mid-setup (its channel registers a beat after
+    // PTY spawn). Cloning a raw reader now would create a SECOND consumer on
+    // the master fd — the two readers then split the byte stream (eaten shell
+    // prompts, blank terminals, 30s readiness timeouts). Wait briefly for the
+    // channel instead; it is the sanctioned path when a backend reader owns
+    // the stream.
+    {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
+        loop {
+            let backend_active = { svc.pty.lock().has_backend_reader(&pty_id) };
+            if !backend_active {
+                break;
+            }
+            let rx_ready = session.backend_reader_rx.lock().unwrap().is_some();
+            if rx_ready {
+                let rx_opt = session.backend_reader_rx.lock().unwrap().take();
+                if let Some(mut rx) = rx_opt {
+                    let result = rx.recv().await;
+                    match result {
+                        Some(mut data) => {
+                            coalesce_backend_chunks(&mut rx, &mut data).await;
+                            *session.backend_reader_rx.lock().unwrap() = Some(rx);
+                            return Ok(data);
+                        }
+                        None => {
+                            *session.backend_reader_rx.lock().unwrap() = None;
+                            return Err("PTY closed".to_string());
+                        }
+                    }
+                }
+            }
+            if std::time::Instant::now() >= deadline {
+                log::warn!(
+                    "[read_pty] backend reader active but channel never appeared for {} — falling back to raw clone",
+                    &pty_id[..pty_id.len().min(8)]
+                );
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    }
+
     let pid = pty_id.clone();
 
     // One read loop owns the reader; clone fresh via try_clone_reader if taken.
