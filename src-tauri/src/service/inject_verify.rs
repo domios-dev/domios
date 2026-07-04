@@ -308,12 +308,12 @@ pub fn wait_for_submit_tui_drained(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lock_hold::TimedMutex;
     use crate::pty::screen_state::ScreenState;
-    use parking_lot::Mutex;
     use std::sync::Arc;
 
     fn handle() -> ScreenStateHandle {
-        Arc::new(Mutex::new(ScreenState::new()))
+        Arc::new(TimedMutex::new("screen_state", ScreenState::new()))
     }
 
     fn feed(h: &ScreenStateHandle, pty: &str, bytes: &[u8]) {
