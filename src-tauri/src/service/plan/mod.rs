@@ -24,6 +24,7 @@ pub mod plan_skills;
 pub mod qa;
 mod readback;
 mod reconcile_fixes;
+pub mod reflection;
 pub mod reminders;
 pub mod resolve;
 pub mod retrospective;
