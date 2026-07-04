@@ -21,7 +21,7 @@ The script self-cleans (closes every pane/plan/workspace it created) via an
 
 | Route | Command under test | Core observable |
 |-------|--------------------|-----------------|
-| **B** CLI pair | `orchestration new --orchestrator claude:opus --planner claude:fable --workspace <ws>` | returns plan+2 pane ids; `pane list` shows both; `plan get --json` binds owner **and** planner ref; orchestrator chat carries the peer greeting |
+| **B** CLI pair | `orchestration new --orchestrator claude:opus --planner claude:fable --workspace <ws>` | returns plan+2 pane ids; `pane list` shows both; `plan get --json` binds owner **and** planner ref; orchestrator chat carries the peer greeting; **B.IDLE** waits 60s before any goal and asserts the Planner made zero tool calls / file reads |
 | **C** role spawn | `agent spawn claude --role Orchestrator --workspace <ws> --task …` | onboarding carries the peer-pairing mandate block with a pre-filled planner spawn command; unpaired nudge fires next cycle |
 | **D** promotion | `POST /api/panes/{id}/make-orchestrator` (no CLI subcommand exists) | role flips to Orchestrator; **session survives**; mandate delivered; unpaired nudge next cycle |
 | **E** planner bind | `agent spawn claude --role Planner --plan <id> --parent <orch>` | plan planner ref binds to the new pane; planner onboarding names the orch pane; **nudge stops** |

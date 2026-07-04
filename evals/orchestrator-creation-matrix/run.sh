@@ -30,6 +30,9 @@ CREATED_PANES=()
 CREATED_PLANS=()
 CREATED_WS=()
 FAILS=0
+SCENARIO_B_ORCH=""
+SCENARIO_B_PLANNER=""
+SCENARIO_B_PLAN=""
 
 record() { ROWS+=("$1|$2|$3"); }
 note()   { echo "    · $*"; }
@@ -148,6 +151,38 @@ sys.exit(0 if needle in blob else 1)
 ' "$needle"
 }
 
+pane_chat_tool_stats() {
+  local pane="$1"
+  dev_post "/api/panes/$pane/chat-raw/start" '{}' \
+    | python - <<'PY' 2>/dev/null
+import json,sys
+try:
+    d=json.load(sys.stdin)
+except Exception:
+    print("0 0")
+    sys.exit()
+
+tool_names = []
+def walk(x):
+    if isinstance(x, dict):
+        typ = str(x.get("type") or x.get("message_type") or "")
+        name = str(x.get("tool_name") or x.get("tool") or x.get("name") or "")
+        if "tool" in typ.lower() or name:
+            lower = name.lower()
+            if lower:
+                tool_names.append(lower)
+        for v in x.values():
+            walk(v)
+    elif isinstance(x, list):
+        for v in x:
+            walk(v)
+
+walk(d)
+file_reads = [n for n in tool_names if n in {"read", "grep", "glob", "ls"}]
+print(f"{len(tool_names)} {len(file_reads)}")
+PY
+}
+
 # =====================================================================
 # B. CLI PAIR
 # =====================================================================
@@ -165,6 +200,9 @@ scenario_B() {
     return
   fi
   CREATED_PLANS+=("$plan"); CREATED_PANES+=("$orch" "$planner")
+  SCENARIO_B_PLAN="$plan"
+  SCENARIO_B_ORCH="$orch"
+  SCENARIO_B_PLANNER="$planner"
   pass B "returned plan=$plan orch=$orch planner=$planner"
 
   # both panes present in registry
@@ -192,6 +230,25 @@ scenario_B() {
     pass B.greeting "orchestrator chat carries the peer greeting/mandate first message"
   else
     finding B.greeting "peer greeting not yet visible in orchestrator chat transcript (may be delivery-timing; asserted refs bound synchronously above)"
+  fi
+}
+
+scenario_B_idle() {
+  echo; echo "=== B.IDLE — fresh pair waits for goal ==="
+  if [ -z "$SCENARIO_B_PLANNER" ]; then
+    fail B.idle "route B did not produce a planner pane; cannot assert idle behavior"
+    return
+  fi
+  note "waiting 60s with no goal message after pair spawn (planner=$SCENARIO_B_PLANNER)"
+  sleep 60
+  local stats tool_count file_read_count
+  stats=$(pane_chat_tool_stats "$SCENARIO_B_PLANNER")
+  tool_count=$(echo "$stats" | awk '{print $1}')
+  file_read_count=$(echo "$stats" | awk '{print $2}')
+  if [ "${tool_count:-0}" = "0" ] && [ "${file_read_count:-0}" = "0" ]; then
+    pass B.idle "fresh planner stayed idle for 60s before goal: zero tool calls and zero file reads"
+  else
+    fail B.idle "fresh planner acted before a goal: tool_calls=${tool_count:-?} file_reads=${file_read_count:-?}"
   fi
 }
 
@@ -559,6 +616,7 @@ PY
 
 # --- run ------------------------------------------------------------
 scenario_B
+scenario_B_idle
 scenario_C
 scenario_D
 scenario_E
