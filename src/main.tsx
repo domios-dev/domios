@@ -9,17 +9,24 @@ import "./components/Canvas/missionControl/missionControl.css";
 const root = document.getElementById("root")!;
 const missionControlPrototype = isMissionControlPrototypeRoute();
 
-if (!missionControlPrototype) {
-  // Plugins must be registered before any pane renders so the ChatView host can synchronously look up the right renderer for an agent_type.
+const isGalleryRoute = new URLSearchParams(window.location.search).get("prototype") === "gallery";
+
+if (!missionControlPrototype && !isGalleryRoute) {
   loadBundledPlugins();
 }
 
-ReactDOM.createRoot(root).render(
-  missionControlPrototype ? (
-    <MissionControlPrototype />
-  ) : (
-    <WebGate>
-      <App />
-    </WebGate>
-  ),
-);
+if (isGalleryRoute) {
+  import("./components/Gallery/ComponentGallery").then(({ ComponentGallery }) => {
+    ReactDOM.createRoot(root).render(<ComponentGallery />);
+  });
+} else {
+  ReactDOM.createRoot(root).render(
+    missionControlPrototype ? (
+      <MissionControlPrototype />
+    ) : (
+      <WebGate>
+        <App />
+      </WebGate>
+    ),
+  );
+}
