@@ -2,8 +2,6 @@ import { getAgentDescriptor } from "./agentDescriptorCache";
 import { getPluginProviderMeta } from "./pluginProviderMeta";
 import type { Pane } from "./types";
 
-// One identity for a pane regardless of how it's backed: agent panes resolve via
-// `agent_type` (ProviderDescriptor cache), chatBackend shell panes via
 export interface ResolvedPaneProvider {
   id: string;
   displayName: string;
@@ -33,8 +31,6 @@ export function resolvePaneProvider(pane: Pane | null | undefined): ResolvedPane
 
   const backing = pane.backing;
   if (backing?.kind === "chat_backend") {
-    // Identity (kind=shell) comes from the pane's own backing, not from cache
-    // presence — a shell resolves as a shell even before the snapshot loads, so
     const meta = getPluginProviderMeta(backing.plugin_id);
     return {
       id: backing.plugin_id,

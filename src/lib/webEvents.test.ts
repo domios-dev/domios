@@ -13,10 +13,6 @@ function assert(label: string, cond: boolean) {
   }
 }
 
-// On an `overflow` frame (D1 §3) webEvents dispatches each RESYNC_EVENTS
-// entry with a null payload as a bare "go refetch now" signal — every entry
-// must be confirmed payload-agnostic at its listener site(s), or a null
-// dispatch would no-op or throw instead of refetching.
 console.log("webEvents RESYNC_EVENTS:");
 assert("resyncs plan-changed (plan-list convergence)", RESYNC_EVENTS.includes("plan-changed"));
 assert("resyncs mesh-state-changed", RESYNC_EVENTS.includes("mesh-state-changed"));

@@ -74,7 +74,6 @@ const s = (args: Args, key: string): string => String(args[key] ?? "");
 
 /** Commands with a meaningful HTTP equivalent. */
 const HTTP_MAP: Record<string, Mapper> = {
-  // ── extensions / plugins (web-mirror parity) ──
   plugin_manager_snapshot: () => webJson("GET", "/api/plugins/snapshot"),
   plugin_manager_action: (a) => webJson("POST", "/api/plugins/action", a.action),
   plugin_glance: (a) => webJson("POST", "/api/plugins/glance", a),
@@ -106,7 +105,6 @@ const HTTP_MAP: Record<string, Mapper> = {
       preset: a.preset,
       model: a.model,
     }),
-  // ── config ──
   get_config: () => webJson("GET", "/api/config"),
   // PATCH: the route has no POST; the handler merges top-level keys, so the full config object works as a partial.
   update_config: (a) => webJson("PATCH", "/api/config", a.config),
@@ -116,7 +114,6 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("POST", "/api/network/serve/enable", { https_port: a.https_port }),
   disable_web_access: () => webJson("POST", "/api/network/serve/disable"),
 
-  // ── multiplexer ──
   mux_get_state: () => webJson("GET", "/api/mux/state"),
   mux_set_active_workspace: (a) =>
     webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/focus`),
@@ -221,7 +218,6 @@ const HTTP_MAP: Record<string, Mapper> = {
   shell_command_snapshot: (a) =>
     webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/shell-commands`),
 
-  // ── chat (raw-JSONL window + tailer — matches the Tauri command shapes, NOT the parsed-snapshot /chat/* routes other consumers use) ──
   chat_start: (a) =>
     webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/start`),
   chat_stop: (a) =>
@@ -264,7 +260,6 @@ const HTTP_MAP: Record<string, Mapper> = {
     return resp.line ?? "";
   },
 
-  // ── mesh ──
   mesh_get_status: () => webJson("GET", "/api/mesh/status"),
   mesh_list_peers: () => webJson("GET", "/api/mesh/peers"),
   mesh_peer_services_list: (a) =>
@@ -303,7 +298,6 @@ const HTTP_MAP: Record<string, Mapper> = {
       access_level: a.accessLevel,
     }),
 
-  // ── services / activity / crons ──
   services_list: () => webJson("GET", "/api/services"),
   services_create: (a) => webJson("POST", "/api/services", a.input),
   services_update: (a) =>
@@ -325,7 +319,6 @@ const HTTP_MAP: Record<string, Mapper> = {
   services_smart_add_inspect: (a) =>
     webJson("POST", "/api/services/smart-add-inspect", { url: a.url }),
 
-  // ── PTY (browser terminal I/O loop) ──
   spawn_pty: async (a) => {
     const resp = await webJson<{ pty_id: string }>("POST", "/api/pty/spawn", {
       command: a.command,
@@ -376,7 +369,6 @@ const HTTP_MAP: Record<string, Mapper> = {
       force: a.force === true,
     }),
 
-  // ── keepawake (sidebar toggle in web) ──
   keepawake_status: () => webJson("GET", "/api/keepawake"),
   keepawake_start: (a) =>
     webJson("POST", "/api/keepawake/start", {
@@ -393,7 +385,6 @@ const HTTP_MAP: Record<string, Mapper> = {
   delete_custom_theme: (a) =>
     webJson("DELETE", `/api/themes/${enc(s(a, "themeId"))}`),
 
-  // ── misc with real endpoints ──
   fs_list_dir: (a) =>
     webJson(
       "GET",

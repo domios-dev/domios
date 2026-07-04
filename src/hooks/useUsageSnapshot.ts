@@ -4,7 +4,6 @@ import { listen } from "../lib/bridge";
 import type { UsageSnapshot, UsageSnapshotEvent } from "../types/usage";
 import { nextResetAt, zeroExpiredResets } from "../components/Usage/cycle";
 
-// setTimeout clamps past ~24.8 days; re-arm in bounded hops so a far-off weekly
 // reset still fires without depending on one giant timer surviving that long.
 const MAX_RESET_DELAY_MS = 6 * 60 * 60 * 1000;
 
@@ -78,10 +77,6 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
     };
   }, [provider, accountId, enabled, refetch]);
 
-  // Auto-refresh at the cycle boundary: when a reset timer elapses, optimistically
-  // zero the spent metric (so the bubble drops instantly, no manual click) and
-  // force a probe — the event listener refetches the real values when it lands.
-  // resetTick re-arms after a capped intermediate hop toward a far-off reset.
   useEffect(() => {
     if (!enabled || !snapshot) return;
     const due = nextResetAt(snapshot, Date.now());

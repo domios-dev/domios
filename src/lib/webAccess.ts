@@ -130,7 +130,6 @@ export function planServeSetup(
   const isMac = platform === "macos" || platform === "darwin";
   const proxy = `http://127.0.0.1:${apiPort}`;
   const serveCmd = `tailscale serve --bg --https=${httpsPort} ${proxy}`;
-  // macOS provisions a cert before serve; the preview shows it only when we know
   // the MagicDNS name (the cert command's argument).
   const commands =
     isMac && status.self_dns ? [`tailscale cert ${status.self_dns}`, serveCmd] : [serveCmd];

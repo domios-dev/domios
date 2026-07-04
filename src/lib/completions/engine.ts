@@ -15,7 +15,6 @@ export class CompletionEngine {
     const def = this.definitions.get(parsed.command);
     if (!def) return [];
 
-    // Walk subcommand tree based on args
     let context: { subcommands?: SubcommandDef[]; flags?: FlagDef[] } = def;
     for (const arg of parsed.args) {
       if (arg.startsWith("-")) continue; // skip flags in path
@@ -30,7 +29,6 @@ export class CompletionEngine {
     const prefix = parsed.currentArg.toLowerCase();
     const items: CompletionItem[] = [];
 
-    // If prefix starts with "-", show flags
     if (prefix.startsWith("-") || prefix === "") {
       if (context.flags) {
         for (const flag of context.flags) {
@@ -60,9 +58,7 @@ export class CompletionEngine {
       }
     }
 
-    // Show both when empty prefix
     if (prefix === "" && context.subcommands) {
-      // subcommands already added above
     }
     if (prefix === "" && context.flags) {
       // flags already added above via fuzzyMatch("--flag", "")
@@ -72,7 +68,6 @@ export class CompletionEngine {
       const aExact = a.text.toLowerCase().startsWith(prefix) ? 0 : 1;
       const bExact = b.text.toLowerCase().startsWith(prefix) ? 0 : 1;
       if (aExact !== bExact) return aExact - bExact;
-      // Subcommands before flags
       if (a.kind !== b.kind) return a.kind === "subcommand" ? -1 : 1;
       return a.text.localeCompare(b.text);
     });

@@ -54,7 +54,6 @@ export function useTauriFileDrop({
         setIsDragOver(false);
         return;
       }
-      // "enter" and "over" both carry position — flip the flag based on whether the cursor is currently inside this specific container. Without the
       // per-container check, every pane would highlight at once when one file is dragged into the window.
       if (payload.type === "enter" || payload.type === "over") {
         setIsDragOver(isDropInside(payload.position, el));

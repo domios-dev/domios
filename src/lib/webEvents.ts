@@ -41,7 +41,6 @@ const CURSOR_KEY = "codeterm-web-events-cursor";
 const RECEIVE_TIMEOUT_MS = 30_000;
 const WATCHDOG_INTERVAL_MS = 5_000;
 
-// D1 §4 events confirmed safe to re-dispatch with a null payload (handler
 // refetches regardless); mux state uses its own seam below, rest need per-hook wiring.
 export const RESYNC_EVENTS = [
   "mesh-state-changed",
@@ -81,20 +80,14 @@ function dispatch(event: string, payload: unknown): void {
   }
 }
 
-// Overflow is the ONLY loss signal (D1 §3): adopt the baseline cursor and
 // refetch reachable state; coverage beyond this is tracked as follow-up.
 function runFullResync(info: OverflowData): void {
-  // `next_seq` is one past the last allocated seq (D1 §1a): storing next_seq-1
   // as "last seen" means a later reconnect replays from next_seq forward.
   saveCursor(`${info.boot}:${info.next_seq - 1}`);
   window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
   for (const ev of RESYNC_EVENTS) dispatch(ev, null);
-  // General "any overflow happened, reload yourself" bus (resync.ts) for consumers
-  // with no dedicated event type — e.g. the multiplexed output stream forces an
-  // immediate reconnect here regardless of reason (outputStream.ts).
   fireResync();
   if (info.reason === "boot-changed") {
-    // PTY-layer seam: the per-pane long-poll fallback's byte cursor is boot-scoped
     // and needs revalidation after a daemon restart (usePtyConnection.ts).
     window.dispatchEvent(
       new CustomEvent("codeterm-web-boot-changed", { detail: { boot: info.boot } }),
@@ -186,7 +179,6 @@ function startWatchdog(): void {
 function ensureStarted(): void {
   if (started || !IS_WEB) return;
   started = true;
-  // Remote peer target: the mesh relay can't stream yet (D2), so skip the SSE
   // connection; the watchdog is a no-op there too until D2 lands.
   if (!relayTarget()) void runStream();
   startWatchdog();

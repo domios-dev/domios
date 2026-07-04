@@ -120,7 +120,6 @@ function outputStreamUrl(): string {
 
 function handleFrame(msg: OutputFrame): void {
   if (msg.boot_changed && msg.boot) {
-    // Unknown/stale boot: the server tailed everything. Adopt the boot, drop
     // boot-scoped offsets and reconnect — the boot-matched cursor full-replays.
     saveBoot(msg.boot);
     offsets.clear();
@@ -247,9 +246,6 @@ export function pokeOutputStream(): void {
   streamAbort?.abort();
 }
 
-// Events-stream overflow (boot restart, ring eviction, broadcast lag) shares the
-// same boot id as this stream (D1 §5 doc above) and may mean our cursor is stale
-// too — force an immediate reconnect rather than waiting out the backoff.
 onResync(() => pokeOutputStream());
 
 /** Tear down (peer switch) — next subscription reconnects to the current host. */

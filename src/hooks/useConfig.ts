@@ -95,7 +95,6 @@ export function useConfig() {
   const [config, setConfig] = useState<AppConfig>(() => defaultConfig());
   const [loading, setLoading] = useState(true);
 
-  // Fetch config from Rust backend on mount
   useEffect(() => {
     let cancelled = false;
 
@@ -143,7 +142,6 @@ export function useConfig() {
   const updateConfig = useCallback(async (newConfig: AppConfig) => {
     try {
       await invoke("update_config", { config: newConfig });
-      // Config will be updated via the config-changed event listener
     } catch (err) {
       console.error("Failed to update config:", err);
       throw err;

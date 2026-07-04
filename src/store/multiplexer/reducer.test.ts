@@ -96,7 +96,6 @@ test("SET_STATE merges pane_statuses without dropping untouched live entries", (
 });
 
 test("end-to-end: a reload snapshot's pane_statuses drives the attention rail", () => {
-  // Closes the loop from backend snapshot -> reducer -> rail resolver, so a
   // page reload renders the correct rail without waiting for a live event.
   const withPrompt = {
     ...snap(5, "w-new"),
@@ -108,11 +107,6 @@ test("end-to-end: a reload snapshot's pane_statuses drives the attention rail", 
 });
 
 test("end-to-end: hook-driven pending_prompt survives reload as attention (not Working)", () => {
-  // Regression for the reload race this task fixes: a hook-driven prompt on a
-  // still-producing-output pane (e.g. a plain shell loop) has no agent-marker
-  // path to ever call PaneStatusTracker::set_waiting, so snapshot_with_status
-  // must derive Waiting from pane.pending_prompt itself — mirrored here as the
-  // backend now would send it, NOT the raw Working the old tracker mirror gave.
   const promptedPane = {
     id: "p-1",
     pty_id: "pty-1",
@@ -136,12 +130,6 @@ test("end-to-end: hook-driven pending_prompt survives reload as attention (not W
 });
 
 test("SET_STATE drops a stale Waiting once pending_prompt clears and no fresh status is reported", () => {
-  // Regression: a pane with no attached PTY (pty_id null) has nothing for the
-  // backend's snapshot_with_status to report once its hook-driven
-  // pending_prompt is cleared — the key is simply absent from every future
-  // pane_statuses map. A pure merge would leave "Waiting" stuck on this pane
-  // forever; the reducer must drop it once the pane's own pending_prompt is
-  // gone and the fresh snapshot doesn't re-affirm any status for it.
   const withWaiting = {
     ...base(),
     panes: {
@@ -169,9 +157,6 @@ test("SET_STATE drops a stale Waiting once pending_prompt clears and no fresh st
 });
 
 test("SET_STATE keeps a genuine tracker-reported Waiting even without pending_prompt", () => {
-  // A REAL PaneStatusTracker-detected permission prompt (agent marker path,
-  // not the hook-explicit path) can set Waiting with no pending_prompt on the
-  // pane at all — that must survive since the fresh snapshot re-affirms it.
   const withWaiting = { ...base(), paneStatuses: { "p-1": "Waiting" as const } };
   const stillWaiting = {
     ...snap(5, "w-new"),
@@ -181,8 +166,6 @@ test("SET_STATE keeps a genuine tracker-reported Waiting even without pending_pr
   assert(next.paneStatuses["p-1"] === "Waiting", "tracker-reaffirmed Waiting is not dropped");
 });
 
-// SET_STATE focused_pane_id: under the payload-based mux-state-changed flow,
-// snapshots now carry focused_pane_id. The reducer must adopt it when it names
 function pane(id: string): Pane {
   return { id, pty_id: null, title: id } as unknown as Pane;
 }
@@ -231,7 +214,6 @@ test("prior focused pane removed from snapshot clears focused_pane_id to null", 
     type: "SET_STATE",
     state: snapWithFocus(1, ["p1"], "p1"),
   });
-  // New snapshot no longer contains p1 (closed/rolled back), incoming focus null
   const after = reducer(hydrated, {
     type: "SET_STATE",
     state: snapWithFocus(2, ["p2"], null),
@@ -343,9 +325,6 @@ test("SET_PANE_TITLE rejects lower priority overwrite", () => {
 });
 
 test("SET_STATE yields to a fresh backend Default rename over a stale carried-over Default title", () => {
-  // Simulates a cache-hydrated (or previously-synced) pane whose title never
-  // went through a local SET_PANE_TITLE dispatch — title_pending_local is
-  // unset, so a level tie must resolve to the backend's authoritative title.
   const hydrated = reducer(base(), {
     type: "SET_STATE",
     state: {
@@ -373,10 +352,6 @@ test("SET_STATE yields to a fresh backend Default rename over a stale carried-ov
 });
 
 test("SET_STATE yields to a fresh backend User rename over a title held across a reconnect outage", () => {
-  // Same tie (User vs User) as a genuine pending local rename, but here BOTH
-  // titles arrived via SET_STATE (e.g. the second rename happened on the
-  // daemon while this client was disconnected) — neither is locally pending,
-  // so the daemon's later rename must win, not whichever the client saw first.
   const beforeOutage = reducer(base(), {
     type: "SET_STATE",
     state: {
@@ -480,10 +455,6 @@ test("SET_PANE_TITLE at User level pins title for tab rename round-trip", () => 
 });
 
 test("RESET_GENERATION lets a low post-restart snapshot apply over a high stale generation", () => {
-  // Regression for the boot-changed / daemon-restart structure-resync bug: a
-  // long-lived web client accumulates a high generation, the daemon restarts
-  // and its own counter resets to a low value, so without RESET_GENERATION
-  // the monotonic guard would reject every post-restart snapshot forever.
   const highGen = reducer(base(), { type: "SET_STATE", state: snap(500, "w-old") });
   assert(highGen.generation === 500, "client accumulated a high generation");
   const resetted = reducer(highGen, { type: "RESET_GENERATION" });
@@ -528,7 +499,6 @@ test("SET_STATE re-injects the virtual picker across a backend snapshot (no husk
   const start = reducer(base(), { type: "SET_STATE", state: snap(1, "w1") });
   const virtual = makeVirtualPickerTab();
   const open = reducer(start, { type: "OPEN_SESSION_PICKER", workspaceId: "w1", virtual });
-  // A fresh authoritative snapshot for the same workspace (backend never knows
   // the picker) must NOT drop the open picker.
   const after = reducer(open, { type: "SET_STATE", state: snap(2, "w1") });
   const ws = after.workspaces.find((w) => w.id === "w1")!;

@@ -30,7 +30,6 @@ export function useTerminalResize({
   resizeEnabled = true,
   resizeClientId,
 }: UseTerminalResizeOptions): UseTerminalResizeReturn {
-  // ConPTY resize jiggle: shrink by 1 col then restore to force SIGWINCH
   const jigglePendingRef = useRef(false);
   const lastPaneResizeDimsRef = useRef({ w: 0, h: 0 });
   const jiggleResize = useCallback((ptyId: string) => {
@@ -45,7 +44,6 @@ export function useTerminalResize({
       .finally(() => { jigglePendingRef.current = false; });
   }, [termRef, resizeClientId]);
 
-  // ResizeObserver + debounce + self-heal + HMR + visibility
   useEffect(() => {
     if (!termReady || !resizeEnabled || !containerRef.current) return;
 
@@ -68,7 +66,6 @@ export function useTerminalResize({
     const resizeObserver = new ResizeObserver(safefit);
     resizeObserver.observe(containerRef.current);
 
-    // Self-heal: refit on window focus and visibility change
     const handleVisibility = () => { if (!document.hidden) safefit(); };
     const handleFocus = () => safefit();
     document.addEventListener("visibilitychange", handleVisibility);
@@ -86,7 +83,6 @@ export function useTerminalResize({
       }
     }, 2000);
 
-    // HMR: force refit + repaint after hot module replacement
     let hmrCleanup: (() => void) | undefined;
     if (import.meta.hot) {
       const onHmr = () => {
@@ -141,7 +137,6 @@ export function useTerminalResize({
     };
   }, [termReady, resizeEnabled, resizeClientId, containerRef, termRef, fitAddonRef, connectedPtyRef, jiggleResize]);
 
-  // Refit + focus when pane becomes focused
   useEffect(() => {
     if (isFocused && termReady && resizeEnabled) {
       requestAnimationFrame(() => {

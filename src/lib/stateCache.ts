@@ -30,7 +30,6 @@ function currentBuildHash(): string {
   }
 }
 
-// djb2: keeps the auth token out of the raw storage key while staying
 // deterministic per host+identity pair.
 function hashKey(input: string): string {
   let hash = 5381;
@@ -79,7 +78,6 @@ function removeLocalStorage(key: string): void {
   try {
     localStorage.removeItem(key);
   } catch {
-    // private browsing / disabled storage — nothing to clean up
   }
 }
 
