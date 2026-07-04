@@ -137,6 +137,10 @@ pub struct PaneHandle {
     pub worker_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    /// Advisory workspace pane-budget nudge (task_4d649dfd). Set once the
+    /// post-create workspace pane count crosses the soft budget. Never blocks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget_notice: Option<super::pane_budget::PaneBudgetNotice>,
 }
 
 impl ServiceContext {
@@ -508,6 +512,7 @@ impl ServiceContext {
             ready_tx,
         );
 
+        let budget_notice = self.workspace_pane_budget_notice(&ws_id);
         Ok(PaneHandle {
             pane_id,
             tab_id,
@@ -516,6 +521,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: agent.worker_id.clone(),
             warning,
+            budget_notice,
         })
     }
 
@@ -567,6 +573,7 @@ impl ServiceContext {
             None
         };
 
+        let budget_notice = self.workspace_pane_budget_notice(&ws_id);
         Ok(PaneHandle {
             pane_id,
             tab_id,
@@ -575,6 +582,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: None,
             warning,
+            budget_notice,
         })
     }
 
@@ -666,6 +674,7 @@ impl ServiceContext {
             });
         });
 
+        let budget_notice = self.workspace_pane_budget_notice(&ws_id);
         Ok(PaneHandle {
             pane_id,
             tab_id,
@@ -674,6 +683,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: None,
             warning: None,
+            budget_notice,
         })
     }
 
@@ -932,6 +942,7 @@ impl ServiceContext {
             );
         });
 
+        let budget_notice = self.workspace_pane_budget_notice(&ws_id);
         Ok(PaneHandle {
             pane_id,
             tab_id,
@@ -940,6 +951,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: agent.worker_id.clone(),
             warning: cli_warning,
+            budget_notice,
         })
     }
 }
