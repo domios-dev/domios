@@ -163,6 +163,7 @@ impl MultiplexerState {
             worker_id: None,
             restored_from_snapshot: false,
             pending_greeting: None,
+            boot_stage: None,
         };
 
         let tab = Tab {
