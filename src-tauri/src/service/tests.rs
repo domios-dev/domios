@@ -179,14 +179,15 @@ fn test_batch_op_no_id() {
 #[test]
 fn coalesce_snapshot_reflects_latest_mutation_in_window() {
     use crate::agent::status::PaneStatusTracker;
+    use crate::lock_hold::{TimedMutex, TimedRwLock};
     use crate::multiplexer::state::MultiplexerState;
-    use parking_lot::{Mutex, RwLock};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
-    let mux: MuxState = Arc::new(RwLock::new(MultiplexerState::empty()));
-    let agent_tracker: AgentTrackerState = Arc::new(Mutex::new(PaneStatusTracker::new()));
+    let mux: MuxState = Arc::new(TimedRwLock::new("mux", MultiplexerState::empty()));
+    let agent_tracker: AgentTrackerState =
+        Arc::new(TimedMutex::new("agent_tracker", PaneStatusTracker::new()));
     let pending = Arc::new(AtomicBool::new(true));
 
     let mux_clone = mux.clone();
@@ -221,12 +222,12 @@ fn coalesce_snapshot_reflects_latest_mutation_in_window() {
 
 #[test]
 fn focus_pane_hot_path_does_not_refresh_agent_model_inline() {
+    use crate::lock_hold::TimedRwLock;
     use crate::multiplexer::state::MultiplexerState;
-    use parking_lot::RwLock;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
-    let mux: MuxState = Arc::new(RwLock::new(MultiplexerState::empty()));
+    let mux: MuxState = Arc::new(TimedRwLock::new("mux", MultiplexerState::empty()));
     let pane_id = mux.write().create_pane();
     let emitted = Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
     let scheduled = Arc::new(AtomicUsize::new(0));

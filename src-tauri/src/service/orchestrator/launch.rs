@@ -106,7 +106,8 @@ pub(crate) fn launch_agent_in_background(
                 if let Some(ref tok) = api_cfg.token {
                     env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
                 }
-                match svc.pty.lock().spawn(None, cwd, 120, 40, env_vars) {
+                let spawn_result = svc.pty.lock().spawn(None, cwd, 120, 40, env_vars);
+                match spawn_result {
                     Ok((pid, _)) => {
                         // Claim the stream (reader clone + frontend channel) BEFORE
                         // linking the pane: once linked, the frontend's read_pty may
