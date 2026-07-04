@@ -32,6 +32,8 @@ pub(crate) struct SpawnAgentBody {
     role: Option<String>,
     role_profile: Option<String>,
     parent_pane_id: Option<String>,
+    #[serde(alias = "plan")]
+    plan_id: Option<String>,
     can_spawn: Option<bool>,
     task: Option<String>,
     workspace_id: Option<String>,
@@ -197,7 +199,7 @@ pub async fn spawn_agent(
         role: role_probe.role,
         role_profile: role_probe.role_profile,
         parent_pane_id: body.parent_pane_id,
-        plan_id: None,
+        plan_id: body.plan_id,
         can_spawn: body.can_spawn,
         task: body.task,
         workspace_id: body.workspace_id,
