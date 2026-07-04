@@ -18,6 +18,11 @@ interface RoleRowProps {
   disabledProviderIds?: ReadonlySet<string>;
   onProviderChange: (id: string) => void;
   onModelChange: (id: string) => void;
+  /** Distinct testids for the picker's two role rows (task_234c14f0) — the
+   *  shared per-label testid on the row wrapper isn't specific enough for
+   *  Playwright to target the orchestrator vs. planner select independently. */
+  providerTestId?: string;
+  modelTestId?: string;
 }
 
 export function OrchestrationRoleRow({
@@ -28,6 +33,8 @@ export function OrchestrationRoleRow({
   disabledProviderIds,
   onProviderChange,
   onModelChange,
+  providerTestId,
+  modelTestId,
 }: RoleRowProps) {
   const provider = providers.find((p) => p.id === providerId);
   const models = provider?.available_models ?? [];
@@ -39,6 +46,7 @@ export function OrchestrationRoleRow({
         <div className="flex items-center gap-1.5 flex-1 min-w-0 px-2 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)]">
           <AgentIcon providerId={providerId} className="text-[12px] shrink-0" />
           <select
+            data-testid={providerTestId}
             value={providerId}
             onChange={(e) => onProviderChange(e.target.value)}
             className="flex-1 min-w-0 bg-transparent text-[12px] text-[var(--ct-fg)] outline-none"
@@ -55,6 +63,7 @@ export function OrchestrationRoleRow({
           </select>
         </div>
         <select
+          data-testid={modelTestId}
           value={modelId}
           onChange={(e) => onModelChange(e.target.value)}
           disabled={models.length === 0 || providerDisabled}
@@ -85,6 +94,8 @@ export function OrchestrationPairForm({
   onChange,
   layout = "card",
   titleField,
+  pairAffordanceTestId,
+  roleTestIds,
 }: {
   providers: ProviderDescriptor[];
   values: OrchestrationPairValues;
@@ -92,6 +103,13 @@ export function OrchestrationPairForm({
   onChange: (next: OrchestrationPairValues) => void;
   layout?: "card" | "stack";
   titleField?: ReactNode;
+  pairAffordanceTestId?: string;
+  roleTestIds?: {
+    orchestratorProvider?: string;
+    orchestratorModel?: string;
+    plannerProvider?: string;
+    plannerModel?: string;
+  };
 }) {
   const handleOrchestratorProviderChange = (id: string) => {
     onChange({
@@ -117,6 +135,8 @@ export function OrchestrationPairForm({
       disabledProviderIds={disabledProviderIds}
       onProviderChange={handleOrchestratorProviderChange}
       onModelChange={(modelId) => onChange({ ...values, orchestratorModelId: modelId })}
+      providerTestId={roleTestIds?.orchestratorProvider}
+      modelTestId={roleTestIds?.orchestratorModel}
     />
   );
   const plannerRow = (
@@ -128,6 +148,8 @@ export function OrchestrationPairForm({
       disabledProviderIds={disabledProviderIds}
       onProviderChange={handlePlannerProviderChange}
       onModelChange={(modelId) => onChange({ ...values, plannerModelId: modelId })}
+      providerTestId={roleTestIds?.plannerProvider}
+      modelTestId={roleTestIds?.plannerModel}
     />
   );
 
@@ -145,7 +167,7 @@ export function OrchestrationPairForm({
     <div className="flex flex-col gap-3">
       <PairAffordance
         layout="card"
-        data-testid="new-session-pair-affordance"
+        data-testid={pairAffordanceTestId ?? "new-session-pair-affordance"}
         orchestrator={orchestratorRow}
         planner={plannerRow}
       />

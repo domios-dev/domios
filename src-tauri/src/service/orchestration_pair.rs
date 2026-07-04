@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::api::events::emit_everywhere;
 use crate::plan::{MilestoneKind, OrchestratorRef};
 use crate::service::messenger::{MessageEnvelope, Messenger};
 use crate::service::orchestrator::SpawnAgentParams;
@@ -21,6 +22,9 @@ pub struct OrchestrationPairParams {
     pub workspace_id: Option<String>,
     pub title: Option<String>,
     pub spawned_by_pane_id: Option<String>,
+    /// Blank picker tab to claim for the Orchestrator in place, instead of
+    /// spawning it as a brand-new tab (new-session picker confirm path).
+    pub existing_tab_id: Option<String>,
 }
 
 /// Success shape only — a failed Planner spawn returns `Err(String)` with the
@@ -47,15 +51,26 @@ fn epoch_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Orchestrator's first task. The Planner pane doesn't exist yet at this
-/// point (it spawns second), so the peer command names the real plan id but
-/// keeps a placeholder for the not-yet-real Planner pane id.
+/// Orchestrator's first task. Unlike the generic promotion mandate
+/// ([`crate::prompts::peer_pairing_mandate_full`]), this flow has ALREADY
+/// spawned the Planner synchronously by the time the Orchestrator reads this
+/// — the generic "spawn it if not live" instruction previously caused a live
+/// model to race ahead and spawn a redundant, mis-parented Planner of its own
+/// (observed live: `codeterm agent spawn ... --role Planner` with no
+/// `--parent`, immediately after the real one was already bound) before the
+/// async "Planner is live" follow-up could reach it. Tell it plainly not to.
 fn orchestrator_pair_task(plan_id: &str) -> String {
-    let spawn_cmd =
-        format!("codeterm agent spawn <planner-provider> --role Planner --plan {plan_id}");
-    let mandate = crate::prompts::peer_pairing_mandate_full(&spawn_cmd);
     format!(
-        "You are the Orchestrator for plan {plan_id}. A Planner peer is being spawned for this plan now.\n\n{mandate}"
+        "You are the Orchestrator for plan {plan_id}. A Planner peer is being spawned for \
+         this plan automatically as part of this request — do NOT run `codeterm agent spawn` \
+         yourself to create it; wait for the follow-up message naming its live pane id.\n\n\
+         ## Peer contract\n\n\
+         This plan has a Planner peer. \
+         The orchestrator is the execution authority; the Planner is the structural authority. \
+         Structural changes require Planner acknowledgment.\n\n\
+         {}\n{}",
+        crate::prompts::PEER_PLANNER_CHARTER_LINE,
+        crate::prompts::PEER_ORCH_DEFERENCE_LINE,
     )
 }
 
@@ -158,6 +173,8 @@ impl ServiceContext {
             workspace_id: Some(workspace_id.clone()),
             spawned_by_pane_id: params.spawned_by_pane_id.clone(),
             task: Some(orchestrator_pair_task(&plan_id)),
+            existing_tab_id: params.existing_tab_id.clone(),
+            skip_orchestrator_onboarding: Some(true),
             ..Default::default()
         };
         let orch_result = self.spawn_agent(orch_params, None).await.map_err(|e| {
@@ -175,6 +192,16 @@ impl ServiceContext {
                 "[orchestration-pair] failed to claim plan {plan_id} for orchestrator {orch_pane_id}: {e}"
             );
         }
+        // The on-disk PlanWatcher deliberately ignores the store's own writes
+        // (avoids a self-triggered reload loop), so a direct PlanStore call
+        // like `claim` above is otherwise invisible to the UI until some
+        // unrelated refetch happens — the sidebar's pair grouping (PairAffordance)
+        // never resolves for a freshly-created pair without this.
+        emit_everywhere(
+            &self.app_handle,
+            "plan-changed",
+            serde_json::json!({ "plan_id": plan_id }),
+        );
 
         let planner_model = params
             .planner_model
@@ -197,6 +224,14 @@ impl ServiceContext {
         match self.spawn_agent(planner_params, None).await {
             Ok(planner_result) => {
                 let planner_pane_id = planner_result.pane_id.clone();
+                let planner_label = self
+                    .agent_registry
+                    .with_provider(&params.planner_agent, |p| p.display_name().to_string())
+                    .unwrap_or_else(|| params.planner_agent.clone());
+                if let Some(pane) = self.mux.write().get_pane_mut(&orch_pane_id) {
+                    pane.pending_greeting =
+                        Some(crate::prompts::peer_orch_greeting(&planner_label));
+                }
                 let followup = orchestrator_pair_followup_ready(&plan_id, &planner_pane_id);
                 let envelope = MessageEnvelope::reminder("CodeTerm", "orchestration-pair");
                 if let Err(e) = Messenger::deliver(self, &orch_pane_id, envelope, &followup) {
@@ -325,6 +360,20 @@ mod tests {
         assert!(task.contains(crate::prompts::PEER_PLANNER_CHARTER_LINE));
         assert!(task.contains(crate::prompts::PEER_ORCH_DEFERENCE_LINE));
         assert!(task.contains("This plan has a Planner peer"));
+    }
+
+    /// Regression for a live-dogfood finding: the pair-creation flow always
+    /// spawns the Planner synchronously before the Orchestrator's task is
+    /// even delivered, so telling it to spawn one "if not live" raced a real
+    /// model into creating a redundant, mis-parented extra Worker pane.
+    #[test]
+    fn orchestrator_task_never_tells_model_to_spawn_its_own_planner() {
+        let task = orchestrator_pair_task("pl_123");
+        assert!(
+            !task.contains("--role Planner --plan"),
+            "task must never hand the model a copy-pasteable Planner spawn command: {task}"
+        );
+        assert!(task.contains("do NOT run"));
     }
 
     #[test]

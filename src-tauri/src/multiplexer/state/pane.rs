@@ -43,6 +43,7 @@ impl MultiplexerState {
             show_in_tabbar: true,
             worker_id: None,
             restored_from_snapshot: false,
+            pending_greeting: None,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id

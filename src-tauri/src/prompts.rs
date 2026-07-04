@@ -128,6 +128,18 @@ pub const PEER_WAIVER_HINT: &str = "No planner peer is bound. \
      Bind one with `codeterm plan update --planner <PANE_ID>` or waive with \
      `codeterm plan update --planner none --note <reason>`.";
 
+/// Orchestrator's opening greeting on a fresh pair spawn — rendered verbatim
+/// as the pane's first assistant message (never model-improvised), so the
+/// user always lands on a ready, invitational state. `{planner}` is filled
+/// with the Planner's display name.
+pub const PEER_ORCH_GREETING: &str =
+    "Paired up — {planner} is my Planner. Tell me the goal and we'll draft the plan together.";
+
+/// Fills the `{planner}` placeholder in [`PEER_ORCH_GREETING`].
+pub fn peer_orch_greeting(planner: &str) -> String {
+    PEER_ORCH_GREETING.replace("{planner}", planner)
+}
+
 /// Fills the `{spawn_cmd}` placeholder in [`PEER_PAIRING_MANDATE_BLOCK`].
 pub fn peer_pairing_mandate_block(spawn_cmd: &str) -> String {
     PEER_PAIRING_MANDATE_BLOCK.replace("{spawn_cmd}", spawn_cmd)

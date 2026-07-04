@@ -202,6 +202,8 @@ pub async fn spawn_agent(
         task: body.task,
         workspace_id: body.workspace_id,
         force_tab: body.force_tab,
+        existing_tab_id: None,
+        skip_orchestrator_onboarding: None,
         report_target_pane_id: body.report_to.or(body.report_target_pane_id),
         report_target_mesh_peer: body.origin_peer,
         skip_permissions: body.skip_permissions,

@@ -1,0 +1,55 @@
+import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
+
+export function GroupCloseConfirmDialog({
+  orchestratorTitle,
+  members,
+  onConfirm,
+  onCancel,
+}: {
+  orchestratorTitle: string;
+  members: OrchestrationGroupMember[];
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <>
+      <div className="fixed inset-0 z-50 bg-black/40" onClick={onCancel} />
+      <div
+        data-testid="group-close-confirm"
+        className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[340px] overflow-hidden"
+      >
+        <div className="px-4 pt-4 pb-2">
+          <div className="text-[13px] font-medium text-[var(--ct-fg)]">Close orchestration group?</div>
+        </div>
+        <div className="px-4 py-1 text-[12px] text-[var(--ct-muted-fg)]">
+          This closes {members.length + 1} panes:
+        </div>
+        <ul className="px-4 py-2 flex flex-col gap-1 text-[12px] text-[var(--ct-fg)]">
+          <li>{orchestratorTitle} (Orchestrator)</li>
+          {members.map((m) => (
+            <li key={m.paneId}>
+              {m.title}
+              {m.role ? ` (${m.role})` : ""}
+            </li>
+          ))}
+        </ul>
+        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--ct-border)]">
+          <button
+            onClick={onCancel}
+            className="px-3 py-1.5 text-[11px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] rounded-md hover:bg-[var(--ct-hover)] transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            data-testid="group-close-confirm-button"
+            onClick={onConfirm}
+            className="px-4 py-1.5 text-[11px] font-medium text-white rounded-md hover:opacity-90 transition-opacity"
+            style={{ background: "var(--ct-red, #ef4444)" }}
+          >
+            Close group
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}

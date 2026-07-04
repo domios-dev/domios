@@ -308,6 +308,12 @@ pub struct Pane {
     /// trigger another launch.
     #[serde(skip, default)]
     pub restored_from_snapshot: bool,
+    /// Orchestrator's opening greeting, prepended as a synthetic first
+    /// assistant message every time `chat_start_core` builds this pane's
+    /// transcript — never model-improvised. In-memory only (a restart
+    /// simply drops it; it is not required to survive a daemon restart).
+    #[serde(skip, default)]
+    pub pending_greeting: Option<String>,
 }
 
 fn default_show_in_tabbar() -> bool {
@@ -393,6 +399,7 @@ mod tests {
             show_in_tabbar: true,
             worker_id: None,
             restored_from_snapshot: false,
+            pending_greeting: None,
         }
     }
 

@@ -25,6 +25,8 @@ impl SpawnAgentParams {
             task: json_str(params, "task"),
             workspace_id: json_str(params, "workspace_id"),
             force_tab: params.get("force_tab").and_then(|v| v.as_bool()),
+            existing_tab_id: json_str(params, "existing_tab_id"),
+            skip_orchestrator_onboarding: None,
             report_target_pane_id: json_str(params, "report_to")
                 .or_else(|| json_str(params, "report_target_pane_id")),
             report_target_mesh_peer: json_str(params, "origin_peer")
