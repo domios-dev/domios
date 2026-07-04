@@ -74,7 +74,8 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
       return;
     }
     let active = true;
-    let unlisten: (() => void) | null = null;
+    let unlistenPlanChanged: (() => void) | null = null;
+    let unlistenPlansLoaded: (() => void) | null = null;
 
     void listen<PlanChangedPayload>("plan-changed", (ev) => {
       if (!active) return;
@@ -86,12 +87,22 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
         fn();
         return;
       }
-      unlisten = fn;
+      unlistenPlanChanged = fn;
+    });
+    void listen("plans-loaded", () => {
+      if (active) void refetch();
+    }).then((fn) => {
+      if (!active) {
+        fn();
+        return;
+      }
+      unlistenPlansLoaded = fn;
     });
 
     return () => {
       active = false;
-      unlisten?.();
+      unlistenPlanChanged?.();
+      unlistenPlansLoaded?.();
     };
   }, [enabled, patchPlan, refetch, setData]);
 

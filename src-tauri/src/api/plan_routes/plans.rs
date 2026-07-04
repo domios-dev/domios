@@ -118,6 +118,12 @@ pub async fn list(
                 .to_string(),
         )
     } else {
+        if !state.svc.plans_startup_loaded() {
+            return Err(text_err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "plans are still loading; retry shortly",
+            ));
+        }
         None
     };
     let mut entries = state.svc.plan_store.list_index();

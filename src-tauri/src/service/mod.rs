@@ -189,6 +189,7 @@ pub struct ServiceContext {
     >,
     pub loaded_plan_projects:
         Arc<parking_lot::Mutex<std::collections::HashSet<std::path::PathBuf>>>,
+    pub plan_startup_loaded: Arc<AtomicBool>,
     pub plan_turn_counter: Arc<crate::service::plan::reminders::TurnCounter>,
 }
 
@@ -330,6 +331,15 @@ impl ServiceContext {
             }
         }
         Ok(project_root)
+    }
+
+    pub fn plans_startup_loaded(&self) -> bool {
+        self.plan_startup_loaded.load(Ordering::Acquire)
+    }
+
+    pub fn mark_plans_startup_loaded(&self) {
+        self.plan_startup_loaded.store(true, Ordering::Release);
+        self.notify_event("plans-loaded", serde_json::json!({}));
     }
 
     /// Unified event dispatch — sends to Tauri frontend and external webhooks.

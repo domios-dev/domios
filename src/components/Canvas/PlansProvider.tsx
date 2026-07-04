@@ -49,7 +49,8 @@ export function PlansProvider({ api, children }: { api: ApiConfig; children: Rea
 
   useEffect(() => {
     let active = true;
-    let unlisten: (() => void) | null = null;
+    let unlistenPlanChanged: (() => void) | null = null;
+    let unlistenPlansLoaded: (() => void) | null = null;
     void listen<{ plan_id?: string }>("plan-changed", () => {
       if (active) void refetchIndex();
     }).then((fn) => {
@@ -57,11 +58,21 @@ export function PlansProvider({ api, children }: { api: ApiConfig; children: Rea
         fn();
         return;
       }
-      unlisten = fn;
+      unlistenPlanChanged = fn;
+    });
+    void listen("plans-loaded", () => {
+      if (active) void refetchIndex();
+    }).then((fn) => {
+      if (!active) {
+        fn();
+        return;
+      }
+      unlistenPlansLoaded = fn;
     });
     return () => {
       active = false;
-      unlisten?.();
+      unlistenPlanChanged?.();
+      unlistenPlansLoaded?.();
     };
   }, [refetchIndex]);
 
