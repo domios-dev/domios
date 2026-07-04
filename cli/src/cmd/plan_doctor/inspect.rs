@@ -20,13 +20,12 @@ pub(super) fn inspect_stray_sidecars(
     let Some(plan_id) = plan_id_from(plan, canonical_path) else {
         return vec![];
     };
-    let canonical_project = canonical_project_path(project_root, plan);
-    let canonical_plan = canonical_path
-        .canonicalize()
-        .unwrap_or_else(|_| canonical_path.to_path_buf());
+    let canonical_project = canonicalize_path(&canonical_project_path(project_root, plan));
+    let canonical_plan = canonicalize_path(canonical_path);
     worktree_roots(project_root)
         .into_iter()
-        .filter(|root| canonicalize_path(root) != canonicalize_path(&canonical_project))
+        .map(|root| canonicalize_path(&root))
+        .filter(|root| root != &canonical_project)
         .flat_map(|root| {
             let plan_id = plan_id.clone();
             ["active", "archive"]
@@ -40,7 +39,8 @@ pub(super) fn inspect_stray_sidecars(
                 })
         })
         .filter(|path| path.is_file())
-        .filter(|path| canonicalize_path(path) != canonical_plan)
+        .map(|path| canonicalize_path(&path))
+        .filter(|path| path != &canonical_plan)
         .map(|path| Finding {
             severity: "warning",
             kind: "stray_sidecar_copy",
