@@ -93,7 +93,6 @@ pub fn read(md: &str) -> MemStoreResult<ParseReport> {
                 clusters.push(cluster);
             }
             Ok(None) => {
-                // Not an introduce_topic action — silently skip; future
                 // action types should appear here without breaking parsing.
             }
             Err(e) => warnings.push(format!("skipped cluster fence: {}", e)),
@@ -112,7 +111,6 @@ pub fn read(md: &str) -> MemStoreResult<ParseReport> {
 fn extract_generated_at(md: &str) -> Option<String> {
     for line in md.lines() {
         if let Some(rest) = line.strip_prefix("# Re-cluster proposal") {
-            // Accept either "— generated <ts>" or "- generated <ts>" or
             // "generated <ts>" so format drift over time still parses.
             let cleaned = rest
                 .trim_start_matches(|c: char| c == ' ' || c == '—' || c == '-')
@@ -161,8 +159,6 @@ fn iter_yaml_fences(md: &str) -> Vec<YamlFence> {
                     current_rationale.push_str(line.trim());
                 }
             } else if trimmed.is_empty() {
-                // Blank line ends rationale accumulation. Don't reset
-                // current_rationale yet — the fence about to open should still
             }
         } else if trimmed == "```" {
             fences.push(YamlFence {

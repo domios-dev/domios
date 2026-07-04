@@ -385,8 +385,6 @@ fn revive_broken_reopens_one_row_from_closed_duplicate_cluster() {
 
 #[test]
 fn revive_broken_skips_closed_dup_when_active_twin_exists() {
-    // Regression for #129/#116: reviving a closed relation that already has an
-    // active twin for the same (from, rel, to, scope) would create a second
     let conn = Connection::open_in_memory().unwrap();
     init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
