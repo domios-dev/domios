@@ -244,8 +244,8 @@ impl ServiceContext {
                 {
                     text = format!("{prefix}\n\n{text}");
                 }
-                // While planning is unapproved, keep pushing structure work to the
-                // planner peer by name (state + binding derived, not pane-guessed).
+                // While planning is unapproved, delegate structure drafting to the
+                // Planner by name (state + binding derived, not pane-guessed).
                 if let Some(planning_state) = self.plan_store.get(plan_id).map(|p| p.planning_state)
                 {
                     if let Some(defer) =

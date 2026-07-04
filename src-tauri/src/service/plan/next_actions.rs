@@ -26,8 +26,8 @@ pub struct NextAction {
     pub message: String,
 }
 
-// Planning-phase next action: defer structure to the planner peer by name and
-// surface any approval blockers. Shared wording lives in `crate::prompts`.
+// Planning-phase next action: delegate structure drafting to the Planner by
+// name and surface any approval blockers. Shared wording lives in prompts.
 fn planning_next_action_message(s: &PlanStateSnapshot) -> String {
     let peer = crate::service::plan::peer_mandate::planner_peer_label(&s.planner_resolution);
     let mut msg = crate::prompts::orch_defer_structure_line(&peer);

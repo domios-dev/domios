@@ -1,6 +1,6 @@
 //! Paired creation (task_7e5f9354): spawn an Orchestrator + Planner together,
 //! linked from birth via a freshly-created plan. Builds entirely on the
-//! peer-pairing primitives already wired by the peer-foundation
+//! planner-attachment primitives already wired by the peer-foundation
 //! (`crate::plan::peer`) and Lane 1 (`crate::service::plan::peer_mandate`,
 //! `role_profile == "planner"` binding in `Self::spawn_agent`) — this module
 //! only sequences the two spawns + the plan create through one call.
@@ -61,13 +61,13 @@ fn epoch_ms() -> u64 {
 /// async "Planner is live" follow-up could reach it. Tell it plainly not to.
 fn orchestrator_pair_task(plan_id: &str) -> String {
     format!(
-        "You are the Orchestrator for plan {plan_id}. A Planner peer is being spawned for \
+        "You are the Orchestrator for plan {plan_id}. A Planner specialist is being spawned for \
          this plan automatically as part of this request — do NOT run `codeterm agent spawn` \
          yourself to create it; wait for the follow-up message naming its live pane id.\n\n\
-         ## Peer contract\n\n\
-         This plan has a Planner peer. \
-         The orchestrator is the execution authority; the Planner is the structural authority. \
-         Structural changes require Planner acknowledgment.\n\n\
+         ## Planner attachment\n\n\
+         This plan has an attached Planner specialist. \
+         The Orchestrator is the single authority for structure, execution, and acceptance. \
+         Do not treat the Planner as a co-owner.\n\n\
          {}\n{}",
         crate::prompts::PEER_PLANNER_CHARTER_LINE,
         crate::prompts::PEER_ORCH_DEFERENCE_LINE,
@@ -78,7 +78,7 @@ fn orchestrator_pair_task(plan_id: &str) -> String {
 /// the first point both real pane ids are known.
 fn orchestrator_pair_followup_ready(plan_id: &str, planner_pane_id: &str) -> String {
     format!(
-        "Your Planner peer is live: pane {planner_pane_id} for plan {plan_id}. {}",
+        "Your Planner specialist is live: pane {planner_pane_id} for plan {plan_id}. {}",
         crate::prompts::PEER_ORCH_DEFERENCE_LINE
     )
 }
@@ -102,7 +102,7 @@ fn degraded_fix_command(
 
 fn orchestrator_pair_followup_degraded(fix_command: &str, error: &str) -> String {
     format!(
-        "Planner spawn failed ({error}). This plan has no live Planner peer yet.\n\n{}\n\nComplete pairing with:\n  {fix_command}",
+        "Planner spawn failed ({error}). This plan has no live Planner specialist yet.\n\n{}\n\nComplete attachment with:\n  {fix_command}",
         crate::prompts::PEER_WAIVER_HINT
     )
 }
@@ -236,7 +236,7 @@ impl ServiceContext {
                 let envelope = MessageEnvelope::reminder("CodeTerm", "orchestration-pair");
                 if let Err(e) = Messenger::deliver(self, &orch_pane_id, envelope, &followup) {
                     log::warn!(
-                        "[orchestration-pair] failed to notify orchestrator {orch_pane_id} of live planner peer: {e}"
+                        "[orchestration-pair] failed to notify orchestrator {orch_pane_id} of live Planner specialist: {e}"
                     );
                 }
                 Ok(OrchestrationPairResult {
@@ -359,7 +359,7 @@ mod tests {
         assert!(task.contains("pl_123"));
         assert!(task.contains(crate::prompts::PEER_PLANNER_CHARTER_LINE));
         assert!(task.contains(crate::prompts::PEER_ORCH_DEFERENCE_LINE));
-        assert!(task.contains("This plan has a Planner peer"));
+        assert!(task.contains("attached Planner specialist"));
     }
 
     /// Regression for a live-dogfood finding: the pair-creation flow always
@@ -382,6 +382,7 @@ mod tests {
         assert!(msg.contains("pane-planner-1"));
         assert!(msg.contains("pl_123"));
         assert!(msg.contains(crate::prompts::PEER_ORCH_DEFERENCE_LINE));
+        assert!(msg.contains("Planner specialist is live"));
     }
 
     #[test]

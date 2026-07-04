@@ -395,7 +395,7 @@ fn inspect_planner_pairing(path: &Path, plan: &Value) -> Option<Finding> {
         path,
         plan,
         "planner_unpaired",
-        "orchestrator has no planner peer paired",
+        "orchestrator has no attached Planner",
         &format!(
             "spawn a planner: codeterm agent spawn claude --model fable --parent <orch-pane> --role Planner --plan {plan_id_str}; or waive: codeterm plan update {plan_id_str} --planner none --note \"<why>\""
         ),

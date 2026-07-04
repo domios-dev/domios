@@ -197,7 +197,7 @@ mod tests {
         let msg = orchestrator_onboarding_body("pane-abc");
         assert!(msg.contains(crate::prompts::PEER_PLANNER_CHARTER_LINE));
         assert!(msg.contains(crate::prompts::PEER_ORCH_DEFERENCE_LINE));
-        assert!(msg.contains("This plan has a Planner peer"));
+        assert!(msg.contains("attached Planner specialist"));
         assert!(msg.contains("--parent pane-abc --role Planner --plan PLAN_ID"));
     }
 

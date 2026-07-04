@@ -65,26 +65,26 @@ export const enHelpContent: HelpLocaleContent = {
     {
       id: "agents",
       title: "Agents",
-      subtitle: "The two-headed orchestration system, and the workers under it",
+      subtitle: "The Orchestrator-led planning system, and the workers under it",
       blocks: [
         {
           type: "paragraph",
-          text: "Any provider can be spawned into a pane — Claude, Codex, OpenCode, local models — for a quick one-off session. But the real power is the orchestration system, and it has two heads that work as equals.",
+          text: "Any provider can be spawned into a pane — Claude, Codex, OpenCode, local models — for a quick one-off session. But the real power is the orchestration system: one Orchestrator owns the plan and attaches a Planner specialist when structure needs careful thought.",
         },
         {
           type: "paragraph",
-          text: "The Planner owns the thinking: it turns your goal into a Spec (what and why), a Plan (how, in waves), and Tasks with acceptance criteria. The Orchestrator owns the doing: it dispatches those tasks to Workers, keeps parallel lanes moving, reviews what comes back, and merges the results. Neither is the boss of the other — they are born as a linked pair, each knowing who its peer is, and the sidebar shows them side by side on the same level.",
+          text: "The Orchestrator is the single authority: it owns the plan, dispatches Workers, keeps parallel lanes moving, reviews what comes back, and accepts or rejects changes. The Planner is a subordinate planning specialist: it drafts Spec, Plan, task briefs, and decision options when the Orchestrator delegates that work.",
         },
         { type: "figure", figureId: "agent-hierarchy" },
         {
           type: "paragraph",
-          text: "Why two heads? Because plans rot when the same mind that wrote them is grinding through execution. The Orchestrator hits a design question — it routes it to the Planner instead of improvising. You give new feedback — the Planner reshapes the plan while the Orchestrator keeps the lanes running. Each head stays sharp at its own job.",
+          text: "Why attach a Planner? Because plans rot when execution pressure turns every design question into an improvisation. The Orchestrator hits a structural question, delegates the drafting to the Planner, then decides what lands while the lanes keep moving.",
         },
         {
           type: "list",
           items: [
-            "Planner — shapes goal, spec, plan, and tasks; brokers decisions that need your input; never runs implementation.",
-            "Orchestrator — dispatches workers in parallel worktree lanes, gates their results, integrates branches; never authors plan structure.",
+            "Orchestrator — owns the plan, delegates planning work, dispatches workers in parallel worktree lanes, gates their results, and integrates branches.",
+            "Planner — subordinate specialist that drafts goal, spec, plan, tasks, and decision options when asked; never runs implementation.",
             "Worker — does ONE task in its own git worktree, reports back, exits. Never spawns other agents.",
             "General Agent — the always-on machine brain: answers you anywhere, watches integrations, and can become an Orchestrator when you ask.",
           ],

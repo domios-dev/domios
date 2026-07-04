@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 23 -->
+<!-- revision: 24 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
@@ -209,8 +209,8 @@ Only the Planner pane or the user may advance the state; each advance records an
 author and note as a working point in `planning_log`. `codeterm plan approve`
 still runs the quality doctor first, which gates approval on a set GOAL, a linked
 spec, plan sections, and a verification hint. Nudges and `next_actions` derive
-the "defer structure to the Planner peer" prompt from planning_state plus the
-plan's `planner` binding — named by peer, never guessed.
+the "delegate planning work to the attached Planner" prompt from planning_state
+plus the plan's `planner` binding — named by binding, never guessed.
 
 Preferred spawn shape:
 
@@ -273,23 +273,25 @@ Use this loop:
 
 ### Planning ownership
 
-While the plan's planning_state is not `approved` and a Planner peer is bound,
-the **Orchestrator routes planning input to the Planner** — new requirements,
-discovered blockers, implementation evidence, user feedback. The Orchestrator
-dispatches workers, gates their output, integrates results, and may record facts
-(strides, heartbeat updates, lane metadata). It must **not** synthesize graph
-nodes (GOAL edits, new spec/plan sections, new tasks) while structure is the
-Planner's to own. A waived planner (`plan update --planner none --note ...`)
-makes the Orchestrator the solo structural owner and silences these nudges.
+The **Orchestrator is the single authority** for plan structure, execution, and
+acceptance. While planning_state is not `approved` and a Planner is bound, the
+Orchestrator delegates planning input to the Planner specialist — new
+requirements, discovered blockers, implementation evidence, user feedback —
+then accepts, revises, or rejects the draft. The Orchestrator dispatches
+workers, gates their output, integrates results, and may record facts (strides,
+heartbeat updates, lane metadata). It must **not** silently improvise graph
+nodes (GOAL edits, new spec/plan sections, new tasks) while the delegated
+planning lane is open. A waived planner (`plan update --planner none --note ...`)
+makes the Orchestrator explicitly solo and silences these nudges.
 
 Exceptions (Planner unreachable, emergency structural repair) must be recorded
-as a stride. The **Planner reconciles foreign mutations** on its next run:
-it reviews what changed, decides keep/rewrite/remove, and records a correction
-stride so the plan state remains coherent.
+as a stride. The Planner may draft a correction on its next run, but the
+Orchestrator decides what stays.
 
 CLI mutation commands (`plan section add/update`, `plan task add/update`,
 `plan goal set`) emit a non-blocking stderr hint while planning_state is
-unapproved and a Planner peer is bound, naming the peer so routing is actionable.
+unapproved and a Planner is bound, naming the Planner so delegation is
+actionable.
 
 ## Handoffs
 
