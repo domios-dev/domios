@@ -236,7 +236,7 @@ fn claude_spinner_repaint_after_completion_does_not_flip_back_to_working() {
     let screen = lines(&[
         "  Final answer text.",
         "",
-        "• Crunched for 7s",
+        "✻ Crunched for 7s",
         "",
         "✻ Evaporating… (7s · ↓ 165 tokens)",
         "",
@@ -567,4 +567,131 @@ fn claude_active_question_picker_still_classifies_question() {
         TimelineState::Question,
         "an active, unanswered picker must remain Question"
     );
+}
+
+// ── chat-status divergence: a long "thinking" turn must not read as Idle ──────
+// Regression for the P1 where the chat view froze at a completed-turn summary
+// ("Crunched for 53s") while the TUI showed a live "Inferring… (58s …)" footer:
+// a pure think repaints only the status-bar-excluded band, so semantic-idle grows
+// past the working grace even though the agent is genuinely working. The live
+// (animating) status widget must win over that stale-status heuristic.
+
+// Real Claude Code v2.1.x working screen (captured): the spinner status line
+// carries the elapsed/token widget; the interrupt hint sits ONLY on the excluded
+// mode-switch footer, and an empty ❯ composer is visible mid-turn.
+#[test]
+fn claude_current_gen_long_think_stays_working_while_status_band_animates() {
+    let screen = lines(&[
+        "⏺ Write(fib.py)",
+        "  ⎿  Error writing file",
+        "",
+        "✽ Inferring… (58s · ↓ 797 tokens · thinking with high effort)",
+        "",
+        "────────────────────────────────────────────────────────",
+        "❯",
+        "────────────────────────────────────────────────────────",
+        "  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt             ● high · /effort",
+    ]);
+    let mut input = quiescent_input(&screen);
+    input.semantic_idle_ms = 6000; // transcript settled (long think)
+    input.byte_idle_ms = 200; // status band still animating every tick
+    let verdict = classify_state(&input, working());
+    assert_eq!(
+        verdict.state,
+        TimelineState::Working,
+        "a live thinking widget must not be demoted to Idle by semantic idle alone"
+    );
+}
+
+// A whimsical verb never seen before must still read as working: the widget is
+// recognized by structure (spinner + ellipsis + elapsed/token), not a verb list.
+#[test]
+fn claude_novel_spinner_verb_classifies_working_by_structure_not_dictionary() {
+    let screen = lines(&[
+        "⏺ Reading files",
+        "",
+        "✽ Xyzzying… (2s · ↓ 5 tokens · thinking)",
+        "",
+        "────────────────────────────────────────────────────────",
+        "❯",
+        "────────────────────────────────────────────────────────",
+        "  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt",
+    ]);
+    let mut input = quiescent_input(&screen);
+    input.semantic_idle_ms = 6000;
+    input.byte_idle_ms = 200;
+    let verdict = classify_state(&input, working());
+    assert_eq!(verdict.state, TimelineState::Working);
+}
+
+// Legacy Claude footer generation: the interrupt hint rode on the spinner line
+// itself. Still working despite a visible composer + high semantic idle.
+#[test]
+fn claude_legacy_gen_footer_with_inline_interrupt_hint_stays_working() {
+    let screen = lines(&[
+        "  Generating the answer.",
+        "",
+        "✶ Cogitating (3m 54s · esc to interrupt)",
+        "",
+        "❯",
+    ]);
+    let mut input = quiescent_input(&screen);
+    input.semantic_idle_ms = 6000;
+    input.byte_idle_ms = 200;
+    let verdict = classify_state(&input, working());
+    assert_eq!(verdict.state, TimelineState::Working);
+}
+
+// codex shares this oracle: its active footer is an arrow + ctrl+c stop hint. The
+// arrow also reads as a ready-prompt glyph, so semantic idle alone must not demote
+// a live turn.
+#[test]
+fn codex_working_footer_stays_working_during_long_turn() {
+    let screen = lines(&[
+        "• Analyzing the repository.",
+        "",
+        "→ Working (ctrl+c to stop)",
+    ]);
+    let mut input = quiescent_input(&screen);
+    input.semantic_idle_ms = 6000;
+    input.byte_idle_ms = 200;
+    let verdict = classify_state(&input, working());
+    assert_eq!(verdict.state, TimelineState::Working);
+}
+
+// opencode animated meter footer: interrupt hint + progress-meter shape. Coverage
+// that the shared oracle keeps it working through a long turn.
+#[test]
+fn opencode_progress_meter_footer_stays_working_during_long_turn() {
+    let screen = lines(&[
+        "┃  Build · model",
+        "   ⬝⬝⬝⬝⬝⬝■■  esc interrupt                              10.5K (5%)  ctrl+p commands",
+    ]);
+    let mut input = quiescent_input(&screen);
+    input.semantic_idle_ms = 6000;
+    input.byte_idle_ms = 200;
+    let verdict = classify_state(&input, working());
+    assert_eq!(verdict.state, TimelineState::Working);
+}
+
+// Honest degradation companion: the SAME long-think screen, but now the status
+// band has gone quiet too (byte idle high) AND a completed-turn summary is on
+// screen — that is a genuinely settled turn and must resolve Idle, not stick.
+#[test]
+fn claude_settled_turn_with_summary_resolves_idle() {
+    let screen = lines(&[
+        "  Final answer text.",
+        "",
+        "✻ Crunched for 58s",
+        "",
+        "────────────────────────────────────────────────────────",
+        "❯",
+        "────────────────────────────────────────────────────────",
+        "  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt",
+    ]);
+    let mut input = quiescent_input(&screen);
+    input.semantic_idle_ms = 6000;
+    input.byte_idle_ms = 6000; // nothing animating anymore
+    let verdict = classify_state(&input, working());
+    assert_eq!(verdict.state, TimelineState::Idle);
 }
