@@ -9,7 +9,6 @@ import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { Pane } from "../../lib/types";
 import { ComposerPlanActivityStrip } from "./ComposerPlanActivityStrip";
 
-// Above-composer context: index gate first (most panes skip full bodies), then a
 // compact human-title strip — orchestrating vs working — with no raw ids in UI.
 export function PaneTaskStrip({ paneId }: { paneId: string }) {
   const { state } = useMultiplexer();

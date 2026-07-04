@@ -74,7 +74,6 @@ export function PaneSessionChat({
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
   const [longIdle, setLongIdle] = useState(false);
-  // Shows only when scrolled FAR up — the threshold keeps it clear of the
   // bottom-pinned agent indicator/composer, so it never overlaps streaming output.
   const [showScrollDown, setShowScrollDown] = useState(false);
 
@@ -93,9 +92,6 @@ export function PaneSessionChat({
   const currentPtyId = pane?.pty_id ?? null;
   const backendState = pane?.agent_state ?? null;
   const chatBacking = pane?.backing?.kind === "chat_backend" ? pane.backing : null;
-  // Derive from live pane state so a restored chatBackend pane with a stale
-  // prop (e.g. old snapshot defaulted backing to Pty before chatbackend fields
-  // were persisted) still routes sends correctly.
   const effectiveChatBackend = chatBackend || chatBacking !== null;
   const pendingPrompt: PendingPrompt | null = pane?.pending_prompt ?? null;
   const isActive = isVisible;
@@ -124,7 +120,6 @@ export function PaneSessionChat({
   } = useChatSession({ paneId, agentSessionId, onError });
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
-  // Optimistically hide the prompt card once answered/cancelled; the backend
   // clears pane.pending_prompt shortly after on the next state poll.
   const [answeredPromptQuestion, setAnsweredPromptQuestion] = useState<string | null>(null);
   const activePrompt = pendingPrompt && pendingPrompt.question !== answeredPromptQuestion ? pendingPrompt : null;
@@ -144,7 +139,6 @@ export function PaneSessionChat({
     [pendingPrompt, paneId, showComposerError],
   );
 
-  // Shell-command decoration: re-run sends the command back through the same PTY
   // input path the composer uses; jump surfaces the live terminal output.
   const handleRerunShellCommand = useCallback((command: string) => {
     if (!currentPtyId) {
@@ -175,9 +169,6 @@ export function PaneSessionChat({
     );
   }, [currentPtyId, showComposerError]);
 
-  // Route an interactive-widget answer back to the agent through the verified PTY
-  // injector, bypassing chatPreprocessor because this is a menu answer, not a
-  // fresh Chat UI user prompt.
   const handleAnswerInteractive = useCallback<InteractiveAnswerHandler>(
     async (text, element) => {
       const answer = text.trim();
@@ -230,9 +221,6 @@ export function PaneSessionChat({
     return (paneRef: string): string | undefined => byShort.get(paneRef.slice(0, 8));
   }, [muxState.workspaces, muxState.panes]);
 
-  // Long-idle ('resting') nuance: once the pane has gone quiet — no agent
-  // activity, no open prompt — for a stretch, soften the indicator from
-  // 'your turn' to a dormant treatment. Any activity resets it immediately.
   useEffect(() => {
     if (backendState?.state === "working" || pendingPrompt) {
       setLongIdle(false);
@@ -249,7 +237,6 @@ export function PaneSessionChat({
     }
   }, [allMessages, inlinePrompt?.question, backendState?.state]);
 
-  // Backend state engine is the sole source of truth (working / idle / question +
   // subtype); it arrives via the mux snapshot and events, no local polling needed.
   const liveAgentState: AgentState = useMemo(() => {
     const kind = backendState?.state ?? "idle";
@@ -392,7 +379,6 @@ export function PaneSessionChat({
           );
         })}
         {!inlinePrompt && (enrichedMessages.length > 0 || liveAgentState.state === "question") && (
-          // Same centered column as the message rows so the indicator sits flush
           // with the message text instead of the far-left container edge.
           <div className="w-full max-w-4xl min-w-0 mx-auto">
             <AgentStateIndicator

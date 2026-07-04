@@ -75,11 +75,9 @@ function TabItemInner({
   const provider = usePaneProvider(pane);
   const shellSessionModel = useShellSessionModel(pane);
   const providerName = provider?.displayName || "Agent";
-  // Agent panes carry the model on the pane record; shell panes don't — fall
   // back to the live chatBackend session model (fetched/cached out of band).
   const tabModel = pane?.agent_session_model ?? shellSessionModel;
   const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;
-  // Group leadership (Orchestrator/Planner) shows a role badge in the model-chip
   // slot; the model drops to the tooltip. Workers keep their model chip.
   const roleBadge = roleBadgeLabel(pane);
   const roleBadgeTitle = tabModel ? `${roleBadge} · ${tabModel}` : roleBadge ?? undefined;
@@ -89,8 +87,6 @@ function TabItemInner({
   const isSubPane = pane?.role !== "Orchestrator" && (Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(canonicalTitle);
-  // Mirror TerminalPane's mode resolution: no client override falls back to
-  // the agent default (claude/GA panes open in chat), so the menu reflects
   const resolveChatView = (p: typeof pane): boolean => {
     if (!p) return false;
     const current = getCurrentPaneUiMode(p.id);
@@ -112,7 +108,6 @@ function TabItemInner({
     return listenCurrentPaneUiMode(pane.id, (mode) => setChatView(mode === "chat"));
   }, [pane?.id, pane?.agent_type, pane?.backing?.kind]);
 
-  // Close animation phases
   const [closePhase, setClosePhase] = useState<0 | 1 | 2>(0);
   useEffect(() => {
     if (isClosing && closePhase === 0) {
@@ -122,7 +117,6 @@ function TabItemInner({
     }
   }, [isClosing, closePhase]);
 
-  // Build menu items for the 3-dot dropdown
   const menuItems: DropdownMenuItem[] = useMemo(() => {
     const items: DropdownMenuItem[] = [];
     // Main (the protected GA pane) is the anchor — no rename.
@@ -163,9 +157,6 @@ function TabItemInner({
       });
     }
     if (canClose && !pane?.protected) {
-      // A pane with a parent is a Worker (planner or otherwise) inside an
-      // orchestration group — it closes only as part of the group, from the
-      // Orchestrator head, never individually (task_e0ddee08 item 2).
       if (isSubPane) {
         items.push({
           label: "Close",
@@ -187,7 +178,6 @@ function TabItemInner({
     return items;
   }, [canonicalTitle, pane, chatView, canClose, hasAgent, onClose, isSubPane]);
 
-  // Build animation CSS class
   const animClass = isClosing
     ? closePhase === 2
       ? "sidebar-tab-closing-2"
@@ -219,8 +209,6 @@ function TabItemInner({
       {isActive && <ActiveTabPill />}
       <div className={`flex flex-1 items-center min-w-0 relative z-[1] ${touchMode ? "gap-2.5" : "gap-2"}`}>
         {provider ? (
-          // Agent (descriptor) OR chatBackend shell (plugin snapshot) — both
-          // resolve through usePaneProvider, so shell panes get their plugin
           <ProviderGlyph
             iconSvg={provider.iconSvg}
             iconColor={provider.iconColor}
@@ -339,8 +327,6 @@ function TabItemInner({
   );
 }
 
-// Pane objects are always new references after SET_STATE (reducer spreads panes
-// map). Comparing by value for the fields TabItem actually renders prevents
 function backingPluginId(p: Pane): string | undefined {
   return p.backing?.kind === "chat_backend" ? p.backing.plugin_id : undefined;
 }
@@ -364,7 +350,6 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     prev.tab.description !== next.tab.description
   ) return false;
 
-  // Plan-membership glance is a fresh object each Sidebar render — compare by value
   // so a non-task tab (both null) and an unchanged indicator skip the re-render.
   const pa = prev.activity;
   const na = next.activity;
@@ -383,13 +368,11 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
   if (!pp || !np) return false;
   return (
     pp.id === np.id &&
-    // pane.title is the sole title source; omitting these left the tab painting
     // a stale label after wake/cache-reconcile.
     pp.title === np.title &&
     pp.title_level === np.title_level &&
     pp.description === np.description &&
     pp.agent_type === np.agent_type &&
-    // backing drives the shell icon/tooltip/model badge + chat gating; the live
     // shell model itself comes from a hook (useShellSessionModel), not a prop.
     pp.backing?.kind === np.backing?.kind &&
     backingPluginId(pp) === backingPluginId(np) &&

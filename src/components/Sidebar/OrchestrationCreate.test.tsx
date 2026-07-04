@@ -123,12 +123,6 @@ test("switching a role's provider resets that role's model to the new default", 
   await act(async () => root.unmount());
 });
 
-// Title is plain useState wired via a controlled <input>; simulating a typed
-// keystroke through happy-dom's dispatchEvent does not reach React's onChange
-// in this harness (a known rough edge — the same native-setter workaround is
-// defined-but-unused elsewhere in this codebase for the same reason). Provider
-// and model selections use <select>, which React's harness handles reliably,
-// so this test covers those plus the title's untouched (undefined) default.
 test("confirm calls onConfirm with both roles' selections and an unset title by default", async () => {
   let result: OrchestrationCreateResult | null = null;
   const { host, root } = await render(

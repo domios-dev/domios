@@ -19,7 +19,6 @@ interface ShellCommandEvent {
  *  pane-status-changed uses — through the shared chat-core reducer. */
 export function useShellCommands(paneId: string): ChatMessage[] {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  // Monotonic id/timestamp source so live items sort after hydrated ones and
   // every appended bubble gets a stable, unique id.
   const seqRef = useRef(0);
   const nextSeq = () => {

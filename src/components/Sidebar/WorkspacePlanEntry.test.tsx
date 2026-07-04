@@ -1,8 +1,3 @@
-// Run: npx tsx src/components/Sidebar/WorkspacePlanEntry.test.tsx
-// EMERGENCE (north-star #2), sidebar side. The workspace plan(s) surface as a
-// DISTINCT pinned entry above the session tabs — its own glyph + accent, the plan
-// TITLE (not just "PLAN"), a task/progress hint, and a +N when a workspace owns
-// several plans. One click opens that plan's canvas. Empty index → renders nothing.
 
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
