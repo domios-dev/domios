@@ -153,6 +153,16 @@ test(
       await expect(header).toBeVisible();
       await expect(header.locator('[data-testid="plan-context-header-chips"]')).toBeVisible();
       await expect(header.locator('[data-testid="plan-board-plan-title"]')).toBeVisible();
+
+      // Touch hit-target bumps must NOT leak to desktop: the sidebar nav / new-session
+      // rows keep their compact (non-touch) classes above the breakpoint.
+      const navCls = (await page.locator('[data-testid="nav-extensions"]').first().getAttribute("class")) ?? "";
+      expect(navCls, "nav row has no touch min-height on desktop").not.toContain("min-h-[44px]");
+      const nsCount = await page.locator('[data-testid="sidebar-new-session"]').count();
+      if (nsCount > 0) {
+        const nsCls = (await page.locator('[data-testid="sidebar-new-session"]').first().getAttribute("class")) ?? "";
+        expect(nsCls, "new-session has no touch min-height on desktop").not.toContain("min-h-[44px]");
+      }
       await shot(page, "plan-header-desktop-unchanged");
     } finally {
       await canvas.close();
@@ -252,6 +262,64 @@ test(
         headerBox!.y + headerBox!.height - 1,
       );
       await shot(page, "plan-header-mobile-list-interplay");
+    } finally {
+      await canvas.close();
+    }
+  },
+);
+
+test(
+  "@golden @plan-header-mobile coarse hit targets: compact bar + sidebar rows >= 44px",
+  async ({ api, webBrowser }) => {
+    test.setTimeout(180_000);
+    const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
+    try {
+      const { page } = canvas;
+      if (await isEmpty(page)) {
+        test.skip(true, "canvas empty — perf fixture did not inject");
+        return;
+      }
+      await applyViewportAndReload(page, PHONE, "board");
+
+      // Compact plan bar is a >=44px coarse target.
+      const barBox = await visibleHeader(page).locator('[data-testid="plan-context-compact-bar"]').boundingBox();
+      expect(barBox, "compact bar has a box").toBeTruthy();
+      expect(barBox!.height, "compact bar >= 44px").toBeGreaterThanOrEqual(44);
+
+      // Open the sidebar overlay (phones start collapsed).
+      const opener = page.locator('[data-testid="web-sidebar-open"]');
+      if (await opener.count()) {
+        await opener.first().click();
+        await page.waitForTimeout(500);
+      }
+
+      // Every rendered interactive sidebar row must be a >=44px coarse target.
+      const ROW_TESTIDS = [
+        "tab-item",
+        "workspace-item",
+        "workspace-plan-entry",
+        "nav-extensions",
+        "nav-memory",
+        "nav-mesh",
+        "sidebar-new-session",
+        "recently-closed-item",
+        "recently-closed-group-toggle",
+      ];
+      let asserted = 0;
+      for (const id of ROW_TESTIDS) {
+        const loc = page.locator(`[data-testid="${id}"]:visible`);
+        const n = await loc.count();
+        for (let i = 0; i < n; i++) {
+          const b = await loc.nth(i).boundingBox();
+          if (!b) continue;
+          expect(b.height, `${id}[${i}] hit height >= 44px`).toBeGreaterThanOrEqual(44);
+          asserted += 1;
+        }
+      }
+      // The nav footer + new-session always render in this fixture — guard against
+      // a false green if selectors silently match nothing.
+      expect(asserted, "at least the nav + new-session rows were measured").toBeGreaterThanOrEqual(4);
+      await shot(page, "plan-header-mobile-hit-targets");
     } finally {
       await canvas.close();
     }
