@@ -73,9 +73,10 @@ impl super::ServiceContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lock_hold::TimedRwLock;
     use crate::multiplexer::state::MultiplexerState;
     use crate::session::store::SessionStore;
-    use parking_lot::{Mutex, RwLock};
+    use parking_lot::Mutex;
     use std::sync::Arc;
     use tempfile::TempDir;
 
@@ -87,7 +88,7 @@ mod tests {
     fn rename_workspace_persisted_promptly_to_disk() {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(Mutex::new(test_store(&dir)));
-        let mux: MuxState = Arc::new(RwLock::new(MultiplexerState::empty()));
+        let mux: MuxState = Arc::new(TimedRwLock::new("mux", MultiplexerState::empty()));
         let ws = mux.write().create_workspace("before".to_string(), None);
 
         mux.write()
@@ -109,7 +110,7 @@ mod tests {
     fn rename_tab_persisted_promptly_to_disk() {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(Mutex::new(test_store(&dir)));
-        let mux: MuxState = Arc::new(RwLock::new(MultiplexerState::empty()));
+        let mux: MuxState = Arc::new(TimedRwLock::new("mux", MultiplexerState::empty()));
         let ws = mux.write().create_workspace("ws".to_string(), None);
         let (tab_id, _pane_id) = mux.write().create_tab(&ws.id).unwrap();
 

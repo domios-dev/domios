@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use parking_lot::RwLock;
 use serde::Serialize;
 use tauri::State;
 
@@ -9,7 +8,7 @@ use crate::service::{BatchOp, ServiceState};
 
 /// Shared multiplexer state, thread-safe. RwLock allows concurrent reads from
 /// multiple PTY output handlers; writers still get exclusive access.
-pub type MuxState = Arc<RwLock<MultiplexerState>>;
+pub type MuxState = Arc<crate::lock_hold::TimedRwLock<MultiplexerState>>;
 
 // ── Response types ───────────────────────────────────────────────────
 
