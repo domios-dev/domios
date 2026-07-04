@@ -24,6 +24,7 @@ import { ActiveWorkStrip } from "./ActiveWorkStrip";
 import { enrichSwitcherOptions, selectActiveWork, type ActiveWorkEntry } from "./activeWork";
 import { activeWorkEntriesForStrip } from "./activeWorkStripVisibility";
 import {
+  boundDoneFilterVisibleRows,
   buildVisiblePlanListRows,
   resolveSectionExpanded,
   type PlanListStatusFilter,
@@ -141,6 +142,7 @@ export function PlanListView({
   );
   const [fetchedSpecSections, setFetchedSpecSections] = useState<Map<string, Section[]>>(new Map());
   const [statusFilter, setStatusFilter] = useState<PlanListStatusFilter>("all");
+  const [doneFilterExpanded, setDoneFilterExpanded] = useState(false);
   const [textQuery, setTextQuery] = useState("");
   const [expansionOverrides, setExpansionOverrides] = useState<Map<string, boolean>>(new Map());
   const [detail, setDetail] = useState<ListDetail | null>(null);
@@ -149,6 +151,10 @@ export function PlanListView({
     setNavStack(EMPTY_NAV_STACK);
     setDetail(null);
   }, [selectedPlanId]);
+
+  useEffect(() => {
+    setDoneFilterExpanded(false);
+  }, [statusFilter]);
 
   useEffect(() => {
     if (!api || !selectedPlan?.primary_spec_id) return;
@@ -188,10 +194,11 @@ export function PlanListView({
     [selectedPlan, panes],
   );
 
-  const visibleRows = useMemo(
-    () => buildVisiblePlanListRows(rows, { statusFilter, textQuery, expansionOverrides }),
-    [rows, statusFilter, textQuery, expansionOverrides],
-  );
+  const visibleRows = useMemo(() => {
+    const base = buildVisiblePlanListRows(rows, { statusFilter, textQuery, expansionOverrides });
+    if (statusFilter !== "done") return base;
+    return boundDoneFilterVisibleRows(base, doneFilterExpanded);
+  }, [rows, statusFilter, textQuery, expansionOverrides, doneFilterExpanded]);
 
   const stripEntries = useMemo(
     () => activeWorkEntriesForStrip(planActiveWork, visibleRows),
@@ -344,14 +351,20 @@ export function PlanListView({
           </div>
           <div data-testid="plan-list-scroll" className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
             {visibleRows.map((entry) => {
-              const sectionRow = entry.type === "row" ? entry.row : entry.sectionRow;
+              const sectionRow = entry.type === "row" ? entry.row : entry.type === "done-rollup" ? entry.sectionRow : undefined;
               const sectionExpanded =
                 entry.type === "row" && sectionRow && (sectionRow.kind === "plan-section" || sectionRow.kind === "unsectioned")
                   ? resolveSectionExpanded(sectionRow, expansionOverrides)
                   : undefined;
+              const rowKey =
+                entry.type === "row"
+                  ? entry.row.id
+                  : entry.type === "done-rollup"
+                    ? `rollup::${entry.sectionRow.id}`
+                    : "done-filter-toggle";
               return (
                 <PlanListRowView
-                  key={entry.type === "row" ? entry.row.id : `rollup::${entry.sectionRow.id}`}
+                  key={rowKey}
                   entry={entry}
                   now={now}
                   sectionExpanded={sectionExpanded}
@@ -359,6 +372,7 @@ export function PlanListView({
                     const targetRow = rows.find((r) => r.id === id);
                     toggleSection(id, targetRow);
                   }}
+                  onToggleDoneFilter={() => setDoneFilterExpanded((v) => !v)}
                   onOpenRow={openRow}
                   onOpenBelonging={openBelonging}
                 />

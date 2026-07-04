@@ -4,6 +4,7 @@ import { TASK_STATUS_COLORS } from "../settings";
 import type { PlanListRow, PlanListRowKind, PlanListVisibleRow } from "./buildPlanListTree";
 import { isPlanListSectionRow } from "./buildPlanListTree";
 import { formatRelativeAge } from "./planListModel";
+import { DONE_COLUMN_COLLAPSED_LIMIT } from "./boardModel";
 import { usePlanTaskActivate } from "./planTaskInteraction";
 import { TaskExecutionBadges } from "./TaskExecutionBadges";
 
@@ -22,6 +23,7 @@ export interface PlanListRowViewProps {
   now?: number;
   sectionExpanded?: boolean;
   onToggleSection?: (sectionId: string) => void;
+  onToggleDoneFilter?: () => void;
   onOpenRow?: (row: PlanListRow) => void;
   onOpenBelonging?: (row: PlanListRow) => void;
 }
@@ -31,9 +33,25 @@ export function PlanListRowView({
   now,
   sectionExpanded,
   onToggleSection,
+  onToggleDoneFilter,
   onOpenRow,
   onOpenBelonging,
 }: PlanListRowViewProps) {
+  if (entry.type === "done-filter-toggle") {
+    return (
+      <button
+        type="button"
+        data-testid="plan-list-done-filter-toggle"
+        className="plan-list-rollup"
+        onClick={() => onToggleDoneFilter?.()}
+      >
+        {entry.expanded
+          ? `Show recent ${DONE_COLUMN_COLLAPSED_LIMIT}`
+          : `Show all ${entry.totalCount}`}
+      </button>
+    );
+  }
+
   if (entry.type === "done-rollup") {
     const { sectionRow, doneCount } = entry;
     return (
