@@ -2,7 +2,7 @@
 // SET_STATE monotonic generation guard (T3 Fix B): a snapshot whose generation
 
 import { reducer } from "./reducer";
-import type { ExtendedState } from "./tree";
+import { makeVirtualPickerTab, type ExtendedState } from "./tree";
 import type { MultiplexerState, Workspace, Pane } from "../../lib/types";
 import { TitleLevel } from "../../lib/types";
 import { resolveTabStatusRailVariant } from "../../components/Sidebar/TabStatusRail";
@@ -32,6 +32,7 @@ function base(): ExtendedState {
     toasts: [],
     activeTabIds: {},
     generation: 0,
+    virtualTabs: {},
   };
 }
 
@@ -497,6 +498,57 @@ test("without RESET_GENERATION a low post-restart snapshot would be rejected (sa
   const highGen = reducer(base(), { type: "SET_STATE", state: snap(500, "w-old") });
   const after = reducer(highGen, { type: "SET_STATE", state: snap(1, "w-post-restart") });
   assert(after === highGen, "monotonic guard still rejects a low generation outside the boot-changed path");
+});
+
+test("OPEN_SESSION_PICKER adds a virtual tab + pane and activates it, no backend call", () => {
+  const start = reducer(base(), { type: "SET_STATE", state: snap(1, "w1") });
+  const virtual = makeVirtualPickerTab("/tmp/x");
+  const open = reducer(start, { type: "OPEN_SESSION_PICKER", workspaceId: "w1", virtual });
+  const ws = open.workspaces.find((w) => w.id === "w1")!;
+  assert(ws.tabs.some((t) => t.id === virtual.tab.id), "virtual tab present in workspace");
+  assert(open.panes[virtual.pane.id]?.virtual === true, "virtual pane registered");
+  assert(open.panes[virtual.pane.id]?.title === "New session", "virtual pane titled, never a husk");
+  assert(open.activeTabIds["w1"] === virtual.tab.id, "virtual tab is active");
+  assert(open.virtualTabs["w1"]?.tab.id === virtual.tab.id, "virtualTabs map tracks it");
+});
+
+test("OPEN_SESSION_PICKER twice reuses the open picker (one per workspace)", () => {
+  const start = reducer(base(), { type: "SET_STATE", state: snap(1, "w1") });
+  const first = makeVirtualPickerTab();
+  const open = reducer(start, { type: "OPEN_SESSION_PICKER", workspaceId: "w1", virtual: first });
+  const second = makeVirtualPickerTab();
+  const again = reducer(open, { type: "OPEN_SESSION_PICKER", workspaceId: "w1", virtual: second });
+  const ws = again.workspaces.find((w) => w.id === "w1")!;
+  const virtualTabCount = ws.tabs.filter((t) => t.id === first.tab.id || t.id === second.tab.id).length;
+  assert(virtualTabCount === 1, "no second picker stacked");
+  assert(again.activeTabIds["w1"] === first.tab.id, "existing picker re-activated");
+});
+
+test("SET_STATE re-injects the virtual picker across a backend snapshot (no husk, survives reconcile)", () => {
+  const start = reducer(base(), { type: "SET_STATE", state: snap(1, "w1") });
+  const virtual = makeVirtualPickerTab();
+  const open = reducer(start, { type: "OPEN_SESSION_PICKER", workspaceId: "w1", virtual });
+  // A fresh authoritative snapshot for the same workspace (backend never knows
+  // the picker) must NOT drop the open picker.
+  const after = reducer(open, { type: "SET_STATE", state: snap(2, "w1") });
+  const ws = after.workspaces.find((w) => w.id === "w1")!;
+  assert(ws.tabs.some((t) => t.id === virtual.tab.id), "virtual tab re-injected after snapshot");
+  assert(after.panes[virtual.pane.id]?.virtual === true, "virtual pane re-injected");
+  assert(after.activeTabIds["w1"] === virtual.tab.id, "virtual tab stays active across snapshot");
+});
+
+test("CLOSE_SESSION_PICKER removes the virtual tab + pane and clears the map", () => {
+  const start = reducer(base(), { type: "SET_STATE", state: snap(1, "w1") });
+  const virtual = makeVirtualPickerTab();
+  const open = reducer(start, { type: "OPEN_SESSION_PICKER", workspaceId: "w1", virtual });
+  const closed = reducer(open, { type: "CLOSE_SESSION_PICKER", workspaceId: "w1", tabId: virtual.tab.id });
+  const ws = closed.workspaces.find((w) => w.id === "w1")!;
+  assert(!ws.tabs.some((t) => t.id === virtual.tab.id), "virtual tab removed");
+  assert(closed.panes[virtual.pane.id] === undefined, "virtual pane removed");
+  assert(closed.virtualTabs["w1"] === undefined, "virtualTabs entry cleared");
+  // A later snapshot must NOT resurrect it.
+  const after = reducer(closed, { type: "SET_STATE", state: snap(3, "w1") });
+  assert(!after.workspaces.find((w) => w.id === "w1")!.tabs.some((t) => t.id === virtual.tab.id), "stays gone after snapshot");
 });
 
 console.log(failures === 0 ? "✓ reducer tests green" : `✗ ${failures} failure(s)`);

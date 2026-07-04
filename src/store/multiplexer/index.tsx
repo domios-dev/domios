@@ -19,7 +19,6 @@ import {
 import { mountWebLifecycle } from "../../lib/lifecycle";
 import { uid } from "../../lib/uid";
 import { setPendingCommand, setPendingCwd } from "../../lib/pendingCommands";
-import { clearSessionPickerPane } from "../../lib/sessionPickerPanes";
 import { loadDefaultNewAgentPaneChat } from "../../lib/chatUiMode";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 import { TitleLevel } from "../../lib/types";
@@ -32,6 +31,7 @@ import type {
   OrchestrationPairResult,
 } from "../../lib/types";
 import {
+  makeVirtualPickerTab,
   type ExtendedState,
 } from "./tree";
 import { reducer } from "./reducer";
@@ -58,6 +58,7 @@ function buildInitialState(): ExtendedState {
     toasts: [],
     activeTabIds: {},
     generation: 0,
+    virtualTabs: {},
   };
   if (!IS_WEB) return empty;
   const cached = loadCachedStateSync();
@@ -317,6 +318,25 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshFromBackend, guardedInvoke]);
 
+  // Open the New-session picker as a VIRTUAL tab: no backend pane, no PTY, no
+  // session-snapshot entry — the first real pane is materialized only on
+  // confirm. Re-opening in a workspace that already has a picker just
+  // re-activates it (one picker per workspace).
+  const openSessionPicker = useCallback((workspaceId: string, cwd?: string) => {
+    guardedInvoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
+    const ws = stateRef.current.workspaces.find((w) => w.id === workspaceId);
+    const effectiveCwd = cwd || ws?.cwd || undefined;
+    dispatch({
+      type: "OPEN_SESSION_PICKER",
+      workspaceId,
+      virtual: makeVirtualPickerTab(effectiveCwd),
+    });
+  }, [guardedInvoke]);
+
+  const closeSessionPicker = useCallback((workspaceId: string, tabId: string) => {
+    dispatch({ type: "CLOSE_SESSION_PICKER", workspaceId, tabId });
+  }, []);
+
   const reopenClosed = useCallback(async (workspaceId: string, index = 0) => {
     try {
       guardedInvoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
@@ -529,7 +549,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const ws = workspaces.find((w) => w.id === workspaceId);
       const tab = ws?.tabs.find((t) => t.id === tabId);
       if (!tab) return;
-      clearSessionPickerPane(tab.pane_id);
+      // A virtual picker tab has no backend pane — drop it locally only, never
+      // send a close to the daemon for a pane it never knew about.
+      if (stateRef.current.virtualTabs[workspaceId]?.tab.id === tabId) {
+        dispatch({ type: "CLOSE_SESSION_PICKER", workspaceId, tabId });
+        return;
+      }
       const removedPaneIds = [tab.pane_id];
       for (const pid of removedPaneIds) {
         guardedInvoke("mux_close_pane", { paneId: pid }).catch(() => {});
@@ -681,6 +706,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       reorderTabs,
       reorderWorkspaces,
       createTab,
+      openSessionPicker,
+      closeSessionPicker,
       closeTab,
       reopenClosed,
       reopenGroup,
@@ -713,6 +740,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       reorderTabs,
       reorderWorkspaces,
       createTab,
+      openSessionPicker,
+      closeSessionPicker,
       closeTab,
       reopenClosed,
       reopenGroup,
