@@ -2,6 +2,21 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn plan_delete_refuses_without_confirmation_before_rpc() {
+    let err = plan_delete_params("pl_1".into(), false).unwrap_err();
+    assert!(err.contains("refusing to delete plan 'pl_1' without --yes"));
+    assert!(err.contains("--confirm"));
+}
+
+#[test]
+fn plan_delete_confirmation_builds_rpc_params() {
+    assert_eq!(
+        plan_delete_params("pl_1".into(), true).unwrap(),
+        json!({ "plan_id": "pl_1" })
+    );
+}
+
+#[test]
 fn renders_undeclared_kind_fix() {
     let msg = render_plan_error(
         &json!({ "type": "undeclared_kind", "declared": ["status_update", "review"] }),

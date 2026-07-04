@@ -1,6 +1,6 @@
 use super::*;
 use crate::args::orchestrator::OrchestratorAction;
-use crate::args::plan::PlanHandoffAction;
+use crate::args::plan::{PlanAction, PlanHandoffAction};
 use clap::CommandFactory;
 
 fn env_lock() -> &'static std::sync::Mutex<()> {
@@ -176,6 +176,35 @@ fn plan_record_parses_batch_sugar() {
             assert_eq!(key.as_deref(), Some("stable-key"));
         }
         _ => panic!("expected plan record"),
+    }
+}
+
+#[test]
+fn plan_delete_confirmation_flags_parse() {
+    #[derive(clap::Parser)]
+    struct PlanOnly {
+        #[command(subcommand)]
+        action: PlanAction,
+    }
+
+    let parsed = PlanOnly::try_parse_from(["plan", "delete", "pl_1", "--yes"])
+        .expect("plan delete --yes parses");
+    match parsed.action {
+        PlanAction::Delete { plan_id, yes } => {
+            assert_eq!(plan_id, "pl_1");
+            assert!(yes);
+        }
+        _ => panic!("expected plan delete"),
+    }
+
+    let parsed = PlanOnly::try_parse_from(["plan", "delete", "pl_1", "--confirm"])
+        .expect("plan delete --confirm parses");
+    match parsed.action {
+        PlanAction::Delete { plan_id, yes } => {
+            assert_eq!(plan_id, "pl_1");
+            assert!(yes);
+        }
+        _ => panic!("expected plan delete"),
     }
 }
 
