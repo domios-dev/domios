@@ -11,7 +11,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "../../helpers/fixtures";
-import { type ApiClient, type Pane } from "../../helpers/api-client";
+import { ApiClient, type Pane, type PlanSummary } from "../../helpers/api-client";
+
+// Every test workspace this suite mints shares this prefix; the disambiguated
+// default plan title carries the workspace name, so plans created by spawn
+// scenarios are matchable (and deletable) by it. Keeps the suite leaving ZERO
+// orphaned plans behind.
+const TEST_WS_PREFIX = "pw-picker";
 
 const NEW_SESSION_CHOICE_STORAGE_KEY = "codeterm:new-session-choice";
 
@@ -182,20 +188,51 @@ async function cleanupWorkspace(api: ApiClient, wsId: string | undefined): Promi
   await api.closeWorkspace(wsId).catch(() => {});
 }
 
+/** Plans this suite created — matched by the test-workspace prefix embedded in
+ *  the disambiguated default title. Closing a workspace does NOT delete its
+ *  plans, so spawn scenarios would otherwise leave orphans behind. */
+async function testPlans(api: ApiClient): Promise<PlanSummary[]> {
+  const plans = await api.plans().catch(() => [] as PlanSummary[]);
+  return plans.filter((p) => (p.title ?? "").includes(TEST_WS_PREFIX));
+}
+async function deleteTestPlans(api: ApiClient): Promise<void> {
+  for (const p of await testPlans(api)) {
+    await api.deletePlan(p.plan_id).catch(() => {});
+  }
+}
+
 test.describe("new-session picker", () => {
   // Cut the golden 300s default so a broken beforeEach surfaces in seconds; the
   // scenarios that spawn real agents raise their own timeout explicitly.
   test.describe.configure({ timeout: 30_000 });
 
   let ws: { id: string; name: string };
+  let plansAtStart = 0;
+
+  // beforeAll/afterAll can't use the test-scoped `api` fixture — construct a
+  // standalone client (same dev token) for the suite-level plan invariant.
+  test.beforeAll(async () => {
+    plansAtStart = (await new ApiClient().plans().catch(() => [])).length;
+  });
 
   test.beforeEach(async ({ api, ui }) => {
-    ws = await createTestWorkspace(api, "pw-picker");
+    ws = await createTestWorkspace(api, TEST_WS_PREFIX);
     await openPicker(ui.page, ws.id);
   });
 
   test.afterEach(async ({ api }) => {
+    // Delete plans BEFORE closing the workspace (close doesn't cascade to plans).
+    await deleteTestPlans(api);
     await cleanupWorkspace(api, ws?.id);
+  });
+
+  test.afterAll(async () => {
+    const api = new ApiClient();
+    // Sweep any straggler this suite created, then assert it left nothing behind.
+    await deleteTestPlans(api);
+    expect(await testPlans(api), "suite must leave ZERO test plans behind").toHaveLength(0);
+    const plansAtEnd = (await api.plans().catch(() => [])).length;
+    expect(plansAtEnd, "plan count before suite == after suite").toBe(plansAtStart);
   });
 
   test("@golden OPEN: New session shows the VIRTUAL picker, no backend pane/PTY", async ({ api, ui }) => {
@@ -319,6 +356,14 @@ test.describe("new-session picker", () => {
     // No leftover virtual husk anywhere in the snapshot.
     const after = await muxState(api);
     expect(Object.values(after.panes).some((p) => p.title === "New session")).toBe(false);
+
+    // Disambiguated default plan title (item B): carries the workspace name and
+    // is never the bare, pile-up-prone "Orchestration".
+    const plans = await api.plans();
+    const plan = plans.find((p) => (p.title ?? "").includes(ws.name));
+    expect(plan, "the pair's plan exists").toBeTruthy();
+    expect(plan!.title, "plan title includes the workspace name").toContain(ws.name);
+    expect(plan!.title.trim(), "plan title is not the bare 'Orchestration'").not.toBe("Orchestration");
   });
 
   test("@golden GREETING: orchestrator's first assistant message is the PEER_ORCH_GREETING, unprompted", async ({ api, ui }) => {

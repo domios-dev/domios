@@ -51,6 +51,22 @@ fn epoch_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Default plan title for a pair created without an explicit one. Carries the
+/// workspace name + a timestamp so many pairs stay distinguishable instead of
+/// piling up as identical bare "Orchestration" rows.
+fn default_orchestration_plan_title(workspace_name: &str, now_ms: u64) -> String {
+    let stamp = chrono::DateTime::from_timestamp_millis(now_ms as i64)
+        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+        .unwrap_or_default();
+    let name = workspace_name.trim();
+    match (name.is_empty(), stamp.is_empty()) {
+        (true, true) => "Orchestration".to_string(),
+        (true, false) => format!("Orchestration — {stamp}"),
+        (false, true) => format!("Orchestration — {name}"),
+        (false, false) => format!("Orchestration — {name} {stamp}"),
+    }
+}
+
 /// Orchestrator's first task. Unlike the generic promotion mandate
 /// ([`crate::prompts::peer_pairing_mandate_full`]), this flow has ALREADY
 /// spawned the Planner synchronously by the time the Orchestrator reads this
@@ -127,7 +143,7 @@ impl ServiceContext {
         }
 
         let now_ms = epoch_ms();
-        let (workspace_id, project_path) = {
+        let (workspace_id, project_path, workspace_name) = {
             let mux = self.mux.write();
             let ws_id = params
                 .workspace_id
@@ -139,14 +155,20 @@ impl ServiceContext {
                 .get_workspace(&ws_id)
                 .and_then(|ws| ws.cwd.clone())
                 .unwrap_or_default();
-            (ws_id, cwd)
+            let name = mux
+                .get_workspace(&ws_id)
+                .map(|ws| ws.name.clone())
+                .unwrap_or_default();
+            (ws_id, cwd, name)
         };
 
+        // Default plan title carries the workspace + a timestamp so a dozen
+        // pairs don't pile up as indistinguishable bare "Orchestration" rows.
         let title = params
             .title
             .clone()
             .filter(|t| !t.trim().is_empty())
-            .unwrap_or_else(|| "Orchestration".to_string());
+            .unwrap_or_else(|| default_orchestration_plan_title(&workspace_name, now_ms));
         let plan = self
             .plan_store
             .create_plan(
@@ -282,6 +304,18 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let store = PlanStore::new_for_test(root.path());
         (root, store)
+    }
+
+    #[test]
+    fn default_plan_title_disambiguates_by_workspace_and_stamp() {
+        // 2021-01-01T00:00:00Z
+        let t = default_orchestration_plan_title("my-ws", 1_609_459_200_000);
+        assert!(t.contains("my-ws"), "title carries the workspace name: {t}");
+        assert!(t.contains("2021-01-01"), "title carries a date stamp: {t}");
+        assert_ne!(t, "Orchestration", "never the bare piled-up default");
+        // Empty workspace still avoids the bare string when a stamp exists.
+        let no_ws = default_orchestration_plan_title("  ", 1_609_459_200_000);
+        assert!(no_ws.starts_with("Orchestration — "), "stamped even without a name: {no_ws}");
     }
 
     /// Mirrors the plan-side sequence `create_orchestration_pair` performs
