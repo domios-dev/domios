@@ -229,7 +229,6 @@ pub(super) fn compat_reason(min: &str, app: Option<&str>) -> String {
     }
 }
 
-// Fail-open when min is absent or the running version is unknown (raw CLI with
 // no daemon); only block when we positively know app < min.
 pub(super) fn compat_check(min: Option<&str>) -> Result<(), String> {
     let Some(min) = min else { return Ok(()) };
@@ -243,7 +242,6 @@ pub(super) fn compat_check(min: Option<&str>) -> Result<(), String> {
     }
 }
 
-// Best-effort version for a system plugin not on disk: read the system channel
 // cache manifest if it has already been fetched. Never triggers a network call.
 pub(super) fn system_channel_version(id: &str) -> Option<String> {
     let reg = read_channel_registry().ok()?;
