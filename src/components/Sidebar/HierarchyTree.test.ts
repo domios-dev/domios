@@ -69,7 +69,7 @@ assert(
 );
 assert(
   source.includes("excludePaneIds"),
-  "HierarchyTree buildHierarchySubtree accepts excludePaneIds for planner peers",
+  "HierarchyTree buildHierarchySubtree accepts excludePaneIds for attached Planners",
 );
 
 console.log("✓ HierarchyTree: row states, task line, sort, variants, no StatusDot clutter");

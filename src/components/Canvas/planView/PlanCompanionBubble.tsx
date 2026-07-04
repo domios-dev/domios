@@ -168,7 +168,7 @@ export function PlanCompanionBubble({
         type="button"
         data-testid="plan-companion-bubble"
         data-companion-kind={resolution.kind}
-        aria-label={peerPairTitle ? `Talk to peer pair (${peerPairTitle})` : `Talk to ${kindLabel}`}
+        aria-label={peerPairTitle ? `Talk to orchestration group (${peerPairTitle})` : `Talk to ${kindLabel}`}
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         title={bubbleTitle}

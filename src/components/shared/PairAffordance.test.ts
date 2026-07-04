@@ -24,14 +24,14 @@ assert(source.includes('data-pair-role="planner"'), "PairAffordance labels plann
 assert(source.includes("pair-affordance--${layout}"), "layout-specific class");
 assert(source.includes('data-pair-affordance-layout={layout}'), "layout data attribute");
 
-assert(sidebar.includes('data-testid="sidebar-peer-pair"'), "Sidebar renders peer pair group");
+assert(sidebar.includes('data-testid="sidebar-peer-pair"'), "Sidebar renders orchestration group");
 assert(sidebar.includes("resolvePlanPeerPair"), "Sidebar derives pair from plan refs");
 assert(sidebarWorkspace.includes("peerExclude"), "Sidebar excludes planner from worker subtree");
 
 assert(header.includes("<PairAffordance"), "PlanContextHeader uses PairAffordance");
-assert(header.includes('data-testid="plan-peer-pair"'), "plan header peer pair marker");
+assert(header.includes('data-testid="plan-peer-pair"'), "plan header orchestration marker");
 
-assert(hierarchy.includes("excludePaneIds"), "Hierarchy subtree can exclude planner peer");
+assert(hierarchy.includes("excludePaneIds"), "Hierarchy subtree can exclude attached Planner");
 
 assert(css.includes(".pair-affordance-rail"), "pair affordance rail styles");
 

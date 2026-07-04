@@ -153,7 +153,7 @@ pub enum PlanAction {
         status: Option<String>,
         #[arg(long)]
         mode: Option<String>,
-        /// Set planner peer: <pane_id> to bind, or "none" to waive (requires --note).
+        /// Set attached Planner: <pane_id> to bind, or "none" to waive (requires --note).
         #[arg(long)]
         planner: Option<String>,
         /// Waiver note (required when --planner none).

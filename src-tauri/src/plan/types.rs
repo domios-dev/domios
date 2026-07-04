@@ -111,7 +111,7 @@ impl OrchestratorRef {
 
 pub type AgentRef = OrchestratorRef;
 
-/// Planner peer binding on a plan. None = unset; Waived = explicitly solo.
+/// Planner binding on a plan. None = unset; Waived = explicitly solo.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PlannerRef {

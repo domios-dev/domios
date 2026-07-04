@@ -114,7 +114,7 @@ pub fn render_state(val: &Value) -> String {
             .unwrap_or(mode != "planning");
         if !unlocked {
             out.push_str(
-                "planning: defer structure to the Planner peer; run `codeterm plan doctor <plan> --kind quality` then `codeterm plan approve <plan>`\n",
+                "planning: delegate structure drafting to the Planner; run `codeterm plan doctor <plan> --kind quality` then `codeterm plan approve <plan>`\n",
             );
         }
     }
@@ -344,7 +344,7 @@ mod tests {
         });
         let out = render_state(&val);
         assert!(out.contains("mode: planning"));
-        assert!(out.contains("planning: defer structure to the Planner peer"));
+        assert!(out.contains("planning: delegate structure drafting to the Planner"));
         assert!(out.contains("coverage note: this is task coverage"));
         assert!(out.contains("planning readiness: goal=true"));
     }

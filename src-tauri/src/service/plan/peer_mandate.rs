@@ -1,21 +1,21 @@
-//! Orchestrator<->Planner peer-mandate wiring (task_aa01c0db) on top of the
+//! Orchestrator + Planner attachment wiring (task_aa01c0db) on top of the
 //! foundation peer-pairing primitives (`crate::plan::peer`, task_48f06a32):
-//! the actual `--parent`/`--plan`-filled spawn command, the Planner's peer
+//! the actual `--parent`/`--plan`-filled spawn command, the Planner's
 //! intro line, and the nudge prefix shown while a plan is unpaired.
 
 use crate::plan::peer::PeerResolution;
 use crate::plan::PlanningState;
 
-/// Human label naming the peer that owns structure, derived from the resolved
-/// planner binding. Used wherever we defer structure work "to the planner by name".
+/// Human label naming the attached Planner, derived from the resolved binding.
+/// Used wherever planning work is delegated by name.
 pub fn planner_peer_label(resolution: &PeerResolution) -> String {
     match resolution {
-        PeerResolution::Planner { pane_id } => format!("the Planner peer (pane {pane_id})"),
+        PeerResolution::Planner { pane_id } => format!("the Planner specialist (pane {pane_id})"),
         PeerResolution::OrchestratorFallback { .. } => {
-            "the Planner peer (currently down — respawn it)".into()
+            "the Planner specialist (currently down — respawn it)".into()
         }
         PeerResolution::Waived { .. } => "yourself (planner waived — solo)".into(),
-        PeerResolution::Unbound => "the Planner peer (bind or spawn one)".into(),
+        PeerResolution::Unbound => "the Planner specialist (bind or spawn one)".into(),
     }
 }
 
@@ -46,20 +46,20 @@ pub fn planner_spawn_cmd_hint(orchestrator_pane_id: Option<&str>, plan_id: &str)
     format!("codeterm agent spawn claude --model fable --parent {parent} --role Planner --plan {plan_id}")
 }
 
-/// One-line onboarding text delivered to a freshly-spawned Planner naming its
-/// Orchestrator peer, so the Planner knows who to hand structure back to.
+/// One-line onboarding text delivered to a freshly-spawned Planner naming the
+/// Orchestrator, so the Planner knows who owns final structure decisions.
 pub fn planner_peer_intro_line(plan_id: &str, orchestrator_pane_id: Option<&str>) -> String {
     let orch = orchestrator_pane_id.unwrap_or("unknown");
     format!(
-        "You are the Planner for plan {plan_id}; your Orchestrator peer is pane {orch}. {}",
+        "You are the Planner specialist for plan {plan_id}; the Orchestrator owner is pane {orch}. {}",
         crate::prompts::PEER_PLANNER_CHARTER_LINE
     )
 }
 
 /// Compact prefix to prepend to an Orchestrator's plan reminder while the
-/// plan has no live planner peer. `None` once paired or explicitly waived —
+/// plan has no live Planner. `None` once attached or explicitly waived —
 /// the nudge must stop immediately in both cases. A dead planner pane
-/// (`OrchestratorFallback`) still nudges, since pairing has effectively
+/// (`OrchestratorFallback`) still nudges, since attachment has effectively
 /// lapsed.
 pub fn planner_pairing_nudge_prefix(resolution: &PeerResolution) -> Option<&'static str> {
     match resolution {
@@ -110,11 +110,12 @@ mod tests {
     }
 
     #[test]
-    fn peer_intro_line_names_the_orchestrator_peer() {
+    fn peer_intro_line_names_the_orchestrator_owner() {
         let line = planner_peer_intro_line("pl_123", Some("orch-1"));
         assert!(line.contains("pl_123"));
         assert!(line.contains("orch-1"));
         assert!(line.contains(crate::prompts::PEER_PLANNER_CHARTER_LINE));
+        assert!(line.contains("Orchestrator owner"));
     }
 
     #[test]
@@ -133,6 +134,7 @@ mod tests {
         // Unapproved + bound planner → nudge names the planner.
         let n = planning_structure_nudge(PlanningState::Drafting, &live).unwrap();
         assert!(n.contains("pane_p"));
+        assert!(n.contains("delegate"));
         // Approved → silent (execution unlocked, structure owned).
         assert!(planning_structure_nudge(PlanningState::Approved, &live).is_none());
         // Waived → silent even while drafting (orchestrator is solo).

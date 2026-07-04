@@ -46,14 +46,16 @@ test("every section offers an ask-the-agent button with a substantial question",
   }
 });
 
-test("agents section explains the planner+orchestrator pair as peers", () => {
+test("agents section explains single-authority planner attachment", () => {
   const agents = getHelpContent("en").sections.find((s) => s.id === "agents");
   assert(!!agents, "agents section missing");
   const text = agents!.blocks
     .map((b) => (b.type === "paragraph" || b.type === "tip" ? b.text : b.type === "list" ? b.items.join(" ") : ""))
     .join(" ");
   assert(text.includes("Planner") && text.includes("Orchestrator"), "pair not named");
-  assert(/peer|equals|same level/i.test(text), "peer-equality framing missing");
+  assert(/single authority/i.test(text), "single-authority framing missing");
+  assert(/subordinate planning specialist/i.test(text), "planner-specialist framing missing");
+  assert(!/equals|same level|Neither is the boss/i.test(text), "old peer-equality framing leaked");
 });
 
 test("plans section includes pipeline and status figures", () => {

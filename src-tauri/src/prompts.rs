@@ -92,31 +92,28 @@ pub const PLAN_ARCHIVE_SUGGESTION: &str =
 pub const PLAN_RETROSPECTIVE_NUDGE: &str = "This plan is complete. Before archiving, write its retrospective:\n\
 `codeterm plan retrospective <plan> --body \"...\"` — what worked, what failed and why, which plan skills proved out, and which deserve promotion to machine memory (`codeterm mem skill`). Honest beats flattering: the discarded approaches are the most useful part.";
 
-/// Planner owns GOAL, Spec, and Plan structure — injected into orchestrator charters.
-pub const PEER_PLANNER_CHARTER_LINE: &str = "Planner owns GOAL, Spec, and Plan structure. \
-     The orchestrator defers structural decisions (sections, tasks, sequencing) \
-     to the Planner peer.";
+/// Planner role line — attached specialist, not a co-owner.
+pub const PEER_PLANNER_CHARTER_LINE: &str = "Planner is the attached planning specialist: \
+     draft GOAL, Spec, Plan structure, task briefs, and decision options when the \
+     Orchestrator delegates planning work.";
 
-/// Orchestrator deference rule when a planner peer is bound.
+/// Orchestrator authority line when a planner is bound.
 pub const PEER_ORCH_DEFERENCE_LINE: &str =
-    "As orchestrator, defer to the Planner peer for structural decisions. \
-     Do not add sections, reorganize tasks, or change the plan skeleton \
-     without Planner acknowledgment.";
+    "The Orchestrator is the single owner of the plan and the execution authority: \
+     delegate planning work to the Planner, then accept, revise, or reject it.";
 
-/// Peer-pairing mandate block. `{spawn_cmd}` is replaced at runtime with the pane-spawn command.
+/// Planner-pairing mandate block. `{spawn_cmd}` is replaced at runtime with the pane-spawn command.
 pub const PEER_PAIRING_MANDATE_BLOCK: &str = "\
-## Peer contract
+## Planner attachment
 
-This plan has a Planner peer. Spawn the Planner with `{spawn_cmd}` if it is not live. \
-The orchestrator is the execution authority; the Planner is the structural authority. \
-Structural changes require Planner acknowledgment.";
+This plan requires an attached Planner specialist. Spawn it with `{spawn_cmd}` if it is not live. \
+The Orchestrator remains the single authority for plan structure, execution, and acceptance.";
 
-/// Planning-phase structure deferral. `{planner}` is filled with the resolved
-/// planner peer label. Shared by next-actions, the plan nudge, and prompts so the
-/// "defer structure to the planner during planning" wording has one source.
+/// Planning-phase delegation line. `{planner}` is filled with the resolved
+/// planner label. Shared by next-actions, the plan nudge, and prompts.
 pub const PEER_ORCH_DEFER_STRUCTURE_LINE: &str =
-    "Planning is not approved yet — defer GOAL/spec/plan/task-graph structure to {planner}; \
-     do not author structure or generate execution tasks yourself.";
+    "Planning is not approved yet — delegate GOAL/spec/plan/task-graph drafting to {planner}, \
+     then review and approve the structure as Orchestrator.";
 
 /// Fills the `{planner}` placeholder in [`PEER_ORCH_DEFER_STRUCTURE_LINE`].
 pub fn orch_defer_structure_line(planner: &str) -> String {
@@ -124,7 +121,7 @@ pub fn orch_defer_structure_line(planner: &str) -> String {
 }
 
 /// Hint shown when no planner is bound and no waiver is set.
-pub const PEER_WAIVER_HINT: &str = "No planner peer is bound. \
+pub const PEER_WAIVER_HINT: &str = "No Planner specialist is bound. \
      Bind one with `codeterm plan update --planner <PANE_ID>` or waive with \
      `codeterm plan update --planner none --note <reason>`.";
 
@@ -133,7 +130,7 @@ pub const PEER_WAIVER_HINT: &str = "No planner peer is bound. \
 /// user always lands on a ready, invitational state. `{planner}` is filled
 /// with the Planner's display name.
 pub const PEER_ORCH_GREETING: &str =
-    "Paired up — {planner} is my Planner. Tell me the goal and we'll draft the plan together.";
+    "Ready — {planner} is attached as my Planner specialist. Tell me the goal; I will own the plan and delegate drafting to the Planner where useful.";
 
 /// Fills the `{planner}` placeholder in [`PEER_ORCH_GREETING`].
 pub fn peer_orch_greeting(planner: &str) -> String {
@@ -146,8 +143,7 @@ pub fn peer_pairing_mandate_block(spawn_cmd: &str) -> String {
 }
 
 /// The mandatory-next-step text delivered on Orchestrator promotion/claim:
-/// the filled mandate block plus the charter/deference lines that name each
-/// peer's authority, so an agent reading it once gets the full contract.
+/// the filled mandate block plus the single-authority planner attachment lines.
 pub fn peer_pairing_mandate_full(spawn_cmd: &str) -> String {
     format!(
         "{}\n\n{PEER_PLANNER_CHARTER_LINE}\n{PEER_ORCH_DEFERENCE_LINE}",
@@ -304,6 +300,9 @@ mod tests {
         assert!(!full.contains("{spawn_cmd}"));
         assert!(full.contains(PEER_PLANNER_CHARTER_LINE));
         assert!(full.contains(PEER_ORCH_DEFERENCE_LINE));
+        assert!(full.contains("single authority"));
+        assert!(!full.contains("Peer contract"));
+        assert!(!full.contains("Planner acknowledgment"));
     }
 
     #[test]
