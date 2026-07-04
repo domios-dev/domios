@@ -315,7 +315,10 @@ mod tests {
         assert_ne!(t, "Orchestration", "never the bare piled-up default");
         // Empty workspace still avoids the bare string when a stamp exists.
         let no_ws = default_orchestration_plan_title("  ", 1_609_459_200_000);
-        assert!(no_ws.starts_with("Orchestration — "), "stamped even without a name: {no_ws}");
+        assert!(
+            no_ws.starts_with("Orchestration — "),
+            "stamped even without a name: {no_ws}"
+        );
     }
 
     /// Mirrors the plan-side sequence `create_orchestration_pair` performs
