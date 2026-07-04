@@ -1,10 +1,3 @@
-// Run: npx tsx src/components/Sidebar/GroupContainment.test.tsx
-// Group containment (task_769e9c0c items 1-4). Mirrors the exact block that
-// SidebarWorkspaceTabs renders per orchestrator: a `.sidebar-group-container`
-// carrying the owner's presence color, section headers INSIDE it, and a head
-// chevron that collapses the whole group down to a "N managers · M workers"
-// count. Two adjacent groups must each own a distinct containment line.
-
 import { act, useState, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -48,8 +41,6 @@ interface Member {
   roleProfile: string | null;
 }
 
-/** Faithful reproduction of SidebarWorkspaceTabs' per-orchestrator block: head
- *  row + chevron, contained sections keyed off the owner's presence color. */
 function GroupBlock({ orchId, members }: { orchId: string; members: Member[] }) {
   const [collapsed, setCollapsed] = useState(false);
   const managers = members.filter((m) => m.roleProfile === "planner");
@@ -163,24 +154,19 @@ test("one-planner group = exactly 3 visual elements: head, hairline, planner row
     <GroupBlock orchId="planck" members={[{ id: "kepler", roleProfile: "planner" }]} />,
   );
   const group = host.querySelector('[data-orchestration-group="planck"]')!;
-  // (1) group head, (2) containment hairline (the container), (3) planner row.
   assert(group.querySelector('[data-testid="group-head"]'), "element 1: group head");
   const container = group.querySelector('[data-testid="group-container"]')!;
   assert(container, "element 2: containment hairline (container)");
   const rows = container.querySelectorAll("[data-row]");
   assert(rows.length === 1, `element 3: exactly one planner row (got ${rows.length})`);
-  // NO section-header row.
   assert(!group.querySelector('[data-testid="group-section-managers"]'), "no MANAGERS header");
   assert(!group.querySelector('[data-testid="group-section-workers"]'), "no WORKERS header");
-  // NO boxed role badge — nothing in the group carries border/bg/rounded chrome.
   const boxed = Array.from(group.querySelectorAll("*")).find((el) => {
     const c = (el as HTMLElement).className;
     return typeof c === "string" && (/\bborder\b|\bborder-/.test(c) || /\bbg-/.test(c) || /\brounded\b|\brounded-/.test(c));
   });
   assert(!boxed, `no boxed chrome in the group (found "${boxed ? (boxed as HTMLElement).className : ""}")`);
-  // NO activity dot.
   assert(!group.querySelector('[data-testid="tab-activity"]'), "no activity dot");
-  // The role badge is present but borderless.
   assert(group.querySelector('[data-testid="role-badge-planner"]'), "planner role text present (borderless)");
   await act(async () => root.unmount());
 });
