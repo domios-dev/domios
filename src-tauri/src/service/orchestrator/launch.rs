@@ -107,25 +107,41 @@ pub(crate) fn launch_agent_in_background(
                 }
                 match svc.pty.lock().spawn(None, cwd, 120, 40, env_vars) {
                     Ok((pid, _)) => {
+                        // Claim the stream (reader clone + frontend channel) BEFORE
+                        // linking the pane: once linked, the frontend's read_pty may
+                        // attach instantly, and without the channel it would clone a
+                        // second raw reader — two readers split the byte stream.
+                        let svc_arc = std::sync::Arc::new(svc.clone());
+                        let prepared =
+                            crate::service::pty_lifecycle::prepare_backend_reader(&svc_arc, &pid);
                         if let Some(orphan) = svc.mux.write().link_pty(&pane_id, pid.clone()) {
                             svc.kill_ptys(&[orphan]);
                         }
-                        // Start backend reader
-                        let svc_arc = std::sync::Arc::new(svc.clone());
-                        let pid2 = pid.clone();
-                        std::thread::spawn(move || {
-                            let rt = tokio::runtime::Builder::new_current_thread()
-                                .enable_all()
-                                .build()
-                                .expect("backend reader runtime");
-                            rt.block_on(async {
-                                if let Ok(h) = crate::service::pty_lifecycle::start_backend_reader(
-                                    &svc_arc, &pid2, true,
-                                ) {
-                                    let _ = h.await;
-                                }
-                            });
-                        });
+                        match prepared {
+                            Ok(Some(prepared)) => {
+                                let pid2 = pid.clone();
+                                std::thread::spawn(move || {
+                                    let rt = tokio::runtime::Builder::new_current_thread()
+                                        .enable_all()
+                                        .build()
+                                        .expect("backend reader runtime");
+                                    rt.block_on(async {
+                                        let h = crate::service::pty_lifecycle::spawn_prepared_backend_reader(
+                                            &svc_arc, &pid2, prepared, true,
+                                        );
+                                        let _ = h.await;
+                                    });
+                                });
+                            }
+                            Ok(None) => {}
+                            Err(e) => {
+                                log::warn!(
+                                    "launch_agent: backend reader prepare failed for {}: {}",
+                                    pane_id,
+                                    e
+                                );
+                            }
+                        }
                         break pid;
                     }
                     Err(e) => {

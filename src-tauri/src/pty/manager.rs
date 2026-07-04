@@ -512,6 +512,45 @@ fn which_exe(name: &str) -> Option<String> {
 mod tests {
     use super::*;
 
+    /// Load-bearing contract for the reader-race guard in read_pty_core: once a
+    /// backend channel is claimed, has_backend_reader flips true and the rx side
+    /// exists — frontends must consume the channel instead of cloning a second
+    /// raw reader (two readers on one master fd split the byte stream).
+    #[test]
+    fn backend_channel_claim_is_visible_and_idempotent() {
+        let mut manager = PtyManager::new();
+        let (pty_id, session) = manager
+            .spawn(None, None, 80, 24, HashMap::new())
+            .expect("spawn default shell");
+
+        assert!(
+            !manager.has_backend_reader(&pty_id),
+            "fresh session must not report a backend reader"
+        );
+
+        let tx1 = manager
+            .setup_backend_channel(&pty_id)
+            .expect("first claim succeeds");
+        assert!(
+            manager.has_backend_reader(&pty_id),
+            "claim must be visible immediately (read_pty guard keys on this)"
+        );
+        assert!(
+            session.backend_reader_rx.lock().unwrap().is_some(),
+            "rx side must exist for the frontend to consume"
+        );
+
+        let tx2 = manager
+            .setup_backend_channel(&pty_id)
+            .expect("second claim returns the existing channel");
+        assert!(
+            tx1.same_channel(&tx2),
+            "re-claim must NOT create a new channel (would orphan the rx)"
+        );
+
+        manager.kill(&pty_id).expect("cleanup");
+    }
+
     #[test]
     fn kill_terminates_child_and_removes_session() {
         let mut manager = PtyManager::new();

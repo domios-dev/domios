@@ -32,51 +32,87 @@ fn epoch_ms() -> u64 {
 /// `headless` = no frontend xterm will attach (API/`ensure_pane_pty_for_send`
 /// spawns). Such panes have nobody to answer PowerShell's CSI 6n cursor query,
 /// so the reader must answer it itself or PowerShell blocks forever at init.
+pub struct PreparedBackendReader {
+    reader: Box<dyn Read + Send>,
+    frontend_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
+}
+
+/// Synchronously claim the PTY stream: clone the reader AND register the
+/// frontend channel in one step. Doing this BEFORE the pane becomes visible
+/// closes the race where read_pty attaches first, clones a second raw reader,
+/// and the two readers split the byte stream (eaten prompts, blank terminals).
+/// Returns Ok(None) when a backend reader is already active.
+pub fn prepare_backend_reader(
+    svc: &ServiceState,
+    pty_id: &str,
+) -> Result<Option<PreparedBackendReader>, String> {
+    let manager = svc.pty.lock();
+    if manager.has_backend_reader(pty_id) {
+        return Ok(None);
+    }
+    let session = manager
+        .get_session(pty_id)
+        .ok_or_else(|| format!("PTY not found: {}", pty_id))?;
+    let pair = session.pair.lock().unwrap();
+    let reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
+    drop(pair);
+    let frontend_tx = manager
+        .setup_backend_channel(pty_id)
+        .ok_or_else(|| format!("Failed to set up backend channel for PTY: {}", pty_id))?;
+    Ok(Some(PreparedBackendReader {
+        reader,
+        frontend_tx,
+    }))
+}
+
+/// Run the read loop for a stream claimed via `prepare_backend_reader`.
+pub fn spawn_prepared_backend_reader(
+    svc: &ServiceState,
+    pty_id: &str,
+    prepared: PreparedBackendReader,
+    headless: bool,
+) -> JoinHandle<()> {
+    let svc = svc.clone();
+    let pty_id = pty_id.to_string();
+    tokio::spawn(async move {
+        log::info!(
+            "[backend-reader] started for pty {}",
+            &pty_id[..pty_id.len().min(8)]
+        );
+        backend_read_loop(
+            prepared.reader,
+            svc,
+            pty_id,
+            prepared.frontend_tx,
+            true,
+            headless,
+        )
+        .await;
+    })
+}
+
 pub fn start_backend_reader(
     svc: &ServiceState,
     pty_id: &str,
     headless: bool,
 ) -> Result<JoinHandle<()>, String> {
-    // Clone a reader from the PTY master — independent from the primary reader. Also set up the frontend channel so read_pty can receive forwarded
-    // bytes.
-    let (reader, frontend_tx) = {
-        let manager = svc.pty.lock();
-        if manager.has_backend_reader(pty_id) {
+    match prepare_backend_reader(svc, pty_id)? {
+        Some(prepared) => Ok(spawn_prepared_backend_reader(
+            svc, pty_id, prepared, headless,
+        )),
+        None => {
             let id = pty_id.to_string();
-            return Ok(tokio::spawn(async move {
+            Ok(tokio::spawn(async move {
                 log::debug!(
                     "[backend-reader] already active for pty {}",
                     &id[..id.len().min(8)]
                 );
-            }));
+            }))
         }
-        let session = manager
-            .get_session(pty_id)
-            .ok_or_else(|| format!("PTY not found: {}", pty_id))?;
-        let pair = session.pair.lock().unwrap();
-        let r = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
-        drop(pair);
-        let tx = manager
-            .setup_backend_channel(pty_id)
-            .ok_or_else(|| format!("Failed to set up backend channel for PTY: {}", pty_id))?;
-        (r, tx)
-    };
-
-    let svc = svc.clone();
-    let pty_id = pty_id.to_string();
-
-    let handle = tokio::spawn(async move {
-        log::info!(
-            "[backend-reader] started for pty {}",
-            &pty_id[..pty_id.len().min(8)]
-        );
-        backend_read_loop(reader, svc, pty_id, frontend_tx, true, headless).await;
-    });
-
-    Ok(handle)
+    }
 }
 
 /// The actual read loop — runs until EOF or error.
