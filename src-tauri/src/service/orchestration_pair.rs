@@ -120,11 +120,6 @@ fn degraded_fix_command(
     )
 }
 
-/// The Planner is a first-class spawned agent, so it earns its OWN generated
-/// mnemonic identity — never a copy of the Orchestrator's name, and never the
-/// literal role word "Planner" (the role is carried by the sidebar badge; the
-/// name is identity). Excludes the orchestrator's title and "Planner" on top of
-/// the workspace's existing names so the pair never reads as two of the same.
 fn derive_planner_name<'a>(
     existing_titles: impl IntoIterator<Item = &'a str>,
     orch_title: &str,
@@ -132,9 +127,6 @@ fn derive_planner_name<'a>(
     let mut occupied: Vec<String> = existing_titles.into_iter().map(str::to_string).collect();
     occupied.push(orch_title.to_string());
     occupied.push("Planner".to_string());
-    // Airtight against the role word: reject any candidate that even starts with
-    // "planner" (feeding it back as occupied), so the pair can never label its
-    // planner "Planner …" regardless of what the name pool holds.
     for _ in 0..8 {
         let candidate = crate::multiplexer::state::names::generate_unique_tab_name(
             occupied.iter().map(String::as_str),
@@ -280,8 +272,6 @@ impl ServiceContext {
             .filter(|m| !m.trim().is_empty())
             .or_else(|| crate::agent::model_catalog::resolve_default(&params.planner_agent));
 
-        // Give the Planner its own generated identity, computed against the
-        // live workspace names so it can never collide with the Orchestrator's.
         let planner_name = {
             let mux = self.mux.read();
             let existing: Vec<String> = mux
@@ -519,8 +509,6 @@ mod tests {
 
     #[test]
     fn planner_name_is_distinct_from_orchestrator_and_never_the_role_word() {
-        // Repeat: the generator is randomized, so prove the invariant holds
-        // across draws, not just one lucky one.
         for _ in 0..64 {
             let name = derive_planner_name(["Kepler", "Main"], "Kepler");
             assert_ne!(

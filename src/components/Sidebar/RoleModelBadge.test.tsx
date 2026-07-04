@@ -1,10 +1,3 @@
-// Run: npx tsx src/components/Sidebar/RoleModelBadge.test.tsx
-// Fit-whole contract (task_769e9c0c item 5): the leadership badge renders
-// ROLE · MODEL untruncated at every UI font scale. The role ALWAYS wins; the
-// only degradation is the MODEL dropping at the smallest scale — a deterministic
-// per-scale rule, never a mid-string ellipsis. scrollWidth<=clientWidth proves
-// nothing is clipped at any scale.
-
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -36,7 +29,6 @@ async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: R
   return { host, root };
 }
 
-// The three scales the sidebar exposes: smallest, default, largest.
 const SMALLEST = -1;
 const DEFAULT = 1;
 const LARGEST = 2;
@@ -56,7 +48,6 @@ test("role badge is borderless — no box, border, background, or rounded chrome
   assert(!/\bborder\b|\bborder-/.test(cls), `no border class (got "${cls}")`);
   assert(!/\bbg-/.test(cls), `no background class (got "${cls}")`);
   assert(!/\brounded\b|\brounded-/.test(cls), `no rounded class (got "${cls}")`);
-  // Color still carries the role identity.
   assert(/text-\[var\(--ct-accent\)\]/.test(cls), "role text keeps the accent color");
   await act(async () => root.unmount());
 });
@@ -71,7 +62,6 @@ test("ORCHESTRATOR · OPUS renders whole (role + model) at default and largest s
     assert(host.querySelector('[data-testid="leadership-model"]'), `model chip present @${scale}`);
     assert(badge.textContent?.includes("ORCHESTRATOR"), `role text present @${scale}`);
     assert(badge.textContent?.includes("OPUS"), `model text present @${scale}`);
-    // Nothing clipped — the badge never sets a max-width/ellipsis on itself.
     assert(badge.scrollWidth <= badge.clientWidth, `no clipping @${scale}`);
     await act(async () => root.unmount());
   }

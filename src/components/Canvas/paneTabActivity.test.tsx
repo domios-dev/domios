@@ -1,11 +1,3 @@
-// Run: npx tsx src/components/Canvas/paneTabActivity.test.tsx
-// The index-ONLY resolver (the cheap gate that runs for every sidebar tab):
-// an owner pane -> orchestrator activity; a directly-assigned pane -> worker;
-// an idle/unrelated pane (and a worker merely nested under an orchestrator) ->
-// nothing. Ownership keys off the pane's OWN session id, surviving pane-id
-// churn. (The quiet activity dot these once fed was removed; activity now
-// only gates whether a tab shows its description line.)
-
 import { resolvePaneTabActivity } from "./paneTabActivity";
 import type { PlanIndexEntry } from "./plansApi";
 import type { Pane } from "../../lib/types";

@@ -172,9 +172,6 @@ function TabItemInner({
       });
     }
     if (canClose && !pane?.protected) {
-      // A pane with a parent is a Worker (planner or otherwise) inside an
-      // orchestration group — it closes only as part of the group, from the
-      // Orchestrator head, never individually (task_e0ddee08 item 2).
       if (isSubPane) {
         items.push({
           label: "Close",
