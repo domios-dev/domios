@@ -162,7 +162,6 @@ assert(plugin.titlePattern instanceof RegExp, "titlePattern is RegExp");
 assert(plugin.titlePattern!.test("codex"), "titlePattern matches 'codex'");
 assert(Array.isArray(plugin.noisePatterns) && plugin.noisePatterns.length > 0, "noisePatterns non-empty");
 
-// No image-send strategy → path fallback used by host
 assert(plugin.imageSend === undefined, "imageSend undefined (host falls back to path strategy)");
 
 console.log("\n--- hasEventMarkers: picker/menu screens gate a screen read (/model) ---\n");
@@ -452,7 +451,6 @@ console.log("\n--- discoverModels ---\n");
 
 console.log("\n--- binding nonce (install + outdated detection) ---\n");
 
-// Install must emit the X-CodeTerm-Binding-Nonce header so the provider's
 // session-start report can prove pane ownership (release/1.4.6 binding-nonce).
 {
   let writtenJson: any = null;
@@ -476,7 +474,6 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
   );
 }
 
-// A hook lacking the nonce header is pre-nonce → must read as not-current so
 // startup reinstalls it; a hook carrying it is current.
 {
   const sessionStartHook = (cmd: string) =>

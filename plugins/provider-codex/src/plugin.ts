@@ -62,7 +62,6 @@ const plugin: PluginModule = {
       c.indexOf("run the following") !== -1 ||
       c.indexOf("make the following") !== -1 ||
       c.indexOf("grant these permissions") !== -1 ||
-      // Picker/menu screens (/model, /permissions, update) so the host reads the
       // screen off the auto-approve path; the universal numbered parser then extracts.
       c.indexOf("to confirm") !== -1 ||
       c.indexOf("esc to go back") !== -1 ||
@@ -488,8 +487,6 @@ const plugin: PluginModule = {
     return out;
   },
 
-  // Classify a parked codex pane from its rendered screen. Invariants: auth is
-  // sacred (surfaced, never auto-pressed); the update verdict is an ensemble of
   classifyPaneState(snapshot: PaneStateSnapshot): PaneStateClassification | null {
     // Normalize CRLF/CR → LF: the structural patterns below match on \n boundaries.
     const screen = String((snapshot && snapshot.screenText) || "").replace(/\r\n?/g, "\n");
@@ -591,7 +588,6 @@ const CLASSIFY_THRESHOLD = 0.8;
 // Buffer past the parsed reset so `continue your work` lands after the limit actually clears.
 const RESUME_BUFFER_MS = 60 * 1000;
 
-// Keys to navigate from the highlighted option to "Skip", then confirm. Null when
 // there's no distinct Skip option, so we never blindly Enter on the default "Update now".
 function skipNavigationKeys(options: MenuOption[]): string[] | null {
   if (options.length === 0) return null;
@@ -616,7 +612,6 @@ function skipNavigationKeys(options: MenuOption[]): string[] | null {
 
 interface UpdateScore { confidence: number; skipKeys: string[] | null }
 
-// Structural signals for the codex self-update prompt (weights sum to 1.0). Core
 // signal is a numbered menu carrying both "update" and "skip"; a lone signal stays sub-threshold.
 function scoreUpdatePrompt(screen: string): UpdateScore {
   const options = parseMenuOptions(screen);
@@ -908,7 +903,6 @@ function hasCodetermCodexWindowsCommand(entry: CodexHookEntry): boolean {
   return false;
 }
 
-// rollout-YYYY-MM-DDTHH-MM-SS-<uuid> → uuid
 function extractSessionUuid(stem: string): string | null {
   if (typeof stem !== "string") return null;
   const prefix = "rollout-";

@@ -1,5 +1,3 @@
-// Pane-state classification (rate-limit / clarifying / auth). Wire shapes mirror
-// src-tauri/src/agent/pane_state.rs, declared locally because the SDK exposes
 import { usageParseTodayClock } from "./usage";
 
 export interface PaneStateSnapshot {
@@ -38,8 +36,6 @@ const CLASSIFY_THRESHOLD = 0.8;
 // Buffer past the parsed reset so `continue your work` lands after the limit actually clears.
 const RESUME_BUFFER_MS = 60 * 1000;
 
-// Classify a parked claude pane from its rendered screen. Invariants: auth is
-// sacred (surfaced, never auto-pressed); every actionable verdict is an ensemble
 export function classifyClaudePaneState(snapshot: PaneStateSnapshot): PaneStateClassification | null {
   // Normalize CRLF/CR → LF: the structural patterns below match on \n boundaries.
   const screen = String((snapshot && snapshot.screenText) || "").replace(/\r\n?/g, "\n");
@@ -144,7 +140,6 @@ function looksBusy(screen: string): boolean {
 
 interface RateLimitScore { confidence: number; waitKeys: string[] | null; resetAtMs: number | null }
 
-// Structural signals for a rate-limit menu (weights sum to 1.0). Core signal is a
 // numbered menu offering both wait and upgrade; matched on shape, never vendor wording.
 function scoreRateLimit(screen: string, nowMs: number): RateLimitScore {
   const options = parseClaudeMenuOptions(screen);
@@ -177,7 +172,6 @@ function scoreRateLimit(screen: string, nowMs: number): RateLimitScore {
   return { confidence: confidence, waitKeys: waitKeys, resetAtMs: resetAtMs };
 }
 
-// Parse the reset clock, e.g. `resets 4:20pm`. Claude prints it in the machine's
 // local zone (which the daemon shares), so resolve the next occurrence locally.
 function parseResetClock(screen: string, nowMs: number): number | null {
   const m = /\breset[s]?\b[^\n]{0,40}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(String(screen || ""));
@@ -187,8 +181,6 @@ function parseResetClock(screen: string, nowMs: number): number | null {
 
 interface ClarifyScore { confidence: number; questions: string[] }
 
-// Structural signals for a clarifying-question prompt (weights sum to 1.0): a
-// numbered menu + question line + confirm footer together, so a lone in-stream
 function scoreClarifyingQuestion(screen: string): ClarifyScore {
   const block = activeClarifyingPromptBlock(screen);
   const options = block?.options ?? [];
