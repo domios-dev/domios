@@ -51,7 +51,7 @@ pub fn planner_spawn_cmd_hint(orchestrator_pane_id: Option<&str>, plan_id: &str)
 pub fn planner_peer_intro_line(plan_id: &str, orchestrator_pane_id: Option<&str>) -> String {
     let orch = orchestrator_pane_id.unwrap_or("unknown");
     format!(
-        "You are the Planner specialist for plan {plan_id}; the Orchestrator owner is pane {orch}. {}",
+        "You are the Planner specialist for plan {plan_id}; the Orchestrator owner is pane {orch}. {} A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans.",
         crate::prompts::PEER_PLANNER_CHARTER_LINE
     )
 }

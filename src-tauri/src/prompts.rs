@@ -130,7 +130,7 @@ pub const PEER_WAIVER_HINT: &str = "No Planner specialist is bound. \
 /// user always lands on a ready, invitational state. `{planner}` is filled
 /// with the Planner's display name.
 pub const PEER_ORCH_GREETING: &str =
-    "Ready — {planner} is attached as my Planner specialist. Tell me the goal; I will own the plan and delegate drafting to the Planner where useful.";
+    "Ready — {planner} is attached as my Planner specialist. Tell me the goal; I will own the plan and delegate drafting to the Planner where useful. Until you state a goal, we hold — no scanning the project for work.";
 
 /// Fills the `{planner}` placeholder in [`PEER_ORCH_GREETING`].
 pub fn peer_orch_greeting(planner: &str) -> String {
