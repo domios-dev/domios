@@ -137,20 +137,20 @@ console.log("\n--- parseUsage (/status screen) ---\n");
 console.log("\n--- parseUsage: /status gauges ---\n");
 {
   const p = loadHostPlugin();
-  const now = Date.parse("2026-06-13T10:00:00-04:00");
+  const now = new Date(2026, 5, 13, 10, 0, 0, 0).getTime();
   const screen = fixtureText("codex-status-v0-142-4.txt");
   const usage = p.parseUsage(screen, now);
   eq(usage?.session_pct, 82, "v0.142.4 fixture keeps GENERAL family as session (not model)");
   eq(usage?.weekly_pct, 56, "v0.142.4 fixture keeps weekly family on explicit label");
   eq(
     usage?.session_resets_at_ms,
-    Date.parse("2026-06-13T23:17:00-04:00"),
-    "session reset keeps local timezone converted to UTC instant",
+    new Date(2026, 5, 13, 23, 17, 0, 0).getTime(),
+    "session reset keeps local host-time mapping",
   );
   eq(
     usage?.weekly_resets_at_ms,
-    Date.parse("2026-07-14T07:45:00-04:00"),
-    "weekly reset keeps local day/month mapping",
+    new Date(2026, 6, 14, 7, 45, 0, 0).getTime(),
+    "weekly reset keeps local day/month mapping in host timezone",
   );
 }
 
