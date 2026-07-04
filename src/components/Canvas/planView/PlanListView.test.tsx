@@ -6,6 +6,7 @@ import { Window } from "happy-dom";
 import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { buildPerfFixturePlans } from "../perfFixture";
 import { TaskStatus, type Plan } from "../types";
+import { DONE_LIST_FILTER_VISIBLE_LIMIT } from "./planListModel";
 import { PlanListView } from "./PlanListView";
 
 type TestFn = () => void | Promise<void>;
@@ -383,6 +384,38 @@ test("collapsed in progress section shows in-flight strip", async () => {
   });
   assert(!host.querySelector('[data-testid="plan-list-task"][data-task-id="t-wip"]'), "wip hidden when collapsed");
   assert(host.querySelector('[data-testid="active-work-strip-row"][data-task-id="t-wip"]'), "wip in strip");
+  await unmount();
+});
+
+test("done filter caps heavy done plans with show-all toggle", async () => {
+  const tasks = Array.from({ length: 250 }, (_, i) => ({
+    ...FIXTURE_TASK,
+    id: `t-done-${i}`,
+    name: `Done ${i}`,
+    status: TaskStatus.Done,
+    status_changed_at: 250 - i,
+    updated_at: 250 - i,
+  }));
+  const plan: Plan = { ...FIXTURE_PLAN, tasks };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const doneChip = host.querySelector('[data-testid="plan-list-filter-status-done"]') as HTMLElement;
+  await act(async () => {
+    doneChip.click();
+  });
+  const visibleTasks = host.querySelectorAll('[data-testid="plan-list-task"]');
+  assert(
+    visibleTasks.length === DONE_LIST_FILTER_VISIBLE_LIMIT,
+    `done filter capped to ${DONE_LIST_FILTER_VISIBLE_LIMIT}, got ${visibleTasks.length}`,
+  );
+  const toggle = host.querySelector('[data-testid="plan-list-done-filter-toggle"]') as HTMLElement;
+  assert(toggle?.textContent?.includes("Show all 250"), "show-all toggle label");
+  await act(async () => {
+    toggle.click();
+  });
+  assert(
+    host.querySelectorAll('[data-testid="plan-list-task"]').length === 250,
+    "show-all reveals every done task",
+  );
   await unmount();
 });
 

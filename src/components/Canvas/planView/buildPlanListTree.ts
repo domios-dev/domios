@@ -37,7 +37,8 @@ export interface PlanListRow {
 
 export type PlanListVisibleRow =
   | { type: "row"; row: PlanListRow }
-  | { type: "done-rollup"; sectionRow: PlanListRow; doneCount: number };
+  | { type: "done-rollup"; sectionRow: PlanListRow; doneCount: number }
+  | { type: "done-filter-toggle"; totalCount: number; hiddenCount: number; expanded: boolean };
 
 const SECTION_KINDS = new Set<PlanListRowKind>(["plan-section", "unsectioned"]);
 const TASK_KINDS = new Set<PlanListRowKind>(["task", "subtask"]);
