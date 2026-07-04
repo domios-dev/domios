@@ -28,7 +28,9 @@ pub use first_run::{
 pub use instructions::{generate_instructions, sync_identity_to_mem};
 pub use lifecycle::{restart_general_agent, start_general_agent};
 pub use watchdog::start_watchdog;
-pub use workspace::{default_chat_view_for_provider, ensure_general_workspace};
+pub use workspace::{
+    apply_general_chat_view_default, default_chat_view_for_provider, ensure_general_workspace,
+};
 
 pub const GENERAL_ALIAS: &str = "general";
 /// Second alias for the GA pane — `codeterm pane ... main` resolves to it too.
