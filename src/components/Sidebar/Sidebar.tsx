@@ -13,7 +13,6 @@ import type { AppConfig } from "../../lib/types";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
-import { markSessionPickerPane } from "../../lib/sessionPickerPanes";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { WorkspacePlanTreeSlot } from "./WorkspacePlanEntry";
 import { RecentlyClosed } from "./RecentlyClosed";
@@ -72,6 +71,7 @@ export function Sidebar({
     reorderTabs,
     reorderWorkspaces,
     createTab,
+    openSessionPicker,
     closeTab,
     reopenClosed,
     reopenGroup,
@@ -186,10 +186,10 @@ export function Sidebar({
     });
   }, [addNotification, createOrchestrationPair, orchestrationModal]);
 
-  const handleNewSession = useCallback(async (workspaceId: string, workspaceCwd: string | null) => {
-    const tab = await createTab(workspaceId, workspaceCwd ?? undefined);
-    if (tab?.pane_id) markSessionPickerPane(tab.pane_id);
-  }, [createTab]);
+  const handleNewSession = useCallback((workspaceId: string, workspaceCwd: string | null) => {
+    // Virtual only — no backend pane/PTY until the picker is confirmed.
+    openSessionPicker(workspaceId, workspaceCwd ?? undefined);
+  }, [openSessionPicker]);
 
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => new Set(state.active_workspace_id ? [state.active_workspace_id] : []),
@@ -365,7 +365,9 @@ export function Sidebar({
   const performCloseTab = useCallback((wsId: string, tabId: string) => {
     const ws = state.workspaces.find((w) => w.id === wsId);
     const tab = ws?.tabs.find((t) => t.id === tabId);
-    if (tab) {
+    // A virtual picker tab has no backend pane — closeTab drops it locally; do
+    // not fire a mux_close_pane for a pane the daemon never created.
+    if (tab && !state.panes[tab.pane_id]?.virtual) {
       // A single mux_close_pane on the Orchestrator's own pane cascade-closes
       // every child (Planner + Workers) server-side — see
       // `close_pane` doc comment. Children-first/head-last is that cascade's
@@ -385,7 +387,7 @@ export function Sidebar({
         return next;
       });
     }, 350);
-  }, [closeTab, state.workspaces]);
+  }, [closeTab, state.workspaces, state.panes]);
 
   const animatedCloseTab = useCallback((wsId: string, tabId: string) => {
     const ws = state.workspaces.find((w) => w.id === wsId);

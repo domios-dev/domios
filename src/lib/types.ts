@@ -163,6 +163,11 @@ export interface Pane {
   /** Current agent-boot stage for late attachers reading the live snapshot.
    *  Absent once boot completes or before it begins. */
   boot_stage?: BootStage | null;
+  /** Frontend-only: a UI-only "New session" picker pane that has NO backend
+   *  pane/PTY behind it. Never sent to the backend, never persisted, and never
+   *  present in a session snapshot — it exists purely so the picker can render
+   *  as a tab until the user confirms and a real pane is materialized. */
+  virtual?: boolean;
 }
 
 export interface MultiplexerState {

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { AgentIcon } from "../AgentIcon";
 import { FloatingTooltip } from "../shared/FloatingTooltip";
+import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
 import type { NewSessionMode } from "../../lib/newSessionChoice";
 
 interface ModeCardProps {
@@ -107,6 +108,11 @@ export function WorkspaceRow({
   helpText: string;
 }) {
   const selectedName = workspaces.find((w) => w.id === selectedWorkspaceId)?.name ?? "";
+  const NEW_WORKSPACE_VALUE = "__new_workspace__";
+  const workspaceOptions: DropdownSelectOption[] = [
+    ...workspaces.map((w) => ({ value: w.id, label: w.name })),
+    { value: NEW_WORKSPACE_VALUE, label: "New workspace…" },
+  ];
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -151,25 +157,19 @@ export function WorkspaceRow({
           </button>
         </div>
       ) : (
-        <select
+        <DropdownSelect
           data-testid="picker-workspace"
+          options={workspaceOptions}
           value={selectedWorkspaceId}
-          onChange={(e) => {
-            if (e.target.value === "__new_workspace__") {
+          placeholder={selectedName}
+          onChange={(value) => {
+            if (value === NEW_WORKSPACE_VALUE) {
               onStartCreateWorkspace();
               return;
             }
-            onSelectWorkspace(e.target.value);
+            onSelectWorkspace(value);
           }}
-          className="w-full px-2 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none"
-        >
-          {workspaces.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name}
-            </option>
-          ))}
-          <option value="__new_workspace__">New workspace…</option>
-        </select>
+        />
       )}
     </div>
   );

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
 import { AgentIcon } from "../AgentIcon";
 import { PairAffordance } from "../shared/PairAffordance";
+import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
 
 export interface OrchestrationPairValues {
   orchestratorProviderId: string;
@@ -39,46 +40,41 @@ export function OrchestrationRoleRow({
   const provider = providers.find((p) => p.id === providerId);
   const models = provider?.available_models ?? [];
   const providerDisabled = disabledProviderIds?.has(providerId) === true;
+  const providerOptions: DropdownSelectOption[] = providers.map((p) => {
+    const disabled = disabledProviderIds?.has(p.id) === true;
+    return {
+      value: p.id,
+      label: p.display_name,
+      disabled,
+      suffix: disabled ? " (not installed)" : undefined,
+    };
+  });
+  const modelOptions: DropdownSelectOption[] =
+    models.length === 0
+      ? [{ value: "", label: "default" }]
+      : models.map((m) => ({ value: m.id, label: m.display_name }));
   return (
     <div className="orchestration-role-row flex flex-col gap-1.5" data-testid={`orchestration-role-${label.toLowerCase()}`}>
       <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">{label}</div>
       <div className="flex items-center gap-2">
-        <div className="flex items-center gap-1.5 flex-1 min-w-0 px-2 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)]">
-          <AgentIcon providerId={providerId} className="text-[12px] shrink-0" />
-          <select
+        <div className="flex-1 min-w-0">
+          <DropdownSelect
             data-testid={providerTestId}
+            options={providerOptions}
             value={providerId}
-            onChange={(e) => onProviderChange(e.target.value)}
-            className="flex-1 min-w-0 bg-transparent text-[12px] text-[var(--ct-fg)] outline-none"
-          >
-            {providers.map((p) => {
-              const disabled = disabledProviderIds?.has(p.id) === true;
-              return (
-                <option key={p.id} value={p.id} disabled={disabled}>
-                  {p.display_name}
-                  {disabled ? " (not installed)" : ""}
-                </option>
-              );
-            })}
-          </select>
+            onChange={onProviderChange}
+            leading={<AgentIcon providerId={providerId} className="text-[12px] shrink-0" />}
+          />
         </div>
-        <select
-          data-testid={modelTestId}
-          value={modelId}
-          onChange={(e) => onModelChange(e.target.value)}
-          disabled={models.length === 0 || providerDisabled}
-          className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none disabled:opacity-40"
-        >
-          {models.length === 0 ? (
-            <option value="">default</option>
-          ) : (
-            models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.display_name}
-              </option>
-            ))
-          )}
-        </select>
+        <div className="flex-1 min-w-0">
+          <DropdownSelect
+            data-testid={modelTestId}
+            options={modelOptions}
+            value={modelId}
+            onChange={onModelChange}
+            disabled={models.length === 0 || providerDisabled}
+          />
+        </div>
       </div>
       {providerDisabled && (
         <div className="text-[10px] text-[var(--ct-muted-fg)]">CLI not installed for this provider</div>

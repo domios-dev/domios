@@ -26,6 +26,13 @@ function setupDom() {
   Object.defineProperty(globalThis, "Element", { value: window.Element, configurable: true });
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
   Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
+  // happy-dom lacks rAF; DropdownMenu schedules a reposition through it on open.
+  if (typeof (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame !== "function") {
+    (globalThis as { requestAnimationFrame: (cb: FrameRequestCallback) => number }).requestAnimationFrame = (
+      cb: FrameRequestCallback,
+    ) => { cb(0); return 0; };
+    (globalThis as { cancelAnimationFrame: (id: number) => void }).cancelAnimationFrame = () => {};
+  }
 }
 
 async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
@@ -66,7 +73,17 @@ const PROVIDERS = [
 
 setupDom();
 
-test("card layout renders PairAffordance with equal orchestrator and planner rows", async () => {
+/** Opens a DropdownSelect by dispatching the pointerdown its trigger listens
+ *  for (happy-dom has no PointerEvent; a bubbling Event of that type still
+ *  fires React's native pointerdown listener). Options then render in a portal
+ *  under document.body. */
+async function openDropdown(trigger: Element): Promise<void> {
+  await act(async () => {
+    trigger.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true }));
+  });
+}
+
+test("card layout renders PairAffordance with orchestrator and planner rows", async () => {
   const { host, root } = await render(
     <OrchestrationPairForm
       providers={PROVIDERS}
@@ -88,7 +105,7 @@ test("card layout renders PairAffordance with equal orchestrator and planner row
   await act(async () => root.unmount());
 });
 
-test("disabled providers render as disabled options", async () => {
+test("disabled providers render as disabled options in the dropdown", async () => {
   const { host, root } = await render(
     <OrchestrationPairForm
       providers={PROVIDERS}
@@ -101,10 +118,17 @@ test("disabled providers render as disabled options", async () => {
       }}
       disabledProviderIds={new Set(["codex"])}
       onChange={() => {}}
+      roleTestIds={{ orchestratorProvider: "orch-provider" }}
     />,
   );
-  const codexOption = Array.from(host.querySelectorAll("option")).find((o) => o.textContent?.includes("codex"));
-  assert(codexOption?.disabled === true, "codex option disabled");
+  // No native <select> anywhere — the flicker-prone native popup is gone.
+  assert(host.querySelector("select") === null, "no native select elements");
+  const providerTrigger = host.querySelector('[data-testid="orch-provider"]');
+  assert(providerTrigger, "orchestrator provider trigger exists");
+  await openDropdown(providerTrigger!);
+  const codexOption = document.querySelector('[data-testid="orch-provider-option-codex"]') as HTMLButtonElement | null;
+  assert(codexOption?.disabled === true, "codex option disabled in open menu");
+  assert(codexOption?.textContent?.includes("not installed"), "codex option marked not installed");
   await act(async () => root.unmount());
 });
 

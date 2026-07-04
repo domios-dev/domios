@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { Check, ChevronDown } from "lucide-react";
 
 export interface DropdownMenuItem {
   label: string;
@@ -135,4 +136,69 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
       )}
     </>
   );
+}
+
+export interface DropdownSelectOption {
+  value: string;
+  label: string;
+  disabled?: boolean;
+  /** Native-title suffix appended to the label (e.g. " (not installed)"). */
+  suffix?: string;
+}
+
+/**
+ * A value-picker built on {@link DropdownMenu}. Same portal-rendered menu
+ * (escapes transform/overflow-hidden ancestors and layers cleanly above the
+ * WebGL xterm canvas), so it replaces native `<select>` without the native
+ * popup's compositor flicker over the canvas. The trigger shows the current
+ * selection; each option sets its value on click, the selected one carries a
+ * check.
+ */
+export function DropdownSelect({
+  options,
+  value,
+  onChange,
+  disabled,
+  placeholder,
+  leading,
+  className,
+  "data-testid": testId,
+}: {
+  options: DropdownSelectOption[];
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  /** Leading adornment inside the trigger (e.g. a provider AgentIcon). */
+  leading?: ReactNode;
+  className?: string;
+  "data-testid"?: string;
+}) {
+  const selected = options.find((o) => o.value === value);
+  const label = selected?.label ?? placeholder ?? "";
+  const items: DropdownMenuItem[] = options.map((o) => ({
+    label: o.suffix ? `${o.label}${o.suffix}` : o.label,
+    disabled: o.disabled,
+    icon: o.value === value ? <Check size={12} /> : <span className="w-3 h-3" />,
+    onClick: () => onChange(o.value),
+    "data-testid": testId ? `${testId}-option-${o.value}` : undefined,
+  }));
+
+  const trigger = (
+    <button
+      type="button"
+      data-testid={testId}
+      data-value={value}
+      disabled={disabled}
+      aria-haspopup="listbox"
+      className={`flex items-center gap-1.5 w-full min-w-0 px-2 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none disabled:opacity-40 ${className ?? ""}`}
+    >
+      {leading}
+      <span className="flex-1 min-w-0 truncate text-left">{label}</span>
+      <ChevronDown size={12} className="shrink-0 text-[var(--ct-muted-fg)]" />
+    </button>
+  );
+
+  if (disabled) return trigger;
+  return <DropdownMenu items={items} trigger={trigger} className="w-full min-w-0" />;
 }
