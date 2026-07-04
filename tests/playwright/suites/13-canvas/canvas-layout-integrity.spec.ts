@@ -128,7 +128,6 @@ test("@golden @canvas-layout-integrity @content-lod synthetic long-content plan 
   await expect(page.locator('[data-testid="canvas-plan-node"]')).toHaveCount(1, { timeout: 30_000 });
   await expect(page.locator('[data-testid="canvas-spec-node"]')).toHaveCount(1, { timeout: 30_000 });
   await expect(page.locator('[data-testid="canvas-task-card"]')).toHaveCount(1, { timeout: 30_000 });
-  // §24.1 content-LOD: zoom IN reveals the spec section bodies inside the fixed
   // spec node (no manual mode button — camera only).
   await setCanvasScale(page, 1.6);
   await expect(page.locator('[data-testid="canvas-spec-section-body"]').first()).toBeVisible({ timeout: 30_000 });

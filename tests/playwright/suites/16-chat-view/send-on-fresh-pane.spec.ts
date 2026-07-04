@@ -27,7 +27,6 @@ test(
       title: `pw-fresh-pane-send-${Date.now()}`,
     });
 
-    // Set agent_type + enable chat-view.  Each call emits a mux state-changed
     // event; the pane still has no pty_id at this point.
     await api.post(`/panes/${pane.id}/agent-type`, { agent_type: "claude" });
     await api.post(`/panes/${pane.id}/chat-view`, { enabled: true });
@@ -47,8 +46,6 @@ test(
       await tab.click();
     }
 
-    // Wait for the chat view to render.  The comment in TerminalPane says
-    // "No session-readiness gate" — PaneSessionChat renders immediately,
     const chat = ui.page.locator(
       `[data-testid="pane-session-chat"][data-pane-id="${pane.id}"]`,
     );
@@ -57,7 +54,6 @@ test(
     const composer = chat.locator('[data-testid="chat-composer"]');
     await expect(composer).toBeVisible({ timeout: 10_000 });
 
-    // Send a message immediately — this is the race window where pty_id may
     // still be null, which would have triggered "Pane has no PTY" before the fix.
     const marker = `pw-fresh-no-pty-send-${Date.now()}`;
     await composer.fill(marker);
@@ -72,8 +68,6 @@ test(
       .filter({ hasText: "Pane has no PTY" });
     await expect(paneHasNoPtyToast).toHaveCount(0);
 
-    // Assert: the optimistic user message was added to the chat history
-    // (addOptimistic fires before the backend call, so this confirms the send
     const userMsg = chat
       .locator('[data-testid="chat-message"][data-message-role="user"]')
       .filter({ hasText: marker });

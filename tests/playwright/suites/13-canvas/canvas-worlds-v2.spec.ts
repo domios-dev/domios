@@ -28,7 +28,6 @@ async function count(page: Page, sel: string): Promise<number> {
   return page.locator(sel).count();
 }
 
-// The world transform div carries `transform: translate(x,y) scale(s)`. Read it
 // raw so we can assert the camera is byte-identical across a non-camera action.
 async function cameraTransform(page: Page): Promise<string | null> {
   return page.evaluate(() => {
@@ -56,8 +55,6 @@ test("@golden @canvas-worlds-v2 W0 compressed, opacity-1 content, done sinks, sn
     return;
   }
 
-  // ── §32.2 W0 is COMPRESSED, not hollow: far out, a task still shows a digest or
-  // counters or a stride snake (never an empty giant). ──
   await zoomBy(page, 260);
   await zoomBy(page, 260);
   const w0Filled = (await visible(page, "canvas-task-digest")) || (await visible(page, "canvas-task-counters")) || (await visible(page, "canvas-task-steps"));
@@ -65,15 +62,12 @@ test("@golden @canvas-worlds-v2 W0 compressed, opacity-1 content, done sinks, sn
   // PLAN/SPEC W0 shows compressed section rows + counts, not a bare "N sections".
   expect(await visible(page, "canvas-section-compressed"), "PLAN/SPEC W0 shows compressed rows").toBe(true);
 
-  // ── §32.5 strides render as a connected SNAKE OF CIRCLES (SVG <circle> beads on
-  // a path), and BLOOM into stride cards on deep zoom. ──
   const haveStrides = (await count(page, '[data-testid="canvas-task-steps"]')) > 0;
   if (haveStrides) {
     const beads = await count(page, 'circle[data-testid="canvas-task-step-dot"]');
     expect(beads, "strides render as circular beads at far/mid zoom").toBeGreaterThan(0);
   }
 
-  // ── §32.3 / §32.4 content band: zoom in until a task body shows. ──
   const gotBody = await zoomInUntil(page, "canvas-task-body");
   expect(gotBody, "TASK body reachable by zoom (W2+)").toBe(true);
 
@@ -90,7 +84,6 @@ test("@golden @canvas-worlds-v2 W0 compressed, opacity-1 content, done sinks, sn
     expect(bloomed, "strides bloom into full cards at deep zoom (W3)").toBe(true);
   }
 
-  // ── §32.4 footprint tracks volume + aspect floor (height ≥ 0.62·width). ──
   const aspect = await page.$$eval('[data-testid="canvas-task-card"]', (els) =>
     els.map((el) => {
       const r = el.getBoundingClientRect();
@@ -99,8 +92,6 @@ test("@golden @canvas-worlds-v2 W0 compressed, opacity-1 content, done sinks, sn
   );
   expect(aspect.every((a) => a >= 0.6 - 0.02), "no hollow letterboxes — height ≥ aspect floor").toBe(true);
 
-  // ── §32.3 done SINKS below in_progress within a shared column (POSITION assert,
-  // not opacity). Only checked when both shelves co-exist in a column. ──
   const shelves = await page.$$eval('[data-testid="canvas-task-card"]', (els) =>
     els.map((el) => {
       const r = el.getBoundingClientRect();
@@ -118,7 +109,6 @@ test("@golden @canvas-worlds-v2 W0 compressed, opacity-1 content, done sinks, sn
   }
   void checkedShelf;
 
-  // ── §32.6 canvas text is selectable (text islands opt into user-select:text). ──
   const selectable = await page.evaluate(() => {
     const el = document.querySelector('[data-canvas-selectable]') as HTMLElement | null;
     if (!el) return null;
@@ -126,8 +116,6 @@ test("@golden @canvas-worlds-v2 W0 compressed, opacity-1 content, done sinks, sn
   });
   expect(selectable, "canvas text island is user-select:text").toBe("text");
 
-  // ── §31 / §32.7 a SINGLE section click highlights connected tasks and does NOT
-  // move the camera. ──
   const row = page.locator('[data-testid="canvas-plan-row"]').first();
   if ((await row.count()) > 0) {
     const before = await cameraTransform(page);
@@ -137,7 +125,6 @@ test("@golden @canvas-worlds-v2 W0 compressed, opacity-1 content, done sinks, sn
     expect(after, "camera transform byte-identical after a section single-click (§31)").toBe(before);
   }
 
-  // ── §32.8 handoff coins render on the timeline lane (when any handoff exists). ──
   const handoffs = await count(page, '[data-testid="canvas-handoff-coin"]');
   if (handoffs > 0) {
     expect(await visible(page, "canvas-handoff-coin"), "handoff coin renders (not the fallback)").toBe(true);

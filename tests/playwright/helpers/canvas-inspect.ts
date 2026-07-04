@@ -314,7 +314,6 @@ export async function openWorkspaceCanvasOverlay(page: Page): Promise<void> {
   await waitForBoardSurface(page);
 }
 
-// Robust board-open for unattended gates (perf/ux). Prefer any workspace Plan row,
 // then fall back to the titlebar canvas button.
 export async function ensureCanvasBoard(page: Page): Promise<void> {
   await openSidebarIfNeeded(page);
@@ -369,7 +368,6 @@ export async function panBy(page: Page, dx: number, dy: number): Promise<void> {
   await page.waitForTimeout(140);
 }
 
-// Cmd/Ctrl + wheel = zoom-around-pointer. Playwright's mouse.wheel can't set
 // modifiers, so dispatch a real WheelEvent with ctrlKey on the pan container.
 export async function zoomBy(page: Page, deltaY: number): Promise<void> {
   await page.evaluate((dy) => {
@@ -392,10 +390,6 @@ export async function zoomBy(page: Page, deltaY: number): Promise<void> {
   await page.waitForTimeout(140);
 }
 
-// Dispatch a cmd-wheel zoom anchored on the center of the first element matching
-// `anchorSel` (so it stays under the pointer); fall back to the viewport center
-// when nothing matches. worlds-v3 puts tasks in a cloud RIGHT of the plan, so a
-// plain viewport-center zoom drifts content off-screen and culls it.
 async function dispatchZoom(page: Page, anchorSel: string | null, deltaY: number): Promise<void> {
   await page.evaluate(({ anchorSel, deltaY }) => {
     const target = document.querySelector(
@@ -422,7 +416,6 @@ export async function zoomTowardTask(page: Page, taskId: string, deltaY: number)
   await dispatchZoom(page, `[data-testid="canvas-task-card"][data-task-id="${taskId}"]`, deltaY);
 }
 
-// Absolute-scale zoom anchored on the first element matching `anchorSel`, keeping
 // it on-screen across the dive. Falls back to viewport center while it is culled.
 export async function setCanvasScaleOn(page: Page, anchorSel: string, targetScale: number): Promise<void> {
   for (let i = 0; i < 5; i++) {
@@ -438,10 +431,6 @@ export async function setCanvasScaleOnTask(page: Page, taskId: string, targetSca
   return setCanvasScaleOn(page, `[data-testid="canvas-task-card"][data-task-id="${taskId}"]`, targetScale);
 }
 
-// Drive the PRODUCT navigation method: POST /api/canvas/focus to land the camera
-// on a node by id (centered + blink). Deterministic — no pan/zoom heuristics. The
-// page already holds the dev token (connectUi seeds it). Optional scale lands at an
-// exact zoom (needs backend scale passthrough; auto-fits otherwise).
 export async function focusTaskById(page: Page, taskId: string, scale?: number): Promise<void> {
   await page.evaluate(async ({ id, scale }) => {
     const token = localStorage.getItem(`codeterm-web-token:${window.location.origin}`) || "";
@@ -454,7 +443,6 @@ export async function focusTaskById(page: Page, taskId: string, scale?: number):
   await page.waitForTimeout(700);
 }
 
-// Read the rendered plan node's id, fetch its tasks, return an in_progress task id
 // (else the first) — a stable probe without needing a card already on-screen.
 export async function pickProbeTaskId(page: Page): Promise<string | null> {
   const planId = await page.getAttribute('[data-testid="canvas-plan-node"]', "data-plan-id").catch(() => null);
@@ -470,15 +458,9 @@ export async function pickProbeTaskId(page: Page): Promise<string | null> {
   }, planId);
 }
 
-// worlds-v3 places the task cloud spatially to the RIGHT of the plan (triptych:
-// spec-left, plan-center, tasks-right). Fit-to-view frames the plan, so the cloud
-// sits off-screen and its cards are culled. Mount them by PANNING toward the cloud
-// at a mid zoom (where cards cross into a card LOD band), not by zooming. Returns
-// the mounted cards (empty if none after the sweep).
 export async function panToMountTaskCards(page: Page, midScale = 1.6): Promise<NodeBox[]> {
   await setCanvasScaleOn(page, '[data-testid="canvas-plan-node"]', midScale);
   let cards = await collectBoxes(page, "canvas-task-card");
-  // The cloud spreads UP-RIGHT of the plan (phyllotaxis disk); sweep diagonally,
   // panning content down-left so the cloud scrolls into view, with vertical bands.
   const dyBands = [-160, -320, 0];
   for (const dy of dyBands) {
@@ -493,7 +475,6 @@ export async function panToMountTaskCards(page: Page, midScale = 1.6): Promise<N
   return cards;
 }
 
-// No fit-to-view button; close and reopen through the task strip to remount the
 // focus canvas, which re-runs fit-to-view.
 export async function fitToView(page: Page): Promise<void> {
   const strip = page.locator('[data-testid="worker-task-strip"]').first();
@@ -749,7 +730,6 @@ export async function findContentBoundsIssues(page: Page, tolerancePx = 2): Prom
 }
 
 export async function findUnderfilledNodes(page: Page, minRatio = 0.004): Promise<FillHit[]> {
-  // §22.2/§23.1: the plan node is intentionally compact in Tile/Card (a section
   // index, not an empty shell) — only task cards must carry visible content.
   return page.$$eval(
     '[data-testid="canvas-task-card"]',
@@ -792,9 +772,6 @@ export async function findEdgeEndpointIssues(page: Page, tolerancePx = 3): Promi
     (paths, tolerance) => {
       const anchors = Array.from(
         document.querySelectorAll<HTMLElement>(
-          // §23.1: section→task edges run from a rail OUTPUT dot (inside the plan
-          // node) to a task card; the spec→plan link runs node-center to node-center.
-          // Both ends of every edge must land inside one of these nodes.
           '[data-testid="canvas-plan-node"], [data-testid="canvas-spec-node"], [data-testid="canvas-task-card"], [data-testid="canvas-milestone-bubble"]',
         ),
       ).map((el) => {
@@ -819,7 +796,6 @@ export async function findEdgeEndpointIssues(page: Page, tolerancePx = 3): Promi
       const inside = (x: number, y: number) => boxes.some((b) => x >= b.left && x <= b.right && y >= b.top && y <= b.bottom);
       const hits: EdgeEndpointHit[] = [];
       for (const path of paths as SVGPathElement[]) {
-        // Orchestrator→plan connectors start at the FLOATING orchestrator avatar (not a
         // node anchor) by design — they aren't node-to-node edges, so skip them.
         if (path.getAttribute("data-testid") === "canvas-orchestrator-link") continue;
         const length = path.getTotalLength();

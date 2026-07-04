@@ -43,12 +43,6 @@ interface FrameStats {
   ipc: string[]; // window.__ctPerf entries (SLOW-IPC / LONGTASK / cmd) seen this window
 }
 
-// DEV-build budgets (prod dist served by the daemon; absolute ms looser than a prod
-// app, but a repeatable RELATIVE regression gate). All three are now the render
-// domain and sit ~idle: M1 hardening keeps pan/glance-zoom smooth, and UX-1/UX-2
-// schematic-at-all-bands killed the deep-zoom compositor cost (the old in-card W3
-// markdown that re-rastered under CSS scale moved to the fullscreen detail surface).
-// zoom-near went ~40% dropped → ~0%, p95 ~90ms → ~12ms — so it is gated TIGHT now.
 const PAN_P95_BUDGET_MS = 34;
 const ZOOM_FAR_P95_BUDGET_MS = 40;
 const ZOOM_NEAR_P95_BUDGET_MS = 45;
@@ -116,7 +110,6 @@ async function stopSampler(page: Page, label: string): Promise<FrameStats> {
   }, label);
 }
 
-// Sustained weaving pan via real trusted wheels — reverses every few ticks so the
 // camera stays over content instead of flying off the board.
 async function drivePan(page: Page, durationMs: number): Promise<void> {
   const box = await page.locator('[data-testid="canvas-view"]').first().boundingBox();
@@ -132,12 +125,6 @@ async function drivePan(page: Page, durationMs: number): Promise<void> {
   }
 }
 
-// Sustained zoom in/out via the viewport's real wheel path. Playwright's
-// page.mouse.wheel does NOT carry the Control modifier (so a held-Ctrl real wheel
-// PANS, not zooms); the reliable zoom driver in this harness is a ctrlKey WheelEvent
-// dispatched on the pan container — the SAME path the shipped helpers (setCanvasScale/
-// zoomBy) use, which the native non-passive listener handles (it does not check
-// isTrusted). Weaves in/out anchored on the viewport centre; returns the scale range.
 async function driveZoom(page: Page, durationMs: number): Promise<{ min: number; max: number }> {
   let min = Number.POSITIVE_INFINITY;
   let max = 0;
@@ -175,7 +162,6 @@ test("@canvas-perf pan/zoom sustain a smooth frame budget on a populated board",
   test.setTimeout(300_000);
   const { page } = ui;
 
-  // Measure the SHIPPED default path: substrate-v2 is off by default, so the rich
   // screen-space overlay layer is not in play — world-layer cards carry the content.
   await page.addInitScript(([perfKey, subKey, n]) => {
     try {
@@ -194,7 +180,6 @@ test("@canvas-perf pan/zoom sustain a smooth frame budget on a populated board",
     return;
   }
 
-  // Land in the cloud at a mid zoom so a representative chunk of cards is mounted —
   // the realistic pan/zoom-lag scenario (dozens of nodes re-rendering per gesture).
   await panToMountTaskCards(page, 1.3);
   const visibleCards = await page.locator('[data-testid="canvas-task-card"]').count();

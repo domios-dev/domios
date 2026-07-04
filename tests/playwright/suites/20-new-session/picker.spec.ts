@@ -13,10 +13,6 @@ import path from "node:path";
 import { expect, test, type Page } from "../../helpers/fixtures";
 import { ApiClient, type Pane, type PlanSummary } from "../../helpers/api-client";
 
-// Every test workspace this suite mints shares this prefix; the disambiguated
-// default plan title carries the workspace name, so plans created by spawn
-// scenarios are matchable (and deletable) by it. Keeps the suite leaving ZERO
-// orphaned plans behind.
 const TEST_WS_PREFIX = "pw-picker";
 
 const NEW_SESSION_CHOICE_STORAGE_KEY = "codeterm:new-session-choice";
@@ -42,11 +38,6 @@ interface MuxState {
   panes: Record<string, MuxPane>;
 }
 
-// The dev API can go briefly unresponsive while a real agent PTY is booting
-// (spawning is synchronous work on the same request path — see AGENTS.md's
-// hot-path note) long enough to eat the client's 15s abort timeout in one
-// shot. A bare, unpolled call right after such a spawn has no chance to
-// retry, so give every /mux/state read a couple of quiet retries.
 async function muxState(api: ApiClient): Promise<MuxState> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -67,9 +58,6 @@ async function createTestWorkspace(api: ApiClient, prefix: string): Promise<{ id
   return { id: ws.id, name };
 }
 
-// WorkspaceItem (the header row) and SidebarWorkspaceTabs (name, tabs, "New
-// session") are SIBLINGS, not parent/child — both only share the outer
-// `workspace-group` wrapper, so that's the scope for anything below the header.
 function workspaceItem(page: Page, wsId: string) {
   return page.locator(`[data-testid="workspace-item"][data-workspace-id="${wsId}"]`);
 }
@@ -202,14 +190,12 @@ async function deleteTestPlans(api: ApiClient): Promise<void> {
 }
 
 test.describe("new-session picker", () => {
-  // Cut the golden 300s default so a broken beforeEach surfaces in seconds; the
   // scenarios that spawn real agents raise their own timeout explicitly.
   test.describe.configure({ timeout: 30_000 });
 
   let ws: { id: string; name: string };
   let plansAtStart = 0;
 
-  // beforeAll/afterAll can't use the test-scoped `api` fixture — construct a
   // standalone client (same dev token) for the suite-level plan invariant.
   test.beforeAll(async () => {
     plansAtStart = (await new ApiClient().plans().catch(() => [])).length;
@@ -239,7 +225,6 @@ test.describe("new-session picker", () => {
     const panes = await api.panes();
     const state = await muxState(api);
     const wsNow = state.workspaces.find((w) => w.id === ws.id);
-    // No husk: the picker created NO backend tab in this workspace…
     expect(wsNow?.tabs.length ?? 0, "picker must not create a backend tab").toBe(0);
     // …and no snapshot pane carries the virtual picker's title.
     expect(
@@ -321,7 +306,6 @@ test.describe("new-session picker", () => {
     try {
       await selectDropdown(page, "picker-workspace", otherWs.id);
 
-      // Reload drops the virtual picker (no husk survives) but keeps the
       // localStorage choice; reopen a fresh picker in the ORIGINAL workspace.
       await page.reload();
       await openPicker(page, ws.id);
@@ -357,7 +341,6 @@ test.describe("new-session picker", () => {
     const after = await muxState(api);
     expect(Object.values(after.panes).some((p) => p.title === "New session")).toBe(false);
 
-    // Disambiguated default plan title (item B): carries the workspace name and
     // is never the bare, pile-up-prone "Orchestration".
     const plans = await api.plans();
     const plan = plans.find((p) => (p.title ?? "").includes(ws.name));
@@ -388,7 +371,6 @@ test.describe("new-session picker", () => {
         },
         { timeout: 60_000 },
       )
-      // Assert against the SOURCE constant's stable segments (not a literal), so
       // the subordinate-framing reword tracks automatically.
       .toContain(segments[0]);
     const greeting = (
@@ -408,7 +390,6 @@ test.describe("new-session picker", () => {
       await selectDropdown(page, "picker-workspace", wsB.id);
       await page.locator('[data-testid="picker-confirm"]').click();
 
-      // The orchestrator group lands in B…
       await expect
         .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === wsB.id)?.tabs.length ?? 0, {
           timeout: 60_000,
@@ -477,23 +458,16 @@ test.describe("new-session picker", () => {
     const page = ui.page;
     const picker = page.locator('[data-testid="new-session-picker"]');
 
-    // (a) No native <select> anywhere in the picker — the native popup that
-    // flickered over the xterm canvas is gone; the shared DropdownMenu renders
-    // and opens on click without a reload.
     await page.locator('[data-testid="picker-mode-orchestration"]').click();
     await expect(picker.locator("select")).toHaveCount(0);
     const provider = dropdown(page, "picker-provider-orchestrator");
     await expect(provider).toBeVisible();
     await provider.click();
-    // The menu is a DOM portal (not a native OS popup) — its option buttons are
     // queryable DOM nodes, which a native <select> popup never is.
     await expect(page.locator('[data-testid="picker-provider-orchestrator-option-claude"]')).toBeVisible({ timeout: 5_000 });
     await page.keyboard.press("Escape");
     await expect(picker, "picker stayed mounted — no reload/flicker").toBeVisible();
 
-    // (b) VIRTUAL physicality: reload to a clean (picker-closed) baseline, count
-    // panes + PTYs, open the picker, and assert BOTH counts are unchanged and
-    // the snapshot carries no picker entry.
     await page.reload();
     await expect(picker).toBeHidden();
     const basePanes = await api.panes();
@@ -526,7 +500,6 @@ test.describe("new-session picker", () => {
     const page = ui.page;
     await page.locator('[data-testid="picker-mode-orchestration"]').click();
 
-    // Poll the sidebar tab titles continuously while the pair spawns; capture
     // any empty/"…" placeholder frame the moment it appears.
     let ghost: string | null = null;
     let polling = true;
@@ -571,7 +544,6 @@ test.describe("ghost-tab invariant", () => {
   test.describe.configure({ timeout: 30_000, retries: 0 });
 
   test("@golden GHOST-TAB: current session sidebar has no placeholder titles", async ({ api, ui }) => {
-    // Run against the live dev session — if skip_snapshot is broken and any
     // pane restored with a blank title, this catches it immediately.
     const state = await muxState(api);
     const allTitles: Array<{ ws: string; title: string }> = [];
@@ -591,9 +563,6 @@ test.describe("ghost-tab invariant", () => {
   });
 
   test("@golden GHOST-TAB: skip_snapshot pane is absent from backend snapshot after picker creates it", async ({ api, ui }) => {
-    // The first-run picker and any ephemeral tab marked skip_snapshot must
-    // never appear in the /api/workspaces tab list — they're either virtual
-    // (frontend-only) or excluded from the backend snapshot.
     const testWs = await createTestWorkspace(api, `${TEST_WS_PREFIX}-ghost-snap`);
     try {
       await openPicker(ui.page, testWs.id);

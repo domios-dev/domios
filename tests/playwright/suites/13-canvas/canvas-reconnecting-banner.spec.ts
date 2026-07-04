@@ -43,10 +43,6 @@ async function bannerCount(page: Page): Promise<number> {
   return page.locator(BANNER_SEL).count();
 }
 
-// Force the resilient query to re-run without a real bridge event: the hook
-// re-fetches on the `codeterm-web-boot-changed` window event. `run(true)`
-// resets backoff but PRESERVES the consecutive-failure counter (only a
-// success resets it), so two kicks over a severed route = two real failures.
 async function kickRefetch(page: Page): Promise<void> {
   await page.evaluate(() => window.dispatchEvent(new Event("codeterm-web-boot-changed")));
 }
@@ -121,7 +117,6 @@ test("@golden @canvas-reconnecting healthy board never flashes reconnecting", as
   const board = await seedRealPlanAndOpenBoard(api, webBrowser);
   try {
     const { page } = board;
-    // Sample repeatedly across ~3s while the board stays healthy; the banner
     // must be absent every time (no lifecycle-driven flashing on refetch).
     for (let i = 0; i < 12; i++) {
       await kickRefetch(page);
@@ -142,10 +137,6 @@ test("@golden @canvas-reconnecting one failure is silent, two show, recovery cle
   try {
     const { page } = board;
 
-    // Sever the event stream so bridge-driven refetches (plan-changed /
-    // plans-loaded / resync) can't inject surprise failures between our kicks —
-    // only our explicit refetch kicks drive the plans query. SSE loss does not
-    // render any plans-reconnecting banner, so this stays a clean confound cut.
     await page.route("**/api/events/stream**", (route) => route.abort("failed"));
 
     let failPlans = false;
@@ -160,9 +151,6 @@ test("@golden @canvas-reconnecting one failure is silent, two show, recovery cle
       return route.continue();
     });
 
-    // First forced failure: one stale refetch failure stays quiet. Check inside
-    // the backoff floor (>=500ms) so the hook's own retry can't reach failure #2
-    // before we sample.
     failPlans = true;
     await kickRefetch(page);
     await page.waitForTimeout(250);
