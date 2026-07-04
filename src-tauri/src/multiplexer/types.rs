@@ -308,6 +308,11 @@ pub struct Pane {
     /// trigger another launch.
     #[serde(skip, default)]
     pub restored_from_snapshot: bool,
+    /// In-memory only — when true, this pane is excluded from the session
+    /// snapshot. Set for ephemeral picker/onboarding panes that must not
+    /// survive a daemon restart and reappear as ghost tabs.
+    #[serde(skip, default)]
+    pub skip_snapshot: bool,
     /// Orchestrator's opening greeting, prepended as a synthetic first
     /// assistant message every time `chat_start_core` builds this pane's
     /// transcript — never model-improvised. In-memory only (a restart
@@ -404,6 +409,7 @@ mod tests {
             show_in_tabbar: true,
             worker_id: None,
             restored_from_snapshot: false,
+            skip_snapshot: false,
             pending_greeting: None,
             boot_stage: None,
         }

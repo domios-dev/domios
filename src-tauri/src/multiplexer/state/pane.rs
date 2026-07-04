@@ -40,6 +40,7 @@ impl MultiplexerState {
             exit_suspected_at: None,
             agent_booting: false,
             hidden: false,
+            skip_snapshot: false,
             show_in_tabbar: true,
             worker_id: None,
             restored_from_snapshot: false,

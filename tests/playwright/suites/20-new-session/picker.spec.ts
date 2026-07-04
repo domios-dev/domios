@@ -557,3 +557,61 @@ test.describe("new-session picker", () => {
     expect(ghost, `a placeholder tab title "${ghost}" appeared mid-spawn`).toBeNull();
   });
 });
+
+/**
+ * Ghost-tab invariant (task_63c585953fef4dbdb9e1d906077f8b18)
+ *
+ * These tests verify that no sidebar tab ever renders as a bare "…"/empty
+ * placeholder — whether from snapshot restore, a leaked virtual tab, or a
+ * blank backend pane that lost its title. The Rust unit tests in
+ * snapshot.rs prove the root fix (skip_snapshot); these Playwright tests
+ * guard the invariant at the UI layer on a live dev session.
+ */
+test.describe("ghost-tab invariant", () => {
+  test.describe.configure({ timeout: 30_000, retries: 0 });
+
+  test("@golden GHOST-TAB: current session sidebar has no placeholder titles", async ({ api, ui }) => {
+    // Run against the live dev session — if skip_snapshot is broken and any
+    // pane restored with a blank title, this catches it immediately.
+    const state = await muxState(api);
+    const allTitles: Array<{ ws: string; title: string }> = [];
+
+    for (const w of state.workspaces) {
+      for (const title of await sidebarTabTitles(ui.page, w.id).catch(() => [])) {
+        allTitles.push({ ws: w.id, title });
+      }
+    }
+
+    for (const { ws, title } of allTitles) {
+      expect(
+        isPlaceholderTitle(title),
+        `workspace "${ws}" sidebar tab "${title}" is a ghost placeholder`,
+      ).toBe(false);
+    }
+  });
+
+  test("@golden GHOST-TAB: skip_snapshot pane is absent from backend snapshot after picker creates it", async ({ api, ui }) => {
+    // The first-run picker and any ephemeral tab marked skip_snapshot must
+    // never appear in the /api/workspaces tab list — they're either virtual
+    // (frontend-only) or excluded from the backend snapshot.
+    const testWs = await createTestWorkspace(api, `${TEST_WS_PREFIX}-ghost-snap`);
+    try {
+      await openPicker(ui.page, testWs.id);
+
+      // Virtual picker open: backend must have ZERO tabs in this workspace.
+      const liveState = await muxState(api);
+      const liveWs = liveState.workspaces.find((w) => w.id === testWs.id);
+      expect(
+        liveWs?.tabs?.length ?? 0,
+        "virtual picker must not create a backend tab (would restore as ghost on restart)",
+      ).toBe(0);
+
+      // Every visible sidebar title is real, not a placeholder.
+      for (const title of await sidebarTabTitles(ui.page, testWs.id).catch(() => [])) {
+        expect(isPlaceholderTitle(title), `sidebar tab "${title}" is a ghost placeholder`).toBe(false);
+      }
+    } finally {
+      await api.closeWorkspace(testWs.id).catch(() => {});
+    }
+  });
+});

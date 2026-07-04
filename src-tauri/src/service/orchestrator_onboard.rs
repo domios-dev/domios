@@ -170,6 +170,7 @@ mod tests {
             protected: false,
             connected_services: vec![],
             hidden: false,
+            skip_snapshot: false,
             show_in_tabbar: true,
             worker_id: None,
             restored_from_snapshot: false,

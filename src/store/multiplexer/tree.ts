@@ -90,7 +90,10 @@ export function injectVirtualTabs(
 
 export function displayTitleForTab(tab: Tab, pane?: Pane | null): string {
   const title = pane?.title?.trim();
-  return title || tab.pane_id.slice(0, 8);
+  if (title) return title;
+  // Fallback to pane_id prefix — never a bare "…" so ghost tabs are identifiable.
+  const hex = tab.pane_id.slice(0, 8);
+  return import.meta.env?.DEV ? `[pane:${hex}]` : hex;
 }
 
 /** Compare two TitleLevel values and return the higher-priority one. */
