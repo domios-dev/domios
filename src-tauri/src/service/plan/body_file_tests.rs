@@ -410,6 +410,64 @@ fn save_preserves_existing_sidecar_only_stride_entries() {
 }
 
 #[test]
+fn ordinary_save_preserves_external_stride_append_after_stale_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Stride race save".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Build".into(),
+                kind: "implement".into(),
+                competition: None,
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let first_id = store
+        .add_milestone(
+            &plan.id,
+            &task_id,
+            "status_update",
+            "first in-memory stride",
+            AgentRef::from_pane("worker"),
+            true,
+            3,
+        )
+        .unwrap();
+    let mut stale_plan = store.get(&plan.id).unwrap();
+    let mut external = stale_plan.tasks[0].milestones[0].clone();
+    external.id = "ms_external_append".into();
+    external.text = "external append during save".into();
+    external.ts = 4;
+    let stride_log_path = dir.path().join(format!(
+        ".codeterm/plans/active/{}/tasks/build/strides.jsonl",
+        plan.id
+    ));
+    crate::service::plan::stride_log::append_milestone(&stride_log_path, &external).unwrap();
+
+    stale_plan.title = "Ordinary stale save".into();
+    store.save(&mut stale_plan, 5).unwrap();
+
+    let strides = crate::service::plan::stride_log::read_milestones(&stride_log_path).unwrap();
+    let ids = strides
+        .iter()
+        .map(|milestone| milestone.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, vec![first_id.as_str(), "ms_external_append"]);
+    assert!(strides
+        .iter()
+        .any(|milestone| milestone.text == "external append during save"));
+}
+
+#[test]
 fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
