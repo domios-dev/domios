@@ -5,10 +5,8 @@ use crate::prompts::REGRESSION_MILESTONE_KIND;
 
 use super::{PlanError, PlanStore};
 
-/// Link prefix that ties a plan-level regression stride to one task group.
 pub const GROUP_REGRESSION_LINK_PREFIX: &str = "group:";
 
-/// A task group that has closed but still owes its one full regression run.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct RegressionGate {
     pub key: String,
@@ -27,8 +25,7 @@ fn group_label(plan: &Plan, key: &str) -> String {
         .unwrap_or_else(|| key.to_string())
 }
 
-/// Some(last close ts) when a group has >=1 member, all terminal, and >=1 Done
-/// (an all-cancelled group shipped nothing to gate).
+// >=1 Done required so an all-cancelled group (shipped nothing) never gates.
 pub fn group_completion(plan: &Plan, key: &str) -> Option<u64> {
     let members: Vec<&_> = plan.tasks.iter().filter(|t| t.group.as_deref() == Some(key)).collect();
     if members.is_empty() {
@@ -43,7 +40,6 @@ pub fn group_completion(plan: &Plan, key: &str) -> Option<u64> {
     members.iter().map(|t| t.status_changed_at).max()
 }
 
-/// Latest regression working point recorded for a group, if any.
 fn latest_regression_ts(plan: &Plan, key: &str) -> Option<u64> {
     let link = regression_link(key);
     plan.strides
@@ -53,14 +49,12 @@ fn latest_regression_ts(plan: &Plan, key: &str) -> Option<u64> {
         .max()
 }
 
-/// True when a regression record is at least as new as the group's last close;
-/// reopening a task bumps the close past the old record, re-arming the gate.
+// Reopening a task bumps the close past the old record, re-arming the gate.
 pub fn regression_satisfied(plan: &Plan, key: &str, completed_at: u64) -> bool {
     latest_regression_ts(plan, key).is_some_and(|ts| ts >= completed_at)
 }
 
-/// Groups that are complete but whose full-gate regression is missing or stale.
-/// Advisory pressure only — never a hard lock. Deterministic over plan state.
+// Advisory only — complete groups whose full-gate regression is missing or stale.
 pub fn pending_regression_gates(plan: &Plan) -> Vec<RegressionGate> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
@@ -87,8 +81,7 @@ pub fn pending_regression_gates(plan: &Plan) -> Vec<RegressionGate> {
 }
 
 impl PlanStore {
-    /// Record a group-scoped regression run as ONE plan-level working point,
-    /// so a milestone gate is logged once rather than scattered per task.
+    // One plan-level working point per group, not a stride scattered per task.
     pub fn record_group_regression(
         &self,
         plan_id: &str,

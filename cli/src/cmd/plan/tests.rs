@@ -291,6 +291,18 @@ fn all_backend_plan_error_types_have_cli_renderers() {
     }
 }
 
+#[test]
+fn group_not_found_renderer_points_at_group_and_qa_commands() {
+    let msg = render_plan_error(
+        &json!({ "type": "group_not_found" }),
+        &json!({ "plan_id": "pl_1", "group": "phase-1" }),
+    )
+    .expect("group_not_found renderer");
+    assert!(msg.contains("task group"));
+    assert!(msg.contains("codeterm plan groups set pl_1"));
+    assert!(msg.contains("codeterm plan qa next pl_1 --group"));
+}
+
 fn extract_plan_error_type(line: &str) -> Option<String> {
     let marker = "\"type\"";
     let idx = line.find(marker)?;
