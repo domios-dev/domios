@@ -19,6 +19,9 @@ export type CanvasWebInit = {
   perfFixtureN?: number;
   clearHarness?: boolean;
   viewport?: { width: number; height: number };
+  // "block" keeps API fetches on the page thread so page.route() can intercept
+  // them (the SW proxies /api/* via its own fetch, bypassing page.route).
+  serviceWorkers?: "allow" | "block";
 };
 
 export async function openCanvasWebPage(browser: Browser, init: CanvasWebInit = {}): Promise<CanvasWebSession> {
@@ -27,7 +30,7 @@ export async function openCanvasWebPage(browser: Browser, init: CanvasWebInit = 
   }
   const token = readDevToken();
   const viewport = init.viewport ?? { width: 1280, height: 800 };
-  const context = await browser.newContext({ viewport });
+  const context = await browser.newContext({ viewport, serviceWorkers: init.serviceWorkers });
   const page = await context.newPage();
   await page.addInitScript(
     ({ devToken, perfN, clearHarness, perfKey, subKey }) => {
