@@ -45,7 +45,6 @@ export function GlancePopover({
     async (action?: string) => {
       try {
         const v = await invoke<GlanceView>("plugin_glance", { pluginId, action, ctx: ctx ?? {} });
-        // Core auto-appends the universal "Configure with AI" button for every
         // plugin (Part D) — intercepted in onAction, never seen by the plugin.
         v.nodes = [
           ...(v.nodes ?? []),
@@ -97,7 +96,6 @@ export function GlancePopover({
         const help =
           configHelp || `Help the user configure and use the ${displayName} plugin.`;
         void (async () => {
-          // Free-function spawn needs the API base/token supplied by the caller
           // (M2); read it from the daemon config at click time.
           const cfg = await invoke<{ api?: DaemonApiConfig }>("get_config").catch(
             () => ({}) as { api?: DaemonApiConfig },

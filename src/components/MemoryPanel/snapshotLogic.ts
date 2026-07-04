@@ -14,7 +14,6 @@ export const LABEL_BATCH_CAP = 500;
 export const EDGE_BATCH_CAP = 500;
 // Min importance for a viewport node to qualify for a lazy label fetch.
 export const LABEL_MIN_IMPORTANCE = 2;
-// Real edges render only when zoomed in at least this deep — the full-graph
 // view stays a clean node map instead of an all-edges hairball.
 export const EDGE_DETAIL_RATIO = 0.7;
 

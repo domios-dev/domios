@@ -148,7 +148,6 @@ export function SecretsTab({
         setOrgs(d.organizations ?? []);
       }
     } catch {
-      // ignore
     }
   }, [apiBase]);
 
@@ -165,7 +164,6 @@ export function SecretsTab({
           setColls(d.collections ?? []);
         }
       } catch {
-        // ignore
       }
     },
     [apiBase],
@@ -191,7 +189,6 @@ export function SecretsTab({
     }
   }, [status?.status?.status, refreshItems, refreshOrgs, refreshColls, cfg.default_organization]);
 
-  // Single seam for "merge a partial change into integrations.secrets without clobbering siblings". Every settings handler funnels through here
   // so we cannot accidentally drop a field (we hit that bug twice).
   const patchSecrets = useCallback(
     (patch: Partial<SecretsConfig>) => {

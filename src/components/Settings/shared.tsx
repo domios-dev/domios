@@ -245,7 +245,6 @@ export function renderKbd(binding: string) {
     <span className="flex items-center gap-0.5">
       {parts.map((part, i) => {
         const sym = KEY_SYMBOLS[part.toLowerCase()] || part.toUpperCase();
-        // On mac, Ctrl in binding with letters = Mod = ⌘
         const display = isMac && part.toLowerCase() === "ctrl" && parts.some(p => /^[a-zA-Z0-9]$/.test(p))
           ? "⌘" : sym;
         return (

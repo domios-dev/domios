@@ -1,5 +1,3 @@
-// Right pane of the Extensions surface: the selected plugin's detail. Routes
-// agent providers to AgentProviderScreen and secret backends to
 import { useState } from "react";
 import {
   canUninstall,
@@ -51,7 +49,6 @@ export function PluginDetailPanel({
 }) {
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [removeData, setRemoveData] = useState(true);
-  // Capability-gated: a chatBackend whose behaviour declares presets gets the
   // manager. Keys off the transport-tagged descriptor, never a provider id.
   const descriptor = useAgentDescriptor(entry.id);
   const supportsPresets = descriptor?.behavior_config?.model === "presets_and_system_prompt";
@@ -68,7 +65,6 @@ export function PluginDetailPanel({
     );
   }
 
-  // Secret-backend plugins manage the secret store here (only meaningful once
   // installed; before install, fall through to the generic install view).
   if (entry.capabilities?.secret_backend && entry.installed && config) {
     return <SecretBackendDetail entry={entry} config={config} />;

@@ -55,7 +55,6 @@ function snap(nodes: SnapshotNode[]): GraphSnapshot {
 
 const FULL: Bounds = { minX: -1000, maxX: 1000, minY: -1000, maxY: 1000 };
 
-// --- LOD thresholds ---
 console.log("isZoomedOut threshold");
 const BIG = SMALL_GRAPH_THRESHOLD + 1;
 assert("big graph above ratio = zoomed out", isZoomedOut(LOD_CLUSTER_RATIO + 0.01, BIG));
@@ -124,7 +123,6 @@ console.log("\nedgeCandidates: viewport + dedupe + cap");
   assert("capped at 500", edgeCandidates(many, FULL, new Set(), 500).length === 500);
 }
 
-// --- delta merge ---
 console.log("\napplyDelta: moves, adds, removes");
 {
   const idx = indexSnapshot(snap([node("a", { x: 0, y: 0 }), node("b")]));

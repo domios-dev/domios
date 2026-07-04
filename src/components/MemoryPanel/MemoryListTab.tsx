@@ -78,10 +78,8 @@ function MemoryListTabImpl({ api, nodes, onSelectItem, removeNode }: Props) {
       const orderMap = new Map(searchResults.map((id, i) => [id, i]));
       list.sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0));
     } else {
-      // Apply filters
       if (kindFilter.size > 0) list = list.filter(n => kindFilter.has(n.kind));
       if (areaFilter) list = list.filter(n => n.area === areaFilter);
-      // Sort
       switch (sort) {
         case "recent": list.sort((a, b) => (b.updated_at || b.created_at || "").localeCompare(a.updated_at || a.created_at || "")); break;
         case "oldest": list.sort((a, b) => (a.created_at || "").localeCompare(b.created_at || "")); break;
@@ -100,7 +98,6 @@ function MemoryListTabImpl({ api, nodes, onSelectItem, removeNode }: Props) {
     });
   }, []);
 
-  // Reset visible count when filters change
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [search, sort, kindFilter, areaFilter]);
 
   const visibleItems = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
@@ -114,7 +111,6 @@ function MemoryListTabImpl({ api, nodes, onSelectItem, removeNode }: Props) {
     }
   }, [hasMore, filtered.length]);
 
-  // Keyboard: / to focus search
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;

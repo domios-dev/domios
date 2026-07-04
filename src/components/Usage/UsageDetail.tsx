@@ -165,7 +165,6 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: Usag
   );
 }
 
-// Spend-based providers (cursor) have no session/weekly % or plan limit — show
 // the cycle spend and reset instead of the gauge/projection machinery.
 export function UsageSpendDetail({ snapshot, flipUp, onRefresh }: UsageDetailProps) {
   const [refreshing, setRefreshing] = useState(false);

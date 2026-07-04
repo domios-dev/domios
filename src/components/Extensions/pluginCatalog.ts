@@ -1,4 +1,3 @@
-// Pure catalog logic for the Extensions surface: merge the installed inventory
 // and the channel marketplace into one normalized list, then search/filter it.
 import type {
   InstalledPlugin,
@@ -133,7 +132,6 @@ function mergeMarketplace(base: CatalogEntry | undefined, m: MarketplaceRow): Ca
     blockedReason: m.blocked_reason ?? null,
     updateAvailable,
     pendingReload: base?.pendingReload ?? false,
-    // Prefer installed-side metadata (loaded from the live install) but fall
     // back to the channel manifest for not-yet-installed plugins.
     capabilities: base?.capabilities ?? m.capabilities ?? null,
     grantedPermissions: base?.grantedPermissions ?? m.granted_permissions ?? null,

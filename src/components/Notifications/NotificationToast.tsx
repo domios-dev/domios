@@ -54,7 +54,6 @@ function ToastItem({ notification, onDismiss, onNavigate, embedded }: ToastItemP
 
   const runAction = useCallback(async (action: NotificationAction) => {
     if (action.type === "dismiss") {
-      // just close
     } else if (action.type === "url" && action.value) {
       try { window.open(action.value, "_blank"); } catch {}
     } else if (action.type === "invoke" && action.value) {
