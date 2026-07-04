@@ -142,6 +142,26 @@ impl ServiceContext {
             return Err("planner_agent is required".into());
         }
 
+        // Workers are leaf nodes — they cannot create orchestration pairs.
+        // Mirrors the worker->worker refusal in multiplexer::state::role.
+        if let Some(ref spawner_id) = params.spawned_by_pane_id {
+            if !spawner_id.is_empty() {
+                let is_worker = {
+                    let mux = self.mux.write();
+                    mux.get_pane(spawner_id)
+                        .map(|p| p.role == Some(crate::multiplexer::types::AgentRole::Worker))
+                        .unwrap_or(false)
+                };
+                if is_worker {
+                    return Err(
+                        "Worker panes cannot create orchestration pairs — \
+                         workers are hierarchy leaf nodes and cannot spawn orchestrators"
+                            .into(),
+                    );
+                }
+            }
+        }
+
         let now_ms = epoch_ms();
         let (workspace_id, project_path, workspace_name) = {
             let mux = self.mux.write();
