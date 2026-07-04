@@ -36,11 +36,15 @@ pub(super) fn handle(
         PlanQaAction::Next {
             plan_id,
             claim,
+            group,
             note,
         } => {
             let mut params = json!({ "claim": claim, "from": owner_from_env() });
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
+            }
+            if let Some(group) = &group {
+                params["group"] = json!(group);
             }
             if let Some(note) = note {
                 params["note"] = json!(note);
@@ -50,7 +54,9 @@ pub(super) fn handle(
             if json_output {
                 return Ok(Some(val));
             }
-            if claim {
+            if group.is_some() {
+                print!("{}", render_regression_gate(&val));
+            } else if claim {
                 print!("{}", render_qa_claim(&val));
             } else {
                 println!("{}", val.get("next").cloned().unwrap_or(Value::Null));
@@ -120,6 +126,15 @@ fn render_qa_queue(value: &Value) -> String {
         out.push_str(&qa_entry_line(entry));
     }
     out
+}
+
+fn render_regression_gate(value: &Value) -> String {
+    let Some(gate) = value.get("regression_gate").filter(|v| !v.is_null()) else {
+        return "No regression gate recorded.\n".into();
+    };
+    let key = gate.get("key").and_then(|v| v.as_str()).unwrap_or("?");
+    let label = gate.get("label").and_then(|v| v.as_str()).unwrap_or(key);
+    format!("Recorded regression gate for group {key} ({label}).\n")
 }
 
 fn render_qa_claim(value: &Value) -> String {

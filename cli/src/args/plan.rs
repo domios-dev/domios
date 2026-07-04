@@ -783,11 +783,14 @@ pub enum PlanQaAction {
         #[arg(long, allow_hyphen_values = true)]
         note: Option<String>,
     },
-    /// Show the next queued QA task, or claim it as the running tester
+    /// Show the next queued QA task, claim it, or record a group's full-gate regression run
     Next {
         plan_id: Option<String>,
         #[arg(long)]
         claim: bool,
+        /// Record ONE group-scoped regression working point instead of claiming a task
+        #[arg(long)]
+        group: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         note: Option<String>,
     },

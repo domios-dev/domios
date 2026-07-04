@@ -19,7 +19,8 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         PlanError::NotFound
         | PlanError::ElementNotFound
         | PlanError::TaskNotFound
-        | PlanError::GateNotFound => StatusCode::NOT_FOUND,
+        | PlanError::GateNotFound
+        | PlanError::GroupNotFound => StatusCode::NOT_FOUND,
         PlanError::BadStatus
         | PlanError::BadMode
         | PlanError::BadPriority

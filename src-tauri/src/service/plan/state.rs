@@ -129,6 +129,7 @@ pub struct PlanStateSnapshot {
     pub blocked_lanes: Vec<OpenLane>,
     pub live_agents: Vec<LiveAgent>,
     pub recent_strides: Vec<StrideSnapshot>,
+    pub pending_regression_gates: Vec<super::milestone_gates::RegressionGate>,
     pub next_actions: Vec<NextAction>,
 }
 
@@ -419,6 +420,7 @@ pub fn build_plan_state_snapshot(
         blocked_lanes,
         live_agents,
         recent_strides: recent_strides(plan),
+        pending_regression_gates: super::milestone_gates::pending_regression_gates(plan),
         next_actions: vec![],
     };
     snapshot.next_actions = compute_next_actions(&snapshot);

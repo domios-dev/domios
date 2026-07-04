@@ -95,6 +95,18 @@ pub(super) fn dispatch(
         }
         "plan.qa.next" => {
             let plan_id = super::plan_refs::resolve_plan(store, params)?;
+            let group = p
+                .and_then(|x| x.get("group"))
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            if let Some(group) = group {
+                let gate = store
+                    .record_group_regression(&plan_id, group, note(p), actor(p), now)
+                    .map_err(plan_rpc_err)?;
+                emit_plan_changed(app, &plan_id);
+                return Ok(json!({ "plan_id": plan_id, "regression_gate": gate }));
+            }
             let claim = p.and_then(|x| x.get("claim")).and_then(|v| v.as_bool()) == Some(true);
             if !claim {
                 let queue = store.qa_queue(&plan_id, now).map_err(plan_rpc_err)?;

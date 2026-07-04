@@ -145,6 +145,23 @@ fn render_qa_queue(plan: &Plan, out: &mut String) {
     }
 }
 
+fn render_regression_gates(plan: &Plan, out: &mut String) {
+    let gates = super::milestone_gates::pending_regression_gates(plan);
+    if gates.is_empty() {
+        return;
+    }
+    out.push_str(crate::prompts::MILESTONE_GATE_HEARTBEAT_TITLE);
+    out.push('\n');
+    for gate in gates {
+        out.push_str("- ");
+        out.push_str(&crate::prompts::milestone_gate_suggestion(
+            &gate.key,
+            &gate.label,
+        ));
+        out.push('\n');
+    }
+}
+
 fn render_open_gates(plan: &Plan, now_ms: u64, out: &mut String) {
     let open: Vec<_> = plan.gates.iter().filter(|g| g.is_open()).collect();
     if open.is_empty() {
@@ -198,6 +215,7 @@ fn render_heartbeat(plan: &Plan, heartbeat: &OrchestratorHeartbeat, loops: &[Loo
             && task.qa_state.is_some()
     });
     let has_open_gates = plan.gates.iter().any(|g| g.is_open());
+    let has_regression_gates = !super::milestone_gates::pending_regression_gates(plan).is_empty();
     if !has_focus
         && !has_lanes
         && !has_rules
@@ -206,6 +224,7 @@ fn render_heartbeat(plan: &Plan, heartbeat: &OrchestratorHeartbeat, loops: &[Loo
         && !has_competitive_attempts
         && !has_qa
         && !has_open_gates
+        && !has_regression_gates
     {
         return String::new();
     }
@@ -240,6 +259,7 @@ fn render_heartbeat(plan: &Plan, heartbeat: &OrchestratorHeartbeat, loops: &[Loo
         }
     }
     render_qa_queue(plan, &mut out);
+    render_regression_gates(plan, &mut out);
     render_competitive_attempts(plan, &mut out);
     render_running_loops(loops, &mut out);
     render_open_gates(plan, now_ms(), &mut out);
