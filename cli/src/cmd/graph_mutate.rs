@@ -235,7 +235,6 @@ fn load_node_meta(
     conn: &rusqlite::Connection,
 ) -> Result<std::collections::HashMap<String, NodeMeta>, String> {
     let mut meta: std::collections::HashMap<String, NodeMeta> = std::collections::HashMap::new();
-    // mem_items: id → kind/title/area
     let mut stmt = conn
         .prepare("SELECT id, kind, COALESCE(title,''), area FROM mem_items")
         .map_err(|e| e.to_string())?;
@@ -288,7 +287,6 @@ fn load_active_edges(conn: &rusqlite::Connection) -> Result<Vec<(String, String)
     Ok(rows.flatten().collect())
 }
 
-// Pick anchor by most common non-empty area among members (`topic_<area>`),
 // else fall back to the most-common Tech/Project/Topic entity.
 fn suggested_anchor(members: &[(&str, &NodeMeta)]) -> String {
     let mut area_count: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();

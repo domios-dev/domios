@@ -527,7 +527,6 @@ fn build_skill_id(title: &str) -> String {
         .collect();
     let trimmed = slug.trim_matches('_');
     let short = if trimmed.len() > 40 {
-        // Slice at a char boundary to avoid panic on multi-byte UTF-8
         trimmed
             .char_indices()
             .nth(40)

@@ -1,6 +1,3 @@
-// Structural (not prose-semantic) vagueness check for task test plans, shared by
-// the quality doctor and the QA-claim banner. Consistent with doctor philosophy:
-// length + command-token only, never a judgment of the prose itself.
 
 // Minimum length below which a test plan reads as an intention, not a scenario.
 pub const TEST_PLAN_MIN_CHARS: usize = 120;

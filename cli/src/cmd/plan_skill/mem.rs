@@ -26,7 +26,6 @@ pub fn mem_payload(plan_id: &str, slug: &str, skill_md: &Path, body: &str) -> se
     payload
 }
 
-// Best-effort index. Never fails the caller: mem being down must not block the
 // on-disk skill store/ledger writes that already succeeded.
 pub fn index_skill(plan_id: &str, plan_dir: &Path, slug: &str) -> Result<(), String> {
     let skill_md = skill_md_path(plan_dir, slug);
