@@ -69,6 +69,7 @@ function expectedShortcutText(binding: string): string {
         if (key === "shift") return "⇧";
         if (key === "alt") return "⌥";
         if (key === "cmd" || key === "mod" || key === "super") return "⌘";
+        if (key === "tab") return "⇥";
       } else {
         if (key === "cmd" || key === "mod") return "Ctrl";
         if (key === "super") return "Win";
@@ -125,16 +126,16 @@ test("@smoke keybinding display renders configured shortcuts", async ({ api, ui 
   const config = await api.get<AppConfig>("/config");
   await openSettings(ui);
 
-  const newTab = ui.page.locator('[data-testid="settings-keybinding-row"][data-keybinding-key="new_tab"]');
-  const openSettingsRow = ui.page.locator('[data-testid="settings-keybinding-row"][data-keybinding-key="open_settings"]');
+  const nextTab = ui.page.locator('[data-testid="settings-keybinding-row"][data-keybinding-key="next_tab"]');
+  const reopenTab = ui.page.locator('[data-testid="settings-keybinding-row"][data-keybinding-key="reopen_tab"]');
 
-  await expect(newTab.locator('[data-testid="settings-keybinding-display"]')).toContainText(
-    expectedShortcutText(config.keybindings.new_tab),
+  await expect(nextTab.locator('[data-testid="settings-keybinding-display"]')).toContainText(
+    expectedShortcutText(config.keybindings.next_tab),
   );
-  await expect(openSettingsRow.locator('[data-testid="settings-keybinding-display"]')).toContainText(
-    expectedShortcutText(config.keybindings.open_settings),
+  await expect(reopenTab.locator('[data-testid="settings-keybinding-display"]')).toContainText(
+    expectedShortcutText(config.keybindings.reopen_tab),
   );
-  await expect(ui.page.locator('[data-testid="settings-keybinding-row"]')).toHaveCount(14);
+  await expect(ui.page.locator('[data-testid="settings-keybinding-row"]')).toHaveCount(3);
 });
 
 test("@golden General Settings chat default updates picker order and survives reload", async ({

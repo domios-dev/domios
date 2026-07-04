@@ -3,12 +3,10 @@ import React from "react";
 
 export type CardVariant = "default" | "soft";
 
-export interface CardProps {
+export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   variant?: CardVariant;
   interactive?: boolean;
   children: React.ReactNode;
-  className?: string;
-  style?: React.CSSProperties;
   onClick?: React.MouseEventHandler<HTMLDivElement>;
   "data-testid"?: string;
 }
@@ -26,6 +24,7 @@ export function Card({
   style,
   onClick,
   "data-testid": testId,
+  ...rest
 }: CardProps) {
   const interactiveCls = interactive
     ? "cursor-pointer transition-colors hover:border-[var(--ct-accent)]/50 hover:bg-[var(--ct-hover)]"
@@ -33,6 +32,7 @@ export function Card({
   const cls = [VARIANT_CLASS[variant], interactiveCls, className].filter(Boolean).join(" ");
   return (
     <div
+      {...rest}
       className={cls}
       style={style}
       onClick={onClick}
