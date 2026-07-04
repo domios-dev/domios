@@ -1,5 +1,6 @@
 use crate::plan::{CanvasElement, Milestone, Plan, Section, Task};
 use serde::Serialize;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy)]
@@ -664,15 +665,18 @@ fn persist_optional_markdown(path: &Path, body: &str, should_persist: bool) -> s
 
 fn persist_stride_log(plan: &Plan, task: &Task) -> std::io::Result<()> {
     let path = task_stride_log_path(plan, task)?;
-    let mut milestones = task.milestones.clone();
-    milestones.extend(super::stride_log::read_milestones(&path).map_err(stride_log_to_io_error)?);
-    let folded = super::stride_log::fold_milestones(milestones);
-    if folded.is_empty() {
-        return remove_file_if_exists(&path);
+    let mut existing_ids = super::stride_log::read_milestones(&path)
+        .map_err(stride_log_to_io_error)?
+        .into_iter()
+        .map(|milestone| milestone.id)
+        .collect::<BTreeSet<_>>();
+    for milestone in &task.milestones {
+        if existing_ids.insert(milestone.id.clone()) {
+            super::stride_log::append_milestone(&path, milestone)
+                .map_err(stride_log_to_io_error)?;
+        }
     }
-    super::stride_log::rewrite_milestones(&path, folded)
-        .map(|_| ())
-        .map_err(stride_log_to_io_error)
+    Ok(())
 }
 
 fn stride_log_to_io_error(error: super::stride_log::StrideLogError) -> std::io::Error {
