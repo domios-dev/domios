@@ -221,7 +221,6 @@ impl ReportStore {
             attachments: Vec::new(),
         };
 
-        // Durable truth: UPSERT one row per (orchestrator, worker). Best-effort —
         // a ledger write failure is logged, never blocks the live report path.
         if let Some(ledger) = &self.ledger {
             let row = LedgerRow {
@@ -252,7 +251,6 @@ impl ReportStore {
             .or_default();
         entries.push(report.clone());
 
-        // Trim old reports
         if entries.len() > self.max_reports_per_orchestrator {
             let excess = entries.len() - self.max_reports_per_orchestrator;
             entries.drain(..excess);
@@ -334,7 +332,6 @@ mod tests {
         store.add("cond-1", "w1", "Worker", "Done");
         let reports = store.get("cond-1", true);
         assert_eq!(reports.len(), 1);
-        // Should be empty now
         let reports2 = store.get("cond-1", false);
         assert_eq!(reports2.len(), 0);
     }
@@ -425,7 +422,6 @@ mod tests {
 
     #[test]
     fn message_only_report_omits_structured_keys_in_json() {
-        // Synthetic / freeform reports (P1 worker-death watchdog) must serialize
         // without any of the new keys so old consumers round-trip unchanged.
         let mut store = ReportStore::new(100);
         let report = store.add(
@@ -455,7 +451,6 @@ mod tests {
 
     #[test]
     fn message_only_report_injects_just_the_message() {
-        // No structured fields → inject text is exactly the freeform message,
         // proving no regression for P1's synthetic message-only reports.
         let mut store = ReportStore::new(100);
         let report = store.add("orch", "w1", "Worker", "just the body");
@@ -525,7 +520,6 @@ mod tests {
             store.add_detailed("orch", "w1", "Worker", "done", d, Some("opus"));
         } // store + ledger Connection dropped — simulates restart.
 
-        // Reopen the same db: the durable ledger still has exactly one row,
         // latest status.
         let reopened = OrchestrationLedger::open_at(&db).unwrap();
         let rows = reopened.list_for_orchestrator("orch").unwrap();

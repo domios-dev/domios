@@ -63,7 +63,6 @@ fn no_classification_yields_no_action() {
 
 #[test]
 fn waiting_on_auth_is_never_auto_acted_surface_only() {
-    // Even with high confidence AND keys attached, an auth prompt must never
     // press a key — it surfaces only.
     let surface = Surface {
         kind: "auth".to_string(),
@@ -107,7 +106,6 @@ fn high_confidence_keys_action_is_executed() {
 
 #[test]
 fn high_confidence_action_with_keys_dispatches_key_injection_bytes() {
-    // The decided action's keys translate to the same PTY bytes the
     // `send --actions` path injects: arrow-down then carriage return.
     let action = keys_action(&["down", "enter"]);
     let ReactorDecision::Act(decided) = decide(

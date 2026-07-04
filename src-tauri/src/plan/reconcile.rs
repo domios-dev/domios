@@ -1,9 +1,6 @@
 use super::{Plan, Task, TaskStatus};
 use serde::{Deserialize, Serialize};
 
-// Documented age thresholds (see docs/ORCHESTRATION.md). An open task that
-// idles past its threshold is "aged" — named in escalated nudges and recorded
-// as drift so the orchestrator cannot silently sit on stalled work.
 pub const PENDING_UNSTAFFED_STALE_MS: u64 = 4 * 60 * 60 * 1000;
 pub const IN_REVIEW_UNJUDGED_STALE_MS: u64 = 2 * 60 * 60 * 1000;
 pub const DEFAULT_STALE_REVIEW_MS: u64 = IN_REVIEW_UNJUDGED_STALE_MS;
@@ -20,7 +17,6 @@ pub struct AgedOpenTask {
     pub age_ms: u64,
 }
 
-// Threshold for treating an open task as aged/drifting, by status. None for
 // non-open (terminal/parked) statuses.
 pub fn stale_threshold_ms(status: &TaskStatus) -> Option<u64> {
     match status {

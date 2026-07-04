@@ -58,7 +58,6 @@ pub(super) fn dispatch(
                 });
             }
 
-            // OS notification if window unfocused
             {
                 let is_focused = app
                     .get_webview_window("main")

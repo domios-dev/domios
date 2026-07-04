@@ -248,7 +248,6 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         };
     }
 
-    // Working-grace BEFORE PTY-only questions and idle fast-paths: both terminal
     // menu parsing and prompt glyphs can false-fire on a single repaint frame.
     if previous.state == TimelineState::Working && input.semantic_idle_ms < WORKING_GRACE_MS {
         return PaneVerdict {
@@ -257,10 +256,6 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         };
     }
 
-    // Answered + idle: the claude mode-cycle ready footer plus a composer glyph
-    // means the agent is back at its ready prompt (an ACTIVE picker hides both). A
-    // resolved AskUserQuestion's options/footer can linger painted below the
-    // composer — clear to Idle so that stale echo is not read as a live question.
     if mode_switch_idle_footer(input.screen_lines) && ready_prompt_glyph_present(input.screen_lines)
     {
         return PaneVerdict {
@@ -277,7 +272,6 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         };
     }
 
-    // 3. QUIESCENT only: the two known console question states (rate_limit / auth),
     //    strict phrasings. Nothing generic is inferred from raw console text.
     if let Some(subtype) = classify_text_question(input.screen_lines) {
         return PaneVerdict {
@@ -294,7 +288,6 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         };
     }
 
-    // Weaker structural idle: a visible cursor parked in the bottom input region
     // (full-screen OR primary-screen TUI composer with no glyph, e.g. opencode).
     if input.composer_ready && !options_block {
         return PaneVerdict {
@@ -303,8 +296,6 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         };
     }
 
-    // Safety net against "stuck Working": reaching here means none of the active
-    // signals fired (no status widget, no active-turn footer, no motion, no
     if previous.state == TimelineState::Working
         && input.byte_idle_ms >= STUCK_WORKING_IDLE_MS
         && input.semantic_idle_ms >= STUCK_WORKING_IDLE_MS
@@ -426,8 +417,6 @@ pub fn classify_signals(
     signals: &StreamSignals,
     previous: PaneVerdict,
 ) -> PaneVerdict {
-    // Fidelity gate: live `recompute_agent_state` takes its picker question ONLY
-    // from a STRUCTURED handle (output.rs hard-restriction) — never from native
     let attributed = extractor.attributed_screen();
     let active_working_chrome = extract_status_line(&signals.screen.lines).is_some()
         || active_turn_footer(&signals.screen.lines);
@@ -444,8 +433,6 @@ pub fn classify_signals(
             tail: &signals.tail,
             byte_idle_ms: signals.quiescence.byte_idle_ms,
             semantic_idle_ms: signals.quiescence.semantic_idle_ms,
-            // Parity with the live path, which cannot compute motion and always
-            // passes `Still`: feeding the replay's real motion here would let the
             motion: Motion::Still,
             cursor_hidden: signals.input_mode.cursor_hidden,
             composer_ready: composer_cursor_ready(
@@ -488,8 +475,6 @@ pub fn classify_terminal_menu_question(
             checkbox += 1;
         }
     }
-    // A confirm-style key-hint footer (enter + esc + a nav/choose hint) is a strong
-    // active-choice signal on its own, so options + that footer classify Question
     let confirm_footer = confirm_style_footer(screen_lines);
     let has_options = numbered >= 2 || checkbox >= 2;
     if has_options && confirm_footer {
@@ -584,7 +569,6 @@ fn choice_key_footer(screen_lines: &[String]) -> bool {
 
 fn classify_question_subtype(_tail: &str, question: &str) -> QuestionSubtype {
     let question_text = question.to_lowercase();
-    // Subtype is keyed ONLY off the picker's QUESTION (never the tail): a structured
     // picker's tail often carries unrelated output ("failed", "error", "permissions:")
     if contains_any(
         &question_text,
@@ -633,7 +617,6 @@ fn classify_question_subtype(_tail: &str, question: &str) -> QuestionSubtype {
 }
 
 fn classify_text_question(screen_lines: &[String]) -> Option<QuestionSubtype> {
-    // HARD RESTRICTION: only the two console question states we are confident about,
     // with STRICT notice/prompt phrasings that do not occur in ordinary agent output.
     let text = screen_lines.join("\n").to_lowercase();
     if contains_any(
@@ -711,8 +694,6 @@ fn ready_prompt_glyph_present(screen_lines: &[String]) -> bool {
 }
 
 fn ready_prompt_glyph_row(screen_lines: &[String]) -> Option<u16> {
-    // Last 4 NON-EMPTY rows: a full-height grid leaves blank padding rows below
-    // the composer, so counting raw rows would push the prompt glyph out of the
     screen_lines
         .iter()
         .enumerate()

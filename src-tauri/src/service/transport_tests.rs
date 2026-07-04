@@ -24,8 +24,6 @@ fn successful_launch_does_not_roll_back() {
 
 #[test]
 fn rollback_spawn_tab_removes_tab_pane_and_does_not_record_history() {
-    // The mux-level unwind a failed launch triggers: the just-created tab + pane
-    // are gone, focus is moved off the dead pane, and — unlike a real close — the
     let (mut state, _) = MultiplexerState::new();
     let ws = state
         .snapshot()
@@ -77,8 +75,6 @@ fn snapshot_generation_strictly_increases() {
     );
 }
 
-// Mirrors what `spawn_pane_atomic` does internally: create the pane, then the
-// returned snapshot both contains the new pane AND carries a generation higher
 #[test]
 fn create_then_snapshot_contains_pane_and_advances_generation() {
     let (mut state, _initial) = MultiplexerState::new();
@@ -100,7 +96,6 @@ fn create_then_snapshot_contains_pane_and_advances_generation() {
     );
 }
 
-// The exact predicate the frontend reducer applies: a snapshot whose generation
 // is `<=` the applied one is ignored; a strictly newer one wins.
 fn would_apply(applied: u64, incoming: u64) -> bool {
     incoming > applied

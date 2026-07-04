@@ -217,7 +217,6 @@ pub async fn refresh_live(
 ) -> Option<Vec<ModelInfo>> {
     let provider_id = provider.id().to_string();
     let default = provider.default_model();
-    // `discover_models` may run synchronous JS under the VM lock, so run it all on the
     // blocking pool. Use an independent executor, not `Handle::block_on` (deadlocks nested in spawn_blocking).
     let task = tokio::task::spawn_blocking(move || {
         let models = futures_executor::block_on(provider.discover_models())?;

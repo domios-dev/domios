@@ -14,8 +14,6 @@ use crate::service::ServiceContext;
 const IDLE_COMPLETE_SECS: u64 = 30;
 const SCANNER_BUFFER_CAP: usize = 64 * 1024;
 
-// Unattended hidden runs: nudge Enter when the pane looks stuck (auto-answers any
-// prompt auto_approve didn't catch), and resume the agent if it dropped to a bare
 const NUDGE_AFTER_IDLE_SECS: u64 = 18;
 const MAX_NUDGES: u32 = 3;
 const RESTART_GRACE_SECS: u64 = 25;
@@ -230,8 +228,6 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         }
 
         if idle_secs >= IDLE_COMPLETE_SECS {
-            // Defer the kill while the agent is still working: its PTY can stay silent for >30s during a slow Bash subprocess (mem graph hubs on a busy
-            // graph, large `mem search`, etc.). In interactive mode the stream-json in_flight() signal is gone, so screen markers ("esc to interrupt",
             let busy = state.scanner.lock().in_flight() || agent_screen_busy(&svc, &state.pty_id);
             if busy {
                 log::debug!(
@@ -303,8 +299,6 @@ fn agent_screen_busy(svc: &ServiceContext, pty_id: &str) -> bool {
 }
 
 fn screen_shows_working(text: &str) -> bool {
-    // Claude's live status line during a turn/tool is `<glyph> <Verb>… (<elapsed>
-    // · <arrow> <N> tokens)` plus an "esc to interrupt" hint. Either marker means
     text.contains("esc to interrupt")
         || text.contains("tokens)")
         || text.contains("· ↑")
@@ -462,7 +456,6 @@ impl ResultEventScanner {
 
         let mut search_from = 0;
         let mut found: Option<CompletionSignal> = None;
-        // Floor the drain at the tool scanner's cursor: it may be parked mid-object waiting for the closing brace to arrive in the next chunk, and
         // dropping bytes past that cursor would lose the partial tool_use we're tracking.
         let mut consumed = 0usize;
 
@@ -494,8 +487,6 @@ impl ResultEventScanner {
 
         let mut safe_consume = consumed.min(self.tool_scan_pos);
         if safe_consume > 0 {
-            // Floor to a UTF-8 char boundary — PTY chunks split multibyte glyphs
-            // (spinners ✶✳, …, box-drawing), and draining mid-char panics, which
             while safe_consume > 0 && !self.buffer.is_char_boundary(safe_consume) {
                 safe_consume -= 1;
             }
@@ -650,7 +641,6 @@ mod tests {
 
     #[test]
     fn scanner_ignores_mid_stream_message_stop() {
-        // message_stop inside stream_event fires after every assistant turn in a tool-use loop — must NOT be treated as completion or the watcher
         // kills the pane before claude can process tool results.
         let mut s = ResultEventScanner::new();
         let chunk = r#"{"type":"stream_event","event":{"type":"message_start","message":{"id":"x"}}}
@@ -712,8 +702,6 @@ mod tests {
 
     #[test]
     fn scanner_caps_unicode_buffer_without_panic() {
-        // The dreamer floods the PTY with multibyte glyphs (spinners ✶✳, …, box
-        // drawing). Capping the buffer must floor to a char boundary, not slice
         let mut s = ResultEventScanner::new();
         let big = "✶✳✻… ".repeat(SCANNER_BUFFER_CAP); // far over cap, all multibyte
         let _ = s.feed(&big);

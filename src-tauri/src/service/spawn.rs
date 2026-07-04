@@ -396,7 +396,6 @@ impl ServiceContext {
                     pane.chat_view = true;
                 }
             }
-            // Keep the create_tab-generated name unless an explicit title or a
             // real agent name was supplied — the raw provider id is never a title.
             if let Some((title, level)) = super::spawn_title::creation_title_override(
                 spec.title.as_deref(),
@@ -412,7 +411,6 @@ impl ServiceContext {
             result
         };
 
-        // Apply role + can_spawn after the tab is created. Done outside the create-tab lock so set_pane_role's full validation runs and emits state
         // changes; `can_spawn` is only forced when the caller explicitly passed --can-spawn (Some), preserving role defaults (Orchestrator defaults true, Worker false).
         if let Some(ref role_str) = agent.role {
             if let Err(e) = self.set_pane_role(
@@ -810,10 +808,8 @@ impl ServiceContext {
         self.agent_run_pty_map
             .lock()
             .insert(pane_id.clone(), pty_id.clone());
-        // Register run for auto-complete via the standard agent rails: `mem worker report` / Stop hook / idle / timeout backstop. Cron kind is resolved
         // later (after the cron registry links pane→run).
         if let Some(ref worker_id) = agent.worker_id {
-            // Dreamer (REM phase) needs a longer timeout than the default worker — hub decomposition + diary + classification all in one session takes a
             // while. Pick by intent: any worker whose intent starts with "dreaming:" gets the dreaming-specific timeout.
             let mem_cfg = crate::config::memory_config();
             let intent = self
@@ -827,7 +823,6 @@ impl ServiceContext {
             } else {
                 mem_cfg.worker_timeout_seconds
             };
-            // Surface the timeout choice so reports of "dreaming worker died at 150s" (= worker_timeout_seconds, not dreaming_timeout_seconds=1800) can
             // diagnosed: either intent lookup returned empty, or is_dreaming_intent didn't match.
             log::info!(
                 "[run-watcher] register worker={} intent='{}' dreaming={} timeout={}s",
@@ -897,7 +892,6 @@ impl ServiceContext {
                 std::time::Duration::from_secs(10),
             );
 
-            // headless:false → ordinary interactive claude, task delivered as a positional after `--` (same launch a visible agent gets). Completion comes
             // from the standard agent rails, not a stream-json result event.
             let hidden_cwd = svc_outer
                 .mux

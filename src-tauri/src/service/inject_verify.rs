@@ -157,7 +157,6 @@ pub fn screen_contains_echo(screen_tail: &str, expected: &str) -> bool {
     if n_flat.contains(&n_expected) {
         return true;
     }
-    // Long shell paste: prefix scrolls out of the tail-rows window before we poll, so the head of `expected` is never visible. The tail of the
     // paste still is — match the last N chars instead. Gated on input size so a ~90-char command with a corrupted prefix is still caught by the strict substring check above.
     if expected.len() >= ECHO_SUFFIX_MATCH_MIN_INPUT_BYTES {
         let suffix = last_n_chars(&n_expected, ECHO_SUFFIX_MATCH_CHARS);
@@ -165,7 +164,6 @@ pub fn screen_contains_echo(screen_tail: &str, expected: &str) -> bool {
             return true;
         }
     }
-    // Bracketed-paste TUI placeholder: Claude/Codex collapse multi-line pastes into "[Pasted text #N +M lines]" — literal text never appears, but
     // the paste was accepted. Treat the placeholder as echo confirmation, but only for inputs that would trigger the placeholder rendering.
     let placeholder_eligible = expected.contains('\n') || expected.len() > ECHO_LONG_INPUT_BYTES;
     if placeholder_eligible && screen_has_paste_placeholder(screen_tail) {
@@ -272,8 +270,6 @@ pub fn wait_for_submit_tui_drained(
             Some(t) => t,
             None => return Err(HelperErr::PtyUnknown(pty_id.to_string())),
         };
-        // Drained == the composer no longer shows the submitted text. Reuse the
-        // suffix/placeholder-aware presence check from echo verify: a plain
         if submitted_text.is_empty() || !screen_contains_echo(&t, submitted_text) {
             break t;
         }
@@ -405,7 +401,6 @@ mod tests {
 
     #[test]
     fn bracketed_paste_placeholder_without_lines_suffix_counts_as_echo() {
-        // Real Claude Code render for a long single-line paste with no newlines is `[Pasted text #N]` WITHOUT the `+N lines` suffix. v1.1.18 regex
         // required the suffix and missed this case entirely, which is why the v1.1.18 smoke test failed for ~4.7KB single-line mesh messages.
         let screen = "> [Pasted text #1]";
         let expected = format!(
@@ -600,13 +595,10 @@ mod tests {
         );
     }
 
-    // #155: a long paste whose full text can't fit the tail window must NOT be
-    // reported as "drained" the instant it lands — that false-positive let
     #[test]
     fn wait_for_submit_tui_drained_long_paste_not_falsely_drained() {
         let h = handle();
         let long = "A".repeat(2000);
-        // Composer shows only the tail of the paste; the head scrolled out of
         // the visible window (exactly the multi-KB codex/claude case).
         let visible_tail = format!("prompt> {}", &long[long.len() - 200..]);
         feed(&h, "p1", visible_tail.as_bytes());

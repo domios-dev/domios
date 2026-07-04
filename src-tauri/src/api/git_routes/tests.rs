@@ -42,7 +42,6 @@ fn build_fixture() -> tempfile::TempDir {
     run(p, &["config", "user.name", "Tester"]);
     run(p, &["config", "user.email", "t@example.com"]);
     run(p, &["config", "commit.gpgsign", "false"]);
-    // Pin line endings: a global core.autocrlf=true (common on Windows) makes
     // checkout smudge LF fixtures to CRLF and content asserts fail.
     run(p, &["config", "core.autocrlf", "false"]);
 
@@ -187,7 +186,6 @@ async fn graph_against_fixture() {
     .unwrap();
     assert!(log.status_ok);
     let commits = parse_graph(&log.stdout);
-    // root, add line, feature work, rename, merge = 5
     assert_eq!(
         commits.len(),
         5,

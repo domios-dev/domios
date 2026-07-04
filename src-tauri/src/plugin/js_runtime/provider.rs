@@ -229,8 +229,6 @@ impl JsProvider {
         let cfg = self.manifest.sessions.as_ref()?;
         let root = PluginManifest::expand_home(&cfg.root_dir)?;
         let leaf = match cfg.cwd_encoding {
-            // Agents (e.g. claude) canonicalize the cwd before encoding the
-            // project dir — on macOS `/var/...` resolves to `/private/var/...`,
             super::CwdEncoding::DashEncoded => encode_cwd_dashed(&crate::paths::canonical_cwd(cwd)),
             super::CwdEncoding::None => cwd.to_string(),
         };
@@ -350,7 +348,6 @@ impl AgentProvider for JsProvider {
     }
 
     fn detect_events(&self, text: &str) -> Vec<crate::agent::detector::AgentEvent> {
-        // Plugin returns a vec of event-name strings ("permission_request", "completed", ...). For v1 we only support permission_request via the
         // universal detector — anything else returned by the plugin is ignored until the AgentEvent enum grows new variants.
         let names: Vec<String> = self
             .try_call::<Vec<String>>("detectEvents", &[json!(text)])
@@ -450,7 +447,6 @@ impl AgentProvider for JsProvider {
         exclude: &[String],
         max_age: Option<Duration>,
     ) -> Option<String> {
-        // Plugin can do its own detection (sqlite, filename heuristics, whatever its provider needs). Falls back to the generic dir walk driven by
         // manifest.sessions.* when the plugin doesn't implement `detectSessionId`.
         let max_age_ms = max_age.map(|d| d.as_millis() as i64).unwrap_or(300_000);
         if let Some(v) = self.try_call::<Option<String>>(
@@ -493,8 +489,6 @@ impl AgentProvider for JsProvider {
             let sort_key = meta.created().or_else(|_| meta.modified()).ok()?;
             candidates.push((stem.to_string(), sort_key));
         }
-        // Identity-bound, never "newest-for-cwd" (capability rule #3): mirror
-        // Claude's native guard. When 2+ recent sessions are viable candidates
         match candidates.as_slice() {
             [(id, _)] => Some(id.clone()),
             _ => None,
@@ -502,7 +496,6 @@ impl AgentProvider for JsProvider {
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
-        // Plugin can enumerate via sqlite, recursive walk, network call, whatever. Falls back to the manifest-driven single-level listing when the
         // plugin doesn't implement `enumerateSessions`.
         if let Some(list) = self.try_call::<Vec<SerdeSessionMetadata>>("enumerateSessions", &[]) {
             return list
@@ -602,8 +595,6 @@ impl AgentProvider for JsProvider {
                 .native()
                 .and_then(|n| n.session_jsonl_path(cwd, session_id));
         }
-        // The sandboxed JS encodes the cwd but can't touch the FS, so canonicalize
-        // here first — same as `sessions_dir`. Without this the tailer watches a
         let resolved = match self.manifest.sessions.as_ref().map(|s| s.cwd_encoding) {
             Some(super::CwdEncoding::DashEncoded) => crate::paths::canonical_cwd(cwd),
             _ => cwd.to_string(),
@@ -645,7 +636,6 @@ impl AgentProvider for JsProvider {
     }
 
     fn supports_chat_ui(&self) -> bool {
-        // Capability-based, no provider-id list: JSONL-capable (exports a path),
         // structured-capable, or a native fallback that serves chat.
         self.has_js("sessionJsonlPath")
             || self.uses_structured_chat()
@@ -675,7 +665,6 @@ impl AgentProvider for JsProvider {
             };
         }
         let slice = &bytes[from_offset as usize..];
-        // Find the LAST '\n' byte in the slice — everything up to and including it is a guaranteed complete-line region; bytes after are a partial
         // line we hold back for the next poll. The plugin never sees the partial part, so byte/code-unit mismatches in JS string indexing can't corrupt the offset.
         let last_nl = match slice.iter().rposition(|&b| b == b'\n') {
             Some(idx) => idx,
@@ -688,7 +677,6 @@ impl AgentProvider for JsProvider {
         };
         let consumed_bytes = (last_nl + 1) as u64;
         let complete_slice = &slice[..consumed_bytes as usize];
-        // UTF-8 decode for JS. lossy is OK here — by definition we only do it on a slice that ends on a \n byte boundary; any U+FFFD substitutions
         // land inside line bodies, which the plugin's per-line JSON.parse will reject. Byte-count is no longer trusted from JS; we computed it above.
         let chunk = String::from_utf8_lossy(complete_slice).to_string();
         #[derive(serde::Deserialize)]
@@ -703,7 +691,6 @@ impl AgentProvider for JsProvider {
                 messages: d.messages,
             },
             None => {
-                // I4: surface plugin failures instead of busy-looping on the same broken bytes. Advance the offset past this chunk anyway — yes, we lose the
                 // messages, but the tailer escapes the infinite-retry trap. The warning from try_call is enough audit trail.
                 log::warn!(
                     "[parse_session_delta] plugin '{}' returned no delta for {} bytes at offset {} — skipping window",
@@ -907,7 +894,6 @@ impl AgentProvider for JsProvider {
     }
 
     fn install_bridge_rule(&self, payload: &str) -> Result<(), String> {
-        // Plugin returns { ok: true } or { ok: false, error: "..." }. If the plugin doesn't export `installBridgeRule`, fall back to writing
         // manifest.rule.path when present — keeps the contract honest for plugins that declared the path but skipped the JS.
         if let Some(r) = self.try_call_result("installBridgeRule", &[json!(payload)]) {
             return r;
@@ -956,7 +942,6 @@ impl AgentProvider for JsProvider {
     }
 
     fn ensure_integration_on_startup(&self, api_port: u16) {
-        // Plugin owns the dance if it implements `ensureIntegrationOnStartup`; otherwise check-then-install. Either way, swallow errors — a missing or
         // failed hook install must not block startup.
         if let Some(r) = self.try_call_result("ensureIntegrationOnStartup", &[json!(api_port)]) {
             let _ = r;

@@ -172,7 +172,6 @@ impl PeerClient {
     pub async fn open_relay_stream(&self, path: &str) -> Result<reqwest::Response, String> {
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
-            // A compromised paired peer must not be able to redirect this proxy
             // off the whitelisted path — forward the redirect verbatim instead.
             .redirect(reqwest::redirect::Policy::none())
             .build()

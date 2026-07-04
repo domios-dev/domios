@@ -383,7 +383,6 @@ fn put_live_writes_cache_that_survives_restart() {
     let _ = std::fs::remove_file(cache_path(id));
     put_live(id, vec![model("live", "Live One")], Some("live".into()));
 
-    // Cache file written…
     let cached = read_cache(id).expect("cache file written");
     assert_eq!(cached.models.len(), 1);
     assert_eq!(cached.models[0].id, "live");

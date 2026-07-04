@@ -316,7 +316,6 @@ pub fn screen_has_shell_prompt(screen_text: &str) -> bool {
             if trimmed == ">" || trimmed == "> " {
                 return false;
             }
-            // Claude Code TUI idle input cursor: `❯` (U+276F), optional trailing space. Some agent TUIs use `›` (U+203A) similarly. Match anywhere on the
             // last line so this still fires when the cursor sits inside a box.
             if trimmed.contains('\u{276F}') || trimmed.contains('\u{203A}') {
                 return true;
@@ -339,7 +338,6 @@ mod tests {
 
     #[test]
     fn powershell_continuation_is_not_a_ready_prompt() {
-        // The `>>` continuation indicator appears when the previous command was incomplete (unclosed quote, mid-pipe). NEVER treat as ready — the
         // launch_cmd would just become more input on the broken line.
         assert!(!screen_has_shell_prompt(">>"));
         assert!(!screen_has_shell_prompt(">> "));
@@ -363,7 +361,6 @@ mod tests {
 
     #[test]
     fn claude_tui_input_cursor_is_recognized() {
-        // Issue #72: idle Claude TUI shows `❯` (U+276F) as the input cursor. `send --verify` was timing out with PromptNeverReady because the
         // matcher only knew POSIX/Windows shell markers.
         assert!(screen_has_shell_prompt("❯ "));
         assert!(screen_has_shell_prompt("❯"));
@@ -380,7 +377,6 @@ mod tests {
 
     #[test]
     fn bare_shell_prompt_rejects_active_tui() {
-        // Claude TUI with idle cursor on the last non-empty line. `screen_has_shell_prompt` accepts `❯` (issue #72), so without the TUI veto the
         // restart code would think the shell is back and pipe the launch command into Claude's input box.
         let claude_tui = "╭──────────────────────────╮\n│ ❯                        │";
         assert!(

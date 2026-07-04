@@ -156,7 +156,6 @@ mod tests {
     }
 
     // Multi-thread: the plugin's host.fetch blocks a worker on its request thread;
-    // the in-runtime fake daemon needs another worker to respond. In production the
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn shipped_transcriber_transcribes_via_fake_daemon() {
         use axum::{routing::post, Json, Router};
@@ -179,7 +178,6 @@ mod tests {
                 })
                 .await;
         });
-        // Point the plugin at the fake daemon. (Workspace plugins get an
         // unrestricted sandbox, so the allowlist doesn't block the random port.)
         std::env::set_var("CODETERM_TRANSCRIBE_URL", format!("http://{addr}"));
 

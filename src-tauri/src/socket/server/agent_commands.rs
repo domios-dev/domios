@@ -109,7 +109,6 @@ pub(super) fn dispatch(
         data: None,
     })?;
 
-    // C2 MINOR-2: a worker the plugin spawned (`spawned_by == plugin:<id>`) is
     // confined to the verbs the plugin declared via `host.agent.spawn(commands)`.
     let sid = session_id(params);
     let scope = if sid.is_empty() {

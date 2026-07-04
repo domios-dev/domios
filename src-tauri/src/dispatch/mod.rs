@@ -304,7 +304,6 @@ fn cmd_get_output(
     strip_ansi: bool,
     full: bool,
 ) -> Result<CommandResult, String> {
-    // Routed through the PaneTransport seam: PTY panes read the output buffer,
     // chatBackend panes return their transcript (B1.2 [T]).
     let json = ctx
         .pane_transport(pane_id)?
@@ -317,7 +316,6 @@ fn cmd_get_text(
     pane_id: &str,
     formatted: bool,
 ) -> Result<CommandResult, String> {
-    // PaneTransport seam: PTY panes read screen text, chatBackend panes return
     // their transcript (B1.2 [T]).
     let json = ctx.pane_transport(pane_id)?.read_screen(formatted)?;
     Ok(CommandResult::Json(json))

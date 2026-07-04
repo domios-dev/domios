@@ -511,7 +511,6 @@ pub(super) fn install_handles(
         };
     }
 
-    // ── host.worker (async job-id/poll) ──
     let sb = sandbox.clone();
     bind!("workerStart", move |opts: String| -> String {
         match sb.service() {
@@ -535,7 +534,6 @@ pub(super) fn install_handles(
         }
     });
 
-    // ── host.workspace (sync) — gated by the `manage_workspaces` grant (§1.10) ──
     let sb = sandbox.clone();
     bind!("workspaceEnsure", move |opts: String| -> String {
         if !sb.manage_workspaces_allowed() {
@@ -557,7 +555,6 @@ pub(super) fn install_handles(
         }
     });
 
-    // ── host.agent (async job-id/poll) — gated by the `spawn_agents` grant (§1.10) ──
     const AGENT_DENIED: &str = "host.agent: spawn_agents permission required";
     let sb = sandbox.clone();
     bind!("agentSpawn", move |workspace_id: String,
@@ -638,7 +635,6 @@ pub(super) fn install_handles(
         }
     });
 
-    // ── host.mem (sync) ──
     let sb = sandbox.clone();
     bind!("memSearch", move |opts: String| -> String {
         match sb.service() {

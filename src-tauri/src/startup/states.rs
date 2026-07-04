@@ -55,8 +55,6 @@ pub(crate) fn init_states() -> AppStates {
         "agent_tracker",
         agent::status::PaneStatusTracker::new(),
     ));
-    // Durable orchestration ledger backs the report store so worker state
-    // survives daemon restart. If the db can't be opened, fall back to an
     let report_store: ReportStoreState = {
         let store = match agent::ledger::OrchestrationLedger::open(&crate::paths::data_dir()) {
             Ok(ledger) => agent::reports::ReportStore::with_ledger(200, Arc::new(ledger)),
@@ -73,7 +71,6 @@ pub(crate) fn init_states() -> AppStates {
         crate::resize_owner::ResizeOwnerRegistry::default(),
     ));
 
-    // Initialize mesh state
     let mesh_config = config_state.lock().mesh.clone();
     let api_port = config_state.lock().api.port;
     let mesh_state: MeshStateHandle = Arc::new(Mutex::new(mesh::MeshManager::new(
@@ -81,7 +78,6 @@ pub(crate) fn init_states() -> AppStates {
         api_port,
     )));
 
-    // Detect install method and init update state
     let install_method = update::detect_install_method();
     log::info!("Install method detected: {}", install_method);
     let channel = config_state.lock().updater.channel;
@@ -97,7 +93,6 @@ pub(crate) fn init_states() -> AppStates {
         download_total_bytes: None,
     }));
 
-    // Try to restore last session, fallback to default workspace
     let ga_enabled = config_state.lock().general_agent.enabled;
     let mux_state_inner = {
         let last = session_state.lock().load_last();
@@ -124,7 +119,6 @@ pub(crate) fn init_states() -> AppStates {
             }
             _ => {
                 if ga_enabled {
-                    // GA will create its own workspace — start empty
                     log::info!(
                         "No saved session, GA enabled — starting empty (General will be created)"
                     );
@@ -151,9 +145,6 @@ pub(crate) fn init_states() -> AppStates {
             e
         ),
     }
-    // Post-restore integrity: drop ephemeral panes (picker tabs, etc.) that
-    // leaked into the session snapshot before skip_snapshot was enforced.
-    // Runs after attach_closed_store so dropped tabs appear in Recently Closed.
     let ghost_count = service::general_agent::purge_snapshot_ghosts(&mut mux_state_inner);
     if ghost_count > 0 {
         log::info!(

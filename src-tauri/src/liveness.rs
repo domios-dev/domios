@@ -56,7 +56,6 @@ pub(crate) fn handle_probe_action<F>(
 where
     F: FnMut() -> Result<PathBuf, String>,
 {
-    // A clean quit takes the API down inside the shutdown window. That is
     // expected, not a crash — never flip mesh health or write a report then.
     if shutting_down {
         return (false, None);
@@ -221,7 +220,6 @@ pub(crate) fn start_api_liveness_watchdog(
                 let mut state = ProbeState::default();
                 loop {
                     tokio::time::sleep(Duration::from_secs(30)).await;
-                    // Stop probing once a graceful shutdown begins: the API going
                     // unhealthy from here on is the clean quit, not an outage.
                     if crate::crash::shutdown::is_shutting_down() {
                         log::info!("[liveness] shutting down; watchdog stopping");
@@ -245,7 +243,6 @@ pub(crate) fn start_api_liveness_watchdog(
                             }
                         }
                         ProbeAction::MarkUnhealthyAndCapture => {
-                            // Re-check: shutdown may have begun during the probe
                             // await, after the loop-top guard.
                             let (changed, report_result) = handle_probe_action(
                                 &mesh,

@@ -138,7 +138,6 @@ fn generate_system_plugin_hashes() {
             .unwrap_or_else(|e| panic!("hash plugin {}: {e}", path.display()));
         entries.push((id.clone(), h));
 
-        // Mirror the canonical (filtered) bundle into OUT_DIR for the include_dir! macro in src/plugin/embedded.rs. Filter mirrors bundle_hash's
         // skip-set so the embed matches what was hashed.
         copy_filtered(&path, &embed_root.join(&id))
             .unwrap_or_else(|e| panic!("copy plugin {} into OUT_DIR: {e}", path.display()));

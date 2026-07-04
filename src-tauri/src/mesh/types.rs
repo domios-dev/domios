@@ -662,7 +662,6 @@ mod tests {
 
     #[test]
     fn proactive_sync_handles_clock_skew_via_saturating_sub() {
-        // If now < last_sync (clock went backwards from system update or similar), saturating_sub yields 0 — interval comparison fails, we skip. Sane
         // behavior: don't blast sync requests after clock skew.
         assert!(!should_proactive_sync(true, true, 500, Some(1000), 60));
     }

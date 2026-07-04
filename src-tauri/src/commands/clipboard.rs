@@ -67,7 +67,6 @@ pub fn save_temp_file(
 
 #[tauri::command]
 pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
-    // Platform clipboard uses subprocesses (powershell/osascript/xclip) — run
     // off the async runtime so it can't stall IPC (mirrors materialize_dropped_files).
     tokio::task::spawn_blocking(move || -> Result<(), String> {
         #[cfg(target_os = "windows")]

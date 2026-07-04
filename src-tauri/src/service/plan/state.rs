@@ -597,7 +597,6 @@ mod tests {
         assert_eq!(snap.task_counts.in_progress, 1);
         assert_eq!(snap.task_counts.pending, 1);
         assert_eq!(snap.task_counts.cancelled, 1);
-        // done / (total - cancelled) = 1 / 4
         assert!((snap.percent_done - 0.25).abs() < 1e-9);
 
         // coverage: s1 covered, s2 covered -> fraction 1.0 (both have tasks)
@@ -610,25 +609,20 @@ mod tests {
         assert!(lane_ids.contains(&"t_pending"));
         assert!(lane_ids.contains(&"t_prog"));
 
-        // live agents: only the task bound to a live pane
         assert_eq!(snap.live_agents.len(), 1);
         assert_eq!(snap.live_agents[0].task_id, "t_review");
         assert_eq!(snap.live_agents[0].pane_id, "pane_live");
 
-        // drift summary
         assert_eq!(snap.drift.total, 1);
         assert_eq!(snap.drift.by_kind.get("in_progress_pane_gone"), Some(&1));
 
-        // loops
         assert_eq!(snap.loops.len(), 1);
         assert_eq!(snap.loops[0].budget, 5);
         assert_eq!(snap.loops[0].count, 2);
 
-        // heartbeat
         assert_eq!(snap.heartbeat.current_focus.as_deref(), Some("foundation"));
         assert_eq!(snap.heartbeat.active_lanes, vec!["loop-state".to_string()]);
 
-        // strides: newest first across tasks
         let ids: Vec<&str> = snap.recent_strides.iter().map(|s| s.id.as_str()).collect();
         assert_eq!(ids, vec!["m2", "m3", "m1"]);
     }

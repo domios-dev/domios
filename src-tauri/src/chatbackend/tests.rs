@@ -69,7 +69,6 @@ fn chatbackend_registry_routes_every_op() {
     reg.register("fake", fake.clone());
 
     let p = reg.get("fake").expect("registered backend resolvable");
-    // Every pane-keyed op a chatBackend pane performs, end to end through the
     // capability layer — none of these touch a PTY.
     let sid = p.open_session(serde_json::json!({})).unwrap();
     assert_eq!(sid, "sess-1");

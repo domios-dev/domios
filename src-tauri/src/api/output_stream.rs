@@ -72,7 +72,6 @@ fn plan_emit(offset: u64, chunk: &[u8], total: u64, cap: usize) -> PaneRead {
             new_offset: total,
         };
     }
-    // `read_since` returns bytes starting at max(offset, oldest_retained); its
     // first byte's absolute offset is therefore `total - chunk.len()`.
     let base = total - chunk.len() as u64;
     // Fewer bytes than the gap from the cursor means the front was evicted.
@@ -82,7 +81,6 @@ fn plan_emit(offset: u64, chunk: &[u8], total: u64, cap: usize) -> PaneRead {
         None
     };
     let mut take = chunk.len().min(cap);
-    // Never split a trailing multibyte codepoint at the cap boundary — a split
     // would corrupt it via `from_utf8_lossy` here and on the next tick.
     while take > 0 && take < chunk.len() && (chunk[take] & 0b1100_0000) == 0b1000_0000 {
         take -= 1;
@@ -194,10 +192,6 @@ fn sweep(svc: &ServiceState, tracked: &mut HashMap<String, Tracked>) -> Vec<serd
         }
     }
 
-    // Death classification for panes that produced nothing this tick. A pane is
-    // genuinely dead iff its pty is TRACKED and marked Dead — an untracked pty
-    // (spawned, no output yet) reads as Dead via `get_status` but is only
-    // pending, so gate on membership to avoid a false `ended`.
     if !silent.is_empty() {
         let tracker = svc.agent_tracker.lock();
         let known: HashSet<String> = tracker.all_ids().into_iter().collect();

@@ -83,7 +83,6 @@ pub fn run() {
     // Forward CLI-shaped argv to the bundled CLI before Tauri/logging init, otherwise GUI single-instance silently swallows the args (issue #51).
     startup::forward_to_cli_if_invoked();
 
-    // Install panic + native crash handlers BEFORE any thread spawn or logging init. Reports land in ~/.codeterm/crashes/ regardless of where the
     // crash originates (tokio worker, Tauri main, FFI thread, signal handler).
     crash::install();
 
@@ -100,7 +99,6 @@ pub fn run() {
     // Write shell integration scripts (OSC 7 CWD tracking)
     pty::shell_integration::ensure_scripts();
 
-    // Initialize all shared states
     let states = startup::init_states();
 
     // Seed canonical ~/.codeterm/skills/, then mirror into provider dirs agents load from (#178).
@@ -125,7 +123,6 @@ pub fn run() {
             updater.build()
         });
 
-    // Single-instance: only in release builds so dev and prod can run side by side
     if !cfg!(debug_assertions) {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
@@ -151,9 +148,7 @@ pub fn run() {
         .manage(states.mesh.clone())
         .manage(states.keepawake.clone())
         .manage(states.resize_owner.clone())
-        // ServiceState is added in .setup() after AppHandle is available
         .invoke_handler(tauri::generate_handler![
-            // PTY commands
             commands::get_windows_build_number,
             commands::get_default_cwd,
             commands::spawn_pty,
@@ -198,7 +193,6 @@ pub fn run() {
             commands::test_notification,
             commands::get_autostart_enabled,
             commands::set_autostart_enabled,
-            // Multiplexer commands
             multiplexer::commands::mux_get_state,
             multiplexer::commands::mux_create_workspace,
             multiplexer::commands::mux_set_active_workspace,
@@ -257,12 +251,10 @@ pub fn run() {
             multiplexer::commands::mux_set_can_spawn,
             multiplexer::commands::mux_respond_prompt,
             multiplexer::commands::mux_batch,
-            // Notification commands
             notification::notify,
             notification::list_notifications,
             notification::mark_notification_read,
             notification::clear_notifications,
-            // Config commands
             config::get_config,
             config::update_config,
             config::get_theme,
@@ -271,20 +263,16 @@ pub fn run() {
             config::save_custom_theme,
             config::delete_custom_theme,
             config::get_themes_dir,
-            // Directory completion
             commands::list_dir_completions,
-            // Provider integration (hooks/callbacks) — generic dispatchers
             commands::check_provider_integration,
             commands::install_provider_integration,
             commands::uninstall_provider_integration,
             commands::check_provider_rule,
             commands::install_provider_rule,
-            // Session commands
             session::save_session,
             session::save_session_named,
             session::list_saved_sessions,
             session::load_session,
-            // Cron commands
             commands::cron_list,
             commands::cron_get,
             commands::cron_create,
@@ -294,7 +282,6 @@ pub fn run() {
             commands::cron_trigger,
             commands::cron_history,
             commands::cron_read_log,
-            // Services commands
             commands::services_list,
             commands::services_create,
             commands::services_get,
@@ -303,7 +290,6 @@ pub fn run() {
             commands::services_regenerate_token,
             commands::activity_list,
             commands::services_smart_add_inspect,
-            // Mesh commands
             commands_mesh::mesh_get_status,
             commands_mesh::mesh_list_peers,
             commands_mesh::mesh_refresh_discovery,
@@ -323,11 +309,9 @@ pub fn run() {
             commands_mesh::mesh_peer_service_delete,
             commands_mesh::mesh_peer_cron_action,
             commands_mesh::mesh_peer_cron_history,
-            // Keep-awake commands
             keepawake::keepawake_start,
             keepawake::keepawake_stop,
             keepawake::keepawake_status,
-            // Usage tracker commands
             commands::usage_latest,
             commands::usage_history,
             commands::usage_daily_rollup,
@@ -342,12 +326,10 @@ pub fn run() {
             // Create unified service context (available to both API and Tauri commands)
             let app_handle = app.handle().clone();
 
-            // Resume any keep-awake session that was active when CodeTerm last shut down. Indefinite → resume; timed + remaining → resume with the
             // remainder; timed + already expired → drop the snapshot.
             keepawake::reap_orphaned_children_on_startup();
             keepawake::resume_from_disk(&states.keepawake, &app_handle);
 
-            // Bootstrap plugin system — agent-claude is a bundled native plugin
             agent::model_catalog::ensure_readme_installed();
             // Carry a pre-existing native Bitwarden setup into the plugin's namespace (native Bitwarden is retired).
             {
@@ -418,7 +400,6 @@ pub fn run() {
                 });
             }
 
-            // Register and activate bundled plugins
             {
                 use plugin::agent_claude::AgentClaudePlugin;
                 let manifest = AgentClaudePlugin::manifest();
@@ -558,7 +539,6 @@ pub fn run() {
                 }
                 agent_registry.finish_startup_provider_loading();
 
-                // Hot-reload watcher: polls the same roots every 2s and (a) discovers new plugin folders dropped into ~/.codeterm/plugins/, (b) reloads
                 // Hot-reload keeps plugin VMs in sync: reload existing plugins and drop vanished plugin dirs.
                 let watcher = plugin::js_runtime::HotReloadRegistry::new(
                     roots.clone(),
@@ -578,11 +558,8 @@ pub fn run() {
                 );
             }
 
-            // All providers have called `model_catalog::register(...)` in their constructors by now — refresh the `<provider>.example.toml` files so users
-            // always see the current build's defaults.
             agent::model_catalog::refresh_example_files();
 
-            // Warm the model catalog: prime each provider's last-known list from disk, then fan out one
             // background refresh per provider off the async runtime (never gates startup; emits `models-updated`).
             {
                 let providers = agent_registry.all_provider_arcs();
@@ -618,13 +595,11 @@ pub fn run() {
                 Err(e) => log::warn!("[mem] seed failed: {}", e),
             }
 
-            // Sync identity.md + soul.md into mem for search/vectorization
             crate::service::general_agent::sync_identity_to_mem(&mem);
 
             // Re-index any items missing vectors (catches failed bg indexing)
             mem.reindex_missing();
 
-            // Auto-install each provider's CodeTerm integration (hooks / callbacks). Providers without an integration no-op via the AgentProvider trait
             // default. For Claude this installs the Notification / Stop / PreCompact / SessionStart hooks that POST events back into our HTTP API.
             commands::ensure_integrations_for_all(&agent_registry);
 
@@ -738,7 +713,6 @@ pub fn run() {
             crate::delayed_send::start_scheduler(service_state.clone());
             crate::service::start_plan_reminder_scheduler(service_state.clone());
 
-            // Re-kick session-name + model pollers for panes restored from snapshot: set_pane_agent_type fires on transitions, but a restore brings
             // agent_type back already-set so no transition ever happens. Walk the restored panes once at boot.
             service_state.kick_off_pollers_for_existing_agents();
             for cwd in service_state
@@ -778,8 +752,6 @@ pub fn run() {
                 });
             }
 
-            // Graph layout: build the projection once at startup if needed, then
-            // tick a debounced cache flush. The heavy projection runs on a
             {
                 let mem = service_state.mem.clone();
                 tauri::async_runtime::spawn(async move {
@@ -856,7 +828,6 @@ pub fn run() {
                 });
             }
 
-            // After webview is ready, check for crash reports from a previous session and emit an event the frontend can show as a toast. Delay a tick so
             // the React side has time to attach the listener.
             {
                 let app_handle = app.handle().clone();
@@ -892,7 +863,6 @@ pub fn run() {
             startup::start_background_tasks(&app_handle, &states);
             // Pane-state reactor: classify parked panes and auto-advance via the provider's recommendation.
             agent::state_reactor::start(service_state.clone());
-            // Live 3-state sweep: drives the chat-view agent-state indicator's
             // working→idle edge (no output to ride on when a turn settles).
             agent::live_state::start(service_state.clone());
 
@@ -901,10 +871,8 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Only handle main window, not notification popups
                 if window.label() != "main" { return; }
 
-                // Save session
                 let app = window.app_handle();
                 if let (Some(mux), Some(session)) = (
                     app.try_state::<MuxState>(),
@@ -918,7 +886,6 @@ pub fn run() {
                     }
                 }
 
-                // Hide to tray instead of quitting
                 api.prevent_close();
                 let _ = window.hide();
                 log::info!("Window hidden to tray");
@@ -942,7 +909,6 @@ pub fn run() {
                 crash::shutdown::mark_shutting_down();
             }
 
-            // On any clean process exit (tray-Quit, Cmd+Q after window close, SIGTERM caught by Tauri), checkpoint+truncate the mem WAL so a stale ~4MB
             // log doesn't survive into the next run. The updater's graceful_shutdown already does this on the in-place upgrade path; this catches every other shutdown route.
             if let tauri::RunEvent::Exit = _event {
                 #[cfg(target_os = "macos")]

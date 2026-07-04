@@ -96,8 +96,6 @@ fn action_preview(actions: &[SendAction]) -> String {
 /// immediately would otherwise hit "no PTY" unconditionally. Poll for
 /// the link with this short budget so a script can chain spawn → send.
 pub(super) async fn await_pty_link(state: &AppState, pane_id: &str) -> bool {
-    // [G] A chatBackend pane has no PTY to link — don't poll for one that never
-    // appears (it would hang the full budget and then fail). It is "ready" the
     if state.svc.pane_chat_backing(pane_id).is_some() {
         return true;
     }
@@ -149,9 +147,6 @@ pub async fn send_text(
     // A bare shell PTY must run the injected bytes verbatim — never prefix it.
     let target_has_agent = state.svc.pane_has_agent(&pane_id);
 
-    // A mesh-relayed report makes its remote worker visible to this orchestrator.
-    // Record it (peer + foreign pane + label/model from the authenticated relay)
-    // so the UI can render a "remote pane" ghost node under the target.
     if body.kind.as_deref() == Some("report") {
         if let (Some(peer), Some(src)) = (
             body.source_peer.as_deref().filter(|s| !s.is_empty()),
@@ -196,7 +191,6 @@ pub async fn send_text(
     let source_envelope: Option<crate::service::messenger::MessageEnvelope> =
         body.source_pane.as_deref().and_then(|src| {
             match body.source_peer.as_deref().filter(|p| !p.is_empty()) {
-                // Mesh delivery: the source pane is foreign — identity comes from
                 // the body (resolved on the originating peer), peer-qualified here.
                 Some(peer) => {
                     let label = body
@@ -204,9 +198,6 @@ pub async fn send_text(
                         .as_deref()
                         .filter(|s| !s.trim().is_empty())
                         .unwrap_or(peer);
-                    // A remote worker's `agent report` rides this same relay; the
-                    // `report` kind renders `[Report from <label>@<peer>]` instead
-                    // of a plain pane message.
                     let envelope = if body.kind.as_deref() == Some("report") {
                         crate::service::messenger::MessageEnvelope::report(label, src)
                     } else {
@@ -249,7 +240,6 @@ pub async fn send_text(
         }
     };
 
-    // Run send-time text stages only at the user-facing seam. Low-level
     // send_text is also used by system senders and stays transport-clean.
     let run_stages = crate::chatpipeline::is_user_turn_send(
         svc_token_match.is_some(),
@@ -292,8 +282,6 @@ pub async fn send_text(
                 .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
         }
 
-        // Raw terminal key writes are PTY-only; a chatBackend pane has no
-        // terminal, so skip them (the text turn above already routed to the
         if state.svc.pane_chat_backing(&pane_id).is_none() {
             let pty_id = state
                 .svc

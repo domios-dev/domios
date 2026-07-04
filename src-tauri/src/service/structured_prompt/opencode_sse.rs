@@ -356,8 +356,6 @@ mod tests {
         assert_eq!(route.option_labels, vec!["A".to_string(), "B".to_string()]);
     }
 
-    // Question reply BODY is LABEL-based (not raw index/id): a 1-based index resolves
-    // to the option's LABEL, the label itself resolves identically, and anything
     #[test]
     fn question_reply_body_is_label_based_index_and_label_equivalent() {
         let route = ResponseRoute {
@@ -389,8 +387,6 @@ mod tests {
         );
     }
 
-    // GAP (flagged, NOT fixed by analogy — needs a live multi-select roundtrip to
-    // confirm the body shape): a multi-select question answered through the single
     #[test]
     fn multi_select_question_reply_body_is_single_choice_today_gap() {
         let route = ResponseRoute {

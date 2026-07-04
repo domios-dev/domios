@@ -229,7 +229,6 @@ fn parse_prompt_decodes_options() {
 
 #[test]
 fn real_opencode_plugin_parses_permission_box() {
-    // Guards the shipped opencode plugin's own permission parser against
     // regressions — the plugin owns its format, the host just navigates.
     let js = include_str!("../../../../../plugins/provider-opencode/plugin.js");
     let p = load(MIN_MANIFEST, js);
@@ -264,7 +263,6 @@ fn real_opencode_plugin_parses_permission_box() {
 
 #[test]
 fn build_prompt_response_decodes_base64_steps() {
-    // 'j' = ag==, '\r' = DQ==
     let js = r#"
             module.exports.default = {
                 buildPromptResponse(idx) {
@@ -319,7 +317,6 @@ fn settings_schema_falls_back_to_manifest_when_plugin_silent() {
         }"#;
     let p = load(json, "module.exports.default = {};");
     let s = p.settings_schema();
-    // session_resume + model_select expected
     assert_eq!(s.len(), 2);
 }
 
@@ -454,8 +451,6 @@ fn build_resume_command_dispatches_to_js_with_two_args() {
 
 #[test]
 fn generic_detect_session_id_refuses_to_guess_when_ambiguous() {
-    // Capability rule #3: the generic manifest-driven fallback (no JS
-    // detectSessionId) must mirror Claude's native guard — when 2+ recent
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().to_string_lossy().to_string();
     let json = format!(

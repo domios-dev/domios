@@ -97,8 +97,6 @@ impl AgentTransport for PtyTransport {
                 .with_provider(ctx.provider_id, |p| p.model_launch_args(&model))
         })
         .unwrap_or_default();
-        // Desktop/CLI spawn path: allocate + register + subscribe the structured-
-        // prompt server via the SAME shared chokepoint the REST `spawn_agent` uses,
         let cwd = svc
             .mux
             .read()

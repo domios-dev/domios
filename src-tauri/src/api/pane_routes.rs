@@ -60,12 +60,8 @@ pub async fn create_shell_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     use crate::service::spawn::{PaneCommand, PaneVisibility, SpawnPaneSpec};
-    // P1: a chatBackend pane is the production entry point for plugin-driven
-    // chat. Build PaneCommand::ChatBackend so spawn routes through
     let command = match body.chat_backend {
         Some(plugin_id) => {
-            // Validate the id BEFORE building the pane. The old path accepted any
-            // string and 200'd even for unknown / non-spawnable backends; the async
             validate_chat_backend_spawn(&state.svc.provider_registry, &plugin_id)
                 .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
             let mut config = body.config.unwrap_or(serde_json::Value::Null);
@@ -104,7 +100,6 @@ pub async fn create_shell_pane(
         })
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     if let Some(cmd) = body.cmd {
-        // Script-exec path: bypasses bracketed-paste markers that leak into
         // bare shells which haven't armed DECSET ?2004 yet.
         state
             .svc
@@ -119,7 +114,6 @@ pub async fn create_shell_pane(
                 )
             })?;
     }
-    // Mirror `pane_id` as `id` so the conventional CRUD idiom (`jq '.id'`, resp.get("id")) reaches the new pane without anyone having to learn our
     // per-resource naming. Both fields hold the same value.
     let mut resp = serde_json::json!({
         "id": handle.pane_id,
@@ -194,16 +188,12 @@ pub async fn stop_pane(
             ));
         }
     }
-    // Real interrupt key. No built-in provider declares `stop_keystroke()` (trait
-    // default is None), so without a fallback the REST/CLI stop would send NOTHING
     let key: String = state
         .svc
         .agent_registry
         .with_provider(&aid, |p| p.stop_keystroke().map(|s| s.to_string()))
         .flatten()
         .unwrap_or_else(|| "\x1b".to_string());
-    // Stop/Cancel is a user intent to halt: force Idle + clear any pending question
-    // immediately (with the suppression window). write_raw bypasses the manual-Esc
     if let Ok(pty_id) = resolve_pty_id_with_fallback(&state, &raw_pane_id) {
         state.svc.mark_agent_interrupted(&pty_id);
     }
@@ -273,7 +263,6 @@ pub async fn exec_in_pane(
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
 
-    // A freshly-spawned (lazy) pane has no PTY yet; ensure it before polling for
     // the link, else await_pty_link waits for a PTY nothing triggered and fails.
     state
         .svc
@@ -295,7 +284,6 @@ pub async fn exec_in_pane(
         .map(|t| t.len())
         .unwrap_or(0);
 
-    // Branch on agent presence: agent panes use the verified bracketed-paste
     // path; plain shell panes use script-exec so markers never leak literally.
     let has_agent = {
         let mux = state.svc.mux.write();
@@ -478,8 +466,6 @@ pub async fn stream_pane_output(
     (StatusCode, &'static str),
 > {
     check_auth(&state, &headers)?;
-    // A chatBackend pane has no PTY output buffer — it streams transcript via the
-    // `pane-chat-msg-{id}` Tauri event (StructuredSink), not this SSE. Keep the
     let chat = state.svc.pane_chat_backing(&raw_pane_id).is_some();
     let pty_id = if chat {
         String::new()

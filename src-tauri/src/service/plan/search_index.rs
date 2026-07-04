@@ -84,9 +84,6 @@ struct Unit {
 
 impl super::PlanStore {
     pub fn mirror_plan_index(&self, plan: &Plan) -> Result<(), String> {
-        // Tests embed synchronously: the async path's global background worker
-        // races foreground mirror writes for the same db under the short
-        // test-only busy_timeout, producing spurious "database is locked" errors.
         let sync_embed = cfg!(test);
         let changed = mirror_plan(plan, sync_embed)?;
         if !sync_embed {

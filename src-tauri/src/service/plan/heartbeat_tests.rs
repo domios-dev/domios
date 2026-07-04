@@ -472,7 +472,6 @@ fn is_plan_complete_predicate_covers_execution_all_done_and_explicit_complete() 
         "empty Execution plan is not complete"
     );
 
-    // Add a task and close it — now complete
     let task_id = store
         .add_task(
             &plan.id,
@@ -493,7 +492,6 @@ fn is_plan_complete_predicate_covers_execution_all_done_and_explicit_complete() 
         "all-done Execution plan is complete"
     );
 
-    // Explicit Complete mode
     store.set_mode(&plan.id, PlanMode::Complete, 5).unwrap();
     let complete_plan = store.get(&plan.id).unwrap();
     assert!(

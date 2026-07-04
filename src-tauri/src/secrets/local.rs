@@ -489,11 +489,9 @@ mod tests {
         let v = s.get("openai-prod").await.unwrap();
         assert_eq!(v.value.expose_secret(), "sk-abc");
 
-        // Case-insensitive lookup
         let v2 = s.get("OPENAI-PROD").await.unwrap();
         assert_eq!(v2.value.expose_secret(), "sk-abc");
 
-        // Lookup by id
         let v3 = s.get(&r.item_id).await.unwrap();
         assert_eq!(v3.value.expose_secret(), "sk-abc");
     }

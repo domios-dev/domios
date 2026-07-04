@@ -187,8 +187,6 @@ impl ServiceContext {
     /// Deliver the initial agent launch command to a bare shell — no verify path
     /// (no agent TUI exists yet). Mirrors general_agent::lifecycle.
     pub fn send_launch_command_to_pty(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
-        // Wait for the prompt (arms PSReadLine's bracketed-paste handler). If it
-        // never renders the shell is likely stuck on an unanswered CSI 6n — xterm
         #[cfg(windows)]
         {
             use std::time::Duration;

@@ -88,7 +88,6 @@ fn wake_up_default_when_no_identity() {
 #[test]
 fn budget_drops_low_priority_first() {
     let (conn, blobs) = fresh();
-    // Big summary that won't fit
     for i in 0..20 {
         insert(
             &conn,
