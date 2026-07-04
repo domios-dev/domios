@@ -16,6 +16,7 @@ import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
 import {
   isEmpty,
+  openInlineWorkspaceCanvas,
   seedPerfFixtureAndOpenInlineCanvas,
   CANVAS_ART_DIR,
 } from "../../helpers/canvas-inspect";
@@ -24,6 +25,7 @@ import type { Locator, Page } from "@playwright/test";
 
 const PHONE = { width: 390, height: 844 };
 const DESKTOP = { width: 1280, height: 800 };
+const TEST_TIMEOUT = 30_000;
 
 function visibleHeader(page: Page): Locator {
   return page.locator('[data-testid="plan-context-header"]:visible').first();
@@ -37,14 +39,24 @@ async function shot(page: Page, name: string): Promise<string> {
 
 async function applyViewportAndReload(
   page: Page,
+  workspaceId: string,
   vp: { width: number; height: number },
   mode: "board" | "list" = "board",
 ): Promise<void> {
   await page.setViewportSize(vp);
+  const shell = page.locator('[data-testid="plan-view-shell"]').first();
+  if (!(await shell.isVisible().catch(() => false))) {
+    await openInlineWorkspaceCanvas(page, workspaceId);
+  }
+  if (vp.width < 640 && !(await page.locator('[data-testid="web-sidebar-open"]').isVisible().catch(() => false))) {
+    await page.mouse.click(vp.width - 8, Math.floor(vp.height / 2));
+    await page.locator('[data-testid="web-sidebar-open"]').waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
+  }
   // The inline-canvas seed leaves the shell in "canvas" (mission-control) mode,
-  // which mounts no plan-context header. Force a task surface.
-  await page.evaluate((m) => window.localStorage.setItem("codeterm.planViewMode", m), mode);
-  await page.reload({ waitUntil: "domcontentloaded" });
+  // which mounts no plan-context header. Force a task surface without reloading.
+  if (mode !== "canvas") {
+    await shell.locator('[data-testid="plan-view-mode-switch"]').getByRole("tab", { name: new RegExp(mode, "i") }).click();
+  }
   await page.waitForSelector('[data-testid="plan-view-shell"]', { state: "visible", timeout: 30_000 });
   await page.waitForSelector('[data-testid="plan-context-header"]:visible', { state: "visible", timeout: 30_000 });
 }
@@ -52,7 +64,7 @@ async function applyViewportAndReload(
 test(
   "@golden @plan-header-mobile phone: one-bar compact header, tasks above the fold",
   async ({ api, webBrowser }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(TEST_TIMEOUT);
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
@@ -60,7 +72,7 @@ test(
         test.skip(true, "canvas empty — perf fixture did not inject");
         return;
       }
-      await applyViewportAndReload(page, PHONE);
+      await applyViewportAndReload(page, canvas.workspaceId, PHONE);
 
       const header = visibleHeader(page);
       await expect(header.locator('[data-testid="plan-context-compact-bar"]')).toBeVisible();
@@ -92,7 +104,7 @@ test(
 test(
   "@golden @plan-header-mobile phone: tap expands inline and choice persists",
   async ({ api, webBrowser }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(TEST_TIMEOUT);
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
@@ -100,7 +112,7 @@ test(
         test.skip(true, "canvas empty — perf fixture did not inject");
         return;
       }
-      await applyViewportAndReload(page, PHONE);
+      await applyViewportAndReload(page, canvas.workspaceId, PHONE);
 
       const bar = visibleHeader(page).locator('[data-testid="plan-context-compact-bar"]');
       await expect(bar).toHaveAttribute("aria-expanded", "false");
@@ -137,7 +149,7 @@ test(
 test(
   "@golden @plan-header-mobile desktop: no compact bar, full context intact",
   async ({ api, webBrowser }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(TEST_TIMEOUT);
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
@@ -145,7 +157,7 @@ test(
         test.skip(true, "canvas empty — perf fixture did not inject");
         return;
       }
-      await applyViewportAndReload(page, DESKTOP);
+      await applyViewportAndReload(page, canvas.workspaceId, DESKTOP);
 
       // No compact bar anywhere (neither mounted view renders one above the breakpoint).
       await expect(page.locator('[data-testid="plan-context-compact-bar"]')).toHaveCount(0);
@@ -173,7 +185,7 @@ test(
 test(
   "@golden @plan-header-mobile skills-registry error routes through quiet ErrorState",
   async ({ api, webBrowser }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(TEST_TIMEOUT);
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
@@ -185,7 +197,7 @@ test(
       await page.route("**/api/plans/*/skills", (route) =>
         route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"boom"}' }),
       );
-      await applyViewportAndReload(page, PHONE);
+      await applyViewportAndReload(page, canvas.workspaceId, PHONE);
 
       const header = visibleHeader(page);
       await header.locator('[data-testid="plan-context-compact-bar"]').click();
@@ -208,7 +220,7 @@ test(
 test(
   "@golden @plan-header-mobile a11y: bar is a focusable button, chevron labeled",
   async ({ api, webBrowser }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(TEST_TIMEOUT);
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
@@ -216,7 +228,7 @@ test(
         test.skip(true, "canvas empty — perf fixture did not inject");
         return;
       }
-      await applyViewportAndReload(page, PHONE);
+      await applyViewportAndReload(page, canvas.workspaceId, PHONE);
 
       const bar = visibleHeader(page).locator('[data-testid="plan-context-compact-bar"]');
       expect(await bar.evaluate((el) => el.tagName)).toBe("BUTTON");
@@ -239,7 +251,7 @@ test(
 test(
   "@golden @plan-header-mobile list: filters + in-flight strip stay below the compact bar",
   async ({ api, webBrowser }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(TEST_TIMEOUT);
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
@@ -247,7 +259,7 @@ test(
         test.skip(true, "canvas empty — perf fixture did not inject");
         return;
       }
-      await applyViewportAndReload(page, PHONE, "list");
+      await applyViewportAndReload(page, canvas.workspaceId, PHONE, "list");
 
       const header = visibleHeader(page);
       await expect(header.locator('[data-testid="plan-context-compact-bar"]')).toBeVisible();
@@ -271,7 +283,7 @@ test(
 test(
   "@golden @plan-header-mobile coarse hit targets: compact bar + sidebar rows >= 44px",
   async ({ api, webBrowser }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(TEST_TIMEOUT);
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
@@ -279,7 +291,7 @@ test(
         test.skip(true, "canvas empty — perf fixture did not inject");
         return;
       }
-      await applyViewportAndReload(page, PHONE, "board");
+      await applyViewportAndReload(page, canvas.workspaceId, PHONE, "board");
 
       // Compact plan bar is a >=44px coarse target.
       const barBox = await visibleHeader(page).locator('[data-testid="plan-context-compact-bar"]').boundingBox();
@@ -329,7 +341,7 @@ test(
 test(
   "@golden @plan-header-mobile companion bubble does not overlap compact header or composer",
   async ({ api, webBrowser }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(TEST_TIMEOUT);
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
@@ -337,7 +349,7 @@ test(
         test.skip(true, "canvas empty — perf fixture did not inject");
         return;
       }
-      await applyViewportAndReload(page, PHONE);
+      await applyViewportAndReload(page, canvas.workspaceId, PHONE);
 
       const bubble = page.locator('[data-testid="plan-companion-bubble"]:visible').first();
       if ((await bubble.count()) === 0) {

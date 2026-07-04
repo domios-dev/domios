@@ -4,7 +4,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { BoardPlanSummary } from "./boardModel";
-import { PlanContextCompactHeader } from "./PlanContextHeader";
+import { PlanContextCompactHeader, PlanContextHeader } from "./PlanContextHeader";
 import { readHeaderCollapsed, writeHeaderCollapsed } from "./usePlanHeaderCollapse";
 
 type TestFn = () => void | Promise<void>;
@@ -25,6 +25,33 @@ function setupDom() {
 }
 
 setupDom();
+
+function setMatchMedia(matchesByQuery: Record<string, boolean>) {
+  window.matchMedia = (query: string) => {
+    const listeners = new Set<(event: MediaQueryListEvent) => void>();
+    return {
+      matches: Boolean(matchesByQuery[query]),
+      media: query,
+      onchange: null,
+      addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+        listeners.add(listener);
+      },
+      removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+        listeners.delete(listener);
+      },
+      addListener: (listener: (event: MediaQueryListEvent) => void) => {
+        listeners.add(listener);
+      },
+      removeListener: (listener: (event: MediaQueryListEvent) => void) => {
+        listeners.delete(listener);
+      },
+      dispatchEvent: (event: Event) => {
+        for (const listener of listeners) listener(event as MediaQueryListEvent);
+        return true;
+      },
+    } as MediaQueryList;
+  };
+}
 
 const SUMMARY: BoardPlanSummary = {
   title: "Compact plan header lane",
@@ -63,6 +90,23 @@ function makeHeader(): ReactElement {
     />
   );
 }
+
+function makeWrappedHeader(): ReactElement {
+  return <PlanContextHeader summary={SUMMARY} spec={null} onOpenPlan={() => {}} />;
+}
+
+test("narrow viewport renders compact wrapper even without coarse pointer", async () => {
+  window.localStorage.clear();
+  setMatchMedia({
+    "(pointer: coarse)": false,
+    "(hover: none)": false,
+    "(max-width: 800px)": false,
+    "(max-width: 768px)": true,
+  });
+  const { host } = await render(makeWrappedHeader());
+  assert(host.querySelector('[data-testid="plan-context-compact-bar"]'), "compact bar rendered");
+  assert(!host.querySelector('[data-testid="plan-board-plan-goal"]'), "full context gated when collapsed");
+});
 
 test("collapsed by default: bar shows state+title+progress, full context NOT mounted", async () => {
   window.localStorage.clear();

@@ -6,7 +6,7 @@ import type { Plan } from "../types";
 import { PairAffordance } from "../../shared/PairAffordance";
 import { PlanSkillsSection } from "./PlanSkillsSection";
 import { useTouchOptimizedUi } from "../../../hooks/useTouchOptimizedUi";
-import { usePlanHeaderCollapse } from "./usePlanHeaderCollapse";
+import { useNarrowPlanHeader, usePlanHeaderCollapse } from "./usePlanHeaderCollapse";
 
 export interface PlanContextHeaderProps {
   summary: BoardPlanSummary;
@@ -32,7 +32,8 @@ const PLANNING_STATE_LABEL: Record<PlanningState, string> = {
 
 export function PlanContextHeader(props: PlanContextHeaderProps) {
   const touch = useTouchOptimizedUi();
-  if (touch) return <PlanContextCompactHeader {...props} />;
+  const narrow = useNarrowPlanHeader();
+  if (touch || narrow) return <PlanContextCompactHeader {...props} />;
   return (
     <header data-testid="plan-context-header" className="plan-context-header">
       <PlanContextBody {...props} />
