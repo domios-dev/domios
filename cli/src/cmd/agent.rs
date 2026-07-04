@@ -564,6 +564,13 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             system_prompt,
             preset,
         } => {
+            if matches!(role, Some(crate::args::agent::SpawnRole::Orchestrator))
+                && workspace.is_none()
+                && parent.is_none()
+            {
+                eprintln!("Error: --workspace is required when spawning --role Orchestrator");
+                std::process::exit(1);
+            }
             let task = match resolve_spawn_task(task, task_file, &mut std::io::stdin()) {
                 Ok(t) => t,
                 Err(e) => {

@@ -119,7 +119,7 @@ pane_session() { dev_get "/api/panes" | python -c "import json,sys;print(next((p
 pane_chat_has() {
   local pane="$1" needle="$2"
   dc pane chat --pane "$pane" --json 2>/dev/null \
-    | python - "$needle" <<'PY'
+    | python -c '
 import json,sys
 needle=sys.argv[1]
 try:
@@ -128,7 +128,24 @@ except Exception:
     sys.exit(1)
 blob=json.dumps(d)
 sys.exit(0 if needle in blob else 1)
-PY
+' "$needle"
+}
+
+# grep the UI chat-start snapshot for a fixed string. This is the deterministic
+# oracle for pending_greeting; `pane chat` only reads the durable transcript.
+pane_chat_start_has() {
+  local pane="$1" needle="$2"
+  dev_post "/api/panes/$pane/chat-raw/start" '{}' \
+    | python -c '
+import json,sys
+needle=sys.argv[1]
+try:
+    d=json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+blob=json.dumps(d)
+sys.exit(0 if needle in blob else 1)
+' "$needle"
 }
 
 # =====================================================================
@@ -171,7 +188,7 @@ scenario_B() {
 
   # orchestrator chat carries the peer greeting / mandate first message
   sleep 3
-  if pane_chat_has "$orch" "Planner peer" || pane_chat_has "$orch" "Peer contract" || pane_chat_has "$orch" "Orchestrator for plan"; then
+  if pane_chat_has "$orch" "Planner specialist" || pane_chat_has "$orch" "attached as my Planner specialist" || pane_chat_has "$orch" "Orchestrator for plan"; then
     pass B.greeting "orchestrator chat carries the peer greeting/mandate first message"
   else
     finding B.greeting "peer greeting not yet visible in orchestrator chat transcript (may be delivery-timing; asserted refs bound synchronously above)"
@@ -197,7 +214,7 @@ scenario_C() {
 
   sleep 3
   # mandate block present
-  if pane_chat_has "$pane" "Peer contract" || pane_chat_has "$pane" "Planner peer"; then
+  if pane_chat_start_has "$pane" "Planner specialist" || pane_chat_start_has "$pane" "attached Planner specialist"; then
     pass C.mandate "onboarding carries the peer-pairing mandate block"
   else
     fail C.mandate "onboarding does NOT carry the peer-pairing mandate block"
@@ -206,12 +223,12 @@ scenario_C() {
   if pane_chat_has "$pane" "--role Planner --plan $pane"; then
     : # unlikely
   fi
-  if pane_chat_has "$pane" "--parent $pane"; then
+  if pane_chat_start_has "$pane" "--parent $pane"; then
     pass C.prefill_parent "planner spawn command is pre-filled with the real orchestrator pane id (--parent $pane)"
   else
     finding C.prefill_parent "planner spawn command not pre-filled with real parent pane id"
   fi
-  if pane_chat_has "$pane" "--plan PLAN_ID"; then
+  if pane_chat_start_has "$pane" "--plan PLAN_ID"; then
     finding C.prefill_plan "pinned expects a REAL plan id pre-filled; onboarding ships literal placeholder '--plan PLAN_ID' (role-spawn claims no plan yet — bounce to make-orchestrator/pair lane)"
   else
     note "no literal PLAN_ID placeholder found — a real plan id may be pre-filled (re-check pass condition)"
@@ -256,12 +273,12 @@ scenario_D() {
 
   # mandate delivered (task says 'response carries mandate'; actual = delivered to pane chat)
   sleep 3
-  if pane_chat_has "$pane" "Peer contract" || pane_chat_has "$pane" "now the Orchestrator"; then
+  if pane_chat_start_has "$pane" "Planner specialist" || pane_chat_start_has "$pane" "now the Orchestrator"; then
     pass D.mandate "promotion onboarding (with mandate block) delivered to the pane"
   else
     fail D.mandate "promotion onboarding/mandate not found in pane chat"
   fi
-  if echo "$resp" | grep -qi "Peer contract\|mandate"; then
+  if echo "$resp" | grep -qi "Planner specialist\\|mandate"; then
     note "RPC response body also carries mandate text"
   else
     finding D.mandate_resp "pinned says 'command response carries the mandate block'; actual dev delivers it as a pane message, RPC body does not echo it"
@@ -494,7 +511,19 @@ scenario_H() {
   # Attempt orchestration new attributed to the worker as spawner via REST.
   local h2_p_before h2_resp h2_p_after
   h2_p_before=$(pane_count)
-  h2_resp=$(dev_post "/api/orchestration/new" "{\"orchestrator_agent\":\"claude\",\"planner_agent\":\"claude\",\"workspace_id\":\"$WS\",\"spawned_by_pane_id\":\"$worker\"}")
+h2_body=$(python3 - "$WS" "$worker" <<'PY'
+import json, sys
+sys.stdout.write(json.dumps({
+    "orchestrator_agent": "claude",
+    "planner_agent": "claude",
+    "workspace_id": sys.argv[1],
+    "spawned_by_pane_id": sys.argv[2],
+}, separators=(",", ":")))
+PY
+)
+  h2_resp=$(curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+    -H "Content-Type: application/json" --data-binary "$h2_body" \
+    "http://127.0.0.1:7686/api/orchestration/new")
   h2_p_after=$(pane_count)
   note "H2 orchestration-new-as-worker resp: $(echo "$h2_resp" | head -c 200)"
   if echo "$h2_resp" | grep -qiE "worker|refus|forbid|not allowed|hierarchy|cannot"; then
