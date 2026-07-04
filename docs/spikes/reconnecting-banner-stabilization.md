@@ -53,16 +53,29 @@ Tests: `src/lib/useResilientQuery.test.tsx` (5), `src/lib/fetchResilience.test.t
 
 ## Playwright
 
-`tests/playwright/suites/13-canvas/canvas-reconnecting-banner.spec.ts`:
+`tests/playwright/suites/13-canvas/canvas-reconnecting-banner.spec.ts` — runs on
+a REAL plan board (seeds a workspace + plan + task via the API), so the resilient
+query actually holds data and `reconnecting` can flip:
 - healthy board: banner absent across 12 sampled refetch kicks;
-- route interception: one `/api/plans` failure silent, second (via backoff)
-  shows, recovery clears.
+- route interception (`/api/plans` → 503): one failure stays silent, a second
+  consecutive failure shows the banner, recovery clears on first success.
 
-Run against a healthy dev on 7686:
+Two harness facts this spec depends on (both real bugs to avoid re-hitting):
+1. **A perf/synthetic fixture is the WRONG harness** — it paints a board from
+   client-side synthetic plans while the resilient query stays empty
+   (`hasDataRef` false), so `reconnecting` never flips. Use real seeded plans.
+2. **The web client's service worker proxies `/api/*` via its own `fetch()`,
+   which bypasses `page.route()`.** The spec opens the context with
+   `serviceWorkers: "block"` (new passthrough on `openCanvasWebPage`) so plans
+   fetches stay on the page thread and interception takes effect. It also severs
+   `/api/events/stream` during scenario 2 so bridge-driven refetches can't inject
+   a surprise failure between kicks (kept the hysteresis assertion deterministic).
+
+Verified green (both scenarios, `--retries=0`, repeated) against dev on 7686:
 
 ```bash
 npx playwright test --config=tests/playwright/playwright.config.ts \
   --project=golden -g "@canvas-reconnecting"
 ```
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
