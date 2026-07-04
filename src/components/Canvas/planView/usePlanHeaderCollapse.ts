@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 export type HeaderWidthClass = "narrow" | "wide";
 
 const STORAGE_PREFIX = "codeterm.planHeader.collapsed";
+const NARROW_QUERY = "(max-width: 768px)";
 
 function storageKey(widthClass: HeaderWidthClass): string {
   return `${STORAGE_PREFIX}.${widthClass}`;
@@ -43,4 +44,28 @@ export function usePlanHeaderCollapse(widthClass: HeaderWidthClass, defaultColla
   }, [widthClass]);
 
   return { collapsed, toggle };
+}
+
+function detectNarrowPlanHeader(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia(NARROW_QUERY).matches;
+}
+
+export function useNarrowPlanHeader(): boolean {
+  const [narrow, setNarrow] = useState(detectNarrowPlanHeader);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia(NARROW_QUERY);
+    const update = () => setNarrow(query.matches);
+    update();
+    query.addEventListener("change", update);
+    window.addEventListener("resize", update);
+    return () => {
+      query.removeEventListener("change", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  return narrow;
 }
