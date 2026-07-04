@@ -692,7 +692,6 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
         SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
     };
 
-    // Legacy snapshot path: agent_type is None (saved before reliable tracking), but the title preserved when the snapshot was captured carries
     // the provider name. Restore must recover agent_type so tab-bar icons show.
     for (title, expected) in [
         ("codex", "codex"),
@@ -826,7 +825,6 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
     use crate::session::store::{
         SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
     };
-    // Snapshot saved BEFORE agent_type_locked existed: only agent_type populated. Restore code must treat it as locked — pre-lock snapshots only
     // persisted agent_type via a real spawn or detection, both qualify as explicit intent.
     let snap = SessionSnapshot {
         version: "test".to_string(),

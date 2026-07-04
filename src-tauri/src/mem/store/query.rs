@@ -9,7 +9,6 @@ pub fn stats(conn: &Connection) -> Result<MemStats, String> {
     let total_items: i64 = conn
         .query_row("SELECT COUNT(*) FROM mem_items", [], |r| r.get(0))
         .map_err(|e| format!("count items: {}", e))?;
-    // Active relations only — invalidated (valid_to set) edges are soft-deleted
     // history, not live graph; counting them inflated the relation total.
     let total_relations: i64 = conn
         .query_row(
@@ -21,7 +20,6 @@ pub fn stats(conn: &Connection) -> Result<MemStats, String> {
     let total_entities: i64 = conn
         .query_row("SELECT COUNT(*) FROM entities", [], |r| r.get(0))
         .map_err(|e| format!("count entities: {}", e))?;
-    // mem_vectors only exists when sqlite-vec is loaded; missing = 0
     let total_vectors: i64 = conn
         .query_row("SELECT COUNT(*) FROM mem_vectors", [], |r| r.get(0))
         .unwrap_or(0);

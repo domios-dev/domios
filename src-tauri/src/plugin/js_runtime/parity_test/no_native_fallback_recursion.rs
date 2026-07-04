@@ -74,8 +74,6 @@ fn js_only(id: &str) -> JsProvider {
 
 #[test]
 fn native_and_js_agree_and_neither_recurses() {
-    // Native control: register a JS-only provider TWICE (authoritative pass
-    // + hot-reload seeding tick) — exactly the boot sequence that armed the
     let reg = Arc::new(AgentRegistry::new());
     let mut a = js_only("rec-test");
     a.set_registry(reg.clone());
@@ -89,7 +87,6 @@ fn native_and_js_agree_and_neither_recurses() {
         "a JS-only provider must never become its own native fallback"
     );
 
-    // If the recursion regressed, these calls overflow the test binary
     // rather than returning. Reaching the assert at all proves termination.
     let js_caps = reg
         .with_provider("rec-test", |p| capability_defaults(p))

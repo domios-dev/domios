@@ -2,10 +2,6 @@ use super::mutations::plan_contains_id;
 use super::{PlanError, PlanStore};
 use crate::plan::{AgentRef, Milestone, TaskStatus};
 
-// Park/unpark task lifecycle. Parking defers an open task WITHOUT closing it:
-// it leaves the heartbeat open-work set (see TaskStatus::counts_as_open_work),
-// so nudges no longer treat it as pending dispatch. Both transitions record a
-// working-point stride so the deferral (and its reason) is auditable.
 impl PlanStore {
     pub fn park_task(
         &self,

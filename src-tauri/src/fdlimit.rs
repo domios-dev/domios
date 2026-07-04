@@ -6,7 +6,6 @@
 
 #[cfg(unix)]
 pub fn raise_fd_limit() {
-    // Well above any real pane/plugin/socket count, comfortably under macOS
     // kern.maxfilesperproc so setrlimit won't EINVAL.
     const TARGET: libc::rlim_t = 65536;
     unsafe {
@@ -64,9 +63,6 @@ mod tests {
         super::raise_fd_limit();
         let after = soft_limit();
         assert!(after >= before, "soft limit dropped: {before} -> {after}");
-        // The default terminal soft limit (often 256) must be lifted clear of
-        // the EMFILE danger zone; if the hard cap is already low this still
-        // holds since `after >= before`.
         assert!(
             after >= 1024,
             "soft limit not lifted clear of EMFILE: {after}"

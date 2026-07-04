@@ -98,7 +98,6 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
 
-    // Each test owns its own DiffCache + counter — no shared statics, so tests are
     // fully isolated and run the refresh inline (deterministic, no leaked threads).
     fn producer(calls: Arc<AtomicUsize>) -> impl Fn() -> Result<Value, String> + Send + 'static {
         move || {

@@ -170,8 +170,6 @@ fn tailer_streams_new_messages_as_file_grows() {
 
 #[test]
 fn tailer_repopulates_when_session_file_appears_late() {
-    // Bug A (#25 / W3): a fresh agent doesn't create <id>.jsonl until its FIRST
-    // completed turn — which can be many seconds out (slow first turn, model
     if !workspace_plugins_root().join("provider-claude").exists() {
         return;
     }
@@ -200,7 +198,6 @@ fn tailer_repopulates_when_session_file_appears_late() {
         sink.clone() as Arc<dyn DeltaSink>,
     );
 
-    // Sleep well past the old missing-file give-up threshold (>10 polls ×
     // 50ms = 500ms). On the buggy code the tailer thread has already exited.
     std::thread::sleep(Duration::from_millis(900));
 

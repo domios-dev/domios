@@ -206,7 +206,6 @@ mod tests {
 
     #[tokio::test]
     async fn nudger_does_not_kill_the_next_poller() {
-        // Regression guard for the iteration-3 nudger-after-stop race: a stale notify_waiters() from stop()'s nudger must not wake a freshly-set task
         // that registers cancel.notified() afterwards.
         let sup = BridgeSupervisor::new();
         let cancel = sup.cancel_token();

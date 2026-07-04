@@ -67,7 +67,6 @@ mod tests {
         let pool = WorkerPool::new(1);
         let _c = pool.acquire("claude").await;
         assert_eq!(pool.available_permits("claude"), 0);
-        // codex has its own slot
         let _o = pool.acquire("codex").await;
         assert_eq!(pool.available_permits("codex"), 0);
         assert_eq!(pool.available_permits("gemini"), 1);
@@ -84,7 +83,6 @@ mod tests {
             "got it"
         });
 
-        // Should still be blocked
         assert_eq!(pool.available_permits("claude"), 0);
 
         drop(a);

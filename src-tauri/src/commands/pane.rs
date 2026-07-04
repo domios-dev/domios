@@ -131,7 +131,6 @@ pub fn read_session_jsonl(
     offset: Option<u64>,
     tail_bytes: Option<u64>,
 ) -> Result<String, String> {
-    // 1. Get agent_session_id, agent_type, and cwd from pane
     let (session_id, cwd, agent_type) = {
         let m = mux.write();
         let pane = m
@@ -262,8 +261,6 @@ fn prepend_pending_greeting(
 
 pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartResult, String> {
     let started = std::time::Instant::now();
-    // chatBackend pane: its transcript is the durable host-side JSONL, not an
-    // agent JSONL/sqlite session. Return that persisted snapshot so a pane shows
     if svc.pane_chat_backing(&pane_id).is_some() {
         let (messages, _total) =
             crate::service::pane_chat::pane_chat_snapshot(svc, &pane_id, 0).unwrap_or_default();
@@ -283,9 +280,6 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
         let cwd = pane.cwd.clone().unwrap_or_default();
         let Some(sid) = pane.agent_session_id.clone() else {
-            // Fresh agent pane: the session file appears with the first agent
-            // reply — unless a greeting is already pending, in which case show
-            // it immediately rather than waiting on the agent to boot.
             if let Some(content) = pane.pending_greeting.clone() {
                 return Ok(ChatStartResult {
                     text: String::new(),
@@ -314,7 +308,6 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         (provider, cwd, sid, t.elapsed().as_millis())
     };
 
-    // Chat view is a reader for the tab's saved conversation, not a session detector. A provider may still report that the live process has rolled
     // to a newer backing session (Codex resume starts a fresh rollout). Only accept that provider-owned handoff when no sibling pane already owns it.
     let detect_started = std::time::Instant::now();
     if let Some(active_sid) = svc
@@ -351,7 +344,6 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     }
     let detect_ms = detect_started.elapsed().as_millis();
 
-    // DB-backed providers (sqlite, e.g. opencode) have no tailable JSONL: read
     // structured messages in Rust and stream deltas from a DB poller.
     if svc
         .agent_registry
@@ -393,8 +385,6 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         });
     }
 
-    // JSONL providers (claude, codex): parse to normalized `ChatMsg` in Rust —
-    // the SAME shape the DB-backed providers emit — so every provider renders
     let path_started = std::time::Instant::now();
     let path = svc
         .agent_registry
@@ -419,7 +409,6 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     };
     let read_ms = read_started.elapsed().as_millis();
 
-    // Multiple webviews can attach to the same pane. The tailer is per pane, but subscriptions are per client; share the existing worker when one
     // is already running so one client's stop() cannot kill another's stream.
     let tailer_started = std::time::Instant::now();
     if !svc.chat_registry.acquire(&pane_id, &session_id) {
@@ -636,7 +625,6 @@ pub async fn chat_send_text(
     text: String,
     enter: Option<bool>,
 ) -> Result<String, String> {
-    // Resolve aliases ("main", "general") so callers can address the General
     // Agent without knowing its pane id — parity with the REST send route.
     let pane_id = svc.mux.read().resolve_pane_id(&pane_id).unwrap_or(pane_id);
     let enter = enter.unwrap_or(true);

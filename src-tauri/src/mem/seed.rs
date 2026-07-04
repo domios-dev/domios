@@ -110,7 +110,6 @@ mod tests {
     #[test]
     fn seed_runs_once() {
         let mem = MemManager::open_in_memory().unwrap();
-        // The in-memory DB sets db_path to a tmp dir without marker
         let n1 = seed_bundled(&mem).unwrap();
         assert!(n1 >= 5, "expected ≥5 seeded items, got {}", n1);
         // Re-running should be a no-op (marker file written)

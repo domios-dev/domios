@@ -34,7 +34,6 @@ pub fn ensure_scripts() {
         return;
     }
 
-    // zsh: ZDOTDIR points here. .zshrc restores the user's ZDOTDIR, sources
     // their startup files, then installs the OSC 633 precmd/preexec hooks last.
     let zshrc = dir.join(".zshrc");
     let zshrc_content = format!(
@@ -102,12 +101,6 @@ pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
         } else if shell.contains("bash") {
             let bashrc_path = dir.join("bashrc");
             if bashrc_path.exists() {
-                // The default plain terminal is built via `new_default_prog()` (a
-                // login shell), which PANICS if `arg()` is called on it — that
-                // panic crashed spawn_pty and left bash terminals blank (zsh was
-                // unaffected: env-only). `--rcfile` is only valid on an explicit
-                // -prog builder; for the login shell, integration rides BASH_ENV
-                // plus the rc sourcing ~/.bashrc.
                 if !cmd.is_default_prog() {
                     // --rcfile drives interactive non-login bash.
                     cmd.arg("--rcfile");

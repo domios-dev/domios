@@ -36,7 +36,6 @@ fn ensure_agent_state(state: &AppState, pane_id: &str) {
 
     let agent_changed = agent_type.is_none();
     if agent_changed {
-        // TODO(plugin-prep): when plugins can register HTTP routes, move this whole hook handler into plugin/agent_claude/ and let each provider own
         // its own hook endpoints.
         state
             .svc
@@ -144,7 +143,6 @@ pub async fn hook_permission(
             if !matches!(decision, crate::agent::prompt::PromptDecision::None) {
                 decision
             } else {
-                // Fallback: raw output buffer (preserves UTF-8, contains ANSI). VT100 parser can garble multi-byte chars (C1 byte stripping), so we try the
                 // raw buffer with ANSI stripped as a second source.
                 let raw = state
                     .svc
@@ -313,7 +311,6 @@ pub async fn hook_session_start(
         )?
     };
 
-    // Capture the freshly-bound session onto the hidden run's record (worker / cron) immediately, so a LIVE run is renderable in the read-only chat-ui
     // while it runs — not only after completion.
     propagate_run_session(&state, &pane_id, &sid);
 
@@ -474,8 +471,6 @@ fn bind_reported_session(
     }
     let cwd = pane.cwd.clone().unwrap_or_default();
 
-    // A verified launch nonce already proves ownership; the session file just hasn't
-    // been persisted yet (fresh agent spawn at session_start). Only gate nonce-less /
     let exists = nonce_verified
         || registry
             .with_provider(provider_id, |p| p.session_exists(&cwd, sid))
@@ -792,8 +787,6 @@ mod tests {
 
     #[test]
     fn fresh_launch_with_matching_nonce_accepts_unpersisted_session() {
-        // P0.2 regression: a session WE just launched carries a valid per-launch
-        // nonce but is not yet on disk at session_start time. A matching nonce is
         let (mut mux, pane_id) = MultiplexerState::new();
         let pane = mux.get_pane_mut(&pane_id).unwrap();
         pane.cwd = Some("/tmp/project".into());
@@ -847,7 +840,6 @@ mod tests {
 
     #[test]
     fn pane_with_nonce_but_nonceless_report_rejects_unpersisted_session() {
-        // CB181 preserved: without a matching nonce, an unknown/unpersisted sid is
         // still gated by session_exists — a nonce-less report is not proof-of-ownership.
         let (mut mux, pane_id) = MultiplexerState::new();
         let pane = mux.get_pane_mut(&pane_id).unwrap();
@@ -865,7 +857,6 @@ mod tests {
 
     #[test]
     fn fresh_launch_with_matching_nonce_still_rejects_already_claimed_sid() {
-        // A valid nonce skips session_exists, but the already-claimed guard must
         // still fire — two panes cannot own the same live session.
         let (mut mux, pane_a) = MultiplexerState::new();
         mux.get_pane_mut(&pane_a).unwrap().cwd = Some("/tmp/project".into());

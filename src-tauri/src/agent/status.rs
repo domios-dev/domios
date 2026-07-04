@@ -181,7 +181,6 @@ mod tests {
     fn test_check_idle_timed_out() {
         let mut tracker = PaneStatusTracker::new();
         tracker.update_output("pty-1", [1u8; 32]);
-        // Use zero duration to trigger immediate idle
         tracker.check_idle("pty-1", Duration::from_millis(0));
         assert_eq!(tracker.get_status("pty-1"), PaneStatus::Idle);
     }
@@ -193,7 +192,6 @@ mod tests {
         tracker.check_idle("pty-1", Duration::from_millis(0));
         assert_eq!(tracker.get_status("pty-1"), PaneStatus::Idle);
 
-        // New output should reset to Working
         tracker.update_output("pty-1", [2u8; 32]);
         assert_eq!(tracker.get_status("pty-1"), PaneStatus::Working);
     }
@@ -210,10 +208,8 @@ mod tests {
     fn test_same_screen_hash_does_not_reset_timer() {
         let mut tracker = PaneStatusTracker::new();
         tracker.update_output("pty-1", [1u8; 32]);
-        // Same hash — should NOT reset idle timer or set Working again
         tracker.check_idle("pty-1", Duration::from_millis(0));
         assert_eq!(tracker.get_status("pty-1"), PaneStatus::Idle);
-        // Same hash after idle — stays idle
         tracker.update_output("pty-1", [1u8; 32]);
         assert_eq!(tracker.get_status("pty-1"), PaneStatus::Idle);
     }

@@ -213,7 +213,6 @@ pub(super) fn build_snapshot(
                 if let Some((dir, m)) = manifests.get(&id) {
                     enrich_from_manifest(entry, dir, m);
                 }
-                // Keep snapshots manifest-only: live chatBackend list_models() grabs
                 // the plugin VM mutex and can block tab/session loading.
                 if let Some(obj) = entry.as_object_mut() {
                     obj.insert(
@@ -244,7 +243,6 @@ pub(super) fn build_snapshot(
     // Best-effort register the default channel so its plugins surface as available; offline failures retry next snapshot.
     let _ = run_plugin_cli(&["plugin", "channel", "ensure-default", "--json"]);
     let channels = run_plugin_cli(&["plugin", "channel", "list", "--json"])?;
-    // The channel diff does a per-channel git clone (4-7s) — served from a
     // background-refreshed cache so it never blocks the snapshot hot path.
     let diff = super::diff_cache::cached_diff(fetch_channel_diff);
 
@@ -409,7 +407,6 @@ mod tests {
             serde_json::json!("Set `baseUrl` and `model` to point at your LM Studio server.")
         );
 
-        // configHelp absent → fall back to description so the magic button always
         // has agent-facing text.
         let no_help = serde_json::json!({
             "id": "git",

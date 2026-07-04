@@ -17,7 +17,6 @@ fn entity_roundtrip() {
         properties: serde_json::json!({"name": "Kai"}),
     };
     insert_entity(&conn, &e).unwrap();
-    // Idempotent on second insert
     insert_entity(&conn, &e).unwrap();
 }
 
@@ -55,7 +54,6 @@ fn relation_with_as_of_filter() {
     )
     .unwrap();
 
-    // As of 2026-02-01: should see project_a only
     let r = related(
         &conn,
         "person_kai",
@@ -67,7 +65,6 @@ fn relation_with_as_of_filter() {
     assert_eq!(r.len(), 1);
     assert_eq!(r[0].to_id, "project_a");
 
-    // As of 2026-04-01: should see project_b only
     let r = related(
         &conn,
         "person_kai",
@@ -108,13 +105,11 @@ fn related_is_bidirectional() {
     )
     .unwrap();
 
-    // Query target entity — should find the incoming relation
     let r = related(&conn, "person_alex", None, None, false).unwrap();
     assert_eq!(r.len(), 1);
     assert_eq!(r[0].from_id, "note_a");
     assert_eq!(r[0].to_id, "person_alex");
 
-    // Query source — should also find it
     let r = related(&conn, "note_a", None, None, false).unwrap();
     assert_eq!(r.len(), 1);
 }
@@ -233,7 +228,6 @@ fn traverse_excludes_invalidated_by_default() {
 #[test]
 fn shortest_path_skips_invalidated_edges() {
     let conn = fresh();
-    // A -> B (dead) and A -> C -> B (alive): path must go through C
     for id in ["e_a", "e_b", "e_c"] {
         insert_entity(
             &conn,
@@ -303,7 +297,6 @@ fn shortest_path_skips_invalidated_edges() {
 fn tunnels_excludes_entities_only_on_invalidated_edges() {
     let conn = fresh();
     let now = chrono::Utc::now().to_rfc3339();
-    // Two mem_items with distinct areas + an entity
     for (id, area) in [("m_a", "alpha"), ("m_b", "beta")] {
         conn.execute(
                 "INSERT INTO mem_items (id, uid, kind, scope, title, tags_json, area, created_at, updated_at)
@@ -321,7 +314,6 @@ fn tunnels_excludes_entities_only_on_invalidated_edges() {
         },
     )
     .unwrap();
-    // ONLY invalidated edges connect this entity to the two areas
     for src in ["m_a", "m_b"] {
         insert_relation(
             &conn,

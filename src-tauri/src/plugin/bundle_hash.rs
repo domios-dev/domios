@@ -90,7 +90,6 @@ pub fn hash_bundle(plugin_dir: &Path) -> Result<String, HashError> {
     let mut entries: Vec<(String, PathBuf)> = Vec::new();
     collect_entries(plugin_dir, plugin_dir, &mut entries)?;
 
-    // Sort by path bytes for cross-platform determinism. String sort happens to align with bytes for ASCII paths; for non-ASCII names we still
     // want byte-level ordering, not locale ordering.
     entries.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
 
@@ -297,7 +296,6 @@ mod tests {
 
     #[test]
     fn forward_slash_canonical_path_separator() {
-        // The relative path component fed into the inner hash uses '/' not '\'. We verify this implicitly: a bundle hashed on Windows should match one
         // hashed on Unix for identical content. Direct check: rename file to nested and verify hash depends on logical name, not raw OS separator.
         let a = tempfile::tempdir().unwrap();
         write(a.path(), "sub/file.js", b"x\n");

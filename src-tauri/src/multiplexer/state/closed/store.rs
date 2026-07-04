@@ -665,13 +665,11 @@ mod tests {
                 &[pane("newer", "w", "newer", 2)],
             )
             .unwrap();
-        // index 1 = the older one
         let taken = store.take_in_workspace("w", 1).unwrap();
         assert_eq!(taken.pane_id, "older");
         let rest = store.list_for_workspace("w");
         assert_eq!(rest.len(), 1);
         assert_eq!(rest[0].pane_id, "newer");
-        // group with no remaining panes is pruned
         assert!(store.take_group("g1").is_none());
     }
 
@@ -703,7 +701,6 @@ mod tests {
         assert!(panes
             .iter()
             .any(|p| p.parent_pane_id.as_deref() == Some("root")));
-        // consumed
         assert!(store.list_for_workspace("w").is_empty());
     }
 
@@ -906,7 +903,6 @@ mod tests {
     fn global_group_cap_drops_oldest_groups() {
         let store = ClosedPanesStore::in_memory();
         for i in 0..(CLOSED_GROUP_CAP + 3) {
-            // each in its own workspace so per-workspace cap never fires
             let ws = format!("w{i}");
             store
                 .insert_group(
@@ -917,7 +913,6 @@ mod tests {
         }
         let total: usize = store.list_recent(CLOSED_GROUP_CAP + 100).len();
         assert_eq!(total, CLOSED_GROUP_CAP, "global group cap bounds total");
-        // oldest workspace gone
         assert!(store.list_for_workspace("w0").is_empty());
     }
 

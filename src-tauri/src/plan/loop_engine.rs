@@ -168,7 +168,6 @@ mod tests {
         assert!(can_advance(&l));
         advance(&mut l);
         assert!(!can_advance(&l), "exhausted loop cannot advance");
-        // a stopped loop also cannot advance regardless of stagnation
         let mut s = LoopSpec {
             budget: 10,
             stagnation: 5,

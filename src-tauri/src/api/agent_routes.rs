@@ -543,8 +543,6 @@ pub async fn respond_prompt(
         .and_then(|v| v.as_str())
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing 'value' field".to_string()))?
         .to_string();
-    // respond_prompt's structured reply uses a BLOCKING reqwest client (it drops an
-    // internal runtime), which panics if run on the async runtime. Send it off the
     let svc = state.svc.clone();
     let pid = pane_id.clone();
     tokio::task::spawn_blocking(move || svc.respond_prompt(&pid, &value))
@@ -821,14 +819,12 @@ mod tests {
         );
         assert_eq!(shell["transport"], "chat_backend");
         assert_eq!(shell["display_name"], "Local Shell");
-        // describe() is a pure/cheap descriptor and never calls the live
         // list_models() getter, so this stays empty by design.
         assert_eq!(shell["available_models"].as_array().unwrap().len(), 0);
     }
 
     #[test]
     fn provider_listing_hides_non_spawnable_chatbackends() {
-        // Regression: the NPC backend (bare `chatBackend: true`) wrongly showed
         // in the new-session picker. Only spawnable shells are listed.
         let registry = facade_with(&[
             ("local-shell", std::sync::Arc::new(ListingShell)),

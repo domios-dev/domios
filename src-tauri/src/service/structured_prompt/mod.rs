@@ -151,7 +151,6 @@ pub fn respond(svc: &ServiceContext, pane_id: &str, value: &str) -> Option<Resul
     let route = route_for_pane(pane_id)?;
     let base_url = ENDPOINTS.lock().get(pane_id).map(|e| e.base_url.clone())?;
     let result = send_reply(&base_url, &route, value);
-    // Clear locally regardless — a failed reply leaves the agent blocked, but a
     // stale prompt in the UI is worse; the next SSE event re-surfaces if needed.
     ACTIVE.lock().remove(pane_id);
     svc.push_structured_prompt(pane_id, None);
@@ -206,8 +205,6 @@ fn send_reply(base_url: &str, route: &ResponseRoute, value: &str) -> Result<(), 
 }
 
 fn run_subscriber(svc: ServiceContext, pane_id: String, base_url: String, cwd: String) {
-    // A handful of reconnect attempts — the server is local and comes up within
-    // a second or two of spawn; give up (and let a later bind restart us) if it
     for attempt in 0..30u32 {
         if pane_gone(&svc, &pane_id) {
             break;

@@ -794,7 +794,6 @@ pub fn create_router(state: AppState) -> Router {
             get(logs_routes::list_logs).delete(logs_routes::delete_logs),
         );
 
-    // gzip-scoped snapshot route: 100k-node payloads compress ~4:1. Kept on its
     // own sub-router so compression only runs for this large response.
     let router = router.merge(
         Router::new()
@@ -805,14 +804,10 @@ pub fn create_router(state: AppState) -> Router {
             .layer(CompressionLayer::new()),
     );
 
-    // Web mirror: serve the built React bundle at the daemon root with an SPA
-    // fallback (deep links resolve to index.html). Public route — the auth
-    // middleware skips non-/api paths; all API calls remain token-gated.
     let router = if let Some(dist) = &state.web_dist {
         let root_serve = tower_http::services::ServeDir::new(dist).fallback(
             tower_http::services::ServeFile::new(dist.join("index.html")),
         );
-        // no-cache = revalidate every load (304s via Last-Modified). Installed
         // iOS web apps otherwise heuristically cache index.html and miss updates.
         let root_serve = tower_http::set_header::SetResponseHeader::overriding(
             root_serve,

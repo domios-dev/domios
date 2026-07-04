@@ -243,9 +243,6 @@ pub fn detect_tailscale(mesh: &Arc<Mutex<MeshManager>>) {
         mesh.lock().tailscale_ip = Some(ip);
         return;
     }
-    // macOS: the only CLI candidate is the app-bundle shim, and spawning it
-    // LAUNCHES the GUI app. Read passively via the LocalAPI instead — if
-    // Tailscale is off the read just fails and we leave it off.
     #[cfg(target_os = "macos")]
     {
         match super::serve_setup::macos_self_tailscale_ip() {
@@ -510,7 +507,6 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
         )
     };
 
-    // Sender — only sends when broadcast_active
     let mesh_for_sender = mesh.clone();
     let sender_id = instance_id.clone();
     let sender_name = instance_name.clone();
@@ -546,7 +542,6 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
                     let mut packet = Vec::with_capacity(BROADCAST_MAGIC.len() + json.len());
                     packet.extend_from_slice(BROADCAST_MAGIC);
                     packet.extend_from_slice(&json);
-                    // LAN broadcast
                     if let Err(e) = sock.send_to(&packet, format!("255.255.255.255:{}", api_port)) {
                         log::debug!("[mesh/udp] Broadcast send failed: {}", e);
                     }
@@ -560,7 +555,6 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
         }
     });
 
-    // Listener — always active
     let mesh_clone = mesh.clone();
     std::thread::spawn(move || {
         let sock = match std::net::UdpSocket::bind(format!("0.0.0.0:{}", api_port)) {
@@ -736,7 +730,6 @@ pub fn send_immediate_beacon(mesh: &Arc<Mutex<MeshManager>>) {
     let mut packet = Vec::with_capacity(BROADCAST_MAGIC.len() + json.len());
     packet.extend_from_slice(BROADCAST_MAGIC);
     packet.extend_from_slice(&json);
-    // LAN broadcast
     if let Err(e) = sock.send_to(&packet, format!("255.255.255.255:{}", api_port)) {
         log::debug!("[mesh/udp] Immediate beacon broadcast failed: {}", e);
     }

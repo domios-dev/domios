@@ -198,8 +198,6 @@ mod tests {
 
     #[test]
     fn mem_recall_without_service_context_passes_through() {
-        // When no ServiceContext is injected (unit test), host.mem.search returns an
-        // error envelope.  The plugin must treat empty/errored mem as an absent block
         let settings = serde_json::json!({
             "enabled": true,
             "activePreset": "mem-recall"
@@ -217,7 +215,6 @@ mod tests {
 
     #[test]
     fn missing_user_preset_id_passes_through() {
-        // If activePreset names a preset that isn't in the presets array, the plugin
         // must return null (nothing to apply) rather than crashing or outputting garbage.
         let settings = serde_json::json!({
             "enabled": true,

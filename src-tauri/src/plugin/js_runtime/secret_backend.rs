@@ -22,7 +22,6 @@ pub struct JsSecretBackend {
 
 impl JsSecretBackend {
     pub fn new(vm: Arc<PluginVm>, id: &str) -> Self {
-        // SecretStore::id is `&'static str`; the plugin id is dynamic, so leak it
         // once at construction (bounded: one small leak per plugin load).
         Self {
             vm,
@@ -230,6 +229,5 @@ mod tests {
         assert!(b.init().await.is_ok());
     }
 
-    // NOTE: Bitwarden-specific behaviour (bw CLI envelopes, cipher shape, error
     // mapping) is tested on the PLUGIN side — see plugins/bitwarden/plugin.test.cjs.
 }

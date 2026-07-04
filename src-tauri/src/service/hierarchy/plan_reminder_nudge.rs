@@ -244,7 +244,6 @@ impl ServiceContext {
                 {
                     text = format!("{prefix}\n\n{text}");
                 }
-                // While planning is unapproved, delegate structure drafting to the
                 // Planner by name (state + binding derived, not pane-guessed).
                 if let Some(planning_state) = self.plan_store.get(plan_id).map(|p| p.planning_state)
                 {
@@ -267,7 +266,6 @@ impl ServiceContext {
         crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text).is_ok()
     }
 
-    // Names the aged/stale open tasks driving the escalation so the nudge points
     // at concrete drift instead of a generic reminder. None when nothing is aged.
     fn aged_task_callout(&self, plan_id: &str) -> Option<String> {
         let plan = self.plan_store.get(plan_id)?;

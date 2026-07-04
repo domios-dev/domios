@@ -55,14 +55,9 @@ fn is_custom_auth(method: &Method, path: &str) -> bool {
     if path == "/api/mesh/relay" || path == "/api/mesh/introduce" {
         return true;
     }
-    // Relayed peer plugin-UI assets: an iframe `src` can't send a Bearer header,
-    // so the handler self-verifies the local token (query) on the .html entry and
-    // is read-only ui/-scoped. A prefix is safe here (unlike /peers/) — a single
-    // proxy handler owns /relay-asset/, no mutating sibling shares it.
     if path.starts_with("/api/mesh/relay-asset/") {
         return true;
     }
-    // Unpair: DELETE /api/mesh/peers/{id} — exactly one id segment (4 slashes),
     // distinct from POST /peers/add-manual and the deeper /peers/{id}/… routes.
     method == Method::DELETE
         && path.starts_with("/api/mesh/peers/")
@@ -76,7 +71,6 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
     }
 
     if let Some(ref api_token) = state.config.lock().api.token {
-        // Constant-time compare — a plain `==` short-circuits on the first
         // differing byte and leaks the token prefix length via timing.
         if !api_token.is_empty()
             && crate::service::tokens::constant_time_eq(token.as_bytes(), api_token.as_bytes())
@@ -96,7 +90,6 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
     let mesh = state.mesh.lock();
     let mut known_keys = mesh.known_public_keys();
     let own_id = mesh.ident.identity.instance_id.clone();
-    // Always register self as a known key. Prefer the cached pubkey, but fall back to deriving it from the private key on the fly — covers
     // identities serialized before public_key was added to MeshIdentity, which otherwise 401 every CLI call from outside a PTY (issue #1 from 1.1.9 SMOKE).
     let self_pubkey = mesh.ident.identity.public_key.clone().or_else(|| {
         mesh.ident
@@ -135,7 +128,6 @@ fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
             if *method == Method::GET {
                 return true;
             }
-            // Agents need to send commands, exec, spawn, report
             let write_allowed = [
                 "/send",
                 "/exec",
@@ -206,7 +198,6 @@ pub async fn auth_middleware(
     let path = req.uri().path().to_string();
     let method = req.method().clone();
 
-    // Mesh-disabled gate: blocks /api/mesh/* except /api/mesh/ping (so paired peers detect us as down without retrying forever) and
     // /api/mesh/enabled (the local on/off switch — it MUST stay reachable to turn mesh back on; still token-gated, peers rejected below).
     if path.starts_with("/api/mesh/") && path != "/api/mesh/ping" && path != "/api/mesh/enabled" {
         let mesh_enabled = state.config.lock().mesh.enabled;
@@ -224,16 +215,10 @@ pub async fn auth_middleware(
         }
     }
 
-    // The static web bundle is public by design: it is the same React code
-    // anyone can build from the repo. Every API call it makes is still
-    // token-gated. Treat non-/api paths as public so the root SPA, static
-    // assets, PWA manifest, and client-side deep links can load directly.
     if !path.starts_with("/api/") {
         return next.run(req).await;
     }
 
-    // Plugin iframe UI assets (`/api/plugins/<id>/ui/*`) self-verify via a query
-    // token — an iframe `src` can't send a Bearer header. Static plugin UI code,
     if path.starts_with("/api/plugins/") && path.contains("/ui/") {
         return next.run(req).await;
     }
@@ -322,7 +307,6 @@ mod tests {
         // The bare route without a peer segment is not the proxy — not exempt.
         assert!(!is_custom_auth(&Method::GET, "/api/mesh/relay-asset"));
 
-        // Regression: these used to be exempted by the prefix match and were
         // therefore fully unauthenticated. They must NOT be custom-auth.
         assert!(!is_custom_auth(
             &Method::GET,

@@ -98,9 +98,6 @@ mod tests {
 
     #[test]
     fn provider_id_is_never_returned_as_a_fallback_title() {
-        // The caller must NOT pass agent_cmd as either argument — this test
-        // documents the contract: with nothing real supplied, the answer is
-        // always None, never Some(provider_id).
         assert_eq!(creation_title_override(None, None), None);
     }
 }

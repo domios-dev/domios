@@ -196,9 +196,6 @@ mod tests {
 
     #[test]
     fn worker_under_free_pane_auto_promotes_and_links() {
-        // Regression: spawning a worker under a FREE (not-yet-Orchestrator) pane must
-        // promote it and PERSIST the parent link. Previously the link was silently
-        // dropped (the early-child race), leaving the worker parentless.
         let (mut mux, _root) = MultiplexerState::new();
         let parent = mux.create_pane(); // free: role=None, can_spawn=false by default
         let worker = mux.create_pane();
@@ -258,7 +255,6 @@ mod tests {
 
     #[test]
     fn explicit_set_can_spawn_after_role_does_not_clobber_role() {
-        // Pre-fix #42: callers chained set_pane_role + set_can_spawn(false) and accidentally reset Orchestrator's can_spawn to false on every spawn
         // Preserve old permissive role behavior: only override fields explicitly provided via --can-spawn.
         let (mut mux, _root) = MultiplexerState::new();
         let pane = mux.create_pane();

@@ -335,13 +335,11 @@ mod tests {
             .unwrap()
             .starts_with("gate:gate_"));
 
-        // t2 and t3 still pending — frontier not frozen
         let task2 = plan.tasks.iter().find(|t| t.id == t2).unwrap();
         let task3 = plan.tasks.iter().find(|t| t.id == t3).unwrap();
         assert_eq!(task2.status, TaskStatus::Pending);
         assert_eq!(task3.status, TaskStatus::Pending);
 
-        // Plan still has open work — never fully frozen by one gate
         assert!(plan.tasks.iter().any(|t| t.status.counts_as_open_work()));
     }
 
@@ -392,7 +390,6 @@ mod tests {
             .ask_gate(&pid, "Question?", "", &[tids[0].clone()], None, None, 1000)
             .unwrap();
         let plan = store.get(&pid).unwrap();
-        // tids[1] is still open work even though tids[0] is parked
         assert!(
             plan.tasks.iter().any(|t| t.status.counts_as_open_work()),
             "plan must retain open work so frontier keeps dispatching"
@@ -461,7 +458,6 @@ mod tests {
             escalated_at: None,
             escalation_note: None,
         });
-        // now_ms > STALE_GATE_MS so gate is stale
         let findings = gate_doctor_findings(&plan, STALE_GATE_MS + 1);
         assert!(findings
             .iter()

@@ -43,7 +43,6 @@ impl ServiceContext {
                 Ok(())
             }
             Err(e) if e.contains("not found") => {
-                // Cross-mesh workers live only in RemoteWorkerRegistry — their
                 // foreign pane id is what `agent unlink --pane` passes.
                 let touched = self
                     .remote_workers
@@ -148,13 +147,6 @@ impl ServiceContext {
             .map(ReportTarget::Local)
             .or(default_target_opt);
 
-        // Mesh homing: relay plan ops when the plan lives on a remote peer.
-        // Fires on two conditions:
-        //   (a) plan not found locally at all (eff_plan_id is None), or
-        //   (b) explicit plan_id was provided but resolve_plan_ctx silently
-        //       substituted a local binding — the explicit ref must win.
-        // When homing fires, suppress local milestone recording so the milestone
-        // doesn't land on the wrong local plan.
         let foreign = is_explicit_plan_foreign(plan_id, eff_plan_id.as_deref());
         let homed_to_remote = if eff_plan_id.is_none() || foreign {
             let h_plan = plan_id.map(str::trim).filter(|s| !s.is_empty());
@@ -203,7 +195,6 @@ impl ServiceContext {
         };
 
         if let Some(ref plan_id) = eff_plan_id {
-            // Skip local recording when the explicit ref is foreign (whether or not
             // homing succeeded) — avoids a milestone landing on the wrong local plan.
             if !homed_to_remote && !foreign {
                 let task_id = eff_task_id
@@ -312,9 +303,6 @@ impl ServiceContext {
         );
 
         match target {
-            // Remote worker: the real orchestrator/General target lives on a
-            // paired peer. Reuse the signed mesh `/send` relay so the report
-            // surfaces there exactly like a local `[Report from <worker>@<peer>]`.
             ReportTarget::Mesh { peer, pane } => {
                 self.relay_report_to_peer(
                     peer,

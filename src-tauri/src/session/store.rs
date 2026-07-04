@@ -180,7 +180,6 @@ impl SessionStore {
             return;
         }
 
-        // Sort by name (timestamp) ascending — oldest first
         entries.sort_by_key(|e| e.file_name());
         let to_remove = entries.len() - MAX_BACKUPS;
         for entry in entries.into_iter().take(to_remove) {

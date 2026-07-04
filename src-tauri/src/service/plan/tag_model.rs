@@ -299,7 +299,6 @@ mod tests {
         let s = slug(&long);
         assert!(s.len() <= 72, "slug must cap length, got {}", s.len());
         assert!(!s.ends_with('-'), "no trailing dash");
-        // short titles unaffected
         assert_eq!(slug("Pan Zoom"), "pan-zoom");
     }
 

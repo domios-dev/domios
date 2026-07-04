@@ -77,7 +77,6 @@ pub async fn status(
     check_auth(&state, &headers)?;
     let store = state.svc.secrets.read().await;
     let st = store.status().await;
-    // Bitwarden is a plugin now; its saved master lives in the plugin's own
     // secret bucket. (Native Bitwarden is gone — `local` is the only native store.)
     let master_password_saved = store.id() == "bitwarden"
         && crate::secrets::secret_file::SecretFile::new("codeterm.plugin.bitwarden")
@@ -309,7 +308,6 @@ pub async fn save_item(
     }
     let store = state.svc.secrets.read().await;
 
-    // Fill in default organization / collection from config when the caller did not specify one explicitly. An empty string in config means
     // "personal vault" — leave it as None so the backend doesn't try to attach to a non-existent org.
     let cfg = crate::config::load_config();
     let default_org = some_if_nonempty(&cfg.integrations.secrets.default_organization);
@@ -407,7 +405,6 @@ pub async fn switch_backend(
         return Err((s, Json(serde_json::json!({"error": m}))));
     }
 
-    // A backend is valid if it's a built-in factory (local/mock) OR a plugin
     // registered into the secret registry (e.g. the Bitwarden plugin).
     if crate::secrets::get_factory(&body.backend).is_none()
         && !state.svc.secret_registry.contains(&body.backend)
@@ -429,7 +426,6 @@ pub async fn switch_backend(
     {
         let mut cfg = crate::config::load_config();
         cfg.integrations.secrets.backend = body.backend.clone();
-        // Server URL belongs to the Bitwarden *plugin* config now (it reads
         // config.plugins.bitwarden.serverUrl); native Bitwarden is gone.
         if let Some(url) = body.bitwarden_server_url.as_ref() {
             let entry = cfg

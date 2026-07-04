@@ -249,7 +249,6 @@ fn apply_theme_with_overrides(
 ) -> ThemeConfig {
     let gh_default = ThemeConfig::default();
 
-    // Helper: if user value differs from github-dark default, it's an explicit override
     macro_rules! pick {
         ($field:ident) => {
             if user.$field != gh_default.$field {
@@ -323,7 +322,6 @@ size = 16
         let config: AppConfig = toml::from_str(partial).expect("partial TOML should parse");
         assert_eq!(config.theme.name, "dracula");
         assert_eq!(config.font.size, 16);
-        // Defaults for fields not specified
         assert_eq!(config.terminal.scrollback, 10000);
         assert!(config.api.enabled);
         assert_eq!(config.keybindings.new_tab, "Ctrl+T");
@@ -334,7 +332,6 @@ size = 16
         let mut config = AppConfig::default();
         config.theme.name = "dracula".to_string();
         resolve_theme(&mut config);
-        // Dracula background should NOT be github-dark default
         assert_ne!(config.theme.background, "#0d1117");
         assert_eq!(config.theme.name, "dracula");
     }
@@ -435,7 +432,6 @@ pub async fn update_config(
         resolve_theme(&mut resolved);
     }
 
-    // Detect rename so we can sync mesh state + push the new name to peers immediately instead of waiting for the next periodic announce. Without
     // this, paired peers stay on the old instance_name forever (the alias-propagation bug seen after an instance rename).
     let prev_name = state.lock().mesh.instance_name.clone();
     let new_name = resolved.mesh.instance_name.clone();
@@ -467,7 +463,6 @@ pub async fn update_config(
         });
     }
 
-    // Emit config-changed event for live reload
     crate::api::events::emit_everywhere(&app, "config-changed", &resolved);
     Ok(())
 }
@@ -494,7 +489,6 @@ pub async fn save_custom_theme(theme_id: String, toml_content: String) -> Result
         schema::user_themes_dir().ok_or_else(|| "Cannot determine themes directory".to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create themes dir: {}", e))?;
     let path = dir.join(format!("{}.toml", theme_id));
-    // Validate the TOML parses as a theme before saving
     schema::parse_builtin_theme(&toml_content)?;
     std::fs::write(&path, &toml_content).map_err(|e| format!("Failed to write theme: {}", e))?;
     log::info!("Custom theme saved: {} at {:?}", theme_id, path);

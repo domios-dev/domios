@@ -45,13 +45,10 @@ pub fn get_network_info(
 ) -> Result<serde_json::Value, String> {
     let local_ip =
         crate::api::routes::local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
-    // Single source of truth: read the cached value populated by `mesh::discovery::detect_tailscale` from the periodic refresh loop. Avoids
     // duplicating the probe logic (which lacked IP validation, the GUI-bridge fallback, and a timeout).
     let tailscale_ip = mesh.lock().tailscale_ip.clone();
     let tailscale_dns = crate::mesh::discovery::tailscale_self_dns_name();
     let port = state.lock().api.port;
-    // Live probe, but fall back to the value the periodic refresh cached when the
-    // Tailscale CLI was last reachable. The macOS App-Store GUI CLI intermittently
     let tailscale_https_url = crate::mesh::tailscale_serve_https_url(port)
         .or_else(|| mesh.lock().local_https_url.clone());
     Ok(serde_json::json!({
@@ -74,8 +71,6 @@ pub fn get_serve_status(
 ) -> crate::mesh::ServeStatus {
     let port = state.lock().api.port;
     let mut status = crate::mesh::probe_serve_status(port);
-    // Fall back to the periodic refresh's cached serve URL when the live probe
-    // comes back empty (intermittent macOS GUI-CLI failures), so the panel keeps
     if status.https_url.is_none() {
         if let Some(cached) = mesh.lock().local_https_url.clone() {
             status.https_url = Some(cached);

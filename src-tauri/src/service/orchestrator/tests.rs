@@ -192,7 +192,6 @@ fn test_build_claude_task_with_newlines() {
     let reg = test_registry();
     let params = make_params("claude", Some("line1\nline2\nline3"));
     let cmd = build_agent_command("claude", &params, Some("line1\nline2\nline3"), None, &reg);
-    // Task goes through temp file, so newlines are preserved in the file
     assert!(
         cmd.contains(".ct-task-"),
         "task with newlines still uses temp file"
@@ -206,7 +205,6 @@ fn test_build_claude_task_with_single_quotes() {
     let task = "count files that don't match '*.rs'";
     let params = make_params("claude", Some(task));
     let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
-    // Task is written to a temp file, so quotes don't break the command
     assert!(cmd.contains(".ct-task-"));
 }
 
@@ -225,7 +223,6 @@ fn test_build_claude_task_with_shell_special_chars() {
     let task = "echo $HOME && ls | grep foo; rm -rf /tmp/test";
     let params = make_params("claude", Some(task));
     let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
-    // Should not contain raw special chars in the command itself — they're in the temp file
     assert!(cmd.contains(".ct-task-"));
     assert!(
         !cmd.contains("$HOME"),
@@ -239,7 +236,6 @@ fn test_build_claude_task_temp_file_created() {
     let task = "test task content";
     let params = make_params("claude", Some(task));
     let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
-    // Extract the temp file path from the command and verify it was written
     if cfg!(not(target_os = "windows")) {
         // Command looks like: ... "$(cat /tmp/.ct-task-XXXXXXXX)"
         let start = cmd.find("/tmp/.ct-task-").unwrap();
@@ -247,7 +243,6 @@ fn test_build_claude_task_temp_file_created() {
         let path = &cmd[start..end];
         let content = std::fs::read_to_string(path).unwrap();
         assert_eq!(content, task, "temp file should contain the task verbatim");
-        // Cleanup
         let _ = std::fs::remove_file(path);
     }
 }
@@ -265,8 +260,6 @@ fn test_build_claude_with_extra_args() {
 
 #[test]
 fn test_build_with_model_uses_provider_specific_flag() {
-    // claude → `--model X`. codex/opencode model-flag syntax is JS-plugin logic now
-    // (covered in plugins/provider-*/tests); here we verify the orchestrator
     let reg = AgentRegistry::new();
     reg.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
 
@@ -333,10 +326,8 @@ fn test_build_with_resume_session_id_uses_provider_resume_form() {
 #[test]
 fn test_build_non_claude_ignores_task_in_command() {
     let reg = test_registry();
-    // For non-claude agents, build_agent_command does NOT embed the task
     let params = make_params("aider", Some("review this code"));
     let cmd = build_agent_command("aider", &params, Some("review this code"), None, &reg);
-    // Non-claude: task is NOT added to the command (it's sent separately via PTY) The function just puts agent_cmd + args
     assert_eq!(cmd, "aider");
 }
 

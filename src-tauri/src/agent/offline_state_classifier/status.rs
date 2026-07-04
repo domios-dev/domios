@@ -341,7 +341,6 @@ mod tests {
         assert_eq!(status.line, "Composing");
     }
 
-    // Real Claude Code v2.1.x working footer bytes (captured): elapsed + token
     // counter + a trailing "thinking with high effort" phase word.
     #[test]
     fn current_gen_thinking_footer_is_status_line() {

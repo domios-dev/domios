@@ -91,27 +91,21 @@ fn sender_id_from_headers(state: &AppState, headers: &HeaderMap) -> Option<Strin
 fn path_requires_full_access(method: &str, path: &str) -> bool {
     let m = method.to_ascii_uppercase();
     let bare = path.split('?').next().unwrap_or(path);
-    // DELETE /api/mesh/peers/<id> needs starts_with check — matches! can't do that
     if m == "DELETE" && bare.starts_with("/api/mesh/peers/") {
         return true;
     }
     matches!(
         (m.as_str(), bare),
-        // Existing: update/install paths
         ("POST", "/api/update/install")
             | ("POST", "/api/update/channel")
             | ("POST", "/api/mesh/refresh")
-        // Mesh pairing — can't let a partial peer pair new nodes
             | ("POST", "/api/mesh/pair/request")
             | ("POST", "/api/mesh/pair/accept")
             | ("POST", "/api/mesh/introduce")
-        // Agent lifecycle — spawning agents is privileged
             | ("POST", "/api/agents/spawn")
-        // Hook injection — hooks can approve tool calls
             | ("POST", "/api/hooks/permission")
             | ("POST", "/api/hooks/stop")
             | ("POST", "/api/hooks/session_start")
-        // Config mutation
             | ("POST", "/api/config")
             | ("PUT", "/api/config")
     )
@@ -317,7 +311,6 @@ pub async fn mesh_relay_to_peer(
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
 
-    // A remote spawn relayed from the local UI registers its worker so the
     // sidebar ghosts it under the report target immediately (no report yet).
     if let Some((report_to, remote_pane, title, model)) =
         spawn_registration_from_relay(&cmd.method, &cmd.path, &cmd.body, &resp)
@@ -386,8 +379,6 @@ pub async fn mesh_relay(
             .unwrap_or_else(|| sender_id.clone())
     };
 
-    // Tag the originating peer so the forwarded local /send applies the one
-    // canonical, agent-guarded Messenger (agents get `label@peer`; shells stay
     let mut body = cmd.body.clone();
     tag_relay_send_source(&mut body, &cmd.method, &cmd.path, &sender_name);
     tag_relay_spawn_source(&mut body, &cmd.method, &cmd.path, &sender_name);
@@ -402,7 +393,6 @@ pub async fn mesh_relay(
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
-        // A compromised paired peer must not be able to redirect this proxy
         // off the whitelisted path — forward the redirect verbatim instead.
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -471,12 +461,6 @@ pub async fn mesh_relay(
     }))
 }
 
-// ── Relay streaming pass-through (D2 §3 / §4) ─────────────────────────────
-//
-// The local daemon is a dumb byte pipe: it opens a signed request to the
-// peer's REAL endpoint and copies the response body chunks straight to the
-// browser. It never generates, filters, buffers, or reorders frames, so the
-// relayed stream inherits D1's cursor/overflow contract (S2b/S2c) verbatim.
 
 /// The only two cursor'd SSE streams a relay target may serve. Both carry D1
 /// frames unmodified so the browser's `?since=` resume works over the relay.
@@ -539,7 +523,6 @@ pub async fn mesh_relay_stream(
             format!("Not a streamable relay path: {bare}"),
         ));
     }
-    // Cursor chars are URL-safe (`[A-Za-z0-9_:-]` for events, b64url for output),
     // so a raw append needs no percent-encoding.
     let mut path = q.path.clone();
     if let Some(since) = q.since.as_deref().filter(|s| !s.is_empty()) {
@@ -595,7 +578,6 @@ pub async fn mesh_relay_asset(
             format!("relay-asset limited to plugins/*/ui/*: {rel}"),
         ));
     }
-    // Mirror plugin_ui: token-gate only the .html entry; content-hashed assets
     // are referenced tokenless by relative <src> and resolve through this proxy.
     if rel.ends_with(".html") && !local_token_valid(&state, q.token.as_deref().unwrap_or("")) {
         return Err((StatusCode::UNAUTHORIZED, "bad or missing token".into()));
@@ -614,7 +596,6 @@ pub async fn mesh_relay_asset(
         })?;
         (client, signed)
     };
-    // The peer's plugin_ui gates its .html by a query token; a paired-peer signed
     // token authenticates the read-only hop (see web_routes::validate_manifest_token).
     let path = format!("/api/{rel}?token={signed}");
     validate_relay_path(&path).map_err(|e| (StatusCode::BAD_REQUEST, e))?;

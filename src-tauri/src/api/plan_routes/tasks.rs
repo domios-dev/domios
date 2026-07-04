@@ -294,7 +294,6 @@ pub async fn task_update(
             .update_task_competition(&id, &tid, update, epoch_ms())
             .map_err(plan_err)?;
     }
-    // §EFFORT: a task moving to in_review IS the trigger — notify the plan owner
     // (orchestrator) directly, so a separate `agent report` isn't needed.
     if body.get("status").and_then(|v| v.as_str()) == Some("in_review") {
         let by_pane = headers

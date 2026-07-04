@@ -116,7 +116,6 @@ pub enum AgentRole {
     Worker,
 }
 
-// Keep backward-compatible aliases for deserialization
 impl AgentRole {
     pub fn from_str_compat(s: &str) -> Option<Self> {
         match s {
@@ -424,7 +423,6 @@ mod tests {
     #[test]
     fn mid_boot_snapshot_exposes_current_stage() {
         use crate::service::boot_stage::BootStage;
-        // A pane caught mid-boot surfaces its stage to a late attacher reading
         // the live snapshot.
         let mut p = pane_with("a", PaneBacking::Pty);
         p.boot_stage = Some(BootStage::AgentLaunching);
@@ -462,7 +460,6 @@ mod tests {
         let v = serde_json::to_value(&p).unwrap();
         let back: Pane = serde_json::from_value(v).unwrap();
         assert!(back.is_chat_backend());
-        // And a serialized pane with the `backing` key removed (pre-field
         // snapshot) defaults to Pty.
         let mut v = serde_json::to_value(&p).unwrap();
         v.as_object_mut().unwrap().remove("backing");
@@ -486,7 +483,6 @@ mod tests {
     #[test]
     fn backing_matches_frontend_ts_contract_shape() {
         // The TS type is `{ kind: 'chat_backend'; plugin_id: string;
-        // session_id: string }` (internally tagged, snake_case) — plugin_id and
         let v = serde_json::to_value(PaneBacking::ChatBackend {
             plugin_id: "lmstudio".into(),
             session_id: "s7".into(),
@@ -500,7 +496,6 @@ mod tests {
                 "session_id": "s7",
             })
         );
-        // The default (Pty) variant is a bare tag — what TabContent treats as
         // "not a chat pane".
         assert_eq!(
             serde_json::to_value(PaneBacking::Pty).unwrap(),

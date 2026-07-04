@@ -114,7 +114,6 @@ pub async fn spawn_pty_core(
             "CODETERM_SHELL_NONCE".to_string(),
             svc.ensure_shell_integration_nonce(pid),
         );
-        // Pass role/parent info so agents know their place in hierarchy
         let mux = mux_state.read();
         if let Some(pane) = mux.get_pane(pid) {
             if let Some(ref role) = pane.role {
@@ -484,12 +483,6 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
         }
     }
 
-    // A backend reader may be mid-setup (its channel registers a beat after
-    // PTY spawn). Cloning a raw reader now would create a SECOND consumer on
-    // the master fd — the two readers then split the byte stream (eaten shell
-    // prompts, blank terminals, 30s readiness timeouts). Wait briefly for the
-    // channel instead; it is the sanctioned path when a backend reader owns
-    // the stream.
     {
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
         loop {
@@ -534,7 +527,6 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
         match reader_slot.take() {
             Some(r) => r,
             None => {
-                // Reader taken by old readLoop — clone a new one from master
                 let pair = session.pair.lock().unwrap();
                 pair.master.try_clone_reader().map_err(|e| e.to_string())?
             }
@@ -567,7 +559,6 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
 
     match result {
         Ok((data, reader_back)) => {
-            // Put reader back for next call
             let mut reader_slot = session.reader.lock().unwrap();
             *reader_slot = Some(reader_back);
 
@@ -577,7 +568,6 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
             Ok(data)
         }
         Err(e) => {
-            // PTY died
             tracker.lock().set_dead(&pty_id);
             let pane_id = mux.write().pane_id_for_pty(&pty_id);
             if let Some(ref pid) = pane_id {
@@ -847,7 +837,6 @@ pub async fn kill_pty(
     mux_state: tauri::State<'_, crate::multiplexer::commands::MuxState>,
     pty_id: String,
 ) -> Result<(), String> {
-    // Protected panes (General Agent) own backend PTYs. Ignore kill_pty
     // if it targets an already-owned PTY to avoid tearing GA down mid-launch.
     let owned_by_protected = {
         let mux = mux_state.read();

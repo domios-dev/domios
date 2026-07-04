@@ -96,8 +96,6 @@ fn reopen_recreates_pane_with_same_backing() {
 
 #[test]
 fn reopen_chatbackend_pane_opens_in_chat() {
-    // MED inconsistency fix: a chatBackend pane carries agent_type=None, so the
-    // old chat_view-from-agent_type rule left it terminal on reopen while the
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
     let (tab_id, pane_id) = state.create_tab(&wsid).unwrap();
@@ -121,7 +119,6 @@ fn reopen_chatbackend_pane_opens_in_chat() {
 
 #[test]
 fn reopen_cascade_group_activates_root_not_leaf() {
-    // LOW fix: closed_at DESC, id DESC surfaces the last-inserted (leaf) pane
     // first, but the focused tab on reopen must be the cascade ROOT.
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
@@ -389,7 +386,6 @@ fn cascade_close_records_one_group_with_hierarchy() {
     let group_ids: HashSet<&str> = view.iter().map(|v| v.group_id.as_str()).collect();
     assert_eq!(group_ids.len(), 1, "single cascade group");
     assert!(view.iter().all(|v| v.group_kind == "cascade"));
-    // child rows carry the original parent link
     let worker_row = list
         .iter()
         .find(|e| e.title == "Worker 1")
@@ -440,7 +436,6 @@ fn reopen_cascade_group_restores_subtree_and_relinks_parents() {
         "parent_pane_id relinked to the freshly minted orchestrator id"
     );
     assert!(state.get_pane(&first_pane).is_some());
-    // group consumed
     assert!(state.recent_closed_view().is_empty());
 }
 
@@ -488,7 +483,6 @@ fn reopen_workspace_group_recreates_workspace_with_tabs() {
         .find(|w| w.id == new_ws)
         .expect("workspace recreated");
     assert_eq!(info.name, "Project");
-    // initial pane + Tab A + Tab B were all recorded and restored
     let titles: HashSet<String> = info
         .pane_ids
         .iter()
@@ -526,7 +520,6 @@ fn reopen_workspace_group_matches_existing_workspace_by_path() {
     state.close_workspace(&wsid).unwrap();
     let group_id = state.recent_closed_view()[0].group_id.clone();
 
-    // A DIFFERENT live workspace now points at the SAME folder (trailing slash
     // must still match via normalize_cwd).
     let live_id = state
         .create_workspace("Proj Again".into(), Some("/tmp/proj/".into()))

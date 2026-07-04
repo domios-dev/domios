@@ -261,8 +261,6 @@ mod tests {
 
     #[test]
     fn rapid_start_stop_churn_keeps_one_live_tailer() {
-        // Models StrictMode/HMR mount→unmount→mount churn: every start either
-        // acquires the live tailer or spawns one; every stop releases. The
         let registry = ChatRegistry::default();
         for _ in 0..50 {
             if !registry.acquire("pane", SID) {
