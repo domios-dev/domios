@@ -186,7 +186,12 @@ pub enum PlanAction {
     /// Restore an archived plan to active
     Unarchive { plan_id: String },
     /// Delete a plan
-    Delete { plan_id: String },
+    Delete {
+        plan_id: String,
+        /// Confirm permanent deletion.
+        #[arg(long, alias = "confirm")]
+        yes: bool,
+    },
     /// Transfer plan ownership
     Transfer {
         plan_id: String,

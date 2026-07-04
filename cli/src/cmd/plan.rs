@@ -77,6 +77,20 @@ fn call(client: &mut SocketClient, method: &str, params: Value) -> Result<Value,
     call_plan_rpc(client, method, params)
 }
 
+pub(crate) fn validate_plan_delete_confirmation(plan_id: &str, yes: bool) -> Result<(), String> {
+    if !yes {
+        return Err(format!(
+            "refusing to delete plan '{plan_id}' without --yes; pass --yes or --confirm to permanently delete it"
+        ));
+    }
+    Ok(())
+}
+
+fn plan_delete_params(plan_id: String, yes: bool) -> Result<Value, String> {
+    validate_plan_delete_confirmation(&plan_id, yes)?;
+    Ok(json!({ "plan_id": plan_id }))
+}
+
 fn default_project_path() -> String {
     std::env::current_dir()
         .ok()
@@ -563,8 +577,8 @@ fn run_plan(
             call(client, "plan.unarchive", json!({ "plan_id": plan_id }))
         }
 
-        PlanAction::Delete { plan_id } => {
-            call(client, "plan.delete", json!({ "plan_id": plan_id }))
+        PlanAction::Delete { plan_id, yes } => {
+            call(client, "plan.delete", plan_delete_params(plan_id, yes)?)
         }
 
         PlanAction::Transfer {
