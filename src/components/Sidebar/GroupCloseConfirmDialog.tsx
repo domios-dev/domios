@@ -1,4 +1,5 @@
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
+import { countBySection, summarizeGroupClose } from "./orchestrationSections";
 
 export function GroupCloseConfirmDialog({
   orchestratorTitle,
@@ -11,6 +12,7 @@ export function GroupCloseConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const bySection = summarizeGroupClose(countBySection(members));
   return (
     <>
       <div className="fixed inset-0 z-50 bg-black/40" onClick={onCancel} />
@@ -21,8 +23,9 @@ export function GroupCloseConfirmDialog({
         <div className="px-4 pt-4 pb-2">
           <div className="text-[13px] font-medium text-[var(--ct-fg)]">Close orchestration group?</div>
         </div>
-        <div className="px-4 py-1 text-[12px] text-[var(--ct-muted-fg)]">
-          This closes {members.length + 1} panes:
+        <div data-testid="group-close-summary" className="px-4 py-1 text-[12px] text-[var(--ct-muted-fg)]">
+          This closes {members.length + 1} panes — the orchestrator
+          {bySection ? ` + ${bySection}` : ""}:
         </div>
         <ul className="px-4 py-2 flex flex-col gap-1 text-[12px] text-[var(--ct-fg)]">
           <li>{orchestratorTitle} (Orchestrator)</li>

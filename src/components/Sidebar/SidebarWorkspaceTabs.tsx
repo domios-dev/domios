@@ -19,9 +19,9 @@ import { isWorkspacePlanEntryActive } from "./sidebarSelection";
 import {
   persistTabRename,
   resolvePlannerPeerTabContext,
-  SidebarPlanPeerPairTabRows,
   SidebarSingleTabRow,
 } from "./SidebarPlanPeerPair";
+import { OrchestrationGroupSection } from "./OrchestrationGroupSection";
 import { TabItem } from "./TabItem";
 import { aggregateTabStatus } from "./sidebarTabStatus";
 import { isWorkspaceTabActive } from "./sidebarSelection";
@@ -97,7 +97,7 @@ export function SidebarWorkspaceTabs({
     const peerCtx =
       firstPane?.role === "Orchestrator"
         ? resolvePlannerPeerTabContext(firstPane, childTabs, plans, panes)
-        : { plannerTab: null, peerExclude: undefined, showPeerPair: false };
+        : { plannerTab: null, peerExclude: undefined };
 
     const sharedRow = {
       workspaceId: ws.id,
@@ -117,60 +117,70 @@ export function SidebarWorkspaceTabs({
       },
     };
 
+    const isOrchestrator = firstPane?.role === "Orchestrator";
+    const plannerTab = peerCtx.plannerTab;
+    // Workers = every child except the attached Planner (which renders under
+    // the Managers section). Section taxonomy lives in orchestrationSections.
+    const workerNodes =
+      isOrchestrator && firstPane
+        ? buildHierarchySubtree(firstPane.id, panes, paneStatuses, peerCtx.peerExclude)
+        : [];
+
     return (
       <div key={tab.id} style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}>
-        {peerCtx.showPeerPair && peerCtx.plannerTab && firstPane ? (
-          <SidebarPlanPeerPairTabRows
-            orchestratorTab={tab}
-            orchestratorPane={firstPane}
-            plannerTab={peerCtx.plannerTab}
-            tabIndex={index}
-            childTabs={childTabs}
-            childIds={childIds}
-            group={group}
-            groupKey={groupKey}
-            items={items}
-            pinnedIds={pinnedIds}
-            planIndex={planIndex}
-            closingTabs={closingTabIds}
-            appearingTabs={appearingTabIds}
-            {...sharedRow}
-          />
-        ) : (
-          <SidebarSingleTabRow
-            tab={tab}
-            index={index}
-            pane={firstPane}
-            paneIds={tabPids}
-            activity={tabActivity}
-            isClosing={closingTabIds.has(tab.id)}
-            isAppearing={appearingTabIds.has(tab.id)}
-            group={group}
-            groupKey={groupKey}
-            items={items}
-            pinnedIds={pinnedIds}
-            {...sharedRow}
-          />
-        )}
-        {childTabs.length > 0 && firstPane && (
-          firstPane.role === "Orchestrator" ? (
-            <HierarchyTree
-              nodes={buildHierarchySubtree(
-                firstPane.id,
-                panes,
-                paneStatuses,
-                peerCtx.peerExclude,
+        <SidebarSingleTabRow
+          tab={tab}
+          index={index}
+          pane={firstPane}
+          paneIds={tabPids}
+          activity={tabActivity}
+          isClosing={closingTabIds.has(tab.id)}
+          isAppearing={appearingTabIds.has(tab.id)}
+          group={group}
+          groupKey={groupKey}
+          items={items}
+          pinnedIds={pinnedIds}
+          {...sharedRow}
+        />
+        {isOrchestrator && firstPane ? (
+          <>
+            <OrchestrationGroupSection section="manager" count={plannerTab ? 1 : 0}>
+              {plannerTab && (
+                <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
+                  <SidebarSingleTabRow
+                    tab={plannerTab}
+                    index={childTabs.indexOf(plannerTab)}
+                    pane={panes[plannerTab.pane_id] ?? null}
+                    paneIds={collectPaneIds(plannerTab, panes)}
+                    activity={resolvePaneTabActivity(planIndex, plannerTab.pane_id, panes)}
+                    isClosing={closingTabIds.has(plannerTab.id)}
+                    isAppearing={appearingTabIds.has(plannerTab.id)}
+                    group="child"
+                    groupKey={firstPane.id}
+                    items={childIds}
+                    pinnedIds={[]}
+                    {...sharedRow}
+                  />
+                </SortableContext>
               )}
-              depth={depth + 1}
-              onJumpToPane={(paneId) => {
-                const childTab = sortedTabs.find((t) => t.pane_id === paneId);
-                if (childTab) onActivateTab(childTab.id);
-              }}
-              reportCounts={{}}
-              uiFontScale={uiFontScale}
-              activeWork={activeWork}
-            />
-          ) : (
+            </OrchestrationGroupSection>
+            <OrchestrationGroupSection section="worker" count={workerNodes.length}>
+              <HierarchyTree
+                nodes={workerNodes}
+                depth={depth + 1}
+                onJumpToPane={(paneId) => {
+                  const childTab = sortedTabs.find((t) => t.pane_id === paneId);
+                  if (childTab) onActivateTab(childTab.id);
+                }}
+                reportCounts={{}}
+                uiFontScale={uiFontScale}
+                activeWork={activeWork}
+              />
+            </OrchestrationGroupSection>
+          </>
+        ) : (
+          childTabs.length > 0 &&
+          firstPane && (
             <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
               {childTabs.map((ct, ci) =>
                 renderTab(ct, ci, depth + 1, "child", firstPane.id, childIds, []),
