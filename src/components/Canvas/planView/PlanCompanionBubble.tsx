@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ExternalLink, X } from "lucide-react";
+import { ExternalLink, MessageCircle, X } from "lucide-react";
 import type { Pane } from "../../../lib/types";
 import { AgentCircle } from "../presence/AgentCircle";
 import { presenceColor } from "../presence/identity";
@@ -172,7 +172,7 @@ export function PlanCompanionBubble({
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         title={bubbleTitle}
-        className="pointer-events-auto flex items-center justify-center rounded-full border shadow-lg cursor-pointer transition-transform hover:scale-105"
+        className="pointer-events-auto relative flex items-center justify-center rounded-full border shadow-lg cursor-pointer transition-transform hover:scale-105"
         style={{
           width: 48,
           height: 48,
@@ -180,11 +180,12 @@ export function PlanCompanionBubble({
           borderColor: "var(--ct-border)",
         }}
       >
-        <AgentCircle
-          agent={{ id: resolution.paneId, label: name, role: kindLabel, color }}
-          size={34}
-          live={working}
-          ring={false}
+        <MessageCircle size={22} strokeWidth={2} aria-hidden style={{ color: "var(--ct-fg)" }} />
+        <span
+          data-testid="plan-companion-presence"
+          data-live={working ? "true" : "false"}
+          className={`plan-companion-presence${working ? " is-live" : ""}`}
+          style={{ background: color }}
         />
       </button>
     </div>
