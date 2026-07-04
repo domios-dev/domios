@@ -137,6 +137,17 @@ pub fn peer_orch_greeting(planner: &str) -> String {
     PEER_ORCH_GREETING.replace("{planner}", planner)
 }
 
+/// Planner's opening greeting — the mirror of [`PEER_ORCH_GREETING`] for the
+/// subordinate side, rendered verbatim as the Planner pane's first assistant
+/// message so it never boots into silence. Identity framing only; the
+/// subordination prose is reused from the shared charter/deference constants.
+pub fn peer_planner_greeting(orchestrator_label: &str, orchestrator_pane_id: &str) -> String {
+    format!(
+        "Planner specialist reporting for this plan — I work under Orchestrator {orchestrator_label} (pane {orchestrator_pane_id}). {}\n{}",
+        PEER_PLANNER_CHARTER_LINE, PEER_ORCH_DEFERENCE_LINE,
+    )
+}
+
 /// Fills the `{spawn_cmd}` placeholder in [`PEER_PAIRING_MANDATE_BLOCK`].
 pub fn peer_pairing_mandate_block(spawn_cmd: &str) -> String {
     PEER_PAIRING_MANDATE_BLOCK.replace("{spawn_cmd}", spawn_cmd)
@@ -303,6 +314,16 @@ mod tests {
         assert!(full.contains("single authority"));
         assert!(!full.contains("Peer contract"));
         assert!(!full.contains("Planner acknowledgment"));
+    }
+
+    #[test]
+    fn peer_planner_greeting_names_orchestrator_and_reuses_subordination_constants() {
+        let g = peer_planner_greeting("Opus Orchestrator", "pane_orch_9");
+        assert!(g.contains("pane_orch_9"), "names the orchestrator pane id");
+        assert!(g.contains("Opus Orchestrator"), "names the orchestrator label");
+        assert!(g.contains("work under Orchestrator"), "planner is subordinate");
+        assert!(g.contains(PEER_PLANNER_CHARTER_LINE), "reuses the charter constant");
+        assert!(g.contains(PEER_ORCH_DEFERENCE_LINE), "reuses the deference constant");
     }
 
     #[test]

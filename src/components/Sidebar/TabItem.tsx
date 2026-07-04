@@ -20,10 +20,11 @@ import type { Pane, PaneStatus, Tab } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
+import { RoleBadge } from "./RoleBadge";
+import { roleBadgeLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
 import { TabActivityIndicator } from "./TabActivityIndicator";
 import { TabStatusRail } from "./TabStatusRail";
-import { RoleIcon } from "./HierarchyTree";
 import type { PaneTabActivity } from "../Canvas/paneTabActivity";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { canMakeOrchestrator, makeOrchestrator } from "../../lib/orchestratorOnboard";
@@ -78,6 +79,10 @@ function TabItemInner({
   // back to the live chatBackend session model (fetched/cached out of band).
   const tabModel = pane?.agent_session_model ?? shellSessionModel;
   const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;
+  // Group leadership (Orchestrator/Planner) shows a role badge in the model-chip
+  // slot; the model drops to the tooltip. Workers keep their model chip.
+  const roleBadge = roleBadgeLabel(pane);
+  const roleBadgeTitle = tabModel ? `${roleBadge} · ${tabModel}` : roleBadge ?? undefined;
   const description = pane?.description ?? tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab, pane);
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
@@ -267,12 +272,6 @@ function TabItemInner({
             )}
           </span>
         )}
-        {/* Explicit role (pane.role) stays visible even when plan activity is shown */}
-        {pane?.role && !editing && (
-          <span data-testid="tab-role-indicator" data-tab-role={pane.role} className="shrink-0 text-[var(--ct-muted-fg)]/70">
-            <RoleIcon role={pane.role} uiFontScale={uiFontScale} />
-          </span>
-        )}
         {activity && pane && !editing && (
           <TabActivityIndicator activity={activity} paneId={pane.id} />
         )}
@@ -312,9 +311,11 @@ function TabItemInner({
           clip the menu when there's no badge to size the slot). Badge truncation
           lives on .sidebar-tab-badge (its own max-width + ellipsis). */}
       <div className="shrink-0 relative z-[1] flex items-center min-w-5 justify-end">
-        {tabModelBadge && !touchMode && (
+        {roleBadge ? (
+          <RoleBadge label={roleBadge} title={roleBadgeTitle} />
+        ) : tabModelBadge && !touchMode ? (
           <SidebarModelBadge label={tabModelBadge} title={tabModel ?? undefined} />
-        )}
+        ) : null}
         {menuItems.length > 0 && (
           <DropdownMenu
             items={menuItems}

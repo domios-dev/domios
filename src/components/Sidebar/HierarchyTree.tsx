@@ -1,4 +1,4 @@
-import type { AgentRole, Pane, PaneStatus } from "../../lib/types";
+import type { Pane, PaneStatus } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { TelegramIcon } from "../Icons";
 import { presenceColor } from "../Canvas/presence/identity";
@@ -7,21 +7,6 @@ import {
   displayTaskTitle,
   type ActiveWorkSnapshot,
 } from "../Canvas/planView/activeWork";
-
-export const ROLE_ICONS: Record<string, string> = {
-  Orchestrator: "★",
-  Worker: "⚙",
-};
-
-/** Shared with TabItem — do not remove while TabItem imports it. */
-export function RoleIcon({ role, uiFontScale }: { role: AgentRole; uiFontScale?: number }) {
-  const iconText = pickUiFontScaleValue(uiFontScale, ["text-[9px]", "text-[10px]", "text-[11px]", "text-xs"]);
-  return (
-    <span className={`shrink-0 ${iconText} leading-none`} title={role}>
-      {ROLE_ICONS[role] || "·"}
-    </span>
-  );
-}
 
 export interface HierarchyNodeData {
   pane: Pane;
@@ -165,11 +150,6 @@ function HierarchyRow({
         className={rowClass}
         title={`${node.pane.title}${taskTitle ? `\n${taskTitle}` : ""}${status ? ` (${status})` : ""}`}
       >
-        {isOrchestrator && node.pane.role && (
-          <span data-hierarchy-orchestrator-star="true" className="shrink-0 opacity-70">
-            <RoleIcon role={node.pane.role} uiFontScale={uiFontScale} />
-          </span>
-        )}
         <span className="min-w-0 flex-1 text-left">
           <span
             className={`block truncate ${isOrchestrator ? "font-semibold" : ""} ${isDead ? "sidebar-hierarchy-dead-title" : ""}`}
