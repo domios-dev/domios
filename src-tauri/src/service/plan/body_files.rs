@@ -668,13 +668,7 @@ fn remove_file_if_exists(path: &Path) -> std::io::Result<()> {
 }
 
 pub fn write_markdown_atomic(path: &Path, body: &str) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let tmp = path.with_extension("md.tmp");
-    std::fs::write(&tmp, normalize_markdown_eof(body))?;
-    std::fs::rename(&tmp, path)?;
-    Ok(())
+    super::atomic_write::write_atomic(path, normalize_markdown_eof(body))
 }
 
 fn remove_stale_id_path(
