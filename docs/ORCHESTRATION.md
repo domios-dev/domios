@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 24 -->
+<!-- revision: 25 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
@@ -178,6 +178,25 @@ Never remove a worker worktree before its diff is integrated, bounced, or
 explicitly abandoned. Never keep a finished worker visually assigned just to
 remember who did the work; executor history and lane metadata are the memory,
 live assignment is only current work.
+
+### Milestone gates — three-tier testing ladder
+
+Regression cost scales with scope, so testing is tiered, not uniform.
+
+Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit + playwright golden, serialized in the warm checkout); per-release = the farm matrix across every platform.
+
+- **Per-task:** each lane runs the narrowest focused filter that proves its
+  change — never the whole suite. This is already the worker discipline.
+- **Per-group (milestone):** task groups are milestones. When the last task of a
+  group closes, next-actions and the heartbeat emit one regression-gate
+  suggestion. Run the full gate ONCE for the whole milestone, then record it as a
+  single group-scoped working point:
+  `codeterm plan qa next PLAN_ID --group GROUP_KEY --claim --note "<scope>"`.
+  The quality doctor (`--kind structure`) warns while a completed group has no
+  regression run on record since its last close; reopening a task re-arms the
+  gate. The suggestion is advisory pressure, not a hard lock.
+- **Per-release:** the full farm matrix (`release-X.Y.Z` tag) builds and tests
+  across every platform. That is the release pipeline, not per-milestone work.
 
 ## Planner Profile
 

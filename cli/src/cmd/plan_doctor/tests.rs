@@ -60,6 +60,74 @@ fn detects_missing_parent_and_section() {
 }
 
 #[test]
+fn warns_when_completed_group_has_no_regression_and_silent_after_record() {
+    let base = json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "sections": [],
+        "tasks": [
+            {"id": "task_1", "name": "A", "status": "done", "group": "phase-1", "status_changed_at": 10},
+            {"id": "task_2", "name": "B", "status": "done", "group": "phase-1", "status_changed_at": 20}
+        ]
+    });
+    let findings = inspect_plan(Path::new("pl_1.json"), &base, "structure");
+    assert!(findings.iter().any(|f| f.kind == "group_missing_regression"
+        && f.severity == "warning"
+        && f.detail.contains("phase-1")));
+
+    // A regression stride recorded after the last close silences the warning.
+    let mut recorded = base.clone();
+    recorded["strides"] = json!([
+        {"id": "ms_r", "kind": "regression", "ts": 30, "links": ["group:phase-1"]}
+    ]);
+    let findings = inspect_plan(Path::new("pl_1.json"), &recorded, "structure");
+    assert!(findings
+        .iter()
+        .all(|f| f.kind != "group_missing_regression"));
+
+    // A stale record (predating a later re-close) re-arms the warning.
+    let mut stale = base.clone();
+    stale["tasks"][1]["status_changed_at"] = json!(50);
+    stale["strides"] = json!([
+        {"id": "ms_r", "kind": "regression", "ts": 30, "links": ["group:phase-1"]}
+    ]);
+    let findings = inspect_plan(Path::new("pl_1.json"), &stale, "structure");
+    assert!(findings
+        .iter()
+        .any(|f| f.kind == "group_missing_regression"));
+}
+
+#[test]
+fn incomplete_or_all_cancelled_group_is_not_flagged() {
+    let incomplete = json!({
+        "id": "pl_1", "title": "Plan", "status": "active", "sections": [],
+        "tasks": [
+            {"id": "t1", "name": "A", "status": "done", "group": "g", "status_changed_at": 10},
+            {"id": "t2", "name": "B", "status": "pending", "group": "g", "status_changed_at": 5}
+        ]
+    });
+    assert!(
+        inspect_plan(Path::new("pl_1.json"), &incomplete, "structure")
+            .iter()
+            .all(|f| f.kind != "group_missing_regression")
+    );
+
+    let all_cancelled = json!({
+        "id": "pl_1", "title": "Plan", "status": "active", "sections": [],
+        "tasks": [
+            {"id": "t1", "name": "A", "status": "cancelled", "group": "g", "status_changed_at": 10},
+            {"id": "t2", "name": "B", "status": "cancelled", "group": "g", "status_changed_at": 20}
+        ]
+    });
+    assert!(
+        inspect_plan(Path::new("pl_1.json"), &all_cancelled, "structure")
+            .iter()
+            .all(|f| f.kind != "group_missing_regression")
+    );
+}
+
+#[test]
 fn detects_malformed_json() {
     let dir = tempfile::tempdir().unwrap();
     let plan_dir = dir.path().join(".codeterm/plans/active/pl_bad");

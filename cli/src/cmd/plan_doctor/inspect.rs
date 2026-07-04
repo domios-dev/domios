@@ -8,6 +8,10 @@ use crate::cmd::plan_local::plan_id_from;
 
 use super::{plan_id, Finding};
 
+// Mirrors src-tauri prompts::REGRESSION_MILESTONE_KIND and milestone_gates::GROUP_REGRESSION_LINK_PREFIX.
+const REGRESSION_MILESTONE_KIND: &str = "regression";
+const GROUP_REGRESSION_LINK_PREFIX: &str = "group:";
+
 pub(super) fn inspect_stray_sidecars(
     project_root: &Path,
     canonical_path: &Path,
@@ -341,7 +345,71 @@ fn inspect_structure(path: &Path, plan: &Value) -> Vec<Finding> {
             ));
         }
     }
+    findings.extend(inspect_group_regression_gates(path, plan, &tasks));
     findings
+}
+
+fn inspect_group_regression_gates(path: &Path, plan: &Value, tasks: &[Value]) -> Vec<Finding> {
+    let mut by_group: HashMap<String, Vec<&Value>> = HashMap::new();
+    for task in tasks {
+        if let Some(key) = task.get("group").and_then(Value::as_str) {
+            by_group.entry(key.to_string()).or_default().push(task);
+        }
+    }
+    let mut keys: Vec<&String> = by_group.keys().collect();
+    keys.sort();
+    let mut findings = Vec::new();
+    for key in keys {
+        let members = &by_group[key];
+        let all_terminal = members.iter().all(|t| {
+            matches!(
+                t.get("status").and_then(Value::as_str),
+                Some("done") | Some("cancelled")
+            )
+        });
+        let any_done = members
+            .iter()
+            .any(|t| t.get("status").and_then(Value::as_str) == Some("done"));
+        if !all_terminal || !any_done {
+            continue;
+        }
+        let last_close = members
+            .iter()
+            .filter_map(|t| t.get("status_changed_at").and_then(Value::as_u64))
+            .max()
+            .unwrap_or(0);
+        if regression_ts_for_group(plan, key).is_some_and(|ts| ts >= last_close) {
+            continue;
+        }
+        findings.push(Finding {
+            severity: "warning",
+            kind: "group_missing_regression",
+            plan_id: plan_id(plan, path),
+            path: path.display().to_string(),
+            task_id: None,
+            detail: format!(
+                "group '{key}' is complete but has no full-gate regression run on record since its last close"
+            ),
+            fix: "run the full gate once and record it: codeterm plan qa next --group <group> --claim --note \"<scope>\"".into(),
+        });
+    }
+    findings
+}
+
+fn regression_ts_for_group(plan: &Value, key: &str) -> Option<u64> {
+    let link = format!("{GROUP_REGRESSION_LINK_PREFIX}{key}");
+    plan.get("strides")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|m| m.get("kind").and_then(Value::as_str) == Some(REGRESSION_MILESTONE_KIND))
+        .filter(|m| {
+            m.get("links")
+                .and_then(Value::as_array)
+                .is_some_and(|links| links.iter().any(|l| l.as_str() == Some(link.as_str())))
+        })
+        .filter_map(|m| m.get("ts").and_then(Value::as_u64))
+        .max()
 }
 
 fn collect_section_ids(sections: Option<&Vec<Value>>) -> HashSet<String> {
