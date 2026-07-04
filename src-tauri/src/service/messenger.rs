@@ -238,9 +238,7 @@ impl Messenger {
             body.to_string()
         };
         svc.send_text(to_pane, &text, true)?;
-        // Backstop the submit: if the recipient TUI swallowed the Enter, an idle
-        // agent pane would strand the message in its composer. Confirm-and-nudge
-        // is idempotent and only fires while the pane is parked (never mid-gen).
+        // Backstop a swallowed submit Enter: idempotent, only nudges a parked pane.
         svc.confirm_wake_async(to_pane, &text);
         Ok(Delivery::Pty { text })
     }
