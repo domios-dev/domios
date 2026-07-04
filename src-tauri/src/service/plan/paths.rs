@@ -120,6 +120,24 @@ pub fn plan_json_path(
     Ok(plan_dir(project, status, plan_id)?.join("plan.json"))
 }
 
+pub fn plan_json_path_unchecked(
+    project: &Path,
+    status: &crate::plan::PlanStatus,
+    plan_id: &str,
+) -> PathBuf {
+    let stem = if plan_id == crate::plan::INBOX_PLAN_ID {
+        crate::plan::INBOX_PLAN_FILE_STEM
+    } else {
+        plan_id
+    };
+    project
+        .join(".codeterm")
+        .join("plans")
+        .join(plan_bucket(status))
+        .join(stem)
+        .join("plan.json")
+}
+
 pub fn plan_sidecar_root(plan: &crate::plan::Plan) -> &Path {
     if plan.canonical_project_path.trim().is_empty() {
         Path::new(&plan.project_path)
