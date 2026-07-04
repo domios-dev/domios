@@ -141,7 +141,6 @@ function MacTrafficLights({
 }) {
   const [hover, setHover] = useState(false);
 
-  // Track window focus for dimming
   const [focused, setFocused] = useState(true);
   useEffect(() => {
     const onFocus = () => setFocused(true);

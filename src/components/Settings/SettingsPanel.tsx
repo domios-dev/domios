@@ -141,7 +141,6 @@ export function SettingsPanel({
       ? sectionTitle(top.id)
       : "Provider";
 
-  // Back only when the parent is a real section (provider drill-down); returning
   // to the root grid is handled by closing — the titlebar menu is the entry point.
   const parent = stack.length >= 2 ? stack[stack.length - 2] : undefined;
   const parentSection = parent?.kind === "section" ? parent : undefined;

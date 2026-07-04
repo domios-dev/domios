@@ -1,4 +1,3 @@
-// Registered-channel management — kept compact in a collapsible footer so it's
 // available without dominating the list/detail layout.
 import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";

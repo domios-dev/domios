@@ -84,7 +84,6 @@ function options(host: HTMLElement): HTMLButtonElement[] {
   return Array.from(host.querySelectorAll('[data-testid="chat-model-option"]'));
 }
 
-// The confirm overlay is rendered into document.body via fixed positioning, but
 // it lives inside the bubble's wrapper subtree — query the whole document.
 function confirmDialog(): HTMLElement | null {
   return document.querySelector('[data-testid="chat-model-switch-confirm"]');

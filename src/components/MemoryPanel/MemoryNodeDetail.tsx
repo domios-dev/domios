@@ -72,8 +72,6 @@ export function MemoryNodeDetail({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [loadingBody, setLoadingBody] = useState(false);
-  // Local body cache — the source of truth for display. Decoupled from the
-  // parent `node`, so a no-op onUpdate (graph canvas) can't trap this in a
   const [bodyText, setBodyText] = useState<string | null>(node.body ?? null);
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
@@ -91,7 +89,6 @@ export function MemoryNodeDetail({
     if (node.body != null) setBodyText(node.body);
   }, [node.body]);
 
-  // Lazy-load the body exactly once. Don't gate on `has_body` — the API can
   // return it null even when a body exists; a 404 (graph entity) resolves to "".
   useEffect(() => {
     if (bodyText != null) return;

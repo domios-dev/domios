@@ -27,7 +27,6 @@ export interface SettingsSection {
   icon: LucideIcon;
 }
 
-// Icon for every section id — including ones not surfaced in the nav list
 // (plugins/secrets live in the Extensions surface but still need breadcrumb icons).
 export const SECTION_ICONS: Record<SectionId, LucideIcon> = {
   general: Sliders,

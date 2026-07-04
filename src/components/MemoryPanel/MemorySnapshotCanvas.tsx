@@ -242,7 +242,6 @@ export function MemorySnapshotCanvas({
       sigma.refresh();
       return;
     }
-    // Viewport filtering needs a valid extent — skip it for small graphs
     // and on the first build, when viewportToGraph has nothing to map against.
     const small = idx.byId.size <= SMALL_GRAPH_THRESHOLD;
     const bounds = small || !hadExtent ? null : viewportBounds(sigma);
