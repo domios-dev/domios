@@ -307,7 +307,8 @@ mod tests {
                 std::thread::spawn(move || {
                     for i in 0..50 {
                         let id = format!("m-{t}-{i}");
-                        append_milestone(&path, &milestone(&id, (t * 100 + i) as u64, "x")).unwrap();
+                        append_milestone(&path, &milestone(&id, (t * 100 + i) as u64, "x"))
+                            .unwrap();
                     }
                 })
             })
