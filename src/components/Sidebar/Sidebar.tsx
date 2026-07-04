@@ -365,13 +365,8 @@ export function Sidebar({
   const performCloseTab = useCallback((wsId: string, tabId: string) => {
     const ws = state.workspaces.find((w) => w.id === wsId);
     const tab = ws?.tabs.find((t) => t.id === tabId);
-    // A virtual picker tab has no backend pane — closeTab drops it locally; do
     // not fire a mux_close_pane for a pane the daemon never created.
     if (tab && !state.panes[tab.pane_id]?.virtual) {
-      // A single mux_close_pane on the Orchestrator's own pane cascade-closes
-      // every child (Planner + Workers) server-side — see
-      // `close_pane` doc comment. Children-first/head-last is that cascade's
-      // own guarantee; there is nothing extra to sequence from here.
       invoke("mux_close_pane", { paneId: tab.pane_id }).catch(() => {});
     }
     setClosingTabs((prev) => {
@@ -396,7 +391,6 @@ export function Sidebar({
     if (pane?.role === "Orchestrator") {
       const members = collectOrchestrationGroupMembers(pane.id, state.panes);
       if (members.length > 0) {
-        // Group closable as a unit (task_e0ddee08 item 2): confirm before
         // taking out the Orchestrator + every Planner/Worker beneath it.
         setPendingGroupClose({ wsId, tabId, orchestratorTitle: pane.title, members });
         return;

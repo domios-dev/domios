@@ -1,9 +1,3 @@
-// Run: npx tsx src/components/Sidebar/TabActivityIndicator.test.tsx
-// EMERGENCE (north-star #2), tab-bar side. A live sidebar over real panes is not
-// reliably web-mode drivable, so the per-tab glance is locked here as a component
-// test: an owner pane → orchestrator glyph; a directly-assigned pane → worker dot; an
-// idle/unrelated pane (and a worker merely nested under an orchestrator) → nothing.
-// The resolver stays index-ONLY (the cheap gate that runs for every tab).
 
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -60,7 +54,6 @@ async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: R
   return { host, root };
 }
 
-// ── data: resolvePaneTabActivity (index-only gate) ────────────────────────────
 test("owner pane → orchestrator activity (plan title + task count)", () => {
   const index = [mkEntry({ assigned_pane_ids: ["w1"] })];
   const panes = { "orch-1": mkPane("orch-1", { agent_session_id: "sess-orch", can_spawn: true }) };
@@ -114,7 +107,6 @@ test("multi-plan owner counts plans and leads with the freshest", () => {
   assert(a.planCount === 2, `counts both owned plans (got ${a.planCount})`);
 });
 
-// ── view: TabActivityIndicator ────────────────────────────────────────────────
 test("orchestrator and worker render the same quiet dot shape", async () => {
   const { host, root } = await render(
     <div>
