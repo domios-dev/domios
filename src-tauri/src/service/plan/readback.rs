@@ -1,7 +1,12 @@
 use super::{PlanError, PlanStore, TaskLaneUpdate};
 use crate::plan::{
-    PlanMode, PlanStatus, PlannerRef, Task, TaskLaneMetadata, TaskPriority, TaskStatus,
+    Plan, PlanMode, PlanStatus, PlannerRef, Task, TaskLaneMetadata, TaskPriority, TaskStatus,
 };
+use std::cell::RefCell;
+
+thread_local! {
+    static COMMITTED_SNAPSHOT: RefCell<Option<Plan>> = const { RefCell::new(None) };
+}
 
 pub(in crate::service::plan) fn pending_after_verified(
     result: Result<(), PlanError>,
@@ -107,6 +112,18 @@ impl PlanStore {
         }
     }
 
+    // Re-reading after the plan lock drops races concurrent writers; verify the snapshot committed under the lock.
+    pub(in crate::service::plan) fn record_committed_snapshot(&self, plan: &Plan) {
+        COMMITTED_SNAPSHOT.with(|cell| *cell.borrow_mut() = Some(plan.clone()));
+    }
+
+    fn committed_plan_for(&self, plan_id: &str) -> Option<Plan> {
+        match COMMITTED_SNAPSHOT.with(|cell| cell.borrow_mut().take()) {
+            Some(plan) if plan.id == plan_id => Some(plan),
+            _ => self.get(plan_id),
+        }
+    }
+
     pub(in crate::service::plan) fn verify_plan_updated(
         &self,
         plan_id: &str,
@@ -114,7 +131,9 @@ impl PlanStore {
         status: Option<PlanStatus>,
         mode: Option<&str>,
     ) -> Result<(), PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        let plan = self
+            .committed_plan_for(plan_id)
+            .ok_or(PlanError::NotFound)?;
         let fail = |field: &str| {
             Self::plan_readback_error(
                 "plan_update",
@@ -141,7 +160,9 @@ impl PlanStore {
         plan_id: &str,
         expected: &Option<PlannerRef>,
     ) -> Result<(), PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        let plan = self
+            .committed_plan_for(plan_id)
+            .ok_or(PlanError::NotFound)?;
         if &plan.planner != expected {
             return Err(Self::plan_readback_error(
                 "plan_update",
@@ -152,7 +173,9 @@ impl PlanStore {
     }
 
     fn read_task_for_verification(&self, plan_id: &str, task_id: &str) -> Result<Task, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        let plan = self
+            .committed_plan_for(plan_id)
+            .ok_or(PlanError::NotFound)?;
         plan.tasks
             .into_iter()
             .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
@@ -461,7 +484,9 @@ impl PlanStore {
         plan_id: &str,
         task_id: &str,
     ) -> Result<(), PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        let plan = self
+            .committed_plan_for(plan_id)
+            .ok_or(PlanError::NotFound)?;
         if plan
             .tasks
             .iter()
