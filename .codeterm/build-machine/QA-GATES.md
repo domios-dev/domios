@@ -23,6 +23,9 @@ scripts/qa-gate.sh run macos-native
 
 # JSON for plan stride / automation
 scripts/qa-gate.sh run check --json
+
+# Smoke: passing gate exits 0 + prints QA_RUN (prod-pane env safe)
+scripts/qa-gate-smoke.sh
 ```
 
 ## Machine output contract
