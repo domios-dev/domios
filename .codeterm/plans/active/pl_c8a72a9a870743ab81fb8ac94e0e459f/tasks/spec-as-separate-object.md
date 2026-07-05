@@ -6,3 +6,4 @@ handle: spec-as-separate-object
 title: Spec as a SEPARATE object from Plan (Spec ↔ Plan linked) §29
 status: done
 ---
+

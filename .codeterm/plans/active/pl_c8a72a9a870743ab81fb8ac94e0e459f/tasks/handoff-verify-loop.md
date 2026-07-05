@@ -6,3 +6,4 @@ handle: handoff-verify-loop
 title: 'Handoff verify-loop: compose → read back → verify 3x vs spec → then compact (procedure + skill)'
 status: done
 ---
+

@@ -51,4 +51,3 @@ title: Usage panel — all providers + auto-refresh + cursor fix
 ## Handoffs
 
 - (none)
-
