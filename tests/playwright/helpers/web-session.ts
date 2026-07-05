@@ -36,12 +36,10 @@ export interface ManagedWebSessionOptions {
 
 async function waitForWebShell(page: Page): Promise<void> {
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
-  await page
-    .locator(
-      '.xterm:visible, [data-testid="chat-composer"], [data-testid="peer-picker-button"], [data-testid="web-sidebar-open"]',
-    )
-    .first()
-    .waitFor({ state: "visible", timeout: 90_000 });
+  await page.waitForSelector(
+    '.xterm:visible, [data-testid="chat-composer"]:visible, [data-testid="peer-picker-button"]:visible, [data-testid="web-sidebar-open"]:visible',
+    { state: "visible", timeout: 90_000 },
+  );
 }
 
 async function seedToken(page: Page, token: string): Promise<void> {
