@@ -6,4 +6,3 @@ handle: cr-5-edges-zone-labels-presence-on-canvas-or-minimal-dom-overlay-culled
 title: CR-5 edges/zone-labels/presence on canvas (or minimal DOM overlay), culled
 status: done
 ---
-

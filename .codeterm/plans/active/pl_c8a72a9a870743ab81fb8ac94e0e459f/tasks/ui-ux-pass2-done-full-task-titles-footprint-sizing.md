@@ -6,4 +6,3 @@ handle: ui-ux-pass2-done-full-task-titles-footprint-sizing
 title: UI/UX pass2 DONE — full task titles + footprint sizing
 status: done
 ---
-

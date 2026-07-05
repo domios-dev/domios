@@ -6,4 +6,3 @@ handle: pre-existing-test-fails-independent-of-perf-canvasview-nav-double-click-
 title: 'PRE-EXISTING test fails (independent of perf): CanvasView nav double-click (in-flight nav refactor: focusNodeCamera skips nav.push when id==activePlanId + breadcrumb hidden at home) + taskPresence.test (fails on clean HEAD)'
 status: done
 ---
-

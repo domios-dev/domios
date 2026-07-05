@@ -6,4 +6,3 @@ handle: ui-ux-pass4-brief-taskcard-responsive-typography-fix-one-word-per-line-r
 title: UI/UX pass4 BRIEF — TaskCard responsive typography (FIX one-word-per-line regression)
 status: done
 ---
-

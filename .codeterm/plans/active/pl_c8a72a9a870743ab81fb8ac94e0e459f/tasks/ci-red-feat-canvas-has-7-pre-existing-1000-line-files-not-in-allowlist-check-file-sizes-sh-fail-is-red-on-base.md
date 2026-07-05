@@ -6,4 +6,3 @@ handle: ci-red-feat-canvas-has-7-pre-existing-1000-line-files-not-in-allowlist-c
 title: 'CI-RED: feat/canvas has 7 pre-existing >1000-line files NOT in allowlist — check-file-sizes.sh --fail is red on base'
 status: done
 ---
-

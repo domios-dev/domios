@@ -6,4 +6,3 @@ handle: cr-4-hit-testing-interaction-click-node-section-button-expand-hover-stat
 title: 'CR-4 hit-testing + interaction: click->node/section-button/expand; hover state; wire expand to CanvasDetailOverlay'
 status: done
 ---
-

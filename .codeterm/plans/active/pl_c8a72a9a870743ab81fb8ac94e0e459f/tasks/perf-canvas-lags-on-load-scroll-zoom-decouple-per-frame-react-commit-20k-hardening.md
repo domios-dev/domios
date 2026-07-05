@@ -6,4 +6,3 @@ handle: perf-canvas-lags-on-load-scroll-zoom-decouple-per-frame-react-commit-20k
 title: 'PERF: canvas lags on load/scroll/zoom — decouple per-frame React commit (+20k hardening)'
 status: done
 ---
-

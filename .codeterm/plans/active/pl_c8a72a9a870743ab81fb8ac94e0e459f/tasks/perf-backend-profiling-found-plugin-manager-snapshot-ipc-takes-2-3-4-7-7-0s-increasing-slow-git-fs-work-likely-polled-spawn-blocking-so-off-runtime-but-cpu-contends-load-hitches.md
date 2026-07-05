@@ -6,4 +6,3 @@ handle: perf-backend-profiling-found-plugin-manager-snapshot-ipc-takes-2-3-4-7-7
 title: 'PERF (backend, profiling-found): plugin_manager_snapshot IPC takes 2.3→4.7→7.0s (increasing) — slow git/FS work, likely polled; spawn_blocking so off-runtime but CPU-contends → load hitches'
 status: done
 ---
-

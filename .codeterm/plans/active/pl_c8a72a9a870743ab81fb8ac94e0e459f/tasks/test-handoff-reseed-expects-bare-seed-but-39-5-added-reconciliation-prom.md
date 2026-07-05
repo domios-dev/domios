@@ -6,4 +6,3 @@ handle: test-handoff-reseed-expects-bare-seed-but-39-5-added-reconciliation-prom
 title: 'test: handoff reseed expects bare seed but §39.5 added reconciliation prompt — update expectation or confirm intended'
 status: done
 ---
-

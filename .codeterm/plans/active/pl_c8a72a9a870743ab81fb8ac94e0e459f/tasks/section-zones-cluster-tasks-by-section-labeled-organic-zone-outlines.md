@@ -6,4 +6,3 @@ handle: section-zones-cluster-tasks-by-section-labeled-organic-zone-outlines
 title: 'Section zones: cluster tasks by section + labeled organic zone outlines'
 status: done
 ---
-

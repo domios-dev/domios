@@ -6,4 +6,3 @@ handle: bug-build-sh-133-cli-copy-hardcodes-cli-target-release-codeterm-ignores-
 title: 'BUG: build.sh:133 cli-copy hardcodes cli/target/release/codeterm — ignores CARGO_TARGET_DIR (blocks build.sh dev in a linked worktree; 4th unhonored spot after task_5480af9)'
 status: done
 ---
-

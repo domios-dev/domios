@@ -6,4 +6,3 @@ handle: cr-2-canvas-render-foundation-canvas-world-renderer-blitting-cached-node
 title: 'CR-2 canvas render foundation: <canvas> world renderer blitting cached node bitmaps at camera transform; replace DOM world layer; pan/zoom redraw'
 status: done
 ---
-

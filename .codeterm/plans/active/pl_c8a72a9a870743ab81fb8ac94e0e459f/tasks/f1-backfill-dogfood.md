@@ -6,4 +6,3 @@ handle: f1-backfill-dogfood
 title: 'F1f: ACCEPTANCE — backfill the real dogfood plan on 7686 + demo recall (plan search soft-lock) [orchestrator at integration]'
 status: done
 ---
-

@@ -856,4 +856,3 @@ title: Canvas v2 — the full build (dogfood)
 - [handoff #1 (el_e8ab8c970b444f4a8bf130df3f9f5cd3)](handoffs/el_e8ab8c970b444f4a8bf130df3f9f5cd3.md)
 - [handoff #2 (el_b40bb35049214339903122eedc60de71)](handoffs/el_b40bb35049214339903122eedc60de71.md)
 - [handoff #3 (el_3cd2d1f8c87b4a2dbb5df7e7f181b6e8)](handoffs/el_3cd2d1f8c87b4a2dbb5df7e7f181b6e8.md)
-

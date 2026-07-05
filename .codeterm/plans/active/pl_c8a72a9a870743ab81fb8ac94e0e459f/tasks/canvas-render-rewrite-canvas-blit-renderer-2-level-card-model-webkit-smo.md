@@ -6,4 +6,3 @@ handle: canvas-render-rewrite-canvas-blit-renderer-2-level-card-model-webkit-smo
 title: 'CANVAS RENDER REWRITE: canvas blit renderer + 2-level card model (WebKit-smooth)'
 status: done
 ---
-
