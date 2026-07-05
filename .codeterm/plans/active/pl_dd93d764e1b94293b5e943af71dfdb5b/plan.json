@@ -480,7 +480,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1783008646086,
-  "updated_at": 1783273648777,
+  "updated_at": 1783273817901,
   "milestone_kinds": [
     {
       "key": "decision",
@@ -11969,12 +11969,12 @@
       ],
       "test_plan": "Unit for debounce decision table; QA gate: cargo check/clippy/test; live before/after CPU on a streaming drill (QA machine or post-release verify)",
       "correctness": "Never hold screen_state lock longer than today; the trailing rehash guarantees eventual consistency; exit-detection path (every-50th get_screen_text) untouched",
-      "status": "in_review",
+      "status": "done",
       "status_label": null,
       "priority": "p1",
       "created_at": 1783268501801,
-      "updated_at": 1783272049665,
-      "status_changed_at": 1783269848349,
+      "updated_at": 1783273817901,
+      "status_changed_at": 1783273817901,
       "handle": "daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st",
       "tags": [],
       "section_ids": [
