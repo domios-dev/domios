@@ -246,6 +246,7 @@ title: Plan views UX redesign — Board/List/Canvas
 - [decision-gate-productize-remote-qa-builders (DECISION GATE: productize remote QA builders?)](tasks/decision-gate-productize-remote-qa-builders.md)
 - [daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st (Daemon perf: full-screen vt100 hash on every PTY chunk melts CPU under streaming load)](tasks/daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st.md)
 - [final-staging-dev-consoles-live-on-air-rog-ubunta-full-regression-everyw (FINAL STAGING: dev consoles live on Air+ROG+ubunta, full regression everywhere, left running for Andrey)](tasks/final-staging-dev-consoles-live-on-air-rog-ubunta-full-regression-everyw.md)
+- [qa-prep-command-one-shot-dev-ready-isolated-worktree-dist-sidecars-no-un (QA prep command: one-shot dev-ready isolated worktree (dist + sidecars, no unrelated gates))](tasks/qa-prep-command-one-shot-dev-ready-isolated-worktree-dist-sidecars-no-un.md)
 
 ## Stride Logs
 
@@ -736,8 +737,11 @@ title: Plan views UX redesign — Board/List/Canvas
 - [gh-204-199-codex-tui-robustness-status-usage-parser-sessionstart-hook-di status_update (ms_545b74b2cbde43a69c641da387bd126c)](milestones/gh-204-199-codex-tui-robustness-status-usage-parser-sessionstart-hook-di-ms_545b74b2cbde43a69c641da387bd126c.md)
 - [gh-205-184-web-ui-auth-connected-host-panel-consistency-cross-mesh-token review (ms_c50ff3ef83f54d8c9e7ce6c40997772c)](milestones/gh-205-184-web-ui-auth-connected-host-panel-consistency-cross-mesh-token-ms_c50ff3ef83f54d8c9e7ce6c40997772c.md)
 - [gh-205-184-web-ui-auth-connected-host-panel-consistency-cross-mesh-token live gate RED on dev build e1fc0a48 (ms_63f93e65e2ae496c97354a8e1a800fda)](milestones/gh-205-184-web-ui-auth-connected-host-panel-consistency-cross-mesh-token-ms_63f93e65e2ae496c97354a8e1a800fda.md)
+- [gh-205-184-web-ui-auth-connected-host-panel-consistency-cross-mesh-token decision (ms_f0806aa486a84eb295635234825eccf8)](milestones/gh-205-184-web-ui-auth-connected-host-panel-consistency-cross-mesh-token-ms_f0806aa486a84eb295635234825eccf8.md)
+- [gh-205-184-web-ui-auth-connected-host-panel-consistency-cross-mesh-token cleanup (ms_53f2d967f76d4d01971ce7e6ed74c9c9)](milestones/gh-205-184-web-ui-auth-connected-host-panel-consistency-cross-mesh-token-ms_53f2d967f76d4d01971ce7e6ed74c9c9.md)
 - [gh-207-179-cron-hidden-agent-reliability-auth-outage-recovery-skills-loa review (ms_e2bf8ebf6dcc43b580b3222a5e40a993)](milestones/gh-207-179-cron-hidden-agent-reliability-auth-outage-recovery-skills-loa-ms_e2bf8ebf6dcc43b580b3222a5e40a993.md)
 - [gh-207-179-cron-hidden-agent-reliability-auth-outage-recovery-skills-loa live gate RED on dev build e1fc0a48 (ms_af6d2ca327cc42d6b3e4e5792aeaac05)](milestones/gh-207-179-cron-hidden-agent-reliability-auth-outage-recovery-skills-loa-ms_af6d2ca327cc42d6b3e4e5792aeaac05.md)
+- [gh-207-179-cron-hidden-agent-reliability-auth-outage-recovery-skills-loa decision (ms_29c17438ce594cf3af289732c79beda7)](milestones/gh-207-179-cron-hidden-agent-reliability-auth-outage-recovery-skills-loa-ms_29c17438ce594cf3af289732c79beda7.md)
 - [gh-185-chat-terminal-switch-sidebar-agent-icons-intermittently-disappear report_refused (ms_d77b2f26e74a4a64bff2475d8f72ede9)](milestones/gh-185-chat-terminal-switch-sidebar-agent-icons-intermittently-disappear-ms_d77b2f26e74a4a64bff2475d8f72ede9.md)
 - [gh-185-chat-terminal-switch-sidebar-agent-icons-intermittently-disappear status_update (ms_0bf11c7308d9452d9249bfb3c51afaa7)](milestones/gh-185-chat-terminal-switch-sidebar-agent-icons-intermittently-disappear-ms_0bf11c7308d9452d9249bfb3c51afaa7.md)
 - [gh-185-chat-terminal-switch-sidebar-agent-icons-intermittently-disappear status_update (ms_20481807fa84457583d16563b821542a)](milestones/gh-185-chat-terminal-switch-sidebar-agent-icons-intermittently-disappear-ms_20481807fa84457583d16563b821542a.md)
@@ -842,4 +846,3 @@ title: Plan views UX redesign — Board/List/Canvas
 ## Handoffs
 
 - (none)
-
