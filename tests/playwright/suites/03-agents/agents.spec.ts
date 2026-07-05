@@ -80,7 +80,7 @@ test("@smoke make-orchestrator rejects plain shell panes", async ({ api, paneCle
   expect(status).toBe(400);
 });
 
-test("@smoke make-orchestrator promotes agent pane and submits onboarding reminder", async ({
+test("@smoke make-orchestrator promotes agent pane and surfaces onboarding", async ({
   api,
   paneCleanup,
 }) => {
@@ -97,11 +97,14 @@ test("@smoke make-orchestrator promotes agent pane and submits onboarding remind
   expect(live?.role).toBe("Orchestrator");
   expect(live?.can_spawn).toBe(true);
 
-  const output = await api.get<{ output?: string; text?: string }>(`/panes/${pane.id}/output`);
-  const blob = output.output ?? output.text ?? "";
-  expect(blob).toContain("-=-codeterm:reminder");
-  expect(blob).toContain("codeterm doc orchestration");
-  expect(blob).toContain(`codeterm agent spawn --parent ${pane.id}`);
+  const chat = await api.post<{ messages?: { content?: string }[] }>(
+    `/panes/${pane.id}/chat-raw/start`,
+    {},
+  );
+  const greeting = JSON.stringify(chat.messages ?? []);
+  expect(greeting).toContain("You are now the Orchestrator");
+  expect(greeting).toContain("codeterm doc orchestration");
+  expect(greeting).toContain(`codeterm agent spawn --parent ${pane.id}`);
 });
 
 // ── @golden: ONE real LLM call ───────────────────────────────────────
