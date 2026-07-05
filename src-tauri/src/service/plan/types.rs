@@ -29,6 +29,8 @@ pub enum PlanError {
     TaskCreationRequiresApproval,
     HeartbeatRequiresExecution,
     ParkRequiresReason,
+    InProgressRequiresPane,
+    BlockedRequiresLabel,
     QaNoteRequired,
     QaSlotUnavailable,
     QaNotRunning,
@@ -106,6 +108,14 @@ impl fmt::Display for PlanError {
                 f,
                 "heartbeat is for active execution; approve the plan or store planning-only policy in spec/plan sections or mem"
             ),
+            PlanError::InProgressRequiresPane => write!(
+                f,
+                "in_progress requires an executor pane; set both in one command: codeterm plan task update <plan> <task> --status in_progress --pane <pane-id> (CODETERM_STATE_INVARIANTS=off for emergencies)"
+            ),
+            PlanError::BlockedRequiresLabel => write!(
+                f,
+                "blocked is a claim, not a parking spot: pass --status-label \"<what unblocks it>\" or open a decision gate"
+            ),
             PlanError::ParkRequiresReason => write!(
                 f,
                 "parking a task requires a reason; run `codeterm plan task park <plan> <task> --reason \"<why>\"`"
@@ -175,6 +185,12 @@ impl PlanError {
             }
             PlanError::HeartbeatRequiresExecution => {
                 serde_json::json!({ "type": "heartbeat_requires_execution" })
+            }
+            PlanError::InProgressRequiresPane => {
+                serde_json::json!({ "type": "in_progress_requires_pane" })
+            }
+            PlanError::BlockedRequiresLabel => {
+                serde_json::json!({ "type": "blocked_requires_label" })
             }
             PlanError::ParkRequiresReason => {
                 serde_json::json!({ "type": "park_requires_reason" })

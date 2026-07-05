@@ -335,6 +335,7 @@ impl PlanStore {
                                         &task_id,
                                         &working.tasks[task_index].status,
                                         next,
+                                        None,
                                     )?;
                                 }
                                 let task = &mut working.tasks[task_index];
@@ -489,6 +490,7 @@ impl PlanStore {
                                 &task_id,
                                 &working.tasks[task_index].status,
                                 &parsed,
+                                None,
                             )?;
                             let task = &mut working.tasks[task_index];
                             if task.status != parsed {

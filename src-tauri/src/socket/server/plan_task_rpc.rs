@@ -387,6 +387,13 @@ pub(super) fn dispatch(
             let test_plan = optional_string_field(p, "test_plan");
             let correctness = optional_string_field(p, "correctness");
             let lane = lane_update_field(p)?;
+            // Lane binds BEFORE the status write so `--status in_progress --pane X`
+            // satisfies pane-requiring transition invariants in one command.
+            if let Some(lane) = lane.clone() {
+                store
+                    .update_task_lane(&id, &tid, lane, now)
+                    .map_err(plan_rpc_err)?;
+            }
             store
                 .update_task(
                     &id,
@@ -414,11 +421,6 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             super::plan_role_helpers::update_role_guidance_if_present(store, &id, &tid, p, now)?;
-            if let Some(lane) = lane {
-                store
-                    .update_task_lane(&id, &tid, lane, now)
-                    .map_err(plan_rpc_err)?;
-            }
             if let Some(competition) = super::plan_competition::update_field(p)? {
                 store
                     .update_task_competition(&id, &tid, competition, now)
