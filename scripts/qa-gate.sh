@@ -17,6 +17,9 @@
 #   --json              JSON lines instead of KV first line
 #   --skip-dev-check    run dev-dependent gates even if 7686 is down
 #
+# Prod orchestrator panes leak CODETERM_API_PORT=7685 — gates auto-sanitize to dev (7686).
+# QA_GATE_ENV_LOCKED=1 preserves env; QA_GATE_INSTANCE sets named dev instance.
+#
 # Examples:
 #   scripts/qa-gate.sh run fmt check --ref feat/canvas-updates --expect-sha a2523df6
 #   scripts/qa-gate.sh run prepush-full --timeout 2400
@@ -27,6 +30,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=scripts/qa-gates.lib.sh
 source "$ROOT/scripts/qa-gates.lib.sh"
 QA_ROOT="$ROOT"
+qa_sanitize_env
 
 qa_cmd_list() {
   echo "Available gates (run serially with: scripts/qa-gate.sh run GATE ...):"

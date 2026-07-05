@@ -4,6 +4,33 @@ set -u
 
 QA_ROOT="${QA_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 
+# Strip prod CodeTerm env leaked from orchestrator panes (7685 + prod socket).
+# QA_GATE_ENV_LOCKED=1 skips; non-prod CODETERM_API_PORT values are preserved.
+qa_sanitize_env() {
+  if [ "${QA_GATE_ENV_LOCKED:-0}" = "1" ]; then
+    return 0
+  fi
+  case "${CODETERM_API_PORT:-}" in
+    ''|7685) export CODETERM_API_PORT=7686 ;;
+  esac
+  case "${CODETERM_INSTANCE:-}" in
+    prod|Prod|PROD) unset CODETERM_INSTANCE ;;
+  esac
+  if [ -n "${QA_GATE_INSTANCE:-}" ]; then
+    export CODETERM_INSTANCE="$QA_GATE_INSTANCE"
+  fi
+  unset CODETERM_PANE_ID CODETERM_PARENT_PANE_ID 2>/dev/null || true
+  export CODETERM_API_URL="http://127.0.0.1:${CODETERM_API_PORT}"
+  if [ -n "${QA_GATE_SOCKET_PATH:-}" ]; then
+    export CODETERM_SOCKET_PATH="$QA_GATE_SOCKET_PATH"
+  else
+    case "$(uname -s)" in
+      MINGW*|MSYS*|CYGWIN*) export CODETERM_SOCKET_PATH='\\.\pipe\codeterm-dev.sock' ;;
+      *) export CODETERM_SOCKET_PATH='codeterm-dev.sock' ;;
+    esac
+  fi
+}
+
 qa_host() {
   hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown
 }
@@ -176,6 +203,7 @@ qa_list_gates() {
 
 qa_run_gate_body() {
   local gate="$1"
+  qa_sanitize_env
   cd "$QA_ROOT"
   case "$gate" in
     shell-guards)
