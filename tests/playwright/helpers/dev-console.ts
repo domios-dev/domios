@@ -192,7 +192,12 @@ async function waitForShellOnce(page: Page): Promise<void> {
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
   await page
     .evaluate(() =>
-      "serviceWorker" in navigator ? navigator.serviceWorker.ready.then(() => undefined) : undefined,
+      "serviceWorker" in navigator
+        ? Promise.race([
+            navigator.serviceWorker.ready.then(() => undefined),
+            new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
+          ])
+        : undefined,
     )
     .catch(() => {
       /* no SW in this context (desktop CDP) or registration still pending — non-fatal */
@@ -205,9 +210,10 @@ async function waitForShellOnce(page: Page): Promise<void> {
     }
   });
   await page
-    .locator('.xterm:visible, [data-testid="chat-composer"]')
-    .first()
-    .waitFor({ state: "visible", timeout: 90_000 });
+    .waitForSelector('.xterm:visible, [data-testid="chat-composer"]:visible', {
+      state: "visible",
+      timeout: 90_000,
+    });
 }
 
 async function waitForShell(page: Page): Promise<void> {
