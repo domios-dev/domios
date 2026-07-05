@@ -4,7 +4,7 @@ kind: task
 id: task_3e3c1a9ffb6c4866b4363b3528dd644e
 handle: t5-canvas
 title: Canvas legibility + performance (LOD, zoom floor, done compression)
-status: pending
+status: done
 ---
 
 Canvas legibility + performance: kill the dot-cloud overview and bound frame cost. Read spec sections canvas-req + done-req first. Renderer-side only — no REST/data-layer changes, no new canvas features.

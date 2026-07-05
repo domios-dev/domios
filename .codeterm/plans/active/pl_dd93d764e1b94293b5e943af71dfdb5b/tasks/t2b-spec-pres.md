@@ -4,7 +4,7 @@ kind: task
 id: task_8a84597c762c4828b4ae05c5403aecb5
 handle: t2b-spec-pres
 title: Spec card + spec read surface redesign
-status: pending
+status: done
 ---
 
 Redesign spec entity presentation: the Canvas spec card and the spec read surface (user screenshot evidence shows truncated section titles, identical "-> tasks" chips, dead space).

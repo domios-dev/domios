@@ -4,7 +4,7 @@ kind: task
 id: task_f1b7971f23634d489a91ea8e59ee407a
 handle: planner-lane
 title: 'Planner: design Board/List/Canvas UX redesign task graph'
-status: in_progress
+status: done
 ---
 
 Planner-profile lane (re-added after plan approval; the original pre-approval task was removed to clear the tasks_before_approval gate — its recorded decision is preserved below; future planning lanes use --type planning once Wave 0 lands).

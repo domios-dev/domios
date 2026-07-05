@@ -4,7 +4,7 @@ kind: task
 id: task_53b32413cc504e24aa42d6942d07b3c5
 handle: t7-review
 title: Adversarial review + integration gate
-status: pending
+status: done
 ---
 
 Adversarial review + integration gate over the combined plan-views redesign diff. You judge against the spec's acceptance gates (codeterm spec show sp_d2c70550432f4a829c89cf4a4cb7c3c5, section "Visual and functional acceptance gates").

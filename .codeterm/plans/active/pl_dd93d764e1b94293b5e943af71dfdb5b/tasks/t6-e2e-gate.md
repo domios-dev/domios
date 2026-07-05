@@ -4,7 +4,7 @@ kind: task
 id: task_9e88d51dfd0d40aab43dca58d1ed141e
 handle: t6-e2e-gate
 title: Playwright visual/e2e gate for plan views
-status: pending
+status: done
 ---
 
 Playwright visual/e2e gate for the redesigned plan views (macOS web-mode against dev 7686). Runs after t1,t2,t2b,t3,t4,t5 are integrated in the integration checkout.

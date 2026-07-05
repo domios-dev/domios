@@ -4,7 +4,7 @@ kind: task
 id: task_973127130e8c489586368c955e817fde
 handle: t1-view-order
 title: Board-first view order + persisted mode
-status: pending
+status: done
 ---
 
 Reorder plan view modes to Board (default), List, Canvas, and persist the selected mode.

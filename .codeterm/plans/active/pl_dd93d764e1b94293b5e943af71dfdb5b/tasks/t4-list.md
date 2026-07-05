@@ -4,7 +4,7 @@ kind: task
 id: task_75995d413fab46a69dc1b3fd1df93cfc
 handle: t4-list
 title: List redesign (secondary view)
-status: pending
+status: done
 ---
 
 Redesign List into the secondary orientation/audit view. Depends on t2-detail-overlay and t3-board (PlanContextHeader reuse). Read spec sections list-req, done-req, context-req first.

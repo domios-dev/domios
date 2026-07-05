@@ -6,3 +6,4 @@ handle: ux-3-card-sizing-audit-across-scales-plan-spec-task-subtask-footprints-a
 title: UX-3 card-sizing audit across scales — plan/spec/task/subtask footprints at W0-W3; fix too-tiny subtasks; titles always fit; screenshot-verified
 status: done
 ---
+

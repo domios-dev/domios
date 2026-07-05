@@ -4,7 +4,7 @@ kind: task
 id: task_30b1397607c6454b90973b9db69ee7df
 handle: t8-replan-loop
 title: Replanning checkpoint (standing feedback loop)
-status: pending
+status: cancelled
 ---
 
 Standing replanning checkpoint — NOT a build task. This task stays open across the effort and is the Orchestrator's contract for feedback-driven iteration.

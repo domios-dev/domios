@@ -1,0 +1,9 @@
+---
+plan_id: pl_dd93d764e1b94293b5e943af71dfdb5b
+kind: milestone
+id: ms_2808f04f52584eada351935868f14566
+handle: task-lane-watchdog-tie-in-progress-truth-to-live-pane-mesh-state-ms_2808f04f52584eada351935868f14566
+title: review
+---
+
+STATE-DRIFT RETRO (round-61, requested by Andrey via Orchestrator — root cause and prevention, no blame). HOW IT ESCAPED, four gaps: (1) TESTING — plan mutations are tested as field writes, not as CONTRACTS: nothing asserted 'in_progress implies pane', 'in_review implies report', so status theater passed every suite; the mirror bug was fixed once (task_354c755f) WITHOUT a standing concurrent-write suite, so it regressed invisibly. (2) PROCESS — statuses are self-reported claims with no verification layer; gating throughput relied on one orchestrator's serial attention; the In-QA queue existed (task_49f03e58, done) and went UNUSED — second occurrence of shipped-but-unadopted (plan skills was the first): machinery that isn't wired into prompts/process does not exist. (3) PROMPT/REPORTING — report templates carry branch/sha as PROSE; nothing binds pane/peer at claim time (11/13 pane-less, peer empty on ALL tasks incl. mesh lanes). (4) SCHEMA/API — no write-time invariants: the store accepted in_progress without pane, and #209's pane update silently didn't take (root-cause owned by task_7140a28c). META ROOT CAUSE: the plan store was built as a recording system for agent claims, not a supervised state machine — every drift class follows from that single design stance. PREVENTION, three layers now filed + one process rule: write-time invariants (task_7140a28c, P1), continuous observation (this watchdog, P1), atomic dispatch composition (task_310d7e6b, P2), gate wiring + adoption enforcement (task_<gate-wiring>, P2 — incl. counting In-QA adoption in the reflection loop). Feeds the plan retrospective as a first-class input alongside the polling incident and the planner self-retro.
