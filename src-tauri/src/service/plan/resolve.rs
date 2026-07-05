@@ -377,12 +377,7 @@ impl PlanStore {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        pick(items, element_ref, RefKind::Element).map(|m| {
-            (
-                m.plan_id.unwrap_or(plan_id),
-                m.id,
-            )
-        })
+        pick(items, element_ref, RefKind::Element).map(|m| (m.plan_id.unwrap_or(plan_id), m.id))
     }
 
     pub fn resolve_milestone_ref(
@@ -398,20 +393,17 @@ impl PlanStore {
             .get(&plan_id)
             .and_then(|arc| {
                 let p = arc.lock();
-                p.tasks
-                    .iter()
-                    .find(|t| t.id == task_id)
-                    .map(|task| {
-                        task.milestones
-                            .iter()
-                            .map(|m| MatchItem {
-                                id: m.id.clone(),
-                                handle: None,
-                                label: m.kind.clone(),
-                                plan_id: Some(plan_id.clone()),
-                            })
-                            .collect::<Vec<_>>()
-                    })
+                p.tasks.iter().find(|t| t.id == task_id).map(|task| {
+                    task.milestones
+                        .iter()
+                        .map(|m| MatchItem {
+                            id: m.id.clone(),
+                            handle: None,
+                            label: m.kind.clone(),
+                            plan_id: Some(plan_id.clone()),
+                        })
+                        .collect::<Vec<_>>()
+                })
             })
             .unwrap_or_default();
         pick(items, milestone_ref, RefKind::Milestone).map(|m| ResolvedMilestone {

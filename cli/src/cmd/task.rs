@@ -6,8 +6,8 @@ use crate::cmd::hints::{
     extract_hints_from_value, maybe_orchestration_reminder, print_hints_stderr, push_hints,
     task_model_hint, task_quality_guard_hint, task_sections_hint,
 };
-use crate::cmd::plan_output::canonical_mutation_id;
 use crate::cmd::plan_errors::render_plan_call_error;
+use crate::cmd::plan_output::canonical_mutation_id;
 use crate::cmd::print::print_object;
 use serde_json::{json, Value};
 
@@ -143,8 +143,9 @@ fn run_task(
             )
             .map(|val| (val, None))
         }
-        TaskAction::Drop { task_id } => call(client, "task.drop", json!({ "task_id": task_id }))
-            .map(|val| (val, None)),
+        TaskAction::Drop { task_id } => {
+            call(client, "task.drop", json!({ "task_id": task_id })).map(|val| (val, None))
+        }
         TaskAction::Add {
             name,
             kind,

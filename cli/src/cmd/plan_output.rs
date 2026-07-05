@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::cmd::hints::{print_hints_stderr, extract_hints_from_value};
+use crate::cmd::hints::{extract_hints_from_value, print_hints_stderr};
 use crate::cmd::print::print_object;
 
 const MUTATION_ID_FIELDS: &[&str] = &[
@@ -15,7 +15,11 @@ const MUTATION_ID_FIELDS: &[&str] = &[
 
 pub(crate) fn canonical_mutation_id(val: &Value) -> Option<String> {
     for field in MUTATION_ID_FIELDS {
-        if let Some(id) = val.get(field).and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+        if let Some(id) = val
+            .get(field)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
             return Some(id.to_string());
         }
     }
