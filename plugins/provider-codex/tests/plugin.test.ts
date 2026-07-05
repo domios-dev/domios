@@ -154,6 +154,52 @@ console.log("\n--- parseUsage: /status gauges ---\n");
   );
 }
 
+console.log("\n--- parseUsage: robustness matrix (structural, not literal-copy) ---\n");
+{
+  const p = loadHostPlugin();
+  const now = new Date(2026, 5, 14, 12, 0, 0, 0).getTime();
+
+  // Deliberately shifted format: CRLF, extra whitespace, reordered spacing,
+  // % used + % remaining in one screen, Month-Day reset order.
+  const shifted = p.parseUsage(fixtureText("codex-status-shifted.txt"), now);
+  eq(shifted?.session_pct, 99, "shifted: '% used' passes through unchanged");
+  eq(shifted?.weekly_pct, 75, "shifted: weekly '25% remaining' inverts to 75 used");
+  assert(shifted?.session_resets_at_ms != null, "shifted: session reset parsed despite padding");
+  eq(
+    shifted?.weekly_resets_at_ms,
+    new Date(2026, 7, 3, 6, 0, 0, 0).getTime(),
+    "shifted: 'Aug 3' Month-Day reset order parsed",
+  );
+
+  // Alternate 5-hour label word form + '% remaining' + DD-Mon reset order.
+  const word = p.parseUsage(fixtureText("codex-status-wordlabel.txt"), now);
+  eq(word?.session_pct, 65, "wordlabel: '5 hour limit' + '35% remaining' -> 65 used");
+  eq(word?.weekly_pct, 20, "wordlabel: weekly '80% left' -> 20 used");
+  assert(word?.session_resets_at_ms != null, "wordlabel: session reset parsed");
+  assert(word?.weekly_resets_at_ms != null, "wordlabel: '14 Jun' DD-Mon reset parsed");
+
+  // CRLF-only inline variant: same screen with carriage returns must not break parsing.
+  const crlf = p.parseUsage(
+    "OpenAI Codex\r\n5-hour limit ██░ 40% left (resets 19:59)\r\n" +
+      "Weekly limit █░ 30% used (resets 19:59 on 14 Jun)\r\n",
+    now,
+  );
+  eq(crlf?.session_pct, 60, "crlf: '5-hour' dash label + '40% left' -> 60 used");
+  eq(crlf?.weekly_pct, 30, "crlf: weekly '30% used' passes through");
+
+  // Percent-used semantics guard: 'left'/'remaining' invert, 'used' does not.
+  eq(
+    p.parseUsage("General 5h limit █ 10% left (resets 19:59)", now)?.session_pct,
+    90,
+    "semantics: '10% left' -> 90 used",
+  );
+  eq(
+    p.parseUsage("General 5h limit █ 10% used (resets 19:59)", now)?.session_pct,
+    10,
+    "semantics: '10% used' -> 10 used",
+  );
+}
+
 console.log("\n--- actions ---\n");
 eq(plugin.actions, [], "no actions defined yet");
 

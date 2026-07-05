@@ -1,0 +1,7 @@
+OpenAI   Codex
+
+  General   5h limit
+     ██████████████████░   99% used   (resets   at   08:30)
+
+  Weekly limit
+     ███░   25% remaining  (resets  06:00  on  Aug 3)
