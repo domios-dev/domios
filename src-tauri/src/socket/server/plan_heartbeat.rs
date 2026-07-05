@@ -53,6 +53,13 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &result.plan_id);
+            if let Some(pane_id) = body.get("pane_id").and_then(|v| v.as_str()) {
+                svc.maybe_refresh_after_reflection(
+                    pane_id,
+                    &result.plan_id,
+                    body.get("tag").and_then(|v| v.as_str()),
+                );
+            }
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
