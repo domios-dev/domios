@@ -110,6 +110,27 @@ fn data_root_uses_named_dev_instance() {
 }
 
 #[test]
+fn task_show_parses_siblings_flags() {
+    let parsed = Cli::try_parse_from(["codeterm", "task", "show", "task_1", "--siblings", "--all"])
+        .expect("task show --siblings --all parses");
+    match parsed.command {
+        Commands::Task {
+            action:
+                crate::args::task::TaskAction::Show {
+                    task_id,
+                    siblings,
+                    all,
+                },
+        } => {
+            assert_eq!(task_id, "task_1");
+            assert!(siblings);
+            assert!(all);
+        }
+        _ => panic!("expected task show"),
+    }
+}
+
+#[test]
 fn top_level_docs_parse() {
     let parsed = Cli::try_parse_from(["codeterm", "docs"]).expect("docs parses");
     assert!(matches!(parsed.command, Commands::Docs { .. }));

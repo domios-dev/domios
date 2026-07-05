@@ -30,6 +30,7 @@ pub mod plan_linking;
 pub mod plan_local;
 pub mod plan_markdown;
 pub mod plan_next;
+pub mod plan_output;
 pub mod plan_prune;
 pub mod plan_reconcile;
 pub mod plan_record;
