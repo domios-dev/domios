@@ -765,6 +765,21 @@ impl ServiceContext {
             result
         };
 
+        self.set_and_lock_pane_agent_type(&pane_id, agent.provider.clone());
+        let launch_session_id = if agent.resume_session_id.is_none() {
+            self.agent_registry
+                .with_provider(&agent.provider, |p| p.session_id_injection())
+                .filter(|mode| !matches!(mode, crate::agent::provider::SessionIdInjection::None))
+                .map(|_| uuid::Uuid::new_v4().to_string())
+        } else {
+            None
+        };
+        if let Some(ref sid) = agent.resume_session_id {
+            self.set_agent_session_id(&pane_id, Some(sid.clone()));
+        } else if let Some(ref sid) = launch_session_id {
+            self.set_agent_session_id(&pane_id, Some(sid.clone()));
+        }
+
         let mut env_vars: HashMap<String, String> = HashMap::new();
         env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
         env_vars.insert(
@@ -863,6 +878,7 @@ impl ServiceContext {
         let pane_id_outer = pane_id.clone();
         let pty_id_outer = pty_id.clone();
         let provider = agent.provider.clone();
+        let launch_session_id = launch_session_id.clone();
         let task_for_thread = wrapped_task.clone();
         // PtyInput providers (codex/opencode) don't embed the task in the launch command — it must be typed into the TUI after boot. InlineFlag (claude) bakes it in, so PtyInput delivery is skipped there.
         let task_delivery = self
@@ -917,7 +933,7 @@ impl ServiceContext {
                     Some(model_args)
                 },
                 skip_permissions: true,
-                session_id: None,
+                session_id: launch_session_id,
                 structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
                     &svc_outer,
                     &provider,
