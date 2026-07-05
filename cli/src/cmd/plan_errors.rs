@@ -114,8 +114,36 @@ After approval/execution starts, set heartbeat with:\n\
         "write_pending" => render_write_pending(data, plan_id, task_id),
         "readback_mismatch" => render_readback_mismatch(data, plan_id, task_id),
         "io" => Some(render_io(data, plan_id, params)),
+        "ref_not_found" => render_ref_not_found(data),
+        "ref_ambiguous" => render_ref_ambiguous(data),
         _ => None,
     }
+}
+
+fn render_ref_not_found(data: &Value) -> Option<String> {
+    let kind = data.get("kind")?.as_str()?;
+    let reference = data.get("reference")?.as_str()?;
+    Some(format!(
+        "✗ no {kind} matches '{reference}'.\nfix: pass the full id or a longer unique prefix; list candidates with the matching list command."
+    ))
+}
+
+fn render_ref_ambiguous(data: &Value) -> Option<String> {
+    let kind = data.get("kind")?.as_str()?;
+    let reference = data.get("reference")?.as_str()?;
+    let candidates = data.get("candidates")?.as_array()?;
+    let listed = candidates
+        .iter()
+        .filter_map(|c| {
+            let id = c.get("id")?.as_str()?;
+            let label = c.get("label").and_then(|v| v.as_str()).unwrap_or("");
+            Some(format!("{id} ({label})"))
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    Some(format!(
+        "✗ {kind} ref '{reference}' is ambiguous — matches: {listed}\nfix: pass a longer prefix or the full id."
+    ))
 }
 
 fn render_bad_status(plan_id: &str, task_id: Option<&str>, params: &Value) -> String {

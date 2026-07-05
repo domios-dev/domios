@@ -121,6 +121,24 @@ pub fn print_hints(hints: &[String]) {
     }
 }
 
+pub fn print_hints_stderr(hints: &[String]) {
+    for hint in hints {
+        eprintln!("{hint}");
+    }
+}
+
+pub fn extract_hints_from_value(val: &serde_json::Value) -> Vec<String> {
+    val.get("_hints")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub(crate) fn worker_spawn_hints(
     is_worker: bool,
     has_report_target: bool,
