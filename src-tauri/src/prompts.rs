@@ -525,14 +525,12 @@ mod tests {
         .into_iter()
         .collect();
 
-        let prompts_dir =
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("prompts");
+        let prompts_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("prompts");
         let orphans: Vec<String> = std::fs::read_dir(&prompts_dir)
             .expect("prompts/ must be readable")
             .filter_map(|e| e.ok())
             .filter(|e| {
-                e.path().is_file()
-                    && e.path().extension().and_then(|x| x.to_str()) == Some("md")
+                e.path().is_file() && e.path().extension().and_then(|x| x.to_str()) == Some("md")
             })
             .filter(|e| !loaded.contains(e.file_name().to_str().unwrap_or("")))
             .map(|e| e.file_name().to_string_lossy().into_owned())
