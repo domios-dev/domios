@@ -301,4 +301,28 @@ export interface Plan {
   links?: string[];
   lineage?: EffortLink[];
   strides?: Milestone[];
+  gates?: DecisionGate[];
+}
+
+export type GateStatus = "open" | "answered" | "escalated";
+
+export interface GateAnswer {
+  text: string;
+  by_pane_id?: string | null;
+  at: number;
+}
+
+/** Structured decision request that parks blocking tasks until answered. */
+export interface DecisionGate {
+  id: string;
+  question: string;
+  context?: string;
+  blocking_task_ids?: string[];
+  routed_to_pane_id?: string | null;
+  asked_by_pane_id?: string | null;
+  asked_at: number;
+  status: GateStatus;
+  answer?: GateAnswer | null;
+  escalated_at?: number | null;
+  escalation_note?: string | null;
 }

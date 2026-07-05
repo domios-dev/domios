@@ -1,17 +1,9 @@
-import type { ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { CrewStrip } from "./CrewStrip";
 import { FlowCurves } from "./FlowCurves";
 import { AgentAvatar } from "./AgentAvatar";
-import type { FlowChip, FlowRiverModel } from "./flowModel";
-import {
-  CARRIER_LEFT,
-  CARRIER_TOP,
-  RIVER_HEIGHT,
-  RIVER_HEIGHT_MINI,
-  RIVER_WIDTH,
-  STATION_GEOM,
-  type FlowStationKey,
-} from "./flowLayout";
+import type { FlowChip, FlowRiverModel, GateView } from "./flowModel";
+import { edgesFromRects, type MeasuredEdge, type StationRect } from "./flowLayout";
 import type { MissionControlLodLevel } from "./missionControlLod";
 
 export interface PlanRiverProps {
@@ -24,10 +16,7 @@ export interface PlanRiverProps {
   onOpenPlan?: (planId: string) => void;
 }
 
-function stationStyle(key: FlowStationKey) {
-  const g = STATION_GEOM[key];
-  return { left: g.left, width: g.width };
-}
+type StationKey = "frontier" | "milestone" | "verify" | "done";
 
 function ChipView({ chip, onTaskClick }: { chip: FlowChip; onTaskClick?: (id: string) => void }) {
   return (
@@ -55,27 +44,11 @@ function ChipView({ chip, onTaskClick }: { chip: FlowChip; onTaskClick?: (id: st
   );
 }
 
-function StationCard({
-  geomKey,
-  now,
-  name,
-  children,
-  dim,
-}: {
-  geomKey: FlowStationKey;
-  now?: boolean;
-  name: ReactNode;
-  children?: ReactNode;
-  dim?: boolean;
-}) {
+function GateRow({ gate }: { gate: GateView }) {
   return (
-    <div
-      className={`mc-flow-station${now ? " mc-flow-station-now" : ""}${dim ? " mc-flow-station-dim" : ""}`}
-      style={stationStyle(geomKey)}
-      data-testid={`flow-station-${geomKey}`}
-    >
-      <div className="mc-flow-station-name">{name}</div>
-      {children}
+    <div className={`mc-flow-gate${gate.escalated ? " mc-flow-gate-esc" : ""}`} data-testid={`flow-gate-${gate.id}`}>
+      <span className="mc-flow-gate-q">{gate.question}</span>
+      <span className="mc-flow-gate-wait">waits on {gate.waitsOn}</span>
     </div>
   );
 }
@@ -89,9 +62,99 @@ export function PlanRiver({
   onAgentClick,
   onOpenPlan,
 }: PlanRiverProps) {
-  const height = compact ? RIVER_HEIGHT_MINI : RIVER_HEIGHT;
+  const bandRef = useRef<HTMLDivElement | null>(null);
+  const stationRefs = useRef<Map<StationKey, HTMLDivElement>>(new Map());
+  const [edges, setEdges] = useState<MeasuredEdge[]>([]);
+  const [bandSize, setBandSize] = useState({ width: 0, height: 0 });
+
   const { milestone, frontier, verify, done, carrier } = model;
+
+  // Which stations render (never a ghost): frontier when it has queue; milestone
+  // when active OR there is inflow to target; verify/done when they hold content.
+  const present: StationKey[] = [];
+  if (frontier.count > 0) present.push("frontier");
+  if (milestone.active || frontier.count > 0) present.push("milestone");
+  if (verify.count > 0) present.push("verify");
+  if (done.count > 0) present.push("done");
+
+  const measure = useCallback(() => {
+    const band = bandRef.current;
+    if (!band) return;
+    const rects: StationRect[] = [];
+    for (const key of present) {
+      const el = stationRefs.current.get(key);
+      if (!el) continue;
+      rects.push({ key, left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight });
+    }
+    setEdges(edgesFromRects(rects));
+    setBandSize({ width: band.offsetWidth, height: band.offsetHeight });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [present.join(",")]);
+
+  useLayoutEffect(() => {
+    measure();
+    const band = bandRef.current;
+    if (!band || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => measure());
+    ro.observe(band);
+    for (const el of stationRefs.current.values()) ro.observe(el);
+    return () => ro.disconnect();
+  }, [measure, model]);
+
+  const setStationRef = (key: StationKey) => (el: HTMLDivElement | null) => {
+    if (el) stationRefs.current.set(key, el);
+    else stationRefs.current.delete(key);
+  };
+
   const animate = !reducedMotion && !compact && milestone.active && lod !== "far";
+  const activeEdge = edges.find((e) => e.active) ?? null;
+
+  const header = (
+    <div className="mc-river-head">
+      <button
+        type="button"
+        className="mc-river-title"
+        data-testid={`river-title-${model.planId}`}
+        onClick={onOpenPlan ? () => onOpenPlan(model.planId) : undefined}
+      >
+        {model.planTitle}
+      </button>
+      {model.statusLabel ? (
+        <span className="mc-river-status">{model.statusLabel}</span>
+      ) : (
+        <span className="mc-river-pct">{model.progressPct}%</span>
+      )}
+      <CrewStrip crew={model.crew} onAgentClick={onAgentClick} />
+    </div>
+  );
+
+  // F4: an empty plan is a head-only block — no ghost river, dot, or zero HUD.
+  if (model.isEmpty) {
+    return (
+      <section
+        className="mc-river-plan mc-river-empty"
+        data-testid={`plan-river-${model.planId}`}
+        data-empty="true"
+        data-compact={compact ? "true" : undefined}
+      >
+        {header}
+        <div className="mc-river-empty-note">No active work.</div>
+      </section>
+    );
+  }
+
+  function stationCard(key: StationKey, now: boolean, dim: boolean, name: ReactNode, body: ReactNode) {
+    return (
+      <div
+        ref={setStationRef(key)}
+        className={`mc-flow-station${now ? " mc-flow-station-now" : ""}${dim ? " mc-flow-station-dim" : ""}`}
+        data-testid={`flow-station-${key}`}
+      >
+        <div className="mc-flow-station-name">{name}</div>
+        {body}
+      </div>
+    );
+  }
 
   return (
     <section
@@ -100,78 +163,76 @@ export function PlanRiver({
       data-compact={compact ? "true" : undefined}
       data-lod={lod}
     >
-      <div className="mc-river-head">
-        <button
-          type="button"
-          className="mc-river-title"
-          data-testid={`river-title-${model.planId}`}
-          onClick={onOpenPlan ? () => onOpenPlan(model.planId) : undefined}
-        >
-          {model.planTitle}
-        </button>
-        {model.statusLabel ? (
-          <span className="mc-river-status">{model.statusLabel}</span>
-        ) : (
-          <span className="mc-river-pct">{model.progressPct}%</span>
-        )}
-        <CrewStrip crew={model.crew} onAgentClick={onAgentClick} />
-      </div>
+      {header}
 
-      <div className="mc-river-band" style={{ height, width: RIVER_WIDTH }}>
-        {!compact && <FlowCurves animate={animate} height={height} />}
+      <div ref={bandRef} className="mc-river-band">
+        <FlowCurves edges={edges} width={bandSize.width} height={bandSize.height} animate={animate} />
 
-        <StationCard geomKey="frontier" name={`Frontier · ${frontier.count}`}>
-          {frontier.chips.map((c) => (
-            <ChipView key={c.taskId} chip={c} onTaskClick={onTaskClick} />
-          ))}
-        </StationCard>
+        {present.includes("frontier") &&
+          stationCard(
+            "frontier",
+            false,
+            false,
+            `Frontier · ${frontier.count}`,
+            frontier.chips.map((c) => <ChipView key={c.taskId} chip={c} onTaskClick={onTaskClick} />),
+          )}
 
-        <StationCard
-          geomKey="milestone"
-          now={milestone.active}
-          dim={!milestone.active}
-          name={
+        {present.includes("milestone") &&
+          stationCard(
+            "milestone",
+            milestone.active,
+            !milestone.active,
             milestone.active ? (
               <>
                 <b>Milestone · {milestone.label}</b> — {milestone.remaining} of {milestone.total} left
               </>
             ) : (
               "Milestone — none active"
-            )
-          }
-        >
-          {milestone.chips.map((c) => (
-            <ChipView key={c.taskId} chip={c} onTaskClick={onTaskClick} />
-          ))}
-        </StationCard>
+            ),
+            milestone.chips.map((c) => <ChipView key={c.taskId} chip={c} onTaskClick={onTaskClick} />),
+          )}
 
-        {!compact && (
-          <StationCard geomKey="verify" name="Verify · QA + Gate">
-            {verify.judging.map((c) => (
-              <ChipView key={c.taskId} chip={c} onTaskClick={onTaskClick} />
-            ))}
-            {verify.queue.map((c) => (
-              <ChipView key={c.taskId} chip={c} onTaskClick={onTaskClick} />
-            ))}
-            {verify.count === 0 && <div className="mc-flow-empty">queue empty — flows on close</div>}
-          </StationCard>
-        )}
+        {present.includes("verify") &&
+          stationCard(
+            "verify",
+            false,
+            false,
+            "Verify · review + gates",
+            <>
+              {verify.inReview.map((c) => (
+                <ChipView key={c.taskId} chip={c} onTaskClick={onTaskClick} />
+              ))}
+              {verify.gates.map((g) => (
+                <GateRow key={g.id} gate={g} />
+              ))}
+            </>,
+          )}
 
-        {!compact && (
-          <StationCard geomKey="done" name="Done">
-            <div className="mc-flow-count">{done.count}</div>
-            <div className="mc-flow-sub">+{done.todayDelta} today</div>
-          </StationCard>
-        )}
+        {present.includes("done") &&
+          stationCard(
+            "done",
+            false,
+            false,
+            "Done",
+            <>
+              <div className="mc-flow-count">{done.count}</div>
+              <div className="mc-flow-sub">+{done.todayDelta} today</div>
+              {done.lastStride && !compact && (
+                <div className="mc-flow-stride" title={done.lastStride}>
+                  ↳ {done.lastStride}
+                </div>
+              )}
+            </>,
+          )}
 
-        {!compact && carrier && (
+        {!compact && carrier && activeEdge && activeEdge.span >= 44 && (
           <div
             className={`mc-flow-carrier${animate ? " mc-flow-carrier-move" : ""}`}
-            style={{ left: CARRIER_LEFT, top: CARRIER_TOP }}
+            style={{ left: activeEdge.mid.x - activeEdge.span / 2 + 6, top: activeEdge.mid.y - 34 }}
             data-testid="flow-carrier"
+            title={carrier.label}
           >
             <AgentAvatar agent={carrier.agent} onClick={onAgentClick} />
-            <span className="mc-flow-pkg">{carrier.label}</span>
           </div>
         )}
       </div>

@@ -1,5 +1,5 @@
 import type { Pane } from "../../../lib/types";
-import { TaskStatus, type Plan, type Task, type TaskGroup } from "../types";
+import { TaskStatus, type DecisionGate, type Plan, type Task } from "../types";
 import { displayTaskTitle } from "../planView/activeWork";
 import type { MissionControlModel, TaskStation } from "./missionControl";
 import type { AgentProvider, AgentStationState, MissionAgent, MissionControlSnapshot } from "./types";
@@ -21,6 +21,20 @@ export interface MilestoneStation {
   remaining: number;
   total: number;
   chips: FlowChip[];
+}
+
+/** An open decision gate — a question parking blocking tasks until answered. */
+export interface GateView {
+  id: string;
+  question: string;
+  waitsOn: string;
+  escalated: boolean;
+}
+
+export interface VerifyStation {
+  inReview: FlowChip[];
+  gates: GateView[];
+  count: number;
 }
 
 export interface CarrierTransit {
@@ -45,10 +59,12 @@ export interface FlowRiverModel {
   crewCount: number;
   frontier: { count: number; chips: FlowChip[] };
   milestone: MilestoneStation;
-  verify: { queue: FlowChip[]; judging: FlowChip[]; count: number };
-  done: { count: number; todayDelta: number };
+  verify: VerifyStation;
+  done: { count: number; todayDelta: number; lastStride: string | null };
   carrier: CarrierTransit | null;
   hud: FlowHud;
+  /** No actionable work, no gates, no done — render a head-only compact block. */
+  isEmpty: boolean;
 }
 
 const DAY_MS = 86_400_000;
@@ -85,11 +101,6 @@ interface AgentResolver {
   (taskId: string): MissionAgent | undefined;
 }
 
-/**
- * Resolve the agent carrying a task across ANY zone (work floor lanes plus
- * gate/QA stations), so in_review chips still dock their avatar. Lanes win
- * (full provider data); model presence + panes covers the rest.
- */
 function makeAgentResolver(
   snapshot: MissionControlSnapshot,
   model: MissionControlModel,
@@ -128,22 +139,57 @@ function chipForTask(agentFor: AgentResolver, task: Task, hot: boolean): FlowChi
     taskId: task.id,
     title: displayTaskTitle(task),
     hot,
-    carrier: hot ? agentFor(task.id) : undefined,
+    carrier: agentFor(task.id),
   };
 }
 
-function orderedGroups(plan: Plan): TaskGroup[] {
-  return plan.task_groups ?? [];
+// ── Task-group derivation (with fallback) ────────────────────────────────────
+
+interface DerivedGroup {
+  key: string; // normalized
+  label: string;
 }
 
-function groupMembers(plan: Plan, key: string): Task[] {
-  return plan.tasks.filter((t) => t.group === key && !isCancelled(t));
+function normGroup(raw?: string | null): string | null {
+  const t = raw?.trim();
+  return t ? t.toLowerCase() : null;
+}
+
+function prettyLabel(raw: string): string {
+  const t = raw.trim().replace(/[-_]+/g, " ");
+  return t.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /**
- * Milestone station derives from task groups: the FIRST group (in plan order)
- * that still has incomplete members is the active milestone. No groups, or all
- * groups complete → inactive ("none active" fallback).
+ * Ordered milestone groups. Prefer the plan's task_groups registry; when it is
+ * empty (common on real plans that only stamp Task.group), derive the ordered
+ * distinct groups straight from the tasks — so the milestone station is never a
+ * ghost when real group work exists.
+ */
+function orderedGroups(plan: Plan): DerivedGroup[] {
+  const registry = plan.task_groups ?? [];
+  if (registry.length > 0) {
+    return registry
+      .map((g) => ({ key: normGroup(g.key) ?? "", label: g.label?.trim() || prettyLabel(g.key) }))
+      .filter((g) => g.key !== "");
+  }
+  const seen = new Map<string, DerivedGroup>();
+  for (const task of plan.tasks) {
+    if (isCancelled(task)) continue;
+    const key = normGroup(task.group);
+    if (!key || seen.has(key)) continue;
+    seen.set(key, { key, label: prettyLabel(task.group!.trim()) });
+  }
+  return [...seen.values()];
+}
+
+function groupMembers(plan: Plan, key: string): Task[] {
+  return plan.tasks.filter((t) => normGroup(t.group) === key && !isCancelled(t));
+}
+
+/**
+ * Milestone station: the FIRST group (in order) with incomplete members is the
+ * active milestone. No groups / all complete → inactive (compact "none active").
  */
 function buildMilestone(plan: Plan, agentFor: AgentResolver): { station: MilestoneStation; activeIndex: number } {
   const groups = orderedGroups(plan);
@@ -156,23 +202,13 @@ function buildMilestone(plan: Plan, agentFor: AgentResolver): { station: Milesto
 
     const inFlight = incomplete.filter(isInFlight);
     const source = inFlight.length > 0 ? inFlight : incomplete;
-    const chips = source
-      .slice(0, MAX_STATION_CHIPS)
-      .map((t) => chipForTask(agentFor, t, isInFlight(t)));
+    const chips = source.slice(0, MAX_STATION_CHIPS).map((t) => chipForTask(agentFor, t, isInFlight(t)));
 
     return {
-      station: {
-        active: true,
-        key: group.key,
-        label: group.label,
-        remaining: incomplete.length,
-        total: members.length,
-        chips,
-      },
+      station: { active: true, key: group.key, label: group.label, remaining: incomplete.length, total: members.length, chips },
       activeIndex: i,
     };
   }
-
   return {
     station: { active: false, key: null, label: "none active", remaining: 0, total: 0, chips: [] },
     activeIndex: -1,
@@ -181,8 +217,7 @@ function buildMilestone(plan: Plan, agentFor: AgentResolver): { station: Milesto
 
 function nextGroupLabel(plan: Plan, activeIndex: number): string | null {
   if (activeIndex < 0) return null;
-  const groups = orderedGroups(plan);
-  const next = groups[activeIndex + 1];
+  const next = orderedGroups(plan)[activeIndex + 1];
   return next ? next.label : null;
 }
 
@@ -190,6 +225,50 @@ function doneToday(plan: Plan, now: number): number {
   return plan.tasks.filter(
     (t) => isDone(t) && typeof t.status_changed_at === "number" && now - t.status_changed_at < DAY_MS,
   ).length;
+}
+
+/** Latest recorded stride (plan milestone) — proves recorded progress is surfaced. */
+function lastStride(plan: Plan): string | null {
+  const strides = plan.strides ?? [];
+  let best: { ts: number; text: string } | null = null;
+  for (const s of strides) {
+    const text = s.text?.trim();
+    if (!text) continue;
+    if (!best || s.ts > best.ts) best = { ts: s.ts, text };
+  }
+  return best ? best.text : null;
+}
+
+function paneLabel(paneId: string | null | undefined, panes: Record<string, Pane>): string {
+  const id = paneId?.trim();
+  if (!id) return "planner";
+  return panes[id]?.title?.trim() || id.slice(0, 8);
+}
+
+/** Open decision gates → question + who it's waiting on. */
+function buildGates(plan: Plan, panes: Record<string, Pane>): GateView[] {
+  return (plan.gates ?? [])
+    .filter((g: DecisionGate) => g.status === "open" || g.status === "escalated")
+    .map((g) => ({
+      id: g.id,
+      question: g.question.trim(),
+      waitsOn: paneLabel(g.routed_to_pane_id, panes),
+      escalated: g.status === "escalated",
+    }));
+}
+
+function buildVerify(plan: Plan, snapshot: MissionControlSnapshot, panes: Record<string, Pane>, agentFor: AgentResolver): VerifyStation {
+  const inReview = plan.tasks
+    .filter((t) => t.status === TaskStatus.InReview)
+    .slice(0, MAX_STATION_CHIPS)
+    .map((t) => chipForTask(agentFor, t, true));
+  const gates = buildGates(plan, panes);
+  const qaCount = snapshot.qaQueue.length + (snapshot.qaRunning ? 1 : 0);
+  return {
+    inReview,
+    gates,
+    count: inReview.length + gates.length + qaCount,
+  };
 }
 
 /** The in-flight "agent carrying a chip to gate" moment — a live in_review task. */
@@ -227,12 +306,16 @@ export function buildFlowRiver(
     .slice(0, MAX_STATION_CHIPS)
     .map((t) => ({ taskId: t.id, title: t.title, hot: false }) satisfies FlowChip);
 
-  const verifyQueue = [...snapshot.qaQueue, ...snapshot.gateQueue]
-    .slice(0, MAX_STATION_CHIPS)
-    .map((t) => ({ taskId: t.id, title: t.title, hot: false }) satisfies FlowChip);
-  const judging = snapshot.qaRunning
-    ? [{ taskId: snapshot.qaRunning.id, title: snapshot.qaRunning.title, hot: true }]
-    : [];
+  const verify = buildVerify(plan, snapshot, panes, agentFor);
+  const carrier = buildCarrier(plan, agentFor);
+  const done = { count: snapshot.doneCount, todayDelta: doneToday(plan, now), lastStride: lastStride(plan) };
+
+  const isEmpty =
+    snapshot.dispatchQueue.length === 0 &&
+    !milestone.active &&
+    verify.count === 0 &&
+    done.count === 0 &&
+    !carrier;
 
   return {
     planId: snapshot.planId,
@@ -243,13 +326,9 @@ export function buildFlowRiver(
     crewCount: crew.length,
     frontier: { count: snapshot.dispatchQueue.length, chips: frontierChips },
     milestone,
-    verify: {
-      queue: verifyQueue,
-      judging,
-      count: snapshot.qaQueue.length + snapshot.gateQueue.length + judging.length,
-    },
-    done: { count: snapshot.doneCount, todayDelta: doneToday(plan, now) },
-    carrier: buildCarrier(plan, agentFor),
+    verify,
+    done,
+    carrier,
     hud: {
       lanesLive: snapshot.hud.liveLanes,
       qaQueue: snapshot.qaQueue.length,
@@ -257,5 +336,6 @@ export function buildFlowRiver(
       cleanup: snapshot.hud.cleanupDebt,
       next: nextGroupLabel(plan, activeIndex),
     },
+    isEmpty,
   };
 }

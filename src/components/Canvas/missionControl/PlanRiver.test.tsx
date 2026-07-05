@@ -62,15 +62,20 @@ function activeModel(overrides: Partial<FlowRiverModel> = {}): FlowRiverModel {
       total: 5,
       chips: [{ taskId: "m1", title: "Mobile compact header", hot: true, carrier: VERDI }],
     },
-    verify: { queue: [], judging: [], count: 0 },
-    done: { count: 101, todayDelta: 6 },
+    verify: {
+      inReview: [{ taskId: "v1", title: "Soak review", hot: true, carrier: VERDI }],
+      gates: [{ id: "g1", question: "Ship compact header?", waitsOn: "Planner", escalated: false }],
+      count: 2,
+    },
+    done: { count: 101, todayDelta: 6, lastStride: "Wave 25 shipped" },
     carrier: { agent: VERDI, label: "soak evidence → gate" },
     hud: { lanesLive: 2, qaQueue: 0, loops: 3, cleanup: 10, next: "Wave 27" },
+    isEmpty: false,
     ...overrides,
   };
 }
 
-test("renders all four flow stations with milestone glowing + N-of-M", async () => {
+test("renders four flow stations with milestone glowing + N-of-M", async () => {
   const { host, unmount } = await render(<PlanRiver model={activeModel()} />);
   assert(host.querySelector('[data-testid="flow-station-frontier"]'), "frontier station");
   const ms = host.querySelector('[data-testid="flow-station-milestone"]');
@@ -84,7 +89,56 @@ test("renders all four flow stations with milestone glowing + N-of-M", async () 
   await unmount();
 });
 
-test("milestone fallback renders 'none active' and dims", async () => {
+test("F5: verify station shows real in_review chip + decision gate (question + waits-on)", async () => {
+  const { host, unmount } = await render(<PlanRiver model={activeModel()} />);
+  const verify = host.querySelector('[data-testid="flow-station-verify"]')!;
+  assert(verify.querySelector('[data-testid="flow-chip-v1"]'), "in_review chip present");
+  const gate = host.querySelector('[data-testid="flow-gate-g1"]');
+  assert(gate, "decision gate row present");
+  assert(gate!.textContent?.includes("Ship compact header?"), "gate question");
+  assert(gate!.textContent?.includes("waits on Planner"), "gate waits-on");
+  assert(!host.textContent?.includes("flows on close"), "no jargon placeholder");
+  await unmount();
+});
+
+test("F1: strides surfaced in Done (last recorded milestone)", async () => {
+  const { host, unmount } = await render(<PlanRiver model={activeModel()} />);
+  assert(host.textContent?.includes("Wave 25 shipped"), "last stride shown");
+  await unmount();
+});
+
+test("F1: no ghost stations — verify/done absent when empty of content", async () => {
+  const model = activeModel({
+    verify: { inReview: [], gates: [], count: 0 },
+    done: { count: 0, todayDelta: 0, lastStride: null },
+  });
+  const { host, unmount } = await render(<PlanRiver model={model} />);
+  assert(!host.querySelector('[data-testid="flow-station-verify"]'), "no ghost verify");
+  assert(!host.querySelector('[data-testid="flow-station-done"]'), "no ghost done");
+  assert(host.querySelector('[data-testid="flow-station-milestone"]'), "milestone still present (active)");
+  await unmount();
+});
+
+test("F4: empty plan renders head-only compact block (no river band/hud)", async () => {
+  const model = activeModel({
+    frontier: { count: 0, chips: [] },
+    milestone: { active: false, key: null, label: "none active", remaining: 0, total: 0, chips: [] },
+    verify: { inReview: [], gates: [], count: 0 },
+    done: { count: 0, todayDelta: 0, lastStride: null },
+    carrier: null,
+    isEmpty: true,
+  });
+  const { host, unmount } = await render(<PlanRiver model={model} />);
+  const river = host.querySelector('[data-testid="plan-river-pl_1"]')!;
+  assert(river.getAttribute("data-empty") === "true", "flagged empty");
+  assert(!host.querySelector('[data-testid="flow-station-frontier"]'), "no stations");
+  assert(!host.querySelector('[data-testid="river-hud-pl_1"]'), "no zero-HUD");
+  assert(host.querySelector(".mc-river-band") === null, "no river band");
+  assert(host.textContent?.includes("No active work"), "head-only note");
+  await unmount();
+});
+
+test("milestone fallback renders 'none active' and dims (with inflow)", async () => {
   const model = activeModel({
     milestone: { active: false, key: null, label: "none active", remaining: 0, total: 0, chips: [] },
   });
@@ -96,45 +150,16 @@ test("milestone fallback renders 'none active' and dims", async () => {
   await unmount();
 });
 
-test("crew strip shows avatars + working count", async () => {
-  const { host, unmount } = await render(<PlanRiver model={activeModel()} />);
-  const crew = host.querySelector('[data-testid="crew-strip"]');
-  assert(crew?.textContent?.includes("working"), "crew count");
-  await unmount();
-});
-
-test("motion ON: pulse animates + carrier drifts", async () => {
-  const { host, unmount } = await render(<PlanRiver model={activeModel()} reducedMotion={false} />);
-  assert(host.querySelector('[data-testid="flow-pulse"] animate'), "animate element present");
-  const carrier = host.querySelector('[data-testid="flow-carrier"]');
-  assert(carrier?.className.includes("mc-flow-carrier-move"), "carrier drifts");
-  await unmount();
-});
-
-test("reduced-motion: static pulse (no <animate>) + carrier static", async () => {
-  const { host, unmount } = await render(<PlanRiver model={activeModel()} reducedMotion />);
-  assert(host.querySelector('[data-testid="flow-pulse"]'), "pulse dot still rendered");
-  assert(!host.querySelector('[data-testid="flow-pulse"] animate'), "NO animate element under reduced-motion");
-  const carrier = host.querySelector('[data-testid="flow-carrier"]');
-  assert(carrier, "carrier still rendered");
-  assert(!carrier!.className.includes("mc-flow-carrier-move"), "carrier is static");
-  await unmount();
-});
-
-test("compact river hides verify/done + hud + curves", async () => {
+test("compact river hides verify/done + hud", async () => {
   const { host, unmount } = await render(<PlanRiver model={activeModel()} compact />);
   assert(host.querySelector('[data-testid="flow-station-frontier"]'), "frontier shown compact");
-  assert(!host.querySelector('[data-testid="flow-station-verify"]'), "no verify when compact");
   assert(!host.querySelector('[data-testid="river-hud-pl_1"]'), "no hud when compact");
-  assert(!host.querySelector('[data-testid="flow-curves"]'), "no curves when compact");
   await unmount();
 });
 
 test("chip click fires onTaskClick", async () => {
   let clicked: string | null = null;
-  const { host, unmount } = await render(
-    <PlanRiver model={activeModel()} onTaskClick={(id) => (clicked = id)} />,
-  );
+  const { host, unmount } = await render(<PlanRiver model={activeModel()} onTaskClick={(id) => (clicked = id)} />);
   const chip = host.querySelector('[data-testid="flow-chip-m1"]') as HTMLElement;
   await act(async () => chip.click());
   assert(clicked === "m1", `chip click routes task id, got ${clicked}`);

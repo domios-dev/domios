@@ -39,17 +39,19 @@ test("@golden @mission-control-flow flow river + group milestone + all-plans tog
 
     await expect(page.locator(MISSION_CONTROL_PLAN_SURFACE_SEL)).toBeVisible();
 
-    // A plan-river renders with the four flow stations.
+    // A plan-river renders with the milestone-centric flow. Stations render only
+    // when they hold content (no ghost empty stations); the perf fixture has
+    // pending + in_progress + done work (no in_review/gates → no verify station).
     const river = page.locator('[data-testid^="plan-river-"]').first();
     await expect(river).toBeVisible();
-    await expect(river.locator('[data-testid="flow-station-frontier"]')).toBeVisible();
     await expect(river.locator('[data-testid="flow-station-milestone"]')).toBeVisible();
-    await expect(river.locator('[data-testid="flow-station-verify"]')).toBeVisible();
     await expect(river.locator('[data-testid="flow-station-done"]')).toBeVisible();
 
     // Milestone derives from task groups (perf fixture: Layout / Navigation / Isolation).
     const milestone = river.locator('[data-testid="flow-station-milestone"]');
-    await expect(milestone).toContainText(/Milestone|none active/i);
+    await expect(milestone).toContainText(/Milestone/i);
+    // Measured flow curves connect the stations (F2: derived from station rects).
+    await expect(river.locator('[data-testid="flow-curves"]')).toBeVisible();
 
     await page.screenshot({ path: path.join(CANVAS_ART_DIR, "mission-control-flow.png"), fullPage: false });
 
