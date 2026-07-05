@@ -105,10 +105,10 @@ export interface CloudPack {
 type Placed = { cx: number; cy: number; rho: number };
 
 class PackGrid {
-  private cells = new Map<number, Placed[]>();
+  private cells = new Map<string, Placed[]>();
   constructor(private cell: number) {}
-  private key(gx: number, gy: number): number {
-    return (gx + 16384) * 32768 + (gy + 16384);
+  private key(gx: number, gy: number): string {
+    return `${gx}:${gy}`;
   }
   insert(p: Placed): void {
     const k = this.key(Math.floor(p.cx / this.cell), Math.floor(p.cy / this.cell));
@@ -235,14 +235,12 @@ function buildCluster(task: Task, children: Task[], slot: number, s: CanvasLayou
     localItems.push({ id: c.id, w, h, slot: i + 1 });
   });
   const localPack = packCloud(localItems, SUBTASK_GAP);
-  const locals: LocalPlace[] = localPack.items.map((it) => ({
-    id: it.id,
-    task: it.id === task.id ? task : childById.get(it.id)!,
-    cx: it.cx,
-    cy: it.cy,
-    w: it.w,
-    h: it.h,
-  }));
+  const locals: LocalPlace[] = [];
+  for (const it of localPack.items) {
+    const localTask = it.id === task.id ? task : childById.get(it.id);
+    if (!localTask) continue;
+    locals.push({ id: it.id, task: localTask, cx: it.cx, cy: it.cy, w: it.w, h: it.h });
+  }
   return { task, slot, radius: localPack.radius, locals };
 }
 
