@@ -50,6 +50,7 @@ pub mod user_last_activity;
 pub mod view;
 pub mod view_host;
 mod webview2_reap;
+mod webview_watchdog;
 
 use std::sync::Arc;
 
@@ -321,6 +322,7 @@ pub fn run() {
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
                 startup::setup_window_styling(&window);
+                webview_watchdog::spawn(window);
             }
 
             // Create unified service context (available to both API and Tauri commands)
