@@ -7,6 +7,7 @@ import { formatRelativeAge } from "./planListModel";
 import { DONE_COLUMN_COLLAPSED_LIMIT } from "./boardModel";
 import { usePlanTaskActivate } from "./planTaskInteraction";
 import { TaskExecutionBadges } from "./TaskExecutionBadges";
+import { WorkingOnRow } from "./WorkingOnRowView";
 
 const TASK_KINDS = new Set<PlanListRowKind>(["task", "subtask"]);
 const TASK_INDENT_STEP = 16;
@@ -161,12 +162,18 @@ export function PlanListRowView({
           {row.sectionTitle ?? "Unsectioned"}
         </button>
       </span>
-      <span
-        data-testid={row.paneLabel ? "plan-list-active-executor" : "plan-list-historical-executor"}
-        className={`plan-list-exec${row.paneLabel ? " plan-list-exec-active" : ""}`}
-      >
-        {executor}
-      </span>
+      {row.workingOn ? (
+        <span className="plan-list-exec plan-list-exec-working">
+          <WorkingOnRow model={row.workingOn} variant="list" />
+        </span>
+      ) : (
+        <span
+          data-testid={row.paneLabel ? "plan-list-active-executor" : "plan-list-historical-executor"}
+          className={`plan-list-exec${row.paneLabel ? " plan-list-exec-active" : ""}`}
+        >
+          {executor}
+        </span>
+      )}
       <span data-testid="plan-list-age" className="plan-list-age">
         {age}
       </span>

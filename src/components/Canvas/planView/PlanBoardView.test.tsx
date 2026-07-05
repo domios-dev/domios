@@ -109,9 +109,9 @@ test("renders board columns with context header and task cards", async () => {
   const card = inProgress?.querySelector('[data-testid="plan-board-task-card"]');
   assert(card, "in-progress card");
   assert(card?.getAttribute("data-task-id") === "task-dante", "task id");
-  assert(host.querySelector('[data-testid="plan-board-task-active-executor"]')?.textContent?.includes("Puccini"), "active executor");
-  const laneText = host.querySelector('[data-testid="plan-board-task-lane"]')?.textContent ?? "";
-  assert(laneText.includes("lane/plan-board-view"), "branch chip");
+  assert(host.querySelector('[data-testid="working-on-chip-pane"]')?.textContent?.includes("Puccini"), "working-on pane chip");
+  const laneText = host.querySelector('[data-testid="working-on-chip-branch"]')?.textContent ?? "";
+  assert(laneText.includes("lane/plan-board-view"), "working-on branch chip");
   assert(!host.querySelector('[data-testid="plan-board-task-milestone"]'), "no raw milestone card row");
   assert(host.querySelector('[data-testid="latest-note"]')?.textContent?.includes("Board model landed"), "latest note present");
   assert(!host.querySelector('[data-testid="plan-board-single"]')?.innerHTML.includes("/tmp/codeterm-plan-board-view"), "no worktree path leaked to DOM");
@@ -305,10 +305,10 @@ test("task card: status row precedes branch row, long branch has truncate class"
   const card = host.querySelector('[data-testid="plan-board-task-card"]');
   assert(card, "card present");
   const status = card?.querySelector('[data-testid="status-chip"]') as Element;
-  const lane = card?.querySelector('[data-testid="plan-board-task-lane"]') as Element;
+  const lane = card?.querySelector('[data-testid="working-on-chip-branch"]') as Element;
   assert(status, "status present");
-  assert(lane, "lane present");
-  assert(lane.textContent?.includes(longBranch), "branch text present in lane");
+  assert(lane, "working-on branch chip present");
+  assert(lane.textContent?.includes(longBranch), "branch text present in working-on chip");
   const allWithTestId = Array.from(card!.querySelectorAll("[data-testid]"));
   const statusIdx = allWithTestId.indexOf(status);
   const laneIdx = allWithTestId.indexOf(lane);
@@ -339,17 +339,19 @@ test("task card: title stays primary and does not allow single-letter wrapping",
   assert(card, "card present");
   const title = card.querySelector('[data-testid="plan-board-task-title"]') as HTMLElement;
   const status = card.querySelector('[data-testid="status-chip"]') as HTMLElement;
-  const handle = card.querySelector('[data-testid="plan-board-task-handle"]') as HTMLElement;
+  // working tasks replace the raw #handle noise with the labeled Working-on row.
+  const workingOn = card.querySelector('[data-testid="working-on-row"]') as HTMLElement;
   assert(title?.textContent === longTitle, "full task title is present");
   assert(status?.textContent === "in progress", "status chip uses canonical task.status only");
-  assert(handle?.textContent?.includes("zero-flag-plan-context"), "handle remains visible");
+  assert(!card.querySelector('[data-testid="plan-board-task-handle"]'), "raw # handle replaced on working card");
+  assert(workingOn, "working-on row present on working card");
   assert(
     Boolean(title.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING),
     "title must precede the status pill",
   );
   assert(
-    Boolean(title.compareDocumentPosition(handle) & Node.DOCUMENT_POSITION_FOLLOWING),
-    "title must precede the handle",
+    Boolean(title.compareDocumentPosition(workingOn) & Node.DOCUMENT_POSITION_FOLLOWING),
+    "title must precede the working-on row",
   );
   const css = readFileSync("src/styles/globals.css", "utf8");
   const titleRule = css.match(/\.plan-board-task-title\s*\{[^}]+\}/)?.[0] ?? "";

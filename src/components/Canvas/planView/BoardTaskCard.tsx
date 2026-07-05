@@ -5,6 +5,7 @@ import type { BoardTaskCardModel } from "./boardModel";
 import { canonicalTaskStatusLabel } from "./taskStatusLabel";
 import { usePlanTaskActivate } from "./planTaskInteraction";
 import { TaskExecutionBadges } from "./TaskExecutionBadges";
+import { WorkingOnRow } from "./WorkingOnRowView";
 
 export interface BoardTaskCardProps {
   card: BoardTaskCardModel;
@@ -55,15 +56,19 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
       >
         {canonicalTaskStatusLabel(task)}
       </span>
-      {handle && (
-        <p data-testid="plan-board-task-handle" className="plan-board-task-meta plan-board-task-handle">
-          <span className="plan-board-task-meta-icon" aria-hidden>
-            <Hash size={9} strokeWidth={2.5} />
-          </span>
-          <span className="min-w-0 truncate">{handle}</span>
-        </p>
+      {card.workingOn ? (
+        <WorkingOnRow model={card.workingOn} variant="board" />
+      ) : (
+        handle && (
+          <p data-testid="plan-board-task-handle" className="plan-board-task-meta plan-board-task-handle">
+            <span className="plan-board-task-meta-icon" aria-hidden>
+              <Hash size={9} strokeWidth={2.5} />
+            </span>
+            <span className="min-w-0 truncate">{handle}</span>
+          </p>
+        )
       )}
-      {card.presenceLabel && (
+      {!card.workingOn && card.presenceLabel && (
         <p data-testid="plan-board-task-active-executor" className="plan-board-task-meta">
           <span className="plan-board-task-meta-icon" aria-hidden>
             <User size={11} className="opacity-70" />
@@ -73,7 +78,7 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
           </span>
         </p>
       )}
-      {card.historicalExecutorSummary && !card.presenceLabel && (
+      {card.historicalExecutorSummary && !card.presenceLabel && !card.workingOn && (
         <p data-testid="plan-board-task-historical-executor" className="plan-board-task-meta plan-board-task-historical">
           <span className="plan-board-task-meta-icon" aria-hidden>
             <History size={11} className="opacity-60" />
@@ -81,7 +86,7 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
           <span className="min-w-0 break-words">{card.historicalExecutorSummary}</span>
         </p>
       )}
-      {card.branch && (
+      {!card.workingOn && card.branch && (
         <p data-testid="plan-board-task-lane" className="plan-board-task-meta plan-board-task-lane">
           <span className="plan-board-task-meta-icon" aria-hidden>
             <GitBranch size={11} className="opacity-70" />
