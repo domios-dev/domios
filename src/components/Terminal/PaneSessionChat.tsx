@@ -230,12 +230,19 @@ export function PaneSessionChat({
     return () => window.clearTimeout(id);
   }, [backendState?.state, pendingPrompt]);
 
+  // rAF-batched: coalesce streamed-chunk bursts into one scroll write per frame, no per-message reflow.
+  const autoScrollRafRef = useRef(0);
   useEffect(() => {
-    if (!scrollRef.current) return;
-    if (atBottomRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    if (!atBottomRef.current || autoScrollRafRef.current) return;
+    autoScrollRafRef.current = requestAnimationFrame(() => {
+      autoScrollRafRef.current = 0;
+      const el = scrollRef.current;
+      if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
+    });
   }, [allMessages, inlinePrompt?.question, backendState?.state]);
+  useEffect(() => () => {
+    if (autoScrollRafRef.current) cancelAnimationFrame(autoScrollRafRef.current);
+  }, []);
 
   // subtype); it arrives via the mux snapshot and events, no local polling needed.
   const liveAgentState: AgentState = useMemo(() => {
