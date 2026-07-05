@@ -263,5 +263,19 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
                 Err(e) => log::warn!("[worker-death] synthetic report failed for {}: {}", pid, e),
             }
         }
+
+        // A delegated Worker has no run-watcher to close it; prune on PTY death so
+        // it drops from the sidebar structurally instead of lingering as a ghost row.
+        let is_worker = svc
+            .mux
+            .read()
+            .get_pane(pid)
+            .map(|p| p.role == Some(crate::multiplexer::types::AgentRole::Worker))
+            .unwrap_or(false);
+        if is_worker {
+            if let Err(e) = svc.close_pane(pid) {
+                log::warn!("[worker-death] prune of dead worker {} failed: {}", pid, e);
+            }
+        }
     }
 }
