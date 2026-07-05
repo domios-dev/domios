@@ -119,7 +119,12 @@ impl ServiceContext {
             active_lanes,
             phrase_index,
         );
-        let text = self.plan_store.prepend_heartbeat_for_plan(&plan_id, &text);
+        let text = crate::service::orchestrator_digests::prepend_orchestrator_heartbeat(
+            self,
+            &plan_id,
+            Some(pane_id),
+            &text,
+        );
         let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
         let success =
             crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text).is_ok();
@@ -256,7 +261,12 @@ impl ServiceContext {
                         text = format!("{defer}\n\n{text}");
                     }
                 }
-                self.plan_store.prepend_heartbeat_for_plan(plan_id, &text)
+                crate::service::orchestrator_digests::prepend_orchestrator_heartbeat(
+                    self,
+                    plan_id,
+                    Some(pane_id),
+                    &text,
+                )
             }
             PlanReminderTarget::Worker => self
                 .plan_store

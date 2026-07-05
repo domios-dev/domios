@@ -103,6 +103,7 @@ pub fn idle_poke_text(pending_tasks: usize, active_lanes: usize, phrase_index: u
 pub struct TurnCounter {
     panes: Mutex<HashMap<String, (u32, u32)>>,
     timed: Mutex<HashMap<String, u64>>,
+    digest_rules: Mutex<HashMap<String, u64>>,
     idle: Mutex<HashMap<String, IdlePokeState>>,
     complete_wrapup: Mutex<HashSet<String>>,
 }
@@ -145,7 +146,33 @@ impl TurnCounter {
     pub fn reset(&self, pane_id: &str) {
         self.panes.lock().insert(pane_id.to_string(), (0, 0));
         self.timed.lock().remove(pane_id);
+        self.digest_rules
+            .lock()
+            .retain(|key, _| !key.starts_with(pane_id));
         self.idle.lock().remove(pane_id);
+    }
+
+    pub fn digest_rule_due(
+        &self,
+        pane_id: &str,
+        rule_id: &str,
+        now_secs: u64,
+        interval_secs: u64,
+    ) -> bool {
+        if interval_secs == 0 {
+            return false;
+        }
+        let key = format!("{pane_id}:{rule_id}");
+        let last = self.digest_rules.lock().get(&key).copied();
+        match last {
+            None => true,
+            Some(last_fired) => now_secs.saturating_sub(last_fired) >= interval_secs,
+        }
+    }
+
+    pub fn mark_digest_rule_fired(&self, pane_id: &str, rule_id: &str, now_secs: u64) {
+        let key = format!("{pane_id}:{rule_id}");
+        self.digest_rules.lock().insert(key, now_secs);
     }
 
     pub fn complete_wrapup_due(&self, plan_id: &str) -> bool {
@@ -287,6 +314,15 @@ mod tests {
             should_nudge(90, 36, &cfg(AgentRole::Worker)),
             Some(NudgeKind::Escalated)
         );
+    }
+
+    #[test]
+    fn digest_rule_rate_limit_blocks_repeat_within_interval() {
+        let counter = TurnCounter::new();
+        assert!(counter.digest_rule_due("orch", "in_review_pressure", 1000, 3600));
+        counter.mark_digest_rule_fired("orch", "in_review_pressure", 1000);
+        assert!(!counter.digest_rule_due("orch", "in_review_pressure", 2000, 3600));
+        assert!(counter.digest_rule_due("orch", "in_review_pressure", 4601, 3600));
     }
 
     #[test]
