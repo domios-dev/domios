@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->
 
 Full reference for the `codeterm plan` CLI and orchestration discipline. The *why* (when to spawn, model routing, role contracts) lives here and in your role prompt — this doc is the authority; machine-specific deltas live in mem preferences (kind=preference, area=orchestration).
 
@@ -771,6 +771,6 @@ The plan is a live object edited while work runs. Every `codeterm plan ...` call
 |---------|----------|
 | CLI mechanics (this doc) | `codeterm docs ORCHESTRATION` |
 | Lane lifecycle standard | `codeterm docs LANES` |
-| Orchestration principle (when to spawn, model routing, discipline) | mem skill `codeterm-orchestrator` |
+| Orchestration principle (when to spawn, model routing, discipline) | `codeterm docs ORCHESTRATION` + role prompts; machine deltas are mem preferences |
 | Full mem reference | `codeterm docs MEMORY` |
 | REST + socket API | `codeterm docs API` |
