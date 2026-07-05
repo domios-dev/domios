@@ -135,7 +135,7 @@ else
   CT_VITE_PORT=1420
 fi
 CT_DATA_DIR="$HOME/.codeterm-dev${CT_SUFFIX}"
-if [ "$CT_PORT" = "7685" ]; then
+if [ "$CT_PORT" = "7685" ] && [ "$CMD" != "qa-prep" ]; then
   echo "ERROR: refusing to target prod CodeTerm port 7685. Use dev port 7686 or a named non-prod instance." >&2
   exit 1
 fi
