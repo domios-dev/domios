@@ -6,4 +6,3 @@ handle: ux-1-schematic-task-card-minimal-face-fitting-title-2-lines-optional-des
 title: UX-1 schematic task card — minimal face (fitting title <=2 lines + optional desc first-line + glyph row + quiet tint + expand affordance); cut bodies/criteria/links from card face
 status: done
 ---
-

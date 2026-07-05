@@ -6,4 +6,3 @@ handle: plan-lineage-and-ghost-links
 title: Directed plan lineage + canvas link render + archived-plan ghost
 status: done
 ---
-

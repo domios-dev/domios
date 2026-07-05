@@ -6,4 +6,3 @@ handle: canvas-visual-pull-section-sub-clusters-into-one-cohesive-cloud-grouped-
 title: 'CANVAS VISUAL: pull section sub-clusters into ONE cohesive cloud (grouped-but-together), not scattered far-apart islands'
 status: done
 ---
-

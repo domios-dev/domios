@@ -6,4 +6,3 @@ handle: feature-composer-v2-spatial-raycast-context-fullscreen-overlay-single-re
 title: 'FEATURE: composer v2 — spatial raycast context + fullscreen overlay + single reused input + multi-orchestrator switching'
 status: done
 ---
-

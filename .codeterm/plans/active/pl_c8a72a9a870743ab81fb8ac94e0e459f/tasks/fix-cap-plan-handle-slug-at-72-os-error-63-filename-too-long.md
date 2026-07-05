@@ -6,4 +6,3 @@ handle: fix-cap-plan-handle-slug-at-72-os-error-63-filename-too-long
 title: 'fix: cap plan handle slug at 72 (os error 63 filename-too-long)'
 status: done
 ---
-
