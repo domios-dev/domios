@@ -499,6 +499,7 @@ Flush a pane's PTY scrollback as a kind=conversation mem_item (called by PreComp
 Batch-delete every item in an area (use sparingly)
 
 - `<area>` — Area name (e.g. auth, deploy, billing)
+- `--yes` — Confirm the batch delete (refused without it)
 
 #### `codeterm mem get`
 
