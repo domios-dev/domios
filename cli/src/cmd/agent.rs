@@ -39,7 +39,7 @@ pub(crate) const MAX_PANE_DESCRIPTION_CHARS: usize = 200;
 
 fn refusal_next_commands() -> Vec<&'static str> {
     vec![
-        "git status --short -- ':!.codeterm/plans'",
+        "git status --short",
         "git add <files>",
         "git commit -m \"<message>\"",
         "codeterm agent report --status in_review --sha $(git rev-parse HEAD) \"...\"",
