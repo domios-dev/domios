@@ -20,6 +20,8 @@ export const CANVAS_ART_DIR = path.resolve(__dirname, "..", "artifacts", "canvas
 
 export const PERF_FIXTURE_KEY = "canvas.perfFixtureN";
 export const SUBSTRATE_V2_KEY = "canvas.substrateV2";
+export const CARD_METADATA_PROFILE_KEY = "canvas.perfFixtureProfile";
+export const CARD_METADATA_PROFILE = "card-metadata";
 
 /** Board is ready when the mission-control stage or plan shell is visible. */
 export const MISSION_CONTROL_LIVE_SEL = '[data-testid="mission-control-live"]';

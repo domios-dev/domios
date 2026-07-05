@@ -114,6 +114,26 @@ test("latest note is separate from status chip for decision milestones", async (
   assert(ordered.indexOf("status-chip") < ordered.indexOf("latest-note"), "latest note follows status chip");
 });
 
+test("done card with stale pane id never renders pane-gone", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      task({
+        id: "t-done-ghost",
+        status: TaskStatus.Done,
+        assigned_pane_id: "ghost-pane",
+        lane: { branch: "lane/merged" },
+        status_changed_at: 1_000,
+      }),
+    ],
+  };
+  const { host } = await render(<BoardTaskCard card={cardFor(plan, "t-done-ghost")} />);
+  assert(!host.querySelector('[data-testid="working-on-row"]'), "no working-on on done");
+  assert(!host.textContent?.includes("pane gone"), "no pane-gone text");
+  assert(host.querySelector('[data-testid="plan-board-task-lane"]'), "branch row on done");
+  assert(host.querySelector('[data-testid="plan-board-task-age"]'), "age row on done");
+});
+
 let passed = 0;
 (async () => {
   for (const [name, fn] of tests) {
