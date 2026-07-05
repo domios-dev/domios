@@ -149,19 +149,19 @@ test(
       const noPaneCard = page.locator(
         `[data-testid="plan-board-task-card"][data-task-id="${CARD_METADATA_TASK_IDS.noPane}"]`,
       );
-      await expect(noPaneCard.locator('[data-testid="working-on-chip-warn"]')).toHaveText(/no pane recorded/i);
+      await expectWorkingOnChipValue(noPaneCard, "warn", /no pane recorded/i);
       await shotCard(page, CARD_METADATA_TASK_IDS.noPane, "plan-card-metadata-no-pane");
 
       const paneGoneCard = page.locator(
         `[data-testid="plan-board-task-card"][data-task-id="${CARD_METADATA_TASK_IDS.paneGone}"]`,
       );
-      await expect(paneGoneCard.locator('[data-testid="working-on-chip-warn"]')).toHaveText(/pane gone/i);
+      await expectWorkingOnChipValue(paneGoneCard, "warn", /pane gone/i);
       await shotCard(page, CARD_METADATA_TASK_IDS.paneGone, "plan-card-metadata-pane-gone");
 
       const branchMissingCard = page.locator(
         `[data-testid="plan-board-task-card"][data-task-id="${CARD_METADATA_TASK_IDS.branchMissing}"]`,
       );
-      await expect(branchMissingCard.locator('[data-testid="working-on-chip-warn"]')).toHaveText(/branch missing/i);
+      await expectWorkingOnChipValue(branchMissingCard, "warn", /branch missing/i);
       await shotCard(page, CARD_METADATA_TASK_IDS.branchMissing, "plan-card-metadata-branch-missing");
 
       const doneCard = page.locator(
