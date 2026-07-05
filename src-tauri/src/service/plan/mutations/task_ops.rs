@@ -33,7 +33,7 @@ impl PlanStore {
             let task_id = p.tasks[task_index].id.clone();
             let parsed_status = status.map(parse_task_status).transpose()?;
             if let Some(next) = &parsed_status {
-                validate_task_status_transition(p, &task_id, &p.tasks[task_index].status, next)?;
+                validate_task_status_transition(p, &task_id, &p.tasks[task_index].status, next, status_label)?;
             }
             let task = &mut p.tasks[task_index];
             if let Some(n) = name {
@@ -484,5 +484,38 @@ mod fill_lane_tests {
         let t = p.tasks.iter().find(|t| t.id == task).unwrap();
         assert_eq!(t.assigned_pane_id.as_deref(), Some("keeper"));
         assert_eq!(t.lane.branch.as_deref(), Some("lane/x"));
+    }
+
+    fn set_status(
+        store: &PlanStore,
+        plan: &str,
+        task: &str,
+        status: &str,
+        label: Option<Option<&str>>,
+        ts: u64,
+    ) -> Result<(), crate::service::plan::PlanError> {
+        store.update_task(
+            plan, task, None, None, None, None, Some(status), label, None, None, None, None, None,
+            None, None, &[], None, None, ts,
+        )
+    }
+
+    #[test]
+    fn in_progress_requires_pane_invariant() {
+        let (_d, store, plan, task) = setup();
+        let err = set_status(&store, &plan, &task, "in_progress", None, 5).unwrap_err();
+        assert!(matches!(err, crate::service::plan::PlanError::InProgressRequiresPane));
+        store
+            .fill_task_lane_if_empty(&plan, &task, Some("pane-1"), None, None, 6)
+            .unwrap();
+        set_status(&store, &plan, &task, "in_progress", None, 7).unwrap();
+    }
+
+    #[test]
+    fn blocked_requires_label_invariant() {
+        let (_d, store, plan, task) = setup();
+        let err = set_status(&store, &plan, &task, "blocked", None, 5).unwrap_err();
+        assert!(matches!(err, crate::service::plan::PlanError::BlockedRequiresLabel));
+        set_status(&store, &plan, &task, "blocked", Some(Some("waiting on QA")), 6).unwrap();
     }
 }
