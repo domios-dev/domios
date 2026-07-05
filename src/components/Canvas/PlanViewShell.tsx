@@ -1,4 +1,4 @@
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { PlanViewModeSwitch } from "./PlanViewModeSwitch";
 import type { PlanViewSurfaceProps } from "./planViewSurfaceProps";
@@ -43,8 +43,20 @@ function usePersistedPlanViewMode(): [PlanViewMode, (mode: PlanViewMode) => void
   return [viewMode, setViewMode];
 }
 
+/** Hidden surfaces keep the props they last rendered with: identical references let memo skip them entirely, so only the visible view pays for live plan ticks. */
+export function useFrozenWhenHidden<T>(props: T, visible: boolean): T {
+  const lastVisible = useRef(props);
+  if (visible) {
+    lastVisible.current = props;
+  }
+  return visible ? props : lastVisible.current;
+}
+
 export function PlanViewShell(props: PlanViewSurfaceProps) {
   const [viewMode, setViewMode] = usePersistedPlanViewMode();
+  const canvasProps = useFrozenWhenHidden(props, viewMode === "canvas");
+  const listProps = useFrozenWhenHidden(props, viewMode === "list");
+  const boardProps = useFrozenWhenHidden(props, viewMode === "board");
 
   const renderCompanionChat = useCallback(
     ({ paneId, chatBackend }: { paneId: string; chatBackend: boolean }) => (
@@ -86,21 +98,21 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
           hidden={viewMode !== "canvas"}
           aria-hidden={viewMode !== "canvas"}
         >
-          <CanvasSurface {...props} />
+          <CanvasSurface {...canvasProps} />
         </div>
         <div
           className="absolute inset-0"
           hidden={viewMode !== "list"}
           aria-hidden={viewMode !== "list"}
         >
-          <ListSurface {...props} onClose={undefined} />
+          <ListSurface {...listProps} onClose={undefined} />
         </div>
         <div
           className="absolute inset-0"
           hidden={viewMode !== "board"}
           aria-hidden={viewMode !== "board"}
         >
-          <BoardSurface {...props} />
+          <BoardSurface {...boardProps} />
         </div>
         <CompanionSurface
           plans={props.plans}
