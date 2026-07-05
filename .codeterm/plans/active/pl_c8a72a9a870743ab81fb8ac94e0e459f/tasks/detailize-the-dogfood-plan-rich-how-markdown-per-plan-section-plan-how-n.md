@@ -6,3 +6,4 @@ handle: detailize-the-dogfood-plan-rich-how-markdown-per-plan-section-plan-how-n
 title: 'DETAILIZE the dogfood plan: rich HOW markdown per plan section (plan=HOW, not spec; no spec-section duplication; code chunks + approach)'
 status: done
 ---
+

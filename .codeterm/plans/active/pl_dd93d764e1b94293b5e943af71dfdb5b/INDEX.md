@@ -50,6 +50,12 @@ title: Plan views UX redesign — Board/List/Canvas
 - [wave-25-plan-skills-self-improving-know-how-inside-the-plan (Wave 25 — Plan skills: self-improving know-how inside the plan)](sections/wave-25-plan-skills-self-improving-know-how-inside-the-plan.md)
 - [wave-26-perceived-responsiveness-busy-states-lock-hygiene (Wave 26 — Perceived responsiveness: busy states + lock hygiene)](sections/wave-26-perceived-responsiveness-busy-states-lock-hygiene.md)
 - [wave-27-design-system-enforcement-components-no-breakage (Wave 27 — Design system enforcement (components, no breakage))](sections/wave-27-design-system-enforcement-components-no-breakage.md)
+- [wave-28-endgame-reviews-platform-regressions-perf-fixes (Wave 28 — Endgame reviews, platform regressions, perf fixes)](sections/wave-28-endgame-reviews-platform-regressions-perf-fixes.md)
+- [wave-29-process-qa-discipline-lanes-gates-invariants (Wave 29 — Process & QA discipline (lanes, gates, invariants))](sections/wave-29-process-qa-discipline-lanes-gates-invariants.md)
+- [wave-30-lane-observability-state-truth (Wave 30 — Lane observability & state truth)](sections/wave-30-lane-observability-state-truth.md)
+- [wave-31-cli-ergonomics-guidance (Wave 31 — CLI ergonomics & guidance)](sections/wave-31-cli-ergonomics-guidance.md)
+- [wave-32-prompt-knowledge-architecture (Wave 32 — Prompt & knowledge architecture)](sections/wave-32-prompt-knowledge-architecture.md)
+- [wave-33-release-endgame (Wave 33 — Release endgame)](sections/wave-33-release-endgame.md)
 
 ## Tasks
 
@@ -247,6 +253,7 @@ title: Plan views UX redesign — Board/List/Canvas
 - [daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st (Daemon perf: full-screen vt100 hash on every PTY chunk melts CPU under streaming load)](tasks/daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st.md)
 - [final-staging-dev-consoles-live-on-air-rog-ubunta-full-regression-everyw (FINAL STAGING: dev consoles live on Air+ROG+ubunta, full regression everywhere, left running for Andrey)](tasks/final-staging-dev-consoles-live-on-air-rog-ubunta-full-regression-everyw.md)
 - [qa-prep-command-one-shot-dev-ready-isolated-worktree-dist-sidecars-no-un (QA prep command: one-shot dev-ready isolated worktree (dist + sidecars, no unrelated gates))](tasks/qa-prep-command-one-shot-dev-ready-isolated-worktree-dist-sidecars-no-un.md)
+- [orchestrator-refresh-cycle-handoff-compact-re-orient-verified-resumption (Orchestrator refresh cycle: handoff -> compact -> re-orient -> verified resumption)](tasks/orchestrator-refresh-cycle-handoff-compact-re-orient-verified-resumption.md)
 
 ## Stride Logs
 
@@ -378,6 +385,7 @@ title: Plan views UX redesign — Board/List/Canvas
 - [full-regression-on-rog-windows-via-mesh-run-don-t-trust strides](tasks/full-regression-on-rog-windows-via-mesh-run-don-t-trust/strides.jsonl)
 - [full-regression-on-ubunta-linux-via-mesh-run-don-t-trust strides](tasks/full-regression-on-ubunta-linux-via-mesh-run-don-t-trust/strides.jsonl)
 - [pr-feat-canvas-updates-develop-full-description-gates-green-merge strides](tasks/pr-feat-canvas-updates-develop-full-description-gates-green-merge/strides.jsonl)
+- [release-preparation-everything-staged-nothing-published-user-gate strides](tasks/release-preparation-everything-staged-nothing-published-user-gate/strides.jsonl)
 - [fix-replace-hardcoded-general-agent-chat-view-provider-allowlist-with-ca strides](tasks/fix-replace-hardcoded-general-agent-chat-view-provider-allowlist-with-ca/strides.jsonl)
 - [fix-web-lock-cached-mux-write-gate-before-first-paint strides](tasks/fix-web-lock-cached-mux-write-gate-before-first-paint/strides.jsonl)
 - [fix-r4-mission-control-memoization-defeated-by-raw-plan-panes-deps strides](tasks/fix-r4-mission-control-memoization-defeated-by-raw-plan-panes-deps/strides.jsonl)
@@ -408,6 +416,7 @@ title: Plan views UX redesign — Board/List/Canvas
 - [general-workspace-invariant-never-closable-into-an-empty-codeterm strides](tasks/general-workspace-invariant-never-closable-into-an-empty-codeterm/strides.jsonl)
 - [prompts-cross-machine-orchestration-etiquette-ga-redirects-orchestrators strides](tasks/prompts-cross-machine-orchestration-etiquette-ga-redirects-orchestrators/strides.jsonl)
 - [list-view-polish-layout-drift-collapsible-plan-header-mobile-pass-honest strides](tasks/list-view-polish-layout-drift-collapsible-plan-header-mobile-pass-honest/strides.jsonl)
+- [polling-smell-detector-nudge-orchestrators-stuck-in-get-text-loops strides](tasks/polling-smell-detector-nudge-orchestrators-stuck-in-get-text-loops/strides.jsonl)
 - [dead-prompt-files-orchestration-toolset-md-and-dogfood-protocol-md-have strides](tasks/dead-prompt-files-orchestration-toolset-md-and-dogfood-protocol-md-have/strides.jsonl)
 - [prompt-architecture-audit-tier-map-contradiction-sweep-prose-placement strides](tasks/prompt-architecture-audit-tier-map-contradiction-sweep-prose-placement/strides.jsonl)
 - [cli-codeterm-plan-task-dispatch-one-command-worker-launch-from-a-task strides](tasks/cli-codeterm-plan-task-dispatch-one-command-worker-launch-from-a-task/strides.jsonl)
@@ -417,6 +426,7 @@ title: Plan views UX redesign — Board/List/Canvas
 - [lane-observability-p1-working-on-row-labeled-fields-recording-discipline strides](tasks/lane-observability-p1-working-on-row-labeled-fields-recording-discipline/strides.jsonl)
 - [task-lane-watchdog-tie-in-progress-truth-to-live-pane-mesh-state strides](tasks/task-lane-watchdog-tie-in-progress-truth-to-live-pane-mesh-state/strides.jsonl)
 - [plan-state-machine-invariants-write-time-enforcement-contract-test-suite strides](tasks/plan-state-machine-invariants-write-time-enforcement-contract-test-suite/strides.jsonl)
+- [release-gate-wiring-state-invariants-mirror-concurrency-as-standing-gate strides](tasks/release-gate-wiring-state-invariants-mirror-concurrency-as-standing-gate/strides.jsonl)
 - [executor-role-silently-dropped-flag-accepted-ok-printed-nothing-persiste strides](tasks/executor-role-silently-dropped-flag-accepted-ok-printed-nothing-persiste/strides.jsonl)
 - [task-show-unbounded-siblings-dump-160-tasks-per-invocation strides](tasks/task-show-unbounded-siblings-dump-160-tasks-per-invocation/strides.jsonl)
 - [sidebar-ghosts-runtime-closed-panes-persist-as-live-child-rows strides](tasks/sidebar-ghosts-runtime-closed-panes-persist-as-live-child-rows/strides.jsonl)
@@ -431,6 +441,7 @@ title: Plan views UX redesign — Board/List/Canvas
 - [orchestrator-digests-queue-pressure-nudges-generalized-token-usage-in-he strides](tasks/orchestrator-digests-queue-pressure-nudges-generalized-token-usage-in-he/strides.jsonl)
 - [skills-sync-hygiene-codeterm-is-the-single-source-providers-get-synced-c strides](tasks/skills-sync-hygiene-codeterm-is-the-single-source-providers-get-synced-c/strides.jsonl)
 - [daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st strides](tasks/daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st/strides.jsonl)
+- [orchestrator-refresh-cycle-handoff-compact-re-orient-verified-resumption strides](tasks/orchestrator-refresh-cycle-handoff-compact-re-orient-verified-resumption/strides.jsonl)
 
 ## Milestones
 
@@ -708,6 +719,10 @@ title: Plan views UX redesign — Board/List/Canvas
 - [pr-feat-canvas-updates-develop-full-description-gates-green-merge decision (ms_559b76213c784379aa3fe98c2eccc97a)](milestones/pr-feat-canvas-updates-develop-full-description-gates-green-merge-ms_559b76213c784379aa3fe98c2eccc97a.md)
 - [pr-feat-canvas-updates-develop-full-description-gates-green-merge decision (ms_f88867677d5e4d8faec5f547fb4631e4)](milestones/pr-feat-canvas-updates-develop-full-description-gates-green-merge-ms_f88867677d5e4d8faec5f547fb4631e4.md)
 - [pr-feat-canvas-updates-develop-full-description-gates-green-merge decision (ms_d8b0f27cbbaf45a6a0045bd30a9ac369)](milestones/pr-feat-canvas-updates-develop-full-description-gates-green-merge-ms_d8b0f27cbbaf45a6a0045bd30a9ac369.md)
+- [pr-feat-canvas-updates-develop-full-description-gates-green-merge decision (ms_a8c423b8d25648da872e53779b09ee96)](milestones/pr-feat-canvas-updates-develop-full-description-gates-green-merge-ms_a8c423b8d25648da872e53779b09ee96.md)
+- [pr-feat-canvas-updates-develop-full-description-gates-green-merge decision (ms_45c3e1b9e90046678a4b752c7f31cbfb)](milestones/pr-feat-canvas-updates-develop-full-description-gates-green-merge-ms_45c3e1b9e90046678a4b752c7f31cbfb.md)
+- [release-preparation-everything-staged-nothing-published-user-gate decision (ms_3ccf99f08e7045169cb0ccc9bde3a4b0)](milestones/release-preparation-everything-staged-nothing-published-user-gate-ms_3ccf99f08e7045169cb0ccc9bde3a4b0.md)
+- [release-preparation-everything-staged-nothing-published-user-gate evidence (ms_419b0f5f44274d10803724fd1f78cfc5)](milestones/release-preparation-everything-staged-nothing-published-user-gate-ms_419b0f5f44274d10803724fd1f78cfc5.md)
 - [fix-replace-hardcoded-general-agent-chat-view-provider-allowlist-with-ca status_update (ms_7d9c444dae2d41dba77320dea11cd23b)](milestones/fix-replace-hardcoded-general-agent-chat-view-provider-allowlist-with-ca-ms_7d9c444dae2d41dba77320dea11cd23b.md)
 - [fix-web-lock-cached-mux-write-gate-before-first-paint status_update (ms_078b40af01fe481ba22c63a89476b378)](milestones/fix-web-lock-cached-mux-write-gate-before-first-paint-ms_078b40af01fe481ba22c63a89476b378.md)
 - [fix-r4-mission-control-memoization-defeated-by-raw-plan-panes-deps status_update (ms_786570cf4b38460cb64f259ebdc2534d)](milestones/fix-r4-mission-control-memoization-defeated-by-raw-plan-panes-deps-ms_786570cf4b38460cb64f259ebdc2534d.md)
@@ -757,6 +772,7 @@ title: Plan views UX redesign — Board/List/Canvas
 - [prompts-cross-machine-orchestration-etiquette-ga-redirects-orchestrators decision (ms_4bc8221110eb45a18878c5e984338011)](milestones/prompts-cross-machine-orchestration-etiquette-ga-redirects-orchestrators-ms_4bc8221110eb45a18878c5e984338011.md)
 - [prompts-cross-machine-orchestration-etiquette-ga-redirects-orchestrators status_update (ms_269300a4b53b4c10aaa5ae5692227b42)](milestones/prompts-cross-machine-orchestration-etiquette-ga-redirects-orchestrators-ms_269300a4b53b4c10aaa5ae5692227b42.md)
 - [list-view-polish-layout-drift-collapsible-plan-header-mobile-pass-honest status_update (ms_6557cf5afb714196b139e7f3ad4d6cc4)](milestones/list-view-polish-layout-drift-collapsible-plan-header-mobile-pass-honest-ms_6557cf5afb714196b139e7f3ad4d6cc4.md)
+- [polling-smell-detector-nudge-orchestrators-stuck-in-get-text-loops note (ms_703fc24a931e4925b612443b238ee6d3)](milestones/polling-smell-detector-nudge-orchestrators-stuck-in-get-text-loops-ms_703fc24a931e4925b612443b238ee6d3.md)
 - [dead-prompt-files-orchestration-toolset-md-and-dogfood-protocol-md-have request (ms_45eb08d339834420ae235251276c738b)](milestones/dead-prompt-files-orchestration-toolset-md-and-dogfood-protocol-md-have-ms_45eb08d339834420ae235251276c738b.md)
 - [dead-prompt-files-orchestration-toolset-md-and-dogfood-protocol-md-have report_refused (ms_d20d9e5047a8417da906f0d662bc9478)](milestones/dead-prompt-files-orchestration-toolset-md-and-dogfood-protocol-md-have-ms_d20d9e5047a8417da906f0d662bc9478.md)
 - [dead-prompt-files-orchestration-toolset-md-and-dogfood-protocol-md-have status_update (ms_430ec2e3b7f0468c90c36d55f23b03a9)](milestones/dead-prompt-files-orchestration-toolset-md-and-dogfood-protocol-md-have-ms_430ec2e3b7f0468c90c36d55f23b03a9.md)
@@ -785,6 +801,7 @@ title: Plan views UX redesign — Board/List/Canvas
 - [task-lane-watchdog-tie-in-progress-truth-to-live-pane-mesh-state review (ms_ba611044538a4ef2a6dc6db508b7a7b8)](milestones/task-lane-watchdog-tie-in-progress-truth-to-live-pane-mesh-state-ms_ba611044538a4ef2a6dc6db508b7a7b8.md)
 - [plan-state-machine-invariants-write-time-enforcement-contract-test-suite status_update (ms_270dd5e7e5ca44ca99fb9c3951d4c99d)](milestones/plan-state-machine-invariants-write-time-enforcement-contract-test-suite-ms_270dd5e7e5ca44ca99fb9c3951d4c99d.md)
 - [plan-state-machine-invariants-write-time-enforcement-contract-test-suite status_update (ms_d181a97da2cd471580355654553a1eed)](milestones/plan-state-machine-invariants-write-time-enforcement-contract-test-suite-ms_d181a97da2cd471580355654553a1eed.md)
+- [release-gate-wiring-state-invariants-mirror-concurrency-as-standing-gate review (ms_01f7876ea46742ce89f1b35f4d8ac3b2)](milestones/release-gate-wiring-state-invariants-mirror-concurrency-as-standing-gate-ms_01f7876ea46742ce89f1b35f4d8ac3b2.md)
 - [executor-role-silently-dropped-flag-accepted-ok-printed-nothing-persiste note (ms_9b2f3c6758034c8e92d88d963e8ab44b)](milestones/executor-role-silently-dropped-flag-accepted-ok-printed-nothing-persiste-ms_9b2f3c6758034c8e92d88d963e8ab44b.md)
 - [executor-role-silently-dropped-flag-accepted-ok-printed-nothing-persiste status_update (ms_33d32d2c3a5844fd9bf6ad52a9c27c62)](milestones/executor-role-silently-dropped-flag-accepted-ok-printed-nothing-persiste-ms_33d32d2c3a5844fd9bf6ad52a9c27c62.md)
 - [executor-role-silently-dropped-flag-accepted-ok-printed-nothing-persiste status_update (ms_00dc3a3a3d1d463f9de31ec306c47ff0)](milestones/executor-role-silently-dropped-flag-accepted-ok-printed-nothing-persiste-ms_00dc3a3a3d1d463f9de31ec306c47ff0.md)
@@ -838,6 +855,7 @@ title: Plan views UX redesign — Board/List/Canvas
 - [daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st status_update (ms_ee8c1fbbd9634a4ba5e9a167dc1b4b4a)](milestones/daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st-ms_ee8c1fbbd9634a4ba5e9a167dc1b4b4a.md)
 - [daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st audit (ms_cb677b14d1944ecc80b6a5aef743d27d)](milestones/daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st-ms_cb677b14d1944ecc80b6a5aef743d27d.md)
 - [daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st status_update (ms_7ef78c2970834169873b9d0779fa72e5)](milestones/daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st-ms_7ef78c2970834169873b9d0779fa72e5.md)
+- [orchestrator-refresh-cycle-handoff-compact-re-orient-verified-resumption note (ms_553977f9ab72411e96369ba1f37f60c6)](milestones/orchestrator-refresh-cycle-handoff-compact-re-orient-verified-resumption-ms_553977f9ab72411e96369ba1f37f60c6.md)
 
 ## Elements
 

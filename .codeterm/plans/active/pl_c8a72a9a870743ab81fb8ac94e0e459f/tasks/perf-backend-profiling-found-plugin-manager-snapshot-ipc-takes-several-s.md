@@ -6,3 +6,4 @@ handle: perf-backend-profiling-found-plugin-manager-snapshot-ipc-takes-several-s
 title: PERF backend profiling found plugin manager snapshot IPC takes several seconds and freezes the whole UI during pan and zoom
 status: cancelled
 ---
+

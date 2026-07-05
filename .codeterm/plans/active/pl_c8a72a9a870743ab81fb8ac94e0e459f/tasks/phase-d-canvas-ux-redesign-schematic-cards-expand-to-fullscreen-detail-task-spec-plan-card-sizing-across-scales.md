@@ -6,3 +6,4 @@ handle: phase-d-canvas-ux-redesign-schematic-cards-expand-to-fullscreen-detail-t
 title: 'PHASE D — Canvas UX redesign: schematic cards + expand-to-fullscreen detail (task/spec/plan) + card-sizing across scales'
 status: done
 ---
+

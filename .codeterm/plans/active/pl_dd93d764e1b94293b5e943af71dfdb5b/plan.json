@@ -505,19 +505,103 @@
         "collapsed": false
       },
       "attachments": []
+    },
+    {
+      "id": "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc",
+      "title": "Wave 28 — Endgame reviews, platform regressions, perf fixes",
+      "handle": "wave-28-endgame-reviews-platform-regressions-perf-fixes",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "attachments": []
+    },
+    {
+      "id": "sec_1f2b261d1bed46439ff02c2ea2617666",
+      "title": "Wave 29 — Process & QA discipline (lanes, gates, invariants)",
+      "handle": "wave-29-process-qa-discipline-lanes-gates-invariants",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "attachments": []
+    },
+    {
+      "id": "sec_318cb6bdf63843faad944c268150d05d",
+      "title": "Wave 30 — Lane observability & state truth",
+      "handle": "wave-30-lane-observability-state-truth",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "attachments": []
+    },
+    {
+      "id": "sec_ba78b15b32c443018fde263d9fef666e",
+      "title": "Wave 31 — CLI ergonomics & guidance",
+      "handle": "wave-31-cli-ergonomics-guidance",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "attachments": []
+    },
+    {
+      "id": "sec_2f39aa7bb60045ec81e7110a523b4a75",
+      "title": "Wave 32 — Prompt & knowledge architecture",
+      "handle": "wave-32-prompt-knowledge-architecture",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "attachments": []
+    },
+    {
+      "id": "sec_0ab6bcfd55ee45e1813b2ed9a7461057",
+      "title": "Wave 33 — Release endgame",
+      "handle": "wave-33-release-endgame",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "attachments": []
     }
   ],
   "status": "active",
   "mode": "approved",
   "owner": {
-    "pane_id": "4d479b6c",
+    "pane_id": "7bdc4b4c",
     "session_id": null,
     "title": null
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "canonical_project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1783008646086,
-  "updated_at": 1783276004570,
+  "updated_at": 1783279971504,
   "milestone_kinds": [
     {
       "key": "decision",
@@ -752,6 +836,11 @@
     {
       "key": "critical prompt audit finding",
       "label": "critical prompt audit finding",
+      "color": null
+    },
+    {
+      "key": "evidence",
+      "label": "evidence",
       "color": null
     }
   ],
@@ -6885,13 +6974,12 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1783108881338,
-      "updated_at": 1783142085316,
+      "updated_at": 1783276776311,
       "status_changed_at": 1783142085316,
       "handle": "executable-test-plans-planner-contract-doctor-qa-enforcement",
       "tags": [],
       "section_ids": [
-        "sec_131f203bb11248629d31940d77d59ae6",
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_1f2b261d1bed46439ff02c2ea2617666"
       ],
       "body": "",
       "role_guidance": "Backend/prompts worker; coordinate with the task_70c4a935 lane — same prompt constants module, land together or strictly sequenced.",
@@ -7148,13 +7236,12 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1783116661272,
-      "updated_at": 1783159850089,
+      "updated_at": 1783276534199,
       "status_changed_at": 1783159850089,
       "handle": "orchestrator-creation-test-matrix-every-route-executable-scenarios",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4",
-        "sec_a02fdc111f044f0ca8cb492dff637f6c"
+        "sec_1f2b261d1bed46439ff02c2ea2617666"
       ],
       "body": "",
       "role_guidance": "QA-minded worker; read evals/_lib/lib.sh bench-safety rules first; the matrix doubles as the regression suite for the whole Wave 21/24 peer system.",
@@ -9029,12 +9116,12 @@
       "status_label": "read-only R1 branch review",
       "priority": "p1",
       "created_at": 1783176603621,
-      "updated_at": 1783181414255,
+      "updated_at": 1783276778159,
       "status_changed_at": 1783181414255,
       "handle": "branch-review-r1-rust-plan-service-storage-diff-vs-develop",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc"
       ],
       "body": "",
       "role_guidance": "You are a read-only Rust reviewer. Do not fix anything yourself — file tasks.",
@@ -9114,12 +9201,12 @@
       "status_label": "read-only R2 branch review",
       "priority": "p1",
       "created_at": 1783176604869,
-      "updated_at": 1783183466093,
+      "updated_at": 1783276779561,
       "status_changed_at": 1783183466093,
       "handle": "branch-review-r2-rust-daemon-core-locks-async-discipline-api-diff-vs-dev",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc"
       ],
       "body": "",
       "role_guidance": "You are a read-only Rust reviewer. Do not fix anything yourself — file tasks.",
@@ -9208,12 +9295,12 @@
       "status_label": "R3 review complete: 1 HIGH finding, fix task task_bba9cae69b4a4fdd99bb2bdf0f6b653a",
       "priority": "p1",
       "created_at": 1783176607160,
-      "updated_at": 1783183466101,
+      "updated_at": 1783276543373,
       "status_changed_at": 1783183466101,
       "handle": "branch-review-r3-cli-prompt-templates-diff-vs-develop",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc"
       ],
       "body": "",
       "role_guidance": "You are a read-only reviewer. Do not fix anything yourself — file tasks.",
@@ -9293,12 +9380,12 @@
       "status_label": "read-only R4 branch review",
       "priority": "p1",
       "created_at": 1783176627499,
-      "updated_at": 1783183466113,
+      "updated_at": 1783276549618,
       "status_changed_at": 1783183466113,
       "handle": "branch-review-r4-canvas-frontend-surfaces-diff-vs-develop",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc"
       ],
       "body": "",
       "role_guidance": "You are a read-only React/TS reviewer. Do not fix anything yourself — file tasks.",
@@ -9387,12 +9474,12 @@
       "status_label": "read-only R5 branch review",
       "priority": "p1",
       "created_at": 1783176628711,
-      "updated_at": 1783183466167,
+      "updated_at": 1783276781759,
       "status_changed_at": 1783183466167,
       "handle": "branch-review-r5-sidebar-shared-terminal-chatview-lib-state-diff-vs-deve",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc"
       ],
       "body": "",
       "role_guidance": "You are a read-only React/TS reviewer. Do not fix anything yourself — file tasks.",
@@ -9473,12 +9560,12 @@
       "status_label": "pane-gone",
       "priority": "p1",
       "created_at": 1783176665836,
-      "updated_at": 1783257679802,
+      "updated_at": 1783276783527,
       "status_changed_at": 1783257679802,
       "handle": "full-regression-on-rog-windows-via-mesh-run-don-t-trust",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc"
       ],
       "body": "",
       "role_guidance": "You are a test-execution worker on Windows. Follow AGENTS.md Windows cargo/Playwright discipline exactly. You fix nothing — you run, record, and file.",
@@ -9530,12 +9617,12 @@
       "status_label": "pane-gone",
       "priority": "p1",
       "created_at": 1783176666939,
-      "updated_at": 1783267757258,
+      "updated_at": 1783276559446,
       "status_changed_at": 1783267757258,
       "handle": "full-regression-on-ubunta-linux-via-mesh-run-don-t-trust",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc"
       ],
       "body": "",
       "role_guidance": "You are a test-execution worker on Linux. You fix nothing — you run, record, and file.",
@@ -9581,18 +9668,18 @@
       ],
       "test_plan": "CI on the PR + the two remote regression lanes as prior evidence",
       "correctness": "No 'Closes #N'; no direct pushes; develop only (master is release-time)",
-      "status": "pending",
+      "status": "done",
       "review_stage": "review",
       "qa_state": null,
       "status_label": null,
       "priority": "p1",
       "created_at": 1783176702880,
-      "updated_at": 1783272186327,
-      "status_changed_at": 1783176702880,
+      "updated_at": 1783279842447,
+      "status_changed_at": 1783277356615,
       "handle": "pr-feat-canvas-updates-develop-full-description-gates-green-merge",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_0ab6bcfd55ee45e1813b2ed9a7461057"
       ],
       "body": "",
       "role_guidance": "Integration duty — orchestrator executes this personally or via a trusted lane; do not delegate the narrative to a worker who lacks branch history.",
@@ -9639,18 +9726,18 @@
       ],
       "test_plan": "check:versions + cargo check precheck + prod build launch smoke; evidence as strides",
       "correctness": "ABSOLUTE: no tag, no master merge, no publish — the release fires only after Andrey's explicit approval",
-      "status": "pending",
+      "status": "blocked",
       "review_stage": "review",
       "qa_state": null,
-      "status_label": null,
+      "status_label": "Mac runner offline; updater signature missing",
       "priority": "p1",
       "created_at": 1783176703976,
-      "updated_at": 1783254544654,
-      "status_changed_at": 1783176703976,
+      "updated_at": 1783279066917,
+      "status_changed_at": 1783279066917,
       "handle": "release-preparation-everything-staged-nothing-published-user-gate",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_0ab6bcfd55ee45e1813b2ed9a7461057"
       ],
       "body": "",
       "role_guidance": "Orchestrator-grade care. Treat 'do not release' as a hard invariant equal to 'never kill prod'.",
@@ -9658,15 +9745,15 @@
       "competition": null,
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "4d479b6c",
       "lane": {
-        "pane_id": null,
+        "pane_id": "4d479b6c",
         "workspace_id": null,
         "workspace_name": null,
         "worktree_path": null,
-        "branch": null,
-        "base": null,
-        "destination": null,
+        "branch": "release/v1.6.2",
+        "base": "develop",
+        "destination": "master",
         "cleanup_status": null,
         "cleanup_hints": []
       },
@@ -10899,12 +10986,12 @@
       "status_label": "never-dispatched",
       "priority": "p1",
       "created_at": 1783228144149,
-      "updated_at": 1783265483872,
+      "updated_at": 1783276787961,
       "status_changed_at": 1783265475762,
       "handle": "gh-209-linux-updater-fails-invalid-updater-binary-format-release-blocker",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc"
       ],
       "body": "",
       "role_guidance": "Backend/release worker; read .codeterm/build-machine/README.md + release-linux.yml first.",
@@ -10954,12 +11041,12 @@
       "status_label": "never-dispatched",
       "priority": "p1",
       "created_at": 1783228146784,
-      "updated_at": 1783257674158,
+      "updated_at": 1783276576351,
       "status_changed_at": 1783257674158,
       "handle": "gh-203-windows-startup-spawns-duplicate-shell-conhost-storm",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc"
       ],
       "body": "",
       "role_guidance": "Windows-capable worker; use mesh + build.ps1 discipline from AGENTS.md.",
@@ -11009,12 +11096,12 @@
       "status_label": "pane-gone",
       "priority": "p1",
       "created_at": 1783228148288,
-      "updated_at": 1783261676892,
+      "updated_at": 1783276582788,
       "status_changed_at": 1783261676892,
       "handle": "gh-188-macos-blank-window-after-wkwebview-webcontent-reap-add-reload-han",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc"
       ],
       "body": "",
       "role_guidance": "Rust/Tauri worker on macOS; look at tauri/wry window event APIs available in our Tauri v2 version.",
@@ -11065,12 +11152,12 @@
       "status_label": "pane-gone",
       "priority": "p1",
       "created_at": 1783228150628,
-      "updated_at": 1783263307330,
+      "updated_at": 1783276588139,
       "status_changed_at": 1783263307330,
       "handle": "gh-189-ui-lag-under-many-panes-virtualize-streaming-chat-stop-per-chunk",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc"
       ],
       "body": "",
       "role_guidance": "Frontend perf worker; measure first, cite traces in the report.",
@@ -11121,12 +11208,12 @@
       "status_label": "pane-gone",
       "priority": "p1",
       "created_at": 1783228152069,
-      "updated_at": 1783261676916,
+      "updated_at": 1783276592993,
       "status_changed_at": 1783261676916,
       "handle": "gh-204-199-codex-tui-robustness-status-usage-parser-sessionstart-hook-di",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc"
       ],
       "body": "",
       "role_guidance": "Provider-layer worker; parser code lives near the codex provider + ChatView/parser.ts fixtures.",
@@ -11177,12 +11264,12 @@
       "status_label": "live peer-switch gate red",
       "priority": "p1",
       "created_at": 1783228201319,
-      "updated_at": 1783275889705,
+      "updated_at": 1783276598441,
       "status_changed_at": 1783275821751,
       "handle": "gh-205-184-web-ui-auth-connected-host-panel-consistency-cross-mesh-token",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc"
       ],
       "body": "",
       "role_guidance": "Full-stack worker comfortable in api routes + mesh relay + web client auth plumbing.",
@@ -11233,12 +11320,12 @@
       "status_label": "live hidden-cron gate red",
       "priority": "p1",
       "created_at": 1783228203863,
-      "updated_at": 1783276004570,
+      "updated_at": 1783276602716,
       "status_changed_at": 1783276004570,
       "handle": "gh-207-179-cron-hidden-agent-reliability-auth-outage-recovery-skills-loa",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc"
       ],
       "body": "",
       "role_guidance": "Backend worker in cron/hidden-run + skills resolution paths.",
@@ -11289,12 +11376,12 @@
       "status_label": "pane-gone",
       "priority": "p1",
       "created_at": 1783228205556,
-      "updated_at": 1783258130371,
+      "updated_at": 1783276607415,
       "status_changed_at": 1783258130371,
       "handle": "gh-182-180-agent-pane-lifecycle-lazy-materialization-send-partial-restar",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc"
       ],
       "body": "",
       "role_guidance": "Backend worker in pane lifecycle/spawn/send paths; read evals/restore-matrix/README first.",
@@ -11344,12 +11431,12 @@
       "status_label": "pane-gone",
       "priority": "p1",
       "created_at": 1783228208032,
-      "updated_at": 1783267755787,
+      "updated_at": 1783276612125,
       "status_changed_at": 1783267755787,
       "handle": "gh-185-chat-terminal-switch-sidebar-agent-icons-intermittently-disappear",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc"
       ],
       "body": "",
       "role_guidance": "Frontend worker; start from R5 review strides.",
@@ -11400,12 +11487,12 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1783228209575,
-      "updated_at": 1783233555411,
+      "updated_at": 1783276791417,
       "status_changed_at": 1783233555411,
       "handle": "gh-206-general-agent-must-search-mem-for-skills-before-declaring-them-mi",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_2f39aa7bb60045ec81e7110a523b4a75"
       ],
       "body": "",
       "role_guidance": "Small prompt lane — good first task for a cheap model.",
@@ -11572,12 +11659,12 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1783229549967,
-      "updated_at": 1783233535409,
+      "updated_at": 1783276618830,
       "status_changed_at": 1783233535409,
       "handle": "general-workspace-invariant-never-closable-into-an-empty-codeterm",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_318cb6bdf63843faad944c268150d05d"
       ],
       "body": "",
       "role_guidance": "Full-stack worker; start from general_agent/workspace.rs ensure logic + FirstRunGeneralPicker close affordances + the multiplexer reducer close cases.",
@@ -11629,12 +11716,12 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1783229838673,
-      "updated_at": 1783273985345,
+      "updated_at": 1783276792910,
       "status_changed_at": 1783273985345,
       "handle": "prompts-cross-machine-orchestration-etiquette-ga-redirects-orchestrators",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_2f39aa7bb60045ec81e7110a523b4a75"
       ],
       "body": "",
       "role_guidance": "Prompt-surgery worker; read the tiered prompt architecture notes in docs/PROMPTS.md first; the drafts in this body are starting points — tighten, do not expand.",
@@ -11743,12 +11830,12 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1783252517036,
-      "updated_at": 1783252517036,
+      "updated_at": 1783276626252,
       "status_changed_at": 1783252517036,
       "handle": "polling-smell-detector-nudge-orchestrators-stuck-in-get-text-loops",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_1f2b261d1bed46439ff02c2ea2617666"
       ],
       "body": "",
       "role_guidance": "Backend worker; reuse plan_reminder_nudge delivery, do not build a new channel.",
@@ -11801,12 +11888,12 @@
       "status_label": "pane-gone",
       "priority": "p1",
       "created_at": 1783252651493,
-      "updated_at": 1783261676967,
+      "updated_at": 1783276629938,
       "status_changed_at": 1783261676967,
       "handle": "dead-prompt-files-orchestration-toolset-md-and-dogfood-protocol-md-have",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_2f39aa7bb60045ec81e7110a523b4a75"
       ],
       "body": "",
       "role_guidance": "Rust worker with care for prompt semantics; read docs/PROMPTS.md first; coordinate explicitly with the prompt-surgery lane.",
@@ -11859,12 +11946,12 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1783252699380,
-      "updated_at": 1783275053088,
+      "updated_at": 1783276633866,
       "status_changed_at": 1783275053088,
       "handle": "prompt-architecture-audit-tier-map-contradiction-sweep-prose-placement",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_2f39aa7bb60045ec81e7110a523b4a75"
       ],
       "body": "",
       "role_guidance": "Strong reader, read-only. Start: src-tauri/src/prompts.rs top-to-bottom, then each suffix, then orchestrator_onboard.rs, then docs/ORCHESTRATION.md with the suffixes side by side. Budget most attention on tier-1/tier-3 contradictions — that is where agents get misled today.",
@@ -11918,12 +12005,12 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1783252925119,
-      "updated_at": 1783253016314,
+      "updated_at": 1783276796958,
       "status_changed_at": 1783252925119,
       "handle": "cli-codeterm-plan-task-dispatch-one-command-worker-launch-from-a-task",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ba78b15b32c443018fde263d9fef666e"
       ],
       "body": "",
       "role_guidance": "Rust CLI+daemon worker; read cli/src/cmd/plan.rs + agent spawn dispatch path first; this is P2 POST-RELEASE unless the orchestrator pulls it earlier — do not let it delay the release gates.",
@@ -11974,12 +12061,12 @@
       "status_label": "needs clean manual-port lane; no cherry-pick",
       "priority": "p1",
       "created_at": 1783252972988,
-      "updated_at": 1783272777815,
+      "updated_at": 1783276639302,
       "status_changed_at": 1783272777815,
       "handle": "cli-output-contract-id-as-last-line-short-id-resolver-everywhere",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ba78b15b32c443018fde263d9fef666e"
       ],
       "body": "",
       "role_guidance": "Rust CLI worker; grep cli/src for the hint-emission sites and the resolver entry point first.",
@@ -12059,12 +12146,12 @@
       "status_label": "QA on eight: mirror focused gate running",
       "priority": "p1",
       "created_at": 1783252982685,
-      "updated_at": 1783260607696,
+      "updated_at": 1783276797654,
       "status_changed_at": 1783260517579,
       "handle": "plan-index-mirror-false-failures-regression-of-task-354c755f-fix",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_318cb6bdf63843faad944c268150d05d"
       ],
       "body": "",
       "role_guidance": "Rust worker in service/plan storage/mirror path; read task_354c755f strides first.",
@@ -12117,12 +12204,12 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1783252985581,
-      "updated_at": 1783255968742,
+      "updated_at": 1783276643729,
       "status_changed_at": 1783252985581,
       "handle": "cli-codeterm-plan-lanes-dispatch-audit-for-cleanup",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ba78b15b32c443018fde263d9fef666e"
       ],
       "body": "",
       "role_guidance": "Rust CLI worker; reuse reconcile's liveness internals from service/plan.",
@@ -12175,12 +12262,12 @@
       "status_label": "reported; needs branch hygiene + QA",
       "priority": "p1",
       "created_at": 1783253229297,
-      "updated_at": 1783265591056,
+      "updated_at": 1783276646756,
       "status_changed_at": 1783265591011,
       "handle": "lane-observability-p1-working-on-row-labeled-fields-recording-discipline",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_318cb6bdf63843faad944c268150d05d"
       ],
       "body": "",
       "role_guidance": "Full-stack worker; coordinate with prompt-surgery (task_dc526c35) for the report-contract line and with Puccini for closing the two live ubunta watchers.",
@@ -12232,12 +12319,12 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1783253270033,
-      "updated_at": 1783253270033,
+      "updated_at": 1783276650678,
       "status_changed_at": 1783253270033,
       "handle": "lane-observability-p2-task-detail-lane-panel-clickable-panes-mesh-focus",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_318cb6bdf63843faad944c268150d05d"
       ],
       "body": "",
       "role_guidance": "Frontend-lead full-stack worker; sequence strictly after task_03bf8da6; reuse plan lanes (task_d1450940) liveness helper if that lane lands first.",
@@ -12292,12 +12379,12 @@
       "status_label": "partial core only; live watchdog loop still needed",
       "priority": "p1",
       "created_at": 1783253740396,
-      "updated_at": 1783264919052,
+      "updated_at": 1783276654951,
       "status_changed_at": 1783264919052,
       "handle": "task-lane-watchdog-tie-in-progress-truth-to-live-pane-mesh-state",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_318cb6bdf63843faad944c268150d05d"
       ],
       "body": "",
       "role_guidance": "Rust daemon worker, strong; read plan reconcile drift logic + agent_tracker + mesh presence first; coordinate explicitly with task_03bf8da6 (fields+chips) and task_d1450940 (shared helper). Sequence: after task_03bf8da6 lands its auto-fill (the watchdog needs populated lanes to watch).",
@@ -12351,12 +12438,12 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1783254168833,
-      "updated_at": 1783273986612,
+      "updated_at": 1783276658887,
       "status_changed_at": 1783273986612,
       "handle": "plan-state-machine-invariants-write-time-enforcement-contract-test-suite",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_318cb6bdf63843faad944c268150d05d"
       ],
       "body": "",
       "role_guidance": "Rust worker in service/plan mutations; read task_7089039c's findings first (same code region, coordinate branches); the invariant table in this body is the spec — implement it as data.",
@@ -12408,12 +12495,12 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1783254213680,
-      "updated_at": 1783254213680,
+      "updated_at": 1783276829479,
       "status_changed_at": 1783254213680,
       "handle": "release-gate-wiring-state-invariants-mirror-concurrency-as-standing-gate",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_1f2b261d1bed46439ff02c2ea2617666"
       ],
       "body": "",
       "role_guidance": "Rust worker; strictly after task_7140a28c lands; small lane.",
@@ -12466,12 +12553,12 @@
       "status_label": "pane-gone",
       "priority": "p1",
       "created_at": 1783254704192,
-      "updated_at": 1783261971172,
+      "updated_at": 1783276666436,
       "status_changed_at": 1783261971172,
       "handle": "executor-role-silently-dropped-flag-accepted-ok-printed-nothing-persiste",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_318cb6bdf63843faad944c268150d05d"
       ],
       "body": "",
       "role_guidance": "Rust worker; start at batch.rs:406 and the update mutation param plumbing.",
@@ -12522,12 +12609,12 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1783254754315,
-      "updated_at": 1783272778964,
+      "updated_at": 1783276670141,
       "status_changed_at": 1783272778964,
       "handle": "task-show-unbounded-siblings-dump-160-tasks-per-invocation",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ba78b15b32c443018fde263d9fef666e"
       ],
       "body": "",
       "role_guidance": "Rust CLI worker; small lane, ships with the other CLI output-contract fix (task_dd7206eb, same file region — same worker ideally).",
@@ -12608,12 +12695,12 @@
       "status_label": "QA queued: sidebar runtime ghost prune",
       "priority": "p1",
       "created_at": 1783254924232,
-      "updated_at": 1783266196896,
+      "updated_at": 1783276673805,
       "status_changed_at": 1783266178660,
       "handle": "sidebar-ghosts-runtime-closed-panes-persist-as-live-child-rows",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_318cb6bdf63843faad944c268150d05d"
       ],
       "body": "",
       "role_guidance": "Frontend worker; start from SidebarWorkspaceTabs group-membership derivation and the panes-refresh reducer; read the task_63c58595 fix first — same class, other path.",
@@ -12666,12 +12753,12 @@
       "status_label": "pane-gone",
       "priority": "p1",
       "created_at": 1783255807616,
-      "updated_at": 1783272534588,
+      "updated_at": 1783276677739,
       "status_changed_at": 1783272534588,
       "handle": "worker-lanes-code-only-report-refusal-hardening-qa-queue-adoption-build",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_1f2b261d1bed46439ff02c2ea2617666"
       ],
       "body": "",
       "role_guidance": "Rust worker across prompts+cli+daemon; read the existing refusal implementation and runaway_sweeper.rs first; coordinate with task_3165f160 (owns the orchestrator-side In-QA prompt line) and task_dc526c35 (do not collide on prompt files).",
@@ -12723,12 +12810,12 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1783255868425,
-      "updated_at": 1783266199096,
+      "updated_at": 1783276681197,
       "status_changed_at": 1783266180647,
       "handle": "spawn-guard-worker-into-the-canonical-checkout-requires-explicit-opt-in",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_1f2b261d1bed46439ff02c2ea2617666"
       ],
       "body": "",
       "role_guidance": "Rust worker in the spawn path; the predicate is the risky part — test it against real worktree layouts first.",
@@ -12780,12 +12867,12 @@
       "status_label": "pane-gone",
       "priority": "p1",
       "created_at": 1783255928824,
-      "updated_at": 1783261625131,
+      "updated_at": 1783276684736,
       "status_changed_at": 1783261625131,
       "handle": "plan-sidecar-churn-must-not-dirty-product-worktrees",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_1f2b261d1bed46439ff02c2ea2617666"
       ],
       "body": "",
       "role_guidance": "Rust/shell worker; enumerate every git-status consumer first (report refusal, hooks, build.sh, prompts) — the list is the audit.",
@@ -12838,12 +12925,12 @@
       "status_label": "pane-gone",
       "priority": "p1",
       "created_at": 1783255934027,
-      "updated_at": 1783272050995,
+      "updated_at": 1783276688951,
       "status_changed_at": 1783272050995,
       "handle": "task-card-metadata-design-pass-labeled-chips-honest-states-clean-layout",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_318cb6bdf63843faad944c268150d05d"
       ],
       "body": "",
       "role_guidance": "Frontend worker with design taste; read the 03bf implementation + the mockup-attached mission-control precedent for the visual family; same-worker-as-03bf preferred.",
@@ -12934,12 +13021,12 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1783256127120,
-      "updated_at": 1783274110505,
+      "updated_at": 1783276692993,
       "status_changed_at": 1783274110505,
       "handle": "branch-lane-lifecycle-standard-canonical-doc-naming-enforcement-stale-sw",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_1f2b261d1bed46439ff02c2ea2617666"
       ],
       "body": "",
       "role_guidance": "Docs+Rust worker; read the five owning tasks first so the doc references reality; naming check lands next to the 5a6d58c5 refusal code — same worker or same branch as that lane if timing allows.",
@@ -13048,12 +13135,12 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1783257634900,
-      "updated_at": 1783263479538,
+      "updated_at": 1783276697589,
       "status_changed_at": 1783263479538,
       "handle": "cli-guidance-gaps-mem-forget-guard-aimless-worker-hints-workspace-cwd-hi",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ba78b15b32c443018fde263d9fef666e"
       ],
       "body": "",
       "role_guidance": "Planner self-execution, explicit user exception; lane per standard: worktree, code-only, push at report.",
@@ -13166,12 +13253,12 @@
       "status_label": "pane-gone",
       "priority": "p1",
       "created_at": 1783264965827,
-      "updated_at": 1783274188701,
+      "updated_at": 1783276701394,
       "status_changed_at": 1783274188701,
       "handle": "code-review-gate-standing-review-stage-before-qa-current-run-product",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_1f2b261d1bed46439ff02c2ea2617666"
       ],
       "body": "",
       "role_guidance": "Backend+prompt worker; coordinate with 5a6d58c5 (transition hint) and 3165f160 (gate wiring); the current-run sweep is orchestrator process work, not this lane's code.",
@@ -13254,12 +13341,12 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1783265002276,
-      "updated_at": 1783273648777,
+      "updated_at": 1783276705377,
       "status_changed_at": 1783273648777,
       "handle": "orchestrator-digests-queue-pressure-nudges-generalized-token-usage-in-he",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_318cb6bdf63843faad944c268150d05d"
       ],
       "body": "",
       "role_guidance": "Backend worker in heartbeat/reminders + provider usage paths; read the codex /status fixture work (task_24b2badf lane) and the existing experimental usage code first.",
@@ -13340,12 +13427,12 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1783265059967,
-      "updated_at": 1783267039631,
+      "updated_at": 1783276709556,
       "status_changed_at": 1783265059967,
       "handle": "skills-sync-hygiene-codeterm-is-the-single-source-providers-get-synced-c",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_2f39aa7bb60045ec81e7110a523b4a75"
       ],
       "body": "",
       "role_guidance": "Careful worker; read the skill sync code + codeterm mem skill list first.",
@@ -13397,12 +13484,12 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1783265555361,
-      "updated_at": 1783265555361,
+      "updated_at": 1783276714327,
       "status_changed_at": 1783265555361,
       "handle": "auto-pull-mem-orchestration-preferences-at-orchestrator-planner-start",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_2f39aa7bb60045ec81e7110a523b4a75"
       ],
       "body": "",
       "role_guidance": "Rust worker in orchestrator_onboard/peer_mandate; coordinate with the dead-prompt-files lane (same assembly code region).",
@@ -13452,12 +13539,12 @@
       "status_label": null,
       "priority": "p3",
       "created_at": 1783266108179,
-      "updated_at": 1783266108179,
+      "updated_at": 1783276718066,
       "status_changed_at": 1783266108179,
       "handle": "decision-gate-productize-remote-qa-builders",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_1f2b261d1bed46439ff02c2ea2617666"
       ],
       "body": "",
       "role_guidance": "Planner/orchestrator surface the question with the friction log after release.",
@@ -13509,12 +13596,12 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1783268501801,
-      "updated_at": 1783273817901,
+      "updated_at": 1783276722355,
       "status_changed_at": 1783273817901,
       "handle": "daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_ffcea05ac8ef4b4b8ab12ee2b113aebc"
       ],
       "body": "",
       "role_guidance": "Fable self-execution in the open window; code-only, gates via QA.",
@@ -13567,12 +13654,12 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1783273006159,
-      "updated_at": 1783273006159,
+      "updated_at": 1783276729613,
       "status_changed_at": 1783273006159,
       "handle": "final-staging-dev-consoles-live-on-air-rog-ubunta-full-regression-everyw",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_0ab6bcfd55ee45e1813b2ed9a7461057"
       ],
       "body": "",
       "role_guidance": "Orchestrator executes personally or via one trusted coordinator lane; uses the mesh worker-pane rules (real panes, no ad-hoc chat) and each machine's single QA gate.",
@@ -13624,15 +13711,74 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1783275891287,
-      "updated_at": 1783275891287,
+      "updated_at": 1783276733842,
       "status_changed_at": 1783275891287,
       "handle": "qa-prep-command-one-shot-dev-ready-isolated-worktree-dist-sidecars-no-un",
       "tags": [],
       "section_ids": [
-        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+        "sec_1f2b261d1bed46439ff02c2ea2617666"
       ],
       "body": "",
       "role_guidance": "Shell/Rust worker; read build.sh dev path + the tauri build.rs resource validation first.",
+      "executor_role": null,
+      "competition": null,
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [],
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
+    },
+    {
+      "id": "task_d1ccca1dc0124114b35fa935bfbed0a5",
+      "name": "Orchestrator refresh cycle: handoff -> compact -> re-orient -> verified resumption",
+      "type": "feature",
+      "model": "claude/opus",
+      "model_rationale": "Andrey's explicit routing: designed by Planner, executed by Opus — a daemon-side ordered state machine where a subtle ordering bug silently kills the orchestrator's continuity; needs a careful, strong implementer",
+      "acceptance_criteria": [
+        "Manual 'codeterm orchestrator refresh' runs S1-S5 as a verified-ordered state machine; drill transcript proves the order for BOTH providers (or documented capability fallback for the one lacking compact)",
+        "Continuity proof: post-refresh current_focus matches the pre-refresh frontier; zero manual pings needed for resumption in 3 consecutive drills",
+        "Failure branches drilled: hung compact proceeds to re-orient; stranded resumption re-nudges once then alerts with a decision gate",
+        "Capability-keyed compact (no provider-id literals); [orchestration.refresh] config with after_reflection default OFF until drills pass",
+        "Token accounting recorded: cycle cost vs drift cost, real numbers"
+      ],
+      "test_plan": "Rust unit for the state machine transitions (table-driven, mirror wake.rs tests); scripted e2e drill series on dev for claude+codex orchestrators with transcript-order assertions and both failure branches; capped, one at a time; drill scripts land in evals/orchestrator-refresh/",
+      "correctness": "NEVER strand the orchestrator: every branch ends in either verified resumption or a loud alert — silence is the one forbidden outcome; injections go through Messenger::deliver (wake-confirmer included); compaction detection uses structural signatures, never literal strings; the state machine must be idempotent (double-trigger coalesces, mirror wake.rs needle design)",
+      "status": "pending",
+      "review_stage": "review",
+      "qa_state": null,
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1783276719494,
+      "updated_at": 1783279971504,
+      "status_changed_at": 1783276719494,
+      "handle": "orchestrator-refresh-cycle-handoff-compact-re-orient-verified-resumption",
+      "tags": [],
+      "section_ids": [
+        "sec_318cb6bdf63843faad944c268150d05d"
+      ],
+      "body": "",
+      "role_guidance": "You are Opus, chosen deliberately for this: a daemon-side sequencing mechanism where subtle ordering bugs silently kill an orchestrator's continuity. Read service/pty_io/wake.rs FIRST — it is the proven pattern (verified delivery, idempotent watcher, needle design) this extends from one step to five. Build the manual trigger first, drill it until the order assertions pass, only then wire the reflection trigger.",
       "executor_role": null,
       "competition": null,
       "intent": null,
@@ -13937,9 +14083,9 @@
     ]
   },
   "heartbeat": {
-    "current_focus": "Batch QA x3 running on eight. Local merged/closed card metadata + sliced 5a6d; remote stale branches cleaned. Next local: assess CLI-output pair and usage heartbeat while eight runs batch.",
+    "current_focus": "Takeover confirmed (Rossini/opus, pane 7bdc4b4c). Dispatching task_d1ccca1d orchestrator-refresh-cycle to an opus worker in an isolated lane worktree; then in_review cbfaa040, then FINAL STAGING (W33).",
     "active_lanes": [
-      "feat/canvas-updates@9800e5cd"
+      "feat/canvas-updates"
     ],
     "rules": [
       "Cherry-picks banned: merge/rebase/manual-port only",
@@ -13950,7 +14096,22 @@
   "canvas": {
     "viewport": null
   },
-  "owner_history": [],
+  "owner_history": [
+    {
+      "from": {
+        "pane_id": "4d479b6c",
+        "session_id": null,
+        "title": null
+      },
+      "to": {
+        "pane_id": "7bdc4b4c",
+        "session_id": null,
+        "title": null
+      },
+      "ts": 1783279806740,
+      "reason": ""
+    }
+  ],
   "planner": null,
   "planning_state": "drafting",
   "planning_log": [],
