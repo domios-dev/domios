@@ -483,6 +483,34 @@ mod tests {
     }
 
     #[test]
+    fn general_agent_routes_project_work_to_workspaces() {
+        assert!(GENERAL_AGENT_TEMPLATE.contains("Machine scope, not project scope"));
+        assert!(GENERAL_AGENT_TEMPLATE.contains("spawn or reuse an orchestrator there"));
+    }
+
+    #[test]
+    fn orchestrator_suffix_has_cross_machine_etiquette() {
+        assert!(ORCHESTRATOR_SUFFIX.contains("Cross-machine work:"));
+        assert!(ORCHESTRATOR_SUFFIX.contains("redirected into a workspace, not executed"));
+    }
+
+    #[test]
+    fn orchestrator_suffix_has_blocked_triage_rule() {
+        assert!(ORCHESTRATOR_SUFFIX.contains("a claim, not a parking spot"));
+        assert!(ORCHESTRATOR_SUFFIX.contains("record the unblock trigger"));
+    }
+
+    #[test]
+    fn orchestrator_suffix_routes_uncertainty_to_planner() {
+        assert!(ORCHESTRATOR_SUFFIX.contains("ask your Planner before guessing"));
+    }
+
+    #[test]
+    fn planner_suffix_answers_with_decisions() {
+        assert!(PLANNER_SUFFIX.contains("decisions and rationale, not options"));
+    }
+
+    #[test]
     fn retrospective_nudge_graduates_skills_and_scripts_via_reviewed_lane() {
         assert!(PLAN_RETROSPECTIVE_NUDGE.contains("codeterm mem skill"));
         assert!(PLAN_RETROSPECTIVE_NUDGE.contains(".agents/skills/"));
