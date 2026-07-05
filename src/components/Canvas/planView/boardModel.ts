@@ -297,7 +297,12 @@ export function selectDefaultPlanId(
     const first = orderedPlans.find((p) => ownedIds.has(p.id));
     if (first) return first.id;
   }
-  return orderedPlans[0].id;
+  // Prefer the workspace's real bound plan over a stale/empty shell: a plan with
+  // actionable (non-terminal) work first, then any non-empty plan, then freshest.
+  const hasActionable = (p: Plan) =>
+    p.tasks.some((t) => t.status !== TaskStatus.Done && t.status !== TaskStatus.Cancelled);
+  const hasWork = (p: Plan) => p.tasks.some((t) => t.status !== TaskStatus.Cancelled);
+  return (orderedPlans.find(hasActionable) ?? orderedPlans.find(hasWork) ?? orderedPlans[0]).id;
 }
 
 export function buildBoardModels(

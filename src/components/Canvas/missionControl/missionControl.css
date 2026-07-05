@@ -672,6 +672,7 @@
   }
 }
 
+
 /* ── Flow canvas (Mission Control v2) ───────────────────────────────────── */
 .mc-flow-shell {
   --mc-violet: #b895f0;
@@ -686,8 +687,9 @@
 .mc-flow-stack {
   display: flex;
   flex-direction: column;
-  gap: 26px;
+  gap: 24px;
   padding: 26px 30px 60px;
+  box-sizing: border-box;
 }
 
 .mc-river-plan {
@@ -696,11 +698,15 @@
   border-radius: 22px;
   padding: 20px 26px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  box-sizing: border-box;
+  overflow: hidden;
 }
-.mc-river-mini {
-  opacity: 0.85;
-  transform: scale(0.985);
-  transform-origin: 0 0;
+.mc-river-mini { opacity: 0.9; }
+.mc-river-empty { padding-bottom: 16px; }
+.mc-river-empty-note {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--mc-muted);
 }
 
 .mc-river-head {
@@ -719,19 +725,15 @@
   padding: 0;
   cursor: pointer;
   text-align: left;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .mc-river-title:hover { color: var(--mc-accent); }
 .mc-river-mini .mc-river-title { font-size: 15px; }
-.mc-river-pct {
-  font-size: 15px;
-  color: var(--mc-ok);
-  font-variant-numeric: tabular-nums;
-}
-.mc-river-status {
-  font-size: 14px;
-  color: var(--mc-warn);
-  text-transform: lowercase;
-}
+.mc-river-pct { font-size: 15px; color: var(--mc-ok); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.mc-river-status { font-size: 14px; color: var(--mc-warn); text-transform: lowercase; flex-shrink: 0; }
 .mc-crew {
   margin-left: auto;
   display: flex;
@@ -739,42 +741,55 @@
   align-items: center;
   font-size: 11px;
   color: var(--mc-muted);
+  flex-shrink: 0;
 }
 .mc-crew-count { margin-left: 2px; }
 
+/* Responsive station row — flex, wraps within the plan card (no overflow). */
 .mc-river-band {
   position: relative;
-  margin-top: 10px;
+  margin-top: 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
 }
+.mc-river-mini .mc-river-band { gap: 16px; }
+
 .mc-flow-svg {
   position: absolute;
-  inset: 0;
-  width: 100%;
+  left: 0;
+  top: 0;
   overflow: visible;
   pointer-events: none;
+  z-index: 0;
 }
 .mc-flow-pulse { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--mc-ok) 70%, transparent)); }
 
 .mc-flow-station {
-  position: absolute;
-  top: 24px;
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 240px;
   border-radius: 16px;
   padding: 11px 13px;
   background: #10141d;
   border: 1px solid var(--mc-border);
+  box-sizing: border-box;
 }
-.mc-river-mini .mc-flow-station { top: 12px; }
 .mc-flow-station-now {
   border-color: color-mix(in srgb, var(--mc-accent) 45%, var(--mc-border));
   box-shadow: 0 0 34px color-mix(in srgb, var(--mc-accent) 16%, transparent);
 }
-.mc-flow-station-dim { opacity: 0.5; }
+.mc-flow-station-dim { opacity: 0.55; }
 .mc-flow-station-name {
   font-size: 10px;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   color: var(--mc-muted);
   text-transform: uppercase;
   margin-bottom: 7px;
+  line-height: 1.4;
 }
 .mc-flow-station-name b { color: var(--mc-accent); font-weight: 600; }
 
@@ -800,24 +815,49 @@
 }
 .mc-flow-chip-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mc-flow-chip-carrier { font-size: 10px; color: var(--mc-violet); flex-shrink: 0; }
-.mc-flow-empty { font-size: 11px; color: var(--mc-muted); margin-top: 5px; }
 
-.mc-flow-count {
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--ct-fg, #dbe2ee);
-  font-variant-numeric: tabular-nums;
+/* Decision gate row — question + who it waits on (real, not jargon). */
+.mc-flow-gate {
+  margin-top: 5px;
+  padding: 6px 8px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--mc-warn) 8%, #171d2a);
+  border: 1px solid color-mix(in srgb, var(--mc-warn) 38%, #202839);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
+.mc-flow-gate-esc { border-color: color-mix(in srgb, var(--mc-danger) 45%, #202839); }
+.mc-flow-gate-q {
+  font-size: 11px;
+  color: #e8dcc0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mc-flow-gate-wait { font-size: 10px; color: var(--mc-warn); }
+
+.mc-flow-count { font-size: 24px; font-weight: 600; color: var(--ct-fg, #dbe2ee); font-variant-numeric: tabular-nums; }
 .mc-flow-sub { font-size: 10px; color: var(--mc-muted); }
+.mc-flow-stride {
+  margin-top: 5px;
+  font-size: 10px;
+  color: var(--mc-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .mc-flow-carrier {
   position: absolute;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 7px;
+  pointer-events: none;
   filter: drop-shadow(0 0 10px color-mix(in srgb, var(--mc-violet) 55%, transparent));
 }
-.mc-flow-carrier .mc-avatar { background: var(--mc-violet); border-color: transparent; color: #0d1017; }
+.mc-flow-carrier .mc-avatar { background: var(--mc-violet); border-color: transparent; color: #0d1017; pointer-events: auto; }
 .mc-flow-carrier-move { animation: mc-carry 3s var(--mc-ease) infinite; }
 .mc-flow-pkg {
   font-size: 10px;
@@ -826,25 +866,23 @@
   border-radius: 8px;
   padding: 4px 8px;
   color: #cabdf5;
-  max-width: 160px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mc-river-hud {
   display: flex;
-  gap: 26px;
+  flex-wrap: wrap;
+  gap: 22px;
   margin-top: 16px;
   padding-top: 13px;
   border-top: 1px solid var(--mc-border);
   font-size: 11px;
   color: var(--mc-muted);
 }
-.mc-river-hud b {
-  color: var(--ct-fg, #dbe2ee);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  font-size: 13px;
-  margin-right: 4px;
-}
+.mc-river-hud b { color: var(--ct-fg, #dbe2ee); font-weight: 600; font-variant-numeric: tabular-nums; font-size: 13px; margin-right: 4px; }
 .mc-river-next { margin-left: auto; }
 
 .mc-scope-toggle { display: flex; gap: 8px; align-items: center; }
@@ -865,10 +903,9 @@
 }
 
 @keyframes mc-carry {
-  0% { transform: translateX(0); opacity: 0.4; }
-  15% { opacity: 1; }
-  85% { opacity: 1; }
-  100% { transform: translateX(150px); opacity: 0.4; }
+  0% { transform: translateX(0); opacity: 0.7; }
+  50% { transform: translateX(18px); opacity: 1; }
+  100% { transform: translateX(0); opacity: 0.7; }
 }
 
 .mc-reduced-motion .mc-flow-carrier-move { animation: none; }
