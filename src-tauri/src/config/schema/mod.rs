@@ -32,6 +32,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub orchestration: OrchestrationConfig,
     #[serde(default)]
+    pub usage: UsageConfig,
+    #[serde(default)]
     pub integrations: IntegrationsConfig,
     #[serde(default)]
     pub mesh: MeshConfig,
@@ -59,6 +61,7 @@ impl Default for AppConfig {
             general_agent: GeneralAgentConfig::default(),
             memory: MemoryConfig::default(),
             orchestration: OrchestrationConfig::default(),
+            usage: UsageConfig::default(),
             integrations: IntegrationsConfig::default(),
             mesh: MeshConfig::default(),
             updater: UpdaterConfig::default(),
@@ -382,6 +385,7 @@ pub struct OrchestrationConfig {
     pub nudge_interval_secs: u64,
     pub idle_poke: IdlePokeConfig,
     pub reflect: ReflectConfig,
+    pub digests: OrchestrationDigestsConfig,
 }
 
 impl Default for OrchestrationConfig {
@@ -392,6 +396,110 @@ impl Default for OrchestrationConfig {
             nudge_interval_secs: 1800,
             idle_poke: IdlePokeConfig::default(),
             reflect: ReflectConfig::default(),
+            digests: OrchestrationDigestsConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DigestCondition {
+    #[default]
+    InReviewGt,
+    InProgressPressure,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DigestRuleConfig {
+    pub id: String,
+    pub enabled: bool,
+    pub condition: DigestCondition,
+    pub threshold: u32,
+    pub stalled_threshold: u32,
+    pub rate_limit_secs: u64,
+    pub template: String,
+}
+
+impl Default for DigestRuleConfig {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            enabled: false,
+            condition: DigestCondition::InReviewGt,
+            threshold: 3,
+            stalled_threshold: 1,
+            rate_limit_secs: 3600,
+            template: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OrchestrationDigestsConfig {
+    pub enabled: bool,
+    pub rules: Vec<DigestRuleConfig>,
+}
+
+fn default_in_review_digest_template() -> String {
+    "{count} reports await your verdict, oldest {oldest_h}h — judge with `codeterm plan task close {plan_id} <task_id>` or route to QA with `codeterm plan qa queue {plan_id} --task <task_id>`".into()
+}
+
+fn default_in_progress_digest_template() -> String {
+    "{in_progress} lanes in flight ({stalled} stalled) — run `codeterm plan in-progress {plan_id}` then `codeterm plan reconcile {plan_id}`".into()
+}
+
+pub fn default_digest_rules() -> Vec<DigestRuleConfig> {
+    vec![
+        DigestRuleConfig {
+            id: "in_review_pressure".into(),
+            enabled: true,
+            condition: DigestCondition::InReviewGt,
+            threshold: 3,
+            stalled_threshold: 0,
+            rate_limit_secs: 3600,
+            template: default_in_review_digest_template(),
+        },
+        DigestRuleConfig {
+            id: "in_progress_pressure".into(),
+            enabled: true,
+            condition: DigestCondition::InProgressPressure,
+            threshold: 8,
+            stalled_threshold: 1,
+            rate_limit_secs: 3600,
+            template: default_in_progress_digest_template(),
+        },
+    ]
+}
+
+impl Default for OrchestrationDigestsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            rules: default_digest_rules(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UsageConfig {
+    pub enabled: bool,
+    pub heartbeat: bool,
+    pub freshness_secs: u64,
+    pub high_pct_threshold: f32,
+    pub standalone_cadence_secs: u64,
+}
+
+impl Default for UsageConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            heartbeat: true,
+            freshness_secs: 180,
+            high_pct_threshold: 80.0,
+            standalone_cadence_secs: 0,
         }
     }
 }

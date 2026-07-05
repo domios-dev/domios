@@ -26,6 +26,7 @@ pub mod messenger;
 pub mod notification;
 mod orchestration_pair;
 mod orchestrator;
+pub mod orchestrator_digests;
 mod orchestrator_onboard;
 mod output;
 mod output_feed;

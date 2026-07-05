@@ -6,6 +6,7 @@ pub mod canvas_elements;
 pub mod cleanup_debt;
 pub mod competition;
 pub mod complete_wrapup;
+pub mod digest_rules;
 pub mod element_queries;
 pub mod gates;
 pub mod handoff;
@@ -41,6 +42,7 @@ pub mod task_attempts;
 pub mod task_queries;
 mod task_remove;
 mod types;
+pub mod usage_digest;
 pub mod watcher;
 pub mod worker_charter;
 

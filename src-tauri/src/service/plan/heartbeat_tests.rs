@@ -499,3 +499,16 @@ fn is_plan_complete_predicate_covers_execution_all_done_and_explicit_complete() 
         "Complete mode is always complete"
     );
 }
+
+#[test]
+fn heartbeat_renders_digest_lines_without_other_state() {
+    let (_dir, store, plan_id) = store_with_plan("orch-a");
+    let digest_lines = vec![
+        "5 reports await your verdict, oldest 2h — judge".into(),
+        "claude: 62% weekly".into(),
+    ];
+    let text = store.prepend_heartbeat_for_plan_with_digests(&plan_id, "continue", &digest_lines);
+    assert!(text.contains("Digests:"));
+    assert!(text.contains("5 reports await your verdict"));
+    assert!(text.contains("claude: 62% weekly"));
+}
