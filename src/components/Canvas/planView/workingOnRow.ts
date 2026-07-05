@@ -1,5 +1,7 @@
 import type { Pane } from "../../../lib/types";
 import type { Task, TaskStatus } from "../types";
+import { CHIP_FIELD_LABELS, pickHighestLaneWarning, type LaneWarningId } from "./laneWatchdogLabels";
+import { middleTruncateSlug } from "./textTruncate";
 
 export type WorkingOnTone = "info" | "amber" | "red" | "grey";
 
@@ -8,6 +10,7 @@ export type WorkingOnChipKind = "model" | "pane" | "peer" | "branch" | "age" | "
 export interface WorkingOnChip {
   kind: WorkingOnChipKind;
   tone: WorkingOnTone;
+  fieldLabel: string;
   label: string;
 }
 
@@ -17,10 +20,13 @@ export interface WorkingOnRowModel {
 
 const WORKING_STATUSES = new Set<TaskStatus>(["in_progress", "in_review"]);
 const LOCAL_PEERS = new Set(["", "local", "localhost", "self"]);
+const CHIP_ORDER: WorkingOnChipKind[] = ["model", "pane", "peer", "branch", "age", "warn"];
+
+const EMPTY_LABELS = new Set(["", "unknown"]);
 
 function clean(value?: string | null): string | null {
   const text = value?.trim() ?? "";
-  return text ? text : null;
+  return text && !EMPTY_LABELS.has(text.toLowerCase()) ? text : null;
 }
 
 function shortId(id: string): string {
@@ -49,6 +55,20 @@ function ageLabel(ts: number, now: number): string | null {
   return `${Math.floor(hours / 24)}d`;
 }
 
+function chip(
+  kind: WorkingOnChipKind,
+  tone: WorkingOnTone,
+  label: string,
+): WorkingOnChip {
+  return { kind, tone, fieldLabel: CHIP_FIELD_LABELS[kind], label };
+}
+
+function sortChips(chips: WorkingOnChip[]): WorkingOnChip[] {
+  return [...chips].sort(
+    (a, b) => CHIP_ORDER.indexOf(a.kind) - CHIP_ORDER.indexOf(b.kind),
+  );
+}
+
 // Working-on row for in_progress/in_review tasks: labeled fields from existing
 // lane metadata, with honest amber/red fallbacks instead of blank noise.
 export function deriveWorkingOnRow(
@@ -57,34 +77,39 @@ export function deriveWorkingOnRow(
   now: number = Date.now(),
 ): WorkingOnRowModel | null {
   if (!WORKING_STATUSES.has(task.status)) return null;
+
   const chips: WorkingOnChip[] = [];
+  const warnings: LaneWarningId[] = [];
 
   const model = clean(task.model);
-  if (model) chips.push({ kind: "model", tone: "info", label: model });
+  if (model) chips.push(chip("model", "info", model));
 
   const peer = remotePeer(task);
   const paneId = clean(task.assigned_pane_id) ?? clean(task.lane?.pane_id);
   if (paneId) {
     const pane = panes[paneId];
     if (pane) {
-      chips.push({ kind: "pane", tone: "info", label: clean(pane.title) ?? shortId(paneId) });
+      chips.push(chip("pane", "info", clean(pane.title) ?? shortId(paneId)));
     } else if (peer) {
-      chips.push({ kind: "pane", tone: "grey", label: shortId(paneId) });
+      chips.push(chip("pane", "grey", shortId(paneId)));
     } else {
-      chips.push({ kind: "warn", tone: "red", label: "pane gone" });
+      warnings.push("pane_gone");
     }
   } else {
-    chips.push({ kind: "warn", tone: "amber", label: "no pane recorded" });
+    warnings.push("no_pane_recorded");
   }
 
-  if (peer) chips.push({ kind: "peer", tone: "grey", label: peer });
+  if (peer) chips.push(chip("peer", "grey", peer));
 
   const branch = clean(task.lane?.branch);
-  if (branch) chips.push({ kind: "branch", tone: "info", label: branch });
-  else chips.push({ kind: "warn", tone: "amber", label: "branch missing" });
+  if (branch) chips.push(chip("branch", "info", middleTruncateSlug(branch)));
+  else warnings.push("branch_missing");
 
   const age = ageLabel(activityTs(task), now);
-  if (age) chips.push({ kind: "age", tone: "info", label: age });
+  if (age) chips.push(chip("age", "info", age));
 
-  return { chips };
+  const warn = pickHighestLaneWarning(warnings);
+  if (warn) chips.push(chip("warn", warn.tone, warn.label));
+
+  return { chips: sortChips(chips) };
 }
