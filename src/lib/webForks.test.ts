@@ -70,8 +70,8 @@ const INVENTORY: ForkSite[] = [
   { file: "src/store/multiplexer/index.tsx", line: 127, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
   { file: "src/store/multiplexer/index.tsx", line: 131, cls: "capability-gate", note: "IndexedDB fallback hydration for the boot cache is web-only" },
   { file: "src/store/multiplexer/index.tsx", line: 147, cls: "capability-gate", note: "cache-reconciled signal only fires where the boot cache exists (web)" },
-  { file: "src/store/multiplexer/index.tsx", line: 441, cls: "transport-shim", note: "spawn agent tab via webJson vs Tauri invoke" },
-  { file: "src/store/multiplexer/index.tsx", line: 513, cls: "transport-shim", note: "create orchestration pair via webJson vs Tauri invoke" },
+  { file: "src/store/multiplexer/index.tsx", line: 464, cls: "transport-shim", note: "spawn agent tab via webJson vs Tauri invoke" },
+  { file: "src/store/multiplexer/index.tsx", line: 522, cls: "transport-shim", note: "create orchestration pair via webJson vs Tauri invoke" },
 ];
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
