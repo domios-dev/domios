@@ -58,7 +58,7 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "plan_id": id }))
         }
         "plan.note.add" => {
             let id = super::plan_refs::resolve_plan(store, params)?;
@@ -109,8 +109,7 @@ pub(super) fn dispatch(
             Ok(json!({ "element_id": eid }))
         }
         "plan.note.update" => {
-            let id = super::plan_refs::resolve_plan(store, params)?;
-            let element_id = get_string_param(params, "element_id")?;
+            let (id, element_id) = super::plan_refs::resolve_element(store, params)?;
             let text = p
                 .and_then(|x| x.get("text"))
                 .and_then(|v| v.as_str())
@@ -126,11 +125,10 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "element_id": element_id }))
         }
         "plan.element.update" => {
-            let id = super::plan_refs::resolve_plan(store, params)?;
-            let element_id = get_string_param(params, "element_id")?;
+            let (id, element_id) = super::plan_refs::resolve_element(store, params)?;
             let links = p
                 .and_then(|x| x.get("links"))
                 .map(|v| serde_json::from_value(v.clone()).unwrap_or_default());
@@ -145,16 +143,15 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "element_id": element_id }))
         }
         "plan.element.rm" => {
-            let id = super::plan_refs::resolve_plan(store, params)?;
-            let element_id = get_string_param(params, "element_id")?;
+            let (id, element_id) = super::plan_refs::resolve_element(store, params)?;
             store
                 .rm_element(&id, &element_id, now)
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "element_id": element_id }))
         }
         "plan.element.list" => {
             let id = super::plan_refs::resolve_plan(store, params)?;
@@ -167,8 +164,7 @@ pub(super) fn dispatch(
             })
         }
         "plan.element.show" => {
-            let id = super::plan_refs::resolve_plan(store, params)?;
-            let element_id = get_string_param(params, "element_id")?;
+            let (id, element_id) = super::plan_refs::resolve_element(store, params)?;
             let result = store.show_element(&id, &element_id).map_err(plan_rpc_err)?;
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,

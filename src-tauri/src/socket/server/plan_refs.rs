@@ -241,3 +241,39 @@ pub(super) fn resolve_section(
         .map_err(resolve_err)?;
     Ok((resolved.plan_id, resolved.section_id))
 }
+
+pub(super) fn resolve_loop(
+    store: &PlanStore,
+    params: &Option<Value>,
+) -> Result<String, JsonRpcError> {
+    let reference = get_string_param(params, "loop_id")?;
+    store.resolve_loop_id(&reference).map_err(resolve_err)
+}
+
+pub(super) fn resolve_element(
+    store: &PlanStore,
+    params: &Option<Value>,
+) -> Result<(String, String), JsonRpcError> {
+    let plan_id = resolve_plan(store, params)?;
+    let element_ref = get_string_param(params, "element_id")?;
+    store
+        .resolve_element_ref(&plan_id, &element_ref)
+        .map_err(resolve_err)
+}
+
+pub(super) fn resolve_milestone(
+    store: &PlanStore,
+    params: &Option<Value>,
+) -> Result<(String, String, String), JsonRpcError> {
+    let milestone_ref = get_string_param(params, "milestone_id")?;
+    let task_ref = get_string_param(params, "task_id")?;
+    let plan_ref = optional_plan_ref(params);
+    let resolved = store
+        .resolve_milestone_ref(plan_ref.as_deref(), &task_ref, &milestone_ref)
+        .map_err(resolve_err)?;
+    Ok((
+        resolved.plan_id,
+        resolved.task_id,
+        resolved.milestone_id,
+    ))
+}

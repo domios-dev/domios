@@ -33,6 +33,7 @@ pub mod plan_next;
 pub mod plan_prune;
 pub mod plan_reconcile;
 pub mod plan_record;
+pub mod plan_output;
 pub mod plan_render;
 pub mod plan_sections;
 pub mod plan_skill;

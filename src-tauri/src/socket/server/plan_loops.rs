@@ -81,8 +81,7 @@ pub(super) fn dispatch(
         }
 
         "plan.milestone.update" => {
-            let (id, tid) = super::plan_refs::resolve_task(store, params)?;
-            let ms_id = get_string_param(params, "milestone_id")?;
+            let (id, tid, ms_id) = super::plan_refs::resolve_milestone(store, params)?;
             store
                 .update_milestone(
                     &id,
@@ -94,17 +93,16 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "milestone_id": ms_id }))
         }
 
         "plan.milestone.rm" => {
-            let (id, tid) = super::plan_refs::resolve_task(store, params)?;
-            let ms_id = get_string_param(params, "milestone_id")?;
+            let (id, tid, ms_id) = super::plan_refs::resolve_milestone(store, params)?;
             store
                 .rm_milestone(&id, &tid, &ms_id, now)
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "milestone_id": ms_id }))
         }
 
         "plan.stride.add" => {
@@ -146,7 +144,7 @@ pub(super) fn dispatch(
         }
 
         "plan.loop.set" => {
-            let lid = get_string_param(params, "loop_id")?;
+            let lid = super::plan_refs::resolve_loop(store, params)?;
             store
                 .set_loop(
                     &lid,
@@ -158,11 +156,11 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_loop_plan_changed(app, svc, &lid);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "loop_id": lid }))
         }
 
         "plan.loop.status" => {
-            let lid = get_string_param(params, "loop_id")?;
+            let lid = super::plan_refs::resolve_loop(store, params)?;
             let spec = store
                 .loop_status(&lid)
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
@@ -170,7 +168,7 @@ pub(super) fn dispatch(
         }
 
         "plan.loop.record" => {
-            let lid = get_string_param(params, "loop_id")?;
+            let lid = super::plan_refs::resolve_loop(store, params)?;
             let note = get_string_param(params, "note")?;
             let result = store
                 .record_loop(
@@ -188,10 +186,10 @@ pub(super) fn dispatch(
         }
 
         "plan.loop.stop" => {
-            let lid = get_string_param(params, "loop_id")?;
+            let lid = super::plan_refs::resolve_loop(store, params)?;
             store.stop_loop(&lid, now).map_err(plan_rpc_err)?;
             emit_loop_plan_changed(app, svc, &lid);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "loop_id": lid }))
         }
 
         _ => Err(JsonRpcError {

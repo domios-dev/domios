@@ -646,8 +646,13 @@ fn run_plan(
             if json {
                 return Ok(Some(val));
             }
-            let stride_id = val.get("stride_id").and_then(|v| v.as_str()).unwrap_or("?");
-            println!("Recorded retrospective for plan {plan_id} (stride {stride_id})");
+            print!(
+                "Recorded retrospective for plan {}\n",
+                val.get("plan_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(plan_id.as_str())
+            );
+            crate::cmd::plan_output::print_mutation_tail(false, &val);
             return Ok(None);
         }
 
