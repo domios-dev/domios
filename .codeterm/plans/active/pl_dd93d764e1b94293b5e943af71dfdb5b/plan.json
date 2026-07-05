@@ -480,7 +480,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1783008646086,
-  "updated_at": 1783272778964,
+  "updated_at": 1783273007076,
   "milestone_kinds": [
     {
       "key": "decision",
@@ -5711,7 +5711,7 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1783103133338,
-      "updated_at": 1783254599259,
+      "updated_at": 1783273007076,
       "status_changed_at": 1783103201414,
       "handle": "final-acceptance-dev-walkthrough-of-wave-24-plan-wrap-up",
       "tags": [],
@@ -11994,6 +11994,58 @@
         "base": null,
         "destination": null,
         "cleanup_status": "done",
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [],
+      "execution_attempts": []
+    },
+    {
+      "id": "task_36db5d13dbda4204b7d066919b4b7da0",
+      "name": "FINAL STAGING: dev consoles live on Air+ROG+ubunta, full regression everywhere, left running for Andrey",
+      "type": "test",
+      "model": "gpt-5.5/high",
+      "model_rationale": "Final orchestrated multi-machine staging; the last executable task before Andrey's walkthrough — orchestrator-grade coordination across three peers",
+      "acceptance_criteria": [
+        "One pinned sha; all three regressions green at it (per-suite counts recorded per machine); any red fixed and re-run before proceeding",
+        "Three dev consoles running and healthy: /api/health sha matches the pin on Air, ROG, ubunta; visible owning panes (not detached background)",
+        "keepawake active on all three for the window; handoff table delivered; walkthrough task flipped to pending",
+        "Consoles left RUNNING — no teardown in this task"
+      ],
+      "test_plan": "The task IS the final test run; evidence = per-machine suite counts + health checks + the handoff table as strides",
+      "correctness": "Never touch prod instances (7685) on any machine; dev ports only; a stale sha on any console invalidates the staging — rebuild, never hand Andrey a mismatched build; regression failures block, no 'accepted red' without Andrey's explicit sign-off",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1783273006159,
+      "updated_at": 1783273006159,
+      "status_changed_at": 1783273006159,
+      "handle": "final-staging-dev-consoles-live-on-air-rog-ubunta-full-regression-everyw",
+      "tags": [],
+      "section_ids": [
+        "sec_3f0c84d2a04a45fdb00ef2e72017baa4"
+      ],
+      "body": "",
+      "role_guidance": "Orchestrator executes personally or via one trusted coordinator lane; uses the mesh worker-pane rules (real panes, no ad-hoc chat) and each machine's single QA gate.",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
         "cleanup_hints": []
       },
       "taken_by_role": null,
