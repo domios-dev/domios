@@ -71,8 +71,12 @@ function expectedShortcutText(binding: string): string {
         if (key === "cmd" || key === "mod" || key === "super") return "⌘";
         if (key === "tab") return "⇥";
       } else {
-        if (key === "cmd" || key === "mod") return "Ctrl";
+        // Mirrors the Title Case KEY_SYMBOLS map in Settings/shared.tsx (renderKbd).
+        if (key === "cmd" || key === "mod" || key === "ctrl") return "Ctrl";
         if (key === "super") return "Win";
+        if (key === "shift") return "Shift";
+        if (key === "alt") return "Alt";
+        if (key === "tab") return "Tab";
       }
       return part.trim().toUpperCase();
     })
