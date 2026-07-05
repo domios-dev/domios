@@ -7,8 +7,10 @@ import type { Milestone, Plan, Task, TaskStatus } from "../types";
 import { canonicalTaskStatusLabel } from "./taskStatusLabel";
 import { competitionForTask } from "./competitionForTask";
 import { loopForTask } from "./loopForTask";
+import { deriveWorkingOnRow } from "./workingOnRow";
 import type { CompetitionForTaskResult } from "./competitionForTask";
 import type { LoopForTaskResult } from "./loopForTask";
+import type { WorkingOnRowModel } from "./workingOnRow";
 
 export type PlanListRowKind = "plan-section" | "unsectioned" | "task" | "subtask";
 
@@ -33,6 +35,7 @@ export interface PlanListRow {
   taskId?: string;
   loopBadge?: LoopForTaskResult;
   competeBadge?: CompetitionForTaskResult;
+  workingOn?: WorkingOnRowModel;
 }
 
 export type PlanListVisibleRow =
@@ -101,6 +104,7 @@ function buildTaskRow(
     taskId: task.id,
     loopBadge: loopForTask(plan, task.id) ?? undefined,
     competeBadge: competitionForTask(task, panes) ?? undefined,
+    workingOn: deriveWorkingOnRow(task, panes) ?? undefined,
   };
 }
 

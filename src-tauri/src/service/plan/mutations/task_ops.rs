@@ -147,6 +147,65 @@ impl PlanStore {
         })
     }
 
+    /// Recording discipline: at report / status-to-active time, capture lane
+    /// truth from the caller's live context — but only into EMPTY fields, never
+    /// overwriting an explicit prior value. This is the fix for tasks going
+    /// in_progress with no pane/branch/peer recorded.
+    pub fn fill_task_lane_if_empty(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        pane_id: Option<&str>,
+        branch: Option<&str>,
+        peer: Option<&str>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        let pane_id = non_empty_arg(pane_id);
+        let branch = non_empty_arg(branch);
+        let peer = non_empty_arg(peer);
+        if pane_id.is_none() && branch.is_none() && peer.is_none() {
+            return Ok(());
+        }
+        self.with_plan(plan_id, now_ms, |p| {
+            let task = p
+                .tasks
+                .iter_mut()
+                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            if is_terminal_task_status(&task.status) {
+                return Ok(());
+            }
+            let mut touched = false;
+            if let Some(pane) = pane_id {
+                if task.lane.pane_id.as_deref().unwrap_or("").is_empty() {
+                    task.lane.pane_id = Some(pane.to_string());
+                    touched = true;
+                }
+                if task.assigned_pane_id.as_deref().unwrap_or("").is_empty() {
+                    task.assigned_pane_id = Some(pane.to_string());
+                    touched = true;
+                }
+            }
+            if let Some(branch) = branch {
+                if task.lane.branch.as_deref().unwrap_or("").is_empty() {
+                    task.lane.branch = Some(branch.to_string());
+                    touched = true;
+                }
+            }
+            if let Some(peer) = peer {
+                if task.peer.as_deref().unwrap_or("").is_empty() {
+                    task.peer = Some(peer.to_string());
+                    touched = true;
+                }
+            }
+            if touched {
+                task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
+                task.updated_at = now_ms;
+            }
+            Ok(())
+        })
+    }
+
     pub fn update_task_lane(
         &self,
         plan_id: &str,
@@ -313,5 +372,79 @@ impl PlanStore {
             task.milestones.remove(pos);
             Ok(())
         })
+    }
+}
+
+fn non_empty_arg(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|s| !s.is_empty())
+}
+
+#[cfg(test)]
+mod fill_lane_tests {
+    use crate::plan::{OrchestratorRef, Plan, PlanMode};
+    use crate::service::plan::{NewTask, PlanStore};
+
+    fn setup() -> (tempfile::TempDir, PlanStore, String, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(dir.path());
+        let mut plan = Plan::new(
+            "L".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::default(),
+        );
+        plan.id = "pl_lane".into();
+        plan.mode = PlanMode::Execution;
+        store.save(&mut plan, 1).unwrap();
+        let task = store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "t".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        (dir, store, plan.id, task)
+    }
+
+    #[test]
+    fn fills_empty_pane_branch_and_mirrors_assigned() {
+        let (_d, store, plan, task) = setup();
+        store
+            .fill_task_lane_if_empty(&plan, &task, Some("pane-1"), Some("lane/x"), None, 5)
+            .unwrap();
+        let p = store.get(&plan).unwrap();
+        let t = p.tasks.iter().find(|t| t.id == task).unwrap();
+        assert_eq!(t.lane.pane_id.as_deref(), Some("pane-1"));
+        assert_eq!(t.assigned_pane_id.as_deref(), Some("pane-1"));
+        assert_eq!(t.lane.branch.as_deref(), Some("lane/x"));
+    }
+
+    #[test]
+    fn never_overwrites_existing_values() {
+        let (_d, store, plan, task) = setup();
+        store
+            .fill_task_lane_if_empty(&plan, &task, Some("first"), Some("branch-a"), None, 5)
+            .unwrap();
+        store
+            .fill_task_lane_if_empty(&plan, &task, Some("second"), Some("branch-b"), None, 6)
+            .unwrap();
+        let p = store.get(&plan).unwrap();
+        let t = p.tasks.iter().find(|t| t.id == task).unwrap();
+        assert_eq!(t.assigned_pane_id.as_deref(), Some("first"));
+        assert_eq!(t.lane.branch.as_deref(), Some("branch-a"));
+    }
+
+    #[test]
+    fn blank_args_are_noop() {
+        let (_d, store, plan, task) = setup();
+        store
+            .fill_task_lane_if_empty(&plan, &task, Some("  "), Some(""), None, 5)
+            .unwrap();
+        let p = store.get(&plan).unwrap();
+        let t = p.tasks.iter().find(|t| t.id == task).unwrap();
+        assert!(t.assigned_pane_id.is_none());
+        assert!(t.lane.branch.is_none());
     }
 }

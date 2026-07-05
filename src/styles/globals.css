@@ -3041,6 +3041,53 @@ button.plan-peer-chip:focus-visible {
   color: color-mix(in srgb, var(--ct-accent) 45%, var(--ct-muted-fg));
   overflow: hidden;
 }
+.working-on-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.working-on-row-list {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.working-on-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: 100%;
+  padding: 0.05rem 0.3rem;
+  border-radius: 0.5rem;
+  font-size: 0.6rem;
+  line-height: 1.3;
+  font-family: var(--ct-font-mono, ui-monospace, monospace);
+  border: 1px solid transparent;
+}
+.working-on-chip-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+.working-on-chip-info {
+  color: color-mix(in srgb, var(--ct-fg) 70%, transparent);
+  background: color-mix(in srgb, var(--ct-fg) 8%, transparent);
+}
+.working-on-chip-grey {
+  color: var(--ct-muted-fg);
+  background: color-mix(in srgb, var(--ct-muted-fg) 12%, transparent);
+}
+.working-on-chip-amber {
+  color: #d9a441;
+  border-color: color-mix(in srgb, #d9a441 45%, transparent);
+  background: color-mix(in srgb, #d9a441 12%, transparent);
+}
+.working-on-chip-red {
+  color: #e5534b;
+  border-color: color-mix(in srgb, #e5534b 45%, transparent);
+  background: color-mix(in srgb, #e5534b 12%, transparent);
+}
 .plan-board-task-activity {
   font-size: 0.6rem;
   color: color-mix(in srgb, var(--ct-muted-fg) 80%, transparent);

@@ -262,6 +262,16 @@ impl ServiceContext {
                     details.status,
                     epoch_ms(),
                 );
+                // Recording discipline: capture lane truth from the report into
+                // empty fields (never overwrite an explicit prior value).
+                let _ = self.plan_store.fill_task_lane_if_empty(
+                    plan_id,
+                    &task_id,
+                    Some(pane_id),
+                    details.branch.as_deref(),
+                    None,
+                    epoch_ms(),
+                );
                 self.plan_turn_counter.reset(pane_id);
                 crate::api::events::emit_everywhere(
                     &self.app_handle,

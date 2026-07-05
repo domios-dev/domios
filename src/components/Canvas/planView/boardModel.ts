@@ -15,8 +15,10 @@ import {
 import { latestTaskNote } from "./taskStatusLabel";
 import { competitionForTask } from "./competitionForTask";
 import { loopForTask } from "./loopForTask";
+import { deriveWorkingOnRow } from "./workingOnRow";
 import type { CompetitionForTaskResult } from "./competitionForTask";
 import type { LoopForTaskResult } from "./loopForTask";
+import type { WorkingOnRowModel } from "./workingOnRow";
 
 export const BOARD_COLUMN_DEFS = [
   { key: "pending", label: "Pending", statuses: [TaskStatus.Pending] as TaskStatusType[] },
@@ -65,6 +67,7 @@ export interface BoardTaskCardModel {
   roleLabel: string | null;
   branch: string | null;
   latestNote: string | null;
+  workingOn: WorkingOnRowModel | null;
   loopBadge: LoopForTaskResult | null;
   competeBadge: CompetitionForTaskResult | null;
   focusMatch: boolean;
@@ -169,6 +172,7 @@ function buildTaskCard(
   task: Task,
   panes: Record<string, Pane>,
   exclusivePaneTasks: Map<string, string>,
+  now: number,
 ): BoardTaskCardModel {
   const presence = buildTaskPresence(plan, task, panes, exclusivePaneTasks);
   const historical = historicalExecutorForTask(task, panes, presence != null);
@@ -180,6 +184,7 @@ function buildTaskCard(
     roleLabel: presence ? clean(task.taken_by_role) : historical?.role ?? clean(task.taken_by_role),
     branch: laneBranch(task),
     latestNote: latestTaskNote(task),
+    workingOn: deriveWorkingOnRow(task, panes, now),
     loopBadge: loopForTask(plan, task.id),
     competeBadge: competitionForTask(task, panes),
     focusMatch: focusMatches(plan, task, paneId),
@@ -231,7 +236,7 @@ export function deriveBoardPlanSummary(plan: Plan, panes: Record<string, Pane>):
 export function groupTasksIntoColumns(
   plan: Plan,
   panes: Record<string, Pane>,
-  _now: number = Date.now(),
+  now: number = Date.now(),
 ): { columns: BoardColumnModel[]; cancelledCount: number } {
   const exclusivePaneTasks = resolvePlanExclusivePaneTasks(plan);
   const byStatus = new Map<TaskStatusType, Task[]>();
@@ -251,7 +256,7 @@ export function groupTasksIntoColumns(
     return {
       key: def.key,
       label: def.label,
-      cards: tasks.map((task) => buildTaskCard(plan, task, panes, exclusivePaneTasks)),
+      cards: tasks.map((task) => buildTaskCard(plan, task, panes, exclusivePaneTasks, now)),
     };
   });
   return { columns, cancelledCount };
