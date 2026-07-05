@@ -214,6 +214,8 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         let expected = lane.clone();
+        // Explicit --pane OVERWRITES the executor binding; fill-if-empty is only for implicit capture.
+        let pane_explicit = lane.pane_id.is_some();
         let write = self.with_plan(plan_id, now_ms, |p| {
             let task = p
                 .tasks
@@ -230,7 +232,7 @@ impl PlanStore {
                     now_ms,
                 );
                 clear_task_assignment(task);
-            } else if task.assigned_pane_id.is_none() {
+            } else if pane_explicit || task.assigned_pane_id.is_none() {
                 task.assigned_pane_id = task.lane.pane_id.clone();
             }
             task.updated_at = now_ms;
@@ -446,5 +448,41 @@ mod fill_lane_tests {
         let t = p.tasks.iter().find(|t| t.id == task).unwrap();
         assert!(t.assigned_pane_id.is_none());
         assert!(t.lane.branch.is_none());
+    }
+
+    #[test]
+    fn explicit_pane_update_overwrites_assigned_pane() {
+        // #209 regression: an explicit lane pane update must rebind the executor,
+        // not silently no-op because assigned_pane_id was already set.
+        let (_d, store, plan, task) = setup();
+        store
+            .fill_task_lane_if_empty(&plan, &task, Some("old-pane"), None, None, 5)
+            .unwrap();
+        let update = crate::service::plan::TaskLaneUpdate {
+            pane_id: Some(Some("new-pane".into())),
+            ..Default::default()
+        };
+        store.update_task_lane(&plan, &task, update, 6).unwrap();
+        let p = store.get(&plan).unwrap();
+        let t = p.tasks.iter().find(|t| t.id == task).unwrap();
+        assert_eq!(t.lane.pane_id.as_deref(), Some("new-pane"));
+        assert_eq!(t.assigned_pane_id.as_deref(), Some("new-pane"));
+    }
+
+    #[test]
+    fn implicit_lane_update_still_fills_only_empty() {
+        let (_d, store, plan, task) = setup();
+        store
+            .fill_task_lane_if_empty(&plan, &task, Some("keeper"), None, None, 5)
+            .unwrap();
+        let update = crate::service::plan::TaskLaneUpdate {
+            branch: Some(Some("lane/x".into())),
+            ..Default::default()
+        };
+        store.update_task_lane(&plan, &task, update, 6).unwrap();
+        let p = store.get(&plan).unwrap();
+        let t = p.tasks.iter().find(|t| t.id == task).unwrap();
+        assert_eq!(t.assigned_pane_id.as_deref(), Some("keeper"));
+        assert_eq!(t.lane.branch.as_deref(), Some("lane/x"));
     }
 }
