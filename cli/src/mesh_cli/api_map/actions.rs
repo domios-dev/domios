@@ -150,7 +150,13 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
         }
         MemAction::Get { id } => ("GET".into(), format!("/api/mem/items/{}", enc(id)), None),
         MemAction::Delete { id } => ("DELETE".into(), format!("/api/mem/items/{}", enc(id)), None),
-        MemAction::Forget { area } => ("DELETE".into(), format!("/api/mem/forget/{}", enc(area)), None),
+        MemAction::Forget { area, yes } => {
+            if let Err(e) = crate::cmd::mem::item::validate_mem_forget_confirmation(area, *yes) {
+                eprintln!("Error: {}", e);
+                std::process::exit(2);
+            }
+            ("DELETE".into(), format!("/api/mem/forget/{}", enc(area)), None)
+        }
         MemAction::History { id } => ("GET".into(), format!("/api/mem/items/{}/history", enc(id)), None),
         MemAction::Append { id, text, file, changed_by } => {
             let resolved = resolve_remote_text(text, file).unwrap_or_else(|| {

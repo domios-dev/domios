@@ -93,6 +93,15 @@ fn save_mem_item(
     mem_post_request(http, &format!("{}/api/mem/items", base), &payload)
 }
 
+pub(crate) fn validate_mem_forget_confirmation(area: &str, yes: bool) -> Result<(), String> {
+    if !yes {
+        return Err(format!(
+            "refusing to batch-delete area '{area}' without --yes; retry: codeterm mem forget {area} --yes"
+        ));
+    }
+    Ok(())
+}
+
 fn split_csv(raw: Option<String>) -> Vec<String> {
     raw.map(|tags| {
         tags.split(',')
@@ -169,7 +178,8 @@ pub(crate) fn handle_mem_items(
                 .map_err(|e| e.to_string());
             resp.map(|r| serde_json::json!({"deleted": r.status().is_success()}))
         }
-        MemAction::Forget { area } => {
+        MemAction::Forget { area, yes } => {
+            validate_mem_forget_confirmation(&area, yes)?;
             let resp = http
                 .delete(format!(
                     "{}/api/mem/forget/{}",
@@ -540,7 +550,19 @@ pub(crate) fn handle_mem_taxonomy(
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_text;
+    use super::{resolve_text, validate_mem_forget_confirmation};
+
+    #[test]
+    fn mem_forget_refused_without_yes() {
+        let err = validate_mem_forget_confirmation("auth", false).unwrap_err();
+        assert!(err.contains("refusing to batch-delete area 'auth'"));
+        assert!(err.contains("--yes"));
+    }
+
+    #[test]
+    fn mem_forget_allowed_with_yes() {
+        assert!(validate_mem_forget_confirmation("auth", true).is_ok());
+    }
 
     #[test]
     fn resolve_text_returns_verbatim_value() {
