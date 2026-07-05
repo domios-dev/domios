@@ -43,6 +43,7 @@ impl ServiceContext {
                 Ok(())
             }
             Err(e) if e.contains("not found") => {
+                // Cross-mesh workers live only in RemoteWorkerRegistry — their
                 // foreign pane id is what `agent unlink --pane` passes.
                 let touched = self
                     .remote_workers
