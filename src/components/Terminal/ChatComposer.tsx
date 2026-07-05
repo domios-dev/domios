@@ -380,7 +380,9 @@ export function ChatComposer({
       }
     };
     void refresh();
-    const interval = window.setInterval(refresh, 3_000);
+    // Change events drive updates; the interval is drift insurance for the
+    // countdown pills and runs only while this pane is the active tab.
+    const interval = isActive ? window.setInterval(refresh, 10_000) : null;
     let unlisten: (() => void) | null = null;
     void listen<{ paneId?: string }>("delayed-send-changed", (e) => {
       if (!e.payload?.paneId || e.payload.paneId === paneId) void refresh();
@@ -389,10 +391,10 @@ export function ChatComposer({
     }).catch(() => {});
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      if (interval !== null) window.clearInterval(interval);
       unlisten?.();
     };
-  }, [paneId]);
+  }, [paneId, isActive]);
 
   function pickSuggestion(cmd: SlashCommandSuggestion) {
     const lines = input.split("\n");
