@@ -8,6 +8,7 @@ import {
   PERF_SPEC_LINKS,
   PERF_SPEC_SECTIONS,
 } from "./perfFixtureSections";
+import { buildCardMetadataFixturePlans } from "./cardMetadataFixture";
 
 export function realFixtureEnabled(): boolean {
   if (typeof window === "undefined") return false;
@@ -33,6 +34,7 @@ export function perfFixtureCount(): number {
   if (typeof window === "undefined") return 0;
   try {
     if (window.localStorage.getItem("canvas.perfFixtureProfile") === "done-heavy") return 210;
+    if (window.localStorage.getItem("canvas.perfFixtureProfile") === "card-metadata") return 1;
     const n = Number(window.localStorage.getItem("canvas.perfFixtureN") ?? "0");
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
   } catch {
@@ -40,14 +42,19 @@ export function perfFixtureCount(): number {
   }
 }
 
-export function perfFixtureProfile(): "default" | "done-heavy" {
+export function perfFixtureProfile(): "default" | "done-heavy" | "card-metadata" {
   if (typeof window === "undefined") return "default";
   try {
-    return window.localStorage.getItem("canvas.perfFixtureProfile") === "done-heavy" ? "done-heavy" : "default";
+    const profile = window.localStorage.getItem("canvas.perfFixtureProfile");
+    if (profile === "done-heavy") return "done-heavy";
+    if (profile === "card-metadata") return "card-metadata";
+    return "default";
   } catch {
     return "default";
   }
 }
+
+export { buildCardMetadataFixturePlans } from "./cardMetadataFixture";
 
 export function buildDoneHeavyPerfFixturePlans(): Plan[] {
   const sectionIds = PERF_PLAN_SECTION_IDS;

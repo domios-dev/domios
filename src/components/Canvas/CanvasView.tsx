@@ -39,7 +39,7 @@ import { CanvasWorldCanvas, type CanvasRenderApi } from "./canvasRender/CanvasWo
 import type { GroupGlyph } from "./canvasRender/drawScene";
 import { CanvasSwarmCluster } from "./CanvasSwarmCluster";
 import { buildCanvasScene } from "./scene";
-import { perfFixtureCount, perfFixtureProfile, buildPerfFixturePlans, buildDoneHeavyPerfFixturePlans, buildPerfFixturePanes, realFixtureEnabled, realFixturePlans, fixtureSpecSectionsByPlan } from "./perfFixture";
+import { perfFixtureCount, perfFixtureProfile, buildPerfFixturePlans, buildDoneHeavyPerfFixturePlans, buildCardMetadataFixturePlans, buildPerfFixturePanes, realFixtureEnabled, realFixturePlans, fixtureSpecSectionsByPlan } from "./perfFixture";
 import { flattenSections } from "./sectionRows";
 import { buildTaskPresenceFingerprint, useCanvasLookups } from "./canvasView/useCanvasLookups";
 import { useCanvasFlyTo } from "./canvasView/useCanvasFlyTo";
@@ -891,11 +891,13 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
     () =>
       useReal
         ? realFixturePlans()
-        : perfProfile === "done-heavy"
-          ? buildDoneHeavyPerfFixturePlans()
-          : perfN > 0
-            ? buildPerfFixturePlans(perfN)
-            : livePlans,
+        : perfProfile === "card-metadata"
+          ? buildCardMetadataFixturePlans()
+          : perfProfile === "done-heavy"
+            ? buildDoneHeavyPerfFixturePlans()
+            : perfN > 0
+              ? buildPerfFixturePlans(perfN)
+              : livePlans,
     [useReal, perfProfile, perfN, livePlans],
   );
   // (the live-pane gate filters real plans correctly; this only feeds the demo plan).
