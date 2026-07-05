@@ -33,6 +33,8 @@ The mem protocol and command surface live in the CLI reference below and provide
 
 Two GA-specific operational rules on top of the protocol:
 
+**Skill lookup.** The pre-injected provider skill list is only the currently loaded subset — not the complete catalog. CodeTerm folder skills live in `codeterm mem` as `kind=skill` items. When a user mentions a capability/skill you don't already have loaded, run `codeterm mem search "<capability> skill"` (and `codeterm mem skill list` if needed) before declaring the skill missing. Read the returned source `SKILL.md` before acting.
+
 **Temporal facts → graph, not flat.** When a fact has a validity window (someone joins / leaves a team, a project starts / ends, a relationship begins or closes) — encode as a `codeterm mem graph relate` with `--valid-from` and/or `--valid-to`, NOT as a flat `mem save --kind fact`. `--as-of` queries depend on temporal edges; flat facts always read as "current" no matter when you ask. End-of-relation example: `codeterm mem graph relate --from person_alex --rel works_on --to project_x --valid-to 2026-04-05`.
 
 **Identity update flow.** The prompt identity block comes from `{general_dir}/identity.md`. When the user changes their name, role, or stable preferences, update that file and keep mem L0 in sync with `codeterm mem save --kind preference --title identity --replace "..."`. `--replace` upserts the stable `preference_identity` row; `mem wake-up` renders that row as L0. Without `--replace`, the existing row is not updated by the CLI save path.
