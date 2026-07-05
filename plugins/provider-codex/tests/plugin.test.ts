@@ -159,9 +159,10 @@ console.log("\n--- parseUsage: robustness matrix (structural, not literal-copy) 
   const p = loadHostPlugin();
   const now = new Date(2026, 5, 14, 12, 0, 0, 0).getTime();
 
-  // Deliberately shifted format: CRLF, extra whitespace, reordered spacing,
+  // Deliberately shifted format: extra whitespace, reordered spacing,
   // % used + % remaining in one screen, Month-Day reset order.
-  const shifted = p.parseUsage(fixtureText("codex-status-shifted.txt"), now);
+  const shiftedText = fixtureText("codex-status-shifted.txt");
+  const shifted = p.parseUsage(shiftedText, now);
   eq(shifted?.session_pct, 99, "shifted: '% used' passes through unchanged");
   eq(shifted?.weekly_pct, 75, "shifted: weekly '25% remaining' inverts to 75 used");
   assert(shifted?.session_resets_at_ms != null, "shifted: session reset parsed despite padding");
@@ -178,7 +179,11 @@ console.log("\n--- parseUsage: robustness matrix (structural, not literal-copy) 
   assert(word?.session_resets_at_ms != null, "wordlabel: session reset parsed");
   assert(word?.weekly_resets_at_ms != null, "wordlabel: '14 Jun' DD-Mon reset parsed");
 
-  // CRLF-only inline variant: same screen with carriage returns must not break parsing.
+  // Same shifted screen with carriage returns must not break parsing.
+  const shiftedCrlf = p.parseUsage(shiftedText.replace(/\n/g, "\r\n"), now);
+  eq(shiftedCrlf?.session_pct, shifted?.session_pct, "crlf: shifted session survives CRLF");
+  eq(shiftedCrlf?.weekly_pct, shifted?.weekly_pct, "crlf: shifted weekly survives CRLF");
+
   const crlf = p.parseUsage(
     "OpenAI Codex\r\n5-hour limit ██░ 40% left (resets 19:59)\r\n" +
       "Weekly limit █░ 30% used (resets 19:59 on 14 Jun)\r\n",
