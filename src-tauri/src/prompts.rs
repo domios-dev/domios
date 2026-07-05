@@ -294,7 +294,8 @@ mod tests {
     #[test]
     fn operational_prompts_keep_clarity_fixes() {
         assert!(WORKER_SUFFIX.contains("STATUS: done | blocked | partial"));
-        assert!(WORKER_SUFFIX.contains("BUILD/TYPECHECK/TESTS:"));
+        assert!(WORKER_SUFFIX.contains("TESTS RUN:"));
+        assert!(WORKER_SUFFIX.contains("GATES REQUESTED:"));
         assert!(!TESTING_DISCIPLINE.trim().is_empty());
         assert!(worker_suffix().contains(TESTING_DISCIPLINE.trim()));
         assert!(worker_suffix().contains(QA_PIPELINE_DISCIPLINE.trim()));

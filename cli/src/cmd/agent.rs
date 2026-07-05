@@ -395,6 +395,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             test_cmd,
             test_result,
             skipped,
+            acknowledge_dirty,
             attachments,
         }) => {
             if let Some(ref explicit) = pane {
@@ -441,10 +442,10 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Some(k) = kind {
                 body["kind"] = serde_json::json!(k);
             }
-            if let Some(p) = plan {
+            if let Some(ref p) = plan {
                 body["plan_id"] = serde_json::json!(p);
             }
-            if let Some(t) = task {
+            if let Some(ref t) = task {
                 body["task_id"] = serde_json::json!(t);
             }
             if let Some(s) = status {
@@ -455,10 +456,36 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 branch,
                 sha,
                 changed_files,
+                acknowledge_dirty,
             ) {
                 Ok(fields) => fields,
                 Err(refusal) => handle_report_refusal(client, json, body, refusal),
             };
+            if acknowledge_dirty {
+                if let Some(ref files) = changed_files {
+                    if !files.is_empty() {
+                        eprintln!(
+                            "[acknowledge-dirty] overriding dirty check: {}",
+                            files.join(", ")
+                        );
+                        let milestone_text = format!("acknowledge-dirty: {}", files.join(", "));
+                        if let (Some(ref pid), Some(ref tid)) = (plan, task) {
+                            let ms_params = serde_json::json!({
+                                "plan_id": pid,
+                                "task_id": tid,
+                                "kind": "qa",
+                                "text": milestone_text,
+                                "from": crate::cmd::plan::owner_from_env(),
+                            });
+                            let _ = crate::cmd::plan::call_plan_rpc(
+                                client,
+                                "plan.milestone.add",
+                                ms_params,
+                            );
+                        }
+                    }
+                }
+            }
             if let Some(b) = branch {
                 body["branch"] = serde_json::json!(b);
             }

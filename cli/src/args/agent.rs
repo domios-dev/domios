@@ -93,6 +93,10 @@ pub struct ReportArgs {
     /// Anything deliberately skipped
     #[arg(long)]
     pub skipped: Option<String>,
+    /// Acknowledge unrelated dirty files in the worktree and proceed with the
+    /// readiness report. Stride is recorded acknowledging the override.
+    #[arg(long)]
+    pub acknowledge_dirty: bool,
     /// File to attach to the report milestone; repeat for multiple files
     #[arg(long = "attach", value_name = "PATH")]
     pub attachments: Vec<String>,
