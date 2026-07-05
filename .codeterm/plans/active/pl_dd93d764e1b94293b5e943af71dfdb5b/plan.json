@@ -480,7 +480,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1783008646086,
-  "updated_at": 1783270980796,
+  "updated_at": 1783272003389,
   "milestone_kinds": [
     {
       "key": "decision",
@@ -675,6 +675,21 @@
     {
       "key": "audit",
       "label": "audit",
+      "color": null
+    },
+    {
+      "key": "qa-green-with-gap",
+      "label": "qa-green-with-gap",
+      "color": null
+    },
+    {
+      "key": "qa-green",
+      "label": "qa-green",
+      "color": null
+    },
+    {
+      "key": "merged",
+      "label": "merged",
       "color": null
     }
   ],
@@ -11199,10 +11214,10 @@
       "test_plan": "Prompt wiring tests; CLI refusal matrix (wrong branch, unrelated dirty, acknowledged); daemon detection unit + live drill; qa-command end-to-end on dev; all capped, one at a time",
       "correctness": "Refusals must never eat the report text (echo it back for reuse — precedent: the existing refusal already preserves it); detection keys on pane ROLE + cwd mapping, never provider; grandfather in-flight lanes (warn-once, enforce on next report)",
       "status": "in_progress",
-      "status_label": null,
+      "status_label": "pane-gone",
       "priority": "p1",
       "created_at": 1783255807616,
-      "updated_at": 1783270795910,
+      "updated_at": 1783271648063,
       "status_changed_at": 1783267569737,
       "handle": "worker-lanes-code-only-report-refusal-hardening-qa-queue-adoption-build",
       "tags": [],
@@ -11213,9 +11228,9 @@
       "role_guidance": "Rust worker across prompts+cli+daemon; read the existing refusal implementation and runaway_sweeper.rs first; coordinate with task_3165f160 (owns the orchestrator-side In-QA prompt line) and task_dc526c35 (do not collide on prompt files).",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "76f9d229",
+      "assigned_pane_id": null,
       "lane": {
-        "pane_id": "76f9d229",
+        "pane_id": null,
         "workspace_id": null,
         "workspace_name": "codeterm-worktrees/task-5a6d58c5-code-only-qa",
         "worktree_path": "/Users/rollacode/Developer/codeterm-worktrees/task-5a6d58c5-code-only-qa",
@@ -11356,7 +11371,7 @@
       "status_label": "pane-gone",
       "priority": "p1",
       "created_at": 1783255934027,
-      "updated_at": 1783270980055,
+      "updated_at": 1783272003389,
       "status_changed_at": 1783269045655,
       "handle": "task-card-metadata-design-pass-labeled-chips-honest-states-clean-layout",
       "tags": [],
@@ -11376,7 +11391,7 @@
         "branch": "lane/task-73ea1b9d-card-metadata",
         "base": null,
         "destination": null,
-        "cleanup_status": null,
+        "cleanup_status": "deferred",
         "cleanup_hints": []
       },
       "taken_by_role": null,
@@ -11406,8 +11421,8 @@
           "base": null,
           "destination": null,
           "report": {
-            "id": "report_1783270980796",
-            "message": "STATUS: done\nBRANCH: lane/task-73ea1b9d-card-metadata\nSHA: 451bfeaf24045c99732cc3d7eea66082b6d8e124\nWORKTREE: /Users/rollacode/Developer/codeterm-worktrees/task-73ea1b9d-card-metadata\nCHANGES: WorkingOnRowView.tsx — measure-layer chip clones no longer emit data-testid\nTESTS RUN: workingOnRow.test.ts 9/9; read_lints clean\nGATES REQUESTED: npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep @plan-card-metadata --timeout=30000 --global-timeout=600000\nFOLLOWUP: duplicate was measure row + visible row both tagging chips; pane-gone fits all chips on desktop so warn appeared twice",
+            "id": "report_1783271813154",
+            "message": "STATUS: done\nBRANCH: lane/task-73ea1b9d-card-metadata\nSHA: 121c64903b28a5dfe71bd86df99e69c69ae6c403\nCHANGES: plan-card-metadata.spec.ts — warn assertions use expectWorkingOnChipValue (overflow expand)\nGATES REQUESTED: npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep @plan-card-metadata --timeout=30000 --global-timeout=600000",
             "status": null,
             "changed_files": [],
             "test_cmd": null,
@@ -11415,7 +11430,7 @@
             "skipped": null
           },
           "assigned_at": 1783269045660,
-          "reported_at": 1783270980796,
+          "reported_at": 1783271813154,
           "reviewed_at": null,
           "closed_at": null
         }
@@ -11439,7 +11454,7 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1783256127120,
-      "updated_at": 1783268326267,
+      "updated_at": 1783271988115,
       "status_changed_at": 1783256127120,
       "handle": "branch-lane-lifecycle-standard-canonical-doc-naming-enforcement-stale-sw",
       "tags": [],
@@ -11948,7 +11963,7 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1783268501801,
-      "updated_at": 1783270960597,
+      "updated_at": 1783271564245,
       "status_changed_at": 1783269848349,
       "handle": "daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st",
       "tags": [],
@@ -12257,9 +12272,9 @@
     ]
   },
   "heartbeat": {
-    "current_focus": "Card metadata visual gate red again (duplicate pane-gone chip) and bounced; cli-output hang classified pre-existing; merged-clean local lanes removed; reviewing next merge/gate candidates",
+    "current_focus": "Card metadata accepted/merged/pushed at 4c51e926; local lane cleaned; remote delete deferred to cleanup pass. Next active blocker: 5a6d compile RED at 357949dc with worker pane gone; fix locally or respawn.",
     "active_lanes": [
-      "feat/canvas-updates@be485acc"
+      "feat/canvas-updates@4c51e926"
     ],
     "rules": [
       "Cherry-picks banned: merge/rebase/manual-port only",
