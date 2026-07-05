@@ -129,8 +129,11 @@ print(json.dumps({
     qa_emit QA_GATE \
       "gate=$gate" "status=$status" "duration_secs=$duration" \
       "sha=$sha" "branch=$branch" "host=$host"
-    [ -n "$detail" ] && echo "detail=$detail"
+    if [ -n "$detail" ]; then
+      echo "detail=$detail"
+    fi
   fi
+  return 0
 }
 
 qa_report_run() {
@@ -152,8 +155,11 @@ print(json.dumps({
     qa_emit QA_RUN \
       "status=$status" "passed=$passed" "failed=$failed" \
       "duration_secs=$duration" "sha=$sha" "branch=$branch" "host=$host"
-    [ -n "$detail" ] && echo "detail=$detail"
+    if [ -n "$detail" ]; then
+      echo "detail=$detail"
+    fi
   fi
+  return 0
 }
 
 qa_verify_clean
@@ -191,7 +197,6 @@ for gate in "${GATES[@]}"; do
   qa_run_timeout "$timeout_secs" bash -c "source '$ROOT/scripts/qa-gates.lib.sh'; QA_ROOT='$ROOT'; qa_run_gate_body '$gate'" \
     >"$gate_log" 2>&1
   rc=$?
-  set -e
   gate_dur=$((SECONDS - gate_start))
 
   if [ "$rc" -eq 0 ]; then
