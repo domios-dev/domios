@@ -113,7 +113,9 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
     Ok(())
 }
 
-/// Mirror canonical `~/.codeterm/skills/` into provider dirs agents load from (#178).
+/// Mirror the `codeterm` skill into provider dirs and prune everything else.
+/// Provider dirs hold EXACTLY one skill — `codeterm`. All others are agents-only
+/// (discovered via `codeterm mem search`, not provider-dir injection).
 pub fn mirror_skills_to_providers() {
     let canonical = crate::paths::data_dir().join("skills");
     let Some(home) = dirs::home_dir() else {
@@ -123,61 +125,31 @@ pub fn mirror_skills_to_providers() {
         home.join(".claude").join("skills"),
         home.join(".agents").join("skills"),
     ];
+    mirror_into_providers(&canonical, &targets);
+}
 
-    let Ok(entries) = std::fs::read_dir(&canonical) else {
-        return;
-    };
-    let skill_dirs: Vec<_> = entries
-        .flatten()
-        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
-        .collect();
-
-    for target in &targets {
-        for entry in &skill_dirs {
-            let id = entry.file_name();
-            let dst_dir = target.join(&id);
-            if !should_mirror_skill(&entry.path().join("SKILL.md"), &dst_dir.join("SKILL.md")) {
-                continue;
-            }
-            let _ = std::fs::create_dir_all(&dst_dir);
-            match copy_dir_recursive(&entry.path(), &dst_dir) {
-                Ok(()) => log::info!("[skills] mirrored {:?} -> {}", id, dst_dir.display()),
+/// Pure inner implementation — injectable paths make this testable without touching real home dirs.
+fn mirror_into_providers(canonical: &std::path::Path, targets: &[std::path::PathBuf]) {
+    // Install / update the `codeterm` skill in every provider dir.
+    let codeterm_src = canonical.join("codeterm");
+    for target in targets {
+        let codeterm_dst = target.join("codeterm");
+        if should_mirror_skill(
+            &codeterm_src.join("SKILL.md"),
+            &codeterm_dst.join("SKILL.md"),
+        ) {
+            let _ = std::fs::create_dir_all(&codeterm_dst);
+            match copy_dir_recursive(&codeterm_src, &codeterm_dst) {
+                Ok(()) => log::info!("[skills] mirrored codeterm -> {}", codeterm_dst.display()),
                 Err(e) => log::warn!(
-                    "[skills] mirror {:?} -> {} failed: {}",
-                    id,
-                    dst_dir.display(),
+                    "[skills] mirror codeterm -> {} failed: {}",
+                    codeterm_dst.display(),
                     e
                 ),
             }
         }
-    }
 
-    report_provider_orphans();
-}
-
-/// Returns provider-dir entries that have no corresponding canonical source.
-/// Logs a warning for each, killing the resurrection-class bug (#178 follow-up).
-pub fn report_provider_orphans() -> Vec<String> {
-    let canonical = crate::paths::data_dir().join("skills");
-    let Some(home) = dirs::home_dir() else {
-        return vec![];
-    };
-    let targets = [
-        home.join(".claude").join("skills"),
-        home.join(".agents").join("skills"),
-    ];
-
-    let canonical_names: std::collections::HashSet<_> = std::fs::read_dir(&canonical)
-        .ok()
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
-        .map(|e| e.file_name())
-        .collect();
-
-    let mut orphans = Vec::new();
-    for target in &targets {
+        // Remove every non-codeterm entry — provider dirs must be exactly {codeterm}.
         let Ok(entries) = std::fs::read_dir(target) else {
             continue;
         };
@@ -185,18 +157,19 @@ pub fn report_provider_orphans() -> Vec<String> {
             if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                 continue;
             }
-            if !canonical_names.contains(&entry.file_name()) {
-                let path = format!(
-                    "{}/{}",
-                    target.display(),
-                    entry.file_name().to_string_lossy()
-                );
-                log::warn!("[skills] orphan provider skill (no canonical source): {}", path);
-                orphans.push(path);
+            if entry.file_name() == "codeterm" {
+                continue;
+            }
+            let path = entry.path();
+            log::warn!(
+                "[skills] pruning non-codeterm entry from provider dir: {}",
+                path.display()
+            );
+            if let Err(e) = std::fs::remove_dir_all(&path) {
+                log::warn!("[skills] failed to remove {}: {}", path.display(), e);
             }
         }
     }
-    orphans
 }
 
 /// Copy if provider copy is missing/older, or differs at the same revision. Never downgrades.
@@ -254,36 +227,39 @@ mod mirror_tests {
         );
     }
 
-    /// Orphan detection drill: a skill present only in a provider dir is reported.
+    /// Restart-does-not-resurrect drill: calls the REAL mirror_into_providers against a
+    /// tempdir fixture. Plants a stray in the provider dir, runs the mirror, asserts the
+    /// provider dir ends up with exactly {codeterm}.
     #[test]
-    fn orphan_detection_finds_provider_only_entries() {
+    fn mirror_installs_only_codeterm_and_prunes_strays() {
         let tmp = tempfile::tempdir().unwrap();
         let canonical = tmp.path().join("canonical");
-        let provider = tmp.path().join(".provider").join("skills");
+        let provider = tmp.path().join("provider");
 
-        // Canonical has "foo"; provider has "foo" (synced) + "stray" (orphan).
-        write_skill(&canonical.join("foo"), "canonical foo");
-        write_skill(&provider.join("foo"), "provider foo");
-        write_skill(&provider.join("stray"), "orphan skill");
+        // Canonical has codeterm + another skill (atlassian stays in canonical only).
+        write_skill(&canonical.join("codeterm"), "codeterm skill body");
+        write_skill(&canonical.join("atlassian"), "atlassian skill body");
 
-        let canonical_names: std::collections::HashSet<_> =
-            std::fs::read_dir(&canonical)
-                .unwrap()
-                .flatten()
-                .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
-                .map(|e| e.file_name())
-                .collect();
+        // Provider starts with a stray that should be pruned on mirror.
+        write_skill(&provider.join("stray"), "orphan");
 
-        let mut orphans = Vec::new();
-        for entry in std::fs::read_dir(&provider).unwrap().flatten() {
-            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                continue;
-            }
-            if !canonical_names.contains(&entry.file_name()) {
-                orphans.push(entry.file_name().to_string_lossy().into_owned());
-            }
-        }
+        // Call the real inner function with injected paths.
+        mirror_into_providers(&canonical, &[provider.clone()]);
 
-        assert_eq!(orphans, vec!["stray"], "only the non-canonical entry is flagged");
+        // codeterm must be installed.
+        assert!(
+            provider.join("codeterm").join("SKILL.md").exists(),
+            "codeterm SKILL.md must be present after mirror"
+        );
+        // stray must be gone — mirror actively prunes non-codeterm entries.
+        assert!(
+            !provider.join("stray").exists(),
+            "stray was not pruned by mirror"
+        );
+        // atlassian must NOT have been copied — it stays in canonical only.
+        assert!(
+            !provider.join("atlassian").exists(),
+            "non-codeterm canonical skill must not appear in provider dir"
+        );
     }
 }
