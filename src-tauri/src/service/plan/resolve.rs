@@ -386,7 +386,9 @@ impl PlanStore {
         task_ref: &str,
         milestone_ref: &str,
     ) -> Result<ResolvedMilestone, ResolveError> {
-        let (plan_id, task_id) = self.resolve_task_ref(plan_ref, task_ref)?;
+        let resolved_task = self.resolve_task_ref(plan_ref, task_ref)?;
+        let plan_id = resolved_task.plan_id;
+        let task_id = resolved_task.task_id;
         let items = self
             .plans
             .read()
