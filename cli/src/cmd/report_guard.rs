@@ -21,7 +21,7 @@ impl ReportRefusal {
         let mut lines = vec![
             self.reason.clone(),
             "Next commands:".to_string(),
-            "  git status --short".to_string(),
+            "  git status --short -- ':!.codeterm/plans'".to_string(),
             "  git add <files>".to_string(),
             "  git commit -m \"<message>\"".to_string(),
             "  codeterm agent report --status in_review --sha $(git rev-parse HEAD) \"...\""
