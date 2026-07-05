@@ -74,6 +74,8 @@ export function SettingsPanel({
     const n = normalizeSection(initialSection);
     if (n) {
       setStack([{ kind: "root" }, { kind: "section", id: n }]);
+    } else {
+      setStack([{ kind: "root" }]);
     }
   }, [initialSection]);
 
