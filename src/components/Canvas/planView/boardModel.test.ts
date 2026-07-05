@@ -284,6 +284,21 @@ test("selectDefaultPlanId honors explicit id, then orchestrator ownership, then 
   assert(selectDefaultPlanId([], {}) === null, "empty -> null");
 });
 
+test("selectDefaultPlanId prefers a plan with real work over a fresh junk 0-task plan", () => {
+  const junk: Plan = { ...FIXTURE_PLAN, id: "p-junk", title: "Junk", created_at: 0, updated_at: 999, tasks: [] };
+  const bound: Plan = {
+    ...FIXTURE_PLAN,
+    id: "p-bound",
+    title: "Bound",
+    created_at: 0,
+    updated_at: 10,
+    tasks: [{ ...FIXTURE_TASK, id: "t1", status: TaskStatus.InProgress }],
+  };
+  const ordered = orderPlansByActivity([junk, bound]); // junk is freshest
+  assert(ordered[0].id === "p-junk", "junk sorts first by freshness");
+  assert(selectDefaultPlanId(ordered, {}) === "p-bound", "but selector picks the plan with actionable work");
+});
+
 let passed = 0;
 for (const [name, fn] of tests) {
   try {

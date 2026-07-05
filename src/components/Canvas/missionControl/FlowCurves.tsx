@@ -1,22 +1,24 @@
 import { useId } from "react";
-import { RIVER_WIDTH, RIVER_HEIGHT, activeEdgeRange, flowCurvePaths } from "./flowLayout";
+import type { MeasuredEdge } from "./flowLayout";
 
 interface FlowCurvesProps {
-  /** Draw the traveling pulse on the active edge (milestone → verify). */
-  animate: boolean;
+  edges: MeasuredEdge[];
+  width: number;
   height: number;
+  /** Animate the pulse on the active (milestone → verify) edge. */
+  animate: boolean;
 }
 
-export function FlowCurves({ animate, height }: FlowCurvesProps) {
+export function FlowCurves({ edges, width, height, animate }: FlowCurvesProps) {
   const gradId = useId();
-  const curves = flowCurvePaths();
-  const edge = activeEdgeRange();
+  if (width <= 0 || height <= 0 || edges.length === 0) return null;
+  const activeEdge = edges.find((e) => e.active) ?? null;
   return (
     <svg
       className="mc-flow-svg"
-      viewBox={`0 0 ${RIVER_WIDTH} ${RIVER_HEIGHT}`}
-      preserveAspectRatio="none"
-      style={{ height }}
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
       aria-hidden
       data-testid="flow-curves"
     >
@@ -26,21 +28,28 @@ export function FlowCurves({ animate, height }: FlowCurvesProps) {
           <stop offset="1" stopColor="var(--mc-flow-b)" />
         </linearGradient>
       </defs>
-      {curves.map((c) => (
-        <path key={`${c.from}-${c.to}`} d={c.d} stroke={`url(#${gradId})`} strokeWidth={2.5} fill="none" />
+      {edges.map((e) => (
+        <path key={`${e.from}-${e.to}`} d={e.d} stroke={`url(#${gradId})`} strokeWidth={2.5} fill="none" />
       ))}
-      <circle
-        className="mc-flow-pulse"
-        data-testid="flow-pulse"
-        cx={animate ? undefined : edge.to}
-        cy={edge.y}
-        r={3.5}
-        fill="var(--mc-ok)"
-      >
-        {animate && (
-          <animate attributeName="cx" values={`${edge.from};${edge.to}`} dur="3s" repeatCount="indefinite" />
-        )}
-      </circle>
+      {activeEdge && (
+        <circle
+          className="mc-flow-pulse"
+          data-testid="flow-pulse"
+          cx={activeEdge.mid.x}
+          cy={activeEdge.mid.y}
+          r={3.5}
+          fill="var(--mc-ok)"
+        >
+          {animate && (
+            <animate
+              attributeName="cx"
+              values={`${activeEdge.mid.x - 60};${activeEdge.mid.x + 60};${activeEdge.mid.x - 60}`}
+              dur="3s"
+              repeatCount="indefinite"
+            />
+          )}
+        </circle>
+      )}
     </svg>
   );
 }

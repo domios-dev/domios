@@ -138,6 +138,64 @@ test("carrier surfaces a live in_review task with its agent", () => {
   assert(r.carrier!.label.includes("→ gate"), "carrier label points to gate");
 });
 
+test("F1: milestone derives from Task.group when task_groups registry is empty", () => {
+  // Real plans often stamp Task.group but leave task_groups empty.
+  const plan = mkPlan([
+    mkTask("t1", TaskStatus.Done, { group: "Storage-Infra" }),
+    mkTask("t2", TaskStatus.InProgress, { group: "Canvas-UX" }),
+    mkTask("t3", TaskStatus.Pending, { group: "Canvas-UX" }),
+  ]); // no groups registry
+  const m = river(plan).milestone;
+  assert(m.active, "milestone active from task groups without registry");
+  assert(m.label === "Canvas UX", `derived+prettified label, got ${m.label}`);
+  assert(m.remaining === 2 && m.total === 2, `N-of-M from group members, got ${m.remaining}/${m.total}`);
+});
+
+test("F1: mixed-case Task.group values collapse to one group", () => {
+  const plan = mkPlan([
+    mkTask("t1", TaskStatus.InProgress, { group: "canvas-ux" }),
+    mkTask("t2", TaskStatus.Pending, { group: "Canvas-UX" }),
+  ]);
+  const m = river(plan).milestone;
+  assert(m.total === 2, `case-insensitive group merge, got ${m.total}`);
+});
+
+test("F5: open decision gates surface in verify with question + waits-on", () => {
+  const pane: Pane = { id: "pane-plan", pty_id: "p", pane_type: "Terminal", title: "Planner", cwd: "/r" };
+  const plan: Plan = {
+    ...mkPlan([mkTask("t1", TaskStatus.Pending, { group: "wave-26" })], GROUPS),
+    gates: [
+      { id: "g1", question: "Pick layout variant?", status: "open", asked_at: 1, routed_to_pane_id: "pane-plan" },
+      { id: "g2", question: "Answered one", status: "answered", asked_at: 1 },
+    ],
+  };
+  const r = river(plan, { "pane-plan": pane });
+  assert(r.verify.gates.length === 1, `only open gates, got ${r.verify.gates.length}`);
+  assert(r.verify.gates[0].question === "Pick layout variant?", "gate question");
+  assert(r.verify.gates[0].waitsOn === "Planner", `waits on routed pane, got ${r.verify.gates[0].waitsOn}`);
+  assert(r.verify.count >= 1, "gate counts toward verify content");
+});
+
+test("F4: all-done plan with no groups is empty (head-only)", () => {
+  const plan = mkPlan([mkTask("t1", TaskStatus.Done), mkTask("t2", TaskStatus.Cancelled)]);
+  const r = river(plan);
+  assert(r.isEmpty === false, "done>0 is not empty; shows Done station");
+  assert(!r.milestone.active, "no active milestone");
+  const trulyEmpty = river(mkPlan([mkTask("t1", TaskStatus.Cancelled)]));
+  assert(trulyEmpty.isEmpty, "all-cancelled plan is empty");
+});
+
+test("F1: strides surfaced as last recorded milestone in done", () => {
+  const plan: Plan = {
+    ...mkPlan([mkTask("t1", TaskStatus.Done, { group: "wave-26" })], GROUPS),
+    strides: [
+      { id: "s1", from: { pane_id: null, session_id: null, title: "x" }, kind: "wave", text: "Wave 24 shipped", ts: 10, links: [], loop_id: null, iteration: null, canvas: { x: null, y: null, collapsed: false } },
+      { id: "s2", from: { pane_id: null, session_id: null, title: "x" }, kind: "wave", text: "Wave 25 shipped", ts: 20, links: [], loop_id: null, iteration: null, canvas: { x: null, y: null, collapsed: false } },
+    ],
+  };
+  assert(river(plan).done.lastStride === "Wave 25 shipped", "latest stride surfaced");
+});
+
 let failed = 0;
 for (const [name, fn] of tests) {
   try {
