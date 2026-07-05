@@ -172,10 +172,13 @@ export function useChatSession({
   paneId,
   agentSessionId,
   onError,
+  active = true,
 }: {
   paneId: string;
   agentSessionId: string | null;
   onError?: (msg: string) => void;
+  /** Hidden chats must not run the daemon parser: false stops the session, true restarts it. */
+  active?: boolean;
 }) {
   const [structured, setStructured] = useState<ChatMessage[] | null>(null);
   const [visibleMessageCount, setVisibleMessageCount] = useState(INITIAL_VISIBLE_MESSAGES);
@@ -195,6 +198,10 @@ export function useChatSession({
   }, [onError]);
 
   useEffect(() => {
+    if (!active) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     let unlisten: UnlistenFn | null = null;
     let unlistenTest: (() => void) | null = null;
@@ -232,7 +239,7 @@ export function useChatSession({
       setOptimistic([]);
       void invoke("chat_stop", { paneId }).catch(() => {});
     };
-  }, [paneId, agentSessionId, nextClientOrder]);
+  }, [paneId, agentSessionId, nextClientOrder, active]);
 
   useEffect(() => {
     if (error?.includes("chat_send_raw")) setError(null);
