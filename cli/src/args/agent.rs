@@ -271,6 +271,13 @@ pub enum AgentAction {
         /// Select a chatBackend shell preset. Omit to use the plugin default preset.
         #[arg(long)]
         preset: Option<String>,
+        /// Allow a Worker to spawn into a shared/canonical checkout instead of an
+        /// isolated worktree. Records a visible exception stride on the bound task.
+        #[arg(long)]
+        allow_shared_checkout: bool,
+        /// Bound task id for the shared-checkout exception stride.
+        #[arg(long = "task-id", env = "CODETERM_TASK_ID")]
+        bound_task: Option<String>,
     },
 }
 
