@@ -6,3 +6,4 @@ handle: ux-2-expand-to-fullscreen-detail-read-surface-scrollable-full-info-for-t
 title: UX-2 expand to fullscreen detail (READ) surface — scrollable full info for task/spec/plan; unify with existing Read/W3; close returns to map position
 status: done
 ---
+

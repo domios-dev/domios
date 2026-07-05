@@ -4,7 +4,7 @@ kind: task
 id: task_d52b73ff7a704f05a0377c06dd15b647
 handle: t0b-role-field
 title: 'Task executor-role field: model + CLI + doctor warning'
-status: pending
+status: done
 ---
 
 Add a structured executor-role field to plan tasks so the Orchestrator routes agent personality per task declaratively (user requirement; today only prose role_guidance + runtime taken_by_role exist).

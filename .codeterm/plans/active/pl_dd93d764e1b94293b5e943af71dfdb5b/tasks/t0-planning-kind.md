@@ -4,7 +4,7 @@ kind: task
 id: task_de43b7d9efbc41c1a229276bd7546fc5
 handle: t0-planning-kind
 title: 'Planning-kind tasks: CLI/backend gating + doctor fix'
-status: pending
+status: done
 ---
 
 Make planning-kind tasks first-class in the planner backend, and fix the doctor body false-positive discovered during this planning session.

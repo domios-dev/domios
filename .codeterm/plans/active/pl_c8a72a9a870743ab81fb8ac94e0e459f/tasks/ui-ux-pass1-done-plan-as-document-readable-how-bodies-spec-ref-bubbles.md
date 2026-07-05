@@ -6,3 +6,4 @@ handle: ui-ux-pass1-done-plan-as-document-readable-how-bodies-spec-ref-bubbles
 title: UI/UX pass1 DONE — plan-as-document (readable HOW bodies + spec-ref bubbles)
 status: done
 ---
+

@@ -4,7 +4,7 @@ kind: task
 id: task_65a11939d78c44a0818030c0b23e7c1e
 handle: t2-detail-overlay
 title: Shared PlanDetailOverlay (view-agnostic detail surface)
-status: pending
+status: done
 ---
 
 Extract a view-agnostic detail overlay so Board and List can open task/plan/spec details with the same surface Canvas uses.

@@ -4,7 +4,7 @@ kind: task
 id: task_e7ef4c2763fd4fd699bbf3a6f525831b
 handle: t3-board
 title: Board redesign (primary view)
-status: pending
+status: done
 ---
 
 Redesign Board into the primary work surface. Depends on t1-view-order (board default) and t2-detail-overlay (click-through target). Read the spec sections board-req, done-req, context-req first (codeterm spec show sp_d2c70550432f4a829c89cf4a4cb7c3c5).
