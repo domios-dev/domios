@@ -186,6 +186,12 @@ impl PlanError {
             PlanError::HeartbeatRequiresExecution => {
                 serde_json::json!({ "type": "heartbeat_requires_execution" })
             }
+            PlanError::InProgressRequiresPane => {
+                serde_json::json!({ "type": "in_progress_requires_pane" })
+            }
+            PlanError::BlockedRequiresLabel => {
+                serde_json::json!({ "type": "blocked_requires_label" })
+            }
             PlanError::ParkRequiresReason => {
                 serde_json::json!({ "type": "park_requires_reason" })
             }
