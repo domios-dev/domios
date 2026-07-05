@@ -74,6 +74,36 @@ impl DiffCache {
         }
         self.refreshing.store(false, Ordering::SeqCst);
     }
+
+    /// Synchronously recompute the diff and store it, returning the fresh value. Unlike
+    /// `read`, this never returns stale data or defers to a background thread: the
+    /// explicit "refresh channels" action needs the result cached *now*, while any
+    /// just-added local channel source still exists, so the snapshot it returns (and the
+    /// next passive read) serve the freshly-fetched channels. On producer error the
+    /// last-known diff is kept (no empty flash). Passive reads keep using `read`.
+    fn refresh_now<P>(&self, produce: P) -> Value
+    where
+        P: Fn() -> Result<Value, String>,
+    {
+        match produce() {
+            Ok(v) => {
+                if let Ok(mut g) = self.cache.lock() {
+                    *g = Some((Instant::now(), v.clone()));
+                }
+                self.force.store(false, Ordering::SeqCst);
+                v
+            }
+            Err(e) => {
+                log::warn!("[plugin-diff] synchronous refresh failed: {e}");
+                self.cache
+                    .lock()
+                    .ok()
+                    .and_then(|g| g.clone())
+                    .map(|(_, v)| v)
+                    .unwrap_or_else(|| serde_json::json!({ "diff": [], "loading": true }))
+            }
+        }
+    }
 }
 
 static DIFF: DiffCache = DiffCache::new();
@@ -90,6 +120,14 @@ pub(super) fn cached_diff(produce: fn() -> Result<Value, String>) -> Value {
 /// Keeps the last-known diff visible until the refresh lands — no empty flash.
 pub(super) fn invalidate_diff() {
     DIFF.force.store(true, Ordering::SeqCst);
+}
+
+/// Synchronously recompute + cache the channel diff, returning the fresh value. The
+/// explicit "refresh channels" action uses this so the snapshot it returns (and the next
+/// passive GET) serve freshly-fetched channels instead of a stale background value.
+/// Passive snapshot reads keep using the background [`cached_diff`] path.
+pub(super) fn refresh_diff_now(produce: fn() -> Result<Value, String>) -> Value {
+    DIFF.refresh_now(produce)
 }
 
 #[cfg(test)]
@@ -173,5 +211,33 @@ mod tests {
             dc.cache.lock().unwrap().clone().unwrap().1["diff"][0]["id"],
             "fresh"
         );
+    }
+
+    #[test]
+    fn explicit_refresh_now_caches_synchronously_and_next_read_serves_it() {
+        let dc = DiffCache::new();
+        // Cold cache + force set — the state invalidate_diff() leaves after a channel action.
+        dc.force.store(true, Ordering::SeqCst);
+        let calls = Arc::new(AtomicUsize::new(0));
+
+        // Explicit refresh computes inline and returns the fresh value immediately (not stale,
+        // no background defer) — this is what makes the just-added local channel show up now.
+        let out = dc.refresh_now(producer(calls.clone()));
+        assert_eq!(out["diff"][0]["id"], "fresh");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(
+            !dc.force.load(Ordering::SeqCst),
+            "force flag must be consumed by the synchronous refresh"
+        );
+
+        // The next passive read serves that fresh value without re-running the producer.
+        let again = dc.read(producer(calls.clone()), |p| dc.run_refresh(p));
+        assert_eq!(again["diff"][0]["id"], "fresh");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "a synchronously-refreshed fresh cache must not re-run the producer"
+        );
+        assert!(!dc.refreshing.load(Ordering::SeqCst));
     }
 }

@@ -128,67 +128,90 @@ pub(super) fn channel_diff(name: Option<&str>) -> Result<serde_json::Value, Stri
 
     let mut rows = Vec::new();
     for ch in channels {
-        let temp = std::env::temp_dir().join(format!(
-            "codeterm-channel-diff-{}-{}",
-            ch.name,
-            uuid::Uuid::new_v4()
-        ));
-        let channel_path = materialize_channel_for_diff(&ch, &temp)?;
-        let manifest = read_channel_manifest(&channel_path)?;
-        for plugin in manifest.plugins {
-            let remote_path = plugin_path(&plugin)?;
-            let remote_dir = channel_path.join(&remote_path);
-            let local_dir = plugin_dir(&plugin.id);
-            let local_version = manifest_version(&local_dir).ok().flatten();
-            let remote_version = plugin
-                .version
-                .clone()
-                .or_else(|| manifest_version(&remote_dir).ok().flatten());
-            let local_manifest_hash = manifest_hash(&local_dir).ok();
-            let remote_manifest_hash = manifest_hash(&remote_dir).ok();
-            let drift = classify_drift(
-                local_version.as_deref(),
-                remote_version.as_deref(),
-                local_manifest_hash.as_deref(),
-                remote_manifest_hash.as_deref(),
-            );
-            let remote_min = plugin
-                .min_codeterm
-                .clone()
-                .or_else(|| manifest_min_codeterm(&remote_dir));
-            let (compatible, blocked_reason) = match compat_check(remote_min.as_deref()) {
-                Ok(()) => (true, None),
-                Err(reason) => (false, Some(reason)),
-            };
-            if drift != "up_to_date" {
-                audit_drift_detected(
-                    &ch.name,
-                    &plugin.id,
-                    local_version.clone(),
-                    remote_version.clone(),
-                    local_manifest_hash.clone(),
-                    remote_manifest_hash.clone(),
-                    &drift,
-                );
+        match diff_channel_rows(&ch) {
+            Ok(mut channel_rows) => rows.append(&mut channel_rows),
+            Err(err) => {
+                // A single unavailable channel (e.g. a remote git channel that is
+                // temporarily slow or unreachable) must not hide the plugins of every
+                // OTHER channel in the aggregate diff that feeds the plugins snapshot.
+                // Only propagate when the caller asked for one specific channel.
+                if name.is_some() {
+                    return Err(err);
+                }
+                let skipped: Result<(), String> = Err(err);
+                audit_channel_result("diff-skipped", Some(&ch.name), &skipped);
             }
-            rows.push(ChannelDiffRow {
-                channel: ch.name.clone(),
-                id: plugin.id,
-                local_version,
-                remote_version,
-                local_manifest_hash,
-                remote_manifest_hash,
-                drift,
-                compatible,
-                blocked_reason,
-            });
-        }
-        if temp.exists() {
-            let _ = fs::remove_dir_all(&temp);
         }
     }
 
     Ok(serde_json::json!({ "diff": rows }))
+}
+
+/// Diff a single registered channel. Materializes the channel (local copy or git
+/// clone), reads its manifest, and builds one row per plugin. Any failure here is
+/// returned to the caller so `channel_diff` can decide whether to propagate (named
+/// diff) or skip the channel and continue (aggregate diff for the snapshot).
+fn diff_channel_rows(ch: &ChannelRecord) -> Result<Vec<ChannelDiffRow>, String> {
+    let temp = std::env::temp_dir().join(format!(
+        "codeterm-channel-diff-{}-{}",
+        ch.name,
+        uuid::Uuid::new_v4()
+    ));
+    let channel_path = materialize_channel_for_diff(ch, &temp)?;
+    let manifest = read_channel_manifest(&channel_path)?;
+    let mut rows = Vec::new();
+    for plugin in manifest.plugins {
+        let remote_path = plugin_path(&plugin)?;
+        let remote_dir = channel_path.join(&remote_path);
+        let local_dir = plugin_dir(&plugin.id);
+        let local_version = manifest_version(&local_dir).ok().flatten();
+        let remote_version = plugin
+            .version
+            .clone()
+            .or_else(|| manifest_version(&remote_dir).ok().flatten());
+        let local_manifest_hash = manifest_hash(&local_dir).ok();
+        let remote_manifest_hash = manifest_hash(&remote_dir).ok();
+        let drift = classify_drift(
+            local_version.as_deref(),
+            remote_version.as_deref(),
+            local_manifest_hash.as_deref(),
+            remote_manifest_hash.as_deref(),
+        );
+        let remote_min = plugin
+            .min_codeterm
+            .clone()
+            .or_else(|| manifest_min_codeterm(&remote_dir));
+        let (compatible, blocked_reason) = match compat_check(remote_min.as_deref()) {
+            Ok(()) => (true, None),
+            Err(reason) => (false, Some(reason)),
+        };
+        if drift != "up_to_date" {
+            audit_drift_detected(
+                &ch.name,
+                &plugin.id,
+                local_version.clone(),
+                remote_version.clone(),
+                local_manifest_hash.clone(),
+                remote_manifest_hash.clone(),
+                &drift,
+            );
+        }
+        rows.push(ChannelDiffRow {
+            channel: ch.name.clone(),
+            id: plugin.id,
+            local_version,
+            remote_version,
+            local_manifest_hash,
+            remote_manifest_hash,
+            drift,
+            compatible,
+            blocked_reason,
+        });
+    }
+    if temp.exists() {
+        let _ = fs::remove_dir_all(&temp);
+    }
+    Ok(rows)
 }
 
 pub(super) fn materialize_channel_for_diff(
@@ -196,7 +219,21 @@ pub(super) fn materialize_channel_for_diff(
     temp: &Path,
 ) -> Result<PathBuf, String> {
     match ch.kind {
-        ChannelKind::Local => Ok(parse_channel_source(&ch.url).source_dir()),
+        ChannelKind::Local => {
+            // Diff the cached copy populated by add/refresh (ch.path): it is stable and
+            // always present. Re-resolving the original file:// source_dir() makes the
+            // diff fail whenever that source is transiently unavailable — e.g. a local
+            // fixture under a tmp dir that a test has torn down, or any source on a
+            // volume that isn't mounted right now — which would drop the entire channel
+            // from the marketplace snapshot. Fall back to the live source only when the
+            // cache is missing (channel registered but never materialized).
+            let cache = PathBuf::from(&ch.path);
+            if cache.exists() {
+                Ok(cache)
+            } else {
+                Ok(parse_channel_source(&ch.url).source_dir())
+            }
+        }
         ChannelKind::Git => {
             let source = parse_channel_source(&ch.url);
             clone_git_channel(&source, temp)?;
@@ -261,7 +298,17 @@ pub(super) fn refresh_channel(name: Option<&str>) -> Result<(), String> {
                 continue;
             }
         }
-        refresh_channel_record(ch)?;
+        if let Err(err) = refresh_channel_record(ch) {
+            // Refreshing all channels: one unavailable channel must not abort the
+            // refresh of the rest. Propagate only when a single channel was named.
+            if name.is_some() {
+                let result = Err(err);
+                audit_channel_result("refresh-fetched", name, &result);
+                return result;
+            }
+            let skipped: Result<(), String> = Err(err);
+            audit_channel_result("refresh-fetched", Some(&ch.name), &skipped);
+        }
     }
     let result = Ok(());
     audit_channel_result("refresh-fetched", name, &result);
@@ -288,10 +335,33 @@ pub(super) fn refresh_channel_record(ch: &ChannelRecord) -> Result<(), String> {
         }
         return Err(err);
     }
+    // Publish the freshly materialized cache with a near-atomic swap. The old code did
+    // remove_dir_all(path) THEN rename(tmp, path): the recursive delete leaves a wide
+    // window where `path` does not exist, so a concurrent diff (which reads a local
+    // channel from ch.path) sees a missing dir and drops the channel. Instead stash the
+    // old copy aside with a single rename, publish the new one with a single rename
+    // (both atomic on one filesystem), then delete the stale copy off the hot path.
     if path.exists() {
-        fs::remove_dir_all(&path).map_err(|e| format!("clear {}: {e}", path.display()))?;
+        let backup = path.with_file_name(format!(
+            ".{}-old-{}",
+            path.file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("channel"),
+            uuid::Uuid::new_v4()
+        ));
+        fs::rename(&path, &backup).map_err(|e| format!("stash old channel cache: {e}"))?;
+        if let Err(err) = fs::rename(&tmp, &path).map_err(|e| format!("replace channel cache: {e}"))
+        {
+            // Restore the previous cache so the channel stays usable, then surface the error.
+            let _ = fs::rename(&backup, &path);
+            let _ = fs::remove_dir_all(&tmp);
+            return Err(err);
+        }
+        let _ = fs::remove_dir_all(&backup);
+        Ok(())
+    } else {
+        fs::rename(&tmp, &path).map_err(|e| format!("replace channel cache: {e}"))
     }
-    fs::rename(&tmp, &path).map_err(|e| format!("replace channel cache: {e}"))
 }
 
 pub(super) fn materialize_registered_channel(
