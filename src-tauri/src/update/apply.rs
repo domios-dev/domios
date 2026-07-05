@@ -1,15 +1,16 @@
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
 
-use super::channel::{default_endpoints, Channel};
+use super::channel::{default_endpoints_for_install_method, Channel};
 use super::manifest;
 use super::shutdown;
-use super::{UpdatePhase, UpdateState};
+use super::{InstallMethod, UpdatePhase, UpdateState};
 
 #[derive(Clone)]
 pub struct ApplyOptions {
     pub channel: Channel,
     pub manifest_url: Option<String>,
+    pub install_method: InstallMethod,
 }
 
 pub async fn check_and_apply(
@@ -17,10 +18,9 @@ pub async fn check_and_apply(
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<bool, String> {
-    let endpoint_str = opts
-        .manifest_url
-        .clone()
-        .unwrap_or_else(|| default_endpoints(opts.channel)[0].clone());
+    let endpoint_str = opts.manifest_url.clone().unwrap_or_else(|| {
+        default_endpoints_for_install_method(opts.channel, &opts.install_method)[0].clone()
+    });
 
     let endpoint = Url::parse(&endpoint_str)
         .map_err(|e| format!("invalid manifest URL '{}': {}", endpoint_str, e))?;
@@ -38,12 +38,10 @@ pub async fn check_and_apply(
         target_arch,
     );
 
-    let mut builder = app.updater_builder();
-    if opts.manifest_url.is_some() {
-        builder = builder
-            .endpoints(vec![endpoint.clone()])
-            .map_err(|e| format!("failed to override updater endpoint: {}", e))?;
-    }
+    let builder = app
+        .updater_builder()
+        .endpoints(vec![endpoint.clone()])
+        .map_err(|e| format!("failed to set updater endpoint: {}", e))?;
     let updater = builder
         .build()
         .map_err(|e| format!("failed to build updater: {}", e))?;

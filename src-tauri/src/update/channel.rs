@@ -4,6 +4,7 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 use super::checker::GITHUB_REPO;
+use super::InstallMethod;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -46,11 +47,31 @@ pub fn manifest_filename(c: Channel) -> &'static str {
     }
 }
 
+pub fn manifest_filename_for_install_method(c: Channel, method: &InstallMethod) -> &'static str {
+    match method {
+        InstallMethod::Deb => match c {
+            Channel::Stable => "latest-deb.json",
+            Channel::Rc => "latest-rc-deb.json",
+            Channel::Nightly => "latest-nightly-deb.json",
+        },
+        InstallMethod::Rpm => match c {
+            Channel::Stable => "latest-rpm.json",
+            Channel::Rc => "latest-rc-rpm.json",
+            Channel::Nightly => "latest-nightly-rpm.json",
+        },
+        _ => manifest_filename(c),
+    }
+}
+
 pub fn default_endpoints(c: Channel) -> Vec<String> {
+    default_endpoints_for_install_method(c, &InstallMethod::Unknown)
+}
+
+pub fn default_endpoints_for_install_method(c: Channel, method: &InstallMethod) -> Vec<String> {
     vec![format!(
         "https://github.com/{}/releases/latest/download/{}",
         GITHUB_REPO,
-        manifest_filename(c)
+        manifest_filename_for_install_method(c, method)
     )]
 }
 
@@ -93,6 +114,26 @@ mod tests {
     }
 
     #[test]
+    fn package_install_methods_use_package_specific_manifests() {
+        assert_eq!(
+            manifest_filename_for_install_method(Channel::Stable, &InstallMethod::Deb),
+            "latest-deb.json"
+        );
+        assert_eq!(
+            manifest_filename_for_install_method(Channel::Rc, &InstallMethod::Deb),
+            "latest-rc-deb.json"
+        );
+        assert_eq!(
+            manifest_filename_for_install_method(Channel::Nightly, &InstallMethod::Rpm),
+            "latest-nightly-rpm.json"
+        );
+        assert_eq!(
+            manifest_filename_for_install_method(Channel::Stable, &InstallMethod::AppImage),
+            "latest.json"
+        );
+    }
+
+    #[test]
     fn default_endpoints_format() {
         let stable = default_endpoints(Channel::Stable);
         assert_eq!(stable.len(), 1);
@@ -106,6 +147,12 @@ mod tests {
 
         let nightly = default_endpoints(Channel::Nightly);
         assert!(nightly[0].ends_with("/latest-nightly.json"));
+
+        let deb = default_endpoints_for_install_method(Channel::Stable, &InstallMethod::Deb);
+        assert_eq!(
+            deb[0],
+            "https://github.com/rollacode/codeterm-releases/releases/latest/download/latest-deb.json"
+        );
     }
 
     #[test]

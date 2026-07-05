@@ -149,7 +149,7 @@ jobs:
       # Publish the linux-x86_64 updater fragment from the AppImage. The .sig is
       # read for its signature string but NOT uploaded (the updater reads the
       # signature from latest.json, never the .sig asset).
-      - name: Publish per-platform updater fragment
+      - name: Publish AppImage updater fragment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -184,6 +184,34 @@ jobs:
             python3 .github/workflows/build-updater-fragment.py
           gh release upload "$TAG" "$OUT" --clobber --repo "$SOURCE_REPO"
 
+      # Deb-installed Linux builds use Tauri's deb installer, which validates
+      # the downloaded bytes as a .deb before invoking dpkg. Keep this in a
+      # separate manifest because linux-x86_64 can only map to one artifact per
+      # Tauri manifest.
+      - name: Publish Debian updater fragment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.name }}
+          SOURCE_REPO: ${{ github.repository }}
+          MANIFEST_REPO: rollacode/codeterm-releases
+          PLATFORM_KEY: linux-x86_64
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE_ROOT="src-tauri/target/${TARGET}/release/bundle"
+          DEB_SIG=$(find "$BUNDLE_ROOT/deb" -name '*.deb.sig' 2>/dev/null | head -n1 || true)
+          [ -n "$DEB_SIG" ] || { echo "::error::No deb signature under $BUNDLE_ROOT/deb"; exit 1; }
+          DEB_BUNDLE="${DEB_SIG%.sig}"
+          [ -f "$DEB_BUNDLE" ] || { echo "::error::Deb bundle missing next to $DEB_SIG"; exit 1; }
+
+          OUT="updater-${TARGET}-deb.json"
+          REPO="$MANIFEST_REPO" \
+          UPDATER_BUNDLE="$DEB_BUNDLE" \
+          UPDATER_SIG="$DEB_SIG" \
+          OUT="$OUT" \
+            python3 .github/workflows/build-updater-fragment.py
+          gh release upload "$TAG" "$OUT" --clobber --repo "$SOURCE_REPO"
+
       # Rebuild latest.json from ALL fragments present + the existing manifest
       # (monotonic --base): a workflow finishing after us cannot drop the
       # platform we just published, and we cannot drop theirs.
@@ -201,6 +229,9 @@ jobs:
           i=0
           for f in _raw/updater-*.json; do
             [ -f "$f" ] || continue
+            case "$(basename "$f")" in
+              *-deb.json) continue ;;
+            esac
             d="_merge/frag-$i"; mkdir -p "$d"; cp "$f" "$d/latest.json"; i=$((i+1))
           done
           BASE_ARG=()
@@ -209,6 +240,32 @@ jobs:
           fi
           node scripts/merge-latest-json.js --in _merge --out "$MANIFEST" "${BASE_ARG[@]}"
           gh release upload "$TAG" "$MANIFEST" --clobber --repo "$SOURCE_REPO"
+
+      - name: Refresh Debian updater manifest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.name }}
+          SOURCE_REPO: ${{ github.repository }}
+          CHANNEL_MANIFEST: ${{ steps.channel.outputs.manifest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$CHANNEL_MANIFEST" in
+            latest.json) DEB_MANIFEST="latest-deb.json" ;;
+            latest-rc.json) DEB_MANIFEST="latest-rc-deb.json" ;;
+            latest-nightly.json) DEB_MANIFEST="latest-nightly-deb.json" ;;
+            *) echo "::error::Unknown channel manifest $CHANNEL_MANIFEST"; exit 1 ;;
+          esac
+
+          rm -rf _merge_deb _raw_deb && mkdir -p _merge_deb
+          gh release download "$TAG" --pattern 'updater-*-deb.json' --dir _raw_deb --repo "$SOURCE_REPO" || true
+          i=0
+          for f in _raw_deb/updater-*-deb.json; do
+            [ -f "$f" ] || continue
+            d="_merge_deb/frag-$i"; mkdir -p "$d"; cp "$f" "$d/latest.json"; i=$((i+1))
+          done
+          node scripts/merge-latest-json.js --in _merge_deb --out "$DEB_MANIFEST"
+          gh release upload "$TAG" "$DEB_MANIFEST" --clobber --repo "$SOURCE_REPO"
 
       # Mirror the .deb + .AppImage (user downloads) + updater bundle + merged
       # manifest to the public release repo so the auto-updater + anonymous
@@ -224,6 +281,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          case "$MANIFEST" in
+            latest.json) DEB_MANIFEST="latest-deb.json" ;;
+            latest-rc.json) DEB_MANIFEST="latest-rc-deb.json" ;;
+            latest-nightly.json) DEB_MANIFEST="latest-nightly-deb.json" ;;
+            *) echo "::error::Unknown channel manifest $MANIFEST"; exit 1 ;;
+          esac
+
           BUNDLE_ROOT="src-tauri/target/${TARGET}/release/bundle"
           DEB=$(find "$BUNDLE_ROOT/deb" -name '*.deb' 2>/dev/null | head -n1)
           APPIMAGE=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage' 2>/dev/null | head -n1)
@@ -245,4 +309,4 @@ jobs:
 
           ASSETS=("$DEB" "$APPIMAGE")
           [ -n "$UPDATER_BUNDLE" ] && ASSETS+=("$UPDATER_BUNDLE")
-          gh release upload "$TAG" "${ASSETS[@]}" "$MANIFEST" --clobber --repo "$MIRROR_REPO"
+          gh release upload "$TAG" "${ASSETS[@]}" "$MANIFEST" "$DEB_MANIFEST" --clobber --repo "$MIRROR_REPO"

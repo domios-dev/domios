@@ -121,7 +121,10 @@ pub async fn install_update(
     // Keep cache useful for polling badge and manual browser fallback paths.
     if q.method.as_deref() == Some("auto") {
         let app = state.svc.app_handle.clone();
-        let channel = state.update_state.lock().channel;
+        let (channel, install_method) = {
+            let us = state.update_state.lock();
+            (us.channel, us.install_method.clone())
+        };
         let manifest_url = q.manifest_url.clone();
         let update_state = state.update_state.clone();
         {
@@ -146,6 +149,7 @@ pub async fn install_update(
                 let opts = ApplyOptions {
                     channel,
                     manifest_url,
+                    install_method,
                 };
                 match check_and_apply(&app, opts.clone(), update_state.clone()).await {
                     Ok(applied) => {
