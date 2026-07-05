@@ -245,6 +245,7 @@ title: Plan views UX redesign — Board/List/Canvas
 - [auto-pull-mem-orchestration-preferences-at-orchestrator-planner-start (Auto-pull mem orchestration preferences at orchestrator/planner start)](tasks/auto-pull-mem-orchestration-preferences-at-orchestrator-planner-start.md)
 - [decision-gate-productize-remote-qa-builders (DECISION GATE: productize remote QA builders?)](tasks/decision-gate-productize-remote-qa-builders.md)
 - [daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st (Daemon perf: full-screen vt100 hash on every PTY chunk melts CPU under streaming load)](tasks/daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st.md)
+- [final-staging-dev-consoles-live-on-air-rog-ubunta-full-regression-everyw (FINAL STAGING: dev consoles live on Air+ROG+ubunta, full regression everywhere, left running for Andrey)](tasks/final-staging-dev-consoles-live-on-air-rog-ubunta-full-regression-everyw.md)
 
 ## Stride Logs
 
@@ -572,6 +573,7 @@ title: Plan views UX redesign — Board/List/Canvas
 - [final-acceptance-dev-walkthrough-of-wave-24-plan-wrap-up decision (ms_52c7cd13ed254bfaa3ee927245dcc382)](milestones/final-acceptance-dev-walkthrough-of-wave-24-plan-wrap-up-ms_52c7cd13ed254bfaa3ee927245dcc382.md)
 - [final-acceptance-dev-walkthrough-of-wave-24-plan-wrap-up review (ms_dfffbaabe79b4b089b9b0b018f08128f)](milestones/final-acceptance-dev-walkthrough-of-wave-24-plan-wrap-up-ms_dfffbaabe79b4b089b9b0b018f08128f.md)
 - [final-acceptance-dev-walkthrough-of-wave-24-plan-wrap-up decision (ms_5747b61027354e61a49cfc64b7b1affd)](milestones/final-acceptance-dev-walkthrough-of-wave-24-plan-wrap-up-ms_5747b61027354e61a49cfc64b7b1affd.md)
+- [final-acceptance-dev-walkthrough-of-wave-24-plan-wrap-up note (ms_92827a4f2fdf4f9a9b2580a05c1e05a0)](milestones/final-acceptance-dev-walkthrough-of-wave-24-plan-wrap-up-ms_92827a4f2fdf4f9a9b2580a05c1e05a0.md)
 - [plan-skills-store-cli-ledger-mem-indexing-recall-pointer testing (ms_f8c05a6f0f734fc2ada5fd89a93c5ade)](milestones/plan-skills-store-cli-ledger-mem-indexing-recall-pointer-ms_f8c05a6f0f734fc2ada5fd89a93c5ade.md)
 - [plan-skills-emergent-principles-in-prompts-testing-methodology decision (ms_f9f1710405774e4fb83dc25b1d3c5bf6)](milestones/plan-skills-emergent-principles-in-prompts-testing-methodology-ms_f9f1710405774e4fb83dc25b1d3c5bf6.md)
 - [plan-skills-ui-completion-retrospective status_update (ms_aa02f6f8063e4199b6421a10803606ab)](milestones/plan-skills-ui-completion-retrospective-ms_aa02f6f8063e4199b6421a10803606ab.md)
