@@ -1839,6 +1839,14 @@
               "default": null,
               "help": "Area name (e.g. auth, deploy, billing)",
               "aliases": []
+            },
+            {
+              "name": "yes",
+              "positional": false,
+              "value_name": "YES",
+              "default": null,
+              "help": "Confirm the batch delete (refused without it)",
+              "aliases": []
             }
           ],
           "subcommands": []
