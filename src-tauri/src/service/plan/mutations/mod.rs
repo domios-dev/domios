@@ -187,9 +187,35 @@ pub(super) fn validate_task_status_transition(
     task_id: &str,
     current: &TaskStatus,
     next: &TaskStatus,
+    incoming_label: Option<Option<&str>>,
 ) -> Result<(), PlanError> {
     if current == next {
         return Ok(());
+    }
+    let invariants_on = std::env::var("CODETERM_STATE_INVARIANTS").map_or(true, |v| v != "off");
+    if invariants_on {
+        let task = plan.tasks.iter().find(|t| t.id == task_id);
+        if matches!(next, TaskStatus::InProgress) {
+            let has_pane = task
+                .and_then(|t| t.assigned_pane_id.as_deref().or(t.lane.pane_id.as_deref()))
+                .is_some_and(|p| !p.trim().is_empty());
+            if !has_pane {
+                return Err(PlanError::InProgressRequiresPane);
+            }
+        }
+        if matches!(next, TaskStatus::Blocked) {
+            let incoming = incoming_label
+                .flatten()
+                .map(str::trim)
+                .filter(|l| !l.is_empty());
+            let existing = task
+                .and_then(|t| t.status_label.as_deref())
+                .map(str::trim)
+                .filter(|l| !l.is_empty());
+            if incoming.is_none() && existing.is_none() {
+                return Err(PlanError::BlockedRequiresLabel);
+            }
+        }
     }
     if matches!(next, TaskStatus::Done) {
         reject_done_with_open_subtasks(plan, task_id)?;

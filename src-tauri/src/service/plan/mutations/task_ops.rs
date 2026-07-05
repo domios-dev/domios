@@ -33,7 +33,13 @@ impl PlanStore {
             let task_id = p.tasks[task_index].id.clone();
             let parsed_status = status.map(parse_task_status).transpose()?;
             if let Some(next) = &parsed_status {
-                validate_task_status_transition(p, &task_id, &p.tasks[task_index].status, next)?;
+                validate_task_status_transition(
+                    p,
+                    &task_id,
+                    &p.tasks[task_index].status,
+                    next,
+                    status_label,
+                )?;
             }
             let task = &mut p.tasks[task_index];
             if let Some(n) = name {
@@ -214,6 +220,8 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         let expected = lane.clone();
+        // Explicit --pane OVERWRITES the executor binding; fill-if-empty is only for implicit capture.
+        let pane_explicit = lane.pane_id.is_some();
         let write = self.with_plan(plan_id, now_ms, |p| {
             let task = p
                 .tasks
@@ -230,7 +238,7 @@ impl PlanStore {
                     now_ms,
                 );
                 clear_task_assignment(task);
-            } else if task.assigned_pane_id.is_none() {
+            } else if pane_explicit || task.assigned_pane_id.is_none() {
                 task.assigned_pane_id = task.lane.pane_id.clone();
             }
             task.updated_at = now_ms;
@@ -446,5 +454,105 @@ mod fill_lane_tests {
         let t = p.tasks.iter().find(|t| t.id == task).unwrap();
         assert!(t.assigned_pane_id.is_none());
         assert!(t.lane.branch.is_none());
+    }
+
+    #[test]
+    fn explicit_pane_update_overwrites_assigned_pane() {
+        // #209 regression: an explicit lane pane update must rebind the executor,
+        // not silently no-op because assigned_pane_id was already set.
+        let (_d, store, plan, task) = setup();
+        store
+            .fill_task_lane_if_empty(&plan, &task, Some("old-pane"), None, None, 5)
+            .unwrap();
+        let update = crate::service::plan::TaskLaneUpdate {
+            pane_id: Some(Some("new-pane".into())),
+            ..Default::default()
+        };
+        store.update_task_lane(&plan, &task, update, 6).unwrap();
+        let p = store.get(&plan).unwrap();
+        let t = p.tasks.iter().find(|t| t.id == task).unwrap();
+        assert_eq!(t.lane.pane_id.as_deref(), Some("new-pane"));
+        assert_eq!(t.assigned_pane_id.as_deref(), Some("new-pane"));
+    }
+
+    #[test]
+    fn implicit_lane_update_still_fills_only_empty() {
+        let (_d, store, plan, task) = setup();
+        store
+            .fill_task_lane_if_empty(&plan, &task, Some("keeper"), None, None, 5)
+            .unwrap();
+        let update = crate::service::plan::TaskLaneUpdate {
+            branch: Some(Some("lane/x".into())),
+            ..Default::default()
+        };
+        store.update_task_lane(&plan, &task, update, 6).unwrap();
+        let p = store.get(&plan).unwrap();
+        let t = p.tasks.iter().find(|t| t.id == task).unwrap();
+        assert_eq!(t.assigned_pane_id.as_deref(), Some("keeper"));
+        assert_eq!(t.lane.branch.as_deref(), Some("lane/x"));
+    }
+
+    fn set_status(
+        store: &PlanStore,
+        plan: &str,
+        task: &str,
+        status: &str,
+        label: Option<Option<&str>>,
+        ts: u64,
+    ) -> Result<(), crate::service::plan::PlanError> {
+        store.update_task(
+            plan,
+            task,
+            None,
+            None,
+            None,
+            None,
+            Some(status),
+            label,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            ts,
+        )
+    }
+
+    #[test]
+    fn in_progress_requires_pane_invariant() {
+        let (_d, store, plan, task) = setup();
+        let err = set_status(&store, &plan, &task, "in_progress", None, 5).unwrap_err();
+        assert!(matches!(
+            err,
+            crate::service::plan::PlanError::InProgressRequiresPane
+        ));
+        store
+            .fill_task_lane_if_empty(&plan, &task, Some("pane-1"), None, None, 6)
+            .unwrap();
+        set_status(&store, &plan, &task, "in_progress", None, 7).unwrap();
+    }
+
+    #[test]
+    fn blocked_requires_label_invariant() {
+        let (_d, store, plan, task) = setup();
+        let err = set_status(&store, &plan, &task, "blocked", None, 5).unwrap_err();
+        assert!(matches!(
+            err,
+            crate::service::plan::PlanError::BlockedRequiresLabel
+        ));
+        set_status(
+            &store,
+            &plan,
+            &task,
+            "blocked",
+            Some(Some("waiting on QA")),
+            6,
+        )
+        .unwrap();
     }
 }
