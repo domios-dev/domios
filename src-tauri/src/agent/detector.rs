@@ -23,11 +23,10 @@ pub enum AgentEvent {
 /// (within 8 lines). This prevents false positives when Claude's answer contains
 /// a numbered list far above the actual prompt.
 ///
-/// This is generic enough for any TUI menu, not just Claude.
-/// Source code won't have this exact structural combination.
-
 /// Known selector prefixes in prompt option lines.
 ///
+/// This is generic enough for any TUI menu, not just Claude.
+/// Source code won't have this exact structural combination.
 /// `❯` (U+276F) is the canonical selector, `>` is the ASCII fallback.
 /// Some VT100 parsers mangle UTF-8 — the byte sequence E2 9D AF (❯) can lose
 /// the middle byte 0x9D (C1 control) and become `â¯` (U+00E2 U+00AF).
