@@ -480,7 +480,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1783008646086,
-  "updated_at": 1783273007076,
+  "updated_at": 1783273648777,
   "milestone_kinds": [
     {
       "key": "decision",
@@ -11744,12 +11744,12 @@
       ],
       "test_plan": "Unit: rule-table evaluation matrix, freshness/timeout logic, capability filtering; live drill: current plan state (5 in_review) triggers the nudge once; usage block visible in Puccini's next heartbeats with real codex+claude numbers; capped",
       "correctness": "Guidance not enforcement — no automatic routing changes; usage refresh must never block or delay heartbeat assembly; provider failures degrade to stale-with-timestamp; zero provider-id literals",
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p1",
       "created_at": 1783265002276,
-      "updated_at": 1783268648541,
-      "status_changed_at": 1783267802242,
+      "updated_at": 1783273648777,
+      "status_changed_at": 1783273648777,
       "handle": "orchestrator-digests-queue-pressure-nudges-generalized-token-usage-in-he",
       "tags": [],
       "section_ids": [
@@ -11759,9 +11759,9 @@
       "role_guidance": "Backend worker in heartbeat/reminders + provider usage paths; read the codex /status fixture work (task_24b2badf lane) and the existing experimental usage code first.",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "35c650fa",
+      "assigned_pane_id": null,
       "lane": {
-        "pane_id": "35c650fa",
+        "pane_id": null,
         "workspace_id": null,
         "workspace_name": null,
         "worktree_path": null,
@@ -11801,7 +11801,7 @@
           "assigned_at": 1783268619258,
           "reported_at": null,
           "reviewed_at": null,
-          "closed_at": null
+          "closed_at": 1783273648777
         }
       ]
     },
