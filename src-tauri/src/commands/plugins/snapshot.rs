@@ -188,9 +188,17 @@ fn read_bounded_text(path: &std::path::Path) -> Option<String> {
 }
 
 /// The expensive (network git-clone) channel diff, run only on the background
-/// refresh thread owned by `diff_cache`, never inline in the snapshot.
+/// refresh thread owned by `diff_cache`, never inline in the passive snapshot.
 fn fetch_channel_diff() -> Result<Value, String> {
     run_plugin_cli(&["plugin", "channel", "diff", "--json"])
+}
+
+/// Synchronously recompute + cache the channel diff for the explicit "refresh channels"
+/// action. Runs inline (while any just-added local channel source still exists) so the
+/// snapshot the action returns — and the next passive GET — serve the fresh channels
+/// rather than a background value that only lands after the source may be gone.
+pub(super) fn refresh_channel_diff_now() {
+    let _ = super::diff_cache::refresh_diff_now(fetch_channel_diff);
 }
 
 pub(super) fn build_snapshot(
