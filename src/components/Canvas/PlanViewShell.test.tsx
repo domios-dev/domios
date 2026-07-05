@@ -172,3 +172,26 @@ async function main() {
 }
 
 main();
+
+test("useFrozenWhenHidden keeps last-visible reference while hidden", async () => {
+  const { useFrozenWhenHidden } = await import("./PlanViewShell");
+  const outputs: unknown[] = [];
+  function Probe({ value, visible }: { value: { n: number }; visible: boolean }) {
+    outputs.push(useFrozenWhenHidden(value, visible));
+    return null;
+  }
+  const { createRoot } = await import("react-dom/client");
+  const { createElement, act } = await import("react");
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const a = { n: 1 };
+  const b = { n: 2 };
+  const c = { n: 3 };
+  await act(async () => root.render(createElement(Probe, { value: a, visible: true })));
+  await act(async () => root.render(createElement(Probe, { value: b, visible: false })));
+  await act(async () => root.render(createElement(Probe, { value: c, visible: true })));
+  if (outputs[0] !== a) throw new Error("visible passes live props");
+  if (outputs[1] !== a) throw new Error("hidden must keep the last-visible reference (memo identity)");
+  if (outputs[2] !== c) throw new Error("re-shown surface receives fresh props");
+  root.unmount();
+});
