@@ -10,6 +10,14 @@ OUT="$ROOT/target-check/evals/plan-lifecycle/$RUN_ID"
 SPEC="$OUT/spec.md"
 mkdir -p "$OUT"
 
+dev_alive || { echo "dev daemon not on port 7686; start it with ./build.sh dev" >&2; exit 1; }
+# Snapshot before creating anything; sweep on ANY exit (this eval otherwise
+# leaves an archived+disowned PLAN-LIFECYCLE-* plan behind on every run).
+PLAN_BASELINE="$OUT/plan-baseline.txt"
+plan_snapshot "$PLAN_BASELINE" || { echo "could not snapshot plan baseline" >&2; exit 1; }
+cleanup() { plan_sweep_new "${PLAN_BASELINE:-}" >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+
 fail() {
   echo "  ✗ $*" >&2
   exit 1
@@ -143,5 +151,11 @@ UNOWNED="$(dc --json plan list --unowned)"
 jq -e --arg plan "$PLAN_ID" '.plans[] | select(.plan_id == $plan)' <<<"$UNOWNED" >/dev/null \
   || fail "archived disowned plan is not listed by --unowned"
 pass "archived disowned plan appears in --unowned"
+
+# Delete the fixture (the --unowned assertion above needed it alive), then
+# assert the plan set returned to baseline — no PLAN-LIFECYCLE-* junk left.
+plan_delete_one "$PLAN_ID" >/dev/null 2>&1 || true
+plan_sweep_new "$PLAN_BASELINE" >/dev/null 2>&1 || true
+plan_assert_clean "$PLAN_BASELINE" plan-lifecycle || fail "plan lifecycle leaked plans (before != after)"
 
 echo "== plan lifecycle eval passed =="

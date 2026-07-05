@@ -64,17 +64,11 @@ cleanup() {
     [ -n "$p" ] || continue
     dc pane close "$p" >/dev/null 2>&1 && note "closed pane $p" || note "pane $p already gone"
   done
-  # delete can no-op under load (dc's 1s health gate times out -> exit 7); retry.
-  for pl in "${CREATED_PLANS[@]:-}"; do
-    [ -n "$pl" ] || continue
-    local done=0 t
-    for t in 1 2 3; do
-      if dc plan delete "$pl" 2>/dev/null | grep -qi "OK"; then done=1; break; fi
-      sleep 1
-    done
-    [ "$done" = 1 ] && note "deleted plan $pl" \
-      || { dc plan archive "$pl" >/dev/null 2>&1 && note "archived plan $pl" || note "plan $pl left (manual: dc plan delete $pl)"; }
-  done
+  # Sweep EVERY plan created since the baseline — by id-diff, not by the
+  # CREATED_PLANS list (a plan created as a side-effect, or one whose id
+  # extraction failed mid-scenario, is still deleted). Never archive:
+  # archived plans are exactly the junk we are here to eliminate.
+  [ -n "${PLAN_BASELINE:-}" ] && plan_sweep_new "$PLAN_BASELINE"
   for w in "${CREATED_WS[@]:-}"; do
     [ -n "$w" ] || continue
     dc workspace close "$w" >/dev/null 2>&1 && note "closed ws $w" || note "ws $w left"
@@ -90,6 +84,12 @@ if ! curl -s --max-time 3 http://127.0.0.1:7686/api/health >/dev/null 2>&1; then
 fi
 BUILD=$(dev_get /api/health | python -c "import json,sys;print(json.load(sys.stdin).get('build','?'))" 2>/dev/null)
 echo "  dev build: $BUILD"
+
+# Baseline plan-id set — cleanup sweeps everything created past this, and
+# the result gate asserts the set returned to it (before == after).
+PLAN_BASELINE="$(mktemp -t orchmatrix-plans.XXXXXX)"
+plan_snapshot "$PLAN_BASELINE" || { echo "ABORT: could not snapshot plan baseline" >&2; exit 7; }
+echo "  plan baseline: $(wc -l < "$PLAN_BASELINE" | tr -d ' ') plans"
 
 # scratch workspace shared by scenarios (each scenario independent within it)
 WS_CWD="$ROOT"
@@ -640,6 +640,13 @@ done
 echo "----------------------------------------------------------------------"
 echo " PASS=$np  FAIL=$nf  FINDING=$nfd  GATED=$ng"
 echo "======================================================================"
+
+# Plan hygiene gate: sweep any straggler, then assert the plan set returned
+# to baseline (before == after). A leak FAILS the matrix — it never hides.
+plan_sweep_new "$PLAN_BASELINE"
+if ! plan_assert_clean "$PLAN_BASELINE" orchmatrix; then
+  echo "RESULT: FAIL (matrix leaked plans — see above)"; exit 1
+fi
 
 [ "$FAILS" -eq 0 ] || { echo "RESULT: FAIL ($FAILS hard failures)"; exit 1; }
 echo "RESULT: no hard failures (triage FINDING/GATED rows)"

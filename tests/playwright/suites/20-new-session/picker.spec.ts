@@ -11,7 +11,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "../../helpers/fixtures";
-import { ApiClient, type Pane, type PlanSummary } from "../../helpers/api-client";
+import { ApiClient, type Pane } from "../../helpers/api-client";
+import { PlanRegistry } from "../../helpers/plan-cleanup";
 
 const TEST_WS_PREFIX = "pw-picker";
 
@@ -176,29 +177,18 @@ async function cleanupWorkspace(api: ApiClient, wsId: string | undefined): Promi
   await api.closeWorkspace(wsId).catch(() => {});
 }
 
-/** Plans this suite created — matched by the test-workspace prefix embedded in
- *  the disambiguated default title. Closing a workspace does NOT delete its
- *  plans, so spawn scenarios would otherwise leave orphans behind. */
-async function testPlans(api: ApiClient): Promise<PlanSummary[]> {
-  const plans = await api.plans().catch(() => [] as PlanSummary[]);
-  return plans.filter((p) => (p.title ?? "").includes(TEST_WS_PREFIX));
-}
-async function deleteTestPlans(api: ApiClient): Promise<void> {
-  for (const p of await testPlans(api)) {
-    await api.deletePlan(p.plan_id).catch(() => {});
-  }
-}
-
 test.describe("new-session picker", () => {
   // scenarios that spawn real agents raise their own timeout explicitly.
   test.describe.configure({ timeout: 30_000 });
 
   let ws: { id: string; name: string };
-  let plansAtStart = 0;
+  // Id-diff registry (NOT title-keyed): a plan that regresses to the bare
+  // "Orchestration"/"04:56" title is still swept. Closing a workspace does not
+  // cascade to its plans, so spawn scenarios would otherwise leak them.
+  const plans = new PlanRegistry();
 
-  // standalone client (same dev token) for the suite-level plan invariant.
   test.beforeAll(async () => {
-    plansAtStart = (await new ApiClient().plans().catch(() => [])).length;
+    await plans.snapshot();
   });
 
   test.beforeEach(async ({ api, ui }) => {
@@ -207,18 +197,28 @@ test.describe("new-session picker", () => {
   });
 
   test.afterEach(async ({ api }) => {
-    // Delete plans BEFORE closing the workspace (close doesn't cascade to plans).
-    await deleteTestPlans(api);
+    // Sweep created plans BEFORE closing the workspace (close doesn't cascade).
+    // Runs even when the test body threw — teardown is not gated on asserts.
+    await plans.sweep();
     await cleanupWorkspace(api, ws?.id);
   });
 
   test.afterAll(async () => {
-    const api = new ApiClient();
-    // Sweep any straggler this suite created, then assert it left nothing behind.
-    await deleteTestPlans(api);
-    expect(await testPlans(api), "suite must leave ZERO test plans behind").toHaveLength(0);
-    const plansAtEnd = (await api.plans().catch(() => [])).length;
-    expect(plansAtEnd, "plan count before suite == after suite").toBe(plansAtStart);
+    await plans.sweep();
+    const leaked = await plans.created();
+    expect(
+      leaked,
+      `suite must leave ZERO created plans (before == after). Leaked: ${leaked
+        .map((p) => `${p.plan_id}:${JSON.stringify(p.title)}`)
+        .join(", ")}`,
+    ).toHaveLength(0);
+    const junk = await plans.junk();
+    expect(
+      junk,
+      `no orchmatrix-*/bare 'Orchestration'/timestamp junk may remain. Found: ${junk
+        .map((p) => `${p.plan_id}:${JSON.stringify(p.title)}`)
+        .join(", ")}`,
+    ).toHaveLength(0);
   });
 
   test("@golden OPEN: New session shows the VIRTUAL picker, no backend pane/PTY", async ({ api, ui }) => {
