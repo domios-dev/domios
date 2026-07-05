@@ -59,7 +59,7 @@ pub const REFLECTION_HEARTBEAT_TITLE: &str = "Reflection:";
 /// One-shot reflection block. `{trigger}` names why it fired; `{closed}`/`{bounces}`/`{leaks}`
 /// are honest window counts (zero when not derivable). Routes lessons to existing primitives —
 /// it invents no storage; recording a learning clears it until the next trigger.
-pub const REFLECTION_BLOCK: &str = "{trigger} — pause and self-review this window (tasks closed: {closed}, bounces: {bounces}, gate leaks: {leaks}). Route every lesson to an existing home, do not invent a store: a durable orchestration lesson -> `codeterm orchestrator learn \"<lesson>\"`; a reusable recipe/procedure -> `codeterm plan skill new <slug>` or edit an existing one; a prompt or process defect -> propose the prompt change to your Planner. Recording a learning clears this block until the next group close or gate window.";
+pub const REFLECTION_BLOCK: &str = "{trigger} — pause and self-review this window (tasks closed: {closed}, bounces: {bounces}, gate leaks: {leaks}). Route every lesson to an existing home, do not invent a store: a durable orchestration lesson -> `codeterm orchestrator learn \"<lesson>\"`; a reusable recipe/procedure -> `codeterm plan skill new <slug>` or edit an existing one; a prompt or process defect -> propose the prompt change to your Planner. Recording a learning clears this block until the next group close or gate window. Then run the VELOCITY AND COST sweep over the open frontier: is it shrinking — and if not, what blocks it? Which open tasks no longer earn their priority (descope, defer, or split — propose it to your Planner)? Which gates can batch into one QA run instead of several? Which remaining work fits a cheaper model or an idle machine? Green lanes get one-line verdicts, not essays — spend tokens on findings, not ceremony.";
 
 /// Fills [`REFLECTION_BLOCK`] placeholders from a reflection window.
 pub fn reflection_block(
@@ -481,6 +481,41 @@ mod tests {
     fn planner_suffix_has_reflection_symmetry_line() {
         assert!(PLANNER_SUFFIX.contains("At reflection points"));
         assert!(PLANNER_SUFFIX.contains("task or test-plan quality"));
+    }
+
+    #[test]
+    fn general_agent_routes_project_work_to_workspaces() {
+        assert!(GENERAL_AGENT_TEMPLATE.contains("Machine scope, not project scope"));
+        assert!(GENERAL_AGENT_TEMPLATE.contains("spawn or reuse an orchestrator there"));
+    }
+
+    #[test]
+    fn orchestrator_suffix_has_cross_machine_etiquette() {
+        assert!(ORCHESTRATOR_SUFFIX.contains("Cross-machine work:"));
+        assert!(ORCHESTRATOR_SUFFIX.contains("redirected into a workspace, not executed"));
+    }
+
+    #[test]
+    fn orchestrator_suffix_has_blocked_triage_rule() {
+        assert!(ORCHESTRATOR_SUFFIX.contains("a claim, not a parking spot"));
+        assert!(ORCHESTRATOR_SUFFIX.contains("record the unblock trigger"));
+    }
+
+    #[test]
+    fn orchestrator_suffix_routes_uncertainty_to_planner() {
+        assert!(ORCHESTRATOR_SUFFIX.contains("ask your Planner before guessing"));
+    }
+
+    #[test]
+    fn planner_suffix_answers_with_decisions() {
+        assert!(PLANNER_SUFFIX.contains("decisions and rationale, not options"));
+    }
+
+    #[test]
+    fn reflection_block_runs_velocity_and_cost_sweep() {
+        assert!(REFLECTION_BLOCK.contains("VELOCITY AND COST sweep"));
+        assert!(REFLECTION_BLOCK.contains("no longer earn their priority"));
+        assert!(REFLECTION_BLOCK.contains("cheaper model"));
     }
 
     #[test]
