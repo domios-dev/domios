@@ -6,17 +6,34 @@ import { canonicalTaskStatusLabel } from "./taskStatusLabel";
 import { usePlanTaskActivate } from "./planTaskInteraction";
 import { TaskExecutionBadges } from "./TaskExecutionBadges";
 import { WorkingOnRow } from "./WorkingOnRowView";
+import { deriveTaskCardMetadata, type TaskCardMetaRow } from "./taskCardMetadata";
 
 export interface BoardTaskCardProps {
   card: BoardTaskCardModel;
   onOpen?: () => void;
 }
 
+function metaIcon(kind: TaskCardMetaRow["kind"]) {
+  const size = 11;
+  if (kind === "handle") return <Hash size={9} strokeWidth={2.5} />;
+  if (kind === "branch") return <GitBranch size={size} className="opacity-70" />;
+  if (kind === "historical") return <History size={size} className="opacity-60" />;
+  return <User size={size} className="opacity-70" />;
+}
+
+function metaTestId(kind: TaskCardMetaRow["kind"]): string {
+  if (kind === "handle") return "plan-board-task-handle";
+  if (kind === "branch") return "plan-board-task-lane";
+  if (kind === "historical") return "plan-board-task-historical-executor";
+  if (kind === "executor") return "plan-board-task-active-executor";
+  return "plan-board-task-age";
+}
+
 export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
   const { task } = card;
   const statusColor = TASK_STATUS_COLORS[task.status];
-  const handle = task.handle?.trim() || null;
   const interactive = Boolean(onOpen);
+  const metadata = deriveTaskCardMetadata(card);
   const { onPointerDown, onPointerMove, onClick } = usePlanTaskActivate(onOpen);
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -59,40 +76,19 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
       {card.workingOn ? (
         <WorkingOnRow model={card.workingOn} variant="board" />
       ) : (
-        handle && (
-          <p data-testid="plan-board-task-handle" className="plan-board-task-meta plan-board-task-handle">
+        metadata.rows.map((row) => (
+          <p
+            key={row.kind}
+            data-testid={metaTestId(row.kind)}
+            className={`plan-board-task-meta plan-board-task-meta-${row.kind}${row.mono ? " plan-board-task-mono" : ""}`}
+          >
             <span className="plan-board-task-meta-icon" aria-hidden>
-              <Hash size={9} strokeWidth={2.5} />
+              {metaIcon(row.kind)}
             </span>
-            <span className="min-w-0 truncate">{handle}</span>
+            <span className="plan-board-task-meta-label">{row.label}</span>
+            <span className="plan-board-task-meta-value min-w-0 truncate">{row.value}</span>
           </p>
-        )
-      )}
-      {!card.workingOn && card.presenceLabel && (
-        <p data-testid="plan-board-task-active-executor" className="plan-board-task-meta">
-          <span className="plan-board-task-meta-icon" aria-hidden>
-            <User size={11} className="opacity-70" />
-          </span>
-          <span className="min-w-0 break-words">
-            {[card.presenceLabel, card.roleLabel].filter(Boolean).join(" · ")}
-          </span>
-        </p>
-      )}
-      {card.historicalExecutorSummary && !card.presenceLabel && !card.workingOn && (
-        <p data-testid="plan-board-task-historical-executor" className="plan-board-task-meta plan-board-task-historical">
-          <span className="plan-board-task-meta-icon" aria-hidden>
-            <History size={11} className="opacity-60" />
-          </span>
-          <span className="min-w-0 break-words">{card.historicalExecutorSummary}</span>
-        </p>
-      )}
-      {!card.workingOn && card.branch && (
-        <p data-testid="plan-board-task-lane" className="plan-board-task-meta plan-board-task-lane">
-          <span className="plan-board-task-meta-icon" aria-hidden>
-            <GitBranch size={11} className="opacity-70" />
-          </span>
-          <span className="min-w-0 truncate">{card.branch}</span>
-        </p>
+        ))
       )}
       {card.latestNote && (
         <p data-testid="latest-note" className="plan-board-task-latest-note">
