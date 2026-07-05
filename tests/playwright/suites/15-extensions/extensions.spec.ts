@@ -125,13 +125,29 @@ async function openExtensions(ui: ManagedUiSession): Promise<void> {
 }
 
 async function addChannel(page: Page, url: string): Promise<void> {
+  // AddChannelInline only mounts in the Channels filter's detail pane (ExtensionsView.tsx).
+  await page.locator('[data-testid="extensions-filter"][data-extension-filter="channels"]').click();
   await page.locator('[data-testid="extensions-channel-add-open"]').click();
   await page.locator('[data-testid="extensions-channel-url-input"]').fill(url);
   await page.locator('[data-testid="extensions-channel-name-input"]').fill(CHANNEL_NAME);
   await page.locator('[data-testid="extensions-channel-add-submit"]').click();
-  await expect(
-    page.locator(`[data-testid="extensions-section"][data-extension-section="channel:${CHANNEL_NAME}"]`),
-  ).toBeVisible({ timeout: 30_000 });
+  // extensions-section (source-grouped rows) only renders outside the Channels filter.
+  await page.locator('[data-testid="extensions-filter"][data-extension-filter="all"]').click();
+  const section = page.locator(
+    `[data-testid="extensions-section"][data-extension-section="channel:${CHANNEL_NAME}"]`,
+  );
+  // The channel marketplace diff refreshes on a background thread (diff_cache.rs) and
+  // isn't re-polled by the UI on its own; nudge extensions-refresh until it lands.
+  await expect
+    .poll(
+      async () => {
+        if (await section.isVisible().catch(() => false)) return true;
+        await page.locator('[data-testid="extensions-refresh"]').click().catch(() => {});
+        return false;
+      },
+      { timeout: 30_000, intervals: [1_000] },
+    )
+    .toBe(true);
 }
 
 function pluginRow(page: Page) {
