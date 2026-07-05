@@ -53,7 +53,7 @@ function scopedSpecs() {
 
 function location(source, file, node) {
   const pos = source.getLineAndCharacterOfPosition(node.getStart(source));
-  return relative(process.cwd(), file) + ":" + (pos.line + 1);
+  return relative(process.cwd(), file).split("\\").join("/") + ":" + (pos.line + 1);
 }
 
 function titleFromArg(node) {
