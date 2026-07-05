@@ -271,9 +271,5 @@ pub(super) fn resolve_milestone(
     let resolved = store
         .resolve_milestone_ref(plan_ref.as_deref(), &task_ref, &milestone_ref)
         .map_err(resolve_err)?;
-    Ok((
-        resolved.plan_id,
-        resolved.task_id,
-        resolved.milestone_id,
-    ))
+    Ok((resolved.plan_id, resolved.task_id, resolved.milestone_id))
 }

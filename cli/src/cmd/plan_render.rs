@@ -58,4 +58,3 @@ pub(crate) fn render_coverage(val: &Value) -> String {
     }
     out
 }
-
