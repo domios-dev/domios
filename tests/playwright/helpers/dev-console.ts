@@ -188,6 +188,16 @@ export interface UiSession {
   page: Page;
 }
 
+async function completeFirstRunPickerIfPresent(page: Page): Promise<void> {
+  const picker = page.locator('[data-testid="first-run-general-picker"]');
+  if (!(await picker.isVisible({ timeout: 1_000 }).catch(() => false))) return;
+
+  const confirm = page.locator('[data-testid="agent-picker-confirm"]');
+  await confirm.waitFor({ state: "visible", timeout: 30_000 });
+  await confirm.click({ timeout: 30_000 });
+  await picker.waitFor({ state: "detached", timeout: 30_000 });
+}
+
 async function waitForShellOnce(page: Page): Promise<void> {
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
   await page
@@ -209,6 +219,7 @@ async function waitForShellOnce(page: Page): Promise<void> {
       /* localStorage may be unavailable; tests that need it will surface it */
     }
   });
+  await completeFirstRunPickerIfPresent(page);
   await page
     .waitForSelector('.xterm:visible, [data-testid="chat-composer"]:visible', {
       state: "visible",
