@@ -426,6 +426,7 @@ title: Plan views UX redesign — Board/List/Canvas
 - [cli-guidance-gaps-mem-forget-guard-aimless-worker-hints-workspace-cwd-hi strides](tasks/cli-guidance-gaps-mem-forget-guard-aimless-worker-hints-workspace-cwd-hi/strides.jsonl)
 - [remote-qa-builders-git-backed-gate-execution-across-registered-mesh-peer strides](tasks/remote-qa-builders-git-backed-gate-execution-across-registered-mesh-peer/strides.jsonl)
 - [code-review-gate-standing-review-stage-before-qa-current-run-product strides](tasks/code-review-gate-standing-review-stage-before-qa-current-run-product/strides.jsonl)
+- [orchestrator-digests-queue-pressure-nudges-generalized-token-usage-in-he strides](tasks/orchestrator-digests-queue-pressure-nudges-generalized-token-usage-in-he/strides.jsonl)
 - [skills-sync-hygiene-codeterm-is-the-single-source-providers-get-synced-c strides](tasks/skills-sync-hygiene-codeterm-is-the-single-source-providers-get-synced-c/strides.jsonl)
 - [daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st strides](tasks/daemon-perf-full-screen-vt100-hash-on-every-pty-chunk-melts-cpu-under-st/strides.jsonl)
 
@@ -819,6 +820,7 @@ title: Plan views UX redesign — Board/List/Canvas
 - [remote-qa-builders-git-backed-gate-execution-across-registered-mesh-peer review (ms_55af14245f7e41ffa77e208a78f46251)](milestones/remote-qa-builders-git-backed-gate-execution-across-registered-mesh-peer-ms_55af14245f7e41ffa77e208a78f46251.md)
 - [remote-qa-builders-git-backed-gate-execution-across-registered-mesh-peer acceptance (ms_6748a2abf68043f78d9e467f1da105cd)](milestones/remote-qa-builders-git-backed-gate-execution-across-registered-mesh-peer-ms_6748a2abf68043f78d9e467f1da105cd.md)
 - [code-review-gate-standing-review-stage-before-qa-current-run-product decision (ms_13859c5533a64c35854c861ef05e923e)](milestones/code-review-gate-standing-review-stage-before-qa-current-run-product-ms_13859c5533a64c35854c861ef05e923e.md)
+- [orchestrator-digests-queue-pressure-nudges-generalized-token-usage-in-he accepted (ms_eb8bda6e2eff4b46a010eb5a630de65a)](milestones/orchestrator-digests-queue-pressure-nudges-generalized-token-usage-in-he-ms_eb8bda6e2eff4b46a010eb5a630de65a.md)
 - [skills-sync-hygiene-codeterm-is-the-single-source-providers-get-synced-c decision (ms_833614fb9f9e4e73aed3876c50fe7465)](milestones/skills-sync-hygiene-codeterm-is-the-single-source-providers-get-synced-c-ms_833614fb9f9e4e73aed3876c50fe7465.md)
 - [skills-sync-hygiene-codeterm-is-the-single-source-providers-get-synced-c decision (ms_fc0c207b601344e0911164da730fc702)](milestones/skills-sync-hygiene-codeterm-is-the-single-source-providers-get-synced-c-ms_fc0c207b601344e0911164da730fc702.md)
 - [skills-sync-hygiene-codeterm-is-the-single-source-providers-get-synced-c status_update (ms_32045b7367a840809992d073f82d1141)](milestones/skills-sync-hygiene-codeterm-is-the-single-source-providers-get-synced-c-ms_32045b7367a840809992d073f82d1141.md)
