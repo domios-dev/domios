@@ -864,6 +864,15 @@ impl ServiceContext {
         let pty_id_outer = pty_id.clone();
         let provider = agent.provider.clone();
         let task_for_thread = wrapped_task.clone();
+        // PtyInput providers (codex/opencode) don't embed the task in the launch command — it must be typed into the TUI after boot. InlineFlag (claude) bakes it in, so PtyInput delivery is skipped there.
+        let task_delivery = self
+            .agent_registry
+            .with_provider(&provider, |p| p.task_delivery())
+            .unwrap_or(crate::agent::provider::TaskDelivery::PtyInput);
+        let pty_input_task = match task_delivery {
+            crate::agent::provider::TaskDelivery::PtyInput => wrapped_task.clone(),
+            crate::agent::provider::TaskDelivery::InlineFlag => None,
+        };
         std::thread::spawn(move || {
             let svc_reader = svc_outer.clone();
             let pty_reader = pty_id_outer.clone();
@@ -925,6 +934,8 @@ impl ServiceContext {
                 Ok(pty_id) => {
                     if let Err(e) = svc_outer.send_shell_spawn(&pty_id, &launch_cmd) {
                         log::error!("[spawn.hidden] shell spawn failed: {}", e);
+                    } else if let Some(ref task_text) = pty_input_task {
+                        deliver_hidden_pty_task(&svc_outer, &pty_id, &pane_id_outer, &provider, task_text);
                     }
                 }
                 Err(e) => log::error!("[spawn.hidden] no pty for pane {}: {}", pane_id_outer, e),
@@ -947,6 +958,62 @@ impl ServiceContext {
             warning: cli_warning,
             budget_notice,
         })
+    }
+}
+
+/// Deliver a task into a hidden PtyInput agent (codex/opencode) after its TUI boots.
+/// Mirrors the visible orchestrator launch path (orchestrator::launch step 4).
+fn deliver_hidden_pty_task(
+    svc: &ServiceContext,
+    pty_id: &str,
+    pane_id: &str,
+    provider: &str,
+    task_text: &str,
+) {
+    let warmup = svc
+        .agent_registry
+        .with_provider(provider, |p| p.task_input_warmup())
+        .unwrap_or_default();
+    if !warmup.is_zero() {
+        std::thread::sleep(warmup);
+    }
+    if !svc.await_agent_tui_on_screen(pty_id, provider, std::time::Duration::from_secs(15)) {
+        log::warn!(
+            "[spawn.hidden] timed out waiting for {} TUI before task delivery in pane {}",
+            provider,
+            pane_id
+        );
+    }
+    let submit_strategy = svc
+        .agent_registry
+        .with_provider(provider, |p| p.verify_submit_strategy())
+        .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
+            timeout: std::time::Duration::from_secs(5),
+        });
+    let opts = crate::service::inject_verify::VerifyOpts {
+        require_prompt_first: false,
+        verify_echo: true,
+        verify_submit: true,
+        prompt_timeout: std::time::Duration::from_secs(0),
+        echo_timeout: std::time::Duration::from_secs(10),
+        submit_timeout: std::time::Duration::from_secs(15),
+    };
+    match svc.send_text_verified(pty_id, task_text, true, submit_strategy, opts) {
+        Ok(result) => {
+            if !result.echo_observed || !result.submit_observed {
+                log::error!(
+                    "[spawn.hidden] task delivery unconfirmed for pane {} (echo={}, submit={})",
+                    pane_id,
+                    result.echo_observed,
+                    result.submit_observed
+                );
+            }
+        }
+        Err(e) => log::error!(
+            "[spawn.hidden] task delivery failed for pane {}: {}",
+            pane_id,
+            e
+        ),
     }
 }
 
