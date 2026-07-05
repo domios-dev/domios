@@ -3,7 +3,7 @@
 
 import { reducer } from "./reducer";
 import { makeVirtualPickerTab, type ExtendedState } from "./tree";
-import type { MultiplexerState, Workspace, Pane } from "../../lib/types";
+import type { MultiplexerState, Workspace, Pane, Tab } from "../../lib/types";
 import { TitleLevel } from "../../lib/types";
 import { resolveTabStatusRailVariant } from "../../components/Sidebar/TabStatusRail";
 
@@ -519,6 +519,71 @@ test("CLOSE_SESSION_PICKER removes the virtual tab + pane and clears the map", (
   // A later snapshot must NOT resurrect it.
   const after = reducer(closed, { type: "SET_STATE", state: snap(3, "w1") });
   assert(!after.workspaces.find((w) => w.id === "w1")!.tabs.some((t) => t.id === virtual.tab.id), "stays gone after snapshot");
+});
+
+test("CLOSE_SESSION_PICKER closes on workspace key even when the tab id mismatches (post-refresh)", () => {
+  const start = reducer(base(), { type: "SET_STATE", state: snap(1, "w1") });
+  const virtual = makeVirtualPickerTab();
+  const open = reducer(start, { type: "OPEN_SESSION_PICKER", workspaceId: "w1", virtual });
+  // A caller closing with a STALE/unknown tab id must still close the picker
+  // for the workspace — never a silent no-op on mismatch.
+  const closed = reducer(open, { type: "CLOSE_SESSION_PICKER", workspaceId: "w1", tabId: "some-stale-id" });
+  const ws = closed.workspaces.find((w) => w.id === "w1")!;
+  assert(!ws.tabs.some((t) => t.id === virtual.tab.id), "virtual tab removed despite id mismatch");
+  assert(closed.virtualTabs["w1"] === undefined, "virtualTabs entry cleared");
+  assert(closed.panes[virtual.pane.id] === undefined, "virtual pane removed");
+});
+
+test("close-then-select: SET_ACTIVE_TAB after close targets the created tab, picker gone", () => {
+  // Backend snapshot carries the created (orchestrator) tab alongside the picker.
+  const created: Tab = { id: "tab-created", pane_id: "pane-created" } as unknown as Tab;
+  const withTab: MultiplexerState = {
+    workspaces: [
+      { id: "w1", name: "W", tabs: [created], active_tab_id: created.id, cwd: null } as unknown as Workspace,
+    ],
+    panes: { "pane-created": { id: "pane-created", title: "Orchestrator" } as unknown as Pane },
+    active_workspace_id: "w1",
+    focused_pane_id: null,
+    generation: 1,
+  };
+  const start = reducer(base(), { type: "SET_STATE", state: withTab });
+  const virtual = makeVirtualPickerTab();
+  const open = reducer(start, { type: "OPEN_SESSION_PICKER", workspaceId: "w1", virtual });
+  assert(open.activeTabIds["w1"] === virtual.tab.id, "picker is active while open");
+  // App order: close the picker, then select the created tab.
+  const closed = reducer(open, { type: "CLOSE_SESSION_PICKER", workspaceId: "w1", tabId: virtual.tab.id });
+  const selected = reducer(closed, { type: "SET_ACTIVE_TAB", workspaceId: "w1", tabId: created.id });
+  assert(selected.activeTabIds["w1"] === created.id, "created tab is active after select");
+  const ws = selected.workspaces.find((w) => w.id === "w1")!;
+  assert(!ws.tabs.some((t) => t.id === virtual.tab.id), "no lingering picker tab");
+  // A later snapshot must not resurrect the picker nor steal the active tab.
+  const after = reducer(selected, { type: "SET_STATE", state: { ...withTab, generation: 2 } });
+  assert(after.activeTabIds["w1"] === created.id, "selection survives the next snapshot");
+  assert(after.virtualTabs["w1"] === undefined, "picker stays gone");
+});
+
+test("cross-workspace select: created tab in another workspace stays active after picker close in host", () => {
+  const created: Tab = { id: "tab-b", pane_id: "pane-b" } as unknown as Tab;
+  const two: MultiplexerState = {
+    workspaces: [
+      { id: "wA", name: "A", tabs: [], active_tab_id: null, cwd: null } as unknown as Workspace,
+      { id: "wB", name: "B", tabs: [created], active_tab_id: created.id, cwd: null } as unknown as Workspace,
+    ],
+    panes: { "pane-b": { id: "pane-b", title: "Orchestrator" } as unknown as Pane },
+    active_workspace_id: "wA",
+    focused_pane_id: null,
+    generation: 1,
+  };
+  const start = reducer(base(), { type: "SET_STATE", state: two });
+  const virtual = makeVirtualPickerTab();
+  const open = reducer(start, { type: "OPEN_SESSION_PICKER", workspaceId: "wA", virtual });
+  // Pair created in wB while the picker hosts wA.
+  const closed = reducer(open, { type: "CLOSE_SESSION_PICKER", workspaceId: "wA", tabId: virtual.tab.id });
+  const selected = reducer(closed, { type: "SET_ACTIVE_TAB", workspaceId: "wB", tabId: created.id });
+  const activated = reducer(selected, { type: "SET_ACTIVE_WORKSPACE", id: "wB" });
+  assert(activated.active_workspace_id === "wB", "active workspace switched to the created one");
+  assert(activated.activeTabIds["wB"] === created.id, "created tab active in its workspace");
+  assert(!activated.workspaces.find((w) => w.id === "wA")!.tabs.some((t) => t.id === virtual.tab.id), "host picker removed");
 });
 
 console.log(failures === 0 ? "✓ reducer tests green" : `✗ ${failures} failure(s)`);

@@ -32,7 +32,7 @@ export function NewSessionPicker({
   agentsConfig?: AppConfig["agents"];
 }) {
   const { providers } = useAgentProviders();
-  const { spawnAgentTab, createOrchestrationPair, closeSessionPicker, addNotification, state, createWorkspace } = useMultiplexer();
+  const { spawnAgentTab, createOrchestrationPair, closeSessionPicker, selectTabByPane, addNotification, state, createWorkspace } = useMultiplexer();
   const visibleProviders = useMemo(
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
     [providers, agentsConfig],
@@ -96,13 +96,18 @@ export function NewSessionPicker({
     if (info?.id) setSelectedWorkspaceId(info.id);
   }, [newWorkspaceName, createWorkspace]);
 
+  // On accept: close the picker (as soon as the create call returns ids, not
+  // after full settle) then select + focus the created tab. `null` means the
+  // create was rejected — keep the picker open (spawnAgentTab already notified).
   const finishSpawn = useCallback(async (
-    runner: () => Promise<void>,
+    runner: () => Promise<{ workspaceId: string; paneId: string } | null>,
   ) => {
     setBusy(true);
     try {
-      await runner();
+      const created = await runner();
+      if (!created) return;
       closeSessionPicker(workspaceId, tabId);
+      await selectTabByPane(created.workspaceId, created.paneId);
     } catch (e) {
       addNotification({
         pane_id: null,
@@ -115,21 +120,21 @@ export function NewSessionPicker({
     } finally {
       setBusy(false);
     }
-  }, [addNotification, closeSessionPicker, tabId, workspaceId]);
+  }, [addNotification, closeSessionPicker, selectTabByPane, tabId, workspaceId]);
 
   const runSingleSpawn = useCallback(async (skipPermissions: boolean) => {
     if (choice.mode !== "single") return;
     if (disabledProviderIds.has(choice.providerId)) return;
     const targetCwd = selectedWorkspace?.cwd ?? workspaceCwd ?? undefined;
-    await finishSpawn(async () => {
-      await spawnAgentTab(
+    await finishSpawn(() =>
+      spawnAgentTab(
         selectedWorkspaceId,
         choice.providerId,
         skipPermissions,
         targetCwd ?? undefined,
         choice.modelId,
-      );
-    });
+      ),
+    );
   }, [choice, disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, selectedWorkspaceId, workspaceCwd]);
 
   const runPairSpawn = useCallback(async () => {
@@ -141,13 +146,15 @@ export function NewSessionPicker({
       return;
     }
     await finishSpawn(async () => {
-      await createOrchestrationPair({
+      const result = await createOrchestrationPair({
         orchestratorAgent: choice.orchestratorProviderId,
         orchestratorModel: choice.orchestratorModelId,
         plannerAgent: choice.plannerProviderId,
         plannerModel: choice.plannerModelId,
         workspaceId: selectedWorkspaceId,
       });
+      // Select the ORCHESTRATOR tab of the new pair group.
+      return { workspaceId: selectedWorkspaceId, paneId: result.orchestrator_pane_id };
     });
   }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, selectedWorkspaceId]);
 

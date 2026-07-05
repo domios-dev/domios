@@ -8,6 +8,12 @@ import type {
 } from "../../lib/types";
 import type { ExtendedState } from "./tree";
 
+/** Ids returned by a successful spawn — enough to resolve + select the tab. */
+export interface SpawnedPane {
+  workspaceId: string;
+  paneId: string;
+}
+
 export interface MultiplexerContextType {
   state: ExtendedState;
   createWorkspace: (name: string, cwd?: string) => Promise<{ id: string; name: string } | undefined>;
@@ -36,6 +42,10 @@ export interface MultiplexerContextType {
   /** Reopen a pane from the orphaned ring (workspace was deleted). */
   restoreOrphaned: (paneId: string) => void;
   setActiveTab: (workspaceId: string, tabId: string) => void;
+  /** Select + focus the tab that owns `paneId` (resolves via a fresh snapshot
+   *  when the pane isn't in local state yet). Used to jump to a just-spawned
+   *  agent or orchestration pair. */
+  selectTabByPane: (workspaceId: string, paneId: string) => Promise<void>;
   closePane: (paneId: string) => void;
   setFocusedPane: (paneId: string) => void;
   setPanePty: (paneId: string, ptyId: string) => void;
@@ -56,7 +66,7 @@ export interface MultiplexerContextType {
     skipPermissions: boolean,
     cwd?: string,
     model?: string,
-  ) => Promise<void>;
+  ) => Promise<SpawnedPane | null>;
   /** Paired creation (task_7e5f9354): create a plan plus an Orchestrator +
    *  Planner pane bound to it, in one call. */
   createOrchestrationPair: (input: OrchestrationPairInput) => Promise<OrchestrationPairResult>;
