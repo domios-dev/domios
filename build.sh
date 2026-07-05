@@ -472,7 +472,11 @@ case "$CMD" in
     command -v sccache >/dev/null 2>&1 && export RUSTC_WRAPPER=sccache
     echo "Building CLI..."
     cargo build --release --manifest-path cli/Cargo.toml
-    install_cli_to "$HOME/.codeterm/bin"
+    if [ -z "$CT_INSTANCE" ]; then
+      install_cli_to "$HOME/.codeterm/bin"
+    else
+      echo "Skipping prod CLI install for named dev instance ($CT_INSTANCE)"
+    fi
     # Named instance gets its own data-dir bin; canonical dev keeps ~/.codeterm-dev/bin.
     install_cli_to "$CT_DATA_DIR/bin"
     ensure_real_embed_bundle
