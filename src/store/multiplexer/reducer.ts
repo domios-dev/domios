@@ -494,8 +494,12 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     }
 
     case "CLOSE_SESSION_PICKER": {
+      // Keyed on workspace (one picker per workspace), never on the exact tab
+      // id — a refresh could rebuild the virtual tab, and closing must not
+      // silently no-op on mismatch.
       const v = state.virtualTabs[action.workspaceId];
-      if (!v || v.tab.id !== action.tabId) return state;
+      if (!v) return state;
+      const pickerTabId = v.tab.id;
       const nextVirtual = { ...state.virtualTabs };
       delete nextVirtual[action.workspaceId];
       const nextPanes = { ...state.panes };
@@ -507,8 +511,8 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         panes: nextPanes,
         workspaces: state.workspaces.map((w) => {
           if (w.id !== action.workspaceId) return w;
-          const remaining = w.tabs.filter((t) => t.id !== action.tabId);
-          if (nextActive[action.workspaceId] === action.tabId) {
+          const remaining = w.tabs.filter((t) => t.id !== pickerTabId);
+          if (nextActive[action.workspaceId] === pickerTabId) {
             const fallback = remaining[remaining.length - 1]?.id;
             if (fallback) nextActive[action.workspaceId] = fallback;
             else delete nextActive[action.workspaceId];

@@ -26,6 +26,7 @@ interface MuxWorkspace {
   id: string;
   name: string;
   tabs: MuxTab[];
+  active_tab_id?: string | null;
 }
 interface MuxPane {
   id: string;
@@ -37,6 +38,8 @@ interface MuxPane {
 interface MuxState {
   workspaces: MuxWorkspace[];
   panes: Record<string, MuxPane>;
+  active_workspace_id?: string | null;
+  focused_pane_id?: string | null;
 }
 
 async function muxState(api: ApiClient): Promise<MuxState> {
@@ -153,6 +156,18 @@ async function waitForOrchestrator(api: ApiClient, wsId: string): Promise<{ tab:
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`no orchestrator agent materialized in workspace ${wsId}`);
+}
+
+async function waitForSingleAgent(api: ApiClient, wsId: string): Promise<{ tab: MuxTab; pane: MuxPane }> {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    const s = await muxState(api);
+    const ws = s.workspaces.find((w) => w.id === wsId);
+    const tab = ws?.tabs.find((t) => s.panes[t.pane_id]?.agent_type);
+    if (tab) return { tab, pane: s.panes[tab.pane_id] };
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`no single agent materialized in workspace ${wsId}`);
 }
 
 /** All sidebar tab titles inside a workspace group — from each tab's `title`
@@ -401,6 +416,73 @@ test.describe("new-session picker", () => {
       // …and A keeps NO husk: the virtual picker just vanished, no backend tab.
       const after = await muxState(api);
       expect(after.workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0).toBe(0);
+    } finally {
+      await cleanupWorkspace(api, wsB.id);
+    }
+  });
+
+  test("@golden SINGLE SELECT: Start closes the picker and selects + focuses the created agent tab", async ({ api, ui }) => {
+    test.setTimeout(180_000);
+    const page = ui.page;
+    await page.locator('[data-testid="picker-mode-single"]').click();
+    await page.locator('[data-testid="picker-confirm"]').click();
+    // Single Claude asks about skip-permissions first — launch through it.
+    const launch = page.getByRole("button", { name: "Launch" });
+    if (await launch.isVisible({ timeout: 3_000 }).catch(() => false)) await launch.click();
+
+    await expect(page.locator('[data-testid="new-session-picker"]')).toBeHidden({ timeout: 60_000 });
+    const { tab, pane } = await waitForSingleAgent(api, ws.id);
+    await expect
+      .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === ws.id)?.active_tab_id ?? null, {
+        timeout: 30_000,
+      })
+      .toBe(tab.id);
+    const s = await muxState(api);
+    expect(s.active_workspace_id, "active workspace is the picker host").toBe(ws.id);
+    expect(s.focused_pane_id, "the created agent pane is focused").toBe(pane.id);
+    // No lingering virtual picker tab in the workspace.
+    expect(s.workspaces.find((w) => w.id === ws.id)?.tabs.every((t) => t.id !== "virtual"), "no virtual tab").toBe(true);
+  });
+
+  test("@golden PAIR SELECT: Start selects + focuses the ORCHESTRATOR tab of the new group", async ({ api, ui }) => {
+    test.setTimeout(180_000);
+    const page = ui.page;
+    await page.locator('[data-testid="picker-mode-orchestration"]').click();
+    await page.locator('[data-testid="picker-confirm"]').click();
+
+    await expect(page.locator('[data-testid="new-session-picker"]')).toBeHidden({ timeout: 60_000 });
+    const { tab: orchTab, pane: orchestrator } = await waitForOrchestrator(api, ws.id);
+    await expect
+      .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === ws.id)?.active_tab_id ?? null, {
+        timeout: 30_000,
+      })
+      .toBe(orchTab.id);
+    const s = await muxState(api);
+    expect(s.active_workspace_id, "active workspace is the picker host").toBe(ws.id);
+    expect(s.focused_pane_id, "the orchestrator pane (not planner) is focused").toBe(orchestrator.id);
+
+    await ui.page.screenshot({ path: "tests/playwright/artifacts/picker-pair-selected.png" });
+  });
+
+  test("@golden CROSS-WORKSPACE SELECT: Start switches the active workspace to B and selects its orchestrator", async ({ api, ui }) => {
+    test.setTimeout(180_000);
+    const page = ui.page;
+    const wsB = await createTestWorkspace(api, "pw-picker-cross-sel-b");
+    try {
+      await page.locator('[data-testid="picker-mode-orchestration"]').click();
+      await selectDropdown(page, "picker-workspace", wsB.id);
+      await page.locator('[data-testid="picker-confirm"]').click();
+
+      await expect(page.locator('[data-testid="new-session-picker"]')).toBeHidden({ timeout: 60_000 });
+      const { tab: orchTab, pane: orchestrator } = await waitForOrchestrator(api, wsB.id);
+      await expect
+        .poll(async () => (await muxState(api)).active_workspace_id ?? null, { timeout: 30_000 })
+        .toBe(wsB.id);
+      const s = await muxState(api);
+      expect(s.workspaces.find((w) => w.id === wsB.id)?.active_tab_id, "B's orchestrator tab is active").toBe(orchTab.id);
+      expect(s.focused_pane_id, "the orchestrator pane in B is focused").toBe(orchestrator.id);
+      // Host A keeps no husk.
+      expect(s.workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0).toBe(0);
     } finally {
       await cleanupWorkspace(api, wsB.id);
     }

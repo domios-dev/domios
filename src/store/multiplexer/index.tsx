@@ -35,7 +35,7 @@ import {
   type ExtendedState,
 } from "./tree";
 import { reducer } from "./reducer";
-import { MultiplexerContext, type MultiplexerContextType } from "./context";
+import { MultiplexerContext, type MultiplexerContextType, type SpawnedPane } from "./context";
 
 export { useMultiplexer } from "./context";
 export { highestTitleLevel } from "./tree";
@@ -431,17 +431,40 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     guardedInvoke("mux_reorder_workspace", { orderedWorkspaceIds }).catch(() => {});
   }, [guardedInvoke]);
 
+  const notifySpawnFailure = useCallback((workspaceId: string, agentId: string, e: unknown) => {
+    const message = e instanceof Error ? e.message : typeof e === "string" ? e : String(e);
+    const providerMissing = message.includes("Provider not installed:");
+    dispatch({
+      type: "ADD_NOTIFICATION",
+      notification: {
+        id: uid(),
+        pane_id: null,
+        workspace_id: workspaceId,
+        title: providerMissing ? "Provider not installed" : `Failed to spawn ${agentId}`,
+        body: message,
+        level: "Error",
+        timestamp: Date.now(),
+        read: false,
+        sticky: providerMissing,
+      },
+    });
+    console.error(`Failed to spawn ${agentId} tab:`, e);
+  }, []);
+
+  // Never throws — self-notifies on failure and returns null so callers can
+  // branch (the picker keeps itself open on null). Success returns the ids the
+  // caller needs to select/focus the freshly-created tab.
   const spawnAgentTab = useCallback(async (
     workspaceId: string,
     agentId: string,
     skipPermissions: boolean,
     cwd?: string,
     model?: string,
-  ) => {
+  ): Promise<SpawnedPane | null> => {
     const useRestSpawn = IS_WEB || (model != null && model.length > 0);
     if (useRestSpawn) {
       try {
-        await guardedWebJson<{ pane_id: string }>("POST", "/api/agents/spawn", {
+        const res = await guardedWebJson<{ pane_id: string }>("POST", "/api/agents/spawn", {
           agent: agentId,
           workspace_id: workspaceId,
           cwd,
@@ -450,14 +473,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           activate: true,
         });
         refreshFromBackend();
+        return { workspaceId, paneId: res.pane_id };
       } catch (e) {
-        console.error(`Failed to spawn ${agentId} tab:`, e);
-        throw e;
+        notifySpawnFailure(workspaceId, agentId, e);
+        return null;
       }
-      return;
     }
     const guardKey = `${workspaceId}:${agentId}`;
-    if (spawnInFlight.current.has(guardKey)) return;
+    if (spawnInFlight.current.has(guardKey)) return null;
     spawnInFlight.current.add(guardKey);
     try {
       // activate + focus, picking the transport (PTY vs chat) on the backend.
@@ -471,28 +494,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       }
       // Snappy local focus; backend also emits the authoritative pane-focused.
       dispatch({ type: "SET_FOCUSED_PANE", paneId: res.pane_id });
+      return { workspaceId: res.workspace_id, paneId: res.pane_id };
     } catch (e) {
-      const message = e instanceof Error ? e.message : typeof e === "string" ? e : String(e);
-      const providerMissing = message.includes("Provider not installed:");
-      dispatch({
-        type: "ADD_NOTIFICATION",
-        notification: {
-          id: uid(),
-          pane_id: null,
-          workspace_id: workspaceId,
-          title: providerMissing ? "Provider not installed" : `Failed to spawn ${agentId}`,
-          body: message,
-          level: "Error",
-          timestamp: Date.now(),
-          read: false,
-          sticky: providerMissing,
-        },
-      });
-      console.error(`Failed to spawn ${agentId} tab:`, e);
+      notifySpawnFailure(workspaceId, agentId, e);
+      return null;
     } finally {
       spawnInFlight.current.delete(guardKey);
     }
-  }, [refreshFromBackend, guardedInvoke, guardedWebJson, applyBackendState]);
+  }, [refreshFromBackend, guardedInvoke, guardedWebJson, applyBackendState, notifySpawnFailure]);
 
   // from the descriptor registry rather than hardcoding a vendor id.
   const spawnClaudeTab = useCallback(async (workspaceId: string, skipPermissions: boolean, cwd?: string) => {
@@ -555,6 +564,32 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
     dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
   }, [guardedInvoke]);
+
+  // Select + focus a just-spawned pane by resolving its owning tab. A freshly
+  // created pane may not be in local state yet (spawn refresh is async), so
+  // fall back to an authoritative snapshot before giving up.
+  const selectTabByPane = useCallback(async (workspaceId: string, paneId: string) => {
+    const findTab = (s: MultiplexerState) =>
+      s.workspaces.find((w) => w.id === workspaceId)?.tabs.find((t) => t.pane_id === paneId)?.id ?? null;
+    let tabId = findTab(stateRef.current);
+    if (!tabId) {
+      try {
+        const s = await invoke<MultiplexerState>("mux_get_state");
+        if (s && s.workspaces.length > 0) {
+          applyBackendState(s);
+          tabId = findTab(s);
+        }
+      } catch (e) {
+        console.warn("Failed to resolve spawned tab:", e);
+      }
+    }
+    if (!tabId) return;
+    guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId, tabId }).catch(() => {});
+    dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
+    dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
+    guardedInvoke("mux_set_focused_pane", { paneId }).catch(() => {});
+    dispatch({ type: "SET_FOCUSED_PANE", paneId });
+  }, [guardedInvoke, applyBackendState]);
 
   const closePane = useCallback(
     (paneId: string) => {
@@ -688,6 +723,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       reopenGroup,
       restoreOrphaned,
       setActiveTab,
+      selectTabByPane,
       closePane,
       setFocusedPane,
       setPanePty,
@@ -722,6 +758,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       reopenGroup,
       restoreOrphaned,
       setActiveTab,
+      selectTabByPane,
       closePane,
       setFocusedPane,
       setPanePty,
