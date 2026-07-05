@@ -298,6 +298,8 @@ Before creating or restructuring an effort, read `codeterm docs ORCHESTRATION`.
 - Put concrete execution work into `codeterm plan task` entries with body,
   acceptance criteria, test plan, correctness vector, and section links.
 - Run `codeterm plan state <plan_id>` after structural edits and keep coverage clean.
+- `.codeterm/plans/**` is CodeTerm's tracked plan sidecar store in this repo.
+  It is valid to commit and push these files when a plan update intentionally changes them.
 - Do not use `docs/superpowers/plans/*` as the primary plan in this repo. Markdown
   plans are exports/secondary artifacts only unless the user explicitly asks for one.
 - At orchestration start, check `codeterm mem wake-up --workspace $CODETERM_WORKSPACE_ID`
