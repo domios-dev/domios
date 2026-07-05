@@ -27,8 +27,6 @@ interface ForkSite {
 
 const INVENTORY: ForkSite[] = [
   { file: "src/App.tsx", line: 472, cls: "platform-adaptation", note: "web-only floating hamburger to open the sidebar overlay (titlebar has no sidebar toggle)" },
-  { file: "src/components/MemoryPanel/memoryApi.ts", line: 14, cls: "transport-shim", note: "REST base URL: apiHost() vs configured daemon host" },
-  { file: "src/components/MemoryPanel/memoryApi.ts", line: 20, cls: "transport-shim", note: "auth token source: web token store vs ApiConfig.token" },
   { file: "src/components/MeshPanel/MeshPanel.tsx", line: 205, cls: "transport-shim", note: "spawn setup chat via webJson vs local fetch" },
   { file: "src/components/Sidebar/Sidebar.tsx", line: 122, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog" },
   { file: "src/components/Sidebar/Sidebar.tsx", line: 210, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog (new workspace)" },
