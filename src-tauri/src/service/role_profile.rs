@@ -23,6 +23,10 @@ impl SpawnAgentParams {
             plan_id: json_str(params, "plan_id").or_else(|| json_str(params, "plan")),
             can_spawn: params.get("can_spawn").and_then(|v| v.as_bool()),
             task: json_str(params, "task"),
+            task_id: json_str(params, "task_id"),
+            allow_shared_checkout: params
+                .get("allow_shared_checkout")
+                .and_then(|v| v.as_bool()),
             workspace_id: json_str(params, "workspace_id"),
             force_tab: params.get("force_tab").and_then(|v| v.as_bool()),
             existing_tab_id: json_str(params, "existing_tab_id"),

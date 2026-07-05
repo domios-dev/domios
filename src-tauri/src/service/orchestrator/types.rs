@@ -48,6 +48,12 @@ pub struct SpawnAgentParams {
     pub plan_id: Option<String>,
     pub can_spawn: Option<bool>,
     pub task: Option<String>,
+    /// Bound task id (CODETERM_TASK_ID) — the shared-checkout exception stride
+    /// lands here when `--allow-shared-checkout` is used.
+    pub task_id: Option<String>,
+    /// Opt out of the Worker canonical-checkout guard, recording a visible
+    /// exception stride on the bound task.
+    pub allow_shared_checkout: Option<bool>,
     pub workspace_id: Option<String>,
     /// Force creation as a new tab instead of split pane (even with parent).
     pub force_tab: Option<bool>,
