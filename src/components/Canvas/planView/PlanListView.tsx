@@ -293,15 +293,14 @@ export function PlanListView({
           <X size={14} />
         </button>
       )}
-      <div className="flex flex-1 flex-col items-center justify-center">
-        <PlanFetchErrorState
-          loading={loading}
-          error={error}
-          itemCount={plans.length}
-          onRetry={onRetry}
-          testId="plan-list"
-        />
-      </div>
+      <PlanFetchErrorState
+        loading={loading}
+        error={error}
+        itemCount={plans.length}
+        onRetry={onRetry}
+        testId="plan-list"
+        className="plan-list-state"
+      />
       <PlanFetchReconnectingBanner
         reconnecting={reconnecting}
         itemCount={plans.length}

@@ -5,13 +5,18 @@ export type HeaderWidthClass = "narrow" | "wide";
 const STORAGE_PREFIX = "codeterm.planHeader.collapsed";
 const NARROW_QUERY = "(max-width: 768px)";
 
-function storageKey(widthClass: HeaderWidthClass): string {
-  return `${STORAGE_PREFIX}.${widthClass}`;
+function storageKey(widthClass: HeaderWidthClass, planId?: string): string {
+  const base = `${STORAGE_PREFIX}.${widthClass}`;
+  return planId ? `${base}.${planId}` : base;
 }
 
-export function readHeaderCollapsed(widthClass: HeaderWidthClass, fallback: boolean): boolean {
+export function readHeaderCollapsed(
+  widthClass: HeaderWidthClass,
+  fallback: boolean,
+  planId?: string,
+): boolean {
   try {
-    const raw = window.localStorage.getItem(storageKey(widthClass));
+    const raw = window.localStorage.getItem(storageKey(widthClass, planId));
     if (raw === "1") return true;
     if (raw === "0") return false;
     return fallback;
@@ -20,28 +25,38 @@ export function readHeaderCollapsed(widthClass: HeaderWidthClass, fallback: bool
   }
 }
 
-export function writeHeaderCollapsed(widthClass: HeaderWidthClass, collapsed: boolean): void {
+export function writeHeaderCollapsed(
+  widthClass: HeaderWidthClass,
+  collapsed: boolean,
+  planId?: string,
+): void {
   try {
-    window.localStorage.setItem(storageKey(widthClass), collapsed ? "1" : "0");
+    window.localStorage.setItem(storageKey(widthClass, planId), collapsed ? "1" : "0");
   } catch {
     // UI-pref persistence is best-effort; private-mode/quota failures must not block the toggle.
   }
 }
 
-export function usePlanHeaderCollapse(widthClass: HeaderWidthClass, defaultCollapsed: boolean) {
-  const [collapsed, setCollapsed] = useState(() => readHeaderCollapsed(widthClass, defaultCollapsed));
+export function usePlanHeaderCollapse(
+  widthClass: HeaderWidthClass,
+  defaultCollapsed: boolean,
+  planId?: string,
+) {
+  const [collapsed, setCollapsed] = useState(() =>
+    readHeaderCollapsed(widthClass, defaultCollapsed, planId),
+  );
 
   useEffect(() => {
-    setCollapsed(readHeaderCollapsed(widthClass, defaultCollapsed));
-  }, [widthClass, defaultCollapsed]);
+    setCollapsed(readHeaderCollapsed(widthClass, defaultCollapsed, planId));
+  }, [widthClass, defaultCollapsed, planId]);
 
   const toggle = useCallback(() => {
     setCollapsed((prev) => {
       const next = !prev;
-      writeHeaderCollapsed(widthClass, next);
+      writeHeaderCollapsed(widthClass, next, planId);
       return next;
     });
-  }, [widthClass]);
+  }, [widthClass, planId]);
 
   return { collapsed, toggle };
 }

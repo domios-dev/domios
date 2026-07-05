@@ -4,7 +4,14 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { BoardPlanSummary } from "./boardModel";
-import { PlanContextCompactHeader, PlanContextHeader } from "./PlanContextHeader";
+import { deriveBoardPlanSummary } from "./boardModel";
+import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
+import type { Plan } from "../types";
+import {
+  PlanContextCompactHeader,
+  PlanContextHeader,
+  PlanContextWideHeader,
+} from "./PlanContextHeader";
 import { readHeaderCollapsed, writeHeaderCollapsed } from "./usePlanHeaderCollapse";
 
 type TestFn = () => void | Promise<void>;
@@ -92,7 +99,20 @@ function makeHeader(): ReactElement {
 }
 
 function makeWrappedHeader(): ReactElement {
-  return <PlanContextHeader summary={SUMMARY} spec={null} onOpenPlan={() => {}} />;
+  return <PlanContextHeader summary={SUMMARY} spec={null} onOpenPlan={() => {}} planId="plan-test" />;
+}
+
+function makeWideHeader(plan?: Plan): ReactElement {
+  const summary = plan ? deriveBoardPlanSummary(plan, {}) : SUMMARY;
+  return (
+    <PlanContextWideHeader
+      summary={summary}
+      spec={null}
+      onOpenPlan={() => {}}
+      planId={plan?.id ?? "plan-test"}
+      plan={plan}
+    />
+  );
 }
 
 test("narrow viewport renders compact wrapper even without coarse pointer", async () => {
@@ -171,6 +191,51 @@ test("choice persists per width class in UI prefs (localStorage)", async () => {
   writeHeaderCollapsed("wide", false);
   assert(readHeaderCollapsed("wide", true) === false, "wide write independent");
   assert(readHeaderCollapsed("narrow", true) === false, "narrow unchanged by wide write");
+});
+
+test("wide desktop header defaults expanded with right-side collapse chevron", async () => {
+  window.localStorage.clear();
+  setMatchMedia({
+    "(pointer: coarse)": false,
+    "(hover: none)": false,
+    "(max-width: 800px)": false,
+    "(max-width: 768px)": false,
+  });
+  const { host } = await render(makeWideHeader());
+  assert(host.querySelector('[data-testid="plan-context-wide-chevron"]'), "wide chevron present");
+  assert(host.querySelector('[data-testid="plan-board-plan-goal"]'), "full body mounted when expanded");
+  const chevron = host.querySelector('[data-testid="plan-context-wide-chevron"]') as HTMLButtonElement;
+  await act(async () => {
+    chevron.click();
+    await Promise.resolve();
+  });
+  assert(host.querySelector('[data-testid="plan-context-wide-bar"]'), "collapsed bar after toggle");
+  assert(!host.querySelector('[data-testid="plan-board-plan-goal"]'), "goal unmounted when collapsed");
+});
+
+test("execution plan with drafting default shows Approved chip, not Drafting", async () => {
+  window.localStorage.clear();
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    mode: "execution",
+    planning_state: "drafting",
+  };
+  const { host } = await render(makeWideHeader(plan));
+  const chip = host.querySelector('[data-testid="plan-state-chip"]');
+  assert(chip?.textContent === "Approved", `expected Approved, got ${chip?.textContent}`);
+  assert(!chip?.className.includes("plan-state-drafting"), "no drafting class");
+});
+
+test("remote planner binding renders short id label instead of No planner", async () => {
+  window.localStorage.clear();
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    planner: { kind: "pane", pane_id: "planner-prod-99", title: null },
+  };
+  const { host } = await render(makeWideHeader(plan));
+  const planner = host.querySelector('[data-testid="plan-peer-chip-planner"]');
+  assert(planner?.textContent?.includes("(remote)"), "remote planner label");
+  assert(!planner?.textContent?.includes("No planner"), "must not claim no planner");
 });
 
 (async () => {

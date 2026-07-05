@@ -2618,6 +2618,48 @@ button.plan-peer-chip:focus-visible {
   border-top: 1px solid var(--ct-border);
 }
 
+.plan-context-header-wide {
+  position: relative;
+}
+.plan-context-header-wide.is-expanded {
+  padding-top: 0.35rem;
+  padding-right: 2rem;
+}
+.plan-context-wide-chevron {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 1px solid var(--ct-border);
+  border-radius: 0.35rem;
+  background: color-mix(in srgb, var(--ct-bg) 88%, var(--ct-surface));
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+}
+.plan-context-wide-chevron:hover,
+.plan-context-wide-chevron:focus-visible {
+  color: var(--ct-fg);
+  border-color: color-mix(in srgb, var(--ct-accent) 45%, var(--ct-border));
+  outline: none;
+}
+.plan-context-header-wide.is-expanded .plan-context-wide-chevron .plan-context-compact-chevron {
+  transform: rotate(180deg);
+}
+
+.plan-list-state {
+  margin: auto;
+  padding: 1.5rem;
+  font-size: 0.875rem;
+  color: var(--ct-muted-fg);
+  text-align: center;
+}
+
 /* Plan companion — chat-bubble face with edge presence indicator. */
 .plan-companion-presence {
   position: absolute;
@@ -3364,4 +3406,61 @@ button.plan-recent-activity-item:hover .plan-recent-activity-task {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 768px), (pointer: coarse) {
+  .plan-board-columns {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 0.5rem;
+    -webkit-overflow-scrolling: touch;
+    gap: 0.5rem;
+    padding: 0 0.25rem 0.35rem;
+  }
+  .plan-board-column {
+    flex: 0 0 min(88vw, 20rem);
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    max-height: 100%;
+  }
+  .plan-board-column-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    min-height: 44px;
+    padding-top: 0.55rem;
+    padding-bottom: 0.55rem;
+  }
+  .plan-board-task-card-interactive {
+    min-height: 44px;
+  }
+  .plan-board-done-toggle {
+    min-height: 44px;
+  }
+  .plan-list-row {
+    min-height: 44px;
+    grid-template-columns: 12px minmax(0, 1fr) 72px 36px;
+  }
+  .plan-list-group {
+    min-height: 44px;
+  }
+  .plan-list-belonging-chip {
+    max-width: 4.5rem;
+  }
+  .plan-list-filter button {
+    min-height: 44px;
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+  }
+  .plan-context-compact-bar {
+    min-height: 44px;
+  }
+  .plan-context-wide-chevron {
+    width: 44px;
+    height: 44px;
+  }
 }
