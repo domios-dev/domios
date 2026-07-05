@@ -57,7 +57,11 @@ fn walk(cmd: &Command) -> ManifestCommand {
         .collect();
     args.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let mut subcommands: Vec<ManifestCommand> = cmd.get_subcommands().map(walk).collect();
+    let mut subcommands: Vec<ManifestCommand> = cmd
+        .get_subcommands()
+        .filter(|c| c.get_name() != "help" && c.get_name() != "version" && !c.is_hide_set())
+        .map(walk)
+        .collect();
     subcommands.sort_by(|a, b| a.name.cmp(&b.name));
 
     let mut aliases: Vec<String> = cmd.get_visible_aliases().map(|s| s.to_string()).collect();
