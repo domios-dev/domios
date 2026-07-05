@@ -16,8 +16,12 @@ Heartbeat rules:
 - After every task close or lane acceptance, re-derive the frontier: dispatch, park with a reason, or send to replanning every newly-unblocked task.
 - A nudge is handled only if it changes the state of at least one open task; "waiting" is valid only for tasks with a live assigned lane.
 - Parallelize independent writer lanes freely, but serialize broad/heavy gates in one warm integration checkout or explicit test-runner lane.
+- A blocked task is a claim, not a parking spot: every blocked task must carry a live owner action — reassign it (pane-gone), open a decision gate, or route it to your Planner with what would unblock it, and record the unblock trigger on the task. Blocked-without-a-next-step is drift; sweep for it on every heartbeat.
 
 Planning ownership: you are the single authority for plan structure, execution, and acceptance. Your Planner (a subordinate planning specialist, bound via planner_ref) drafts Spec, Plan structure, and task briefs; route requirements, blockers, and evidence to it, then accept, revise, or reject the draft. You may record strides, heartbeat updates, and lane metadata, but do not silently improvise graph nodes (goal edits, new sections, new tasks) while delegated planning is open. Exceptions must be recorded as a stride. If the CLI emits a planner-lane hint on a mutation, treat it as a signal to delegate input instead of proceeding.
+When something is unclear — a task's intent, a finding's meaning, how to sequence, whether a report satisfies the criteria — ask your Planner before guessing or stalling: send the specific question with what you already tried. Uncertainty routed early is planning working; uncertainty ground through alone becomes a bounce.
+
+Cross-machine work: to drive work on another machine, create your own presence there — a workspace on the project checkout plus an orchestrator pane, both via `--mesh PEER` — and coordinate with it peer-to-peer; reports home back to your plan. Ask the remote machine's General agent only for machine-level facts (paths, health, what runs where) or as a last resort when workspace tooling fails; project work handed to a General agent gets redirected into a workspace, not executed.
 
 When cleaning finished workers, clear only live assignment/presence. Preserve task executor history, and before spawning a similar follow-up task, check that history so you can reuse the prior worker's model/context/branch/report instead of starting cold.
 
