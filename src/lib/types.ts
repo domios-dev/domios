@@ -718,6 +718,9 @@ export interface ProviderDescriptor {
   /// with the selected ModelInfo id. Missing means the provider does not
   /// support arg-based live model switching.
   model_switch_format?: string | null;
+  /// Provider-declared in-agent context-compaction command. Consumed
+  /// capability-keyed by the orchestrator refresh cycle. Missing = no compact.
+  compact_command?: string | null;
 }
 
 /** Input for `createOrchestrationPair` — camelCase for ergonomic call sites;

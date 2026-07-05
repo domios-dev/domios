@@ -12,6 +12,7 @@ mod canvas;
 mod cron;
 mod notification;
 mod orchestration;
+mod orchestrator;
 mod pane;
 mod plan;
 mod plan_archive;
@@ -398,6 +399,7 @@ fn dispatch(
                 "agent.report",
                 "agent.reports",
                 "orchestration.new",
+                "orchestrator.refresh",
                 "plan.create",
                 "plan.batch",
                 "plan.handoff.create",
@@ -520,6 +522,7 @@ fn dispatch(
         "notification" => notification::dispatch(method, &params, notif, app),
         "agent" => agent::dispatch(method, &params, app, svc),
         "orchestration" => orchestration::dispatch(method, &params, app, svc),
+        "orchestrator" => orchestrator::dispatch(method, &params, app, svc),
         "plan" if plan_mode::handles(method) => plan_mode::dispatch(method, &params, app, svc),
         "plan" | "task" => plan::dispatch(method, &params, app, svc),
         "canvas" => canvas::dispatch(method, &params, app),
