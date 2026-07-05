@@ -36,20 +36,30 @@ pub fn ensure_first_run_tab(mux: &mut crate::multiplexer::state::MultiplexerStat
         return;
     }
 
+    // A brand-new instance has no workspaces: the picker is the ONLY content, so
+    // the workspace hosting it must be protected — otherwise closing that sole
+    // tab/workspace leaves an empty CodeTerm (P1). When other workspaces already
+    // exist, closing the picker still leaves them, so no protection is needed.
     let ws_id = if mux.list_workspaces().is_empty() {
-        mux.create_workspace("Welcome".to_string(), None).id
+        let id = mux.create_workspace("Welcome".to_string(), None).id;
+        mux.set_workspace_protected(&id, true);
+        id
     } else {
         mux.list_workspaces()[0].id.clone()
     };
+    let ws_protected = mux.get_workspace(&ws_id).is_some_and(|w| w.protected);
 
     match mux.create_tab(&ws_id) {
         Ok((tab_id, pane_id)) => {
             let _ = mux.rename_tab(&ws_id, &tab_id, FIRST_RUN_TAB_TITLE);
             let _ = mux.rename_pane(&pane_id, FIRST_RUN_TAB_TITLE);
             let _ = mux.set_pane_description(&pane_id, Some(FIRST_RUN_PANE_MARKER.to_string()));
-            // Picker is ephemeral — must not survive a daemon restart as a ghost tab.
             if let Some(pane) = mux.get_pane_mut(&pane_id) {
+                // Picker is ephemeral — must not survive a daemon restart as a ghost tab.
                 pane.skip_snapshot = true;
+                // In a protected (sole-content) workspace the picker can't be closed
+                // into an empty CodeTerm; the completion flow unprotects it first.
+                pane.protected = ws_protected;
             }
             let _ = mux.set_active_workspace(&ws_id);
             let _ = mux.set_focused_pane(&pane_id);
@@ -86,6 +96,18 @@ pub fn purge_snapshot_ghosts(mux: &mut crate::multiplexer::state::MultiplexerSta
             "[restore] dropping ghost tab {} in workspace {} — ephemeral picker pane leaked into session snapshot; moved to Recently Closed",
             tab_id, ws_id
         );
+        // Sole-content pickers are close-protected; a genuine ghost purge must
+        // still drop them, so lift the guard first.
+        if let Some(pane_id) = mux.get_workspace(&ws_id).and_then(|ws| {
+            ws.tabs
+                .iter()
+                .find(|t| t.id == tab_id)
+                .map(|t| t.pane_id.clone())
+        }) {
+            if let Some(pane) = mux.get_pane_mut(&pane_id) {
+                pane.protected = false;
+            }
+        }
         let _ = mux.close_tab(&ws_id, &tab_id);
     }
     count
@@ -103,6 +125,11 @@ fn close_first_run_tabs(
         })
         .collect();
     for pane_id in pane_ids {
+        // Sole-content picker panes are protected against an empty-CodeTerm close;
+        // completion legitimately retires them, so lift the guard first.
+        if let Some(pane) = mux.get_pane_mut(&pane_id) {
+            pane.protected = false;
+        }
         let _ = mux.close_pane(&pane_id);
     }
     Ok(())
@@ -185,6 +212,71 @@ mod tests {
         let count = mux.list_workspaces()[0].pane_ids.len();
         ensure_first_run_tab(&mut mux);
         assert_eq!(mux.list_workspaces()[0].pane_ids.len(), count);
+    }
+
+    fn first_run_picker_pane_id(mux: &MultiplexerState) -> String {
+        mux.list_workspaces()
+            .iter()
+            .flat_map(|ws| ws.pane_ids.iter().cloned())
+            .find(|pid| {
+                mux.get_pane(pid).and_then(|p| p.description.as_deref())
+                    == Some(FIRST_RUN_PANE_MARKER)
+            })
+            .expect("first-run picker pane exists")
+    }
+
+    #[test]
+    fn first_run_sole_picker_workspace_and_pane_are_protected_against_empty_close() {
+        // P1: on a brand-new instance the picker is the ONLY content — closing it
+        // must never leave an empty CodeTerm.
+        let mut mux = MultiplexerState::empty();
+        ensure_first_run_tab(&mut mux);
+
+        let ws = mux.list_workspaces()[0].clone();
+        assert!(ws.protected, "sole first-run workspace must be protected");
+        let pane_id = first_run_picker_pane_id(&mux);
+        assert!(
+            mux.get_pane(&pane_id).unwrap().protected,
+            "sole first-run picker pane must be protected"
+        );
+        assert!(
+            mux.close_workspace(&ws.id).is_err(),
+            "closing the sole first-run workspace must be refused"
+        );
+        assert!(
+            mux.close_pane(&pane_id).is_err(),
+            "closing the sole first-run picker pane must be refused"
+        );
+        // Invariant holds: still a workspace with a valid pane.
+        assert_eq!(mux.list_workspaces().len(), 1);
+        assert!(!mux.list_workspaces()[0].pane_ids.is_empty());
+    }
+
+    #[test]
+    fn first_run_picker_not_protected_when_other_workspaces_exist() {
+        // Closing the picker here still leaves the pre-existing workspace, so no
+        // protection is needed — and over-protecting a user workspace is wrong.
+        let (mut mux, _) = MultiplexerState::new();
+        ensure_first_run_tab(&mut mux);
+        let pane_id = first_run_picker_pane_id(&mux);
+        assert!(
+            !mux.get_pane(&pane_id).unwrap().protected,
+            "picker sharing a non-protected workspace must stay closable"
+        );
+    }
+
+    #[test]
+    fn close_first_run_tabs_retires_the_protected_picker() {
+        // Completion legitimately closes the (protected) picker before General is
+        // materialized — the guard must be lifted, not block the transition.
+        let mut mux = MultiplexerState::empty();
+        ensure_first_run_tab(&mut mux);
+        assert!(has_first_run_tab(&mux));
+        close_first_run_tabs(&mut mux).expect("retire first-run tabs");
+        assert!(
+            !has_first_run_tab(&mux),
+            "picker pane removed on completion"
+        );
     }
 
     #[test]
