@@ -125,10 +125,20 @@ pub(crate) fn launch_agent_in_background(
                             Ok(Some(prepared)) => {
                                 let pid2 = pid.clone();
                                 std::thread::spawn(move || {
-                                    let rt = tokio::runtime::Builder::new_current_thread()
+                                    let rt = match tokio::runtime::Builder::new_current_thread()
                                         .enable_all()
                                         .build()
-                                        .expect("backend reader runtime");
+                                    {
+                                        Ok(rt) => rt,
+                                        Err(e) => {
+                                            log::error!(
+                                                "launch_agent: backend reader runtime failed for {}: {}",
+                                                pid2,
+                                                e
+                                            );
+                                            return;
+                                        }
+                                    };
                                     rt.block_on(async {
                                         let h = crate::service::pty_lifecycle::spawn_prepared_backend_reader(
                                             &svc_arc, &pid2, prepared, true,
