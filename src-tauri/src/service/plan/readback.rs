@@ -1,5 +1,7 @@
 use super::{PlanError, PlanStore, TaskLaneUpdate};
-use crate::plan::{Task, TaskLaneMetadata, TaskPriority, TaskStatus};
+use crate::plan::{
+    PlanMode, PlanStatus, PlannerRef, Task, TaskLaneMetadata, TaskPriority, TaskStatus,
+};
 
 pub(in crate::service::plan) fn pending_after_verified(
     result: Result<(), PlanError>,
@@ -53,6 +55,10 @@ fn parse_task_priority(raw: &str) -> Result<TaskPriority, PlanError> {
         .map_err(|_| PlanError::BadPriority)
 }
 
+fn parse_plan_mode(raw: &str) -> Result<PlanMode, PlanError> {
+    serde_json::from_value(serde_json::Value::String(raw.into())).map_err(|_| PlanError::BadMode)
+}
+
 fn normalized_lane_value(value: &Option<String>) -> Option<String> {
     value.as_deref().and_then(|raw| {
         let trimmed = raw.trim();
@@ -92,6 +98,57 @@ impl PlanStore {
             operation: operation.into(),
             message: message.into(),
         }
+    }
+
+    fn plan_readback_error(operation: &str, message: impl Into<String>) -> PlanError {
+        PlanError::ReadbackMismatch {
+            operation: operation.into(),
+            message: message.into(),
+        }
+    }
+
+    pub(in crate::service::plan) fn verify_plan_updated(
+        &self,
+        plan_id: &str,
+        title: Option<&str>,
+        status: Option<PlanStatus>,
+        mode: Option<&str>,
+    ) -> Result<(), PlanError> {
+        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        let fail = |field: &str| {
+            Self::plan_readback_error(
+                "plan_update",
+                format!("{field} did not match for {plan_id}"),
+            )
+        };
+        if title.is_some_and(|expected| plan.title != expected) {
+            return Err(fail("title"));
+        }
+        if status.is_some_and(|expected| plan.status != expected) {
+            return Err(fail("status"));
+        }
+        if let Some(raw_mode) = mode {
+            let expected = parse_plan_mode(raw_mode)?;
+            if plan.mode != expected {
+                return Err(fail("mode"));
+            }
+        }
+        Ok(())
+    }
+
+    pub(in crate::service::plan) fn verify_planner_ref(
+        &self,
+        plan_id: &str,
+        expected: &Option<PlannerRef>,
+    ) -> Result<(), PlanError> {
+        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        if &plan.planner != expected {
+            return Err(Self::plan_readback_error(
+                "plan_update",
+                format!("planner did not match for {plan_id}"),
+            ));
+        }
+        Ok(())
     }
 
     fn read_task_for_verification(&self, plan_id: &str, task_id: &str) -> Result<Task, PlanError> {

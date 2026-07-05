@@ -352,13 +352,6 @@ fn replace_units_once(
     Ok(changed)
 }
 
-pub(crate) fn is_busy_or_locked(message: &str) -> bool {
-    message.contains("DatabaseBusy")
-        || message.contains("DatabaseLocked")
-        || message.contains("database is locked")
-        || message.contains("database table is locked")
-}
-
 fn delete_units(project_root: &Path, prefix_like: &str) -> Result<(), String> {
     let conn = open_index(project_root)?;
     delete_units_tx(&conn, prefix_like)

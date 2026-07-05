@@ -1,8 +1,8 @@
 use super::lane_metadata::{apply_lane_update, normalize_lane_metadata};
 use super::readback::pending_after_verified;
 use super::{
-    plan_index_write_error, qa, section_links, tag_model, task_attempts, NewTask, OpenSubtask,
-    PlanError, PlanStore, TaskLaneUpdate,
+    qa, section_links, tag_model, task_attempts, NewTask, OpenSubtask, PlanError, PlanStore,
+    TaskLaneUpdate,
 };
 use crate::plan::{
     AgentRef, Goal, Milestone, MilestoneKind, OrchestratorRef, Plan, PlanMode, PlanStatus,
