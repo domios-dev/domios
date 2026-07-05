@@ -122,15 +122,9 @@ function cli(args: string): string {
 async function openPlugins(ui: ManagedUiSession): Promise<void> {
   await ui.reconnect();
   await ui.page.locator('[data-testid="titlebar-settings"]').click();
-  await ui.page.locator('[data-testid="settings-menu-general"]').click();
+  await ui.page.locator('[data-testid="settings-menu-agents"]').click();
   await expect(ui.page.locator('[data-testid="settings-panel"]')).toBeVisible();
-  const section = ui.page.locator('[data-testid="settings-section-plugins"]');
-  if (await section.isVisible().catch(() => false)) {
-    await section.click();
-  } else {
-    await ui.page.locator('[data-testid="settings-section-agents"]').click();
-    await ui.page.locator('[data-testid="settings-open-provider-plugins"]').click();
-  }
+  await ui.page.locator('[data-testid="settings-open-provider-plugins"]').click();
   await expect(ui.page.locator('[data-testid="plugin-installed-list"]')).toBeVisible({
     timeout: 20_000,
   });
