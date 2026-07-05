@@ -105,11 +105,25 @@ function plannerBinding(
   if (!ref) return { label: null, paneId: null };
   if (ref.kind === "waived") return { label: "Solo (waived)", paneId: null };
   const paneId = clean(ref.pane_id);
-  const label =
-    (paneId && panes[paneId]?.title?.trim()) ||
-    clean(ref.title) ||
-    (paneId ? paneId.slice(0, 8) : null);
-  return { label, paneId };
+  const localTitle = paneId ? panes[paneId]?.title?.trim() : undefined;
+  if (localTitle) return { label: localTitle, paneId };
+  const refTitle = clean(ref.title);
+  if (refTitle) return { label: refTitle, paneId };
+  if (paneId) return { label: `${paneId.slice(0, 8)} (remote)`, paneId };
+  return { label: null, paneId: null };
+}
+
+export function resolveDisplayPlanningState(plan: Plan): PlanningState | null {
+  const raw = plan.planning_state;
+  if (plan.mode === "complete") {
+    if (raw === "approved" || raw === "structure_ready") return raw;
+    return null;
+  }
+  if (plan.mode === "approved" || plan.mode === "execution") {
+    if (!raw || raw === "drafting") return "approved";
+    return raw;
+  }
+  return raw ?? null;
 }
 
 // approved/execution lifecycle mode bridges plans predating planning_state.
@@ -204,7 +218,7 @@ export function deriveBoardPlanSummary(plan: Plan, panes: Record<string, Pane>):
     ownerPaneId: clean(plan.owner.pane_id),
     plannerLabel: planner.label,
     plannerPaneId: planner.paneId,
-    planningState: plan.planning_state ?? null,
+    planningState: resolveDisplayPlanningState(plan),
     executionUnlocked: planExecutionUnlocked(plan),
     done,
     total,

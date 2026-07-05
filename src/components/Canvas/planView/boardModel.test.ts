@@ -13,6 +13,7 @@ import {
   groupTasksIntoColumns,
   orderPlansByActivity,
   planActivityFreshness,
+  resolveDisplayPlanningState,
   selectDefaultPlanId,
   type BoardTaskCardModel,
 } from "./boardModel";
@@ -83,6 +84,35 @@ test("deriveBoardPlanSummary tracks done/total and focus", () => {
   assert(summary.done === 1 && summary.total === 2, "progress excludes cancelled");
   assert(summary.focus?.includes("task:task-dante"), "focus");
   assert(summary.goalVector === "Ship auth safely", "goal");
+});
+
+test("resolveDisplayPlanningState bridges drafting default on execution plans", () => {
+  const plan: Plan = { ...FIXTURE_PLAN, mode: "execution", planning_state: "drafting" };
+  assert(resolveDisplayPlanningState(plan) === "approved", "execution never shows drafting");
+});
+
+test("resolveDisplayPlanningState omits chip on complete plans with drafting default", () => {
+  const plan: Plan = { ...FIXTURE_PLAN, mode: "complete", planning_state: "drafting" };
+  assert(resolveDisplayPlanningState(plan) === null, "complete hides drafting lie");
+});
+
+test("deriveBoardPlanSummary labels remote planner when pane is not local", () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    planner: { kind: "pane", pane_id: "planner-prod-99", title: null },
+  };
+  const summary = deriveBoardPlanSummary(plan, PANES);
+  assert(summary.plannerLabel === "planner- (remote)", "remote short id label");
+  assert(summary.plannerPaneId === "planner-prod-99", "pane id preserved");
+});
+
+test("deriveBoardPlanSummary prefers bound planner title over remote fallback", () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    planner: { kind: "pane", pane_id: "planner-prod-99", title: "Prod planner" },
+  };
+  const summary = deriveBoardPlanSummary(plan, {});
+  assert(summary.plannerLabel === "Prod planner", "ref title when pane absent");
 });
 
 test("groupTasksIntoColumns places tasks by status and sorts freshest first", () => {

@@ -30,22 +30,22 @@ const PLANNING_STATE_LABEL: Record<PlanningState, string> = {
   approved: "Approved",
 };
 
+function planningStateLabel(state: PlanningState | null | undefined): string | null {
+  return state ? PLANNING_STATE_LABEL[state] : null;
+}
+
 export function PlanContextHeader(props: PlanContextHeaderProps) {
   const touch = useTouchOptimizedUi();
   const narrow = useNarrowPlanHeader();
   if (touch || narrow) return <PlanContextCompactHeader {...props} />;
-  return (
-    <header data-testid="plan-context-header" className="plan-context-header">
-      <PlanContextBody {...props} />
-    </header>
-  );
+  return <PlanContextWideHeader {...props} />;
 }
 
 export function PlanContextCompactHeader(props: PlanContextHeaderProps) {
-  const { summary } = props;
-  const { collapsed, toggle } = usePlanHeaderCollapse("narrow", true);
+  const { summary, planId } = props;
+  const { collapsed, toggle } = usePlanHeaderCollapse("narrow", true, planId);
   const expanded = !collapsed;
-  const stateLabel = summary.planningState ? PLANNING_STATE_LABEL[summary.planningState] : null;
+  const stateLabel = planningStateLabel(summary.planningState);
 
   return (
     <header
@@ -95,6 +95,76 @@ export function PlanContextCompactHeader(props: PlanContextHeaderProps) {
   );
 }
 
+export function PlanContextWideHeader(props: PlanContextHeaderProps) {
+  const { summary, planId } = props;
+  const { collapsed, toggle } = usePlanHeaderCollapse("wide", false, planId);
+  const expanded = !collapsed;
+  const stateLabel = planningStateLabel(summary.planningState);
+
+  if (!expanded) {
+    return (
+      <header
+        data-testid="plan-context-header"
+        className="plan-context-header plan-context-header-wide is-collapsed"
+      >
+        <button
+          type="button"
+          data-testid="plan-context-wide-bar"
+          className="plan-context-compact-bar"
+          aria-expanded={false}
+          aria-controls="plan-context-wide-panel"
+          onClick={toggle}
+          title="Expand plan context"
+        >
+          {stateLabel && (
+            <span
+              data-testid="plan-state-chip"
+              className={`plan-context-chip plan-state-chip plan-state-${summary.planningState}`}
+            >
+              {stateLabel}
+            </span>
+          )}
+          <span data-testid="plan-context-compact-title" className="plan-context-compact-title">
+            {summary.title}
+          </span>
+          <span data-testid="plan-context-compact-progress" className="plan-context-compact-progress">
+            {summary.done}/{summary.total}
+          </span>
+          <ChevronDown
+            size={16}
+            aria-hidden={false}
+            aria-label="Expand plan context"
+            className="plan-context-compact-chevron"
+          />
+        </button>
+      </header>
+    );
+  }
+
+  return (
+    <header
+      data-testid="plan-context-header"
+      className="plan-context-header plan-context-header-wide is-expanded"
+    >
+      <button
+        type="button"
+        data-testid="plan-context-wide-chevron"
+        className="plan-context-wide-chevron"
+        aria-expanded
+        aria-controls="plan-context-wide-panel"
+        aria-label="Collapse plan context"
+        onClick={toggle}
+        title="Collapse plan context"
+      >
+        <ChevronDown size={16} className="plan-context-compact-chevron" />
+      </button>
+      <div id="plan-context-wide-panel" data-testid="plan-context-wide-panel">
+        <PlanContextBody {...props} />
+      </div>
+    </header>
+  );
+}
+
 function PlanContextBody({
   summary,
   spec,
@@ -106,7 +176,8 @@ function PlanContextBody({
   api,
 }: PlanContextHeaderProps) {
   const goal = summary.goalVector?.trim() ?? "";
-  const stateLabel = summary.planningState ? PLANNING_STATE_LABEL[summary.planningState] : null;
+  const stateLabel = planningStateLabel(summary.planningState);
+  const plannerLabel = summary.plannerLabel ?? "No planner";
 
   return (
     <>
@@ -138,7 +209,7 @@ function PlanContextBody({
           planner={
             <PeerChip
               role="planner"
-              label={summary.plannerLabel ?? "No planner"}
+              label={plannerLabel}
               paneId={summary.plannerPaneId}
               onOpenPane={onOpenPane}
             />

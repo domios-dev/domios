@@ -62,6 +62,7 @@ test("renders plan root and task rows with stable test ids", async () => {
   assert(host.querySelector('[data-testid="plan-list-scroll"]'), "scroll region");
   assert(host.querySelector('[data-testid="plan-list-filter"]'), "filter toolbar");
   assert(host.querySelector('[data-testid="plan-context-header"]'), "context header");
+  assert(!host.querySelector(".flex.flex-1.flex-col.items-center.justify-center"), "no dead-band spacer");
   assert(host.querySelector('[data-testid="plan-board-plan-title"]'), "single plan title chip");
   assert(!host.querySelector('[data-testid="plan-list-plan-root"]'), "no duplicated plan-root band");
   const task = host.querySelector('[data-testid="plan-list-task"]');
