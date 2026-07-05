@@ -184,6 +184,7 @@ console.log("\n--- parseUsage: robustness matrix (structural, not literal-copy) 
   eq(shiftedCrlf?.session_pct, shifted?.session_pct, "crlf: shifted session survives CRLF");
   eq(shiftedCrlf?.weekly_pct, shifted?.weekly_pct, "crlf: shifted weekly survives CRLF");
 
+  // CRLF-only inline variant with a dash label.
   const crlf = p.parseUsage(
     "OpenAI Codex\r\n5-hour limit ██░ 40% left (resets 19:59)\r\n" +
       "Weekly limit █░ 30% used (resets 19:59 on 14 Jun)\r\n",
