@@ -308,14 +308,15 @@ test("task card: status row precedes branch row, long branch has truncate class"
   const lane = card?.querySelector('[data-testid="working-on-chip-branch"]') as Element;
   assert(status, "status present");
   assert(lane, "working-on branch chip present");
-  assert(lane.textContent?.includes(longBranch), "branch text present in working-on chip");
+  assert(lane.textContent?.includes("Branch"), "branch field label present");
+  assert(lane.querySelector(".working-on-chip-value")?.textContent?.includes("…"), "long branch middle-truncated");
   const allWithTestId = Array.from(card!.querySelectorAll("[data-testid]"));
   const statusIdx = allWithTestId.indexOf(status);
   const laneIdx = allWithTestId.indexOf(lane);
   assert(statusIdx !== -1 && laneIdx !== -1, "both elements found in testid scan");
   assert(statusIdx < laneIdx, `status (idx ${statusIdx}) must precede branch (idx ${laneIdx}) in DOM order`);
-  const branchSpan = lane.querySelector("span.truncate");
-  assert(branchSpan, "branch text span carries truncate class for ellipsis clipping");
+  const branchSpan = lane.querySelector(".working-on-chip-value");
+  assert(branchSpan, "branch value span carries truncate class for ellipsis clipping");
 });
 
 test("task card: title stays primary and does not allow single-letter wrapping", async () => {
