@@ -1,5 +1,8 @@
 export const TEMPLATE_PATHS: string[][] = [
   ["send"],
+  ["plan", "task"],
+  ["plan", "record"],
+  ["plan", "state"],
   ["agent", "spawn"],
   ["agent", "report"],
   ["agent", "providers"],

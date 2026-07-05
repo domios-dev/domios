@@ -77,6 +77,8 @@ interface MessageBubbleProps {
   onOriginClick?: () => void;
   /** Resolve a pane id/short-id to a tab name for CodeTerm cards (e.g. "Sent to <name>"). */
   resolvePaneName?: PaneNameResolver;
+  /** Open the plan view for a plan (optionally focused on a task) from chat cards/links. */
+  onOpenPlan?: (planId: string, taskId?: string) => void;
   fontScale?: number;
   /** `shell_command` decoration — re-run the command in the pane's PTY. */
   onRerunShellCommand?: (command: string) => void;
@@ -86,7 +88,7 @@ interface MessageBubbleProps {
 
 const INTERACTIVE_QUESTIONS_ENABLED = false;
 
-export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onOpenPlan, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
   const shouldAutoExpand = message.type === "tool_call"
     && (message.toolInput?.content != null || extractEdits(message).length > 0);
   const [expanded, setExpanded] = useState(shouldAutoExpand);
@@ -534,6 +536,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             expanded={expanded}
             onToggle={() => setExpanded(!expanded)}
             resolvePaneName={resolvePaneName}
+            onOpenPlan={onOpenPlan}
+            fontScale={fontScale}
           />
         );
       }

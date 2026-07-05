@@ -5,6 +5,8 @@ import { MessageBubble } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
 import { useMultiplexer } from "../../store/multiplexer";
+import { usePlanIndexOptional } from "../Canvas/PlansProvider";
+import { openPlanDeepLink } from "../Canvas/workspacePlanEntry";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
@@ -85,7 +87,8 @@ export function PaneSessionChat({
     setShowScrollDown(false);
   }, []);
 
-  const { state: muxState, setFocusedPane, addNotification } = useMultiplexer();
+  const { state: muxState, setFocusedPane, addNotification, setActiveWorkspace, upsertToast } = useMultiplexer();
+  const { index: planIndex } = usePlanIndexOptional();
   const pane = muxState.panes[paneId];
   const paneProvider = pane?.agent_type ?? null;
   const agentSessionId = pane?.agent_session_id ?? null;
@@ -220,6 +223,28 @@ export function PaneSessionChat({
     }
     return (paneRef: string): string | undefined => byShort.get(paneRef.slice(0, 8));
   }, [muxState.workspaces, muxState.panes]);
+
+  const onOpenPlan = useCallback(
+    (planId: string, taskId?: string) => {
+      openPlanDeepLink(planId, taskId, {
+        index: planIndex,
+        workspaces: muxState.workspaces,
+        activeWorkspaceId: muxState.active_workspace_id,
+        setActiveWorkspace,
+        onMissing: () =>
+          upsertToast({
+            id: `plan-missing-${planId}`,
+            key: `plan-missing-${planId}`,
+            pane_id: paneId,
+            workspace_id: muxState.active_workspace_id,
+            title: "Plan unavailable",
+            body: "That plan was not found — it may have been deleted.",
+            level: "Warning",
+          }),
+      });
+    },
+    [planIndex, muxState.workspaces, muxState.active_workspace_id, setActiveWorkspace, upsertToast, paneId],
+  );
 
   useEffect(() => {
     if (backendState?.state === "working" || pendingPrompt) {
@@ -370,6 +395,7 @@ export function PaneSessionChat({
                 message={msg}
                 origin={origin}
                 resolvePaneName={resolvePaneName}
+                onOpenPlan={onOpenPlan}
                 fontScale={uiFontScale}
                 onAnswerInteractive={handleAnswerInteractive}
                 answeredInteractiveIds={answeredInteractiveIds}
