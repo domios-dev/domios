@@ -23,6 +23,13 @@ pub enum OrchestratorAction {
         #[command(subcommand)]
         action: OrchestratorHeartbeatAction,
     },
+    /// Run the daemon-side refresh cycle (handoff → compact → re-orient → verify resumption)
+    Refresh {
+        #[arg(long, env = "CODETERM_PLAN_ID")]
+        plan: Option<String>,
+        #[arg(long, env = "CODETERM_PANE_ID")]
+        pane: Option<String>,
+    },
     /// Create an orchestrator handoff and optionally reseed this pane
     Handoff {
         #[arg(long, env = "CODETERM_PLAN_ID")]
@@ -100,6 +107,29 @@ mod tests {
                 assert_eq!(pane.as_deref(), Some("pane1"));
             }
             _ => panic!("expected orchestrator status"),
+        }
+    }
+
+    #[test]
+    fn refresh_parses_plan_and_pane() {
+        let parsed = Cli::try_parse_from([
+            "codeterm",
+            "orchestrator",
+            "refresh",
+            "--plan",
+            "pl_1",
+            "--pane",
+            "pane1",
+        ])
+        .expect("orchestrator refresh parses");
+        match parsed.command {
+            Commands::Orchestrator {
+                action: OrchestratorAction::Refresh { plan, pane },
+            } => {
+                assert_eq!(plan.as_deref(), Some("pl_1"));
+                assert_eq!(pane.as_deref(), Some("pane1"));
+            }
+            _ => panic!("expected orchestrator refresh"),
         }
     }
 

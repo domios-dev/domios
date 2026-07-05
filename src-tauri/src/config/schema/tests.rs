@@ -90,6 +90,31 @@ fn orchestration_reflect_every_gates_override() {
 }
 
 #[test]
+fn orchestration_refresh_defaults_after_reflection_off() {
+    let cfg: OrchestrationConfig = toml::from_str("").unwrap();
+    assert!(
+        !cfg.refresh.after_reflection,
+        "after_reflection is OFF by default"
+    );
+    assert_eq!(cfg.refresh.handoff_timeout_secs, 60);
+    assert_eq!(cfg.refresh.settle_timeout_secs, 120);
+    assert_eq!(cfg.refresh.reorient_timeout_secs, 30);
+    assert_eq!(cfg.refresh.verify_timeout_secs, 180);
+}
+
+#[test]
+fn orchestration_refresh_overrides() {
+    let cfg: OrchestrationConfig = toml::from_str(
+        "[refresh]\nafter_reflection = true\nsettle_timeout_secs = 5\nverify_timeout_secs = 20\n",
+    )
+    .unwrap();
+    assert!(cfg.refresh.after_reflection);
+    assert_eq!(cfg.refresh.settle_timeout_secs, 5);
+    assert_eq!(cfg.refresh.verify_timeout_secs, 20);
+    assert_eq!(cfg.refresh.handoff_timeout_secs, 60);
+}
+
+#[test]
 fn orchestration_plan_reminder_overrides() {
     let cfg: OrchestrationConfig =
         toml::from_str(
