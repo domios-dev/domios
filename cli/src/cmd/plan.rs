@@ -646,8 +646,8 @@ fn run_plan(
             if json {
                 return Ok(Some(val));
             }
-            print!(
-                "Recorded retrospective for plan {}\n",
+            println!(
+                "Recorded retrospective for plan {}",
                 val.get("plan_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or(plan_id.as_str())
