@@ -1,6 +1,6 @@
 mod calibration;
 mod graph;
-mod item;
+pub(crate) mod item;
 mod skill;
 mod tail;
 mod worker;
@@ -30,7 +30,7 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
         }
         | MemAction::Get { id: _ }
         | MemAction::Delete { id: _ }
-        | MemAction::Forget { area: _ }
+        | MemAction::Forget { area: _, yes: _ }
         | MemAction::Update {
             id: _,
             title: _,

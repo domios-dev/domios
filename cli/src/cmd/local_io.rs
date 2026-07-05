@@ -3,6 +3,10 @@ use std::io::Write;
 use crate::args::misc::WorkspaceAction;
 use crate::client::SocketClient;
 
+pub(crate) fn workspace_create_cwd_hint() -> String {
+    "hint: no --cwd — agents in this workspace inherit the daemon working directory; pass --cwd <project dir> for project work".to_string()
+}
+
 pub(crate) fn workspace_reuse_notice(
     value: &serde_json::Value,
     requested_name: &str,
@@ -101,6 +105,8 @@ pub(crate) fn handle_workspace_action(
             let mut params = serde_json::json!({ "name": name });
             if let Some(cwd) = cwd {
                 params["cwd"] = serde_json::json!(cwd);
+            } else {
+                eprintln!("{}", workspace_create_cwd_hint());
             }
             match client.call("workspace.create", Some(params)) {
                 Ok(val) if workspace_reuse_notice(&val, &requested_name).is_some() => {
@@ -157,4 +163,16 @@ pub(crate) fn handle_send_text(
     crate::cmd::send_text::handle_send_text(
         client, json, pane, text, from_file, stdin, actions, delay, at,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::workspace_create_cwd_hint;
+
+    #[test]
+    fn workspace_cwd_hint_names_the_flag() {
+        let hint = workspace_create_cwd_hint();
+        assert!(hint.contains("--cwd"));
+        assert!(hint.contains("daemon working directory"));
+    }
 }

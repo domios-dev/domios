@@ -574,6 +574,13 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     std::process::exit(1);
                 }
             };
+            for hint in crate::cmd::hints::worker_spawn_hints(
+                matches!(role, Some(crate::args::agent::SpawnRole::Worker)),
+                parent.is_some() || report_to.is_some(),
+                task.is_some(),
+            ) {
+                eprintln!("{hint}");
+            }
             let mut body = serde_json::json!({
                 "agent": agent,
             });
