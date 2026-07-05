@@ -1,8 +1,8 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 25 -->
+<!-- revision: 26 -->
 
-Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
+Full reference for the `codeterm plan` CLI and orchestration discipline. The *why* (when to spawn, model routing, role contracts) lives here and in your role prompt — this doc is the authority; machine-specific deltas live in mem preferences (kind=preference, area=orchestration).
 
 > **Doc entry:** `codeterm doc orchestration` (full doc). `codeterm docs ORCHESTRATION` is the same content via the list command.
 
@@ -113,6 +113,22 @@ nudges are automatic once an assigned orchestrator owns an execution-mode plan
 with unfinished work. Manual heartbeat focus/lanes/rules are only overlays that
 make the automatic nudge more precise; they are not a prerequisite. Workers get
 task nudges only while their assigned task is still waiting for their report.
+
+## Long-running shell gates — completion contract, never polling
+
+Long-running shell commands (builds, soaks, remote regressions) are gates, not
+things to watch. Never wait by polling — sleep/get-text loops are
+implementer-mode waiting. Give the command a completion contract at launch:
+
+```bash
+<cmd>; codeterm send --pane $CODETERM_PANE_ID [--mesh <your-peer>] "GATE:<task_id> rc=$?"
+```
+
+Record the gate on the task and work other frontier items until the marker
+arrives. For an already-running command, start a companion watcher in that
+pane (`while pgrep -f <name> >/dev/null; do sleep 30; done; codeterm send ...;
+codeterm pane close $CODETERM_PANE_ID`): the wait runs remotely, never in your
+loop, and the watcher closes itself after sending its gate.
 
 ## Worker Lanes — Git worktrees + task metadata
 
