@@ -528,6 +528,11 @@ pub struct ProviderDescriptor {
     /// Provider-declared command that starts a fresh context in the same pane.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fresh_context_command: Option<String>,
+    /// Provider-declared in-agent command that compacts (summarizes) context.
+    /// Consumed capability-keyed by the orchestrator refresh cycle — never a
+    /// provider-id literal. Absent means no compact capability (mode-B fallback).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact_command: Option<String>,
     /// `true` when this provider declares a stop_keystroke — UI shows
     /// a Stop button on the pane that POSTs to `/api/panes/:id/stop`.
     #[serde(default)]
@@ -576,7 +581,7 @@ pub enum ProviderTrust {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 8;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 9;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
@@ -1088,6 +1093,7 @@ pub trait AgentProvider: Send + Sync {
             install_command: self.install_command(platform),
             model_switch_format: self.model_switch_format().map(|s| s.to_string()),
             fresh_context_command: self.fresh_context_command().map(|s| s.to_string()),
+            compact_command: self.compact_command().map(|s| s.to_string()),
             supports_stop: self.stop_keystroke().is_some(),
             supports_chat_ui: self.supports_chat_ui(),
             supports_structured_prompts: self.supports_structured_prompts(),

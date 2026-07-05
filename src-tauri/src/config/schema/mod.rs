@@ -386,6 +386,7 @@ pub struct OrchestrationConfig {
     pub idle_poke: IdlePokeConfig,
     pub reflect: ReflectConfig,
     pub digests: OrchestrationDigestsConfig,
+    pub refresh: RefreshConfig,
 }
 
 impl Default for OrchestrationConfig {
@@ -397,6 +398,53 @@ impl Default for OrchestrationConfig {
             idle_poke: IdlePokeConfig::default(),
             reflect: ReflectConfig::default(),
             digests: OrchestrationDigestsConfig::default(),
+            refresh: RefreshConfig::default(),
+        }
+    }
+}
+
+fn default_refresh_handoff_timeout_secs() -> u64 {
+    60
+}
+
+fn default_refresh_settle_timeout_secs() -> u64 {
+    120
+}
+
+fn default_refresh_reorient_timeout_secs() -> u64 {
+    30
+}
+
+fn default_refresh_verify_timeout_secs() -> u64 {
+    180
+}
+
+/// The orchestrator refresh cycle (S1..S5). Section `[orchestration.refresh]`.
+/// `after_reflection` stays OFF until the drill series passes — the manual
+/// `codeterm orchestrator refresh` trigger is always available regardless.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RefreshConfig {
+    /// Auto-run a refresh after a reflection block records its learning. OFF by default.
+    pub after_reflection: bool,
+    #[serde(default = "default_refresh_handoff_timeout_secs")]
+    pub handoff_timeout_secs: u64,
+    #[serde(default = "default_refresh_settle_timeout_secs")]
+    pub settle_timeout_secs: u64,
+    #[serde(default = "default_refresh_reorient_timeout_secs")]
+    pub reorient_timeout_secs: u64,
+    #[serde(default = "default_refresh_verify_timeout_secs")]
+    pub verify_timeout_secs: u64,
+}
+
+impl Default for RefreshConfig {
+    fn default() -> Self {
+        Self {
+            after_reflection: false,
+            handoff_timeout_secs: default_refresh_handoff_timeout_secs(),
+            settle_timeout_secs: default_refresh_settle_timeout_secs(),
+            reorient_timeout_secs: default_refresh_reorient_timeout_secs(),
+            verify_timeout_secs: default_refresh_verify_timeout_secs(),
         }
     }
 }
