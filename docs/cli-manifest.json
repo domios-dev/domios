@@ -818,6 +818,14 @@
       "aliases": [],
       "args": [
         {
+          "name": "markdown",
+          "positional": false,
+          "value_name": "MARKDOWN",
+          "default": null,
+          "help": "Emit the docs/CLI.md auto-block markdown instead of JSON",
+          "aliases": []
+        },
+        {
           "name": "write",
           "positional": false,
           "value_name": "WRITE",

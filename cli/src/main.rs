@@ -396,7 +396,7 @@ fn main() {
     // `cli-manifest` introspects the clap tree — no daemon dependency.
     if matches!(cli.command, Commands::CliManifest { .. }) {
         match cli.command {
-            Commands::CliManifest { write } => cmd::manifest::handle(write),
+            Commands::CliManifest { write, markdown } => cmd::manifest::handle(write, markdown),
             _ => unreachable!(),
         }
         return;
