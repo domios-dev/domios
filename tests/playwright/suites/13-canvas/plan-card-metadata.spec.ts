@@ -47,6 +47,21 @@ async function switchPlanMode(page: Page, mode: "board" | "list"): Promise<void>
   await expect(shell).toHaveAttribute("data-plan-view-mode", mode);
 }
 
+async function expectWorkingOnChipValue(
+  card: import("@playwright/test").Locator,
+  kind: string,
+  pattern: RegExp | string,
+): Promise<void> {
+  const chipValue = card.locator(`[data-testid="working-on-chip-${kind}"] .working-on-chip-value`);
+  if ((await chipValue.count()) === 0) {
+    const trigger = card.locator('[data-testid="working-on-overflow-trigger"]');
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+    await expect(card.locator('[data-testid="working-on-overflow-popover"]')).toBeVisible();
+  }
+  await expect(card.locator(`[data-testid="working-on-chip-${kind}"] .working-on-chip-value`)).toContainText(pattern);
+}
+
 async function openBoardWithFixture(api: ApiClient, webBrowser: import("@playwright/test").Browser) {
   const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient, 1);
   const { page } = canvas;
@@ -128,9 +143,7 @@ test(
       const longBranchCard = page.locator(
         `[data-testid="plan-board-task-card"][data-task-id="${CARD_METADATA_TASK_IDS.longBranch}"]`,
       );
-      await expect(longBranchCard.locator('[data-testid="working-on-chip-branch"] .working-on-chip-value')).toContainText(
-        "…",
-      );
+      await expectWorkingOnChipValue(longBranchCard, "branch", "…");
       await shotCard(page, CARD_METADATA_TASK_IDS.longBranch, "plan-card-metadata-long-branch");
 
       const noPaneCard = page.locator(
