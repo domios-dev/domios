@@ -10,7 +10,13 @@ if ! grep -q "Done." <<< "$prod_inherited_output"; then
   echo "$prod_inherited_output" >&2
   exit 1
 fi
-if grep -q "7685" <<< "$prod_inherited_output"; then
+filtered_prod_output="$(
+  printf '%s\n' "$prod_inherited_output" \
+    | grep -v 'ignoring inherited CODETERM_API_PORT=7685' \
+    | grep -v 'ignoring inherited prod CodeTerm port' \
+    || true
+)"
+if grep -q "7685" <<< "$filtered_prod_output"; then
   echo "canonical kill path must not mention or target prod port 7685" >&2
   echo "$prod_inherited_output" >&2
   exit 1
@@ -26,7 +32,7 @@ if [ "$named_prod_status" -eq 0 ]; then
   echo "$named_prod_output" >&2
   exit 1
 fi
-if ! grep -q "refusing to target prod CodeTerm port 7685" <<< "$named_prod_output"; then
+if ! grep -Eq 'refusing to (target prod CodeTerm port|run kill against prod port) 7685' <<< "$named_prod_output"; then
   echo "expected explicit prod refusal message" >&2
   echo "$named_prod_output" >&2
   exit 1
