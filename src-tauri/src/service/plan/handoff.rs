@@ -114,7 +114,15 @@ fn git_value(project_path: &str, args: &[&str]) -> Option<String> {
 
 fn git_dirty(project_path: &str) -> bool {
     git_value(project_path, &["status", "--porcelain"])
-        .map(|value| !value.is_empty())
+        .map(|value| value.lines().any(|line| !is_sidecar_status_line(line)))
+        .unwrap_or(false)
+}
+
+fn is_sidecar_status_line(line: &str) -> bool {
+    line.get(3..)
+        .map(str::trim)
+        .map(|path| path.trim_matches('"'))
+        .map(|path| path == ".codeterm/plans" || path.starts_with(".codeterm/plans/"))
         .unwrap_or(false)
 }
 
@@ -740,6 +748,16 @@ mod tests {
             )
             .unwrap();
         (dir, store, plan.id, task_id)
+    }
+
+    #[test]
+    fn sidecar_status_lines_do_not_count_as_dirty() {
+        assert!(is_sidecar_status_line(
+            " M .codeterm/plans/active/p/plan.json"
+        ));
+        assert!(is_sidecar_status_line("?? .codeterm/plans/INDEX.md"));
+        assert!(!is_sidecar_status_line(" M src-tauri/src/main.rs"));
+        assert!(!is_sidecar_status_line("?? .codeterm/other.txt"));
     }
 
     #[test]
