@@ -559,6 +559,8 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             model,
             system_prompt,
             preset,
+            allow_shared_checkout,
+            bound_task,
         } => {
             if matches!(role, Some(crate::args::agent::SpawnRole::Orchestrator))
                 && workspace.is_none()
@@ -628,6 +630,12 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(preset) = preset {
                 body["preset"] = serde_json::json!(preset);
+            }
+            if allow_shared_checkout {
+                body["allow_shared_checkout"] = serde_json::json!(true);
+            }
+            if let Some(tid) = bound_task {
+                body["task_id"] = serde_json::json!(tid);
             }
             // Record the spawner's pane for report-routing fallback.
             if let Ok(spawner) = std::env::var("CODETERM_PANE_ID") {

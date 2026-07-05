@@ -62,6 +62,7 @@ impl ServiceContext {
     ) -> Result<SpawnResult, String> {
         params.title = spawn_title::normalize_agent_title(params.title.take());
         params.normalize_role_profile();
+        let checkout_exception = self.worker_checkout_guard(&params)?;
         let role = params.role.clone();
         let role_profile = params.role_profile.clone();
         let plan_id = params.plan_id.clone();
@@ -81,6 +82,9 @@ impl ServiceContext {
             params,
         );
         let handle = self.spawn_pane_with_ready(spec, ready_tx)?;
+        if let Some(exc) = checkout_exception {
+            self.record_shared_checkout_exception(&exc, &handle.pane_id);
+        }
         self.bind_planner_spawn(plan_id.as_deref(), role_profile.as_deref(), &handle.pane_id);
         Ok(SpawnResult {
             pane_id: handle.pane_id,
@@ -104,6 +108,7 @@ impl ServiceContext {
     ) -> Result<SpawnResult, String> {
         params.title = spawn_title::normalize_agent_title(params.title.take());
         params.normalize_role_profile();
+        let checkout_exception = self.worker_checkout_guard(&params)?;
         // Orchestrators must be pinned to an explicit workspace.
         // Active-workspace fallback can silently land them in the wrong plan context.
         if params.role.as_deref() == Some("Orchestrator")
@@ -402,6 +407,10 @@ impl ServiceContext {
         );
 
         // (subscriber already started inside ensure_for_spawn above)
+
+        if let Some(exc) = checkout_exception {
+            self.record_shared_checkout_exception(&exc, &pane_id);
+        }
 
         let title = self
             .mux

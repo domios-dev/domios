@@ -416,6 +416,8 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 model,
                 system_prompt,
                 preset,
+                allow_shared_checkout,
+                bound_task,
             } => {
                 let task = match crate::cmd::agent::resolve_spawn_task(
                     task.clone(),
@@ -477,6 +479,12 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(preset) = preset {
                     body["preset"] = serde_json::json!(preset);
+                }
+                if *allow_shared_checkout {
+                    body["allow_shared_checkout"] = serde_json::json!(true);
+                }
+                if let Some(tid) = bound_task {
+                    body["task_id"] = serde_json::json!(tid);
                 }
                 (
                     "POST".into(),
