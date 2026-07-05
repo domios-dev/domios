@@ -236,7 +236,6 @@ impl CaptureRegistry {
         };
         self.active.fetch_sub(1, Ordering::Relaxed);
         let out = cap.out.clone();
-        // Drop tx so the writer thread sees the channel close, then join to
         // guarantee the file is fully flushed before we return.
         let handle = cap.writer.take();
         drop(cap);

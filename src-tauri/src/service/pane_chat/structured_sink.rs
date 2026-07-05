@@ -202,8 +202,6 @@ mod tests {
 
     #[test]
     fn host_inbound_survives_poll_loop_flush() {
-        // BUG B regression: a host-written inbound row + the model's reply must
-        // both persist. Ordering reproduces the real bug — the poll-loop sink is
         let plugin = "test-single-writer-unique";
         let session = "sw-sid";
         let path = chatbackend_history::session_path(plugin, session);
@@ -227,7 +225,6 @@ mod tests {
                 ..Default::default()
             }]);
 
-        // 3) Poll-loop sink flushes the model's reply — a delta WITHOUT the
         //    inbound row (the loop never saw it).
         sink.emit("pane-1", vec![msg("reply-1", "pong")], None);
 

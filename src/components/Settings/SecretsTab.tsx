@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { KeyRound, LogIn, FlaskConical, Settings2, Clock, RefreshCw } from "lucide-react";
+import { BusySpinner } from "../shared/BusyState";
 import type { AppConfig, SecretsConfig } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
 import { setPendingCommand } from "../../lib/pendingCommands";
+import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { SettingsCard, SettingsPill } from "./shared";
 import { UI_BUTTON, UI_INPUT, UI_TEXT } from "../shared/design";
 
@@ -46,9 +48,10 @@ export function SecretsTab({
   onCloseSettings?: () => void;
 }) {
   const api = config.api;
-  const apiBase = api ? `http://${api.host === "0.0.0.0" ? "127.0.0.1" : api.host}:${api.port}` : "";
-  const apiHeaders: HeadersInit = api?.token
-    ? { Authorization: `Bearer ${api.token}` }
+  const apiBase = api ? daemonHttpBase(api) : "";
+  const authToken = daemonAuthToken(api);
+  const apiHeaders: HeadersInit = authToken
+    ? { Authorization: `Bearer ${authToken}` }
     : {};
   const jsonHeaders: HeadersInit = { "Content-Type": "application/json", ...apiHeaders };
 
@@ -145,7 +148,6 @@ export function SecretsTab({
         setOrgs(d.organizations ?? []);
       }
     } catch {
-      // ignore
     }
   }, [apiBase]);
 
@@ -162,7 +164,6 @@ export function SecretsTab({
           setColls(d.collections ?? []);
         }
       } catch {
-        // ignore
       }
     },
     [apiBase],
@@ -188,7 +189,6 @@ export function SecretsTab({
     }
   }, [status?.status?.status, refreshItems, refreshOrgs, refreshColls, cfg.default_organization]);
 
-  // Single seam for "merge a partial change into integrations.secrets without clobbering siblings". Every settings handler funnels through here
   // so we cannot accidentally drop a field (we hit that bug twice).
   const patchSecrets = useCallback(
     (patch: Partial<SecretsConfig>) => {
@@ -389,7 +389,7 @@ export function SecretsTab({
               disabled={statusBusy}
               className={`${statusBtnClass} gap-1 disabled:opacity-50`}
             >
-              <RefreshCw size={11} className={statusBusy ? "animate-spin" : ""} />
+              <BusySpinner icon={RefreshCw} size={11} spinning={statusBusy} />
               Refresh
             </button>
           </div>

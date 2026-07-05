@@ -195,14 +195,25 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Spinner affordance (BusySpinner). The bare ring form draws its own circle;
+   the icon form just borrows .ct-busy-spinner for the reduced-motion opt-out. */
+.ct-busy-ring {
+  display: inline-block;
+  border: 2px solid color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent);
+  border-top-color: var(--ct-accent, #58a6ff);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ct-agent-cursor-work,
   .ct-agent-cursor-idle,
   .ct-agent-cursor-rest,
   .ct-phase-dots i,
   .ct-agent-msg,
-  .ct-agent-question-in {
-    animation: none;
+  .ct-agent-question-in,
+  .ct-busy-spinner {
+    animation: none !important;
   }
   .ct-agent-cursor-rest { opacity: 0.6; }
   .ct-phase-dots i { opacity: 0.85; transition: none; }

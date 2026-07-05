@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
 import { RefreshCw, Trash2, ScrollText } from "lucide-react";
+import { BusySpinner } from "../shared/BusyState";
 import type { AppConfig } from "../../lib/types";
+import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { SettingsCard } from "./shared";
 import { LogsFilterBar } from "./LogsFilterBar";
 import { LogsListRow } from "./LogsListRow";
@@ -41,10 +43,13 @@ interface LogEventPayload {
 
 export function LogsTab({ config }: { config: AppConfig }) {
   const api = config.api;
-  const apiBase = api ? `http://${api.host === "0.0.0.0" ? "127.0.0.1" : api.host}:${api.port}` : "";
+  const apiBase = api ? daemonHttpBase(api) : "";
   const authHeaders: HeadersInit = useMemo(
-    () => (api?.token ? { Authorization: `Bearer ${api.token}` } : ({} as Record<string, string>)),
-    [api?.token],
+    () => {
+      const token = daemonAuthToken(api);
+      return token ? { Authorization: `Bearer ${token}` } : ({} as Record<string, string>);
+    },
+    [api],
   );
 
   const [logs, setLogs] = useState<AppLog[]>([]);
@@ -181,7 +186,7 @@ export function LogsTab({ config }: { config: AppConfig }) {
           className="flex items-center gap-1 px-2 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors text-[11px] disabled:opacity-50"
           title="Refresh"
         >
-          <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+          <BusySpinner icon={RefreshCw} size={12} spinning={loading} />
           <span>Refresh</span>
         </button>
       }

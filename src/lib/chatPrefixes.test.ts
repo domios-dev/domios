@@ -26,7 +26,6 @@ function eq(actual: unknown, expected: unknown, name: string) {
 
 console.log("detectChatPrefix");
 
-// Unified ct marker format
 {
   const r = detectChatPrefix("-=-codeterm:pane label=Main pane=12e450b4 model=Sonnet-=-Hey");
   eq(
@@ -112,7 +111,6 @@ console.log("detectChatPrefix");
   eq(r5, null, "old square ct marker is plain text");
 }
 
-// Single slash command
 {
   const c =
     "<command-name>/model</command-name><command-message>model</command-message><command-args></command-args>";
@@ -125,7 +123,6 @@ console.log("detectChatPrefix");
   eq(r?.body, "", "command body is empty");
 }
 
-// Command with stdout
 {
   const c =
     "<command-name>/add-dir</command-name><command-message>add-dir</command-message>" +
@@ -138,7 +135,6 @@ console.log("detectChatPrefix");
   );
 }
 
-// Multiple commands in one content
 {
   const c =
     "<command-name>/model</command-name><command-args></command-args>" +
@@ -157,7 +153,6 @@ console.log("detectChatPrefix");
   }
 }
 
-// Caveat stripped as noise
 {
   const c =
     "<local-command-caveat>some claude meta</local-command-caveat><command-name>/foo</command-name>";
@@ -168,7 +163,6 @@ console.log("detectChatPrefix");
   }
 }
 
-// New claude format: inline /cmd line between caveat and stdout tags
 {
   const c = `<local-command-caveat>Caveat: stuff</local-command-caveat>
 /model
@@ -186,7 +180,6 @@ console.log("detectChatPrefix");
   eq(r?.body, "", "new format: body is empty");
 }
 
-// Multiple stacked /cmd blocks
 {
   const c = `<local-command-caveat>x</local-command-caveat>
 /model
@@ -211,7 +204,6 @@ console.log("detectChatPrefix");
   }
 }
 
-// "No response requested." noise is stripped
 {
   const c = `<local-command-stdout>output</local-command-stdout>
 No response requested.
@@ -240,13 +232,11 @@ No response requested.
   }
 }
 
-// Plain text starting with / but no tags → plain message
 {
   const r = detectChatPrefix("/home/foo/bar is a path");
   eq(r, null, "plain /path message returns null (no tags, not a cmd-only line)");
 }
 
-// Summary
 console.log();
 if (failed === 0) {
   console.log(`✓ all ${passed} tests passed`);

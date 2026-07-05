@@ -97,8 +97,6 @@ impl AgentTransport for PtyTransport {
                 .with_provider(ctx.provider_id, |p| p.model_launch_args(&model))
         })
         .unwrap_or_default();
-        // Desktop/CLI spawn path: allocate + register + subscribe the structured-
-        // prompt server via the SAME shared chokepoint the REST `spawn_agent` uses,
         let cwd = svc
             .mux
             .read()
@@ -252,8 +250,6 @@ impl ServiceContext {
         };
 
         if let Some(at) = agent_type {
-            // PTY agent tabs default to Orchestrator (can spawn); chat panes keep their default (identity in `backing`).
-            let _ = self.set_pane_role(&pane_id, "Orchestrator", None, Some(true));
             self.set_pane_agent_type(&pane_id, Some(at.to_string()));
         }
         let _ = self.focus_pane(&pane_id);

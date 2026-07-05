@@ -134,7 +134,6 @@ export function useMeshData(refreshKey: number): MeshDataResult {
             .filter((n): n is string => Boolean(n)),
         }));
 
-      // Query every paired peer — the daemon decides whether to hit the network or serve its last-known cache, so offline peers still contribute
       // (stale-flagged) services instead of vanishing (#119/#127).
       const remotePromises = paired
         .map(async (p): Promise<PeerFetchResult> => {

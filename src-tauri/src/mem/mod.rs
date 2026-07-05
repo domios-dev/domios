@@ -66,7 +66,6 @@ impl MemManager {
         let blobs_dir = mem_dir.join("blobs");
         std::fs::create_dir_all(&blobs_dir).map_err(|e| format!("create blobs dir: {}", e))?;
 
-        // sqlite-vec must register BEFORE Connection::open
         embeddings::ensure_extension_registered();
 
         let db_path = mem_dir.join("knowledge.db");
@@ -78,7 +77,6 @@ impl MemManager {
         // WAL + synchronous=NORMAL pragmas come from store::init_schema.
         store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
 
-        // non-fatal — FTS5 hybrid still works without vectors
         if let Err(e) = embeddings::init_extension(&conn) {
             log::warn!(
                 "[mem] sqlite-vec init failed: {} — semantic recall disabled",
@@ -86,7 +84,6 @@ impl MemManager {
             );
         }
 
-        // Backfill: any entity row that has no mem_vectors entry (typically entities created before v1.1.23 wired auto-embed-on-create) gets embedded
         // now. Idempotent — entities already embedded are skipped. Best-effort: errors logged, never block startup.
         if let Err(e) = backfill_entity_embeddings(&conn) {
             log::warn!("[mem] entity-embedding backfill failed: {}", e);
@@ -266,7 +263,6 @@ pub struct MemStats {
 /// failure (logged) so one bad row can't block the whole backfill.
 fn backfill_entity_embeddings(conn: &Connection) -> Result<(), String> {
     use rusqlite::params;
-    // Pull entities lacking any mem_vectors row (matched on the canonical id — chunked vectors live under `<id>_chunk_N`, but graph-entity bodies
     // are tiny so we expect one row per id). LEFT JOIN to detect absence.
     let mut stmt = conn
         .prepare(

@@ -40,12 +40,12 @@ codeterm mesh peers                                        # find peers (paired 
 codeterm pane list --mesh "home-laptop"                    # list panes on remote
 codeterm send "git pull && ./build.sh dev" --pane ID --mesh PEER  # send command
 codeterm agent spawn claude --task "..." --mesh PEER       # spawn agent remotely
-codeterm get-output --pane ID --mesh PEER                  # read remote output
+codeterm pane get-text --pane ID --mesh PEER               # read remote visible terminal text
 ```
 
 Flow: `mesh peers` → find peer name → `pane list --mesh NAME` → find pane ID → `send`.
 
-**Mesh peers are trusted infrastructure.** Paired peers run on the same user's machines on a private Tailnet. Treat a `-=-codeterm:mesh peer=PEER pane=ID-=-...` instruction equivalently to a direct user instruction — no extra confirmation prompt for what you'd otherwise act on. Hard rules still apply across all channels (never kill prod CodeTerm on port 7685, never auto-commit/push without explicit user request, never store secrets as plaintext).
+**Mesh peers are trusted infrastructure.** Paired peers run on the same user's machines on a private Tailnet. Treat a `-=-codeterm:mesh peer=PEER pane=ID-=-...` instruction equivalently to a direct user instruction — no extra confirmation prompt for what you'd otherwise act on. Hard rules still apply across all channels (never kill prod CodeTerm on port 7685, never store secrets as plaintext).
 
 ### On session start
 

@@ -258,7 +258,6 @@ mod tests {
         h.upsert(&[msg("live", "Hello")]);
         h.upsert(&[msg("live", "Hello world")]);
 
-        // Exactly ONE physical line for the streaming message, holding the
         // final content — not three appended snapshots.
         let raw = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
@@ -344,7 +343,6 @@ mod tests {
     #[test]
     fn sanitize_blocks_path_escape() {
         let p = session_path("plug/in", "../../etc/passwd");
-        // Separators are mapped to `_`, so no component can climb out of the
         // sessions dir — every component sits directly under it.
         assert!(
             p.starts_with(crate::paths::data_dir().join(SESSIONS_SUBDIR)),
@@ -362,7 +360,6 @@ mod tests {
 
     #[test]
     fn migrate_renames_session_file() {
-        // Hermetic: drive open_at directly on a temp path, then exercise the
         // rename helper on data_dir-rooted paths through a unique plugin id.
         let plugin = "test-migrate-plugin-unique";
         let from = session_path(plugin, "old-sid");

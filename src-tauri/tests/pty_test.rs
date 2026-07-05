@@ -16,7 +16,6 @@ fn test_pty_spawn() {
     let (pty_id, _reader) = result.unwrap();
     assert!(!pty_id.is_empty());
 
-    // Clean up
     let _ = manager.kill(&pty_id);
 }
 
@@ -68,7 +67,6 @@ fn test_pty_kill() {
     let result = manager.kill(&pty_id);
     assert!(result.is_ok(), "Failed to kill PTY: {:?}", result.err());
 
-    // Double kill should fail
     let result = manager.kill(&pty_id);
     assert!(result.is_err());
 }
@@ -122,7 +120,6 @@ fn test_pty_multiple_instances() {
 
     assert_ne!(id1, id2);
 
-    // Both should be writable
     assert!(manager.write(&id1, b"echo 1\r\n").is_ok());
     assert!(manager.write(&id2, b"echo 2\r\n").is_ok());
 

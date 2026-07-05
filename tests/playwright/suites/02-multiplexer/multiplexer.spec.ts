@@ -84,7 +84,6 @@ test("@golden workspace + pane survive a daemon kill/restart", async ({ api, ui,
   expect(ws).toBeDefined();
   const paneId = await createPane(api, paneCleanup, ws!.id);
 
-  // Force-kill bypasses the close-to-tray save and the 30s auto-save timer
   // hasn't fired for state this young — snapshot explicitly first.
   await api.post("/session/save");
   killDevConsole();

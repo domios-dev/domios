@@ -11,7 +11,6 @@ pub(crate) fn setup_logging() {
 
     let log_file = log_dir.join("codeterm.log");
 
-    // Rotate: if log > 5MB, shift .1 -> .2 -> .3, current -> .1
     if let Ok(meta) = fs::metadata(&log_file) {
         if meta.len() > 5 * 1024 * 1024 {
             let _ = fs::remove_file(log_dir.join("codeterm.log.3"));

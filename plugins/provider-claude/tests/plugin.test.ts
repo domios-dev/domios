@@ -325,8 +325,6 @@ console.log("\n--- parseSessionDelta task notification ---\n");
 console.log("\n--- discoverModels ---\n");
 
 {
-  // Live /v1/models maps ONTO the curated aliases: opus takes its version label
-  // from live (4.9, not the manifest's 4.8), fable auto-enables when present,
   const p = loadClaudeWithHost(baseHost({
     envGet: (name: string) => name === "ANTHROPIC_API_KEY" ? "test-key" : null,
     fetch: () => JSON.stringify({

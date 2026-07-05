@@ -1,0 +1,173 @@
+import type { ReactNode } from "react";
+import type { ProviderDescriptor } from "../../lib/types";
+import { AgentIcon } from "../AgentIcon";
+import { PairAffordance } from "../shared/PairAffordance";
+import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
+
+export interface OrchestrationPairValues {
+  orchestratorProviderId: string;
+  orchestratorModelId: string;
+  plannerProviderId: string;
+  plannerModelId: string;
+}
+
+interface RoleRowProps {
+  label: string;
+  providers: ProviderDescriptor[];
+  providerId: string;
+  modelId: string;
+  disabledProviderIds?: ReadonlySet<string>;
+  onProviderChange: (id: string) => void;
+  onModelChange: (id: string) => void;
+  /** Distinct testids for the picker's two role rows (task_234c14f0) — the
+   *  shared per-label testid on the row wrapper isn't specific enough for
+   *  Playwright to target the orchestrator vs. planner select independently. */
+  providerTestId?: string;
+  modelTestId?: string;
+}
+
+export function OrchestrationRoleRow({
+  label,
+  providers,
+  providerId,
+  modelId,
+  disabledProviderIds,
+  onProviderChange,
+  onModelChange,
+  providerTestId,
+  modelTestId,
+}: RoleRowProps) {
+  const provider = providers.find((p) => p.id === providerId);
+  const models = provider?.available_models ?? [];
+  const providerDisabled = disabledProviderIds?.has(providerId) === true;
+  const providerOptions: DropdownSelectOption[] = providers.map((p) => {
+    const disabled = disabledProviderIds?.has(p.id) === true;
+    return {
+      value: p.id,
+      label: p.display_name,
+      disabled,
+      suffix: disabled ? " (not installed)" : undefined,
+    };
+  });
+  const modelOptions: DropdownSelectOption[] =
+    models.length === 0
+      ? [{ value: "", label: "default" }]
+      : models.map((m) => ({ value: m.id, label: m.display_name }));
+  return (
+    <div className="orchestration-role-row flex flex-col gap-1.5" data-testid={`orchestration-role-${label.toLowerCase()}`}>
+      <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">{label}</div>
+      <div className="flex items-center gap-2">
+        <div className="flex-1 min-w-0">
+          <DropdownSelect
+            data-testid={providerTestId}
+            options={providerOptions}
+            value={providerId}
+            onChange={onProviderChange}
+            leading={<AgentIcon providerId={providerId} className="text-[12px] shrink-0" />}
+          />
+        </div>
+        <div className="flex-1 min-w-0">
+          <DropdownSelect
+            data-testid={modelTestId}
+            options={modelOptions}
+            value={modelId}
+            onChange={onModelChange}
+            disabled={models.length === 0 || providerDisabled}
+          />
+        </div>
+      </div>
+      {providerDisabled && (
+        <div className="text-[10px] text-[var(--ct-muted-fg)]">CLI not installed for this provider</div>
+      )}
+    </div>
+  );
+}
+
+export function OrchestrationPairForm({
+  providers,
+  values,
+  disabledProviderIds,
+  onChange,
+  layout = "card",
+  titleField,
+  pairAffordanceTestId,
+  roleTestIds,
+}: {
+  providers: ProviderDescriptor[];
+  values: OrchestrationPairValues;
+  disabledProviderIds?: ReadonlySet<string>;
+  onChange: (next: OrchestrationPairValues) => void;
+  layout?: "card" | "stack";
+  titleField?: ReactNode;
+  pairAffordanceTestId?: string;
+  roleTestIds?: {
+    orchestratorProvider?: string;
+    orchestratorModel?: string;
+    plannerProvider?: string;
+    plannerModel?: string;
+  };
+}) {
+  const handleOrchestratorProviderChange = (id: string) => {
+    onChange({
+      ...values,
+      orchestratorProviderId: id,
+      orchestratorModelId: providers.find((p) => p.id === id)?.default_model ?? "",
+    });
+  };
+  const handlePlannerProviderChange = (id: string) => {
+    onChange({
+      ...values,
+      plannerProviderId: id,
+      plannerModelId: providers.find((p) => p.id === id)?.default_model ?? "",
+    });
+  };
+
+  const orchestratorRow = (
+    <OrchestrationRoleRow
+      label="Orchestrator"
+      providers={providers}
+      providerId={values.orchestratorProviderId}
+      modelId={values.orchestratorModelId}
+      disabledProviderIds={disabledProviderIds}
+      onProviderChange={handleOrchestratorProviderChange}
+      onModelChange={(modelId) => onChange({ ...values, orchestratorModelId: modelId })}
+      providerTestId={roleTestIds?.orchestratorProvider}
+      modelTestId={roleTestIds?.orchestratorModel}
+    />
+  );
+  const plannerRow = (
+    <OrchestrationRoleRow
+      label="Planner"
+      providers={providers}
+      providerId={values.plannerProviderId}
+      modelId={values.plannerModelId}
+      disabledProviderIds={disabledProviderIds}
+      onProviderChange={handlePlannerProviderChange}
+      onModelChange={(modelId) => onChange({ ...values, plannerModelId: modelId })}
+      providerTestId={roleTestIds?.plannerProvider}
+      modelTestId={roleTestIds?.plannerModel}
+    />
+  );
+
+  if (layout === "stack") {
+    return (
+      <div className="flex flex-col gap-3">
+        {orchestratorRow}
+        {plannerRow}
+        {titleField}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <PairAffordance
+        layout="card"
+        data-testid={pairAffordanceTestId ?? "new-session-pair-affordance"}
+        orchestrator={orchestratorRow}
+        planner={plannerRow}
+      />
+      {titleField}
+    </div>
+  );
+}

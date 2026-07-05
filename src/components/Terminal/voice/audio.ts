@@ -1,7 +1,6 @@
 import { invoke } from "../../../lib/bridge";
 import { IS_WEB, webUpload } from "../../../lib/webApi";
 
-// A near-instant tap (e.g. finger lifted while granting the mic permission) yields a container-header-only clip
 // — non-zero but a few KB with no real audio. Discard anything under this floor so empty voice notes never send.
 export const MIN_VOICE_BYTES = 5 * 1024;
 export const TEST_AUDIO_MIME = "audio/webm";

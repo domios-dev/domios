@@ -5,7 +5,6 @@ import {
   SnapshotUnavailableError,
   fetchSnapshot,
   fetchSnapshotDelta,
-  isTauriEnv,
 } from "./memoryApi";
 import { clearCachedSnapshot, loadCachedSnapshot, saveCachedSnapshot } from "./snapshotCache";
 import {
@@ -150,18 +149,16 @@ export function useSnapshotGraph(api: ApiConfig): UseSnapshotGraphResult {
       debounce = setTimeout(() => void refreshDelta(), ACTIVITY_DEBOUNCE_MS);
     };
 
-    if (isTauriEnv()) {
-      listen<{ op: string }>("mem-activity", (ev) => {
-        if (!active) return;
-        const op = ev.payload?.op;
-        if (op === "write" || op === "update" || op === "delete") debounced();
+    listen<{ op: string }>("mem-activity", (ev) => {
+      if (!active) return;
+      const op = ev.payload?.op;
+      if (op === "write" || op === "update" || op === "delete") debounced();
+    })
+      .then((fn) => {
+        if (!active) { fn(); return; }
+        unlisten = fn;
       })
-        .then((fn) => {
-          if (!active) { fn(); return; }
-          unlisten = fn;
-        })
-        .catch(() => {});
-    }
+      .catch(() => {});
 
     return () => {
       active = false;

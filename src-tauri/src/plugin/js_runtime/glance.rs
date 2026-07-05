@@ -30,7 +30,6 @@ impl GlanceProvider for JsGlanceProvider {
     }
 
     async fn render(&self, ctx: Value) -> Result<GlanceView, GlanceError> {
-        // The VM lock + JS execution are synchronous and must never run on the
         // async runtime (starves all IPC) — hop to the blocking pool.
         let vm = self.vm.clone();
         tokio::task::spawn_blocking(move || call_json::<GlanceView>(&vm, "renderGlance", &[ctx]))

@@ -1,0 +1,100 @@
+import type { KeyboardEvent } from "react";
+import { GitBranch, Hash, History, User } from "lucide-react";
+import { TASK_STATUS_COLORS } from "../settings";
+import type { BoardTaskCardModel } from "./boardModel";
+import { canonicalTaskStatusLabel } from "./taskStatusLabel";
+import { usePlanTaskActivate } from "./planTaskInteraction";
+import { TaskExecutionBadges } from "./TaskExecutionBadges";
+import { WorkingOnRow } from "./WorkingOnRowView";
+import { deriveTaskCardMetadata, type TaskCardMetaRow } from "./taskCardMetadata";
+
+export interface BoardTaskCardProps {
+  card: BoardTaskCardModel;
+  onOpen?: () => void;
+}
+
+function metaIcon(kind: TaskCardMetaRow["kind"]) {
+  const size = 11;
+  if (kind === "handle") return <Hash size={9} strokeWidth={2.5} />;
+  if (kind === "branch") return <GitBranch size={size} className="opacity-70" />;
+  if (kind === "historical") return <History size={size} className="opacity-60" />;
+  return <User size={size} className="opacity-70" />;
+}
+
+function metaTestId(kind: TaskCardMetaRow["kind"]): string {
+  if (kind === "handle") return "plan-board-task-handle";
+  if (kind === "branch") return "plan-board-task-lane";
+  if (kind === "historical") return "plan-board-task-historical-executor";
+  if (kind === "executor") return "plan-board-task-active-executor";
+  return "plan-board-task-age";
+}
+
+export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
+  const { task } = card;
+  const statusColor = TASK_STATUS_COLORS[task.status];
+  const interactive = Boolean(onOpen);
+  const metadata = deriveTaskCardMetadata(card);
+  const { onPointerDown, onPointerMove, onClick } = usePlanTaskActivate(onOpen);
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (!onOpen) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onOpen();
+    }
+  };
+
+  return (
+    <article
+      data-testid="plan-board-task-card"
+      data-task-id={task.id}
+      data-task-status={task.status}
+      className={`plan-board-task-card plan-task-selectable${interactive ? " plan-board-task-card-interactive" : ""}`}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onPointerDown={interactive ? onPointerDown : undefined}
+      onPointerMove={interactive ? onPointerMove : undefined}
+      onClick={interactive ? onClick : undefined}
+      onKeyDown={interactive ? onKeyDown : undefined}
+      style={{
+        borderColor: card.focusMatch
+          ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 45%, var(--ct-border, #30363d))"
+          : undefined,
+      }}
+    >
+      <h4 data-testid="plan-board-task-title" className="plan-board-task-title">
+        {task.name}
+      </h4>
+      <TaskExecutionBadges loop={card.loopBadge} competition={card.competeBadge} />
+      <span
+        data-testid="status-chip"
+        className="plan-board-task-status"
+        style={{ background: statusColor }}
+      >
+        {canonicalTaskStatusLabel(task)}
+      </span>
+      {card.workingOn ? (
+        <WorkingOnRow model={card.workingOn} variant="board" />
+      ) : (
+        metadata.rows.map((row) => (
+          <p
+            key={row.kind}
+            data-testid={metaTestId(row.kind)}
+            className={`plan-board-task-meta plan-board-task-meta-${row.kind}${row.mono ? " plan-board-task-mono" : ""}`}
+          >
+            <span className="plan-board-task-meta-icon" aria-hidden>
+              {metaIcon(row.kind)}
+            </span>
+            <span className="plan-board-task-meta-label">{row.label}</span>
+            <span className="plan-board-task-meta-value min-w-0 truncate">{row.value}</span>
+          </p>
+        ))
+      )}
+      {card.latestNote && (
+        <p data-testid="latest-note" className="plan-board-task-latest-note">
+          {card.latestNote}
+        </p>
+      )}
+    </article>
+  );
+}

@@ -64,7 +64,6 @@ const bar = mkPlugin("bar");
 register(bar);
 eq(getAllPlugins().length, 2, "getAllPlugins returns both");
 
-// Idempotency: re-register replaces
 const fooV2 = mkPlugin("foo", { meta: { id: "foo", displayName: "FOO V2" } });
 register(fooV2);
 eq(getPlugin("foo")?.meta.displayName, "FOO V2", "re-register overwrites");
@@ -99,7 +98,6 @@ eq(detectProvider("plain text", "a-title"), "a", "fallback to titlePattern when 
 eq(detectProvider("plain text", "b-title"), "b", "titlePattern of second plugin");
 eq(detectProvider("plain text", "neither"), undefined, "no title match either → undefined");
 
-// detect() takes precedence over titlePattern when both match
 reset();
 register(mkPlugin("x", {
   detect: () => true,

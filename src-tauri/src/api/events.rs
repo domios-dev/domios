@@ -3,9 +3,11 @@ use serde::{Deserialize, Serialize};
 /// Event broadcasting — Webhooks for external agent integration,
 /// plus an in-process typed broadcast bus used by plugins and by the
 /// Tauri-emit bridge that keeps the frontend in sync.
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
+use uuid::Uuid;
 
 use crate::plugin::activity::PluginActivity;
 
@@ -79,6 +81,104 @@ pub struct CodeTermEvent {
     pub timestamp: u64,
 }
 
+/// A bus event stamped with its monotonic replay cursor (D1). Plugins read
+/// `.event`; the SSE bridge uses `.seq` for `?since` replay/dedupe.
+#[derive(Debug, Clone)]
+pub struct SeqEvent {
+    pub seq: u64,
+    pub event: SystemEvent,
+}
+
+/// Replay-ring bounds (D1): count AND age, evict from front on either.
+const RING_MAX_COUNT: usize = 2048;
+const RING_MAX_AGE: Duration = Duration::from_secs(120);
+
+struct RingEntry {
+    seq: u64,
+    at: Instant,
+    event: SystemEvent,
+}
+
+/// Bounded single-writer replay ring, separate from the broadcast channel.
+/// `next_seq` allocates the gap-free cursor under the same lock as the push,
+/// so ring order == seq order.
+struct ReplayRing {
+    entries: VecDeque<RingEntry>,
+    next_seq: u64,
+}
+
+impl ReplayRing {
+    fn push(&mut self, event: SystemEvent, now: Instant) -> u64 {
+        let seq = self.next_seq;
+        self.next_seq = seq + 1;
+        self.entries.push_back(RingEntry {
+            seq,
+            at: now,
+            event,
+        });
+        while self.entries.len() > RING_MAX_COUNT {
+            self.entries.pop_front();
+        }
+        while self
+            .entries
+            .front()
+            .is_some_and(|e| now.duration_since(e.at) > RING_MAX_AGE)
+        {
+            self.entries.pop_front();
+        }
+        seq
+    }
+}
+
+/// Race-free ring snapshot taken AFTER `subscribe()`: the retained events plus
+/// the bounds needed to classify a client `since` cursor.
+pub struct RingSnapshot {
+    pub boot_id: String,
+    pub entries: Vec<SeqEvent>,
+    pub next_seq: u64,
+}
+
+/// Classification of a client `?since=B:S` cursor against a ring snapshot (D1).
+pub enum ReplayPlan {
+    /// No cursor — stream live from now (old-client behavior).
+    FromNow,
+    /// Boot changed — client must full-resync; overflow frame then live.
+    BootChanged { next_seq: u64 },
+    /// Cursor covered by the ring — replay events with `seq > S` in order.
+    Covered { replay: Vec<SeqEvent> },
+    /// Cursor older than the ring — overflow, then replay the full ring.
+    Evicted {
+        oldest: u64,
+        next_seq: u64,
+        replay: Vec<SeqEvent>,
+    },
+}
+
+impl RingSnapshot {
+    pub fn plan(&self, since: Option<(&str, u64)>) -> ReplayPlan {
+        let Some((boot, s)) = since else {
+            return ReplayPlan::FromNow;
+        };
+        if boot != self.boot_id {
+            return ReplayPlan::BootChanged {
+                next_seq: self.next_seq,
+            };
+        }
+        let oldest = self.entries.first().map(|e| e.seq).unwrap_or(self.next_seq);
+        // Covered iff the first event we'd need (S+1) is still retained.
+        if s + 1 >= oldest {
+            let replay = self.entries.iter().filter(|e| e.seq > s).cloned().collect();
+            ReplayPlan::Covered { replay }
+        } else {
+            ReplayPlan::Evicted {
+                oldest,
+                next_seq: self.next_seq,
+                replay: self.entries.clone(),
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookRegistration {
     pub id: String,
@@ -96,15 +196,52 @@ pub struct WebhookRegistration {
 
 pub struct EventBroadcaster {
     webhooks: Arc<Mutex<HashMap<String, WebhookRegistration>>>,
-    system_bus: broadcast::Sender<SystemEvent>,
+    system_bus: broadcast::Sender<SeqEvent>,
+    boot_id: String,
+    ring: Mutex<ReplayRing>,
 }
 
 impl EventBroadcaster {
     pub fn new() -> Self {
-        let (system_bus, _) = broadcast::channel::<SystemEvent>(256);
+        let (system_bus, _) = broadcast::channel::<SeqEvent>(256);
         Self {
             webhooks: Arc::new(Mutex::new(HashMap::new())),
             system_bus,
+            boot_id: Uuid::new_v4().simple().to_string(),
+            ring: Mutex::new(ReplayRing {
+                entries: VecDeque::new(),
+                next_seq: 1,
+            }),
+        }
+    }
+
+    /// This boot's cursor namespace; a change (daemon restart) forces a client
+    /// full-resync via the `boot-changed` overflow frame.
+    pub fn boot_id(&self) -> &str {
+        &self.boot_id
+    }
+
+    /// The seq the next publish will take — the overflow-recovery baseline.
+    pub fn current_seq(&self) -> u64 {
+        self.ring.lock().next_seq
+    }
+
+    /// Snapshot the replay ring. MUST be called AFTER `subscribe()` so the
+    /// live receiver already covers anything published past this point (the
+    /// SSE handler dedupes the overlap by `seq`).
+    pub fn snapshot_ring(&self) -> RingSnapshot {
+        let ring = self.ring.lock();
+        RingSnapshot {
+            boot_id: self.boot_id.clone(),
+            entries: ring
+                .entries
+                .iter()
+                .map(|e| SeqEvent {
+                    seq: e.seq,
+                    event: e.event.clone(),
+                })
+                .collect(),
+            next_seq: ring.next_seq,
         }
     }
 
@@ -113,13 +250,32 @@ impl EventBroadcaster {
     pub fn publish(&self, event: SystemEvent) {
         let event_type = event.type_name();
         let data = serde_json::to_value(&event).unwrap_or(serde_json::Value::Null);
-        let _ = self.system_bus.send(event);
+        self.send_bus(event);
         self.broadcast(event_type, data);
+    }
+
+    /// Publish a string-named frontend event onto the in-process bus so web
+    /// clients see it. The generic counterpart of `publish()`; `emit_everywhere`
+    /// routes through here after firing the native `app.emit`.
+    pub fn publish_generic(&self, event_type: &str, data: serde_json::Value) {
+        self.send_bus(SystemEvent::Generic {
+            event_type: event_type.to_string(),
+            data,
+        });
+    }
+
+    /// The single bus fan-out choke point — every published event passes here.
+    /// Stamps the D1 cursor (seq allocated inside the leaf `ring` lock so ring
+    /// order == seq order) and records it in the replay ring. The `ring` guard
+    /// drops before `send()`; it is a leaf, never held across `.await`.
+    fn send_bus(&self, event: SystemEvent) {
+        let seq = self.ring.lock().push(event.clone(), Instant::now());
+        let _ = self.system_bus.send(SeqEvent { seq, event });
     }
 
     /// Subscribe to the typed in-process event bus. Each subscriber gets
     /// its own receiver; slow subscribers lag and must handle `Lagged`.
-    pub fn subscribe(&self) -> broadcast::Receiver<SystemEvent> {
+    pub fn subscribe(&self) -> broadcast::Receiver<SeqEvent> {
         self.system_bus.subscribe()
     }
 
@@ -135,18 +291,15 @@ impl EventBroadcaster {
             timestamp,
         };
 
-        // Get matching webhooks
         let (matching, to_remove): (Vec<_>, Vec<_>) = {
             let hooks = self.webhooks.lock();
             let mut matching = Vec::new();
             let mut to_remove = Vec::new();
 
             for (id, hook) in hooks.iter() {
-                // Filter by event type
                 if !hook.events.is_empty() && !hook.events.contains(&event_type.to_string()) {
                     continue;
                 }
-                // Filter by pane_id
                 if let Some(ref filter_pane) = hook.pane_id {
                     if let Some(event_pane) = data.get("pane_id").and_then(|v| v.as_str()) {
                         if filter_pane != event_pane {
@@ -162,7 +315,6 @@ impl EventBroadcaster {
             (matching, to_remove)
         };
 
-        // Remove one-shot hooks
         if !to_remove.is_empty() {
             let mut hooks = self.webhooks.lock();
             for id in &to_remove {
@@ -170,7 +322,6 @@ impl EventBroadcaster {
             }
         }
 
-        // Fire webhooks
         for hook in matching {
             let url = hook.url.clone();
             let headers = hook.headers.clone();
@@ -224,7 +375,7 @@ mod tests {
         let mut rx = bc.subscribe();
         bc.publish(SystemEvent::MuxStateChanged);
         let ev = rx.recv().await.unwrap();
-        assert!(matches!(ev, SystemEvent::MuxStateChanged));
+        assert!(matches!(ev.event, SystemEvent::MuxStateChanged));
     }
 
     #[tokio::test]
@@ -235,7 +386,7 @@ mod tests {
             pane_id: "p1".into(),
             title: "hello".into(),
         });
-        match rx.recv().await.unwrap() {
+        match rx.recv().await.unwrap().event {
             SystemEvent::PaneTitlePinned { pane_id, title } => {
                 assert_eq!(pane_id, "p1");
                 assert_eq!(title, "hello");
@@ -253,11 +404,11 @@ mod tests {
             pane_id: "p".into(),
         });
         assert!(matches!(
-            rx1.recv().await.unwrap(),
+            rx1.recv().await.unwrap().event,
             SystemEvent::PaneFocused { .. }
         ));
         assert!(matches!(
-            rx2.recv().await.unwrap(),
+            rx2.recv().await.unwrap().event,
             SystemEvent::PaneFocused { .. }
         ));
     }
@@ -275,6 +426,142 @@ mod tests {
         // Channel capacity is 256; oldest entries are dropped. First recv should signal Lagged, then continue yielding the remaining tail.
         let first = rx.recv().await;
         assert!(matches!(first, Err(broadcast::error::RecvError::Lagged(_))));
+    }
+
+    fn flood(bc: &EventBroadcaster, n: u64) {
+        for i in 0..n {
+            bc.send_bus(SystemEvent::AgentIdle {
+                pane_id: "p".into(),
+                duration_secs: i,
+            });
+        }
+    }
+
+    #[test]
+    fn replay_from_cursor_returns_missed_in_order() {
+        let bc = EventBroadcaster::new();
+        flood(&bc, 5); // seqs 1..=5
+        let snap = bc.snapshot_ring();
+        let boot = snap.boot_id.clone();
+        match snap.plan(Some((&boot, 2))) {
+            ReplayPlan::Covered { replay } => {
+                let seqs: Vec<u64> = replay.iter().map(|e| e.seq).collect();
+                assert_eq!(seqs, vec![3, 4, 5]);
+            }
+            _ => panic!("expected Covered"),
+        }
+    }
+
+    #[test]
+    fn covered_at_head_replays_nothing() {
+        let bc = EventBroadcaster::new();
+        flood(&bc, 5);
+        let snap = bc.snapshot_ring();
+        let boot = snap.boot_id.clone();
+        match snap.plan(Some((&boot, 5))) {
+            ReplayPlan::Covered { replay } => assert!(replay.is_empty()),
+            _ => panic!("expected Covered"),
+        }
+    }
+
+    #[test]
+    fn stale_cursor_signals_evicted() {
+        let bc = EventBroadcaster::new();
+        flood(&bc, RING_MAX_COUNT as u64 + 10); // oldest retained advances past 1
+        let snap = bc.snapshot_ring();
+        assert_eq!(snap.entries.len(), RING_MAX_COUNT);
+        let oldest = snap.entries.first().unwrap().seq;
+        let boot = snap.boot_id.clone();
+        match snap.plan(Some((&boot, 0))) {
+            ReplayPlan::Evicted {
+                oldest: o, replay, ..
+            } => {
+                assert_eq!(o, oldest);
+                assert_eq!(replay.len(), RING_MAX_COUNT);
+            }
+            _ => panic!("expected Evicted"),
+        }
+    }
+
+    #[test]
+    fn boot_change_signals() {
+        let bc = EventBroadcaster::new();
+        flood(&bc, 3);
+        let snap = bc.snapshot_ring();
+        match snap.plan(Some(("some-other-boot", 1))) {
+            ReplayPlan::BootChanged { next_seq } => assert_eq!(next_seq, 4),
+            _ => panic!("expected BootChanged"),
+        }
+    }
+
+    #[test]
+    fn absent_cursor_starts_from_now() {
+        let bc = EventBroadcaster::new();
+        flood(&bc, 3);
+        let snap = bc.snapshot_ring();
+        assert!(matches!(snap.plan(None), ReplayPlan::FromNow));
+    }
+
+    #[test]
+    fn ring_count_bound_holds_under_flood() {
+        let bc = EventBroadcaster::new();
+        flood(&bc, RING_MAX_COUNT as u64 * 2);
+        let snap = bc.snapshot_ring();
+        assert_eq!(snap.entries.len(), RING_MAX_COUNT);
+        // Oldest retained = total - MAX + 1; newest = total. Gap-free seqs.
+        assert_eq!(snap.entries.first().unwrap().seq, RING_MAX_COUNT as u64 + 1);
+        assert_eq!(snap.entries.last().unwrap().seq, RING_MAX_COUNT as u64 * 2);
+        assert_eq!(snap.next_seq, RING_MAX_COUNT as u64 * 2 + 1);
+    }
+
+    #[test]
+    fn ring_age_bound_evicts_front() {
+        let mut ring = ReplayRing {
+            entries: VecDeque::new(),
+            next_seq: 1,
+        };
+        let t0 = Instant::now();
+        ring.push(SystemEvent::MuxStateChanged, t0);
+        ring.push(SystemEvent::MuxStateChanged, t0 + Duration::from_secs(1));
+        assert_eq!(ring.entries.len(), 2);
+        // now = t0 + 121s; seq1 age 121s (>120) evicted, seq2 age 120s (not >120) kept.
+        ring.push(
+            SystemEvent::MuxStateChanged,
+            t0 + RING_MAX_AGE + Duration::from_secs(1),
+        );
+        assert_eq!(ring.entries.len(), 2);
+        assert_eq!(ring.entries.front().unwrap().seq, 2);
+    }
+
+    #[test]
+    fn live_tail_after_replay_has_no_gap_or_dup() {
+        let bc = EventBroadcaster::new();
+        let mut rx = bc.subscribe(); // subscribe FIRST (race-free attach)
+        flood(&bc, 5); // seqs 1..=5 buffered in rx AND recorded in the ring
+        let snap = bc.snapshot_ring();
+        let boot = snap.boot_id.clone();
+        let cursor: u64 = 2;
+        let replay = match snap.plan(Some((&boot, cursor))) {
+            ReplayPlan::Covered { replay } => replay,
+            _ => panic!("expected Covered"),
+        };
+        let mut replayed_max = cursor;
+        let mut seen = Vec::new();
+        for se in &replay {
+            assert!(se.seq > replayed_max, "replay must be strictly increasing");
+            replayed_max = se.seq;
+            seen.push(se.seq);
+        }
+        flood(&bc, 1); // a live event lands (seq 6)
+                       // Live loop dedupes the snapshot/live overlap by seq.
+        while let Ok(se) = rx.try_recv() {
+            if se.seq <= replayed_max {
+                continue;
+            }
+            replayed_max = se.seq;
+            seen.push(se.seq);
+        }
+        assert_eq!(seen, vec![3, 4, 5, 6]); // exact missed set, no gap, no dup at the seam
     }
 
     #[test]
@@ -307,18 +594,118 @@ mod tests {
             "plugin-activity",
         );
     }
+
+    fn read_sources(dir: &std::path::Path, exts: &[&str]) -> Vec<(std::path::PathBuf, String)> {
+        let mut out = Vec::new();
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return out;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            if path.is_dir() {
+                if name == "node_modules" || name == "target" || name == "dist" {
+                    continue;
+                }
+                out.extend(read_sources(&path, exts));
+            } else if path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| exts.contains(&e))
+            {
+                if let Ok(txt) = std::fs::read_to_string(&path) {
+                    out.push((path, txt));
+                }
+            }
+        }
+        out
+    }
+
+    /// CI guard: no frontend-listened event may be delivered ONLY via a raw
+    /// `app.emit()` — it must go through `emit_everywhere` (native + SSE bus) or
+    /// carry a typed `SystemEvent` whose `type_name()` reaches the bus via
+    /// `publish()`. A new raw emit of a listened event fails this test.
+    #[test]
+    fn event_seam_covers_all_frontend_listeners() {
+        use std::collections::BTreeSet;
+        use std::path::Path;
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let frontend = Path::new(manifest).join("../src");
+        let backend = Path::new(manifest).join("src");
+
+        // Frontend static listen() names (dynamic per-pane `${…}` names excluded).
+        let listen_re =
+            regex::Regex::new(r#"listen\w*\s*(?:<[^>]*>)?\s*\(\s*["']([a-zA-Z0-9:_-]+)["']"#)
+                .unwrap();
+        let mut listened = BTreeSet::new();
+        for (_, src) in read_sources(&frontend, &["ts", "tsx"]) {
+            for c in listen_re.captures_iter(&src) {
+                listened.insert(c[1].to_string());
+            }
+        }
+        assert!(
+            listened.len() > 10,
+            "frontend listen() scan found only {} names — path/regex broke",
+            listened.len()
+        );
+        // invisible to the literal scan — enforce them explicitly.
+        for name in [
+            "graph-worker-spawned",
+            "graph-worker-progress",
+            "graph-worker-reported",
+            "graph-worker-done",
+        ] {
+            listened.insert(name.to_string());
+        }
+
+        // Typed bus names = string literals returned by `SystemEvent::type_name`.
+        let events_src =
+            std::fs::read_to_string(Path::new(manifest).join("src/api/events.rs")).unwrap();
+        let tn_start = events_src.find("fn type_name").expect("type_name fn");
+        let tn_len = events_src[tn_start..]
+            .find("\n    }")
+            .expect("type_name end");
+        let tn_body = &events_src[tn_start..tn_start + tn_len];
+        let arm_re = regex::Regex::new(r#"=>\s*"([a-z0-9-]+)""#).unwrap();
+        let typed: BTreeSet<String> = arm_re
+            .captures_iter(tn_body)
+            .map(|c| c[1].to_string())
+            .collect();
+        assert!(
+            typed.contains("mux-state-changed"),
+            "type_name scan broke: {typed:?}"
+        );
+
+        // `.emit(` prefix so it is not matched. Multiline-aware via `\s`.
+        let raw_re = regex::Regex::new(r#"\.emit\s*\(\s*"([a-zA-Z0-9:_-]+)""#).unwrap();
+        let mut offenders = Vec::new();
+        for (path, src) in read_sources(&backend, &["rs"]) {
+            for c in raw_re.captures_iter(&src) {
+                let name = c[1].to_string();
+                if listened.contains(&name) && !typed.contains(&name) {
+                    offenders.push(format!("{}: raw emit(\"{name}\")", path.display()));
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "Frontend-listened events raw-emitted, bypassing the publish seam \
+             (route through emit_everywhere or add a typed SystemEvent):\n{}",
+            offenders.join("\n")
+        );
+    }
 }
 
-/// Emit a named frontend event BOTH to the Tauri webview and to the SSE
-/// bus so the web mirror sees it. Drop-in for raw `app.emit(name, payload)`
-/// at sites that matter to the browser bundle.
-pub fn emit_everywhere(app: &tauri::AppHandle, event_type: &str, data: serde_json::Value) {
+/// The single publish seam for string-named frontend events: fans out to BOTH
+/// the Tauri webview (`app.emit`) and the SSE bus (identical JSON both paths).
+/// Generic over `Serialize` so it is a drop-in for raw `app.emit(name, payload)`
+/// — any raw emit of a frontend-listened event must go through here (guarded by
+/// `event_seam_covers_all_frontend_listeners`).
+pub fn emit_everywhere<S: Serialize>(app: &tauri::AppHandle, event_type: &str, data: S) {
     use tauri::{Emitter, Manager};
-    let _ = app.emit(event_type, data.clone());
+    let value = serde_json::to_value(&data).unwrap_or(serde_json::Value::Null);
+    let _ = app.emit(event_type, &value);
     if let Some(events) = app.try_state::<EventBroadcasterState>() {
-        let _ = events.system_bus.send(SystemEvent::Generic {
-            event_type: event_type.to_string(),
-            data,
-        });
+        events.publish_generic(event_type, value);
     }
 }

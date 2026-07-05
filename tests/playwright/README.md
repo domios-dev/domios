@@ -165,7 +165,7 @@ For targeted proof runs, set `PW_LINT_SCOPE` to a spec file or directory under
 
 ## Web mirror (12-web)
 
-12-web drives the **web mirror** (`/web` on the daemon) in a **launched
+12-web drives the **web mirror** (served at the daemon root) in a **launched
 msedge browser** — a real cross-origin browser context, unlike the other
 suites' CDP attach to the Tauri WebView. Key facts:
 
@@ -178,9 +178,34 @@ suites' CDP attach to the Tauri WebView. Key facts:
   workspaces, so a switch is provable end-to-end (stub request log +
   stub workspace rendered + clean switch-back).
 - The browser terminal renders WebGL (no readable DOM); tests that read
-  terminal text load `/web/?a11y=1` — a runtime screen-reader opt-in.
-- The daemon serves `/web` from `dist/` — run `pnpm build` after
+  terminal text load `/?a11y=1` — a runtime screen-reader opt-in.
+- The daemon serves the browser UI from `dist/` at `/` — run `pnpm build` after
   frontend changes or the suite tests a stale bundle.
+
+### Driving attention state (`pending_prompt`) deterministically
+
+`suites/12-web/tab-status-rail.spec.ts` (RAIL-3/4/11) needs a pane in the
+`attention` (yellow rail) state with no LLM and no timing luck. Use the real
+Claude-hook endpoint with an explicit body, which builds a genuine
+`PendingPrompt` through the production hook path
+(`hook_routes.rs::hook_permission`) instead of poking client state:
+
+```ts
+await api.post(`/panes/${paneId}/hook/permission`, {
+  question: "Allow this action?",
+  options: [{ label: "Yes", value: "1" }, { label: "No", value: "2" }],
+});
+// ... assert on GET /api/mux/state panes[id].pending_prompt or the rail ...
+await api.post(`/panes/${paneId}/prompt/clear`, {});
+```
+
+This is the canonical driver for attention state in any future test — do not
+poke `pending_prompt` via client-side state or wait on a real agent to hit a
+real permission prompt. A hook-driven prompt is immune to the routine
+per-chunk PTY output scan clearing it (see `agent/prompt.rs`'s `explicit`
+flag) — it persists under continued output until `/prompt/clear` or a
+provider's own structured prompt supersedes it, which is what makes it safe
+to use on a plain, still-producing-output shell pane.
 
 Known web-mode limitations (honest rejects, sweep-audited via
 `scripts/web-bridge-codemod.mjs`-era inventory): native clipboard image
@@ -201,4 +226,4 @@ server-spawned panes do). Each throws a clear
 - Suites assert **UI DOM state**, not just API JSON, wherever the action
   has a user-visible effect.
 
-<!-- revision: 5 -->
+<!-- revision: 7 -->

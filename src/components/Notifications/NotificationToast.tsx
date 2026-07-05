@@ -54,7 +54,6 @@ function ToastItem({ notification, onDismiss, onNavigate, embedded }: ToastItemP
 
   const runAction = useCallback(async (action: NotificationAction) => {
     if (action.type === "dismiss") {
-      // just close
     } else if (action.type === "url" && action.value) {
       try { window.open(action.value, "_blank"); } catch {}
     } else if (action.type === "invoke" && action.value) {
@@ -191,7 +190,7 @@ export function NotificationToastContainer({
   embedded = false,
 }: NotificationToastContainerProps) {
   if (toasts.length === 0) return null;
-  const visibleToasts = embedded ? toasts.slice(0, 1) : toasts.slice(-MAX_VISIBLE_TOASTS);
+  const visibleToasts = embedded ? toasts.slice(-1) : toasts.slice(-MAX_VISIBLE_TOASTS);
   const hiddenCount = Math.max(0, toasts.length - visibleToasts.length);
 
   if (embedded) {

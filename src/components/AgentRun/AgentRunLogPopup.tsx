@@ -37,7 +37,6 @@ export function AgentRunLogPopup({ worker, api, onClose }: Props) {
       .catch(() => {});
   }, [api, worker.worker_id, isTerminal]);
 
-  // Run the fallback log through the SAME stream parser as live runs so completed sessions render with collapsed thinking, tool calls, and tool
   // results.
   const fallbackEvents = useMemo(() => {
     if (!fallbackText) return [];
@@ -200,7 +199,6 @@ function StatusBadge({ status }: { status: string }) {
           : lc === "running"
             ? "var(--ct-yellow)"
             : "var(--ct-accent)";
-  // Granular worker statuses (reading/analyzing/writing) are no longer emitted —
   // any non-terminal worker is simply "running". Avoids a stuck "starting" label.
   const terminal = ["done", "success", "error", "failed", "orphaned", "cancelled"];
   const label = terminal.includes(lc) ? status : "running";

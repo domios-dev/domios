@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { VitePWA } from "vite-plugin-pwa";
 import { readFileSync } from "fs";
 import { execSync } from "child_process";
 
@@ -15,14 +16,31 @@ function gitShortHash(): string {
 }
 
 export default defineConfig({
-  // Relative asset URLs: the same bundle loads from the Tauri webview root
   // AND from the daemon's /web mount (web mirror) without path rewrites.
   base: "./",
   define: {
     __APP_VERSION__: JSON.stringify(tauriConf.version),
     __BUILD_HASH__: JSON.stringify(gitShortHash()),
   },
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    // injectManifest: explicit SW keeps /api/* network-only passthrough auditable.
+    VitePWA({
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
+      injectRegister: false,
+      manifest: false,
+      injectManifest: {
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        globIgnores: ["**/sw.ts", "**/sw.js", "**/sw.mjs"],
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        rollupFormat: "iife",
+      },
+      devOptions: { enabled: false },
+    }),
+  ],
   clearScreen: false,
   server: {
     host: "127.0.0.1",

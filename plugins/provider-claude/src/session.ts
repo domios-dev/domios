@@ -1,5 +1,3 @@
-// Session JSONL types, validators, file-path resolution, and model-label
-// helpers — the shared substrate behind detectSessionModel / parseSessionMessages
 import { manifest } from "./shared";
 
 export interface ClaudeContentBlock { type?: string; text?: string; [k: string]: unknown }

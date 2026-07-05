@@ -16,6 +16,12 @@ enum PanePromptState {
         prompt: PendingPrompt,
         #[allow(dead_code)]
         detected_at: Instant,
+        /// Set by a hook call with no live structured backing (explicit JSON
+        /// body, or screen-parsed hook fallback) rather than the continuous
+        /// structured-handle scan. Such prompts have no per-chunk source to
+        /// reconcile against, so a routine "nothing parsed this chunk" result
+        /// must not clear them — only `/prompt/clear` or `hook_stop` does.
+        explicit: bool,
     },
     /// Suppress re-detection for cooldown_ms after user responds.
     Cooldown {
@@ -122,7 +128,6 @@ impl PromptDetector {
         pane_id: &str,
         prompt: PendingPrompt,
     ) -> PromptDecision {
-        // Hooks are authoritative — skip cooldown check
         let state = self.states.get(pane_id);
         match state {
             Some(PanePromptState::Active {
@@ -136,6 +141,7 @@ impl PromptDetector {
                     PanePromptState::Active {
                         prompt: prompt.clone(),
                         detected_at: Instant::now(),
+                        explicit: true,
                     },
                 );
                 PromptDecision::PromptUpdated {
@@ -149,6 +155,7 @@ impl PromptDetector {
                     PanePromptState::Active {
                         prompt: prompt.clone(),
                         detected_at: Instant::now(),
+                        explicit: true,
                     },
                 );
                 PromptDecision::NewPrompt {
@@ -241,33 +248,40 @@ impl PromptDetector {
     fn transition_from_parsed(&mut self, pane_id: &str, parsed: ParsedPrompt) -> PromptDecision {
         match self.states.get(pane_id) {
             Some(PanePromptState::Active {
-                prompt: existing, ..
-            }) => match parsed {
-                Some(new_prompt) => {
-                    if same_prompt(existing, &new_prompt) {
-                        PromptDecision::None
-                    } else {
-                        self.states.insert(
-                            pane_id.to_string(),
-                            PanePromptState::Active {
-                                prompt: new_prompt.clone(),
-                                detected_at: Instant::now(),
-                            },
-                        );
-                        PromptDecision::PromptUpdated {
+                prompt: existing,
+                explicit,
+                ..
+            }) => {
+                let explicit = *explicit;
+                match parsed {
+                    Some(new_prompt) => {
+                        if same_prompt(existing, &new_prompt) {
+                            PromptDecision::None
+                        } else {
+                            self.states.insert(
+                                pane_id.to_string(),
+                                PanePromptState::Active {
+                                    prompt: new_prompt.clone(),
+                                    detected_at: Instant::now(),
+                                    explicit: false,
+                                },
+                            );
+                            PromptDecision::PromptUpdated {
+                                pane_id: pane_id.to_string(),
+                                prompt: new_prompt,
+                            }
+                        }
+                    }
+                    None if explicit => PromptDecision::None,
+                    None => {
+                        self.states
+                            .insert(pane_id.to_string(), PanePromptState::Idle);
+                        PromptDecision::PromptCleared {
                             pane_id: pane_id.to_string(),
-                            prompt: new_prompt,
                         }
                     }
                 }
-                None => {
-                    self.states
-                        .insert(pane_id.to_string(), PanePromptState::Idle);
-                    PromptDecision::PromptCleared {
-                        pane_id: pane_id.to_string(),
-                    }
-                }
-            },
+            }
 
             Some(PanePromptState::Cooldown { responded_at }) => {
                 if responded_at.elapsed().as_millis() < self.cooldown_ms as u128 {
@@ -290,6 +304,7 @@ impl PromptDetector {
                     PanePromptState::Active {
                         prompt: prompt.clone(),
                         detected_at: Instant::now(),
+                        explicit: false,
                     },
                 );
                 PromptDecision::NewPrompt {
@@ -431,7 +446,6 @@ mod tests {
     fn test_active_same_prompt_returns_none() {
         let mut det = PromptDetector::new();
         det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
-        // Same prompt again
         let decision = det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::None));
     }
@@ -440,7 +454,6 @@ mod tests {
     fn test_active_different_options_returns_updated() {
         let mut det = PromptDetector::new();
         det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
-        // Different options
         let decision = det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_three_opts);
         assert!(matches!(decision, PromptDecision::PromptUpdated { .. }));
     }
@@ -457,7 +470,6 @@ mod tests {
         let mut det = PromptDetector::new();
         det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
         det.mark_responded("pane-1");
-        // Immediately after response — should be suppressed
         let decision = det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::None));
     }
@@ -468,7 +480,6 @@ mod tests {
         det.cooldown_ms = 0; // Expire immediately
         det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
         det.mark_responded("pane-1");
-        // Cooldown expired (0ms) — should detect new prompt
         let decision = det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
     }
@@ -496,7 +507,6 @@ mod tests {
         let prompt = make_prompt("Proceed?", &[("Yes", "1"), ("No", "2")]);
         det.hook_detected_explicit("pane-1", prompt.clone());
         det.mark_responded("pane-1");
-        // Hook should bypass cooldown
         let prompt2 = make_prompt("Allow?", &[("Yes", "1"), ("No", "2")]);
         let decision = det.hook_detected_explicit("pane-1", prompt2);
         assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
@@ -533,6 +543,48 @@ mod tests {
         let mut det = PromptDetector::new();
         let decision = det.hook_detected_parse("pane-1", "proceed", parse_yes_no);
         assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
+    }
+
+    #[test]
+    fn test_explicit_prompt_survives_unrelated_pty_output() {
+        let mut det = PromptDetector::new();
+        let prompt = make_prompt("Allow probe?", &[("Yes", "1"), ("No", "2")]);
+        det.hook_detected_explicit("pane-1", prompt);
+        let decision = det.evaluate_pty_output("pane-1", true, Some("pw-rail-42"), |_| None);
+        assert!(matches!(decision, PromptDecision::None));
+        assert!(det.active_prompt("pane-1").is_some());
+    }
+
+    // The screen-parsed hook fallback (no JSON body — real agent hook firing)
+    // is equally source-less per chunk, so it gets the same immunity.
+    #[test]
+    fn test_hook_parsed_prompt_survives_unrelated_pty_output() {
+        let mut det = PromptDetector::new();
+        det.hook_detected_parse("pane-1", "proceed", parse_yes_no);
+        let decision = det.evaluate_pty_output("pane-1", true, Some("nothing here"), parse_yes_no);
+        assert!(matches!(decision, PromptDecision::None));
+        assert!(det.active_prompt("pane-1").is_some());
+    }
+
+    #[test]
+    fn test_structured_prompt_still_clears_when_gone() {
+        let mut det = PromptDetector::new();
+        det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
+        let decision =
+            det.evaluate_pty_output("pane-1", true, Some("no prompt here"), parse_yes_no);
+        assert!(matches!(decision, PromptDecision::PromptCleared { .. }));
+        assert!(det.active_prompt("pane-1").is_none());
+    }
+
+    #[test]
+    fn test_structured_prompt_supersedes_explicit() {
+        let mut det = PromptDetector::new();
+        let prompt = make_prompt("Allow probe?", &[("Yes", "1"), ("No", "2")]);
+        det.hook_detected_explicit("pane-1", prompt);
+        let decision = det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
+        assert!(matches!(decision, PromptDecision::PromptUpdated { .. }));
+        let active = det.active_prompt("pane-1").expect("prompt still active");
+        assert_eq!(active.question, "Do you want to proceed?");
     }
 
     #[test]
@@ -612,7 +664,6 @@ mod tests {
         let mut det = PromptDetector::new();
         det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
         det.mark_responded("pane-1");
-        // pane-2 should not be affected by pane-1's cooldown
         let decision = det.evaluate_pty_output("pane-2", true, Some("proceed"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
     }

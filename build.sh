@@ -52,6 +52,10 @@ setup_env() {
 # Scoped strictly to $CT_PORT / $CT_VITE_PORT / this instance's screen+pidfile.
 # No global pgrep on target/debug/codeterm — that would take down every worktree.
 kill_dev() {
+  if [ "$CT_PORT" = "7685" ]; then
+    echo "ERROR: refusing to kill prod CodeTerm port 7685" >&2
+    exit 1
+  fi
   kill_web_watch 2>/dev/null || true
   local session_prefix="codeterm-dev${CT_SUFFIX}-"
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
@@ -60,8 +64,20 @@ kill_dev() {
         screen -S "$session" -X quit 2>/dev/null || true
       done
     fi
-    lsof -tiTCP:"$CT_PORT" -sTCP:LISTEN 2>/dev/null | xargs kill 2>/dev/null || true
-    lsof -ti:"$CT_VITE_PORT" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    local dev_pids
+    dev_pids="$(lsof -tiTCP:"$CT_PORT" -sTCP:LISTEN 2>/dev/null || true)"
+    if [ -n "$dev_pids" ]; then
+      echo "$dev_pids" | xargs kill 2>/dev/null || true
+      for _ in $(seq 1 30); do
+        [ -z "$(lsof -tiTCP:"$CT_PORT" -sTCP:LISTEN 2>/dev/null || true)" ] && break
+        sleep 0.1
+      done
+      dev_pids="$(lsof -tiTCP:"$CT_PORT" -sTCP:LISTEN 2>/dev/null || true)"
+      [ -z "$dev_pids" ] || echo "$dev_pids" | xargs kill -9 2>/dev/null || true
+    fi
+    local vite_pids
+    vite_pids="$(lsof -ti:"$CT_VITE_PORT" 2>/dev/null || true)"
+    [ -z "$vite_pids" ] || echo "$vite_pids" | xargs kill -9 2>/dev/null || true
     if [ -f "$CT_DATA_DIR/daemon.pid" ]; then
       kill "$(cat "$CT_DATA_DIR/daemon.pid")" 2>/dev/null || true
       rm -f "$CT_DATA_DIR/daemon.pid"
@@ -71,18 +87,21 @@ kill_dev() {
     dev_pid=$(netstat -ano 2>/dev/null | grep ":$CT_PORT.*LISTEN" | awk '{print $5}' | head -1)
     if [ -n "$dev_pid" ] && [ "$dev_pid" != "0" ]; then
       echo "Killing dev instance (PID $dev_pid on port $CT_PORT)..."
-      taskkill //PID "$dev_pid" //F 2>/dev/null || true
+      taskkill //PID "$dev_pid" //T //F 2>/dev/null || true
       sleep 1
     fi
     local vite_pid
     vite_pid=$(netstat -ano 2>/dev/null | grep ":$CT_VITE_PORT.*LISTEN" | awk '{print $5}' | head -1)
     if [ -n "$vite_pid" ] && [ "$vite_pid" != "0" ]; then
-      taskkill //PID "$vite_pid" //F 2>/dev/null || true
+      taskkill //PID "$vite_pid" //T //F 2>/dev/null || true
     fi
+    windows_dev_leftover_cleanup
   fi
 }
 
 setup_env
+
+CMD="${1:-dev}"
 
 # --- Per-worktree dev instance isolation ---
 # CODETERM_INSTANCE (optional) names a dev instance so multiple worktrees can
@@ -115,6 +134,10 @@ else
   CT_VITE_PORT=1420
 fi
 CT_DATA_DIR="$HOME/.codeterm-dev${CT_SUFFIX}"
+if [ "$CT_PORT" = "7685" ]; then
+  echo "ERROR: refusing to target prod CodeTerm port 7685. Use dev port 7686 or a named non-prod instance." >&2
+  exit 1
+fi
 # Export so the spawned daemon + its child PTYs inherit the instance identity.
 export CODETERM_INSTANCE="$CT_INSTANCE"
 export CODETERM_API_PORT="$CT_PORT"
@@ -127,16 +150,32 @@ git config core.hooksPath .githooks 2>/dev/null || true
 # and dev (~/.codeterm-dev/bin) need the same binary so the dev daemon's
 # resolve_cli_path (which prefers data_dir/bin first) doesn't shell into a
 # stale CLI that's missing recent subcommands.
+cli_release_dir() {
+  local target_root="${CARGO_TARGET_DIR:-cli/target}"
+  if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
+    echo "$target_root/$CARGO_BUILD_TARGET/release"
+  else
+    echo "$target_root/release"
+  fi
+}
+
 install_cli_to() {
   local bin_dir="$1"
+  local release_dir
+  release_dir="$(cli_release_dir)"
   mkdir -p "$bin_dir"
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    cp cli/target/release/codeterm "$bin_dir/codeterm"
+    cp "$release_dir/codeterm" "$bin_dir/codeterm"
   else
-    cp cli/target/release/codeterm.exe "$bin_dir/codeterm.exe"
+    cp "$release_dir/codeterm.exe" "$bin_dir/codeterm.exe"
   fi
   echo "CLI installed to $bin_dir"
 }
+
+if [ "${CODETERM_TEST_PRINT_CLI_RELEASE_DIR:-}" = "1" ]; then
+  cli_release_dir
+  exit 0
+fi
 
 prepare_bundle_stubs() {
   node scripts/prepare-cli-stub.js
@@ -214,6 +253,121 @@ web_watch_pidfile() {
   echo "/tmp/codeterm-web-watch${CT_SUFFIX}.pid"
 }
 
+kill_process_tree() {
+  local pid="$1"
+  if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+    return
+  fi
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    local child
+    for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+      kill_process_tree "$child"
+    done
+  else
+    taskkill //PID "$pid" //T //F 2>/dev/null || true
+    return
+  fi
+  kill "$pid" 2>/dev/null || true
+}
+
+kill_orphan_web_watchers() {
+  if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
+    windows_dev_leftover_cleanup
+    return
+  fi
+  local root pid cwd
+  root="$(pwd)"
+  for pid in $(pgrep -f "vite build --watch" 2>/dev/null || true); do
+    cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')
+    if [ "$cwd" = "$root" ]; then
+      kill_process_tree "$pid"
+    fi
+  done
+}
+
+windows_dev_leftover_cleanup() {
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    return
+  fi
+  command -v powershell.exe >/dev/null 2>&1 || command -v powershell >/dev/null 2>&1 || return
+
+  local root_win ps1 ps
+  root_win="$(pwd -W 2>/dev/null || pwd)"
+  ps1="$root_win/.codeterm-win-dev-cleanup${CT_SUFFIX}-$$.ps1"
+  cat > "$ps1" <<'PS'
+param(
+  [Parameter(Mandatory = $true)][string]$Root
+)
+
+$ErrorActionPreference = "SilentlyContinue"
+$rootPath = (Resolve-Path -LiteralPath $Root).Path
+$targetDebug = Join-Path $rootPath "src-tauri\target\debug"
+$nodeModules = Join-Path $rootPath "node_modules"
+$selfPid = $PID
+
+$all = @(Get-CimInstance Win32_Process)
+$childrenByParent = @{}
+foreach ($proc in $all) {
+  $parent = [int]$proc.ParentProcessId
+  if (-not $childrenByParent.ContainsKey($parent)) {
+    $childrenByParent[$parent] = New-Object System.Collections.Generic.List[object]
+  }
+  $childrenByParent[$parent].Add($proc)
+}
+
+function Stop-ProcessTree {
+  param([int]$ProcessId, [hashtable]$Seen)
+  if ($ProcessId -le 0 -or $Seen.ContainsKey($ProcessId)) {
+    return
+  }
+  $Seen[$ProcessId] = $true
+  if ($childrenByParent.ContainsKey($ProcessId)) {
+    foreach ($child in @($childrenByParent[$ProcessId])) {
+      Stop-ProcessTree -ProcessId ([int]$child.ProcessId) -Seen $Seen
+    }
+  }
+  try {
+    Stop-Process -Id $ProcessId -Force -Confirm:$false -ErrorAction Stop
+    Write-Host "Stopped stale dev process tree pid=$ProcessId"
+  } catch {}
+}
+
+$victims = New-Object System.Collections.Generic.HashSet[int]
+foreach ($proc in $all) {
+  $procId = [int]$proc.ProcessId
+  if ($procId -eq $selfPid) {
+    continue
+  }
+  $cmd = [string]$proc.CommandLine
+  $exe = [string]$proc.ExecutablePath
+  $name = [string]$proc.Name
+  $isRepoScriptHost = @("node.exe", "npm.exe", "pnpm.exe", "cmd.exe", "sh.exe", "bash.exe") -contains $name.ToLowerInvariant()
+  $matchesTarget = ($exe -and $exe.StartsWith($targetDebug, [System.StringComparison]::OrdinalIgnoreCase)) -or
+    ($cmd -and $cmd.IndexOf($targetDebug, [System.StringComparison]::OrdinalIgnoreCase) -ge 0)
+  $matchesDevWebView = $cmd -and $cmd.IndexOf("com.codeterm.dev\EBWebView", [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+  $matchesRepoVite = $isRepoScriptHost -and $cmd -and
+    $cmd.IndexOf($nodeModules, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+    ($cmd -match "vite\\bin\\vite\.js|@tauri-apps\\cli\\tauri\.js")
+
+  if ($matchesTarget -or $matchesDevWebView -or $matchesRepoVite) {
+    [void]$victims.Add($procId)
+  }
+}
+
+$seen = @{}
+foreach ($procId in @($victims)) {
+  Stop-ProcessTree -ProcessId $procId -Seen $seen
+}
+PS
+  if command -v powershell.exe >/dev/null 2>&1; then
+    ps="powershell.exe"
+  else
+    ps="powershell"
+  fi
+  "$ps" -NoProfile -ExecutionPolicy Bypass -File "$ps1" -Root "$root_win" 2>/dev/null || true
+  rm -f "$ps1"
+}
+
 start_web_watch() {
   kill_web_watch
   local log="/tmp/codeterm-web-watch${CT_SUFFIX}.log"
@@ -226,9 +380,10 @@ kill_web_watch() {
   local pidfile
   pidfile="$(web_watch_pidfile)"
   if [ -f "$pidfile" ]; then
-    kill "$(cat "$pidfile")" 2>/dev/null || true
+    kill_process_tree "$(cat "$pidfile")"
     rm -f "$pidfile"
   fi
+  kill_orphan_web_watchers
 }
 
 dev_health_status() {
@@ -313,9 +468,15 @@ case "$CMD" in
   dev)
     kill_dev
     ensure_deps
+    # Shared compile cache when available — makes cold worktree builds warm.
+    command -v sccache >/dev/null 2>&1 && export RUSTC_WRAPPER=sccache
     echo "Building CLI..."
     cargo build --release --manifest-path cli/Cargo.toml
-    install_cli_to "$HOME/.codeterm/bin"
+    if [ -z "$CT_INSTANCE" ]; then
+      install_cli_to "$HOME/.codeterm/bin"
+    else
+      echo "Skipping prod CLI install for named dev instance ($CT_INSTANCE)"
+    fi
     # Named instance gets its own data-dir bin; canonical dev keeps ~/.codeterm-dev/bin.
     install_cli_to "$CT_DATA_DIR/bin"
     ensure_real_embed_bundle

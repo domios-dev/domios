@@ -27,7 +27,6 @@ pub fn start(cron_state: CronState, cron_wake: CronWake, service: ServiceState) 
             let sleep_ms = tick(&cron_state, &service);
             let duration = Duration::from_millis(sleep_ms);
 
-            // Sleep until next fire time or until woken by CRUD operation
             let guard = wake_mutex.lock().unwrap();
             let _ = cron_wake.wait_timeout(guard, duration);
         }
@@ -92,7 +91,6 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
         fire_job(cron_state, service, &spec);
     }
 
-    // Recalculate next fire after firing
     if fired_any {
         let store = cron_state.lock();
         for job in store.list_enabled() {
@@ -133,7 +131,6 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
     let run_id = uuid::Uuid::new_v4().to_string();
     log::info!("Cron fired: job={}, run={}", job_id, run_id);
 
-    // Record run as Running
     let run_info = CronRunInfo {
         run_id: run_id.clone(),
         started_at: cron_state.lock().now_ms(),
@@ -160,7 +157,6 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
     }
     task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
 
-    // Model priority: per-job override → mem_cfg.dreaming_model (legacy fallback for the auto-installed dreaming cron) → mem_cfg.worker_model
     // (shared default). Short labels (haiku|sonnet|opus) resolve at runtime via agent::models.
     let model = model
         .map(|s| s.to_string())
@@ -218,7 +214,6 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
                 handle.tab_id
             );
 
-            // Update run with pane/tab info + register ownership
             {
                 let mut store = cron_state.lock();
                 store.register_pane(&handle.pane_id, job_id, &run_id);
@@ -228,7 +223,6 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
                         run.tab_id = Some(handle.tab_id.clone());
                     }
                 }
-                // Also update last_run
                 if let Some(job) = store.get_mut(job_id) {
                     if let Some(ref mut lr) = job.last_run {
                         if lr.run_id == run_id {
@@ -269,7 +263,6 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
                 );
             }
 
-            // Emit event
             let _ = service.app_handle.emit(
                 "cron-fired",
                 serde_json::json!({
@@ -283,13 +276,11 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         Err(e) => {
             log::error!("Cron agent spawn failed: job={}, error={}", job_id, e);
 
-            // Mark run as failed
             {
                 let mut store = cron_state.lock();
                 let _ = store.update_run_status(job_id, &run_id, CronRunStatus::Failed);
             }
 
-            // Notification
             service.create_notification(format!("Cron failed: {}", job_id), Some(e), Some("error"));
         }
     }
@@ -305,7 +296,6 @@ mod tests {
 
     #[test]
     fn test_compute_next_fire_soonest() {
-        // Test that compute_next_run returns a future time
         let next = compute_next_run("* * * * *").unwrap().unwrap();
         let now_ms = SystemClock.now_ms();
         assert!(next > now_ms);

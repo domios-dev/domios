@@ -1,6 +1,6 @@
 [package]
 name = "codeterm"
-version = "1.5.8"
+version = "1.6.2"
 edition = "2021"
 default-run = "codeterm"
 
@@ -73,6 +73,7 @@ fastembed = { version = "5", optional = true }
 ndarray = { version = "0.17", optional = true }
 hnsw_rs = { version = "0.3", optional = true }
 codeterm-mem-store = { path = "../crates/mem-store" }
+codeterm-paths = { path = "../crates/codeterm-paths" }
 codeterm-plugins = { path = "../crates/codeterm-plugins" }
 crash-handler = "0.6"
 crash-context = "0.6"
@@ -142,3 +143,13 @@ path = "src/bin/codeterm_embed.rs"
 [[bin]]
 name = "parser-eval"
 path = "src/bin/parser_eval.rs"
+
+# Build-speed profiles (round-16 build audit). dev: unpacked split-debuginfo
+# skips dSYM packing on macOS (faster links); line-tables keep usable
+# backtraces at a fraction of the debuginfo; deps carry no debuginfo at all.
+[profile.dev]
+split-debuginfo = "unpacked"
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

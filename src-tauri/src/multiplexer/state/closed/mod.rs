@@ -59,11 +59,7 @@ impl MultiplexerState {
         {
             record.workspace_id = ws.id.clone();
             record.workspace_name = ws.name.clone();
-            // Prefer the tab's title/description; pane.title can lag an OSC title update.
             if let Some(tab) = ws.tabs.iter().find(|t| t.pane_id == pane_id) {
-                if !tab.title.is_empty() {
-                    record.title = tab.title.clone();
-                }
                 if tab.description.is_some() {
                     record.description = tab.description.clone();
                 }
@@ -206,13 +202,10 @@ impl MultiplexerState {
     }
 
     /// Apply a closed record onto a fresh tab's pane, driving the restore path.
-    /// `chat_capable` holds chat-UI-capable provider ids when the default-chat
-    /// preference is on, so a reopened agent pane re-applies it like a fresh spawn.
     fn materialize_closed_pane(
         &mut self,
         workspace_id: &str,
         record: &ClosedPane,
-        chat_capable: &HashSet<String>,
     ) -> Result<(String, String), String> {
         let (tab_id, pane_id) = self.create_tab(workspace_id)?;
         if let Some(pane) = self.panes.get_mut(&pane_id) {
@@ -225,16 +218,12 @@ impl MultiplexerState {
             // Re-lock identity so output-based re-detection can't flip the provider before resume kicks in.
             pane.agent_type_locked = record.agent_type.is_some();
             pane.agent_session_id = record.agent_session_id.clone();
+            pane.role_profile = record.role_profile.clone();
             pane.agent_session_model = record.model.clone();
             pane.restored_from_snapshot = true;
-            // Mirror the spawn paths' chat_view rule: chatBackend always chat, PTY agent only if chat-capable + preference on.
-            pane.chat_view = matches!(record.backing, PaneBacking::ChatBackend { .. })
-                || record
-                    .agent_type
-                    .as_deref()
-                    .is_some_and(|at| chat_capable.contains(at));
+            pane.chat_view =
+                matches!(record.backing, PaneBacking::ChatBackend { .. }) || record.chat_view;
         }
-        let _ = self.rename_tab(workspace_id, &tab_id, &record.title);
         if let Some(ws) = self.workspaces.iter_mut().find(|w| w.id == workspace_id) {
             if let Some(tab) = ws.tabs.iter_mut().find(|t| t.id == tab_id) {
                 tab.description = record.description.clone();
@@ -249,7 +238,6 @@ impl MultiplexerState {
         &mut self,
         workspace_id: &str,
         index: Option<usize>,
-        chat_capable: &HashSet<String>,
     ) -> Result<(String, String), String> {
         if !self.workspaces.iter().any(|w| w.id == workspace_id) {
             return Err(format!("Workspace not found: {}", workspace_id));
@@ -270,7 +258,7 @@ impl MultiplexerState {
             .closed_store
             .peek_in_workspace(workspace_id, idx)
             .ok_or("No recently closed pane")?;
-        let res = self.materialize_closed_pane(workspace_id, &record, chat_capable)?;
+        let res = self.materialize_closed_pane(workspace_id, &record)?;
         if let Err(e) = self.closed_store.delete_pane_row(row_id) {
             // History delete failed after materialize: a retry would duplicate. Surface it.
             log::warn!(
@@ -297,7 +285,6 @@ impl MultiplexerState {
     pub fn reopen_orphaned_pane(
         &mut self,
         pane_id: &str,
-        chat_capable: &HashSet<String>,
     ) -> Result<(String, String, String), String> {
         let (row_id, record) = self
             .closed_store
@@ -305,8 +292,7 @@ impl MultiplexerState {
             .ok_or_else(|| format!("No orphaned entry for pane_id: {}", pane_id))?;
         let workspace_id =
             self.restore_target_workspace(record.workspace_name.clone(), record.cwd.clone());
-        let (tab_id, new_pane_id) =
-            self.materialize_closed_pane(&workspace_id, &record, chat_capable)?;
+        let (tab_id, new_pane_id) = self.materialize_closed_pane(&workspace_id, &record)?;
         if let Err(e) = self.closed_store.delete_pane_row(row_id) {
             log::warn!(
                 "reopen_orphaned_pane: reopened pane {new_pane_id} but failed to delete closed entry (row {row_id}): {e}"
@@ -320,7 +306,6 @@ impl MultiplexerState {
     pub fn reopen_closed_group(
         &mut self,
         group_id: &str,
-        chat_capable: &HashSet<String>,
     ) -> Result<(String, String, String), String> {
         // Materialize every pane first; delete the group only once they all succeed, so a mid-loop failure leaves it for retry.
         let (group, panes) = self
@@ -354,8 +339,7 @@ impl MultiplexerState {
         let mut tabs_by_pane: HashMap<String, (String, String)> = HashMap::new();
         let mut first: Option<(String, String)> = None;
         for record in &panes {
-            let (tab_id, new_pane_id) =
-                self.materialize_closed_pane(&workspace_id, record, chat_capable)?;
+            let (tab_id, new_pane_id) = self.materialize_closed_pane(&workspace_id, record)?;
             id_map.insert(record.pane_id.clone(), new_pane_id.clone());
             tabs_by_pane.insert(
                 record.pane_id.clone(),

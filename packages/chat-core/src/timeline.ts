@@ -17,8 +17,6 @@ export function mergeTimelineMessages<T extends NormalizedChatMessage>(
       const at = timestampMs(a.message.timestamp);
       const bt = timestampMs(b.message.timestamp);
       if (at != null && bt != null && at !== bt) return at - bt;
-      // Equal/missing timestamps: confirmed turns carry the server's source-order
-      // `seq` (codex same-second, cursor timeless); fall back to arrival index so
       const as = a.message.seq;
       const bs = b.message.seq;
       if (as != null && bs != null && as !== bs) return as - bs;

@@ -54,7 +54,32 @@ function tokenSpan(host: HTMLElement, text: string): HTMLElement | undefined {
 
 setupDom();
 
-const { DiffView, DIFF_HIGHLIGHT_MAX_LINES } = await import("./MarkdownBody");
+const { DiffView, DIFF_HIGHLIGHT_MAX_LINES, extractEdits } = await import("./MarkdownBody");
+const { parseCodexPatch, codexMemModPatch } = await import("./providerTranscriptFixtures.testdata").then(async (fixtures) => ({
+  parseCodexPatch: (await import("./parseCodexPatch")).parseCodexPatch,
+  codexMemModPatch: fixtures.codexMemModPatch,
+}));
+
+test("parseCodexPatch extracts old/new hunks from real-session mem/mod.rs patch", () => {
+  const files = parseCodexPatch(codexMemModPatch);
+  assert(files.length === 1, "single-file patch");
+  assert(files[0].path === "cli/src/cmd/mem/mod.rs", "file path from patch header");
+  assert(files[0].edits.length === 1, "one hunk in trimmed fixture");
+  const hunk = files[0].edits[0];
+  assert(hunk.old.includes("val.to_string()"), "removed lines captured");
+  assert(hunk.new.includes("let body = text.trim()"), "added lines captured");
+});
+
+test("extractEdits parses structured apply_patch toolInput patch field", () => {
+  const edits = extractEdits({
+    id: "x",
+    type: "tool_call",
+    toolName: "apply_patch",
+    toolInput: { patch: codexMemModPatch },
+  });
+  assert(edits.length === 1, "one edit hunk from patch tool input");
+  assert(edits[0].new.includes("status.to_string()"), "patch parser wired through extractEdits");
+});
 
 test("tsx diff renders highlighted tokens on +/- backgrounds", async () => {
   const { host, root } = await render(
@@ -69,8 +94,6 @@ test("tsx diff renders highlighted tokens on +/- backgrounds", async () => {
   assert(host.textContent?.includes("answer = 42;"), "added line content should render");
   assert(host.textContent?.includes("answer = 1;"), "removed line content should render");
 
-  // The highlighted token must live *inside* a +/- gutter row — that's what
-  // "tokens on the +/- backgrounds" means structurally. (The color-mix
   const rowWithMarker = (marker: string) =>
     Array.from(host.querySelectorAll<HTMLElement>("div")).find((d) => {
       const first = d.querySelector("span");
@@ -108,7 +131,6 @@ test("large diff over the cap skips per-token highlight (plain fallback)", async
     <DiffView edits={[{ old: "", new: big }]} language="tsx" />,
   );
 
-  // Content still renders…
   assert(host.textContent?.includes("const v0 = 0;"), "large diff content should still render");
   // …but the cap means no per-token Prism span for the `const` keyword.
   assert(!tokenSpan(host, "const"), "large diff should not produce per-token highlight spans");

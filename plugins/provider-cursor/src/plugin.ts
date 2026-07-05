@@ -1,4 +1,3 @@
-// Cursor (cursor-agent) provider plugin runtime logic, compiled to QuickJS-compatible
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
 import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 
@@ -55,8 +54,6 @@ const plugin: PluginModule = {
     return true;
   },
 
-  // Cheap incremental gate: a selector glyph, a keyboard footer, or a
-  // trust/approval keyword means a prompt frame might be on screen → let the
   hasEventMarkers(chunk: string): boolean {
     return chunkHasPromptSignal(String(chunk || ""));
   },
@@ -66,14 +63,10 @@ const plugin: PluginModule = {
     return parseCursorPrompt(String(text || "")) ? ["permission_request"] : [];
   },
 
-  // Read cursor's alt-screen menu (permission / workspace-trust / model picker)
-  // into {question, options}. Returns null on non-menu output so normal chat
   parsePrompt(text: string): ParsedPrompt | null {
     return parseCursorPrompt(String(text || ""));
   },
 
-  // Cursor menus are vertical lists navigated with ↑/↓ + Enter. The highlight is
-  // NOT the top row — the /model picker lands the → selector on the CURRENT model —
   buildPromptResponse(optionIndex: number, screen?: string): string[] {
     const DOWN = "G1tC"; // ESC [ B
     const UP = "G1tB"; // ESC [ A
@@ -94,7 +87,6 @@ const plugin: PluginModule = {
     return discoverCursorModels() || manifestModels();
   },
 
-  // Pre-write cursor's workspace-trust marker to bypass its one-time trust prompt,
   // but only under skip-permissions — that's the user's intentional "trust everything" flow.
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
@@ -137,7 +129,6 @@ const plugin: PluginModule = {
     return typeof ms === "number" ? ms : null;
   },
 
-  // Re-attach a restarted cursor pane to its session. Identity-bound, never
   // "newest-for-cwd" (capability rule #3): with 2+ viable candidates, refuse rather than hand over a sibling's session.
   detectSessionId(cwd: string, exclude?: string | string[], maxAgeMs?: number): string | null {
     const dir = cursorChatsDir(cwd);
@@ -157,8 +148,6 @@ const plugin: PluginModule = {
       // Only real sessions (same existence contract as sessionExists); ignore stale/empty temp dirs.
       const meta = readMetaJson(e.path + sep + "meta.json");
       if (!meta && !host.fs.fileExists(e.path + sep + "store.db")) continue;
-      // Current cursor builds write only store.db (no meta.json), so meta
-      // timestamps are absent. Fall back to the session dir's mtime — without a
       const ts = meta ? (meta.updatedAtMs || meta.createdAtMs || 0) : (e.modifiedMs || 0);
       if (maxAge && now && (!ts || (now - ts) > maxAge)) continue;
       candidates.push({ id: sid, ts: ts });
@@ -280,9 +269,69 @@ const plugin: PluginModule = {
     return out;
   },
 
-  // Cursor's interactive TUI has no usage gauge screen, so there's nothing to parse → null.
-  parseUsage(_rawText: string, _nowMs: number): unknown {
-    return null;
+  fetchUsage(nowMs: number): unknown {
+    const token = readCursorToken();
+    if (!token) return null;
+    const when = new Date(nowMs);
+    const invoice = cursorApi(
+      "GetMonthlyInvoice",
+      { month: when.getUTCMonth(), year: when.getUTCFullYear() },
+      token,
+    );
+    if (!invoice) return null;
+    const periodStart = numFrom(invoice.periodStartMs);
+    const periodEnd = numFrom(invoice.periodEndMs);
+    if (periodStart == null || periodEnd == null) return null;
+    const agg = cursorApi(
+      "GetAggregatedUsageEvents",
+      { startDate: String(periodStart), endDate: String(periodEnd) },
+      token,
+    );
+    if (!agg) return null;
+    const current = cursorApi("GetCurrentPeriodUsage", {}, token);
+    const spendRaw = numFrom(agg.totalCostCents);
+    if (spendRaw == null) return null;
+    const planUsage = current && typeof current.planUsage === "object"
+      ? current.planUsage as Record<string, unknown>
+      : null;
+    const limitRaw = planUsage ? numFrom(planUsage.limit) : null;
+    const remainingRaw = planUsage ? numFrom(planUsage.remaining) : null;
+    const includedSpendRaw = planUsage ? numFrom(planUsage.includedSpend) : null;
+    const spendDollars = includedSpendRaw != null ? includedSpendRaw : spendRaw;
+    const spendCents = cursorDollarsToCents(spendDollars);
+    if (spendCents == null) return null;
+    const limitCents = cursorDollarsToCents(limitRaw);
+    const remainingCents = cursorDollarsToCents(remainingRaw);
+    return JSON.stringify({
+      spendCents: spendCents,
+      limitCents: limitCents,
+      remainingCents: remainingCents,
+      resetsAtMs: periodEnd,
+      periodStartMs: periodStart,
+      fetchedAtMs: nowMs,
+    });
+  },
+
+  // is billed by spend, not a session/weekly %, so only the spend_* fields fill.
+  parseUsage(rawText: string, nowMs: number): unknown {
+    const data = safeJson(String(rawText || "")) as
+      | { spendCents?: number; limitCents?: number | null; remainingCents?: number | null; resetsAtMs?: number }
+      | null;
+    if (!data || typeof data.spendCents !== "number") return null;
+    return {
+      provider: "cursor",
+      account_id: null,
+      captured_at_ms: nowMs,
+      session_pct: null,
+      session_resets_at_ms: null,
+      weekly_pct: null,
+      weekly_resets_at_ms: null,
+      spend_cents: data.spendCents,
+      spend_limit_cents: typeof data.limitCents === "number" ? data.limitCents : null,
+      spend_remaining_cents: typeof data.remainingCents === "number" ? data.remainingCents : null,
+      spend_resets_at_ms: typeof data.resetsAtMs === "number" ? data.resetsAtMs : null,
+      raw_text: String(rawText || ""),
+    };
   },
 };
 
@@ -320,7 +369,6 @@ function discoverCursorModels(): ModelInfo[] | null {
     const id = m[1];
     if (isNonChatModel(id)) continue;
     const unavailable = CURSOR_UNAVAILABLE_RE.test(m[2]);
-    // Strip status/lockout annotations ("(current)", "(default)", "(locked)"); keep
     // informative ones like "(NO ZDR)".
     const disp = m[2]
       .replace(CURSOR_UNAVAILABLE_RE, " ")
@@ -333,7 +381,6 @@ function discoverCursorModels(): ModelInfo[] | null {
   return models.length ? models : null;
 }
 
-// Duplicated across provider bundles by design (QuickJS, no imports) — drops
 // embedding/tts/moderation/rerank ids so only chat models reach the picker.
 const NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
 function isNonChatModel(id: string): boolean {
@@ -354,7 +401,6 @@ function manifestModels(): ModelInfo[] {
 
 // ── workspace trust ──
 
-// Shell snippet that writes cursor's `.workspace-trusted` marker for the launch
 // cwd (resolved + slugged exactly like cursor) unless it already exists.
 function trustPrefix(): string {
   if (host.platform() === "windows") {
@@ -403,8 +449,6 @@ function projectsRoot(): string | null {
   return r ? r + pathSep() + "projects" : null;
 }
 
-// Cursor hashes the cwd in its OWN native separator (backslash on Windows). The host hands
-// plugins forward-slash paths, so on Windows we must restore backslashes before md5 — else the
 function toNativeCwd(cwd: string): string {
   const s = String(cwd || "");
   return host.platform() === "windows" ? s.replace(/\//g, "\\") : s;
@@ -430,8 +474,6 @@ function cursorSlug(cwd: string): string {
   return String(cwd || "").replace(/^[/\\]+/, "").replace(/[^a-zA-Z0-9]/g, "-");
 }
 
-// ~/.cursor/projects/<slug>/agent-transcripts/<uuid>/<uuid>.jsonl. Prefer the slug
-// path, else scan project dirs for the unique uuid; returns the slug path even when
 function cursorTranscriptPath(cwd: string, sessionId: string): string | null {
   if (!sessionId) return null;
   const root = projectsRoot();
@@ -523,8 +565,6 @@ function cleanPromptLine(line: string): string {
     .trim();
 }
 
-// Quick chunk-level signal that a prompt frame may be present (gates the
-// expensive full-screen parse). Liberal by design — parseCursorPrompt is the
 function chunkHasPromptSignal(chunk: string): boolean {
   for (let i = 0; i < PROMPT_SELECTORS.length; i++) {
     if (chunk.indexOf(PROMPT_SELECTORS[i]) !== -1) return true;
@@ -557,14 +597,10 @@ function findPromptQuestion(lines: string[], firstIdx: number): string {
   return "Permission required";
 }
 
-// Numbered menus (trust gate, command approval) parse via the host's universal
-// shape; the /model picker is a non-numbered list cursor draws instead → try that
 function parseCursorPrompt(text: string): ParsedPrompt | null {
   return parseCursorNumberedMenu(text) || parseCursorListMenu(text);
 }
 
-// Parse the active vertical menu near the bottom of cursor's screen. Mirrors the
-// host's universal numbered-picker shape (so numbered menus never regress) and
 interface NumberedCluster { question: string; cluster: { value: string; label: string; idx: number; sel: boolean }[] }
 function collectCursorNumberedMenu(text: string): NumberedCluster | null {
   const lines = String(text || "").split("\n").map(cleanPromptLine);
@@ -617,8 +653,6 @@ function parseCursorNumberedMenu(text: string): ParsedPrompt | null {
   return { question: c.question, options: options };
 }
 
-// Cursor's /model picker is a NON-numbered vertical list: a selector glyph (→)
-// marks the highlight, labels carry trailing metadata after a 2-space gap, and a
 interface ListMenu { question: string; rows: { label: string; sel: boolean }[] }
 function collectCursorListMenu(text: string): ListMenu | null {
   const raw = String(text || "").split("\n");
@@ -669,8 +703,6 @@ function parseCursorListMenu(text: string): ParsedPrompt | null {
   return { question: c.question, options: options };
 }
 
-// 0-based screen-order index of the highlighted (→) row in the active menu, or
-// -1 when none is detectable. Mirrors parseCursorPrompt's numbered-then-list
 function cursorHighlightIndex(text: string): number {
   const n = collectCursorNumberedMenu(text);
   if (n) return n.cluster.findIndex((o) => o.sel);
@@ -715,12 +747,83 @@ function leadingSpaces(s: string): number {
   return m ? m[0].length : 0;
 }
 
-// The label is the text before a 2+ space gap (drops trailing metadata like
 // "300K High" or a "(Tab to modify)" hint); single-spaced multi-word names stay whole.
 function firstField(s: string): string {
   const m = /^(.*?)\s{2,}\S/.exec(s);
   const label = (m ? m[1] : s).trim();
   return label.replace(/\s*\(tab to [^)]*\)\s*$/i, "").trim();
+}
+
+// ── usage (dashboard API) ──
+
+const CURSOR_API_BASE = "https://api2.cursor.sh/aiserver.v1.DashboardService/";
+
+function readCursorToken(): string | null {
+  const platform = host.platform();
+  let opts: { bin: string; args: string[]; timeoutMs: number } | null = null;
+  if (platform === "macos") {
+    opts = {
+      bin: "security",
+      args: ["find-generic-password", "-s", "cursor-access-token", "-a", "cursor-user", "-w"],
+      timeoutMs: 4000,
+    };
+  } else if (platform === "linux") {
+    opts = {
+      bin: "secret-tool",
+      args: ["lookup", "service", "cursor-access-token", "account", "cursor-user"],
+      timeoutMs: 4000,
+    };
+  }
+  if (!opts) return null;
+  const r = safeJson(host.exec(JSON.stringify(opts))) as
+    | { code?: number; stdout?: string }
+    | null;
+  if (r && r.code === 0 && typeof r.stdout === "string") {
+    const tok = r.stdout.trim();
+    if (tok) return tok;
+  }
+  return null;
+}
+
+// object, or null on any transport/auth/parse failure.
+function cursorApi(
+  method: string,
+  body: unknown,
+  token: string,
+): Record<string, unknown> | null {
+  const raw = host.fetch(
+    JSON.stringify({
+      url: CURSOR_API_BASE + method,
+      method: "POST",
+      timeoutMs: 6000,
+      headers: {
+        Authorization: "Bearer " + token,
+        "Content-Type": "application/json",
+        "connect-protocol-version": "1",
+      },
+      body: JSON.stringify(body),
+    }),
+  );
+  const resp = safeJson(raw) as { status?: number; body?: string } | null;
+  if (!resp || resp.status !== 200 || typeof resp.body !== "string") return null;
+  const parsed = safeJson(resp.body);
+  return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+}
+
+// Connect-RPC encodes int64 as a JSON string; accept both number and numeric string.
+function numFrom(v: unknown): number | null {
+  if (typeof v === "number" && isFinite(v)) return v;
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v);
+    if (isFinite(n)) return n;
+  }
+  return null;
+}
+
+// as dollars); only the aggregated totalCostCents name suggests cents.
+function cursorDollarsToCents(dollars: number | null): number | null {
+  if (dollars == null) return null;
+  return Math.round(dollars * 100);
 }
 
 // ── misc helpers ──

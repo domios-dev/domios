@@ -14,7 +14,6 @@ pub(crate) fn setup_window_styling(window: &tauri::WebviewWindow) {
         }
     }
 
-    // macOS: rounded corners for frameless window
     #[cfg(target_os = "macos")]
     {
         use objc2_app_kit::{NSWindow, NSWindowStyleMask, NSWindowTitleVisibility};
@@ -35,7 +34,6 @@ pub(crate) fn setup_window_styling(window: &tauri::WebviewWindow) {
             ns_window.setTitlebarAppearsTransparent(true);
             ns_window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
             ns_window.setHasShadow(true);
-            // Hide traffic light buttons
             use objc2::msg_send;
             for i in 0..3_isize {
                 let btn: *mut objc2::runtime::AnyObject =

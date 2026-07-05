@@ -20,6 +20,9 @@ import { CrashReportToast } from "./components/CrashReportToast";
 import { StaleBuildBanner } from "./components/StaleBuildBanner";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { HamburgerIcon } from "./components/Icons";
+import { CanvasView } from "./components/Canvas/CanvasView";
+import { PlansProvider } from "./components/Canvas/PlansProvider";
+import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
 import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useAgentProviders } from "./hooks/useAgentProviders";
@@ -65,7 +68,6 @@ function AppInner() {
       setSidebarOpen(false);
     }
   }, []);
-  // Keep the overlay mounted through its slide-out so closing animates instead of popping. `shown` drives the
   // translate/opacity (toggled a frame after mount so the transition runs); `mounted` survives until it finishes.
   const [sidebarMounted, setSidebarMounted] = useState(sidebarOpen);
   const [sidebarShown, setSidebarShown] = useState(sidebarOpen);
@@ -86,12 +88,14 @@ function AppInner() {
     return () => window.clearTimeout(t);
   }, [sidebarOpen]);
 
-  // Cross-fade between full-screen views instead of a hard visibility swap.
   const viewLayerStyle = (active: boolean): React.CSSProperties => ({
     zIndex: active ? 2 : 0,
     opacity: active ? 1 : 0,
+    visibility: active ? "visible" : "hidden",
     pointerEvents: active ? "auto" : "none",
-    transition: "opacity 200ms ease",
+    transition: active
+      ? "opacity 200ms ease, visibility 0ms linear 0ms"
+      : "opacity 200ms ease, visibility 0ms linear 200ms",
   });
   const { inset: keyboardInset, keyboardOpen } = useKeyboardInset();
   const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "extensions">("workspace");
@@ -139,7 +143,6 @@ function AppInner() {
       return open ? "extensions" : "workspace";
     });
   }, []);
-  // TODO: const [swarmVisible, setSwarmVisible] = useState(false); // Swarm viz — future
   const { config, updateConfig, theme, loading: configLoading } = useConfig();
   const stableTheme = useStableJsonValue(theme);
   const stableFontConfig = useStableJsonValue(config.font);
@@ -147,7 +150,6 @@ function AppInner() {
   const stableApiConfig = useStableJsonValue(config.api);
   const uiFontScale = fontSizeToUiFontScale(stableFontConfig.size);
 
-  // Resolve usage-tracking toggle once per config change so every pane's UsageBubble can read it via prop instead of subscribing to config
   // events on its own (the per-bubble `useConfig` was multiplying invokes by pane count and made the webview unresponsive after many resumes).
   const computedUsageEnabledByProvider = useMemo(() => {
     const out: Record<string, boolean> = {};
@@ -158,7 +160,6 @@ function AppInner() {
   }, [config.agents]);
   const usageEnabledByProvider = useStableJsonValue(computedUsageEnabledByProvider);
 
-  // Feed the pane top bar's chat-default flags from this one useConfig as props, so
   // PaneTopBar/ChatDefaultSuggestion never run a per-pane useConfig (froze switches).
   const configChatPaneDefault = config.ui?.default_new_agent_pane_chat === true;
   const [chatPaneDefaultOverride, setChatPaneDefaultOverride] = useState<boolean | null>(null);
@@ -183,7 +184,6 @@ function AppInner() {
     spawnClaudeTab,
   } = useMultiplexer();
 
-  // When user focuses any pane (via sidebar click, Ctrl+Tab, etc), return to workspace view
   const lastFocusedRef = useRef(state.focused_pane_id);
   useEffect(() => {
     if (state.focused_pane_id !== lastFocusedRef.current) {
@@ -194,13 +194,11 @@ function AppInner() {
     }
   }, [state.focused_pane_id, mainView]);
 
-  // Keep ref to latest state for keyboard handler closure
   const stateRef = useRef(state);
   stateRef.current = state;
   const configRef = useRef(config);
   configRef.current = config;
 
-  // Plugin glance/bubble surfaces ask the host to open a panel via this event
   // (e.g. the Git plugin's "Open Git" button, or a glance's "Open settings").
   useEffect(() => {
     const onOpenPanel = (e: Event) => {
@@ -227,7 +225,6 @@ function AppInner() {
     return () => window.removeEventListener("codeterm:open-panel", onOpenPanel);
   }, [setExtensionsOpen]);
 
-  // "Configure with AI" spawns a pane and asks the host to bring it forward —
   // dismiss any covering Extensions/glance overlay and focus the new pane.
   useEffect(() => {
     const onFocusPane = (e: Event) => {
@@ -268,6 +265,28 @@ function AppInner() {
     () => activeWs?.tabs.find((t) => t.id === state.activeTabIds[activeWs.id]),
     [activeWs, state.activeTabIds],
   );
+  const showWorkspaceCanvas =
+    mainView === "workspace" && !pluginViewId && activeWs != null && !activeTab;
+  const workspaceCanvasOpen = useCanvasWorkspaceOpen();
+  const workspaceCanvasDismissed = useCanvasWorkspaceDismissed();
+  const showInlineWorkspaceCanvas = showWorkspaceCanvas && !workspaceCanvasDismissed;
+  const showOverlayWorkspaceCanvas =
+    workspaceCanvasOpen &&
+    !!activeTab &&
+    mainView === "workspace" &&
+    !pluginViewId &&
+    activeWs != null;
+  const workspaceCanvasVisible = showInlineWorkspaceCanvas || showOverlayWorkspaceCanvas;
+  const handleNavigateToTab = useCallback(() => {
+    canvasFocusStore.closeWorkspace();
+    setMainView("workspace");
+    closeSidebarOnMobile();
+  }, [closeSidebarOnMobile]);
+  useEffect(() => {
+    if (!activeTab) canvasFocusStore.resetWorkspaceDismissed();
+  }, [activeTab]);
+  const canvasFocusOpen = useCanvasFocusOpen();
+  const canvasFocusTarget = useCanvasFocusTarget();
   useEffect(() => {
     if (!activeTab?.id) return;
     setMountedTabIds((prev) => {
@@ -295,7 +314,6 @@ function AppInner() {
 
   const handleNewTab = useCallback(() => {
     if (!activeWs) return;
-    // Inherit cwd from focused pane
     const focusedPane = state.focused_pane_id ? state.panes[state.focused_pane_id] : null;
     const cwd = focusedPane?.cwd || undefined;
     createTab(activeWs.id, cwd);
@@ -309,14 +327,12 @@ function AppInner() {
 
   const handlePtySpawned = useCallback(
     (paneId: string, ptyId: string) => {
-      // Link PTY in backend + update frontend state
       invoke("mux_link_pty", { paneId, ptyId }).catch(() => {});
       setPanePty(paneId, ptyId);
     },
     [setPanePty],
   );
 
-  // Command palette commands
   const paletteCommands = useMemo(
     () =>
       buildDefaultCommands({
@@ -360,7 +376,6 @@ function AppInner() {
     ],
   );
 
-  // Keyboard shortcuts — uses config keybindings + language-independent matching
   const kb = config.keybindings;
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -372,7 +387,6 @@ function AppInner() {
         return;
       }
 
-      // Ignore modifier-only key presses
       if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
 
       // FALLBACK: If xterm.js textarea doesn't have focus, send keys directly to PTY.
@@ -410,7 +424,6 @@ function AppInner() {
     updateConfig,
   ]);
 
-  // Compute CSS vars from theme
   const themeStyles = useMemo(() => themeToCSS(stableTheme), [stableTheme]);
   const isCRT = stableTheme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy";
 
@@ -434,7 +447,6 @@ function AppInner() {
         ...themeStyles,
         backgroundColor: stableTheme.background,
         color: stableTheme.foreground,
-        // 100% of #root, which owns viewport sizing (dvh + safe-area padding in index.html). keyboardInset
         // covers iOS Safari, where the keyboard shrinks only the VISUAL viewport and dvh stays put (see useKeyboardInset).
         height: keyboardInset ? `calc(100% - ${keyboardInset}px)` : "100%",
         // keyboardOpen (not keyboardInset) drives this: in standalone the inset reads 0 even with the keyboard up, which would leave a dead safe-area stripe under the composer.
@@ -443,37 +455,20 @@ function AppInner() {
           : "calc(0.5rem + var(--ct-safe-bottom, 0px))",
       } as React.CSSProperties}
     >
-      {/* Web mirror strips the chrome: no titlebar row — the sidebar is
-          the whole shell (host picker + keep-awake live there). */}
-      {!IS_WEB && (
-        <Titlebar
-          onToggleSidebar={() => setSidebarOpen((v) => !v)}
-          onNewTab={handleNewTab}
-          theme={stableTheme}
-          onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
-          onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
-          onOpenExtensions={() => { setExtensionsOpen(true); }}
-          toasts={state.toasts}
-          onDismissToast={dismissToast}
-          onNavigateToast={setFocusedPane}
-        />
-      )}
-      {/* Status-bar scrim: content sliding under the notch fogs into the bg color + a soft blur, fading to clear below. */}
-      {IS_WEB && (
-        <div
-          aria-hidden
-          className="fixed inset-x-0 top-0 z-40 pointer-events-none"
-          style={{
-            height: "var(--ct-safe-top, 0px)",
-            background:
-              "linear-gradient(to bottom, var(--ct-bg) 0%, color-mix(in srgb, var(--ct-bg) 72%, transparent) 55%, transparent 100%)",
-            backdropFilter: "blur(4px)",
-            WebkitBackdropFilter: "blur(4px)",
-            maskImage: "linear-gradient(to bottom, black 0%, black 52%, transparent 100%)",
-            WebkitMaskImage: "linear-gradient(to bottom, black 0%, black 52%, transparent 100%)",
-          }}
-        />
-      )}
+      {/* Native + web mirror share one titlebar strip (parity decision A) — its
+          own --ct-safe-top padding covers the web notch/status-bar inset. */}
+      <Titlebar
+        onToggleSidebar={() => setSidebarOpen((v) => !v)}
+        onNewTab={handleNewTab}
+        theme={stableTheme}
+        onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
+        onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
+        onOpenExtensions={() => { setExtensionsOpen(true); }}
+        workspaceCanvasActive={workspaceCanvasVisible}
+        toasts={state.toasts}
+        onDismissToast={dismissToast}
+        onNavigateToast={setFocusedPane}
+      />
       {IS_WEB && !sidebarOpen && (
         <button
           data-testid="web-sidebar-open"
@@ -484,12 +479,10 @@ function AppInner() {
             width: "2.75rem",
             height: "2.75rem",
             aspectRatio: "1 / 1",
-            // Both views own a top strip — slide the burger just below it so it
-            // never overlaps. Workspace's pane bar is shorter than panel headers.
             top:
               mainView === "workspace"
-                ? "calc(var(--ct-safe-top, 0px) + 2.6rem)"
-                : "calc(var(--ct-safe-top, 0px) + 3.65rem)",
+                ? "calc(2rem + var(--ct-safe-top, 0px) + 2.6rem)"
+                : "calc(2rem + var(--ct-safe-top, 0px) + 3.65rem)",
             background: "var(--ct-accent)",
             color: "var(--ct-bg)",
             border: "1px solid color-mix(in srgb, var(--ct-fg) 18%, transparent)",
@@ -501,6 +494,7 @@ function AppInner() {
         </button>
       )}
 
+      <PlansProvider api={stableApiConfig}>
       <div className="flex flex-1 min-h-0 relative">
         {sidebarMounted && (
           <>
@@ -513,14 +507,14 @@ function AppInner() {
             {/* Fixed overlay escapes #root's safe-area padding — re-add it here. */}
             <div className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:shadow-2xl max-sm:pt-[var(--ct-safe-top,0px)] max-sm:pb-[var(--ct-safe-bottom,0px)] max-sm:bg-[var(--ct-sidebar-bg)] flex min-h-0 overflow-visible`}>
               <Sidebar
-                onOpenSettings={() => { setSettingsOpen(true); closeSidebarOnMobile(); }}
                 onOpenMemory={() => { setMemoryOpen(true); closeSidebarOnMobile(); }}
                 onOpenMesh={() => { setMeshOpen(true); closeSidebarOnMobile(); }}
                 onOpenExtensions={() => { setExtensionsOpen(true); closeSidebarOnMobile(); }}
-                onNavigateToTab={() => { setMainView("workspace"); closeSidebarOnMobile(); }}
+                onNavigateToTab={handleNavigateToTab}
                 mainView={mainView}
                 config={config}
                 uiFontScale={uiFontScale}
+                workspaceCanvasActive={workspaceCanvasVisible}
               />
             </div>
           </>
@@ -580,11 +574,40 @@ function AppInner() {
               <PluginView pluginId={pluginViewId} api={config.api} cwd={pluginViewCwd} onClose={() => setPluginViewId(null)} />
             </div>
           )}
+          {showInlineWorkspaceCanvas && (
+            <div className="absolute inset-0" style={{ zIndex: 1 }}>
+              <CanvasView
+                mode="workspace"
+                workspaceId={activeWs?.id}
+                api={stableApiConfig}
+              />
+            </div>
+          )}
+          {showOverlayWorkspaceCanvas && (
+            <div className="absolute inset-0" style={{ zIndex: 25 }}>
+              <CanvasView
+                mode="workspace"
+                workspaceId={activeWs?.id}
+                api={stableApiConfig}
+              />
+            </div>
+          )}
+          {canvasFocusOpen && canvasFocusTarget && (
+            <div className="absolute inset-0" style={{ zIndex: 25 }}>
+              <CanvasView
+                mode="focus"
+                planId={canvasFocusTarget.planId}
+                orchestratorPaneId={canvasFocusTarget.orchestratorPaneId}
+                focusPaneId={canvasFocusTarget.focusPaneId}
+                api={stableApiConfig}
+                onClose={() => canvasFocusStore.close()}
+              />
+            </div>
+          )}
           {state.workspaces.length > 0 ? (
             state.workspaces.flatMap((ws) =>
               ws.tabs.map((tab) => {
                 const isActiveTab = ws.id === state.active_workspace_id && tab.id === state.activeTabIds[ws.id];
-                // Main (protected pane in the protected workspace) is never
                 // lazy — mount it on boot so its chat/SSE state is live.
                 const isMainTab =
                   ws.protected === true && state.panes[tab.pane_id]?.protected === true;
@@ -605,6 +628,8 @@ function AppInner() {
               >
                 <MemoizedTabContent
                   pane={state.panes[tab.pane_id]}
+                  workspaceId={ws.id}
+                  tabId={tab.id}
                   isFocused={state.focused_pane_id === tab.pane_id}
                   onFocusPane={setFocusedPane}
                   onPtySpawned={handlePtySpawned}
@@ -618,22 +643,19 @@ function AppInner() {
                   isVisible={isVisible}
                   chatFirst={chatPaneDefault}
                   chatDefaultPrompted={chatDefaultPrompted}
+                  agentsConfig={config.agents}
                 />
               </div>
                 );
               })
             )
           ) : mainView === "workspace" ? (
-            <div
-              className="flex items-center justify-center w-full h-full text-sm"
-              style={{ color: stableTheme.bright_black }}
-            >
-              Loading...
-            </div>
+            <CanvasView mode="workspace" api={stableApiConfig} />
           ) : null}
         </main>
         </div>
       </div>
+      </PlansProvider>
 
       <CommandPalette commands={paletteCommands} />
 

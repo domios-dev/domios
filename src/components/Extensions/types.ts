@@ -1,4 +1,3 @@
-// Shared types for the Extensions surface, kept view-free so the catalog logic
 // (pluginCatalog.ts) can be unit-tested without the React/SVG import chain.
 import type { SettingField } from "../../lib/types";
 

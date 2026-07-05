@@ -6,6 +6,31 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[test]
+fn resolve_spawn_workspace_prefers_explicit_workspace_over_parent() {
+    let parent_ws = "ws-parent".to_string();
+    let explicit_ws = "ws-explicit".to_string();
+    let resolved = resolve_spawn_workspace_id(
+        Some(explicit_ws.clone()),
+        Some("parent-pane"),
+        |_| Some(parent_ws.clone()),
+        Some("ws-active".into()),
+        Some("ws-fallback".into()),
+    )
+    .unwrap();
+    assert_eq!(resolved, explicit_ws);
+
+    let from_parent = resolve_spawn_workspace_id(
+        None,
+        Some("parent-pane"),
+        |_| Some(parent_ws.clone()),
+        Some("ws-active".into()),
+        Some("ws-fallback".into()),
+    )
+    .unwrap();
+    assert_eq!(from_parent, parent_ws);
+}
+
+#[test]
 fn invalid_role_lead_is_rejected() {
     let err = ServiceContext::parse_role("Lead").unwrap_err();
     assert!(
@@ -40,11 +65,17 @@ fn spawn_params(provider: &str) -> SpawnAgentParams {
         title: None,
         description: None,
         role: None,
+        role_profile: None,
         parent_pane_id: None,
+        plan_id: None,
         can_spawn: None,
         task: None,
+        task_id: None,
+        allow_shared_checkout: None,
         workspace_id: None,
         force_tab: None,
+        existing_tab_id: None,
+        skip_orchestrator_onboarding: None,
         report_target_pane_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,
@@ -441,11 +472,17 @@ fn from_agent_params_carries_model_into_spec() {
         title: None,
         description: Some("triage failing snapshot".into()),
         role: None,
+        role_profile: None,
         parent_pane_id: None,
+        plan_id: None,
         can_spawn: None,
         task: None,
+        task_id: None,
+        allow_shared_checkout: None,
         workspace_id: None,
         force_tab: None,
+        existing_tab_id: None,
+        skip_orchestrator_onboarding: None,
         report_target_pane_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,
@@ -467,7 +504,6 @@ fn from_agent_params_carries_model_into_spec() {
 
 #[test]
 fn to_agent_params_carries_model_as_dedicated_field() {
-    // Model travels as a dedicated `model` field through SpawnAgentParams, not as `--model X` baked into args. `build_agent_command` then asks the
     // provider via `model_launch_args` to render the correct flag syntax (`-m X` for codex/opencode, `--model X` for claude).
     let mut spec = agent_spec("claude");
     if let PaneCommand::Agent(ref mut a) = spec.command {
@@ -510,7 +546,6 @@ fn to_agent_params_fails_on_shell_spec() {
 
 #[test]
 fn can_spawn_none_round_trips_through_params() {
-    // Caller didn't pass --can-spawn → spec.can_spawn=None → params.can_spawn=None. This tells set_pane_role to keep the role's default
     // (Orchestrator=true, Worker=false).
     let mut spec = agent_spec("claude");
     if let PaneCommand::Agent(ref mut a) = spec.command {
@@ -534,7 +569,6 @@ fn can_spawn_some_false_explicitly_overrides() {
 
 #[test]
 fn from_agent_params_preserves_can_spawn_option() {
-    // CLI/REST/socket pass `can_spawn: Option<bool>` straight through — None means "don't override the role's default", Some(b) means "user said
     // --can-spawn=b explicitly". The spec must NOT collapse None → Some(false) (the pre-fix-#42 behavior that clobbered Orchestrator default to false on every spawn).
     let mut p = SpawnAgentParams {
         agent: Some("claude".into()),
@@ -544,11 +578,17 @@ fn from_agent_params_preserves_can_spawn_option() {
         title: None,
         description: None,
         role: Some("Orchestrator".into()),
+        role_profile: None,
         parent_pane_id: None,
+        plan_id: None,
         can_spawn: None,
         task: None,
+        task_id: None,
+        allow_shared_checkout: None,
         workspace_id: None,
         force_tab: None,
+        existing_tab_id: None,
+        skip_orchestrator_onboarding: None,
         report_target_pane_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,
@@ -586,11 +626,17 @@ fn from_agent_params_carries_activate_into_spec() {
         title: None,
         description: None,
         role: None,
+        role_profile: None,
         parent_pane_id: None,
+        plan_id: None,
         can_spawn: None,
         task: None,
+        task_id: None,
+        allow_shared_checkout: None,
         workspace_id: None,
         force_tab: None,
+        existing_tab_id: None,
+        skip_orchestrator_onboarding: None,
         report_target_pane_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,
@@ -720,7 +766,6 @@ fn chat_default_on_hidden_agent_stays_terminal() {
 
 #[test]
 fn chatbackend_pane_command_deserializes() {
-    // The spawn API contract for a chatBackend pane: kind "chat_backend" with a
     // plugin id and opaque config (B1.3 #1/#6).
     let json = r#"{"kind":"chat_backend","plugin_id":"local-shell","config":{"model":"qwen"}}"#;
     let cmd: PaneCommand = serde_json::from_str(json).unwrap();
@@ -844,8 +889,6 @@ impl ChatBackendProvider for BackendOnlyShell {
 
 #[test]
 fn spawn_agent_params_for_non_spawnable_chatbackend_does_not_route_to_chatbackend() {
-    // A registered-but-not-spawnable backend (bare `chatBackend: true`, e.g. the
-    // NPC plugin) must NOT be opened as a ChatBackend pane. It falls through to
     let registry = crate::chatbackend::ChatBackendRegistry::new();
     registry.register("npc", Arc::new(BackendOnlyShell));
 

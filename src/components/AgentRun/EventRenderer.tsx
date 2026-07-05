@@ -20,7 +20,6 @@ export function EventRow({ event }: Props) {
       return <ResultRow event={event} />;
     case "rate_limit":
     case "unknown":
-      // Drop SDK-internal deltas (stream_event, content_block_delta, etc) and rate limit chatter — the high-level assistant/user/result events
       // already carry the full content, no need to clutter the timeline.
       return null;
   }
@@ -244,7 +243,6 @@ function summarizeToolInput(name: string, input: unknown): string {
   if (name === "Grep" && typeof i.pattern === "string") {
     return i.pattern;
   }
-  // Fallback: first string value
   for (const v of Object.values(i)) {
     if (typeof v === "string" && v.length > 0) return v.slice(0, 80);
   }
@@ -254,7 +252,6 @@ function summarizeToolInput(name: string, input: unknown): string {
 function stringifyToolResult(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
-    // Claude tool results often come as `[{type:"text", text:"..."}]`
     return content
       .map((c) => {
         if (c && typeof c === "object" && "text" in c && typeof (c as { text: unknown }).text === "string") {

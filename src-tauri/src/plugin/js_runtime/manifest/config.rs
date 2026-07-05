@@ -256,6 +256,8 @@ pub struct CommandsConfig {
     #[serde(default)]
     pub compact: Option<String>,
     #[serde(default)]
+    pub fresh_context: Option<String>,
+    #[serde(default)]
     pub exit: Option<String>,
     /// Raw key bytes the host should send to interrupt the agent's
     /// current operation (NOT a clean exit — think Esc / Ctrl+C while

@@ -7,7 +7,6 @@ export interface UseTouchScrollOptions {
   termReady: boolean;
 }
 
-// xterm.js only scrolls via wheel events; touch swipes fall through to the
 // scrollable ancestor (chat behind the fallback). Translate them ourselves.
 export function useTouchScroll({ containerRef, termRef, termReady }: UseTouchScrollOptions): void {
   useEffect(() => {

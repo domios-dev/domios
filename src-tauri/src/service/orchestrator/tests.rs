@@ -1,4 +1,5 @@
 use super::*;
+use crate::service::orchestrator::launch::planner_profile_task;
 use crate::shell::ShellSyntax;
 
 #[test]
@@ -33,20 +34,74 @@ fn local_and_orchestrator_roles_keep_local_assignment() {
     ));
 }
 
+#[test]
+fn roleless_spawn_task_stays_plain() {
+    assert_eq!(
+        role_onboarding_task(Some("inspect"), None, None).as_deref(),
+        Some("inspect")
+    );
+    assert_eq!(role_onboarding_task(None, None, None), None);
+}
+
+#[test]
+fn worker_onboarding_requires_a_task_body() {
+    assert!(role_onboarding_task(Some("fix it"), Some("Worker"), None)
+        .unwrap()
+        .contains(crate::prompts::WORKER_SUFFIX));
+    assert_eq!(role_onboarding_task(None, Some("Worker"), None), None);
+}
+
+#[test]
+fn planner_profile_uses_planner_suffix() {
+    let task = role_onboarding_task(Some("plan it"), Some("Worker"), Some("planner")).unwrap();
+    assert!(task.contains(&crate::prompts::planner_suffix()));
+    assert!(task.contains(crate::prompts::PLANNER_TESTING_ORACLE_FIRST));
+    assert!(task.contains(crate::prompts::PLAN_SKILLS_PRINCIPLES));
+    assert!(!task.contains("{planner_testing_methodology}"));
+    assert!(!task.contains(crate::prompts::WORKER_SUFFIX));
+}
+
+#[test]
+fn planner_profile_task_keeps_intro_when_no_user_task_exists() {
+    let task = planner_profile_task("planner intro".into(), None);
+    assert_eq!(task, "planner intro");
+}
+
+#[test]
+fn planner_profile_task_prepends_intro_to_user_task() {
+    let task = planner_profile_task("planner intro".into(), Some("draft structure".into()));
+    assert_eq!(task, "planner intro\n\ndraft structure");
+}
+
+#[test]
+fn orchestrator_onboarding_is_sent_even_without_task_body() {
+    let task = role_onboarding_task(None, Some("Orchestrator"), None).unwrap();
+    assert!(task.contains("CodeTerm planner is the source of truth"));
+    assert!(task.contains(&crate::prompts::orchestrator_suffix()));
+    assert!(task.contains(crate::prompts::PLAN_SKILLS_PRINCIPLES));
+    assert!(!task.contains("{plan_skills_principles}"));
+}
+
 fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
     SpawnAgentParams {
         agent: Some(agent.to_string()),
         task: task.map(|t| t.to_string()),
+        task_id: None,
+        allow_shared_checkout: None,
         agent_name: None,
         args: None,
         cwd: None,
         title: None,
         description: None,
         role: None,
+        role_profile: None,
         parent_pane_id: None,
+        plan_id: None,
         can_spawn: None,
         workspace_id: None,
         force_tab: None,
+        existing_tab_id: None,
+        skip_orchestrator_onboarding: None,
         report_target_pane_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,
@@ -139,7 +194,6 @@ fn test_build_claude_task_with_newlines() {
     let reg = test_registry();
     let params = make_params("claude", Some("line1\nline2\nline3"));
     let cmd = build_agent_command("claude", &params, Some("line1\nline2\nline3"), None, &reg);
-    // Task goes through temp file, so newlines are preserved in the file
     assert!(
         cmd.contains(".ct-task-"),
         "task with newlines still uses temp file"
@@ -153,7 +207,6 @@ fn test_build_claude_task_with_single_quotes() {
     let task = "count files that don't match '*.rs'";
     let params = make_params("claude", Some(task));
     let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
-    // Task is written to a temp file, so quotes don't break the command
     assert!(cmd.contains(".ct-task-"));
 }
 
@@ -172,7 +225,6 @@ fn test_build_claude_task_with_shell_special_chars() {
     let task = "echo $HOME && ls | grep foo; rm -rf /tmp/test";
     let params = make_params("claude", Some(task));
     let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
-    // Should not contain raw special chars in the command itself — they're in the temp file
     assert!(cmd.contains(".ct-task-"));
     assert!(
         !cmd.contains("$HOME"),
@@ -186,7 +238,6 @@ fn test_build_claude_task_temp_file_created() {
     let task = "test task content";
     let params = make_params("claude", Some(task));
     let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
-    // Extract the temp file path from the command and verify it was written
     if cfg!(not(target_os = "windows")) {
         // Command looks like: ... "$(cat /tmp/.ct-task-XXXXXXXX)"
         let start = cmd.find("/tmp/.ct-task-").unwrap();
@@ -194,7 +245,6 @@ fn test_build_claude_task_temp_file_created() {
         let path = &cmd[start..end];
         let content = std::fs::read_to_string(path).unwrap();
         assert_eq!(content, task, "temp file should contain the task verbatim");
-        // Cleanup
         let _ = std::fs::remove_file(path);
     }
 }
@@ -212,8 +262,6 @@ fn test_build_claude_with_extra_args() {
 
 #[test]
 fn test_build_with_model_uses_provider_specific_flag() {
-    // claude → `--model X`. codex/opencode model-flag syntax is JS-plugin logic now
-    // (covered in plugins/provider-*/tests); here we verify the orchestrator
     let reg = AgentRegistry::new();
     reg.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
 
@@ -280,9 +328,40 @@ fn test_build_with_resume_session_id_uses_provider_resume_form() {
 #[test]
 fn test_build_non_claude_ignores_task_in_command() {
     let reg = test_registry();
-    // For non-claude agents, build_agent_command does NOT embed the task
     let params = make_params("aider", Some("review this code"));
     let cmd = build_agent_command("aider", &params, Some("review this code"), None, &reg);
-    // Non-claude: task is NOT added to the command (it's sent separately via PTY) The function just puts agent_cmd + args
     assert_eq!(cmd, "aider");
+}
+
+#[test]
+fn initial_task_delivery_requires_echo_and_submit_confirmation() {
+    let ok = crate::service::inject_verify::InjectionResult {
+        bytes_written: 42,
+        echo_observed: true,
+        submit_observed: true,
+        elapsed: std::time::Duration::from_millis(50),
+    };
+    assert!(initial_task_delivery_confirmed(&ok).is_ok());
+
+    let lost_before_echo = crate::service::inject_verify::InjectionResult {
+        echo_observed: false,
+        ..ok.clone()
+    };
+    assert!(
+        initial_task_delivery_confirmed(&lost_before_echo)
+            .unwrap_err()
+            .contains("not observed"),
+        "spawn task delivery must not succeed when a TUI swallowed the paste before echo"
+    );
+
+    let not_submitted = crate::service::inject_verify::InjectionResult {
+        submit_observed: false,
+        ..ok
+    };
+    assert!(
+        initial_task_delivery_confirmed(&not_submitted)
+            .unwrap_err()
+            .contains("not confirmed"),
+        "spawn task delivery must not succeed when Enter was swallowed"
+    );
 }

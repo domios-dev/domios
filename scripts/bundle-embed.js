@@ -19,33 +19,64 @@ const triple = buildTarget || execSync("rustc -vV", { encoding: "utf8" })
   .split(":")[1]
   .trim();
 
-const targetSubdir = buildTarget ? path.join("target", buildTarget, "release") : path.join("target", "release");
-const src = path.join(srcTauriDir, targetSubdir, `codeterm-embed${exeExt}`);
-const destDir = path.join(srcTauriDir, "bundled-embed");
-const dest = path.join(destDir, `codeterm-embed-${triple}${exeExt}`);
-
-fs.mkdirSync(destDir, { recursive: true });
-
-if (!fs.existsSync(src)) {
-  console.error(`codeterm-embed binary not found: ${src}`);
-  process.exit(1);
+function resolveEmbedReleaseDir(env = process.env, root = repoRoot) {
+  const targetRoot = env.CARGO_TARGET_DIR
+    ? path.resolve(env.CARGO_TARGET_DIR)
+    : path.join(root, "src-tauri", "target");
+  const target = env.CARGO_BUILD_TARGET || "";
+  return target ? path.join(targetRoot, target, "release") : path.join(targetRoot, "release");
 }
 
-fs.copyFileSync(src, dest);
-console.log(`codeterm-embed bundled: ${src} -> ${dest}`);
+function resolveEmbedSource(env = process.env, root = repoRoot, binary = `codeterm-embed${exeExt}`) {
+  return path.join(resolveEmbedReleaseDir(env, root), binary);
+}
 
-if (isMacOS) {
-  const identity =
-    process.env.APPLE_SIGNING_IDENTITY ||
-    "Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)";
-  try {
-    execSync(
-      `codesign --force --options runtime --timestamp --sign "${identity}" "${dest}"`,
-      { stdio: "inherit" }
-    );
-    console.log("codeterm-embed signed for notarization");
-  } catch (e) {
-    console.error("Failed to codesign codeterm-embed:", e.message);
+function bundleEmbed() {
+  const src = resolveEmbedSource();
+  const destDir = path.join(srcTauriDir, "bundled-embed");
+  const dest = path.join(destDir, `codeterm-embed-${triple}${exeExt}`);
+
+  fs.mkdirSync(destDir, { recursive: true });
+
+  if (!fs.existsSync(src)) {
+    console.error(`codeterm-embed binary not found: ${src}`);
     process.exit(1);
   }
+
+  fs.copyFileSync(src, dest);
+  console.log(`codeterm-embed bundled: ${src} -> ${dest}`);
+
+  if (isMacOS) {
+    // Dev/local bundles use ad-hoc signing; release builds require Developer ID.
+    if (process.env.CODETERM_DEV === "1") {
+      try {
+        execSync(`codesign --force --sign - "${dest}"`, { stdio: "inherit" });
+      } catch (e) {
+        console.warn("Ad-hoc codesign failed (continuing for dev):", e.message);
+      }
+    } else {
+      const identity =
+        process.env.APPLE_SIGNING_IDENTITY ||
+        "Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)";
+      try {
+        execSync(
+          `codesign --force --options runtime --timestamp --sign "${identity}" "${dest}"`,
+          { stdio: "inherit" }
+        );
+        console.log("codeterm-embed signed for notarization");
+      } catch (e) {
+        console.error("Failed to codesign codeterm-embed:", e.message);
+        process.exit(1);
+      }
+    }
+  }
+}
+
+if (require.main === module) {
+  bundleEmbed();
+} else {
+  module.exports = {
+    resolveEmbedReleaseDir,
+    resolveEmbedSource,
+  };
 }

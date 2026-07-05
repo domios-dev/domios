@@ -140,7 +140,6 @@ test("search matches id, name, capability, description, channel", () => {
 test("filter sort: installed before marketplace-only, then alpha", () => {
   const cat = buildCatalog(snapshot);
   const order = filterCatalog(cat, "", "all").map((e) => e.id);
-  // installed: bitwarden, claude, git (alpha) then not-installed: future, transcriber
   assert(order.join(",") === "bitwarden,claude,git,future,transcriber", `got ${order.join(",")}`);
 });
 

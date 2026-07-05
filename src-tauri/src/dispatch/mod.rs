@@ -141,6 +141,9 @@ pub async fn dispatch_blocking(
 }
 
 pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, String> {
+    if is_mutating_user_command(cmd) {
+        ctx.user_last_activity.mark();
+    }
     match cmd {
         Command::Health => cmd_health(),
         Command::PaneList => cmd_pane_list(ctx),
@@ -196,6 +199,24 @@ pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, St
 
 // ── Command implementations ─────────────────────────────────────────
 
+fn is_mutating_user_command(cmd: &Command) -> bool {
+    matches!(
+        cmd,
+        Command::SendText { .. }
+            | Command::PaneClose { .. }
+            | Command::PaneFocus { .. }
+            | Command::PaneRename { .. }
+            | Command::PaneDescribe { .. }
+            | Command::WorkspaceCreate { .. }
+            | Command::WorkspaceRename { .. }
+            | Command::WorkspaceClose { .. }
+            | Command::WorkspaceReopenClosedPane { .. }
+            | Command::WorkspaceReopenClosedGroup { .. }
+            | Command::PtyResize { .. }
+            | Command::PtyKill { .. }
+    )
+}
+
 fn cmd_health() -> Result<CommandResult, String> {
     Ok(CommandResult::Json(serde_json::json!({
         "status": "ok",
@@ -221,14 +242,14 @@ pub(crate) fn build_pane_list_json(
         std::collections::HashMap::new();
     for ws in &snapshot.workspaces {
         for tab in &ws.tabs {
+            let tab_title = snapshot
+                .panes
+                .get(&tab.pane_id)
+                .map(|pane| pane.title.clone())
+                .unwrap_or_else(|| tab.pane_id.chars().take(8).collect());
             tab_index.insert(
                 tab.pane_id.clone(),
-                (
-                    tab.id.clone(),
-                    tab.title.clone(),
-                    ws.id.clone(),
-                    ws.name.clone(),
-                ),
+                (tab.id.clone(), tab_title, ws.id.clone(), ws.name.clone()),
             );
         }
     }
@@ -283,7 +304,6 @@ fn cmd_get_output(
     strip_ansi: bool,
     full: bool,
 ) -> Result<CommandResult, String> {
-    // Routed through the PaneTransport seam: PTY panes read the output buffer,
     // chatBackend panes return their transcript (B1.2 [T]).
     let json = ctx
         .pane_transport(pane_id)?
@@ -296,7 +316,6 @@ fn cmd_get_text(
     pane_id: &str,
     formatted: bool,
 ) -> Result<CommandResult, String> {
-    // PaneTransport seam: PTY panes read screen text, chatBackend panes return
     // their transcript (B1.2 [T]).
     let json = ctx.pane_transport(pane_id)?.read_screen(formatted)?;
     Ok(CommandResult::Json(json))

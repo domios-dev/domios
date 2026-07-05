@@ -47,7 +47,6 @@ pub struct AgentLaunchParams {
     pub task: Option<String>,
     pub args: Option<Vec<String>>,
     pub skip_permissions: bool,
-    // Pre-generated session id to use when starting a NEW conversation. Honored only by providers reporting `SessionIdInjection != None` — others
     // ignore it (they generate ids themselves and CodeTerm has to detect after launch).
     pub session_id: Option<String>,
     /// Fixed local server the host wants the agent's structured-prompt handle to
@@ -194,7 +193,6 @@ pub enum SettingField {
         fields: Vec<SettingField>,
     },
 
-    // ── Inputs ───────────────────────────────────────────────────
     Toggle {
         /// Config path relative to the plugin's namespace
         /// (e.g. `"resume_sessions"` → `agents.<id>.resume_sessions`).
@@ -415,19 +413,17 @@ pub fn session_resume_section(description: &str, skip_flag: &str) -> SettingFiel
 /// don't need to include it manually.
 pub fn usage_tracking_section(probe_command: &str) -> SettingField {
     SettingField::Section {
-        title: "Usage Tracking (experimental)".into(),
+        title: "Usage Tracking".into(),
         description: Some(format!(
-            "Periodically probe {} in a hidden pane to capture session + weekly limits, \
-             then surface them as a pill in the corner of every pane plus a projections \
-             popover. Off by default — turn on to enable for this provider. Experimental: \
-             the hidden probe spawns a real agent process every 10–50 min and can in rare \
-             cases interact awkwardly with active sessions on the same account.",
+            "Periodically probe {} to capture session + weekly limits and surface them in \
+             orchestrator heartbeats and the usage pill. Enabled by default for usage-capable \
+             providers; disable per provider if the probe interferes with active sessions.",
             probe_command
         )),
         fields: vec![SettingField::Toggle {
             key: "usage_tracking_enabled".into(),
             label: "Enable usage tracking".into(),
-            default: false,
+            default: true,
             description: None,
         }],
     }
@@ -529,6 +525,9 @@ pub struct ProviderDescriptor {
     /// support an arg-based live session switch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_switch_format: Option<String>,
+    /// Provider-declared command that starts a fresh context in the same pane.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fresh_context_command: Option<String>,
     /// `true` when this provider declares a stop_keystroke — UI shows
     /// a Stop button on the pane that POSTs to `/api/panes/:id/stop`.
     #[serde(default)]
@@ -577,7 +576,7 @@ pub enum ProviderTrust {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 7;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 8;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
@@ -678,6 +677,22 @@ pub trait AgentProvider: Send + Sync {
 
     fn usage_probe_command(&self) -> Option<&str> {
         None
+    }
+
+    /// Non-TUI usage fetch: providers whose usage lives behind a CLI/API rather
+    /// than a `/usage` TUI screen (e.g. cursor) return the raw payload here. The
+    /// poller feeds it to `usage_parser()` exactly like TUI-captured text but
+    /// skips spawning a hidden agent pane. `Some(Err)` is an honest fetch
+    /// failure; `None` (default) means "use the TUI probe path".
+    fn fetch_usage(&self) -> Option<Result<String, String>> {
+        None
+    }
+
+    /// Cheap predicate (no I/O) for "usage comes from a CLI/API fetch, not a
+    /// `/usage` TUI screen". The poller probes these without a visible pane —
+    /// there's no terminal to gate on. Default `false` (TUI-probe providers).
+    fn usage_is_fetch_based(&self) -> bool {
+        false
     }
 
     /// What kind of session-id control this provider supports.
@@ -869,6 +884,11 @@ pub trait AgentProvider: Send + Sync {
 
     /// In-agent command that triggers context compaction, if supported.
     fn compact_command(&self) -> Option<&str> {
+        None
+    }
+
+    /// In-agent command that starts a fresh context in the same pane, if supported.
+    fn fresh_context_command(&self) -> Option<&str> {
         None
     }
 
@@ -1067,6 +1087,7 @@ pub trait AgentProvider: Send + Sync {
             cli_binary: self.cli_binary().map(|s| s.to_string()),
             install_command: self.install_command(platform),
             model_switch_format: self.model_switch_format().map(|s| s.to_string()),
+            fresh_context_command: self.fresh_context_command().map(|s| s.to_string()),
             supports_stop: self.stop_keystroke().is_some(),
             supports_chat_ui: self.supports_chat_ui(),
             supports_structured_prompts: self.supports_structured_prompts(),

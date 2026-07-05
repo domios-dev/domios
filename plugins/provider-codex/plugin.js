@@ -24,6 +24,73 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-codex/src/models.ts
+function discoverCodexModels() {
+  return discoverCodexModelsFromCache() || manifestModels();
+}
+function codexModelsCachePath() {
+  const home = host.homeDir();
+  if (!home) return null;
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  return home + sep + ".codex" + sep + "models_cache.json";
+}
+function discoverCodexModelsFromCache() {
+  const path = codexModelsCachePath();
+  if (!path || !host.fs.fileExists(path)) return null;
+  const cache = host.fs.readJson(path);
+  const raw = cache && cache.models;
+  if (!Array.isArray(raw)) return null;
+  const kept = [];
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i];
+    const id = typeof item.slug === "string" ? item.slug.trim() : "";
+    if (!id) continue;
+    if (item.visibility === "hide") continue;
+    if (isNonChatModel(id)) continue;
+    kept.push(item);
+  }
+  kept.sort((a, b) => priorityOf(a) - priorityOf(b));
+  const models = [];
+  for (let i = 0; i < kept.length; i++) {
+    const item = kept[i];
+    const id = item.slug.trim();
+    models.push({
+      id,
+      displayName: typeof item.display_name === "string" && item.display_name.trim() ? item.display_name.trim() : displayNameFromId(id),
+      description: typeof item.description === "string" && item.description.trim() ? item.description.trim() : void 0
+    });
+  }
+  return models.length ? models : null;
+}
+function priorityOf(m) {
+  return typeof m.priority === "number" ? m.priority : 1e9;
+}
+function manifestModels() {
+  try {
+    const m = JSON.parse(host.manifestJson() || "null");
+    return Array.isArray(m && m.models) ? m.models : [];
+  } catch (_) {
+    return [];
+  }
+}
+var NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
+function isNonChatModel(id) {
+  const leaf = (id.split("/").pop() || id).toLowerCase();
+  const toks = leaf.split(/[-_.]/);
+  for (let i = 0; i < toks.length; i++) {
+    if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
+  }
+  return false;
+}
+function displayNameFromId(id) {
+  const parts = id.split("/");
+  const leaf = parts[parts.length - 1] || id;
+  return leaf.split("-").filter(Boolean).map(capitalizeToken).join(" ");
+}
+function capitalizeToken(token) {
+  return token ? token.charAt(0).toUpperCase() + token.substring(1) : token;
+}
+
 // plugins/provider-codex/src/prompt.ts
 var DOWN = "G1tC";
 var UP = "G1tB";
@@ -58,7 +125,7 @@ function responseKeysForIndex(optionIndex, screen) {
   return steps;
 }
 function parseMenuOptions(screen) {
-  const lines = String(screen || "").split("\n");
+  const lines = normalizeLines(screen);
   const options = [];
   for (let i = 0; i < lines.length; i++) {
     const m = MENU_OPTION_RE.exec(lines[i]);
@@ -71,7 +138,7 @@ function parseCodexPromptShape(screen) {
   return parseCodexNumberedMenu(screen) || parseCodexLetteredPrompt(screen) || parseCodexNumberedQuestion(screen);
 }
 function parseCodexNumberedMenu(screen) {
-  const lines = String(screen || "").split("\n");
+  const lines = normalizeLines(screen);
   const options = activeMenuOptions(screen);
   if (options.length < 2) return null;
   const hasSelector = options.some((o) => o.highlighted);
@@ -249,6 +316,176 @@ function base64(value) {
   return out;
 }
 
+// plugins/provider-codex/src/sessionMeta.ts
+function readSessionMeta(path) {
+  const contents = host.fs.readFile(path);
+  if (!contents) return null;
+  const firstNl = contents.indexOf("\n");
+  const line = firstNl === -1 ? contents : contents.substring(0, firstNl);
+  let v;
+  try {
+    v = JSON.parse(line.trim());
+  } catch (_) {
+    return null;
+  }
+  if (!v || v.type !== "session_meta") return null;
+  const p = v.payload || {};
+  return {
+    sessionId: typeof p.id === "string" ? p.id : null,
+    cwd: typeof p.cwd === "string" ? p.cwd : null
+  };
+}
+
+// plugins/provider-codex/src/usage.ts
+function parseCodexUsage(rawText, nowMs) {
+  const raw = String(rawText || "");
+  if (!raw.trim()) return null;
+  const text = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
+  const lines = text.split("\n");
+  const limits = parseCodexLimits(lines, nowMs);
+  const session = findLine(limits, "general") || findLine(limits, "legacy-session");
+  const weekly = findLine(limits, "weekly");
+  if (session === void 0 && weekly === void 0) return null;
+  return {
+    provider: "codex",
+    account_id: null,
+    captured_at_ms: nowMs,
+    session_pct: session ? session.pct : null,
+    session_resets_at_ms: session ? session.resetsMs : null,
+    weekly_pct: weekly ? weekly.pct : null,
+    weekly_resets_at_ms: weekly ? weekly.resetsMs : null,
+    raw_text: raw
+  };
+}
+function parseCodexLimits(lines, nowMs) {
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = String(lines[i] || "").trim();
+    if (!line) continue;
+    let context = line;
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = String(lines[j] || "").trim();
+      if (prev) {
+        context = prev + " " + line;
+        break;
+      }
+    }
+    const gauge = parseCodexGaugeLine(line, context, nowMs);
+    if (gauge.pct === null && gauge.resetsMs === null) continue;
+    const family = codexLimitFamily(context);
+    if (family !== "model") {
+      out.push({
+        family,
+        pct: gauge.pct,
+        resetsMs: gauge.resetsMs
+      });
+    }
+  }
+  return out;
+}
+function parseCodexGaugeLine(line, context, nowMs) {
+  const re = /(\d+(?:\.\d+)?)\s*%\s*(left|remaining|used)\s*\(\s*resets?\s+(?:at\s+)?([^)]+?)\)/i;
+  const caps = re.exec(line);
+  if (!caps) return { pct: null, resetsMs: null };
+  const value = parseFloat(caps[1]);
+  const pct = codexPctToUsed(value, (caps[2] || "").toLowerCase());
+  const resetsRaw = (caps[3] || "").trim();
+  const isWeekly = /\bweekly\b/i.test(context);
+  const resetsMs = isWeekly ? codexParseWeeklyResets(resetsRaw, nowMs) : codexParseSessionResets(resetsRaw, nowMs);
+  return { pct, resetsMs };
+}
+function codexPctToUsed(value, mode) {
+  if (isNaN(value)) return null;
+  const rawMode = mode === "used" ? "used" : "left";
+  const pct = rawMode === "used" ? value : 100 - value;
+  return Math.min(100, Math.max(0, pct));
+}
+function codexLimitFamily(text) {
+  const lower = String(text || "").toLowerCase();
+  const hasGeneral = /\bgeneral\b/.test(lower);
+  const hasWeekly = /\bweekly\b/.test(lower);
+  const hasSession = /\b5(?:\s*|-\s*)(?:h|hour|hours)\b/.test(lower);
+  const hasModel = /\b(?:gpt|opus|haiku|sonnet|claude|codex|o\d|gemini)\b.*\d+\.\d+/.test(lower);
+  if (hasModel) return "model";
+  if (hasGeneral) return hasWeekly ? "weekly" : "general";
+  if (hasWeekly) return "weekly";
+  if (hasSession) return "legacy-session";
+  return "general";
+}
+function findLine(lines, family) {
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].family === family) return lines[i];
+  }
+  return void 0;
+}
+function codexParseSessionResets(raw, nowMs) {
+  const m = /(\d{1,2}):(\d{2})/.exec(String(raw || "").trim());
+  if (!m) return null;
+  const hh = parseInt(m[1], 10);
+  const mm = parseInt(m[2], 10);
+  const now = new Date(nowMs);
+  let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
+  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1e3);
+  return cand.getTime();
+}
+var CODEX_MONTHS = {
+  jan: 0,
+  january: 0,
+  feb: 1,
+  february: 1,
+  mar: 2,
+  march: 2,
+  apr: 3,
+  april: 3,
+  may: 4,
+  jun: 5,
+  june: 5,
+  jul: 6,
+  july: 6,
+  aug: 7,
+  august: 7,
+  sep: 8,
+  sept: 8,
+  september: 8,
+  oct: 9,
+  october: 9,
+  nov: 10,
+  november: 10,
+  dec: 11,
+  december: 11
+};
+function codexParseWeeklyResets(raw, nowMs) {
+  const s = String(raw || "").trim().replace(/^at\s+/i, "");
+  let hh;
+  let mm;
+  let day;
+  let month;
+  let year = null;
+  let m = /(\d{1,2}):(\d{2})\s+on\s+(\d{1,2})\s+([A-Za-z]+)(?:,?\s+(\d{4}))?/i.exec(s);
+  if (m) {
+    hh = parseInt(m[1], 10);
+    mm = parseInt(m[2], 10);
+    day = parseInt(m[3], 10);
+    month = CODEX_MONTHS[m[4].toLowerCase()];
+    year = m[5] ? parseInt(m[5], 10) : null;
+  } else {
+    m = /(\d{1,2}):(\d{2})\s+on\s+([A-Za-z]+)\s+(\d{1,2})(?:,?\s+(\d{4}))?/i.exec(s);
+    if (!m) return null;
+    hh = parseInt(m[1], 10);
+    mm = parseInt(m[2], 10);
+    month = CODEX_MONTHS[m[3].toLowerCase()];
+    day = parseInt(m[4], 10);
+    year = m[5] ? parseInt(m[5], 10) : null;
+  }
+  if (month === void 0) return null;
+  const now = new Date(nowMs);
+  let cand = new Date(year ?? now.getFullYear(), month, day, hh, mm, 0, 0);
+  if (year === null && cand.getTime() <= nowMs) {
+    cand = new Date(now.getFullYear() + 1, month, day, hh, mm, 0, 0);
+  }
+  return cand.getTime();
+}
+
 // plugins/provider-codex/src/plugin.ts
 var CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 var TITLE_RE = /codex/i;
@@ -314,7 +551,7 @@ var plugin = {
   },
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
   discoverModels() {
-    return discoverCodexModelsFromCache() || manifestModels();
+    return discoverCodexModels();
   },
   buildLaunchCommand(params) {
     const p = params || {};
@@ -382,14 +619,26 @@ var plugin = {
         }
         continue;
       }
-      if (!v || v.type !== "response_item" || !v.payload) continue;
-      const p = v.payload;
       let ts = null;
       const tsIso = typeof v.timestamp === "string" ? v.timestamp : null;
       if (typeof v.timestamp === "string") {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1e3);
       }
+      if (v.type === "event_msg" && v.payload && v.payload.type === "patch_apply_end") {
+        const p2 = v.payload;
+        const content = typeof p2.stdout === "string" ? p2.stdout : "";
+        const callId = typeof p2.call_id === "string" ? p2.call_id : "";
+        out.push({
+          role: "assistant",
+          blocks: [{ kind: "tool_result", data: { content, tool_use_id: callId } }],
+          ts,
+          timestamp: tsIso
+        });
+        continue;
+      }
+      if (!v || v.type !== "response_item" || !v.payload) continue;
+      const p = v.payload;
       if (p.type === "message") {
         const role = p.role === "assistant" ? "assistant" : p.role === "user" ? "user" : null;
         if (!role) continue;
@@ -438,6 +687,28 @@ var plugin = {
         out.push({
           role: "assistant",
           blocks: [{ kind: "tool_result", data: { content: String(content == null ? "" : content) } }],
+          ts,
+          timestamp: tsIso
+        });
+      } else if (p.type === "custom_tool_call") {
+        const name = typeof p.name === "string" ? p.name.trim() : "";
+        if (!name) continue;
+        let input = {};
+        if (name === "apply_patch" && typeof p.input === "string") {
+          input = { patch: p.input };
+        } else if (typeof p.input === "string") {
+          try {
+            input = JSON.parse(p.input);
+          } catch (_) {
+            input = { raw: p.input };
+          }
+        } else if (p.input && typeof p.input === "object" && !Array.isArray(p.input)) {
+          input = p.input;
+        }
+        const callId = typeof p.call_id === "string" ? p.call_id : "";
+        out.push({
+          role: "assistant",
+          blocks: [{ kind: "tool_use", data: { name, id: callId, input } }],
           ts,
           timestamp: tsIso
         });
@@ -534,22 +805,7 @@ var plugin = {
   },
   // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
   parseUsage(rawText, nowMs) {
-    const raw = String(rawText || "");
-    if (!raw.trim()) return null;
-    const text = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
-    const session = codexParseGauge(text, "5h\\s*limit", false, nowMs);
-    const weekly = codexParseGauge(text, "Weekly\\s*limit", true, nowMs);
-    if (session.pct === null && weekly.pct === null) return null;
-    return {
-      provider: "codex",
-      account_id: null,
-      captured_at_ms: nowMs,
-      session_pct: session.pct,
-      session_resets_at_ms: session.resetsMs,
-      weekly_pct: weekly.pct,
-      weekly_resets_at_ms: weekly.resetsMs,
-      raw_text: raw
-    };
+    return parseCodexUsage(rawText, nowMs);
   },
   detectActiveSession(_cwd, _currentSid) {
     return null;
@@ -670,6 +926,8 @@ var plugin = {
         action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
       };
     }
+    if (looksBusy(screen)) return { state: "working", confidence: 0 };
+    if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
     const upd = scoreUpdatePrompt(screen);
     if (upd.confidence >= CLASSIFY_THRESHOLD && upd.skipKeys && upd.skipKeys.length > 0) {
       return {
@@ -678,13 +936,34 @@ var plugin = {
         action: { keys: upd.skipKeys }
       };
     }
-    if (upd.confidence > 0) {
-      return { state: "unknown", confidence: upd.confidence };
+    const rl = scoreRateLimit(screen, host.unixNowMs());
+    if (rl.confidence >= CLASSIFY_THRESHOLD) {
+      const action = {};
+      const data = {};
+      if (rl.resetAtMs !== null) {
+        data.resetAt = new Date(rl.resetAtMs).toISOString();
+        action.delayedResume = {
+          at: new Date(rl.resetAtMs + RESUME_BUFFER_MS).toISOString(),
+          text: "continue your work",
+          thenKeys: ["enter"]
+        };
+      } else {
+        action.surface = { kind: "rate_limit", payload: { reason: "reset_time_unparsed" } };
+      }
+      return {
+        state: "rate_limited",
+        confidence: rl.confidence,
+        data: rl.resetAtMs !== null ? data : void 0,
+        action
+      };
     }
+    const partial = rl.confidence > upd.confidence ? rl.confidence : upd.confidence;
+    if (partial > 0) return { state: "unknown", confidence: partial };
     return { state: "working", confidence: 0 };
   }
 };
 var CLASSIFY_THRESHOLD = 0.8;
+var RESUME_BUFFER_MS = 60 * 1e3;
 function skipNavigationKeys(options) {
   if (options.length === 0) return null;
   let highlightIdx = -1;
@@ -734,6 +1013,63 @@ function scoreUpdatePrompt(screen) {
   const skipKeys = sigUpdateSkipMenu ? skipNavigationKeys(options) : null;
   return { confidence, skipKeys };
 }
+function looksBusy(screen) {
+  const s = String(screen || "");
+  return /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(s) || /\bWorking[….]/.test(s) || /\((?:esc|ctrl\+c) to interrupt\)/i.test(s);
+}
+function looksLikeModelPicker(screen) {
+  const s = String(screen || "");
+  if (!/\bselect\s+(?:model|reasoning)\b/i.test(s)) return false;
+  return /\bpress\s+enter\s+to\s+confirm\b/i.test(s) && /\besc\s+to\s+go\s+back\b/i.test(s);
+}
+function scoreRateLimit(screen, nowMs) {
+  const s = String(screen || "");
+  const sigHitLimit = /\bhit your usage limit\b/i.test(s) || /\breached your usage limit\b/i.test(s);
+  const sigTryAgain = /\btry again at\b/i.test(s);
+  const sigSettingsLink = /chatgpt\.com\/codex\/settings/i.test(s);
+  const sigResetClock = /\btry again at\b[^\n]{0,48}?\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(s);
+  let confidence = 0;
+  if (sigHitLimit) confidence += 0.5;
+  if (sigTryAgain) confidence += 0.3;
+  if (sigSettingsLink) confidence += 0.1;
+  if (sigResetClock) confidence += 0.1;
+  if (confidence > 1) confidence = 1;
+  const resetAtMs = parseTryAgainClock(s, nowMs);
+  return { confidence, resetAtMs };
+}
+function parseTryAgainClock(screen, nowMs) {
+  const m = /\btry again at\b[^\n]{0,48}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(String(screen || ""));
+  if (!m) return null;
+  return codexParseTodayClock(m[1], nowMs);
+}
+function codexParseHMmAmPm(s) {
+  s = String(s || "").trim().toLowerCase();
+  let pm;
+  if (s.slice(-2) === "pm") pm = true;
+  else if (s.slice(-2) === "am") pm = false;
+  else return null;
+  const stripped = s.slice(0, -2).trim();
+  let hh, mm;
+  const idx = stripped.indexOf(":");
+  if (idx !== -1) {
+    hh = parseInt(stripped.slice(0, idx).trim(), 10);
+    mm = parseInt(stripped.slice(idx + 1).trim(), 10);
+  } else {
+    hh = parseInt(stripped, 10);
+    mm = 0;
+  }
+  if (isNaN(hh) || isNaN(mm) || hh === 0 || hh > 12 || mm > 59) return null;
+  return { hh, mm, pm };
+}
+function codexParseTodayClock(s, nowMs) {
+  const t = codexParseHMmAmPm(s);
+  if (!t) return null;
+  const hour24 = t.hh % 12 + (t.pm ? 12 : 0);
+  const now = new Date(nowMs);
+  let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour24, t.mm, 0, 0);
+  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1e3);
+  return cand.getTime();
+}
 function scoreAuthPrompt(screen) {
   const s = String(screen || "");
   let score = 0;
@@ -769,66 +1105,6 @@ function codexConfigPath() {
   if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
   return home + sep + ".codex" + sep + "config.toml";
-}
-function codexModelsCachePath() {
-  const home = host.homeDir();
-  if (!home) return null;
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  return home + sep + ".codex" + sep + "models_cache.json";
-}
-function discoverCodexModelsFromCache() {
-  const path = codexModelsCachePath();
-  if (!path || !host.fs.fileExists(path)) return null;
-  const cache = host.fs.readJson(path);
-  const raw = cache && cache.models;
-  if (!Array.isArray(raw)) return null;
-  const kept = [];
-  for (let i = 0; i < raw.length; i++) {
-    const item = raw[i];
-    const id = typeof item.slug === "string" ? item.slug.trim() : "";
-    if (!id) continue;
-    if (item.visibility === "hide") continue;
-    if (isNonChatModel(id)) continue;
-    kept.push(item);
-  }
-  kept.sort((a, b) => priorityOf(a) - priorityOf(b));
-  const models = [];
-  for (let i = 0; i < kept.length; i++) {
-    const item = kept[i];
-    const id = item.slug.trim();
-    models.push({
-      id,
-      displayName: typeof item.display_name === "string" && item.display_name.trim() ? item.display_name.trim() : displayNameFromId(id),
-      description: typeof item.description === "string" && item.description.trim() ? item.description.trim() : void 0
-    });
-  }
-  return models.length ? models : null;
-}
-function priorityOf(m) {
-  return typeof m.priority === "number" ? m.priority : 1e9;
-}
-function manifestModels() {
-  try {
-    const m = JSON.parse(host.manifestJson() || "null");
-    return Array.isArray(m && m.models) ? m.models : [];
-  } catch (_) {
-    return [];
-  }
-}
-var NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
-function isNonChatModel(id) {
-  const leaf = (id.split("/").pop() || id).toLowerCase();
-  const toks = leaf.split(/[-_.]/);
-  for (let i = 0; i < toks.length; i++) if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
-  return false;
-}
-function displayNameFromId(id) {
-  const parts = id.split("/");
-  const leaf = parts[parts.length - 1] || id;
-  return leaf.split("-").filter(Boolean).map(capitalizeToken).join(" ");
-}
-function capitalizeToken(token) {
-  return token ? token.charAt(0).toUpperCase() + token.substring(1) : token;
 }
 function codexWindowsHookScriptPath() {
   const home = host.homeDir();
@@ -968,77 +1244,18 @@ function codexShortLabel(modelId) {
   const first = m.split("-")[0] || m;
   return first.charAt(0).toUpperCase() + first.substring(1);
 }
-function readSessionMeta(path) {
-  const contents = host.fs.readFile(path);
-  if (!contents) return null;
-  const firstNl = contents.indexOf("\n");
-  const line = firstNl === -1 ? contents : contents.substring(0, firstNl);
-  let v;
-  try {
-    v = JSON.parse(line.trim());
-  } catch (_) {
-    return null;
-  }
-  if (!v || v.type !== "session_meta") return null;
-  const p = v.payload || {};
-  return {
-    sessionId: typeof p.id === "string" ? p.id : null,
-    cwd: typeof p.cwd === "string" ? p.cwd : null
-  };
-}
-function codexParseGauge(text, marker, isWeekly, nowMs) {
-  const re = new RegExp(
-    marker + "[\\s\\S]{0,200}?(\\d+(?:\\.\\d+)?)\\s*%\\s*left[\\s\\S]*?\\(resets?\\s+([^)]+?)\\)"
-  );
-  const caps = re.exec(text);
-  if (!caps) return { pct: null, resetsMs: null };
-  const left = parseFloat(caps[1]);
-  const pct = isNaN(left) ? null : Math.min(100, Math.max(0, 100 - left));
-  const resetsRaw = (caps[2] || "").trim();
-  const resetsMs = isWeekly ? codexParseWeeklyResets(resetsRaw, nowMs) : codexParseSessionResets(resetsRaw, nowMs);
-  return { pct, resetsMs };
-}
-function codexParseSessionResets(raw, nowMs) {
-  const m = /(\d{1,2}):(\d{2})/.exec(String(raw || "").trim());
-  if (!m) return null;
-  const hh = parseInt(m[1], 10), mm = parseInt(m[2], 10);
-  const now = new Date(nowMs);
-  let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
-  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1e3);
-  return cand.getTime();
-}
-var CODEX_MONTHS = {
-  jan: 0,
-  january: 0,
-  feb: 1,
-  february: 1,
-  mar: 2,
-  march: 2,
-  apr: 3,
-  april: 3,
-  may: 4,
-  jun: 5,
-  june: 5,
-  jul: 6,
-  july: 6,
-  aug: 7,
-  august: 7,
-  sep: 8,
-  sept: 8,
-  september: 8,
-  oct: 9,
-  october: 9,
-  nov: 10,
-  november: 10,
-  dec: 11,
-  december: 11
-};
 function isValidCodexSessionDelta(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  if (v.type === "event_msg") {
+    if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
+    return v.payload.type === "patch_apply_end";
+  }
   if (v.type !== "response_item") return false;
   if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
   const kind = v.payload.type;
-  if (kind !== "message" && kind !== "function_call" && kind !== "function_call_output") return false;
+  if (kind !== "message" && kind !== "function_call" && kind !== "function_call_output" && kind !== "custom_tool_call") {
+    return false;
+  }
   return true;
 }
 function validateEntry(v) {
@@ -1068,19 +1285,5 @@ function isValidCodexSessionMessage(v) {
   if (v.payload.role !== "user" && v.payload.role !== "assistant") return false;
   if (!Array.isArray(v.payload.content)) return false;
   return true;
-}
-function codexParseWeeklyResets(raw, nowMs) {
-  const m = /(\d{1,2}):(\d{2})\s+on\s+(\d{1,2})\s+([A-Za-z]+)/.exec(String(raw || "").trim());
-  if (!m) return null;
-  const hh = parseInt(m[1], 10), mm = parseInt(m[2], 10);
-  const day = parseInt(m[3], 10);
-  const month = CODEX_MONTHS[m[4].toLowerCase()];
-  if (month === void 0) return null;
-  const now = new Date(nowMs);
-  let cand = new Date(now.getFullYear(), month, day, hh, mm, 0, 0);
-  if (cand.getTime() <= nowMs) {
-    cand = new Date(now.getFullYear() + 1, month, day, hh, mm, 0, 0);
-  }
-  return cand.getTime();
 }
 var plugin_default = plugin;

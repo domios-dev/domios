@@ -9,9 +9,9 @@ HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 source "$HARNESS_DIR/lib.sh"
 
-PROVIDER="$1"; RUNS="$2"; BATCH_FILE="$3"
+PROVIDER="$1"; RUNS="$2"; BATCH_FILE="$3"; MODEL="${4:-}"
 mkdir -p "$RUNS"
-SBROOT="$RUNS/sandboxes"; mkdir -p "$SBROOT"
+SBROOT="$(mktemp -d /tmp/codeterm-bench-XXXXXX)"   # OUTSIDE the repo: agents must get the generated AGENTS.md (CLI prompt), not the repo dev instructions
 PANES="$RUNS/.panes-$(basename "$BATCH_FILE").tsv"; : > "$PANES"
 
 cleanup_bench_ws   # clean any leftovers first
@@ -36,11 +36,11 @@ while read -r CID; do
   (
     SB="$SBROOT/$CID"; mkdir -p "$SB"
     WS=$(dc workspace create "bench-$CID" --cwd "$SB" --json 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))')
-    PANE=$(dc agent spawn "$PROVIDER" --workspace "$WS" --cwd "$SB" --title "$CID" --json 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pane_id",""))')
+    PANE=$(dc agent spawn "$PROVIDER" ${MODEL:+--model "$MODEL"} --workspace "$WS" --cwd "$SB" --title "$CID" --json 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pane_id",""))')
     sleep 8
-    [ -n "$PANE" ] && dc send-text "$PROMPT" --pane "$PANE" >/dev/null 2>&1
+    [ -n "$PANE" ] && dc send "$PROMPT" --pane "$PANE" >/dev/null 2>&1
     printf '%s\t%s\t%s\t%s\n' "$CID" "$WS" "$PANE" "$PROMPT" >> "$PANES"
-  ) &
+  ) </dev/null &
 done < "$BATCH_FILE"
 wait
 echo "  spawned $(wc -l < "$PANES") agents; polling…"

@@ -13,7 +13,7 @@ import { devDataDir } from "../../helpers/reset";
 import { REPO_ROOT } from "../../helpers/dev-console";
 import { type ApiClient } from "../../helpers/api-client";
 
-const WEB_URL = API_BASE + "/web/";
+const WEB_URL = API_BASE + "/";
 const PLUGIN_ID = "lmstudio";
 const SYSTEM_PROMPT_PREFIX = "-=-codeterm:system_prompt-=-";
 
@@ -62,7 +62,9 @@ async function expectLmStudioShellProvider(api: ApiClient): Promise<void> {
     "/providers",
   );
   const shell = providers.find((provider) => provider.id === PLUGIN_ID);
-  expect(shell, "lmstudio provider is registered").toBeTruthy();
+  // lmstudio is optional marketplace plugin state.
+  // Skip like 04-mesh does for mesh.enabled.
+  test.skip(!shell, "lmstudio plugin is not installed in this dev instance");
   expect(shell?.kind).toBe("shell");
   expect(shell?.supports_chat_ui).toBe(true);
 }
@@ -118,6 +120,16 @@ function devCli(args: string[]): string {
     },
   });
 }
+
+test.beforeEach(async ({ api }) => {
+  // Skip before try/finally cleanup calls plugin config commands.
+  // Missing optional plugins should not fail smoke.
+  const providers = await api.get<Array<{ id: string; kind?: string; supports_chat_ui?: boolean }>>(
+    "/providers",
+  );
+  const shell = providers.find((provider) => provider.id === PLUGIN_ID);
+  test.skip(!shell, "lmstudio plugin is not installed in this dev instance");
+});
 
 test("@smoke lmstudio open shell spawns through the web mirror", async ({
   api,

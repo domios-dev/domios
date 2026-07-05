@@ -9,7 +9,6 @@ use crate::api::routes::{check_auth, AppState};
 
 pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
     let local_ip = local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
-    // Single source of truth: read the cached value populated by `mesh::discovery::detect_tailscale` from the periodic refresh loop. Avoids
     // duplicating the probe logic (which previously lacked IP validation, the GUI-bridge fallback, and a timeout).
     let tailscale_ip = state.mesh.lock().tailscale_ip.clone();
     let tailscale_dns = crate::mesh::discovery::tailscale_self_dns_name();
@@ -118,6 +117,17 @@ pub async fn keepawake_stop_handler(
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     crate::keepawake::stop(&state.keepawake, &state.svc.app_handle)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+/// Web-mirror twin of `restart_app` — restarts the daemon/desktop process.
+pub async fn restart_app(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let app = state.svc.app_handle.clone();
+    tokio::task::spawn_blocking(move || app.restart());
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

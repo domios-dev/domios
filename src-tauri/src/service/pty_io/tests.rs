@@ -132,7 +132,7 @@ fn unix_spawn_dispatch_contains_bash_script_path() {
     let bytes = build_spawn_dispatch("echo test").unwrap();
     let s = String::from_utf8(bytes).unwrap();
     assert!(
-        s.starts_with("bash /tmp/codeterm-spawn-"),
+        s.starts_with("/bin/bash /tmp/codeterm-spawn-"),
         "Unix dispatch must invoke temp script: {s:?}"
     );
 }

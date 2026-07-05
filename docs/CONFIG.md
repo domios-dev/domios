@@ -33,11 +33,19 @@ desktop = true
 sound = false
 toast_duration = 5  # seconds
 
+[orchestration]
+plan_reminders = true
+nudge_after_turns = 12
+nudge_interval_secs = 1800  # 30 minutes
+
+[orchestration.reflect]
+every_gates = 15  # emit a one-shot self-review block every N gate/bounce events (0 disables)
+
 [keybindings]
 new_tab = "Ctrl+T"
 close_tab = "Ctrl+W"
-next_tab = "Ctrl+Tab"
-prev_tab = "Ctrl+Shift+Tab"
+next_tab = "Ctrl+Tab"     # cycle forward through plan entry + session tabs in sidebar order
+prev_tab = "Ctrl+Shift+Tab"  # cycle backward
 split_right = "Ctrl+Shift+ArrowRight"
 split_down = "Ctrl+Shift+ArrowDown"
 close_pane = "Ctrl+Shift+Q"
@@ -475,4 +483,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 22 -->
+<!-- revision: 25 -->

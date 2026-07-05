@@ -47,7 +47,6 @@ pub(super) fn list_installed() -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "plugins": rows }))
 }
 
-// System provider plugins are intrinsic: always present and non-removable, even
 // when not extracted to disk (dev, or a fresh prod before bootstrap).
 pub(super) fn merge_system_rows(rows: &mut Vec<InstalledPluginRow>) {
     let present: std::collections::BTreeSet<String> = rows.iter().map(|r| r.id.clone()).collect();

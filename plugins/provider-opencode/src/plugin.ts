@@ -1,7 +1,4 @@
 // OpenCode (sst/opencode) provider plugin (runtime logic, capability: agentProvider).
-// Authored in TypeScript against @codeterm/plugin-sdk and compiled to a
-// QuickJS-compatible plugin.js by scripts/build-plugin.mjs. Detect, slash
-// commands, sqlite-backed session discovery + structured chat. The frontend
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
 import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 
@@ -93,13 +90,11 @@ const plugin: PluginModule = {
     return events;
   },
 
-  // OpenCode exposes `opencode models`; host-side caching keeps this sync probe
   // off hot reads. If the CLI is absent/offline, use the manifest seed.
   discoverModels(): ModelInfo[] {
     return discoverOpencodeModels() || manifestModels();
   },
 
-  // Parse opencode prompt boxes into host cards; the plugin remembers the shape
   // because response bytes depend on horizontal vs vertical navigation.
   parsePrompt(text: string): ParsedPrompt | null {
     const screen = String(text || "");
@@ -131,8 +126,6 @@ const plugin: PluginModule = {
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
     const parts = ["opencode"];
-    // Structured-prompt handle: bind opencode's local HTTP/SSE server to the
-    // host-allocated fixed address so the host can subscribe to /event and
     // reply over HTTP instead of scraping the PTY picker.
     const sps = p.structuredPromptServer;
     if (sps && sps.port) {
@@ -157,11 +150,7 @@ const plugin: PluginModule = {
     return parts.join(" ");
   },
 
-  // Fallback for when the session-binding hook doesn't fire (e.g. CODETERM_PANE_ID
   // absent from opencode's env, or event field structure changed in a new release).
-  // Scans the sqlite DB for the most-recently-created session within the max-age
-  // window. strftime('%s','now')*1000 supplies current unix-ms inside SQLite so
-  // QuickJS never needs Date.now(). Hook wins when it fires first because
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
   detectSessionId(_cwd: string, exclude?: string[] | string, maxAgeMs?: number): string | null {
     const db = opencodeDbPath();
@@ -289,7 +278,6 @@ const plugin: PluginModule = {
     return rows.length > 0;
   },
 
-  // Session creation time (unix ms). Lets the host apply its launch-window
   // birth-time guard to sqlite-backed sessions, which have no per-session file.
   sessionCreatedMs(_cwd: string, sessionId: string): number | null {
     const db = opencodeDbPath();
@@ -308,7 +296,6 @@ const plugin: PluginModule = {
     return null;
   },
 
-  // Detection keys off the pane's OWN session (capability rule #3): read only
   // the model recorded against this session_id. No "latest model in cwd"
   // fallback — that would hand the pane a SIBLING agent's model. Unknown → null.
   detectSessionModel(_cwd: string, sessionId: string): string | null {
@@ -320,8 +307,6 @@ const plugin: PluginModule = {
       [sessionId]);
   },
 
-  // opencode keeps chat in opencode.db (part JOIN message), not a JSONL the
-  // host can tail — so the chat UI reads it structured. cursor is the max
   // part.time_created seen, passed back to fetch only newer parts next poll.
   usesStructuredChat(): boolean { return true; },
 
@@ -588,7 +573,6 @@ function discoverOpencodeModels(): ModelInfo[] | null {
     if (isNonChatModel(id)) continue;
     models.push({ id: id, displayName: displayNameFromId(id) });
   }
-  // `opencode models` only lists models for configured providers, so the live
   // list is already availability-filtered — every entry is selectable (available unset).
   return models.length ? models : null;
 }
@@ -597,7 +581,6 @@ function isModelId(value: string): boolean {
   return /^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/i.test(value);
 }
 
-// Duplicated across provider bundles by design (QuickJS, no imports) — drops
 // embedding/tts/moderation/rerank ids so only chat models reach the picker.
 const NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
 function isNonChatModel(id: string): boolean {
@@ -629,7 +612,6 @@ function displayNameFromId(id: string): string {
   return words;
 }
 
-// "claude-opus-4-8" -> "Claude Opus 4.8": title-case tokens, but fold a bare
 // number onto the prior numeric token as a dotted version (4-8 -> 4.8).
 function prettyLeaf(leaf: string): string {
   const parts = leaf.split("-").filter(Boolean);
@@ -652,7 +634,6 @@ function capitalizeToken(token: string): string {
   return token.charAt(0).toUpperCase() + token.substring(1);
 }
 
-// Map one opencode `part` blob to a ChatMsg (camelCase, matching the Rust
 // serde shape). text→user/assistant, reasoning→thinking, tool→tool_call.
 function partToChatMsg(part: OpencodePart, role: string, id: string, tsMs: number): unknown {
   const timestamp = String(tsMs);
@@ -841,7 +822,6 @@ function scanMessagesForModel(db: string, sql: string, params: unknown[]): strin
         return v.modelID;
       }
     } catch (_) {
-      // skip malformed row
     }
   }
   return null;

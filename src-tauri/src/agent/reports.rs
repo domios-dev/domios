@@ -10,9 +10,10 @@ use super::ledger::{LedgerRow, OrchestrationLedger};
 /// Worker-declared outcome of a task. Optional — a freeform report (and the
 /// synthetic worker-death report) carries no status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum ReportStatus {
     Done,
+    InReview,
     Blocked,
     Partial,
 }
@@ -22,6 +23,7 @@ impl ReportStatus {
     pub fn label(self) -> &'static str {
         match self {
             ReportStatus::Done => "Done",
+            ReportStatus::InReview => "In Review",
             ReportStatus::Blocked => "Blocked",
             ReportStatus::Partial => "Partial",
         }
@@ -33,6 +35,10 @@ impl ReportStatus {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReportDetails {
     #[serde(default)]
+    pub plan_id: Option<String>,
+    #[serde(default)]
+    pub task_id: Option<String>,
+    #[serde(default)]
     pub status: Option<ReportStatus>,
     #[serde(default)]
     pub branch: Option<String>,
@@ -46,6 +52,8 @@ pub struct ReportDetails {
     pub test_result: Option<String>,
     #[serde(default)]
     pub skipped: Option<String>,
+    #[serde(default)]
+    pub attachments: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +64,10 @@ pub struct AgentReport {
     pub message: String,
     pub timestamp: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<ReportStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
@@ -69,6 +81,8 @@ pub struct AgentReport {
     pub test_result: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skipped: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<crate::plan::AttachmentRef>,
 }
 
 impl AgentReport {
@@ -78,6 +92,12 @@ impl AgentReport {
     /// and synthetic reports inject exactly as they did before this existed.
     pub fn inject_body(&self) -> String {
         let mut lines: Vec<String> = Vec::new();
+        match (self.plan_id.as_deref(), self.task_id.as_deref()) {
+            (Some(plan), Some(task)) => lines.push(format!("task: {plan}/{task}")),
+            (Some(plan), None) => lines.push(format!("plan: {plan}")),
+            (None, Some(task)) => lines.push(format!("task: {task}")),
+            (None, None) => {}
+        }
         if let Some(status) = self.status {
             lines.push(format!("status: {}", status.label()));
         }
@@ -189,6 +209,8 @@ impl ReportStore {
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
+            plan_id: details.plan_id.clone(),
+            task_id: details.task_id.clone(),
             status: details.status,
             branch: details.branch.clone(),
             sha: details.sha.clone(),
@@ -196,15 +218,17 @@ impl ReportStore {
             test_cmd: details.test_cmd.clone(),
             test_result: details.test_result.clone(),
             skipped: details.skipped.clone(),
+            attachments: Vec::new(),
         };
 
-        // Durable truth: UPSERT one row per (orchestrator, worker). Best-effort —
         // a ledger write failure is logged, never blocks the live report path.
         if let Some(ledger) = &self.ledger {
             let row = LedgerRow {
                 orchestrator_pane_id: orchestrator_pane_id.to_string(),
                 worker_pane_id: from_pane_id.to_string(),
                 title: from_title.to_string(),
+                plan_id: details.plan_id.clone(),
+                task_id: details.task_id.clone(),
                 branch: details.branch.clone(),
                 model: model.map(str::to_string),
                 status: details.status,
@@ -227,7 +251,6 @@ impl ReportStore {
             .or_default();
         entries.push(report.clone());
 
-        // Trim old reports
         if entries.len() > self.max_reports_per_orchestrator {
             let excess = entries.len() - self.max_reports_per_orchestrator;
             entries.drain(..excess);
@@ -309,7 +332,6 @@ mod tests {
         store.add("cond-1", "w1", "Worker", "Done");
         let reports = store.get("cond-1", true);
         assert_eq!(reports.len(), 1);
-        // Should be empty now
         let reports2 = store.get("cond-1", false);
         assert_eq!(reports2.len(), 0);
     }
@@ -359,6 +381,8 @@ mod tests {
     #[test]
     fn structured_report_round_trips_through_serde() {
         let details = ReportDetails {
+            plan_id: Some("pl_structured".to_string()),
+            task_id: Some("task_structured".to_string()),
             status: Some(ReportStatus::Partial),
             branch: Some("orch-p2-structured-report".to_string()),
             sha: Some("deadbeef".to_string()),
@@ -366,6 +390,7 @@ mod tests {
             test_cmd: Some("cargo test".to_string()),
             test_result: Some("ok".to_string()),
             skipped: Some("e2e".to_string()),
+            attachments: vec![],
         };
         let mut store = ReportStore::new(100);
         let stored = store.add_detailed("orch", "w1", "Worker", "all done", details, None);
@@ -373,12 +398,16 @@ mod tests {
         // Through the store, the typed fields survive.
         let listed = store.get("orch", false);
         assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].plan_id.as_deref(), Some("pl_structured"));
+        assert_eq!(listed[0].task_id.as_deref(), Some("task_structured"));
         assert_eq!(listed[0].status, Some(ReportStatus::Partial));
         assert_eq!(listed[0].changed_files.as_deref().unwrap().len(), 2);
 
         // Through serde JSON, every field round-trips byte-for-byte.
         let json = serde_json::to_string(&stored).unwrap();
         let back: AgentReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.plan_id.as_deref(), Some("pl_structured"));
+        assert_eq!(back.task_id.as_deref(), Some("task_structured"));
         assert_eq!(back.status, Some(ReportStatus::Partial));
         assert_eq!(back.branch.as_deref(), Some("orch-p2-structured-report"));
         assert_eq!(back.sha.as_deref(), Some("deadbeef"));
@@ -393,7 +422,6 @@ mod tests {
 
     #[test]
     fn message_only_report_omits_structured_keys_in_json() {
-        // Synthetic / freeform reports (P1 worker-death watchdog) must serialize
         // without any of the new keys so old consumers round-trip unchanged.
         let mut store = ReportStore::new(100);
         let report = store.add(
@@ -405,6 +433,8 @@ mod tests {
         let json = serde_json::to_value(&report).unwrap();
         for key in [
             "status",
+            "plan_id",
+            "task_id",
             "branch",
             "sha",
             "changed_files",
@@ -421,7 +451,6 @@ mod tests {
 
     #[test]
     fn message_only_report_injects_just_the_message() {
-        // No structured fields → inject text is exactly the freeform message,
         // proving no regression for P1's synthetic message-only reports.
         let mut store = ReportStore::new(100);
         let report = store.add("orch", "w1", "Worker", "just the body");
@@ -431,6 +460,8 @@ mod tests {
     #[test]
     fn structured_inject_block_renders_in_stable_order() {
         let details = ReportDetails {
+            plan_id: Some("pl_1".to_string()),
+            task_id: Some("task_1".to_string()),
             status: Some(ReportStatus::Done),
             branch: Some("feature-x".to_string()),
             sha: Some("abc123".to_string()),
@@ -438,10 +469,12 @@ mod tests {
             test_cmd: Some("cargo test".to_string()),
             test_result: Some("42 passed".to_string()),
             skipped: Some("manual UI step".to_string()),
+            attachments: vec![],
         };
         let mut store = ReportStore::new(100);
         let report = store.add_detailed("orch", "w1", "Worker", "the freeform body", details, None);
-        let expected = "status: Done\n\
+        let expected = "task: pl_1/task_1\n\
+             status: Done\n\
              branch: feature-x\n\
              sha: abc123\n\
              tests: cargo test -> 42 passed\n\
@@ -460,6 +493,10 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<ReportStatus>("\"blocked\"").unwrap(),
             ReportStatus::Blocked
+        );
+        assert_eq!(
+            serde_json::to_string(&ReportStatus::InReview).unwrap(),
+            "\"in_review\""
         );
     }
 
@@ -483,7 +520,6 @@ mod tests {
             store.add_detailed("orch", "w1", "Worker", "done", d, Some("opus"));
         } // store + ledger Connection dropped — simulates restart.
 
-        // Reopen the same db: the durable ledger still has exactly one row,
         // latest status.
         let reopened = OrchestrationLedger::open_at(&db).unwrap();
         let rows = reopened.list_for_orchestrator("orch").unwrap();

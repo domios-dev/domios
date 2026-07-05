@@ -10,6 +10,9 @@ import { looksLikeMermaidSource } from "./MermaidBlock";
 import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
 import { inferCodeLanguage } from "./codeLanguage";
 import { pickUiFontScaleValue } from "./uiFontScale";
+import { parseCodexPatch, patchTextFromToolInput } from "./parseCodexPatch";
+import { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";
+import { parseAttachedDiscussionDoc } from "./discussionDoc";
 
 export const TEXT_WRAP_CLASS = "break-words [overflow-wrap:anywhere]";
 
@@ -112,7 +115,6 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
             />
           );
         },
-        // Strip default <pre> wrapper — SyntaxHighlighter renders its own via PreTag
         pre: ({ node: _node, children }) => <>{children}</>,
         a: ({ node: _node, ...props }) => (
           <a
@@ -145,6 +147,14 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
 }
 
 export function extractFilePath(message: ChatMessage): string | null {
+  const patch = patchTextFromToolInput(
+    (message.toolInput as Record<string, unknown> | undefined) ?? null,
+    message.toolArgs,
+  );
+  if (patch) {
+    const files = parseCodexPatch(patch);
+    if (files.length > 0) return files[0].path;
+  }
   if (message.toolInput) {
     const input = message.toolInput;
     const fp = (input.file_path ?? input.filePath ?? input.path) as string | undefined;
@@ -183,6 +193,10 @@ export function extractEdits(message: ChatMessage): EditPair[] {
     } catch {
       input = null;
     }
+  }
+  const patch = patchTextFromToolInput(input, message.toolArgs);
+  if (patch) {
+    return parseCodexPatch(patch).flatMap((file) => file.edits);
   }
   if (!input) return [];
   const toPair = (e: Record<string, unknown>): EditPair | null => {
@@ -261,7 +275,7 @@ export const DiffView = React.memo(function DiffView({
   const plainRow = (line: DiffLine, i: number) => (
     <React.Fragment key={i}>
       {separatorBefore(i) && <div className="mt-2 border-t border-[var(--ct-border)] pt-2" />}
-      <div className={`${PRE_WRAP_CLASS} px-1`} style={diffRowStyle(line.kind)}>
+      <div className={`${PRE_WRAP_CLASS} px-2 py-0.5`} style={diffRowStyle(line.kind)}>
         {diffGutter(line.kind)}
         {line.content || " "}
       </div>
@@ -269,7 +283,7 @@ export const DiffView = React.memo(function DiffView({
   );
 
   return (
-    <div className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} font-mono text-[11px] leading-relaxed overflow-x-auto`}>
+    <div className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} font-mono text-[11px] leading-relaxed overflow-x-auto rounded-md`}>
       {highlight ? (
         <SyntaxHighlighter
           language={resolvedLanguage}
@@ -293,7 +307,7 @@ export const DiffView = React.memo(function DiffView({
               return (
                 <React.Fragment key={i}>
                   {separatorBefore(i) && <div className="mt-2 border-t border-[var(--ct-border)] pt-2" />}
-                  <div className={`${PRE_WRAP_CLASS} px-1`} style={diffRowStyle(line.kind)}>
+                  <div className={`${PRE_WRAP_CLASS} px-2 py-0.5`} style={diffRowStyle(line.kind)}>
                     {diffGutter(line.kind)}
                     {node
                       ? createElement({ node, stylesheet, useInlineStyles, key: `c${i}` })
@@ -320,11 +334,12 @@ export function shortPath(fullPath: string): string {
   return ".../" + parts.slice(-2).join("/");
 }
 
-function isShellToolName(name: string | undefined): boolean {
+export function isShellToolName(name: string | undefined): boolean {
   const n = (name ?? "").toLowerCase();
   return n === "bash"
     || n === "shell"
     || n === "shell_command"
+    || n === "exec_command"
     || n === "exec"
     || n === "powershell"
     || n.includes("shell")
@@ -334,14 +349,15 @@ function isShellToolName(name: string | undefined): boolean {
 /** Extract shell command text across Claude/Codex provider shapes. */
 export function extractCommand(message: ChatMessage): string | null {
   if (message.toolInput) {
-    const cmd = message.toolInput.command as string | undefined;
+    const cmd = (message.toolInput.command ?? message.toolInput.cmd) as string | undefined;
     if (cmd) return cmd;
   }
   if (message.toolArgs) {
     try {
       const parsed = JSON.parse(message.toolArgs);
-      if (parsed && typeof parsed === "object" && typeof parsed.command === "string") {
-        return parsed.command;
+      if (parsed && typeof parsed === "object") {
+        const cmd = (parsed.command ?? parsed.cmd) as unknown;
+        if (typeof cmd === "string") return cmd;
       }
     } catch {
       if (isShellToolName(message.toolName)) {
@@ -460,7 +476,6 @@ export function FileIcon({ className = "" }: { className?: string }) {
 
 /** Extract filename from path. */
 export function fileName(path: string): string {
-  // Split on both separators — Windows upload paths use backslashes, so a
   // `/`-only split returned the entire C:\…\file.webm path (clipped the bubble).
   const parts = path.split(/[/\\]/).filter(Boolean);
   return parts[parts.length - 1] || path;
@@ -553,6 +568,8 @@ export function PluginConfigCard({ c }: { c: ParsedPluginConfig }) {
 }
 
 export function renderUserContent(content: string): React.ReactNode {
+  const discussion = parseAttachedDiscussionDoc(content);
+  if (discussion) return <AttachedDiscussionDocView doc={discussion} />;
   const voice = parseVoiceMessage(content);
   if (voice) return <VoiceCard v={voice} />;
   const pluginConfig = parsePluginConfigMessage(content);
@@ -577,7 +594,6 @@ export function renderUserContent(content: string): React.ReactNode {
       </div>
     );
   }
-  // Match both new marker (\x00«file:...») and legacy [attached: ...] format
   const attachRe = /(?:\x00\u00ABfile:([^\u00BB]+)\u00BB|\[attached:\s*([^\]]+)\])/g;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -585,12 +601,10 @@ export function renderUserContent(content: string): React.ReactNode {
   let key = 0;
 
   while ((match = attachRe.exec(content)) !== null) {
-    // Text before the match
     const before = content.slice(lastIndex, match.index).trim();
     if (before) {
       parts.push(<pre key={key++} className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{before}</pre>);
     }
-    // File badge — group 1 = new marker, group 2 = legacy format
     const filePath = (match[1] || match[2]).trim();
     const name = fileName(filePath);
     const ext = name.split(".").pop()?.toUpperCase() || "FILE";
@@ -612,13 +626,11 @@ export function renderUserContent(content: string): React.ReactNode {
     lastIndex = match.index + match[0].length;
   }
 
-  // Remaining text
   const rest = content.slice(lastIndex).trim();
   if (rest) {
     parts.push(<pre key={key++} className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{rest}</pre>);
   }
 
-  // No attachments found — plain text
   if (parts.length === 0) {
     return <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{content}</pre>;
   }

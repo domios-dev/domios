@@ -52,7 +52,6 @@ export function ComposerActionButton({
             e.preventDefault();
             return;
           }
-          // Fresh press on a locked recording = stop into preview. The release that
           // completes drag-to-lock is a pointerup, so it can't trigger this.
           if (isLocked) {
             e.preventDefault();

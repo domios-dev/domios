@@ -11,9 +11,8 @@
  */
 import { expect, test, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 
-const WEB_URL = `${API_BASE}/web/`;
+const WEB_URL = `${API_BASE}/`;
 
-// Deterministic recorder: stop() emits one >5KB chunk then fires onstop, so the
 // composer's upload path runs without a real microphone.
 const FAKE_MEDIA = `
   navigator.mediaDevices = navigator.mediaDevices || {};
@@ -54,7 +53,6 @@ test("@golden voice note: transcribing placeholder morphs into transcript, and f
   // Mock the upload (fast) — transcribe is (re)routed per phase below.
   await mediaMocks.mockUpload(page);
 
-  // Close panes left by earlier runs (keep workspaces so an active workspace
   // remains) → exactly one chat composer once we spawn below.
   await paneCleanup.closeUnprotectedPanes();
 
@@ -80,7 +78,6 @@ test("@golden voice note: transcribing placeholder morphs into transcript, and f
     agentPaneId = spawned.pane_id;
     await page.locator('[data-testid="composer-voice-button"]').filter({ visible: true }).first().waitFor({ timeout: 60_000 });
 
-    // ── Phase 1: deliberate 2.5s latency (cold Whisper) → placeholder → transcript ──
     await mediaMocks.mockTranscription(page, { line: "hello from the transcript", delayMs: 2500 });
     await holdVoice(page);
     await expect(
@@ -93,7 +90,6 @@ test("@golden voice note: transcribing placeholder morphs into transcript, and f
       page.locator('[data-testid="chat-message"]', { hasText: "Transcribing voice note" }),
     ).toHaveCount(0);
 
-    // ── Phase 2: daemon down (500) → placeholder → honest error, nothing sent ──
     await page.unroute("**/api/transcribe-voice");
     await mediaMocks.mockTranscription(page, { status: 500, body: "transcribe daemon down" });
     await holdVoice(page);

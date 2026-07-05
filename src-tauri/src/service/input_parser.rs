@@ -262,7 +262,6 @@ mod tests {
         let p = InputParser::new(registry());
         assert!(p.process("pane1", b"cod").is_none());
         assert!(p.process("pane2", b"codex\r").is_some());
-        // pane1's partial line is untouched by pane2 activity
         assert_eq!(p.process("pane1", b"ex\r").as_deref(), Some("codex"));
     }
 

@@ -66,6 +66,9 @@ pub enum SplitNodeSnapshot {
         /// Orchestration role.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         role: Option<String>,
+        /// Behavioral role profile, e.g. planner.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        role_profile: Option<String>,
         /// Parent pane ID in hierarchy.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         parent_pane_id: Option<String>,
@@ -131,6 +134,12 @@ impl SessionStore {
         Self { session_dir: dir }
     }
 
+    #[cfg(test)]
+    pub fn for_test_dir(dir: PathBuf) -> Self {
+        let _ = fs::create_dir_all(&dir);
+        Self { session_dir: dir }
+    }
+
     pub fn save(&self, snapshot: &SessionSnapshot) -> Result<(), String> {
         let path = self.session_dir.join("last.json");
         let tmp = self.session_dir.join("last.json.tmp");
@@ -171,7 +180,6 @@ impl SessionStore {
             return;
         }
 
-        // Sort by name (timestamp) ascending — oldest first
         entries.sort_by_key(|e| e.file_name());
         let to_remove = entries.len() - MAX_BACKUPS;
         for entry in entries.into_iter().take(to_remove) {
@@ -289,9 +297,7 @@ mod tests {
 
     fn fresh_store() -> (SessionStore, TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let store = SessionStore {
-            session_dir: dir.path().to_path_buf(),
-        };
+        let store = SessionStore::for_test_dir(dir.path().to_path_buf());
         (store, dir)
     }
 

@@ -8,7 +8,8 @@ import {
   ChevronRight,
 } from "lucide-react";
 import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
-import { baseUrl, authHeaders, isTauriEnv } from "./memoryApi";
+import { baseUrl, authHeaders } from "./memoryApi";
+import { BusySpinner } from "../shared/BusyState";
 import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 import { RunChatPopup } from "../AgentRun/RunChatPopup";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
@@ -148,7 +149,6 @@ function MemoryDreamsTabImpl({ api }: Props) {
   useEffect(() => { fetchDiary(true); }, [fetchDiary]);
 
   useEffect(() => {
-    if (!isTauriEnv()) return;
     let active = true;
     const unlisteners: Array<() => void> = [];
     let workerTimer: ReturnType<typeof setTimeout> | null = null;
@@ -185,7 +185,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
         if (!active) { cronFn(); return; }
         unlisteners.push(cronFn);
       } catch {
-        /* not in tauri */
+        /* listen setup failed — no live updates this session */
       }
     })();
     return () => {
@@ -302,7 +302,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
           >
             {running || inflight ? (
               <>
-                <Loader2 size={13} className="animate-spin" />
+                <BusySpinner icon={Loader2} size={13} />
                 {inflight ? "Dreaming…" : "Starting…"}
               </>
             ) : (

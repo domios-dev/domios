@@ -215,6 +215,7 @@ pub fn unregister_mdns_service(mesh: &Arc<Mutex<MeshManager>>) {
 // ── Tailscale / Local IP ───────────────────────────────────────────────
 
 /// Hard cap on how long any single Tailscale CLI probe is allowed to run.
+#[cfg(not(target_os = "macos"))]
 const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Binary lookup order for the Tailscale CLI: bare name (resolved via PATH)
@@ -228,58 +229,41 @@ pub(crate) const TAILSCALE_CANDIDATES: [&str; 5] = [
     "/usr/bin/tailscale",
 ];
 
-enum ProbeOutcome {
-    Found(String),
-    NoBinary,
-    GuiBridgeError,
-}
-
 /// Detect this machine's Tailnet IPv4 and cache it on `mesh.tailscale_ip`.
 ///
-/// Two-stage strategy:
-///   1. Interface scan (`find_tailscale_ip`) — zero subprocesses, no console
-///      flash on Windows. Hits the common case (Tailscale daemon running with
-///      utun/wintun device) without ever spawning the CLI.
-///   2. CLI cascade fallback — only runs if the scan misses. Tries common
-///      binary paths and on macOS retries via `launchctl asuser <uid>` for
-///      GUI-bridge installs that need to attach to the user's launchd
-///      bootstrap to resolve XPC. All spawns go through `no_window_std` so
-///      the fallback path also stays console-flash free on Windows.
-///
-/// Each probe is bounded by `PROBE_TIMEOUT` (5s).
+/// Always PASSIVE — must never wake or launch Tailscale that is off.
+///   1. Interface scan (`find_tailscale_ip`) — zero subprocesses. Hits the
+///      common case (daemon running with utun/wintun device) without the CLI.
+///   2. Fallback when the scan misses: macOS reads the LocalAPI (the only CLI
+///      candidate is the app-bundle shim, which would LAUNCH the GUI app);
+///      Linux/Windows run `tailscale ip -4` (no GUI shim, errors if daemon down).
 pub fn detect_tailscale(mesh: &Arc<Mutex<MeshManager>>) {
     if let Some(ip) = find_tailscale_ip() {
         log::debug!("[mesh] Tailscale IP detected via interface scan: {}", ip);
         mesh.lock().tailscale_ip = Some(ip);
         return;
     }
-    for cmd in TAILSCALE_CANDIDATES {
-        match try_tailscale_probe(cmd, ProbeMode::Direct) {
-            ProbeOutcome::Found(ip) => {
+    #[cfg(target_os = "macos")]
+    {
+        match super::serve_setup::macos_self_tailscale_ip() {
+            Some(ip) => {
+                log::debug!("[mesh] Tailscale IP detected via LocalAPI: {}", ip);
+                mesh.lock().tailscale_ip = Some(ip);
+            }
+            None => log::debug!("[mesh] Tailscale not available (passive LocalAPI read)"),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        for cmd in TAILSCALE_CANDIDATES {
+            if let Some(ip) = try_tailscale_probe(cmd) {
                 log::debug!("[mesh] Tailscale IP detected via {}: {}", cmd, ip);
                 mesh.lock().tailscale_ip = Some(ip);
                 return;
             }
-            ProbeOutcome::GuiBridgeError => {
-                #[cfg(target_os = "macos")]
-                {
-                    if let ProbeOutcome::Found(ip) =
-                        try_tailscale_probe(cmd, ProbeMode::LaunchctlAsuser)
-                    {
-                        log::info!(
-                            "[mesh] Tailscale IP detected via launchctl asuser {}: {}",
-                            cmd,
-                            ip
-                        );
-                        mesh.lock().tailscale_ip = Some(ip);
-                        return;
-                    }
-                }
-            }
-            ProbeOutcome::NoBinary => {}
         }
+        log::debug!("[mesh] Tailscale not available");
     }
-    log::debug!("[mesh] Tailscale not available");
 }
 
 /// Return Tailscale peer IPs: union of paired-peer addresses (from mesh store)
@@ -301,7 +285,7 @@ fn tailscale_peer_ips(mesh: &Arc<Mutex<MeshManager>>) -> Vec<String> {
     ips.into_iter().collect()
 }
 
-fn is_tailscale_ip(ip: &str) -> bool {
+pub(crate) fn is_tailscale_ip(ip: &str) -> bool {
     ip.parse::<std::net::Ipv4Addr>()
         .map(|a| {
             let o = a.octets();
@@ -310,34 +294,26 @@ fn is_tailscale_ip(ip: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Run `tailscale status --json` and extract peer IPv4 addresses.
-/// Uses no_window_std so it doesn't flash a console on Windows.
+/// Peer IPv4 addresses from Tailscale `status`. Sourced from `tailscale_status_json`
+/// so it stays passive on macOS (LocalAPI) and never wakes the GUI app.
 fn tailscale_status_peer_ips() -> Vec<String> {
-    for cmd in TAILSCALE_CANDIDATES {
-        let mut c = std::process::Command::new(cmd);
-        c.args(["status", "--json"]);
-        crate::process_util::no_window_std(&mut c);
-        let Some((true, raw)) = run_with_timeout(&mut c, std::time::Duration::from_secs(3)) else {
-            continue;
-        };
-        let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else {
-            continue;
-        };
-        let peers = val.get("Peer").and_then(|v| v.as_object());
-        let Some(peers) = peers else { return vec![] };
-        return peers
-            .values()
-            .flat_map(|p| {
-                p.get("TailscaleIPs")
-                    .and_then(|v| v.as_array())
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|v| v.as_str().map(String::from))
-            })
-            .filter(|ip| is_tailscale_ip(ip))
-            .collect();
-    }
-    vec![]
+    let Some(val) = tailscale_status_json() else {
+        return vec![];
+    };
+    let Some(peers) = val.get("Peer").and_then(|v| v.as_object()) else {
+        return vec![];
+    };
+    peers
+        .values()
+        .flat_map(|p| {
+            p.get("TailscaleIPs")
+                .and_then(|v| v.as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|v| v.as_str().map(String::from))
+        })
+        .filter(|ip| is_tailscale_ip(ip))
+        .collect()
 }
 
 pub fn tailscale_self_dns_name() -> Option<String> {
@@ -352,7 +328,14 @@ pub fn tailscale_self_dns_name() -> Option<String> {
 }
 
 fn tailscale_status_json() -> Option<serde_json::Value> {
-    run_tailscale_json(&["status", "--json"], std::time::Duration::from_secs(3))
+    #[cfg(target_os = "macos")]
+    {
+        super::serve_setup::macos_status_json()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        run_tailscale_json(&["status", "--json"], std::time::Duration::from_secs(3))
+    }
 }
 
 /// Path to the first Tailscale binary that actually responds to `version`, or
@@ -372,6 +355,7 @@ pub(crate) fn tailscale_binary() -> Option<String> {
     None
 }
 
+#[cfg(not(target_os = "macos"))]
 pub(crate) fn run_tailscale_json(
     args: &[&str],
     timeout: std::time::Duration,
@@ -409,87 +393,22 @@ pub fn find_tailscale_ip() -> Option<String> {
     None
 }
 
-enum ProbeMode {
-    Direct,
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-    LaunchctlAsuser,
-}
-
-fn try_tailscale_probe(cmd: &str, mode: ProbeMode) -> ProbeOutcome {
-    let mut command = match mode {
-        ProbeMode::Direct => {
-            let mut c = std::process::Command::new(cmd);
-            c.args(["ip", "-4"]);
-            c
-        }
-        ProbeMode::LaunchctlAsuser => {
-            #[cfg(target_os = "macos")]
-            {
-                let uid = match current_uid() {
-                    Some(u) if u != "0" => u,
-                    Some(_) => {
-                        log::debug!(
-                            "[mesh] skipping launchctl asuser fallback for {}: running as uid 0",
-                            cmd
-                        );
-                        return ProbeOutcome::NoBinary;
-                    }
-                    None => {
-                        log::warn!(
-                            "[mesh] skipping launchctl asuser fallback for {}: cannot resolve current uid",
-                            cmd
-                        );
-                        return ProbeOutcome::NoBinary;
-                    }
-                };
-                let mut c = std::process::Command::new("/bin/launchctl");
-                c.args(["asuser", &uid, cmd, "ip", "-4"]);
-                c
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                let _ = cmd;
-                return ProbeOutcome::NoBinary;
-            }
-        }
-    };
+/// Linux/Windows fallback probe: run `tailscale ip -4`. Safe here — there is no
+/// GUI shim to wake, and `tailscale` against a stopped daemon just errors. macOS
+/// never reaches this (it reads passively via the LocalAPI in `detect_tailscale`).
+#[cfg(not(target_os = "macos"))]
+fn try_tailscale_probe(cmd: &str) -> Option<String> {
+    let mut command = std::process::Command::new(cmd);
+    command.args(["ip", "-4"]);
     crate::process_util::no_window_std(&mut command);
-    let raw = match run_with_timeout(&mut command, PROBE_TIMEOUT) {
-        Some((true, raw)) => raw,
-        _ => return ProbeOutcome::NoBinary,
-    };
-    if let Some(ip) = parse_first_ip(&raw) {
-        return ProbeOutcome::Found(ip);
+    let (ok, raw) = run_with_timeout(&mut command, PROBE_TIMEOUT)?;
+    if !ok {
+        return None;
     }
-    if raw.trim().is_empty() {
-        return ProbeOutcome::NoBinary;
-    }
-    if matches!(mode, ProbeMode::Direct) {
-        log::warn!(
-            "[mesh] {} ip -4 returned non-IP output (likely Tailscale GUI bridge error): {}",
-            cmd,
-            raw.lines()
-                .next()
-                .unwrap_or("")
-                .chars()
-                .take(120)
-                .collect::<String>()
-        );
-    } else {
-        log::debug!(
-            "[mesh] launchctl asuser {} ip -4 still returned non-IP output: {}",
-            cmd,
-            raw.lines()
-                .next()
-                .unwrap_or("")
-                .chars()
-                .take(120)
-                .collect::<String>()
-        );
-    }
-    ProbeOutcome::GuiBridgeError
+    parse_first_ip(&raw)
 }
 
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 fn parse_first_ip(stdout: &str) -> Option<String> {
     stdout.lines().find_map(|line| {
         let candidate = line.trim();
@@ -534,23 +453,6 @@ pub(crate) fn run_with_timeout(
         output.status.success(),
         String::from_utf8_lossy(&output.stdout).to_string(),
     ))
-}
-
-#[cfg(target_os = "macos")]
-fn current_uid() -> Option<String> {
-    let mut cmd = std::process::Command::new("/usr/bin/id");
-    cmd.arg("-u");
-    crate::process_util::no_window_std(&mut cmd);
-    let output = cmd.output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if s.parse::<u32>().is_ok() {
-        Some(s)
-    } else {
-        None
-    }
 }
 
 pub fn detect_local_ip(mesh: &Arc<Mutex<MeshManager>>) {
@@ -605,7 +507,6 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
         )
     };
 
-    // Sender — only sends when broadcast_active
     let mesh_for_sender = mesh.clone();
     let sender_id = instance_id.clone();
     let sender_name = instance_name.clone();
@@ -641,7 +542,6 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
                     let mut packet = Vec::with_capacity(BROADCAST_MAGIC.len() + json.len());
                     packet.extend_from_slice(BROADCAST_MAGIC);
                     packet.extend_from_slice(&json);
-                    // LAN broadcast
                     if let Err(e) = sock.send_to(&packet, format!("255.255.255.255:{}", api_port)) {
                         log::debug!("[mesh/udp] Broadcast send failed: {}", e);
                     }
@@ -655,7 +555,6 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
         }
     });
 
-    // Listener — always active
     let mesh_clone = mesh.clone();
     std::thread::spawn(move || {
         let sock = match std::net::UdpSocket::bind(format!("0.0.0.0:{}", api_port)) {
@@ -831,7 +730,6 @@ pub fn send_immediate_beacon(mesh: &Arc<Mutex<MeshManager>>) {
     let mut packet = Vec::with_capacity(BROADCAST_MAGIC.len() + json.len());
     packet.extend_from_slice(BROADCAST_MAGIC);
     packet.extend_from_slice(&json);
-    // LAN broadcast
     if let Err(e) = sock.send_to(&packet, format!("255.255.255.255:{}", api_port)) {
         log::debug!("[mesh/udp] Immediate beacon broadcast failed: {}", e);
     }

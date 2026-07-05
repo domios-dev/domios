@@ -69,7 +69,6 @@ fn chatbackend_registry_routes_every_op() {
     reg.register("fake", fake.clone());
 
     let p = reg.get("fake").expect("registered backend resolvable");
-    // Every pane-keyed op a chatBackend pane performs, end to end through the
     // capability layer — none of these touch a PTY.
     let sid = p.open_session(serde_json::json!({})).unwrap();
     assert_eq!(sid, "sess-1");
@@ -90,6 +89,15 @@ fn chatbackend_registry_routes_every_op() {
 fn unregistered_backend_resolves_to_none() {
     let reg = ChatBackendRegistry::new();
     assert!(reg.get("absent").is_none());
+}
+
+#[test]
+fn chatbackend_describe_does_not_call_live_model_getters() {
+    let fake = FakeBackend::default();
+    let desc = fake.describe();
+
+    assert!(desc.available_models.is_empty());
+    assert_eq!(fake.listed.load(Ordering::SeqCst), 0);
 }
 
 /// Pane teardown / `pty kill` reach the plugin via `chatbackend_close` →
@@ -128,6 +136,9 @@ fn no_new_resolve_pty_id_outside_allowlist() {
         // PTY-only / None-safe REST + bridge sites (each guarded or PTY-only).
         // commands/pane.rs: shell_command_snapshot — None-safe (.ok()) pty-keyed read, command sibling of pane_routes.
         "commands/pane.rs",
+        // dev-only (cfg(debug_assertions)) cast-replay injection into a pane's OutputBuffer;
+        // best-effort (if let Ok) PTY resolution for test/verification infra, not a real spawn path.
+        "api/dev_cast_routes.rs",
         "api/pane_routes.rs",
         "api/pane_routes/send.rs",
         "api/mem_routes/items/mod.rs",

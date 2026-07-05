@@ -72,7 +72,6 @@ function isPathLikeToken(token: string): boolean {
   return /^(\/|~\/|\.\.?\/|[a-z]:[\\/])/i.test(bare);
 }
 
-// Tokens that carry meaning for matching — attachment paths are dropped so a
 // bubble's appended raw path never blocks a match against its chip-rendered echo.
 function meaningfulTokens(content: string): string[] {
   return normalizeChatText(matchableContent(content))
@@ -185,8 +184,6 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
       }
     }
   }
-  // Fuzzy fallback for echoes that diverged from their real counterpart by a
-  // stray leaked prefix or an attachment path. Runs last so exact and coverage
   const fuzzyMatched = new Set<string>();
   for (const echo of optimistic) {
     if (exactMatched.has(echo.id) || coveredMatched.has(echo.id)) continue;

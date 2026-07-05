@@ -72,7 +72,6 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
 
 /// Idempotent migrations — safe to re-run on every open.
 pub fn migrate_schema(conn: &Connection) -> rusqlite::Result<()> {
-    // v1 → v2: per-service health response mapper columns
     for sql in &[
         "ALTER TABLE services ADD COLUMN health_json_field TEXT",
         "ALTER TABLE services ADD COLUMN health_ok_values TEXT",

@@ -306,19 +306,6 @@ function SvcDrawer({
   const isRemote = !!sourcePeerId;
   const actionsDisabled = busy || !!service.stale;
 
-  const handleProbe = async () => {
-    if (isRemote) return;
-    setBusy(true);
-    try {
-      await invoke("services_probe", { id: service.id });
-      onActionDone();
-    } catch (e) {
-      alert(`Probe not yet wired: ${e}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const handleRotate = async () => {
     if (isRemote) return;
     if (!confirm("Rotate push token? Old token will stop working.")) return;
@@ -494,22 +481,6 @@ function SvcDrawer({
         )}
 
         <div className="mt-auto flex flex-col gap-1.5">
-          {!isCron && (
-            <button
-              onClick={handleProbe}
-              disabled={actionsDisabled || isRemote}
-              className={`${serviceActionBtnClass} flex-1 disabled:opacity-50`}
-              title={
-                service.stale
-                  ? "Cached service state is not actionable"
-                  : isRemote
-                    ? "Remote service probe is not wired yet"
-                    : undefined
-              }
-            >
-              Probe now
-            </button>
-          )}
           {service.push_enabled && (
             <button
               onClick={handleRotate}

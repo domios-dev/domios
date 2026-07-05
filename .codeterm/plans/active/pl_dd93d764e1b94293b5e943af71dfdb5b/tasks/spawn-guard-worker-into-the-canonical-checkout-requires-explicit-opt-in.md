@@ -1,0 +1,10 @@
+---
+plan_id: pl_dd93d764e1b94293b5e943af71dfdb5b
+kind: task
+id: task_46d7cc4c49c94e95a701cdc1dbcab60e
+handle: spawn-guard-worker-into-the-canonical-checkout-requires-explicit-opt-in
+title: 'Spawn guard: Worker into the canonical checkout requires explicit opt-in'
+status: done
+---
+
+FROM THE SHARED-CHECKOUT INCIDENT (retro stride on task_1d0572d0): workers edited /Users/rollacode/Developer/codeterm directly (lane/observability-p1-working-on churned plan sidecars + unrelated code in the shared checkout) and per-lane cargo gates competed over one target dir. Isolation-per-worktree exists ONLY as AGENTS.md prose + task role_guidance — no enforcement anywhere, which is how three violations shipped in one day. GUARD: 'codeterm agent spawn --role Worker' (and the pair/task spawn paths) with an effective CWD equal to a CANONICAL project checkout (the workspace's registered primary cwd — NOT a git worktree created from it) is REFUSED with the fix printed: 'Workers get isolated worktrees: git worktree add ... or pass --allow-shared-checkout to record an exception.' --allow-shared-checkout proceeds AND records an exception stride on the bound task (visible, never silent). Detection: cwd canonicalize == workspace primary cwd, or git rev-parse --git-common-dir == --git-dir (primary checkout test) — worktrees pass, the canonical clone refuses. Read-only lanes: --read-only spawns (once dispatch lands) are exempt by design; interim, --allow-shared-checkout covers them with the recorded exception. Scope guard: ORCHESTRATOR and GENERAL spawns exempt (they legitimately live in the canonical checkout); mesh spawns evaluate against the REMOTE workspace cwd. ACCEPTANCE EVALS: (1) spawn Worker with cwd=canonical -> refused, exit non-zero, fix text printed; (2) same + --allow-shared-checkout -> spawns + exception stride on the task; (3) spawn Worker with cwd=a git worktree of the same repo -> allowed silently; (4) Orchestrator spawn into canonical -> allowed; (5) existing evals/orchestrator-creation-matrix routes stay green (run the matrix).

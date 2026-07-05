@@ -18,7 +18,6 @@ export function CompletionPopup({
 }: CompletionPopupProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  // Reset selection when items change
   useEffect(() => {
     setSelectedIndex(0);
   }, [items]);
@@ -48,7 +47,6 @@ export function CompletionPopup({
           onDismiss();
           break;
         default:
-          // Any other key — dismiss and let it pass through
           onDismiss();
           break;
       }

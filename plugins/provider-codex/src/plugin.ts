@@ -1,7 +1,8 @@
-// Codex provider plugin runtime logic, compiled to QuickJS-compatible plugin.js
-// by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
 import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
+import { discoverCodexModels } from "./models";
 import { parseCodexPrompt, parseMenuOptions, responseKeysForIndex, type MenuOption } from "./prompt";
+import { readSessionMeta } from "./sessionMeta";
+import { parseCodexUsage } from "./usage";
 
 const CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 const TITLE_RE = /codex/i;
@@ -61,7 +62,6 @@ const plugin: PluginModule = {
       c.indexOf("run the following") !== -1 ||
       c.indexOf("make the following") !== -1 ||
       c.indexOf("grant these permissions") !== -1 ||
-      // Picker/menu screens (/model, /permissions, update) so the host reads the
       // screen off the auto-approve path; the universal numbered parser then extracts.
       c.indexOf("to confirm") !== -1 ||
       c.indexOf("esc to go back") !== -1 ||
@@ -96,7 +96,7 @@ const plugin: PluginModule = {
 
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
   discoverModels(): ModelInfo[] {
-    return discoverCodexModelsFromCache() || manifestModels();
+    return discoverCodexModels();
   },
 
   buildLaunchCommand(params: LaunchParams): string {
@@ -169,16 +169,26 @@ const plugin: PluginModule = {
         }
         continue;
       }
-      if (!v || v.type !== "response_item" || !v.payload) continue;
-      const p = v.payload;
       let ts: number | null = null;
-      // Forward the raw ISO string too (parity with claude): RichMessage.timestamp is what
-      // flows to ChatMsg.timestamp and the optimistic-echo matcher — `ts` (seconds) alone
       const tsIso: string | null = (typeof v.timestamp === "string") ? v.timestamp : null;
       if (typeof v.timestamp === "string") {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1000);
       }
+      if (v.type === "event_msg" && v.payload && v.payload.type === "patch_apply_end") {
+        const p = v.payload;
+        const content = typeof p.stdout === "string" ? p.stdout : "";
+        const callId = typeof p.call_id === "string" ? p.call_id : "";
+        out.push({
+          role: "assistant",
+          blocks: [{ kind: "tool_result", data: { content: content, tool_use_id: callId } }],
+          ts: ts,
+          timestamp: tsIso,
+        });
+        continue;
+      }
+      if (!v || v.type !== "response_item" || !v.payload) continue;
+      const p = v.payload;
       if (p.type === "message") {
         const role = p.role === "assistant" ? "assistant" : (p.role === "user" ? "user" : null);
         if (!role) continue; // skip developer/system noise
@@ -223,6 +233,24 @@ const plugin: PluginModule = {
         out.push({
           role: "assistant",
           blocks: [{ kind: "tool_result", data: { content: String(content == null ? "" : content) } }],
+          ts: ts,
+          timestamp: tsIso,
+        });
+      } else if (p.type === "custom_tool_call") {
+        const name = typeof p.name === "string" ? p.name.trim() : "";
+        if (!name) continue;
+        let input: Record<string, unknown> = {};
+        if (name === "apply_patch" && typeof p.input === "string") {
+          input = { patch: p.input };
+        } else if (typeof p.input === "string") {
+          try { input = JSON.parse(p.input); } catch (_) { input = { raw: p.input }; }
+        } else if (p.input && typeof p.input === "object" && !Array.isArray(p.input)) {
+          input = p.input as Record<string, unknown>;
+        }
+        const callId = typeof p.call_id === "string" ? p.call_id : "";
+        out.push({
+          role: "assistant",
+          blocks: [{ kind: "tool_use", data: { name: name, id: callId, input: input } }],
           ts: ts,
           timestamp: tsIso,
         });
@@ -347,22 +375,7 @@ const plugin: PluginModule = {
 
   // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
   parseUsage(rawText: string, nowMs: number): unknown {
-    const raw = String(rawText || "");
-    if (!raw.trim()) return null;
-    const text = raw.split("\r").join("").split("█").join(" ").split("░").join(" ");
-    const session = codexParseGauge(text, "5h\\s*limit", false, nowMs);
-    const weekly = codexParseGauge(text, "Weekly\\s*limit", true, nowMs);
-    if (session.pct === null && weekly.pct === null) return null;
-    return {
-      provider: "codex",
-      account_id: null,
-      captured_at_ms: nowMs,
-      session_pct: session.pct,
-      session_resets_at_ms: session.resetsMs,
-      weekly_pct: weekly.pct,
-      weekly_resets_at_ms: weekly.resetsMs,
-      raw_text: raw,
-    };
+    return parseCodexUsage(rawText, nowMs);
   },
 
   detectActiveSession(_cwd: string, _currentSid?: string): string | null {
@@ -474,8 +487,6 @@ const plugin: PluginModule = {
     return out;
   },
 
-  // Classify a parked codex pane from its rendered screen. Invariants: auth is
-  // sacred (surfaced, never auto-pressed); the update verdict is an ensemble of
   classifyPaneState(snapshot: PaneStateSnapshot): PaneStateClassification | null {
     // Normalize CRLF/CR → LF: the structural patterns below match on \n boundaries.
     const screen = String((snapshot && snapshot.screenText) || "").replace(/\r\n?/g, "\n");
@@ -491,6 +502,12 @@ const plugin: PluginModule = {
       };
     }
 
+    // Busy veto: a streaming pane is never parked at a limit screen.
+    if (looksBusy(screen)) return { state: "working", confidence: 0 };
+
+    // Model/effort picker veto: numbered menus without a limit notice must not schedule a resume.
+    if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
+
     // Ensemble vote for the codex self-update prompt.
     const upd = scoreUpdatePrompt(screen);
     if (upd.confidence >= CLASSIFY_THRESHOLD && upd.skipKeys && upd.skipKeys.length > 0) {
@@ -501,10 +518,32 @@ const plugin: PluginModule = {
       };
     }
 
-    // Some signal but not a confident verdict → no action, so the reactor never fires on a partial read.
-    if (upd.confidence > 0) {
-      return { state: "unknown", confidence: upd.confidence };
+    // Usage-limit notice → schedule resume at the parsed reset (no menu to confirm).
+    const rl = scoreRateLimit(screen, host.unixNowMs());
+    if (rl.confidence >= CLASSIFY_THRESHOLD) {
+      const action: PaneStateAction = {};
+      const data: { resetAt?: string } = {};
+      if (rl.resetAtMs !== null) {
+        data.resetAt = new Date(rl.resetAtMs).toISOString();
+        action.delayedResume = {
+          at: new Date(rl.resetAtMs + RESUME_BUFFER_MS).toISOString(),
+          text: "continue your work",
+          thenKeys: ["enter"],
+        };
+      } else {
+        action.surface = { kind: "rate_limit", payload: { reason: "reset_time_unparsed" } };
+      }
+      return {
+        state: "rate_limited",
+        confidence: rl.confidence,
+        data: rl.resetAtMs !== null ? data : undefined,
+        action: action,
+      };
     }
+
+    // Some signal but not a confident verdict → no action, so the reactor never fires on a partial read.
+    const partial = rl.confidence > upd.confidence ? rl.confidence : upd.confidence;
+    if (partial > 0) return { state: "unknown", confidence: partial };
 
     return { state: "working", confidence: 0 };
   },
@@ -546,7 +585,9 @@ interface PaneStateClassification {
 // Must match the core reactor's GLOBAL_THRESHOLD (state_reactor.rs) — below it the reactor would reject the verdict.
 const CLASSIFY_THRESHOLD = 0.8;
 
-// Keys to navigate from the highlighted option to "Skip", then confirm. Null when
+// Buffer past the parsed reset so `continue your work` lands after the limit actually clears.
+const RESUME_BUFFER_MS = 60 * 1000;
+
 // there's no distinct Skip option, so we never blindly Enter on the default "Update now".
 function skipNavigationKeys(options: MenuOption[]): string[] | null {
   if (options.length === 0) return null;
@@ -571,7 +612,6 @@ function skipNavigationKeys(options: MenuOption[]): string[] | null {
 
 interface UpdateScore { confidence: number; skipKeys: string[] | null }
 
-// Structural signals for the codex self-update prompt (weights sum to 1.0). Core
 // signal is a numbered menu carrying both "update" and "skip"; a lone signal stays sub-threshold.
 function scoreUpdatePrompt(screen: string): UpdateScore {
   const options = parseMenuOptions(screen);
@@ -600,6 +640,80 @@ function scoreUpdatePrompt(screen: string): UpdateScore {
   return { confidence: confidence, skipKeys: skipKeys };
 }
 
+function looksBusy(screen: string): boolean {
+  const s = String(screen || "");
+  return (
+    /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(s) ||
+    /\bWorking[….]/.test(s) ||
+    /\((?:esc|ctrl\+c) to interrupt\)/i.test(s)
+  );
+}
+
+function looksLikeModelPicker(screen: string): boolean {
+  const s = String(screen || "");
+  if (!/\bselect\s+(?:model|reasoning)\b/i.test(s)) return false;
+  return /\bpress\s+enter\s+to\s+confirm\b/i.test(s) && /\besc\s+to\s+go\s+back\b/i.test(s);
+}
+
+interface RateLimitScore { confidence: number; resetAtMs: number | null }
+
+// Structural signals for codex's plain-text usage-limit notice (weights sum to 1.0).
+function scoreRateLimit(screen: string, nowMs: number): RateLimitScore {
+  const s = String(screen || "");
+  const sigHitLimit = /\bhit your usage limit\b/i.test(s) || /\breached your usage limit\b/i.test(s); // 0.50
+  const sigTryAgain = /\btry again at\b/i.test(s);                                                   // 0.30
+  const sigSettingsLink = /chatgpt\.com\/codex\/settings/i.test(s);                                   // 0.10
+  const sigResetClock = /\btry again at\b[^\n]{0,48}?\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(s);    // 0.10
+
+  let confidence = 0;
+  if (sigHitLimit) confidence += 0.5;
+  if (sigTryAgain) confidence += 0.3;
+  if (sigSettingsLink) confidence += 0.1;
+  if (sigResetClock) confidence += 0.1;
+  if (confidence > 1) confidence = 1;
+
+  const resetAtMs = parseTryAgainClock(s, nowMs);
+  return { confidence: confidence, resetAtMs: resetAtMs };
+}
+
+function parseTryAgainClock(screen: string, nowMs: number): number | null {
+  const m = /\btry again at\b[^\n]{0,48}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(String(screen || ""));
+  if (!m) return null;
+  return codexParseTodayClock(m[1], nowMs);
+}
+
+interface HMmAmPm { hh: number; mm: number; pm: boolean }
+
+function codexParseHMmAmPm(s: string): HMmAmPm | null {
+  s = String(s || "").trim().toLowerCase();
+  let pm: boolean;
+  if (s.slice(-2) === "pm") pm = true;
+  else if (s.slice(-2) === "am") pm = false;
+  else return null;
+  const stripped = s.slice(0, -2).trim();
+  let hh: number, mm: number;
+  const idx = stripped.indexOf(":");
+  if (idx !== -1) {
+    hh = parseInt(stripped.slice(0, idx).trim(), 10);
+    mm = parseInt(stripped.slice(idx + 1).trim(), 10);
+  } else {
+    hh = parseInt(stripped, 10);
+    mm = 0;
+  }
+  if (isNaN(hh) || isNaN(mm) || hh === 0 || hh > 12 || mm > 59) return null;
+  return { hh: hh, mm: mm, pm: pm };
+}
+
+function codexParseTodayClock(s: string, nowMs: number): number | null {
+  const t = codexParseHMmAmPm(s);
+  if (!t) return null;
+  const hour24 = (t.hh % 12) + (t.pm ? 12 : 0);
+  const now = new Date(nowMs);
+  let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour24, t.mm, 0, 0);
+  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1000);
+  return cand.getTime();
+}
+
 // Auth ensemble, weighted so no lone casual mention fires. Leans inclusive: a false positive only surfaces, never auto-acts.
 function scoreAuthPrompt(screen: string): number {
   const s = String(screen || "");
@@ -626,14 +740,15 @@ interface CodexPayload {
   name?: string;
   output?: unknown;
   model?: string;
+  input?: string | Record<string, unknown>;
+  call_id?: string;
+  stdout?: string;
+  success?: boolean;
 }
 interface CodexEntry { type?: string; payload?: CodexPayload; timestamp?: string }
 interface CodexHookCmd { type?: string; command?: string; commandWindows?: string; timeout?: number; _source?: string }
 interface CodexHookEntry { matcher?: string; hooks?: CodexHookCmd[] }
 interface CodexHooks { hooks?: { SessionStart?: CodexHookEntry[] } }
-interface CodexModelCache { models?: CodexCachedModel[] }
-interface CodexCachedModel { slug?: string; display_name?: string; description?: string; visibility?: string; priority?: number }
-interface CodexManifest { models?: ModelInfo[] }
 
 // Use function declarations for QuickJS strict-mode compatibility with bundler rewrites.
 function endsWith(s: string, suffix: string): boolean {
@@ -663,82 +778,6 @@ function codexConfigPath(): string | null {
   const sep = host.platform() === "windows" ? "\\" : "/";
   return home + sep + ".codex" + sep + "config.toml";
 }
-
-function codexModelsCachePath(): string | null {
-  const home = host.homeDir();
-  if (!home) return null;
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  return home + sep + ".codex" + sep + "models_cache.json";
-}
-
-function discoverCodexModelsFromCache(): ModelInfo[] | null {
-  const path = codexModelsCachePath();
-  if (!path || !host.fs.fileExists(path)) return null;
-  const cache = host.fs.readJson<CodexModelCache>(path);
-  const raw = cache && cache.models;
-  if (!Array.isArray(raw)) return null;
-  const kept: CodexCachedModel[] = [];
-  for (let i = 0; i < raw.length; i++) {
-    const item = raw[i];
-    const id = typeof item.slug === "string" ? item.slug.trim() : "";
-    if (!id) continue;
-    if (item.visibility === "hide") continue; // internal/non-selectable (e.g. codex-auto-review)
-    if (isNonChatModel(id)) continue;
-    kept.push(item);
-  }
-  // Codex orders the picker by ascending priority; preserve it so current models surface first.
-  kept.sort((a, b) => priorityOf(a) - priorityOf(b));
-  const models: ModelInfo[] = [];
-  for (let i = 0; i < kept.length; i++) {
-    const item = kept[i];
-    const id = (item.slug as string).trim();
-    models.push({
-      id: id,
-      displayName: typeof item.display_name === "string" && item.display_name.trim()
-        ? item.display_name.trim()
-        : displayNameFromId(id),
-      description: typeof item.description === "string" && item.description.trim()
-        ? item.description.trim()
-        : undefined,
-    });
-  }
-  // Codex cache carries no account-plan lockout signal, so availability is left unset (treated as available).
-  return models.length ? models : null;
-}
-
-function priorityOf(m: CodexCachedModel): number {
-  return typeof m.priority === "number" ? m.priority : 1e9;
-}
-
-function manifestModels(): ModelInfo[] {
-  try {
-    const m = JSON.parse(host.manifestJson() || "null") as CodexManifest | null;
-    return Array.isArray(m && m.models) ? m!.models! : [];
-  } catch (_) {
-    return [];
-  }
-}
-
-// Duplicated across provider bundles by design (QuickJS, no imports) — drops
-// embedding/tts/moderation/rerank ids so only chat models reach the picker.
-const NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
-function isNonChatModel(id: string): boolean {
-  const leaf = (id.split("/").pop() || id).toLowerCase();
-  const toks = leaf.split(/[-_.]/);
-  for (let i = 0; i < toks.length; i++) if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
-  return false;
-}
-
-function displayNameFromId(id: string): string {
-  const parts = id.split("/");
-  const leaf = parts[parts.length - 1] || id;
-  return leaf.split("-").filter(Boolean).map(capitalizeToken).join(" ");
-}
-
-function capitalizeToken(token: string): string {
-  return token ? token.charAt(0).toUpperCase() + token.substring(1) : token;
-}
-
 function codexWindowsHookScriptPath(): string | null {
   const home = host.homeDir();
   if (!home) return null;
@@ -863,7 +902,6 @@ function hasCodetermCodexWindowsCommand(entry: CodexHookEntry): boolean {
   return false;
 }
 
-// rollout-YYYY-MM-DDTHH-MM-SS-<uuid> → uuid
 function extractSessionUuid(stem: string): string | null {
   if (typeof stem !== "string") return null;
   const prefix = "rollout-";
@@ -892,64 +930,23 @@ function codexShortLabel(modelId: string): string {
   return first.charAt(0).toUpperCase() + first.substring(1);
 }
 
-// Read first JSONL line, return {sessionId, cwd} only when type is `session_meta`.
-function readSessionMeta(path: string): { sessionId: string | null; cwd: string | null } | null {
-  const contents = host.fs.readFile(path);
-  if (!contents) return null;
-  const firstNl = contents.indexOf("\n");
-  const line = firstNl === -1 ? contents : contents.substring(0, firstNl);
-  let v: { type?: string; payload?: { id?: string; cwd?: string } };
-  try { v = JSON.parse(line.trim()); } catch (_) { return null; }
-  if (!v || v.type !== "session_meta") return null;
-  const p = v.payload || {};
-  return {
-    sessionId: typeof p.id === "string" ? p.id : null,
-    cwd: typeof p.cwd === "string" ? p.cwd : null,
-  };
-}
-
-// ── /status screen parsing (port of native status_tui) ──────────────
-
-interface CodexGauge { pct: number | null; resetsMs: number | null }
-
-function codexParseGauge(text: string, marker: string, isWeekly: boolean, nowMs: number): CodexGauge {
-  const re = new RegExp(
-    marker + "[\\s\\S]{0,200}?(\\d+(?:\\.\\d+)?)\\s*%\\s*left[\\s\\S]*?\\(resets?\\s+([^)]+?)\\)",
-  );
-  const caps = re.exec(text);
-  if (!caps) return { pct: null, resetsMs: null };
-  const left = parseFloat(caps[1]);
-  const pct = isNaN(left) ? null : Math.min(100, Math.max(0, 100 - left));
-  const resetsRaw = (caps[2] || "").trim();
-  const resetsMs = isWeekly
-    ? codexParseWeeklyResets(resetsRaw, nowMs)
-    : codexParseSessionResets(resetsRaw, nowMs);
-  return { pct: pct, resetsMs: resetsMs };
-}
-
-function codexParseSessionResets(raw: string, nowMs: number): number | null {
-  const m = /(\d{1,2}):(\d{2})/.exec(String(raw || "").trim());
-  if (!m) return null;
-  const hh = parseInt(m[1], 10), mm = parseInt(m[2], 10);
-  const now = new Date(nowMs);
-  let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
-  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1000);
-  return cand.getTime();
-}
-
-const CODEX_MONTHS: Record<string, number> = {
-  jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2, apr: 3, april: 3,
-  may: 4, jun: 5, june: 5, jul: 6, july: 6, aug: 7, august: 7,
-  sep: 8, sept: 8, september: 8, oct: 9, october: 9, nov: 10, november: 10,
-  dec: 11, december: 11,
-};
-
 function isValidCodexSessionDelta(v: CodexEntry): boolean {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  if (v.type === "event_msg") {
+    if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
+    return v.payload.type === "patch_apply_end";
+  }
   if (v.type !== "response_item") return false;
   if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
   const kind = v.payload.type;
-  if (kind !== "message" && kind !== "function_call" && kind !== "function_call_output") return false;
+  if (
+    kind !== "message" &&
+    kind !== "function_call" &&
+    kind !== "function_call_output" &&
+    kind !== "custom_tool_call"
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -989,21 +986,6 @@ function isValidCodexSessionMessage(v: CodexEntry): boolean {
   if (v.payload.role !== "user" && v.payload.role !== "assistant") return false;
   if (!Array.isArray(v.payload.content)) return false;
   return true;
-}
-
-function codexParseWeeklyResets(raw: string, nowMs: number): number | null {
-  const m = /(\d{1,2}):(\d{2})\s+on\s+(\d{1,2})\s+([A-Za-z]+)/.exec(String(raw || "").trim());
-  if (!m) return null;
-  const hh = parseInt(m[1], 10), mm = parseInt(m[2], 10);
-  const day = parseInt(m[3], 10);
-  const month = CODEX_MONTHS[m[4].toLowerCase()];
-  if (month === undefined) return null;
-  const now = new Date(nowMs);
-  let cand = new Date(now.getFullYear(), month, day, hh, mm, 0, 0);
-  if (cand.getTime() <= nowMs) {
-    cand = new Date(now.getFullYear() + 1, month, day, hh, mm, 0, 0);
-  }
-  return cand.getTime();
 }
 
 export default plugin;

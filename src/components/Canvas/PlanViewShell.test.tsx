@@ -1,0 +1,197 @@
+// Run: npx tsx src/components/Canvas/PlanViewShell.test.tsx
+
+import { act, type ReactElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { Window } from "happy-dom";
+import { __setListenForTest } from "../../lib/bridge";
+import { FIXTURE_PLAN } from "./cards/fixtures.testdata";
+import { PlanViewShell } from "./PlanViewShell";
+
+type TestFn = () => void | Promise<void>;
+const tests: Array<[string, TestFn]> = [];
+function test(name: string, fn: TestFn) {
+  tests.push([name, fn]);
+}
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
+const PLAN_VIEW_MODE_STORAGE_KEY = "codeterm.planViewMode";
+
+const STABLE_PANES = {};
+const SHELL_PROPS = {
+  mode: "workspace" as const,
+  plans: [FIXTURE_PLAN],
+  panes: STABLE_PANES,
+  viewportPadding: 10000,
+};
+
+function setupDom() {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const window = new Window({ url: "http://localhost/plan-view-shell" });
+  (window as unknown as { __TAURI_INTERNALS__: Record<string, unknown> }).__TAURI_INTERNALS__ = {};
+  Object.defineProperty(globalThis, "window", { value: window, configurable: true });
+  Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
+  Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
+  Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
+  Object.defineProperty(globalThis, "HTMLButtonElement", { value: window.HTMLButtonElement, configurable: true });
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    value: class {
+      observe() {}
+      disconnect() {}
+    },
+  });
+  Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
+  Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
+  (globalThis as unknown as { requestAnimationFrame: (cb: FrameRequestCallback) => number }).requestAnimationFrame =
+    (cb: FrameRequestCallback) => setTimeout(() => cb(Date.now()), 0) as unknown as number;
+  __setListenForTest(async () => () => {});
+}
+
+async function render(ui: ReactElement) {
+  setupDom();
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root: Root = createRoot(host);
+  await act(async () => {
+    root.render(ui);
+  });
+  return {
+    host,
+    root,
+    rerender: async (next: ReactElement) => {
+      await act(async () => {
+        root.render(next);
+      });
+    },
+    unmount: async () => {
+      await act(async () => {
+        root.unmount();
+      });
+      host.remove();
+    },
+  };
+}
+
+function clickTab(host: HTMLElement, label: string) {
+  const tabs = host.querySelectorAll('[data-testid="plan-view-mode-switch"] [role="tab"]');
+  for (const tab of tabs) {
+    if (tab.textContent?.trim() === label) {
+      (tab as HTMLButtonElement).click();
+      return;
+    }
+  }
+  throw new Error(`tab not found: ${label}`);
+}
+
+function panelFor(host: HTMLElement, testId: string): HTMLElement | null {
+  return host.querySelector(`[data-testid="${testId}"]`)?.parentElement ?? null;
+}
+
+test("PlanViewShell defaults to board mode", async () => {
+  setupDom();
+  window.localStorage.removeItem(PLAN_VIEW_MODE_STORAGE_KEY);
+  const { host, unmount } = await render(<PlanViewShell {...SHELL_PROPS} />);
+  const shell = host.querySelector('[data-testid="plan-view-shell"]');
+  assert(shell?.getAttribute("data-plan-view-mode") === "board", "default mode attr");
+  const board = panelFor(host, "plan-board-view");
+  assert(board && !board.hasAttribute("hidden"), "board visible");
+  const list = panelFor(host, "plan-list-view");
+  assert(list?.hasAttribute("hidden"), "list hidden");
+  await unmount();
+});
+
+test("PlanViewShell restores persisted mode from localStorage", async () => {
+  setupDom();
+  window.localStorage.setItem(PLAN_VIEW_MODE_STORAGE_KEY, "list");
+  const hostEl = document.createElement("div");
+  document.body.appendChild(hostEl);
+  const root: Root = createRoot(hostEl);
+  await act(async () => {
+    root.render(<PlanViewShell {...SHELL_PROPS} />);
+  });
+  const shell = hostEl.querySelector('[data-testid="plan-view-shell"]');
+  assert(shell?.getAttribute("data-plan-view-mode") === "list", "restored mode attr");
+  const list = panelFor(hostEl, "plan-list-view");
+  assert(list && !list.hasAttribute("hidden"), "list visible");
+  await act(async () => {
+    root.unmount();
+  });
+  hostEl.remove();
+});
+
+test("PlanViewShell persists mode changes to localStorage", async () => {
+  setupDom();
+  window.localStorage.removeItem(PLAN_VIEW_MODE_STORAGE_KEY);
+  const { host, unmount } = await render(<PlanViewShell {...SHELL_PROPS} />);
+  await act(async () => {
+    clickTab(host, "Canvas");
+  });
+  assert(window.localStorage.getItem(PLAN_VIEW_MODE_STORAGE_KEY) === "canvas", "canvas persisted");
+  await unmount();
+});
+
+test("PlanViewShell switches to list and board without losing shell target", async () => {
+  setupDom();
+  window.localStorage.removeItem(PLAN_VIEW_MODE_STORAGE_KEY);
+  const { host, unmount } = await render(<PlanViewShell {...SHELL_PROPS} />);
+  await act(async () => {
+    clickTab(host, "List");
+  });
+  const shell = host.querySelector('[data-testid="plan-view-shell"]');
+  assert(shell?.getAttribute("data-plan-view-mode") === "list", "list mode attr");
+  const list = panelFor(host, "plan-list-view");
+  assert(list && !list.hasAttribute("hidden"), "list visible");
+  const canvas = panelFor(host, "mission-control-plan-surface");
+  assert(canvas?.hasAttribute("hidden"), "canvas hidden but mounted");
+
+  await act(async () => {
+    clickTab(host, "Board");
+  });
+  assert(shell?.getAttribute("data-plan-view-mode") === "board", "board mode attr");
+  const board = panelFor(host, "plan-board-view");
+  assert(board && !board.hasAttribute("hidden"), "board visible");
+  await unmount();
+});
+
+let passed = 0;
+async function main() {
+  for (const [name, fn] of tests) {
+    try {
+      await fn();
+      passed++;
+      console.log(`  ✓ ${name}`);
+    } catch (e) {
+      console.error(`  ✗ ${name}`);
+      console.error(e);
+      process.exit(1);
+    }
+  }
+  console.log(`\n✓ ${passed}/${tests.length} PlanViewShell tests passed`);
+}
+
+main();
+
+test("useFrozenWhenHidden keeps last-visible reference while hidden", async () => {
+  const { useFrozenWhenHidden } = await import("./PlanViewShell");
+  const outputs: unknown[] = [];
+  function Probe({ value, visible }: { value: { n: number }; visible: boolean }) {
+    outputs.push(useFrozenWhenHidden(value, visible));
+    return null;
+  }
+  const { createRoot } = await import("react-dom/client");
+  const { createElement, act } = await import("react");
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const a = { n: 1 };
+  const b = { n: 2 };
+  const c = { n: 3 };
+  await act(async () => root.render(createElement(Probe, { value: a, visible: true })));
+  await act(async () => root.render(createElement(Probe, { value: b, visible: false })));
+  await act(async () => root.render(createElement(Probe, { value: c, visible: true })));
+  if (outputs[0] !== a) throw new Error("visible passes live props");
+  if (outputs[1] !== a) throw new Error("hidden must keep the last-visible reference (memo identity)");
+  if (outputs[2] !== c) throw new Error("re-shown surface receives fresh props");
+  root.unmount();
+});

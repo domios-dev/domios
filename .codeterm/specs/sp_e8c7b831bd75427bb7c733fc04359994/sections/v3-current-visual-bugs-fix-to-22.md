@@ -1,0 +1,1 @@
+Three live bugs vs §22: (1) milestone/step text not visible on zoom-in (Thread & Coil unimplemented); (2) task body text OVERFLOWS its card bounds — §22.1 says content must FIT the fixed bounds, never overflow; (3) the plan node reads as a bare title-list, not a real plan — §22.2 says plan+spec = ONE sectioned node showing section BODIES + per-section outputs.
