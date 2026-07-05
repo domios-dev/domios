@@ -244,6 +244,7 @@ impl PlanStore {
                 e
             );
         }
+        self.record_committed_snapshot(&guard);
         let entry = Self::index_entry(&guard, path);
         self.index.write().insert(guard.id.clone(), entry);
         self.reset_bound_panes(&guard);
