@@ -88,5 +88,3 @@ tests/playwright/suites/18-reorder/reorder.spec.ts:68 waitForTimeout is banned; 
 tests/playwright/suites/18-reorder/reorder.spec.ts:71 waitForTimeout is banned; use web-first assertions or pollUntil.
 tests/playwright/suites/18-reorder/reorder.spec.ts:79 waitForTimeout is banned; use web-first assertions or pollUntil.
 tests/playwright/suites/18-reorder/reorder.spec.ts:140 waitForTimeout is banned; use web-first assertions or pollUntil.
-tests/playwright/suites/20-new-session/picker.spec.ts:201 Raw new ApiClient() is banned in specs; use the api fixture.
-tests/playwright/suites/20-new-session/picker.spec.ts:216 Raw new ApiClient() is banned in specs; use the api fixture.
