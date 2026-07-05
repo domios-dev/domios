@@ -497,6 +497,9 @@ pub async fn agent_restart_handler(
                 "provider": outcome.provider,
                 "session_id": outcome.session_id,
                 "session_was_stale": outcome.session_was_stale,
+                "session_action": outcome.session_action(),
+                "auto_approve": outcome.auto_approve,
+                "permission_profile": outcome.permission_profile(),
                 "force": outcome.force,
             })),
         )

@@ -759,7 +759,23 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     if json {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
                     } else {
-                        println!("Restarting pane {}...", pane_id);
+                        let action = val
+                            .get("session_action")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("fresh");
+                        let profile = val
+                            .get("permission_profile")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("sandboxed");
+                        let sid = val.get("session_id").and_then(|v| v.as_str());
+                        let session = match (action, sid) {
+                            ("resume", Some(s)) => format!("resume {}", s),
+                            _ => "fresh session".to_string(),
+                        };
+                        println!(
+                            "Restarting pane {}: {}, profile={} (same pane id, same session unless stale)",
+                            pane_id, session, profile
+                        );
                     }
                 }
                 Err(e) => {
