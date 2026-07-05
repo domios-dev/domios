@@ -132,6 +132,9 @@ loop, and the watcher closes itself after sending its gate.
 
 ## Worker Lanes — Git worktrees + task metadata
 
+The portable lane lifecycle contract is `codeterm docs LANES`. This section
+adds the orchestration mechanics around that standard.
+
 Each delegated lane should run in a real `git worktree` with its own branch.
 The Orchestrator's integration checkout stays separate from worker edits:
 
@@ -166,16 +169,10 @@ Worker lanes normally end this way:
    `codeterm plan qa pass PLAN_ID TASK_ID --note "<evidence>"` closes the task;
    `codeterm plan qa fail PLAN_ID TASK_ID --note "<failure>"` bounces it to
    `in_progress` and nudges the implementing worker.
-5. Orchestrator integrates the lane using the smallest history shape that still
-   preserves useful review context:
-   - **Single-task lane, one clean commit:** default to `cherry-pick` onto the
-     integration branch. This keeps the main history linear and makes revert
-     scope obvious.
-   - **Multi-commit lane with meaningful intermediate commits, or a branch that
-     should stay visible as a unit:** merge the lane branch deliberately, usually
-     after rebasing it onto the integration head.
-   - **Overlapping local edits already exist in the integration checkout:** use a
-     careful patch/application flow and inspect every hunk.
+5. Orchestrator integrates by merging or rebasing the unmerged lane branch into
+   the integration target. Cherry-pick is forbidden for orchestration lanes. If
+   a branch cannot be merged cleanly or has the wrong ancestry, create a new lane
+   and manually port the diff with a recorded reason.
 6. Orchestrator closes the worker pane, removes the clean
    worktree, and sets `--cleanup-status done`.
 
@@ -186,9 +183,8 @@ fail writes a `qa` milestone in the same atomic plan write as the state change,
 so there is no stage-without-evidence state. `codeterm plan qa queue PLAN_ID`
 shows the serialized queue.
 
-Do not treat cherry-pick as mandatory. It is the fast path for the common
-one-worker/one-commit lane. Preserve branch history when that history carries
-review value; otherwise prefer linear integration.
+Do not keep accepted branches around as visual memory. The task report, merge
+commit, and cleanup stride are the durable evidence.
 
 Never remove a worker worktree before its diff is integrated, bounced, or
 explicitly abandoned. Never keep a finished worker visually assigned just to
@@ -774,6 +770,7 @@ The plan is a live object edited while work runs. Every `codeterm plan ...` call
 | Content | Location |
 |---------|----------|
 | CLI mechanics (this doc) | `codeterm docs ORCHESTRATION` |
+| Lane lifecycle standard | `codeterm docs LANES` |
 | Orchestration principle (when to spawn, model routing, discipline) | mem skill `codeterm-orchestrator` |
 | Full mem reference | `codeterm docs MEMORY` |
 | REST + socket API | `codeterm docs API` |
