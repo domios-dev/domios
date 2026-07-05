@@ -120,7 +120,7 @@ export function PaneSessionChat({
     loadOlder,
     addOptimistic,
     updateOptimistic,
-  } = useChatSession({ paneId, agentSessionId, onError });
+  } = useChatSession({ paneId, agentSessionId, onError, active: isActive });
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   // clears pane.pending_prompt shortly after on the next state poll.
