@@ -778,7 +778,6 @@ function codexConfigPath(): string | null {
   const sep = host.platform() === "windows" ? "\\" : "/";
   return home + sep + ".codex" + sep + "config.toml";
 }
-
 function codexWindowsHookScriptPath(): string | null {
   const home = host.homeDir();
   if (!home) return null;
