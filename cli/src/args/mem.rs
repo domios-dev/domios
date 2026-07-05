@@ -37,7 +37,7 @@ pub enum MemAction {
         /// Area name (e.g. auth, deploy, billing).
         area: String,
         /// Confirm the batch delete (refused without it).
-        #[arg(long, visible_alias = "confirm")]
+        #[arg(long, alias = "confirm")]
         yes: bool,
     },
     /// Print the full audit trail for one item (create/update/promote/delete).
