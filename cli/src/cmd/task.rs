@@ -257,6 +257,7 @@ fn print_task_result(json: bool, val: &Value) {
         println!("{id}\t{status}\t{plan}\t{name}");
         println!("plan: {plan_title} ({plan})");
         print_competition(task, plan, id);
+        print_executor_role(task);
         print_task_quality(task);
         print_attachments(task.get("attachments"));
         print_label_list("sections", val.get("sections"));
@@ -337,6 +338,20 @@ fn print_competition(task: &Value, plan: &str, task_id: &str) {
     println!("compete: plan.task.compete RPC/API route for {plan} {task_id}");
 }
 
+fn executor_role_line(task: &Value) -> Option<String> {
+    task.get("executor_role")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|role| format!("executor_role: {role}"))
+}
+
+fn print_executor_role(task: &Value) {
+    if let Some(line) = executor_role_line(task) {
+        println!("{line}");
+    }
+}
+
 fn print_task_quality(task: &Value) {
     if let Some(items) = task.get("acceptance_criteria").and_then(|v| v.as_array()) {
         if !items.is_empty() {
@@ -402,5 +417,27 @@ fn print_single_label(label: &str, value: Option<&Value>) {
     match item.get("status").and_then(|v| v.as_str()) {
         Some(status) => println!("{label}: {name} ({id}, {status})"),
         None => println!("{label}: {name} ({id})"),
+    }
+}
+
+#[cfg(test)]
+mod executor_role_render_tests {
+    use super::executor_role_line;
+    use serde_json::json;
+
+    #[test]
+    fn renders_line_when_set() {
+        let task = json!({ "id": "task_1", "executor_role": "qa" });
+        assert_eq!(
+            executor_role_line(&task).as_deref(),
+            Some("executor_role: qa")
+        );
+    }
+
+    #[test]
+    fn omits_line_when_absent_or_blank() {
+        assert!(executor_role_line(&json!({ "id": "task_1" })).is_none());
+        assert!(executor_role_line(&json!({ "executor_role": "  " })).is_none());
+        assert!(executor_role_line(&json!({ "executor_role": null })).is_none());
     }
 }
