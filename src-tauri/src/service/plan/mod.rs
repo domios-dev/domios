@@ -55,6 +55,8 @@ mod goal_tests;
 #[cfg(test)]
 mod heartbeat_tests;
 #[cfg(test)]
+mod readback_tests;
+#[cfg(test)]
 mod reminder_tests;
 #[cfg(test)]
 mod subtask_close_tests;
@@ -77,19 +79,6 @@ use std::time::SystemTime;
 pub use types::{
     IndexEntry, NewTask, OpenSubtask, PlanError, ReconcileFixResult, SpecIndexEntry, TaskLaneUpdate,
 };
-
-fn plan_index_write_error(message: String) -> PlanError {
-    if search_index::is_busy_or_locked(&message) {
-        PlanError::WritePending {
-            operation: "plan_index_mirror".into(),
-            committed: true,
-            committed_id: None,
-            message,
-        }
-    } else {
-        PlanError::Io(message)
-    }
-}
 
 #[derive(Default)]
 pub struct PlanStore {
@@ -333,10 +322,15 @@ impl PlanStore {
 
     pub(super) fn commit_loaded_plan(&self, plan: Plan) -> Result<(), PlanError> {
         let committed = self.upsert_plan_arc(plan);
-        self.mirror_plan_index(&committed)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
         let path = Self::write_atomic(&committed).map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_plan_write(&committed, &path);
+        if let Err(e) = self.mirror_plan_index(&committed) {
+            log::warn!(
+                "[plan.index] mirror lag in commit_loaded_plan for {}: {}",
+                committed.id,
+                e
+            );
+        }
         let entry = Self::index_entry(&committed, path);
         self.index.write().insert(committed.id.clone(), entry);
         self.reset_bound_panes(&committed);
@@ -345,10 +339,15 @@ impl PlanStore {
 
     pub(super) fn commit_loaded_spec(&self, spec: Spec) -> Result<(), PlanError> {
         let committed = self.upsert_spec_arc(spec);
-        self.mirror_spec_index(&committed)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
         let path = Self::write_spec_atomic(&committed).map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_spec_write(&committed, &path);
+        if let Err(e) = self.mirror_spec_index(&committed) {
+            log::warn!(
+                "[plan.index] mirror lag in commit_loaded_spec for {}: {}",
+                committed.id,
+                e
+            );
+        }
         let entry = Self::spec_index_entry(&committed, path);
         self.spec_index.write().insert(committed.id.clone(), entry);
         Ok(())
@@ -463,8 +462,9 @@ impl PlanStore {
         *plan = guard.clone();
         let path = Self::write_atomic(&guard)?;
         self.note_plan_write(&guard, &path);
-        self.mirror_plan_index(&guard)
-            .map_err(std::io::Error::other)?;
+        if let Err(e) = self.mirror_plan_index(&guard) {
+            log::warn!("[plan.index] mirror lag in save for {}: {}", guard.id, e);
+        }
         self.index
             .write()
             .insert(guard.id.clone(), Self::index_entry(&guard, path));
@@ -498,8 +498,13 @@ impl PlanStore {
         *spec = guard.clone();
         let path = Self::write_spec_atomic(&guard)?;
         self.note_spec_write(&guard, &path);
-        self.mirror_spec_index(&guard)
-            .map_err(std::io::Error::other)?;
+        if let Err(e) = self.mirror_spec_index(&guard) {
+            log::warn!(
+                "[plan.index] mirror lag in save_spec for {}: {}",
+                guard.id,
+                e
+            );
+        }
         self.spec_index
             .write()
             .insert(guard.id.clone(), Self::spec_index_entry(&guard, path));
