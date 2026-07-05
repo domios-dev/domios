@@ -20,10 +20,10 @@ function ChipIcon({ kind }: { kind: WorkingOnChipKind }) {
   return null;
 }
 
-function WorkingOnChipView({ chip }: { chip: WorkingOnChip }) {
+function WorkingOnChipView({ chip, forMeasure = false }: { chip: WorkingOnChip; forMeasure?: boolean }) {
   return (
     <span
-      data-testid={`working-on-chip-${chip.kind}`}
+      {...(forMeasure ? {} : { "data-testid": `working-on-chip-${chip.kind}` })}
       data-tone={chip.tone}
       className={`working-on-chip ${TONE_CLASS[chip.tone]}`}
       title={`${chip.fieldLabel}: ${chip.label}`}
@@ -106,7 +106,7 @@ export function WorkingOnRow({ model, variant = "board" }: WorkingOnRowProps) {
     <div data-testid="working-on-row" className={`working-on-row working-on-row-${variant}`}>
       <div ref={measureRef} className="working-on-row-measure" aria-hidden>
         {chips.map((c, i) => (
-          <WorkingOnChipView key={`m-${c.kind}-${i}`} chip={c} />
+          <WorkingOnChipView key={`m-${c.kind}-${i}`} chip={c} forMeasure />
         ))}
       </div>
       <div ref={rowRef} className="working-on-row-visible">
