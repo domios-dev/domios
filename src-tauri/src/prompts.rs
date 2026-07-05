@@ -312,6 +312,16 @@ mod tests {
     }
 
     #[test]
+    fn general_agent_requires_mem_skill_search_before_declaring_missing() {
+        assert!(GENERAL_AGENT_TEMPLATE.contains("Skill lookup"));
+        assert!(GENERAL_AGENT_TEMPLATE.contains("pre-injected provider skill list"));
+        assert!(GENERAL_AGENT_TEMPLATE.contains("codeterm mem search \"<capability> skill\""));
+        assert!(GENERAL_AGENT_TEMPLATE.contains("before declaring the skill missing"));
+        assert!(BRIDGE_MEM.contains("Skill lookup before \"missing\""));
+        assert!(BRIDGE_MEM.contains("codeterm mem search \"<capability> skill\""));
+    }
+
+    #[test]
     fn orchestration_prompts_separate_capability_from_mode() {
         assert!(GENERAL_AGENT_TEMPLATE.contains("Orchestrator is an explicit mode"));
         assert!(GENERAL_AGENT_TEMPLATE.contains("Until then, stay the machine-level General Agent"));
