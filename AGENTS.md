@@ -282,10 +282,9 @@ CodeTerm-project skills live in **`<repo>/.agents/skills/`** — version-control
 - `.agents/skills/github-release/` — release pipeline procedure
 - `.agents/skills/prompt-evaluator/` — prompt regression harness
 
-> The **orchestrator** skill is NOT project-local — it is a cross-project discipline.
-> Canonical copy is **one per machine** at `~/.codeterm/skills/codeterm-orchestrator/`, indexed
-> in mem as `skill_codeterm_orchestrator`. Do not keep a duplicate under `.agents/`/`.claude`/
-> `~/.agents`. Each machine adapts only its build-capacity section (weak vs powerful).
+> Orchestration discipline lives in embedded docs and role prompts: read
+> `codeterm docs ORCHESTRATION` and `codeterm docs LANES`. Machine-specific
+> build capacity or preferences belong in mem preferences, not copied skill files.
 
 ### CodeTerm planning is the source of truth
 

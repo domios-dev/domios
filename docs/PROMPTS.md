@@ -66,20 +66,16 @@ Four of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_r
 
 `mem/seed.rs` ships a handful of baseline `NewMemItem` rows (bundled rules and the codeterm skill stub) inserted on fresh install. These are Rust literals, not LLM prompts — they live in the mem store and are surfaced to agents only via `codeterm mem search`/`get`.
 
-## Role definitions live in `codeterm mem`, not `.claude/agents/`
+## Role guidance is assigned at spawn
 
-CodeTerm dogfoods its own mem as the single source of truth for role-specific guidance (see "We dogfood..." section in `CLAUDE.md`). When you spawn a worker, the task prompt instructs it to `codeterm mem get <role_skill_id>` BEFORE doing the concrete work.
+Structural roles are `Orchestrator`, `Worker`, and the Planner profile. Specialized
+worker stance lives in the task prompt and task `role_guidance`, not in a mem role
+registry. When spawning a worker, include the relevant guidance inline: for example,
+"You are a Rust backend worker focused only on `src-tauri/`".
 
-Current role skills in mem:
-
-- `skill_backend_dev_role_rust_src_tauri_for_codeterm` — Rust / `src-tauri/` work
-- `skill_frontend_dev_role_react_typescript_src_for_codeterm` — React / TypeScript / `src/` work
-- `skill_code_reviewer_role_read_only_review_for_codeterm` — read-only diff review
-- `skill_docs_sync_role_keep_docs_in_sync_with_code_for_codeterm` — documentation sync
-- `skill_prompt_evaluator_role_a_b_and_regression_testing_for_codeterm` — A/B / regression testing for prompt files
-- `skill_end_to_end_github_release_for_codeterm` — full release pipeline
-
-Mem entries propagate immediately across all CodeTerm instances on the machine. No rebuild, no per-checkout copies. `.claude/skills/` is kept only for skills with runnable code (e.g. `prompt-evaluator/runner.py`); their `SKILL.md` is the entry point the mem skill points to.
+Reusable operational knowledge belongs in embedded docs (`codeterm docs ...`) or
+folder skills when runnable files are required. Machine-local preferences such as
+builder capacity belong in mem preferences.
 
 ## Loading flow
 
@@ -165,4 +161,4 @@ Behavioral prompt changes are gated by `evals/cli-agent` (baseline vs after)
 with sandboxes OUTSIDE the repo — in-repo sandboxes feed agents the repo's
 checked-in AGENTS.md instead of the generated one and invalidate the run.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->
