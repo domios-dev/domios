@@ -121,7 +121,11 @@ pub fn print_hints(hints: &[String]) {
     }
 }
 
-pub(crate) fn worker_spawn_hints(is_worker: bool, has_report_target: bool, has_task: bool) -> Vec<String> {
+pub(crate) fn worker_spawn_hints(
+    is_worker: bool,
+    has_report_target: bool,
+    has_task: bool,
+) -> Vec<String> {
     let mut hints = Vec::new();
     if !is_worker {
         return hints;
