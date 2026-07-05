@@ -382,7 +382,12 @@ impl ServiceContext {
         let text = format!(
             "[task in_review] '{task_name}' ({task_id}) → in_review by {who}{intent_part}\nReview it, then judge done or bounce back."
         );
-        let text = self.plan_store.prepend_heartbeat_for_plan(plan_id, &text);
+        let text = crate::service::orchestrator_digests::prepend_orchestrator_heartbeat(
+            self,
+            plan_id,
+            Some(owner),
+            &text,
+        );
         let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "plan");
         let _ = crate::service::messenger::Messenger::deliver(self, owner, envelope, &text);
     }
@@ -418,7 +423,12 @@ impl ServiceContext {
             "[decision gate {gate_id}] '{question}'\nAsked by {who}. Answer with: \
              codeterm plan decision answer {plan_id} {gate_id} --answer \"<your answer>\""
         );
-        let text = self.plan_store.prepend_heartbeat_for_plan(plan_id, &text);
+        let text = crate::service::orchestrator_digests::prepend_orchestrator_heartbeat(
+            self,
+            plan_id,
+            Some(&pane_id),
+            &text,
+        );
         let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "plan");
         let _ = crate::service::messenger::Messenger::deliver(self, &pane_id, envelope, &text);
         Some(pane_id)
@@ -450,7 +460,12 @@ impl ServiceContext {
             "[gate answered: {gate_id}] Answer: {preview}\n\
              Unblocked tasks are now pending. Review with: codeterm plan state {plan_id}"
         );
-        let text = self.plan_store.prepend_heartbeat_for_plan(plan_id, &text);
+        let text = crate::service::orchestrator_digests::prepend_orchestrator_heartbeat(
+            self,
+            plan_id,
+            Some(asker),
+            &text,
+        );
         let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "plan");
         let _ = crate::service::messenger::Messenger::deliver(self, asker, envelope, &text);
     }

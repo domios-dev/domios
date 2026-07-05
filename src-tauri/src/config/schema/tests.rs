@@ -1,4 +1,4 @@
-use super::{IntegrationsConfig, MemoryConfig, OrchestrationConfig, UiConfig};
+use super::{IntegrationsConfig, MemoryConfig, OrchestrationConfig, UiConfig, UsageConfig};
 
 #[test]
 fn ui_config_extra_keys_round_trip_over_json() {
@@ -70,6 +70,17 @@ fn orchestration_plan_reminder_defaults() {
         cfg.reflect.every_gates,
         crate::service::plan::reflection::DEFAULT_REFLECT_EVERY_GATES
     );
+    assert!(cfg.digests.enabled);
+    assert_eq!(cfg.digests.rules.len(), 2);
+}
+
+#[test]
+fn usage_config_defaults_on() {
+    let cfg: UsageConfig = toml::from_str("").unwrap();
+    assert!(cfg.enabled);
+    assert!(cfg.heartbeat);
+    assert_eq!(cfg.freshness_secs, 180);
+    assert_eq!(cfg.standalone_cadence_secs, 0);
 }
 
 #[test]

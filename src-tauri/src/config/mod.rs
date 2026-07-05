@@ -106,12 +106,18 @@ pub fn provider_config(provider_id: &str) -> schema::ProviderConfig {
 }
 
 /// Whether the usage tracker should probe this provider's `/usage` endpoint.
-/// Defaults to `false` — the toggle is opt-in per provider via
-/// `agents.<id>.usage_tracking_enabled` (also surfaced in Settings → Agents).
+/// Master switch: `[usage].enabled`. Per-provider override via
+/// `agents.<id>.usage_tracking_enabled`; when unset, usage-capable providers
+/// default to on.
 pub fn usage_tracking_enabled(provider_id: &str) -> bool {
-    provider_config(provider_id)
-        .usage_tracking_enabled
-        .unwrap_or(false)
+    let cfg = load_config();
+    if !cfg.usage.enabled {
+        return false;
+    }
+    match provider_config(provider_id).usage_tracking_enabled {
+        Some(false) => false,
+        Some(true) | None => true,
+    }
 }
 
 pub fn cleanup_removed_plugin_config(plugin_id: &str) -> Result<(), String> {

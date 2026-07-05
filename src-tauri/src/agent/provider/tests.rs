@@ -1,15 +1,16 @@
 use super::*;
 
 #[test]
-fn usage_tracking_section_renders_off_by_default() {
+fn usage_tracking_section_defaults_on() {
     let section = usage_tracking_section("/usage");
     match section {
-        SettingField::Section { fields, .. } => {
+        SettingField::Section { fields, title, .. } => {
+            assert_eq!(title, "Usage Tracking");
             assert_eq!(fields.len(), 1);
             match &fields[0] {
                 SettingField::Toggle { key, default, .. } => {
                     assert_eq!(key, "usage_tracking_enabled");
-                    assert!(!default, "tracking must default to OFF");
+                    assert!(*default, "tracking must default to ON");
                 }
                 other => panic!("expected Toggle, got {:?}", other),
             }
