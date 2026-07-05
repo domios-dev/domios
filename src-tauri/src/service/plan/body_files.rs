@@ -158,7 +158,7 @@ pub fn persist_bodies(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
             plan,
             "task",
             &task.id,
-            &super::tag_model::task_handle(task),
+            super::tag_model::task_handle(task),
             Some(&task.name),
             Some(task_status_str(&task.status)),
         );
