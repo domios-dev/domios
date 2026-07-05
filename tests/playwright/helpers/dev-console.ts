@@ -81,13 +81,66 @@ export function killDevConsole(): void {
  */
 function killDevLeftovers(): void {
   if (process.platform !== "win32") return;
-  const script = [
-    "Get-Process codeterm -ErrorAction SilentlyContinue |",
-    "Where-Object { $_.Path -like '*target\\debug*' } |",
-    "ForEach-Object { Stop-Process -Id $_.Id -Force -Confirm:$false };",
-    "$vite = (netstat -ano | Select-String ':1420.*LISTENING') -replace '.*\\s(\\d+)$','$1' | Select-Object -Unique;",
-    "foreach ($p in $vite) { try { Stop-Process -Id $p -Force -Confirm:$false } catch {} }",
-  ].join(" ");
+  const root = REPO_ROOT.replace(/'/g, "''");
+  const script = `
+    $ErrorActionPreference = "SilentlyContinue"
+    $rootPath = (Resolve-Path -LiteralPath '${root}').Path
+    $targetDebug = Join-Path $rootPath "src-tauri\\target\\debug"
+    $nodeModules = Join-Path $rootPath "node_modules"
+    $selfPid = $PID
+
+    $all = @(Get-CimInstance Win32_Process)
+    $childrenByParent = @{}
+    foreach ($proc in $all) {
+      $parent = [int]$proc.ParentProcessId
+      if (-not $childrenByParent.ContainsKey($parent)) {
+        $childrenByParent[$parent] = New-Object System.Collections.Generic.List[object]
+      }
+      $childrenByParent[$parent].Add($proc)
+    }
+
+    function Stop-Tree {
+      param([int]$ProcessId, [hashtable]$Seen)
+      if ($ProcessId -le 0 -or $Seen.ContainsKey($ProcessId)) { return }
+      $Seen[$ProcessId] = $true
+      if ($childrenByParent.ContainsKey($ProcessId)) {
+        foreach ($child in @($childrenByParent[$ProcessId])) {
+          Stop-Tree -ProcessId ([int]$child.ProcessId) -Seen $Seen
+        }
+      }
+      try { Stop-Process -Id $ProcessId -Force -Confirm:$false -ErrorAction Stop } catch {}
+    }
+
+    $victims = New-Object System.Collections.Generic.HashSet[int]
+    foreach ($proc in $all) {
+      $procId = [int]$proc.ProcessId
+      if ($procId -eq $selfPid) { continue }
+      $cmd = [string]$proc.CommandLine
+      $exe = [string]$proc.ExecutablePath
+      $name = [string]$proc.Name
+      $isRepoScriptHost = @("node.exe", "npm.exe", "pnpm.exe", "cmd.exe", "sh.exe", "bash.exe") -contains $name.ToLowerInvariant()
+      $matchesTarget = ($exe -and $exe.StartsWith($targetDebug, [System.StringComparison]::OrdinalIgnoreCase)) -or
+        ($cmd -and $cmd.IndexOf($targetDebug, [System.StringComparison]::OrdinalIgnoreCase) -ge 0)
+      $matchesDevWebView = $cmd -and $cmd.IndexOf("com.codeterm.dev\\EBWebView", [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+      $matchesRepoVite = $isRepoScriptHost -and $cmd -and
+        $cmd.IndexOf($nodeModules, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+        ($cmd -match "vite\\\\bin\\\\vite\\.js|@tauri-apps\\\\cli\\\\tauri\\.js")
+
+      if ($matchesTarget -or $matchesDevWebView -or $matchesRepoVite) {
+        [void]$victims.Add($procId)
+      }
+    }
+
+    $seen = @{}
+    foreach ($procId in @($victims)) {
+      Stop-Tree -ProcessId $procId -Seen $seen
+    }
+
+    $vite = (netstat -ano | Select-String ':1420.*LISTENING') -replace '.*\\s(\\d+)$','$1' | Select-Object -Unique
+    foreach ($p in $vite) {
+      try { taskkill /PID $p /T /F | Out-Null } catch {}
+    }
+  `;
   try {
     execFileSync("powershell", ["-NoProfile", "-Command", script], {
       timeout: 30_000,

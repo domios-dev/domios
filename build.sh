@@ -87,14 +87,15 @@ kill_dev() {
     dev_pid=$(netstat -ano 2>/dev/null | grep ":$CT_PORT.*LISTEN" | awk '{print $5}' | head -1)
     if [ -n "$dev_pid" ] && [ "$dev_pid" != "0" ]; then
       echo "Killing dev instance (PID $dev_pid on port $CT_PORT)..."
-      taskkill //PID "$dev_pid" //F 2>/dev/null || true
+      taskkill //PID "$dev_pid" //T //F 2>/dev/null || true
       sleep 1
     fi
     local vite_pid
     vite_pid=$(netstat -ano 2>/dev/null | grep ":$CT_VITE_PORT.*LISTEN" | awk '{print $5}' | head -1)
     if [ -n "$vite_pid" ] && [ "$vite_pid" != "0" ]; then
-      taskkill //PID "$vite_pid" //F 2>/dev/null || true
+      taskkill //PID "$vite_pid" //T //F 2>/dev/null || true
     fi
+    windows_dev_leftover_cleanup
   fi
 }
 
@@ -262,12 +263,16 @@ kill_process_tree() {
     for child in $(pgrep -P "$pid" 2>/dev/null || true); do
       kill_process_tree "$child"
     done
+  else
+    taskkill //PID "$pid" //T //F 2>/dev/null || true
+    return
   fi
   kill "$pid" 2>/dev/null || true
 }
 
 kill_orphan_web_watchers() {
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
+    windows_dev_leftover_cleanup
     return
   fi
   local root pid cwd
@@ -278,6 +283,89 @@ kill_orphan_web_watchers() {
       kill_process_tree "$pid"
     fi
   done
+}
+
+windows_dev_leftover_cleanup() {
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    return
+  fi
+  command -v powershell.exe >/dev/null 2>&1 || command -v powershell >/dev/null 2>&1 || return
+
+  local root_win ps1 ps
+  root_win="$(pwd -W 2>/dev/null || pwd)"
+  ps1="$root_win/.codeterm-win-dev-cleanup${CT_SUFFIX}-$$.ps1"
+  cat > "$ps1" <<'PS'
+param(
+  [Parameter(Mandatory = $true)][string]$Root
+)
+
+$ErrorActionPreference = "SilentlyContinue"
+$rootPath = (Resolve-Path -LiteralPath $Root).Path
+$targetDebug = Join-Path $rootPath "src-tauri\target\debug"
+$nodeModules = Join-Path $rootPath "node_modules"
+$selfPid = $PID
+
+$all = @(Get-CimInstance Win32_Process)
+$childrenByParent = @{}
+foreach ($proc in $all) {
+  $parent = [int]$proc.ParentProcessId
+  if (-not $childrenByParent.ContainsKey($parent)) {
+    $childrenByParent[$parent] = New-Object System.Collections.Generic.List[object]
+  }
+  $childrenByParent[$parent].Add($proc)
+}
+
+function Stop-ProcessTree {
+  param([int]$ProcessId, [hashtable]$Seen)
+  if ($ProcessId -le 0 -or $Seen.ContainsKey($ProcessId)) {
+    return
+  }
+  $Seen[$ProcessId] = $true
+  if ($childrenByParent.ContainsKey($ProcessId)) {
+    foreach ($child in @($childrenByParent[$ProcessId])) {
+      Stop-ProcessTree -ProcessId ([int]$child.ProcessId) -Seen $Seen
+    }
+  }
+  try {
+    Stop-Process -Id $ProcessId -Force -Confirm:$false -ErrorAction Stop
+    Write-Host "Stopped stale dev process tree pid=$ProcessId"
+  } catch {}
+}
+
+$victims = New-Object System.Collections.Generic.HashSet[int]
+foreach ($proc in $all) {
+  $procId = [int]$proc.ProcessId
+  if ($procId -eq $selfPid) {
+    continue
+  }
+  $cmd = [string]$proc.CommandLine
+  $exe = [string]$proc.ExecutablePath
+  $name = [string]$proc.Name
+  $isRepoScriptHost = @("node.exe", "npm.exe", "pnpm.exe", "cmd.exe", "sh.exe", "bash.exe") -contains $name.ToLowerInvariant()
+  $matchesTarget = ($exe -and $exe.StartsWith($targetDebug, [System.StringComparison]::OrdinalIgnoreCase)) -or
+    ($cmd -and $cmd.IndexOf($targetDebug, [System.StringComparison]::OrdinalIgnoreCase) -ge 0)
+  $matchesDevWebView = $cmd -and $cmd.IndexOf("com.codeterm.dev\EBWebView", [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+  $matchesRepoVite = $isRepoScriptHost -and $cmd -and
+    $cmd.IndexOf($nodeModules, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+    ($cmd -match "vite\\bin\\vite\.js|@tauri-apps\\cli\\tauri\.js")
+
+  if ($matchesTarget -or $matchesDevWebView -or $matchesRepoVite) {
+    [void]$victims.Add($procId)
+  }
+}
+
+$seen = @{}
+foreach ($procId in @($victims)) {
+  Stop-ProcessTree -ProcessId $procId -Seen $seen
+}
+PS
+  if command -v powershell.exe >/dev/null 2>&1; then
+    ps="powershell.exe"
+  else
+    ps="powershell"
+  fi
+  "$ps" -NoProfile -ExecutionPolicy Bypass -File "$ps1" -Root "$root_win" 2>/dev/null || true
+  rm -f "$ps1"
 }
 
 start_web_watch() {
