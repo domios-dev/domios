@@ -8,7 +8,6 @@ import {
   PERF_SPEC_LINKS,
   PERF_SPEC_SECTIONS,
 } from "./perfFixtureSections";
-import { buildCardMetadataFixturePlans } from "./cardMetadataFixture";
 
 export function realFixtureEnabled(): boolean {
   if (typeof window === "undefined") return false;
