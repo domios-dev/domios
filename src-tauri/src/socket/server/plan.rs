@@ -211,7 +211,7 @@ pub(super) fn dispatch(
                     .map_err(plan_rpc_err)?;
             }
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "plan_id": id }))
         }
         "plan.archive" => super::plan_archive::archive(store, svc, app, params, now),
         "plan.unarchive" => super::plan_archive::unarchive(store, app, params, now),
@@ -223,7 +223,7 @@ pub(super) fn dispatch(
                 data: None,
             })?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "plan_id": id }))
         }
 
         "plan.transfer" => {
@@ -242,14 +242,14 @@ pub(super) fn dispatch(
                 .unwrap_or("");
             store.transfer(&id, to, reason, now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "plan_id": id }))
         }
 
         "plan.disown" => {
             let id = plan_refs::resolve_plan(store, params)?;
             store.disown(&id, now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "plan_id": id }))
         }
 
         "plan.claim" => {
@@ -272,7 +272,7 @@ pub(super) fn dispatch(
                 );
                 response_hints.push(crate::prompts::peer_pairing_mandate_full(&spawn_cmd));
             }
-            Ok(json!({ "ok": true, "_hints": response_hints }))
+            Ok(json!({ "ok": true, "plan_id": id, "_hints": response_hints }))
         }
 
         "plan.ingest" => {
@@ -340,7 +340,7 @@ pub(super) fn dispatch(
             let caller_pane = p
                 .and_then(|x| x.get("caller_pane_id"))
                 .and_then(|v| v.as_str());
-            let mut resp = json!({ "ok": true });
+            let mut resp = json!({ "ok": true, "section_id": sid });
             if let Some(nudge) = store
                 .get(&id)
                 .as_ref()
@@ -355,7 +355,7 @@ pub(super) fn dispatch(
             let (id, sid) = plan_refs::resolve_section(store, params)?;
             store.rm_section(&id, &sid, now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "section_id": sid }))
         }
 
         "plan.section.show" => {
@@ -375,7 +375,7 @@ pub(super) fn dispatch(
                 .set_kinds(&id, kinds_from_csv(&kinds), now)
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "plan_id": id }))
         }
 
         "plan.tag_facets.set" => {
@@ -390,7 +390,7 @@ pub(super) fn dispatch(
                 .set_tag_facets(&id, facets, now)
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "plan_id": id }))
         }
 
         "plan.coverage" => {
@@ -432,7 +432,7 @@ pub(super) fn dispatch(
                 .set_task_groups(&id, groups_from_csv(&groups), now)
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "plan_id": id }))
         }
 
         "plan.link" => {
@@ -440,7 +440,7 @@ pub(super) fn dispatch(
             let to = get_string_param(params, "to")?;
             store.link_plan(&id, &to, now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "plan_id": id }))
         }
 
         "plan.unlink" => {
@@ -448,7 +448,7 @@ pub(super) fn dispatch(
             let to = get_string_param(params, "to")?;
             store.unlink_plan(&id, &to, now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "plan_id": id }))
         }
 
         "plan.skills.list" => {

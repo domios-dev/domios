@@ -15,6 +15,9 @@ pub enum RefKind {
     Section,
     Spec,
     SpecSection,
+    Loop,
+    Element,
+    Milestone,
 }
 
 impl RefKind {
@@ -25,6 +28,9 @@ impl RefKind {
             RefKind::Section => "section",
             RefKind::Spec => "spec",
             RefKind::SpecSection => "spec section",
+            RefKind::Loop => "loop",
+            RefKind::Element => "element",
+            RefKind::Milestone => "milestone",
         }
     }
 }
@@ -204,6 +210,13 @@ pub struct ResolvedSection {
     pub section_id: String,
 }
 
+#[derive(Debug)]
+pub struct ResolvedMilestone {
+    pub plan_id: String,
+    pub task_id: String,
+    pub milestone_id: String,
+}
+
 impl PlanStore {
     /// Any id currently in the store (plan / spec / task / section / milestone). Mint-time check.
     pub(super) fn id_taken(&self, id: &str) -> bool {
@@ -323,6 +336,89 @@ impl PlanStore {
             .map(|arc| arc.lock().clone());
         let items = spec.map(|s| spec_section_items(&s)).unwrap_or_default();
         pick(items, section_ref, RefKind::SpecSection).map(|m| (spec_id, m.id))
+    }
+
+    pub fn resolve_loop_id(&self, reference: &str) -> Result<String, ResolveError> {
+        let mut items = Vec::new();
+        for arc in self.plans.read().values() {
+            let p = arc.lock();
+            for l in &p.loops {
+                items.push(MatchItem {
+                    id: l.id.clone(),
+                    handle: None,
+                    label: l.target.clone(),
+                    plan_id: Some(p.id.clone()),
+                });
+            }
+        }
+        pick(items, reference, RefKind::Loop).map(|m| m.id)
+    }
+
+    pub fn resolve_element_ref(
+        &self,
+        plan_ref: &str,
+        element_ref: &str,
+    ) -> Result<(String, String), ResolveError> {
+        let plan_id = self.resolve_plan_id(plan_ref)?;
+        let items = self
+            .plans
+            .read()
+            .get(&plan_id)
+            .map(|arc| {
+                let p = arc.lock();
+                p.elements
+                    .iter()
+                    .map(|e| MatchItem {
+                        id: e.id.clone(),
+                        handle: None,
+                        label: e.kind.clone(),
+                        plan_id: Some(p.id.clone()),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        pick(items, element_ref, RefKind::Element).map(|m| {
+            (
+                m.plan_id.unwrap_or(plan_id),
+                m.id,
+            )
+        })
+    }
+
+    pub fn resolve_milestone_ref(
+        &self,
+        plan_ref: Option<&str>,
+        task_ref: &str,
+        milestone_ref: &str,
+    ) -> Result<ResolvedMilestone, ResolveError> {
+        let (plan_id, task_id) = self.resolve_task_ref(plan_ref, task_ref)?;
+        let items = self
+            .plans
+            .read()
+            .get(&plan_id)
+            .and_then(|arc| {
+                let p = arc.lock();
+                p.tasks
+                    .iter()
+                    .find(|t| t.id == task_id)
+                    .map(|task| {
+                        task.milestones
+                            .iter()
+                            .map(|m| MatchItem {
+                                id: m.id.clone(),
+                                handle: None,
+                                label: m.kind.clone(),
+                                plan_id: Some(plan_id.clone()),
+                            })
+                            .collect::<Vec<_>>()
+                    })
+            })
+            .unwrap_or_default();
+        pick(items, milestone_ref, RefKind::Milestone).map(|m| ResolvedMilestone {
+            plan_id,
+            task_id,
+            milestone_id: m.id,
+        })
     }
 
     fn task_items_for_plan(&self, plan_id: &str) -> Vec<MatchItem> {

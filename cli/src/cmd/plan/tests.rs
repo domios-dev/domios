@@ -318,6 +318,41 @@ fn group_not_found_renderer_points_at_group_and_qa_commands() {
     assert!(msg.contains("codeterm plan qa next pl_1 --group"));
 }
 
+#[test]
+fn ref_ambiguous_renderer_lists_candidates() {
+    let msg = render_plan_error(
+        &json!({
+            "type": "ref_ambiguous",
+            "kind": "task",
+            "reference": "auth",
+            "candidates": [
+                { "id": "task_auth_login", "label": "Login" },
+                { "id": "task_auth_logout", "label": "Logout" }
+            ]
+        }),
+        &json!({ "plan_id": "pl_1", "task_id": "auth" }),
+    )
+    .expect("ref_ambiguous renderer");
+    assert!(msg.contains("ambiguous"));
+    assert!(msg.contains("task_auth_login"));
+    assert!(msg.contains("task_auth_logout"));
+}
+
+#[test]
+fn ref_not_found_renderer_is_actionable() {
+    let msg = render_plan_error(
+        &json!({
+            "type": "ref_not_found",
+            "kind": "plan",
+            "reference": "pl_missing"
+        }),
+        &json!({ "plan_id": "pl_missing" }),
+    )
+    .expect("ref_not_found renderer");
+    assert!(msg.contains("no plan matches"));
+    assert!(msg.contains("pl_missing"));
+}
+
 fn extract_plan_error_type(line: &str) -> Option<String> {
     let marker = "\"type\"";
     let idx = line.find(marker)?;
