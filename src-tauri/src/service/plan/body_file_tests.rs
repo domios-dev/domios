@@ -80,6 +80,57 @@ fn section_and_task_bodies_roundtrip_through_markdown_files() {
     assert_eq!(loaded.tasks[0].body, "task\nbody\n");
 }
 
+// Second-regression lock: executor_role must survive across plan.json, task
+// sidecar frontmatter, and reload in one test (prior fixes tested layers alone).
+#[test]
+fn executor_role_persists_across_json_frontmatter_and_reload() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Role".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Implement".into(),
+                kind: "implement".into(),
+                executor_role: Some("qa".into()),
+                competition: None,
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+
+    let task_path = dir.path().join(format!(
+        ".codeterm/plans/active/{}/tasks/implement.md",
+        plan.id
+    ));
+    let json_path = dir
+        .path()
+        .join(format!(".codeterm/plans/active/{}/plan.json", plan.id));
+
+    let task_markdown = std::fs::read_to_string(&task_path).unwrap();
+    assert!(
+        task_markdown.contains("executor_role: qa"),
+        "task sidecar frontmatter must carry executor_role, got:\n{task_markdown}"
+    );
+    let raw_json = std::fs::read_to_string(&json_path).unwrap();
+    assert!(
+        raw_json.contains("\"executor_role\": \"qa\""),
+        "plan.json must persist executor_role"
+    );
+
+    store.reload_from_disk(&plan.id).unwrap();
+    let loaded = store.get(&plan.id).unwrap();
+    let task = loaded.tasks.iter().find(|t| t.id == task_id).unwrap();
+    assert_eq!(task.executor_role.as_deref(), Some("qa"));
+}
+
 #[test]
 fn corrupt_markdown_sidecar_keeps_plan_indexed_with_json_body() {
     let dir = tempfile::tempdir().unwrap();

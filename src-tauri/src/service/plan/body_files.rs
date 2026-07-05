@@ -154,20 +154,28 @@ pub fn persist_bodies(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
     }
     for task in &plan.tasks {
         let path = task_path(plan, &task.id)?;
+        let mut metadata = frontmatter(
+            plan,
+            "task",
+            &task.id,
+            &super::tag_model::task_handle(task),
+            Some(&task.name),
+            Some(task_status_str(&task.status)),
+        );
+        if let Some(role) = task
+            .executor_role
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            metadata.insert(
+                "executor_role".into(),
+                serde_json::Value::String(role.to_string()),
+            );
+        }
         write_markdown_atomic(
             &path,
-            &body_with_frontmatter(
-                frontmatter(
-                    plan,
-                    "task",
-                    &task.id,
-                    &super::tag_model::task_handle(task),
-                    Some(&task.name),
-                    Some(task_status_str(&task.status)),
-                ),
-                &task.tags,
-                &task.body,
-            ),
+            &body_with_frontmatter(metadata, &task.tags, &task.body),
         )?;
         remove_stale_id_path(plan, BodyKind::Task, &task.id, &path)?;
         for milestone in &task.milestones {
