@@ -497,4 +497,51 @@ mod tests {
         assert!(PLAN_SKILLS_REGISTRY_LINE.contains("{n}"));
         assert!(PLAN_SKILLS_REGISTRY_LINE.contains("codeterm plan skill show <slug> | new | edit."));
     }
+
+    #[test]
+    fn every_prompt_md_has_a_loader() {
+        // All top-level .md files in prompts/ that have an include_str!() loader.
+        // Any file in the directory that is NOT in this set is an orphan — it is
+        // compiled into the binary by nobody and misleads future editors.
+        let loaded: std::collections::HashSet<&str> = [
+            "worker_suffix.md",
+            "testing_discipline.md",
+            "qa_pipeline_discipline.md",
+            "planner_suffix.md",
+            "orchestrator_suffix.md",
+            "cron_report_hint.md",
+            "cron_complete_suffix.md",
+            "codeterm_rule.md",
+            "bridge_mem.md",
+            "general_agent.md",
+            "codeterm_cli.md",
+            "bootstrap_instructions.md",
+            "worker_task_preamble.md",
+            "plugin_agent_task_preamble.md",
+            "mem_extraction.md",
+            "mem_rerank.md",
+            "dreaming_rem.md",
+        ]
+        .into_iter()
+        .collect();
+
+        let prompts_dir =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("prompts");
+        let orphans: Vec<String> = std::fs::read_dir(&prompts_dir)
+            .expect("prompts/ must be readable")
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path().is_file()
+                    && e.path().extension().and_then(|x| x.to_str()) == Some("md")
+            })
+            .filter(|e| !loaded.contains(e.file_name().to_str().unwrap_or("")))
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+
+        assert!(
+            orphans.is_empty(),
+            "orphaned prompt files with no include_str!() loader: {:?}",
+            orphans
+        );
+    }
 }
