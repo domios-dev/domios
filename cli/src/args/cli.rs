@@ -74,6 +74,9 @@ pub enum Commands {
         /// Regenerate committed artifacts (docs/cli-manifest.json + docs/CLI.md)
         #[arg(long)]
         write: bool,
+        /// Emit the docs/CLI.md auto-block markdown instead of JSON
+        #[arg(long, conflicts_with = "write")]
+        markdown: bool,
     },
 
     /// Workspace management

@@ -203,6 +203,7 @@ List all available API methods
 
 Dump the CLI command tree as JSON (source of truth for docs/prompts/cards)
 
+- `--markdown` — Emit the docs/CLI.md auto-block markdown instead of JSON
 - `--write` — Regenerate committed artifacts (docs/cli-manifest.json + docs/CLI.md)
 
 #### `codeterm config`
