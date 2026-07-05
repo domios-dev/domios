@@ -151,6 +151,52 @@ pub fn mirror_skills_to_providers() {
             }
         }
     }
+
+    report_provider_orphans();
+}
+
+/// Returns provider-dir entries that have no corresponding canonical source.
+/// Logs a warning for each, killing the resurrection-class bug (#178 follow-up).
+pub fn report_provider_orphans() -> Vec<String> {
+    let canonical = crate::paths::data_dir().join("skills");
+    let Some(home) = dirs::home_dir() else {
+        return vec![];
+    };
+    let targets = [
+        home.join(".claude").join("skills"),
+        home.join(".agents").join("skills"),
+    ];
+
+    let canonical_names: std::collections::HashSet<_> = std::fs::read_dir(&canonical)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .map(|e| e.file_name())
+        .collect();
+
+    let mut orphans = Vec::new();
+    for target in &targets {
+        let Ok(entries) = std::fs::read_dir(target) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            if !canonical_names.contains(&entry.file_name()) {
+                let path = format!(
+                    "{}/{}",
+                    target.display(),
+                    entry.file_name().to_string_lossy()
+                );
+                log::warn!("[skills] orphan provider skill (no canonical source): {}", path);
+                orphans.push(path);
+            }
+        }
+    }
+    orphans
 }
 
 /// Copy if provider copy is missing/older, or differs at the same revision. Never downgrades.
@@ -206,5 +252,38 @@ mod mirror_tests {
             !should_mirror_skill(&src, &dst),
             "provider newer -> never downgrade"
         );
+    }
+
+    /// Orphan detection drill: a skill present only in a provider dir is reported.
+    #[test]
+    fn orphan_detection_finds_provider_only_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let canonical = tmp.path().join("canonical");
+        let provider = tmp.path().join(".provider").join("skills");
+
+        // Canonical has "foo"; provider has "foo" (synced) + "stray" (orphan).
+        write_skill(&canonical.join("foo"), "canonical foo");
+        write_skill(&provider.join("foo"), "provider foo");
+        write_skill(&provider.join("stray"), "orphan skill");
+
+        let canonical_names: std::collections::HashSet<_> =
+            std::fs::read_dir(&canonical)
+                .unwrap()
+                .flatten()
+                .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                .map(|e| e.file_name())
+                .collect();
+
+        let mut orphans = Vec::new();
+        for entry in std::fs::read_dir(&provider).unwrap().flatten() {
+            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            if !canonical_names.contains(&entry.file_name()) {
+                orphans.push(entry.file_name().to_string_lossy().into_owned());
+            }
+        }
+
+        assert_eq!(orphans, vec!["stray"], "only the non-canonical entry is flagged");
     }
 }
