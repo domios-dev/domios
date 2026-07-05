@@ -111,6 +111,40 @@ export function openWorkspacePlanForEntries(entries: readonly PlanIndexEntry[]):
   });
 }
 
+/** Workspace whose cwd owns this plan's file path, or null when unknown. */
+export function findPlanOwnerWorkspace(
+  planId: string,
+  index: readonly PlanIndexEntry[],
+  workspaces: readonly Workspace[],
+): { workspace: Workspace; entry: PlanIndexEntry } | null {
+  const entry = index.find((e) => e.plan_id === planId);
+  if (!entry) return null;
+  for (const workspace of workspaces) {
+    if (planBelongsToWorkspacePath(entry, workspace)) return { workspace, entry };
+  }
+  return null;
+}
+
+export interface OpenPlanDeepLinkCtx {
+  index: readonly PlanIndexEntry[];
+  workspaces: readonly Workspace[];
+  activeWorkspaceId: string | null;
+  setActiveWorkspace: (id: string) => void;
+  onMissing?: (planId: string) => void;
+}
+
+/** Deep-link from chat: switch to the owning workspace and open the plan focused on a task. */
+export function openPlanDeepLink(planId: string, taskId: string | undefined, ctx: OpenPlanDeepLinkCtx): boolean {
+  const owner = findPlanOwnerWorkspace(planId, ctx.index, ctx.workspaces);
+  if (!owner) {
+    ctx.onMissing?.(planId);
+    return false;
+  }
+  if (owner.workspace.id !== ctx.activeWorkspaceId) ctx.setActiveWorkspace(owner.workspace.id);
+  openWorkspacePlanCanvas({ planId, nodeIds: taskId ? [taskId] : undefined });
+  return true;
+}
+
 export function resolveWorkspaceFocusNodeIds(
   mode: "workspace" | "focus",
   target: CanvasWorkspaceTarget | null | undefined,
