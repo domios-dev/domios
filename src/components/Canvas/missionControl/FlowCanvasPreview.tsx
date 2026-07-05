@@ -38,10 +38,17 @@ const FULL: FlowRiverModel = {
       { taskId: "m2", title: "Responsiveness soak", hot: true },
     ],
   },
-  verify: { queue: [], judging: [], count: 0 },
-  done: { count: 101, todayDelta: 6 },
+  verify: {
+    inReview: [{ taskId: "v1", title: "Soak evidence review", hot: true, carrier: VERDI }],
+    gates: [
+      { id: "g1", question: "Ship compact header to mobile default?", waitsOn: "Planner", escalated: false },
+    ],
+    count: 2,
+  },
+  done: { count: 101, todayDelta: 6, lastStride: "Wave 25 shipped — plan views redesign" },
   carrier: { agent: VERDI, label: "soak evidence → gate" },
   hud: { lanesLive: 2, qaQueue: 0, loops: 3, cleanup: 10, next: "Wave 27 — design system" },
+  isEmpty: false,
 };
 
 const MINI: FlowRiverModel = {
@@ -53,10 +60,28 @@ const MINI: FlowRiverModel = {
   crewCount: 0,
   frontier: { count: 1, chips: [{ taskId: "i1", title: "Shared sccache over WebDAV", hot: false }] },
   milestone: { active: false, key: null, label: "none active", remaining: 0, total: 0, chips: [] },
-  verify: { queue: [], judging: [], count: 0 },
-  done: { count: 0, todayDelta: 0 },
+  verify: { inReview: [], gates: [], count: 0 },
+  done: { count: 0, todayDelta: 0, lastStride: null },
   carrier: null,
   hud: { lanesLive: 0, qaQueue: 0, loops: 0, cleanup: 0, next: null },
+  isEmpty: false,
+};
+
+// F4: a genuinely empty plan renders as a head-only compact block.
+const EMPTY: FlowRiverModel = {
+  planId: "pl_empty",
+  planTitle: "Archived spike (no active work)",
+  progressPct: 100,
+  statusLabel: null,
+  crew: [],
+  crewCount: 0,
+  frontier: { count: 0, chips: [] },
+  milestone: { active: false, key: null, label: "none active", remaining: 0, total: 0, chips: [] },
+  verify: { inReview: [], gates: [], count: 0 },
+  done: { count: 0, todayDelta: 0, lastStride: null },
+  carrier: null,
+  hud: { lanesLive: 0, qaQueue: 0, loops: 0, cleanup: 0, next: null },
+  isEmpty: true,
 };
 
 export function FlowCanvasPreview() {
@@ -95,9 +120,10 @@ export function FlowCanvasPreview() {
         </div>
       </header>
       <div className="mc-live-viewport" style={{ overflow: "auto" }}>
-        <div className="mc-flow-stack">
+        <div className="mc-flow-stack" style={{ maxWidth: 1240, margin: "0 auto" }}>
           <PlanRiver model={FULL} reducedMotion={reducedMotion} />
           <PlanRiver model={MINI} compact reducedMotion={reducedMotion} />
+          <PlanRiver model={EMPTY} compact reducedMotion={reducedMotion} />
         </div>
       </div>
     </div>
