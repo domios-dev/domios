@@ -204,7 +204,10 @@ pub(super) fn validate_task_status_transition(
             }
         }
         if matches!(next, TaskStatus::Blocked) {
-            let incoming = incoming_label.flatten().map(str::trim).filter(|l| !l.is_empty());
+            let incoming = incoming_label
+                .flatten()
+                .map(str::trim)
+                .filter(|l| !l.is_empty());
             let existing = task
                 .and_then(|t| t.status_label.as_deref())
                 .map(str::trim)
