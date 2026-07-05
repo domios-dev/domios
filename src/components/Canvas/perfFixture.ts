@@ -54,7 +54,7 @@ export function perfFixtureProfile(): "default" | "done-heavy" | "card-metadata"
   }
 }
 
-export { buildCardMetadataFixturePlans } from "./cardMetadataFixture";
+export { buildCardMetadataFixturePlans, buildCardMetadataFixturePanes } from "./cardMetadataFixture";
 
 export function buildDoneHeavyPerfFixturePlans(): Plan[] {
   const sectionIds = PERF_PLAN_SECTION_IDS;

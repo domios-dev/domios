@@ -1,5 +1,6 @@
 import { TaskStatus } from "./types";
 import type { Plan } from "./types";
+import type { Pane } from "../../lib/types";
 import { milestone, plan, task } from "./layout/fixtures";
 import {
   PERF_PLAN_SECTION_IDS,
@@ -22,6 +23,20 @@ export const CARD_METADATA_TASK_IDS = {
   done: "meta_done",
   longBranch: "meta_long_branch",
 } as const;
+
+export const CARD_METADATA_LOCAL_PANE_ID = "pane-verdi";
+
+export function buildCardMetadataFixturePanes(): Record<string, Pane> {
+  return {
+    [CARD_METADATA_LOCAL_PANE_ID]: {
+      id: CARD_METADATA_LOCAL_PANE_ID,
+      pty_id: null,
+      pane_type: "Terminal",
+      title: "Verdi",
+      cwd: null,
+    },
+  };
+}
 
 export function buildCardMetadataFixturePlans(): Plan[] {
   const doneMilestone = {

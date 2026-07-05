@@ -39,7 +39,7 @@ import { CanvasWorldCanvas, type CanvasRenderApi } from "./canvasRender/CanvasWo
 import type { GroupGlyph } from "./canvasRender/drawScene";
 import { CanvasSwarmCluster } from "./CanvasSwarmCluster";
 import { buildCanvasScene } from "./scene";
-import { perfFixtureCount, perfFixtureProfile, buildPerfFixturePlans, buildDoneHeavyPerfFixturePlans, buildCardMetadataFixturePlans, buildPerfFixturePanes, realFixtureEnabled, realFixturePlans, fixtureSpecSectionsByPlan } from "./perfFixture";
+import { perfFixtureCount, perfFixtureProfile, buildPerfFixturePlans, buildDoneHeavyPerfFixturePlans, buildCardMetadataFixturePlans, buildCardMetadataFixturePanes, buildPerfFixturePanes, realFixtureEnabled, realFixturePlans, fixtureSpecSectionsByPlan } from "./perfFixture";
 import { flattenSections } from "./sectionRows";
 import { buildTaskPresenceFingerprint, useCanvasLookups } from "./canvasView/useCanvasLookups";
 import { useCanvasFlyTo } from "./canvasView/useCanvasFlyTo";
@@ -901,10 +901,12 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
     [useReal, perfProfile, perfN, livePlans],
   );
   // (the live-pane gate filters real plans correctly; this only feeds the demo plan).
-  const panes = useMemo(
-    () => (perfN > 0 && !useReal ? { ...state.panes, ...buildPerfFixturePanes(plans) } : state.panes),
-    [perfN, useReal, plans, state.panes],
-  );
+  const panes = useMemo(() => {
+    if (perfN <= 0 || useReal) return state.panes;
+    const fixturePanes =
+      perfProfile === "card-metadata" ? buildCardMetadataFixturePanes() : buildPerfFixturePanes(plans);
+    return { ...state.panes, ...fixturePanes };
+  }, [perfN, useReal, perfProfile, plans, state.panes]);
   return (
     <PlanViewShell
       mode={mode}

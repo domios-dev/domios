@@ -1,12 +1,4 @@
-/**
- * 13-canvas — task-card metadata screenshot album (task_73ea1b9d).
- *
- * Deterministic card-metadata perf fixture: per-status secondary rows,
- * working-on labeled chips, and lane warning chips (branch / no-pane / pane-gone).
- *
- *   npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=golden --grep @plan-card-metadata --timeout=30000 --global-timeout=600000
- */
+// 13-canvas — @plan-card-metadata screenshot album (task_73ea1b9d).
 import fs from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "../../helpers/fixtures";
