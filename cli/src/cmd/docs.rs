@@ -23,6 +23,7 @@ const DOCS: &[(&str, &str)] = &[
         "ORCHESTRATION",
         include_str!("../../../docs/ORCHESTRATION.md"),
     ),
+    ("LANES", include_str!("../../../docs/LANES.md")),
 ];
 
 const CODETERM_PANE_PREVIEW_LINES: usize = 120;
@@ -183,5 +184,13 @@ mod tests {
 
         assert!(rendered.contains("# Orchestration"));
         assert!(rendered.len() > 100);
+    }
+
+    #[test]
+    fn lanes_doc_is_registered() {
+        let rendered = render_doc("lanes", true, None, false).expect("LANES doc exists");
+
+        assert!(rendered.contains("# Lane Lifecycle Standard"));
+        assert!(rendered.contains("Do not cherry-pick"));
     }
 }

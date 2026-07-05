@@ -291,6 +291,7 @@ CodeTerm-project skills live in **`<repo>/.agents/skills/`** — version-control
 
 For multi-step project work, use the CodeTerm planner as the primary planning surface.
 Before creating or restructuring an effort, read `codeterm docs ORCHESTRATION`.
+For branch/worktree lifecycle, cleanup, and QA ownership, read `codeterm docs LANES`.
 
 - Set the GOAL first.
 - Put WHAT/WHY into `codeterm spec` sections.
