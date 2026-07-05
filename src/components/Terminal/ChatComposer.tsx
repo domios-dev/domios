@@ -197,6 +197,11 @@ function SlashPicker({
   );
 }
 
+/** Poll cadence for delayed-message pills: only the active pane polls; events drive everything else. */
+export function delayedPollIntervalMs(isActive: boolean): number | null {
+  return isActive ? 10_000 : null;
+}
+
 export function ChatComposer({
   paneId,
   paneProvider,
@@ -382,7 +387,8 @@ export function ChatComposer({
     void refresh();
     // Change events drive updates; the interval is drift insurance for the
     // countdown pills and runs only while this pane is the active tab.
-    const interval = isActive ? window.setInterval(refresh, 10_000) : null;
+    const pollMs = delayedPollIntervalMs(isActive);
+    const interval = pollMs !== null ? window.setInterval(refresh, pollMs) : null;
     let unlisten: (() => void) | null = null;
     void listen<{ paneId?: string }>("delayed-send-changed", (e) => {
       if (!e.payload?.paneId || e.payload.paneId === paneId) void refresh();
