@@ -24,6 +24,11 @@ fresh `git clone` of the tag via an auth-free bundle; the slow toolchains/deps a
 the Docker images so per-build startup is fast. The two ROG workflows sign on their own runners via
 `TAURI_SIGNING_PRIVATE_KEY` and publish/mirror themselves.
 
+## Internal QA gates
+
+Serial named gates for warm-checkout verification (orchestrator stride paste-back):
+`scripts/qa-gate.sh` + catalog in [`QA-GATES.md`](QA-GATES.md). No daemon/socket — repo scripts only.
+
 ## Files
 
 ```
