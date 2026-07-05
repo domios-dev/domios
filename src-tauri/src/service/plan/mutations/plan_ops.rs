@@ -56,18 +56,24 @@ impl PlanStore {
         mode: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
+        let status_for_write = status.clone();
+        let write = self.with_plan(plan_id, now_ms, |p| {
             if let Some(t) = title {
                 p.title = t.into();
             }
-            if let Some(s) = status {
+            if let Some(s) = status_for_write {
                 p.status = s;
             }
             if let Some(mode) = mode {
                 p.mode = parse_plan_mode(mode)?;
             }
             Ok(())
-        })
+        });
+        pending_after_verified(
+            write,
+            self.verify_plan_updated(plan_id, title, status, mode),
+            Some(plan_id.to_string()),
+        )
     }
 
     pub fn set_planner_ref(
@@ -76,10 +82,16 @@ impl PlanStore {
         planner_ref: Option<PlannerRef>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
+        let expected = planner_ref.clone();
+        let write = self.with_plan(plan_id, now_ms, |p| {
             p.planner = planner_ref;
             Ok(())
-        })
+        });
+        pending_after_verified(
+            write,
+            self.verify_planner_ref(plan_id, &expected),
+            Some(plan_id.to_string()),
+        )
     }
 
     pub fn resolve_planner_pane<F>(
@@ -225,8 +237,14 @@ impl PlanStore {
         super::tag_model::normalize_plan(&mut guard);
         let path = Self::write_atomic(&guard).map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_plan_write(&guard, &path);
-        self.mirror_plan_index(&guard)
-            .map_err(super::plan_index_write_error)?;
+        if let Err(e) = self.mirror_plan_index(&guard) {
+            log::warn!(
+                "[plan.index] mirror lag after committed write for {}: {}",
+                guard.id,
+                e
+            );
+        }
+        self.record_committed_snapshot(&guard);
         let entry = Self::index_entry(&guard, path);
         self.index.write().insert(guard.id.clone(), entry);
         self.reset_bound_panes(&guard);
