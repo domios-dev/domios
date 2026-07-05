@@ -2,6 +2,7 @@ pub mod cleanup_debt;
 pub mod coverage;
 pub mod gates;
 pub mod ids;
+pub mod lane_liveness;
 pub mod loop_engine;
 pub mod peer;
 pub mod planning_state;
