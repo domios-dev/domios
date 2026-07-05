@@ -194,7 +194,12 @@ fn render_open_gates(plan: &Plan, now_ms: u64, out: &mut String) {
     }
 }
 
-fn render_heartbeat(plan: &Plan, heartbeat: &OrchestratorHeartbeat, loops: &[LoopSpec]) -> String {
+fn render_heartbeat(
+    plan: &Plan,
+    heartbeat: &OrchestratorHeartbeat,
+    loops: &[LoopSpec],
+    extra_digest_lines: &[String],
+) -> String {
     let plan_id = &plan.id;
     let has_focus = heartbeat
         .current_focus
@@ -225,6 +230,7 @@ fn render_heartbeat(plan: &Plan, heartbeat: &OrchestratorHeartbeat, loops: &[Loo
     let has_regression_gates = !super::milestone_gates::pending_regression_gates(plan).is_empty();
     let has_reflection =
         !super::reflection::pending_reflections(plan, reflect_every_gates()).is_empty();
+    let has_digests = !extra_digest_lines.is_empty();
     if !has_focus
         && !has_lanes
         && !has_rules
@@ -235,6 +241,7 @@ fn render_heartbeat(plan: &Plan, heartbeat: &OrchestratorHeartbeat, loops: &[Loo
         && !has_open_gates
         && !has_regression_gates
         && !has_reflection
+        && !has_digests
     {
         return String::new();
     }
@@ -274,6 +281,17 @@ fn render_heartbeat(plan: &Plan, heartbeat: &OrchestratorHeartbeat, loops: &[Loo
     render_competitive_attempts(plan, &mut out);
     render_running_loops(loops, &mut out);
     render_open_gates(plan, now_ms(), &mut out);
+    if has_digests {
+        out.push_str("Digests:\n");
+        for line in extra_digest_lines
+            .iter()
+            .filter(|line| !line.trim().is_empty())
+        {
+            out.push_str("- ");
+            out.push_str(line.trim());
+            out.push('\n');
+        }
+    }
     let skill_slugs = super::skill_registry::list_plan_skill_slugs(plan);
     out.push_str(&super::skill_registry::render_plan_skills_registry_line(
         skill_slugs.len(),
@@ -323,7 +341,7 @@ fn prepend_heartbeat(
         loops: loops.to_vec(),
         ..Plan::new(String::new(), String::new(), Default::default())
     };
-    let block = render_heartbeat(&plan, heartbeat, loops);
+    let block = render_heartbeat(&plan, heartbeat, loops, &[]);
     let prompt = reconciliation_prompt(plan_id, pane_id);
     let reconciliation = format!(
         "<codeterm-state-reconciliation plan=\"{plan_id}\">\n{prompt}\n</codeterm-state-reconciliation>"
@@ -341,10 +359,18 @@ fn prepend_heartbeat(
 }
 
 pub(super) fn prepend_plan_heartbeat(plan: &Plan, text: &str) -> String {
+    prepend_plan_heartbeat_with_digests(plan, text, &[])
+}
+
+pub(super) fn prepend_plan_heartbeat_with_digests(
+    plan: &Plan,
+    text: &str,
+    digest_lines: &[String],
+) -> String {
     if is_plan_complete(plan) {
         return text.to_string();
     }
-    let block = render_heartbeat(plan, &plan.heartbeat, &plan.loops);
+    let block = render_heartbeat(plan, &plan.heartbeat, &plan.loops, digest_lines);
     let prompt = reconciliation_prompt(&plan.id, plan.owner.pane_id.as_deref());
     let reconciliation = format!(
         "<codeterm-state-reconciliation plan=\"{}\">\n{prompt}\n</codeterm-state-reconciliation>",
@@ -559,7 +585,7 @@ impl PlanStore {
         let plan = self.get(&plan_id).ok_or(PlanError::NotFound)?;
         Ok(HeartbeatShowResult {
             plan_id: plan.id.clone(),
-            reinjection: render_heartbeat(&plan, &plan.heartbeat, &plan.loops),
+            reinjection: render_heartbeat(&plan, &plan.heartbeat, &plan.loops, &[]),
             heartbeat: plan.heartbeat,
         })
     }
@@ -569,6 +595,18 @@ impl PlanStore {
             return text.to_string();
         };
         prepend_plan_heartbeat(&plan, text)
+    }
+
+    pub fn prepend_heartbeat_for_plan_with_digests(
+        &self,
+        plan_id: &str,
+        text: &str,
+        digest_lines: &[String],
+    ) -> String {
+        let Some(plan) = self.get(plan_id) else {
+            return text.to_string();
+        };
+        prepend_plan_heartbeat_with_digests(&plan, text, digest_lines)
     }
 
     pub fn prepend_heartbeat_for_orchestrator_pane(&self, pane_id: &str, text: &str) -> String {
