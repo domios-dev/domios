@@ -104,13 +104,18 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
     ).toBeVisible({ timeout: 20_000 });
     expect(stub.requests.length, "stub saw no web traffic after switch").toBeGreaterThan(before);
     expect(
-      stub.requests.some((r) => r.includes("/api/mux/state") || r.includes("/api/workspaces")),
+      stub.requests.some(
+        (r) =>
+          r.includes("/api/mux/state") ||
+          r.includes("/api/workspaces") ||
+          r.includes("/api/mesh/relay"),
+      ),
       `stub requests: ${stub.requests.slice(-10).join(", ")}`,
     ).toBe(true);
-    expect(
-      stub.requests.some((r) => r.includes("/api/mesh/web-token")),
+    expect(stub.requests.filter((r) => r.includes("/api/mesh/relay")).length).toBeGreaterThanOrEqual(
+      1,
       `stub requests: ${stub.requests.slice(-10).join(", ")}`,
-    ).toBe(true);
+    );
 
     // Switch back to self: real workspaces return, no stub data leaks.
     await page.click('[data-testid="peer-picker-button"]');

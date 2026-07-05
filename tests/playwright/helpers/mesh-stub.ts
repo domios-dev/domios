@@ -149,8 +149,33 @@ export class MeshStub {
           }
           try {
             const cmd = JSON.parse(body) as { method?: string; path?: string };
+            if (cmd.path) {
+              this.requests.push(`${req.method} ${path}:${cmd.path}`);
+            }
             if (cmd.method === "GET" && cmd.path === "/api/services") {
               return json(200, { ok: true, status: 200, data: this.services(), error: null });
+            }
+            if (cmd.method === "GET" && cmd.path === "/api/mux/state") {
+              return json(200, {
+                ok: true,
+                status: 200,
+                data: {
+                  workspaces: [
+                    {
+                      id: "stub-ws",
+                      name: `${this.instanceName}-workspace`,
+                      tabs: [],
+                      active_tab_id: null,
+                      cwd: null,
+                      protected: true,
+                    },
+                  ],
+                  panes: {},
+                  active_workspace_id: "stub-ws",
+                  focused_pane_id: null,
+                },
+                error: null,
+              });
             }
           } catch {
             /* fall through */
