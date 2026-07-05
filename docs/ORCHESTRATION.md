@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->
 
 Full reference for the `codeterm plan` CLI and orchestration discipline. The *why* (when to spawn, model routing, role contracts) lives here and in your role prompt — this doc is the authority; machine-specific deltas live in mem preferences (kind=preference, area=orchestration).
 
@@ -764,6 +764,165 @@ All canvas elements are typed nodes; their `links` arrays are edges drawn as con
 ## Live mutability (§3.9)
 
 The plan is a live object edited while work runs. Every `codeterm plan ...` call mutates it in place; the daemon serializes writes (single-writer, atomic temp-rename), refreshes the in-memory index, and fans out `plan-changed` so the canvas live-updates. Re-orient at any time: `plan get PLAN_ID` → markdown snapshot of current state. Teaching errors (§4.3) and plan-adherence nudges (§4.2) keep agents on track even after context compaction.
+
+## Orchestrator Role Discipline
+
+**PREREQUISITE — read the `codeterm` skill first.** It's auto-installed in your provider's skills dir. Baked in on purpose: you don't know the CLI by default until asked.
+
+### Operating Model
+
+**DELEGATE BY DEFAULT — even when told "do it yourself".** Every turn, ask "which tasks can I delegate RIGHT NOW, in parallel?" Dispatch disjoint lanes. Do work inline only for trivial fixes (a couple of lines). NEVER grind mechanical work inline — that goes to Workers. Route by difficulty: weaker/cheaper models for mechanical shuffling; stronger for reasoning/review/architecture. Your job = decomposition + dispatch + gating + acceptance, NOT execution.
+
+Hierarchy is flat: Orchestrator → Workers. Workers do not spawn Workers.
+
+**ALWAYS ATTACH workers to yourself: `--parent <your-pane-id> --role Worker`.** Without `--parent`, the spawn is standalone and untracked (report routing, hierarchy, lifecycle/cleanup all break). Standalone root spawning is reserved only for an independent sub-orchestrator running its own workstream.
+
+**Give each Worker an identity: `--title` + `--description`.** A worker with a clear title is legible in the agent tree, ledger, and presence layer.
+
+### Before Spawning Workers (Dispatch Checklist)
+
+1. Write the lane map: problem, area, worktree/branch, expected output, acceptance gates.
+2. Run a plan-review pass for broad/risky/multi-lane plans before dispatch.
+3. Put repo-required gates in the task: fmt, typecheck, unit tests, build wrappers, UI/e2e.
+4. Keep task prompts self-contained and in English for agent-to-agent traffic.
+5. Avoid backticks inside shell-quoted `--task` strings.
+6. **Think before you send** — does the recipient have everything to act on its own? A gap blocks the whole cycle.
+7. **Tell the worker to EXECUTE the report, not write it.** Spell out: "report by RUNNING `codeterm agent report '...'` as a shell tool call". Some models compose the report as chat text and it never reaches you via `[Report from ...]`.
+
+### Worker Report Shape
+
+```
+STATUS: done | blocked | partial | in_review
+CHANGES: files touched
+BUILD/TYPECHECK/TESTS: result
+FOLLOWUP: anything the Orchestrator should know
+```
+
+Workers report `in_review` — not `done`. The Orchestrator decides `done` after gating.
+
+**Keep the pipeline FULL.** Workers WRITE diffs (they don't build), so many run concurrently on non-conflicting files; only the orchestrator's build/verify gate is serial. Every cycle, ask: "what can I dispatch in parallel right now?"
+
+### Heartbeat Discipline
+
+**HEARTBEAT = ACTION, never PARK.** Parking = sinking into over-verifying one change or sitting on a self-imposed gate while the backlog sits untouched.
+
+Each heartbeat:
+1. **Reports first** — process any worker reports (accept/bounce). Don't inspect worker panes if reports arrived.
+2. **Re-scan the whole backlog** — list ALL open tasks; ask "what can I dispatch RIGHT NOW in parallel?"
+3. **Dispatch — if your focus is blocked, switch lanes, never sit.** A blocked/waiting lane is a signal to advance a DIFFERENT open task.
+4. **Timebox verification** — if a gate or test is blocked, record the friction, park that lane WITH A NOTE, and advance other work.
+5. Keep plan heartbeat current (owner, active assignments, lane metadata, latest handoff).
+6. **Focus names an action YOU own** — never a wait. If blocked on someone: focus = "bounce <agent> re <thing> if unchanged at next nudge."
+7. **Re-derive the frontier after every gate.** Each accept/close unblocks tasks — dispatch, park with a reason, or replan NOW.
+
+Do not create delayed self-send heartbeats as normal orchestration. If a worker is silent and overdue, check `pane status`/`pane chat` ONCE, record the lane state, and advance a different open task.
+
+### Verification Gates
+
+Unit-green is necessary and never sufficient. The Orchestrator's readiness claim needs evidence at the layer where the user experienced the bug.
+
+Track a ledger per fix:
+- Unit or focused test passed.
+- Build/typecheck passed through the repo's required wrapper.
+- Integration or UI pass run by the Orchestrator.
+- UI / end-to-end pass where practical.
+- Manual oracle checked for real session data or visuals.
+- Test path exercises the real failing scenario, not a helper-only shortcut.
+- Blast radius reviewed across providers/platforms.
+- Change is in version-controlled source, not only in an installed/dev copy.
+- **Gate tests run under a TIMEOUT.** A deadlock hangs — it reads as "still running" and slips a green gate. Wrap every gate in a hard timeout; timeout == failure == bounce back.
+
+### Acceptance — YOU decide `done`
+
+You are the acceptance authority. A Worker reports `in_review` (work written + self-checked). You then decide `done` after verification. Never let `in_review` rot — gate it NOW (→ `done` or bounce).
+
+How to convince yourself (pick by what needs verifying):
+- **Code/logic** → run tests/typecheck yourself in the warm checkout.
+- **Visual/UX** → look on the board after redeploy, or spin a fast verifier that screenshots.
+- **Against spec/GOAL** → re-read the plan's goal + relevant spec section; reject work that satisfies the symptom but misses the vector.
+
+### State Reconciliation — a Reflex
+
+Plan state silently drifts from reality. RECONCILE on two triggers, every time:
+- **After every task you close or receive** (report, pane death, accept/bounce).
+- **On every heartbeat** — before dispatching the next lane, sweep for drift first.
+
+What to check:
+- `in_progress` but assigned pane is dead/absent → clear binding, re-dispatch or flag.
+- `in_review` sitting unaccepted → gate it NOW.
+- Accepted/merged branch but task still open → mark `done`.
+- Task bound to a closed pane → clear the dead binding.
+- **NOT YOURS → flag, never touch.**
+
+Don't do this by eye — run: `codeterm plan reconcile <plan>` (lists mismatches); `--fix` applies safe transitions.
+
+### Review Discipline
+
+Two layers — do not conflate them:
+
+- **Self-review (every report):** read the actual `git diff`, re-run the meaningful gate in the integration checkout, grep risk patterns. The report is a signal, not proof.
+- **Independent review (separate adversarial reviewer AGENT):** spawn a reviewer prompted to REFUTE / find consequences. Self-review is NOT a substitute — per-pane fetch fan-outs and hot-path regressions routinely sail past tests and self-review; only an independent reviewer catches them.
+
+Run independent review on:
+- Broad plans before dispatch.
+- Risky lane diffs before integration.
+- Final integration diff before declaring a phase done.
+- Hot-path / perf-sensitive changes (render loops, fan-out, caching, per-pane mounts).
+- Security, provider-boundary, session-binding, or cross-platform changes.
+
+**Tailor review prompt to the model — prefer running TWO in parallel:**
+- **Opus** does well with open-ended adversarial framing ("refute / find consequences") — it self-initiates empirical probing without being told each step.
+- **Cursor/Composer** is reliable but NOT self-initiating — give it a checklist of review angles to actively probe. Plus a sharp persona ("skeptical QA who VERIFIES by executing, never by reasoning alone").
+- **Dual-review:** for critical/final/hot-path diffs, run BOTH (Opus open-ended + cursor prescriptive) and triage the UNION.
+
+### Model Routing
+
+`codeterm agent spawn <provider> --model <id>`. Match task to tier. Verify with `codeterm agent models <provider>` before trusting any id.
+
+| Model | provider / id | tier | best at | avoid |
+|-------|---------------|------|---------|-------|
+| Opus 4.8 | `claude` / `opus` | frontier | reasoning, planning, decomposition, adversarial/security review, architecture, final integration verification | bulk cheap work, simple edits |
+| Sonnet 4.6 | `claude` / `sonnet` | balanced (default) | general coding, research synthesis, docs, moderate reasoning | hardest reasoning (Opus); cheapest fan-out (Haiku) |
+| Haiku 4.5 | `claude` / `haiku` | cheap-fast | verification gates, mechanical edits, high-volume parallel fan-out | deep reasoning, ambiguous open-ended tasks |
+| Composer 2.5 | `cursor` / `composer-2.5` | cheap-fast coder | bounded multi-file feature coding with explicit acceptance gates | terminal-heavy/non-IDE work, deep reasoning |
+| GPT-5.5 | `codex` / `gpt-5.5` | frontier | terminal-heavy agentic work — build pipelines, multi-command orchestration | pure IDE multi-file edits (Composer cheaper) |
+| GPT-5.3-Codex-Spark | `codex` / `gpt-5.3-codex-spark` | ultra-fast coder | latency-critical tight-loop coding | multi-step / deep-reasoning tasks |
+
+Routing matrix:
+
+| Sub-task | Primary | Fallback |
+|----------|---------|----------|
+| reasoning / architecture / planning / decomposition | Opus | Sonnet |
+| adversarial code / security review | Opus | Sonnet |
+| bounded multi-file feature coding (clear gates) | Composer 2.5 | Sonnet |
+| mechanical edits / refactors / rename sweeps | Haiku | Composer 2.5 |
+| verification: run tests / e2e / check output / lint | Haiku | Sonnet |
+| terminal-heavy agentic (build pipelines, multi-cmd) | GPT-5.5 | Sonnet |
+| research / synthesis / docs writing | Sonnet | Haiku |
+| cheap high-volume parallel fan-out | Haiku | Composer 2.5 |
+| latency-sensitive interactive coding loop | GPT-5.3-Codex-Spark | Composer 2.5 |
+
+Heuristic: judgment → Opus. General coding/research → Sonnet. Mechanical/verify/fan-out → Haiku. Bounded IDE-coding lane → Composer. Terminal/agentic build → GPT-5.5.
+
+### Agent / Pane Hygiene
+
+Long runs accumulate finished Worker panes. Sweep them — it's expected, not optional.
+
+- After a lane integrates/verifies AND its Worker has reported: `codeterm pane close <pane_id>`.
+- Sweep periodically: `codeterm pane list` → close panes whose lane is done.
+- Closing is recoverable: `codeterm sessions search "<what it was doing>"` → `codeterm sessions resume <id>`.
+- Never close mid-task, a pane you don't own, or the General/main pane.
+- Close dedicated workspaces when lanes land: `codeterm workspace close <ws_id>`.
+- **Worktree pairing:** closing a Worker's pane + removing its git worktree go together: `git worktree remove <path> --force`.
+
+### Sharp Edges
+
+- Never blind-retry a write that returned an error — it may have SUCCEEDED, so retrying DUPLICATES the row. Verify by reading back, not by retrying.
+- An inbox / SendMessage-style message does NOT reach a running agent pane — it's silently dropped. Brief at spawn with `--task-file`; steer a running agent with `codeterm send`.
+
+### Usage Check Before Any Big Task Batch
+
+Check both providers before heavy spawning: `codeterm usage latest --provider claude` and `codeterm usage latest --provider codex` (session% + weekly%). Pick the provider mix by remaining headroom. If BOTH are at/near 95%, alert via `codeterm bridge send` and pause heavy spawning until reset. Machine-specific parallelism limits and build constraints live in mem preferences (area=orchestration).
 
 ## What lives where
 
