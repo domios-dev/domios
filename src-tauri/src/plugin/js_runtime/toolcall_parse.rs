@@ -735,14 +735,11 @@ mod tests {
 
     #[test]
     fn negative_corpus() {
-        // Genuinely-no-call (prose) and well-formed-but-not-our-tool blocks are
         // `none`, never `malformed`: there is nothing to retry.
         let cases = [
             "plain prose with no call",
-            // single-quoted python dict in a non-tool fence — parser declines it
             // (bad `{` boundary) and it must NOT be flagged malformed.
             "```python\nprint({'tool': 'exec', 'args': {'cmd': 'ls'}})\n```",
-            // truncated `{\"tool\":\"exec\"` repairs to valid JSON that just fails
             // schema (no required cmd) -> none, not malformed.
             "{\"tool\":\"exec\"",
             // unknown tool: valid JSON, schema rejects -> none.
@@ -758,11 +755,8 @@ mod tests {
 
     #[test]
     fn gemma_premature_close_with_dangling_pane_repairs() {
-        // The live Gemma-26B failure: inner string closed one quote early, leaving
-        // `--pane 70d3bacd` dangling before the close. The disciplined repair
         let raw = "{\"tool\":\"codeterm\",\"args\":{\"args\":\"send \\\"hi\\\"\" --pane 70d3bacd}}";
         let out = out_value(raw);
-        // Per spec: either a correct repair OR an honest malformed — never a
         // silent null and never a guessed/wrong command.
         assert_ne!(out["status"], "none", "must not silently drop: {raw:?}");
         if out["status"] == "ok" {
@@ -775,8 +769,6 @@ mod tests {
 
     #[test]
     fn unparseable_tool_block_is_malformed_not_silent() {
-        // Tool-call-shaped (`"tool"` + `"args"`) but JSON cannot be recovered
-        // (unterminated string). Must signal malformed so the caller retries,
         let raw = "{\"tool\":\"exec\",\"args\":{\"cmd\":\"ls";
         let out = out_value(raw);
         assert_eq!(out["status"], "malformed", "expected malformed for {raw:?}");
@@ -792,8 +784,6 @@ mod tests {
 
     #[test]
     fn ambiguous_repair_never_fabricates_a_command() {
-        // Dangling run after the premature close itself contains a quote: the
-        // repair is ambiguous, so we refuse it. Result must NOT be `ok` (a
         let raw = "{\"tool\":\"codeterm\",\"args\":{\"args\":\"send \\\"hi\\\"\" \"--pane\" 70d3}}";
         let out = out_value(raw);
         assert_ne!(out["status"], "ok", "must not guess a command: {raw:?}");

@@ -298,7 +298,6 @@ pub fn run_full(conn: &rusqlite::Connection, cache: &LayoutCache) -> Result<u64,
     let (projected, knn) = project_2d(&raw)?;
     let mut normalized = placement::normalize(&projected);
 
-    // LinLog refinement: shorten drawn relation edges (fewer crossings) while
     // mutual-kNN edges keep the semantic neighborhoods from drifting apart.
     let id_index: HashMap<&str, usize> = vectors
         .iter()
@@ -330,8 +329,6 @@ pub fn run_full(conn: &rusqlite::Connection, cache: &LayoutCache) -> Result<u64,
     super::linlog::refine(&mut normalized, &edges);
     let mut normalized = placement::normalize(&normalized);
 
-    // Primary clustering: Louvain communities over the relation graph — the
-    // drawn edges define the clusters. Nodes without relations join the
     let relation_edges: Vec<super::louvain::LouvainEdge> = edges
         .iter()
         .filter(|e| e.weight > 0.5)

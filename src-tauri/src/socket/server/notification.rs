@@ -1,7 +1,7 @@
 //! `notification.*` JSON-RPC handlers.
 
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 
 use crate::notification::store::NotificationLevel;
 use crate::notification::NotifState;
@@ -54,11 +54,10 @@ pub(super) fn dispatch(
                 let h = app.clone();
                 let p = serde_json::json!({"id": id, "title": emit_title, "body": emit_body, "level": emit_level, "pane_id": emit_pane, "workspace_id": Value::Null});
                 std::thread::spawn(move || {
-                    let _ = h.emit("notification-created", p);
+                    crate::api::events::emit_everywhere(&h, "notification-created", p);
                 });
             }
 
-            // OS notification if window unfocused
             {
                 let is_focused = app
                     .get_webview_window("main")
@@ -90,6 +89,7 @@ pub(super) fn dispatch(
             serde_json::to_value(&notifications).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: format!("Serialization error: {}", e),
+                data: None,
             })
         }
 
@@ -107,6 +107,7 @@ pub(super) fn dispatch(
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),
+            data: None,
         }),
     }
 }

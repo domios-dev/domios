@@ -9,7 +9,6 @@ import {
 } from "./clientPaneUiMode";
 import type { AppConfig, PaneBacking } from "./types";
 
-// Sync mirror of the chat-default so the FIRST render resolves the right view
 // before the async get_config warms the cache — kills the terminal→chat flash.
 const CHAT_DEFAULT_SYNC_KEY = "codeterm:chat-default-new-agent-pane";
 
@@ -32,8 +31,6 @@ function persistChatDefaultSync(enabled: boolean): void {
 
 export type PaneUiMode = "terminal" | "chat";
 
-// Capability-driven: a provider supports chat when its descriptor says so
-// (JSONL sessions or structured/DB-backed chat). chatBackend shell panes have no
 export function isChatUiSupported(agentType?: string | null, backing?: PaneBacking | null): boolean {
   if (backing?.kind === "chat_backend") return true;
   if (!agentType) return false;
@@ -104,7 +101,6 @@ export async function setDefaultNewAgentPaneToChat(enabled: boolean): Promise<vo
   publishPaneUiModeDefaultChanged(enabled);
 }
 
-// Records that the chat-default suggestion has been answered, so the inline
 // prompt never reappears once the user accepts or dismisses it.
 export async function markChatDefaultPrompted(): Promise<void> {
   const config = await invoke<AppConfig>("get_config");

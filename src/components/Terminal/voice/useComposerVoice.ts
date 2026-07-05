@@ -203,7 +203,6 @@ export function useComposerVoice({
     };
   }, []);
 
-  // Derived values — all pure from FSM state
   const state = stateRef.current;
   const voiceMode: ComposerVoiceMode =
     state.phase === "hold" ? "hold" :

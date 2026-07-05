@@ -1,5 +1,6 @@
 import { ArrowDownToLine } from "lucide-react";
 import { useUpdate } from "../hooks/useUpdate";
+import { BusySpinner } from "./shared/BusyState";
 
 export function UpdateBadge() {
   const { status, latestVersion, installing, progress, applyUpdate } = useUpdate();
@@ -49,17 +50,5 @@ export function UpdateBadge() {
 }
 
 function Spinner() {
-  return (
-    <svg
-      width="10"
-      height="10"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className="animate-spin"
-    >
-      <path d="M8 2 a6 6 0 0 1 6 6" strokeLinecap="round" />
-    </svg>
-  );
+  return <BusySpinner size={10} />;
 }

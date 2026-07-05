@@ -14,12 +14,10 @@ pub struct InstallPaneResult {
 /// install command into it. The install command comes from the provider
 /// plugin's `install_command(platform)`. The Install card on the
 /// per-provider settings screen calls this.
-#[tauri::command]
-pub fn install_provider_in_pane(
-    svc: State<'_, ServiceState>,
+pub fn install_provider_in_pane_core(
+    svc: &ServiceState,
     provider_id: String,
 ) -> Result<InstallPaneResult, String> {
-    // 1. Get install command from provider plugin (platform-specific).
     let platform = crate::agent::provider::current_platform_tag();
     let install_cmd = svc
         .agent_registry
@@ -32,7 +30,6 @@ pub fn install_provider_in_pane(
             )
         })?;
 
-    // 2. Resolve workspace — prefer active, fall back to first.
     let ws_id = {
         let mux = svc.mux.write();
         mux.snapshot()
@@ -42,15 +39,10 @@ pub fn install_provider_in_pane(
             .ok_or("No workspace found")?
     };
 
-    // 3. Create tab + activate it so the user sees the install run.
     let (tab_id, pane_id) = svc.create_tab(&ws_id)?;
-
-    // 4. Name the pane "Install <provider>" at the User level so auto-rename doesn't overwrite it once npm/brew prints output.
     let _ = svc.rename_pane(&pane_id, &format!("Install {}", provider_id));
 
-    // 5. Background: wait for the PTY to land (frontend creates it on mux-state-changed), wait for shell prompt readiness, then send the install
-    // command. Mirrors `launch_agent_in_background`.
-    let svc_clone = (*svc).clone();
+    let svc_clone = svc.clone();
     let pane_id_clone = pane_id.clone();
     std::thread::spawn(move || {
         let frontend_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -82,6 +74,24 @@ pub fn install_provider_in_pane(
     });
 
     Ok(InstallPaneResult { tab_id, pane_id })
+}
+
+#[tauri::command]
+pub fn install_provider_in_pane(
+    svc: State<'_, ServiceState>,
+    provider_id: String,
+) -> Result<InstallPaneResult, String> {
+    install_provider_in_pane_core(&svc, provider_id)
+}
+
+#[tauri::command]
+pub fn complete_general_agent_first_run(
+    svc: State<'_, ServiceState>,
+    config: State<'_, crate::config::ConfigState>,
+    app: tauri::AppHandle,
+    provider_id: String,
+) -> Result<(), String> {
+    crate::service::general_agent::complete_first_run_core(&svc, &config, &app, &provider_id)
 }
 
 #[tauri::command]

@@ -5,8 +5,6 @@ import type { PendingPrompt, PromptOption, PromptSection } from "../../lib/types
 const WIZARD_SUBMIT_VALUE = "9000";
 const WIZARD_MULTI_MASK_BASE = 10000;
 
-// A "type your own" escape hatch among the picker's fixed options. Detected by
-// label shape, never by index — vendors phrase it differently ("Other", "Type
 const FREE_TEXT_LABEL =
   /^(?:\(?\s*)?(?:other|custom|none of (?:the above|these)|type (?:your own|something(?: else)?)|write your own|enter (?:your own|custom|text)|free[\s-]?text|something else)/i;
 
@@ -14,7 +12,6 @@ function isFreeTextOption(opt: PromptOption): boolean {
   return FREE_TEXT_LABEL.test(opt.label.trim());
 }
 
-// Renders a pane's open terminal picker (model menu, clarifying question,
 // multi-step wizard) as a first-class, inline message in the chat transcript.
 export function PendingPromptCard({
   pendingPrompt,
@@ -226,8 +223,6 @@ function LiveDot() {
   );
 }
 
-// Monospace keycap echoing the keystroke this option maps to in the terminal
-// picker — the card's tie to the TUI it mirrors. aria-hidden: the label text
 function KeyCap({ label }: { label: string }) {
   return (
     <span
@@ -245,7 +240,6 @@ function KeyCap({ label }: { label: string }) {
   );
 }
 
-// Pencil glyph standing in for the keycap on a "type your own" option — signals
 // this row opens an editor rather than picking a fixed value.
 function PencilCap() {
   return (
@@ -264,8 +258,6 @@ function PencilCap() {
   );
 }
 
-// Inline editor that replaces the free-text option in place: type, then Enter
-// or Accept sends the raw text straight back through onRespond. Escape (or the
 function FreeTextEditor({
   placeholder,
   onAccept,

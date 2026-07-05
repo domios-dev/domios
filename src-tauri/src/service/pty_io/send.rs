@@ -3,7 +3,7 @@
 use crate::service::ServiceContext;
 
 /// Bytes written to a fresh pty to launch a shell-level command. On Unix, exec a
-/// temp script via `bash <path>` to bypass bracketed-paste markers — macOS system
+/// temp script via `/bin/bash <path>` to bypass bracketed-paste markers — macOS system
 /// bash 3.2 has no bracketed-paste binding and leaks the markers as literal text.
 /// Script self-cleans via `trap 'rm -f $0' EXIT`.
 #[cfg(unix)]
@@ -18,7 +18,7 @@ pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
         writeln!(f, "{}", cmd)?;
     }
     std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700))?;
-    Ok(format!("bash {}\r", script_path).into_bytes())
+    Ok(format!("/bin/bash {}\r", script_path).into_bytes())
 }
 
 /// Windows keeps bracketed paste (no /bin/bash to script-exec). The leading space
@@ -187,8 +187,6 @@ impl ServiceContext {
     /// Deliver the initial agent launch command to a bare shell — no verify path
     /// (no agent TUI exists yet). Mirrors general_agent::lifecycle.
     pub fn send_launch_command_to_pty(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
-        // Wait for the prompt (arms PSReadLine's bracketed-paste handler). If it
-        // never renders the shell is likely stuck on an unanswered CSI 6n — xterm
         #[cfg(windows)]
         {
             use std::time::Duration;
@@ -206,12 +204,12 @@ impl ServiceContext {
     }
 
     /// Poll the screen until the provider's TUI fingerprint shows, bounded by `timeout`. Best-effort.
-    fn await_agent_tui_on_screen(
+    pub(crate) fn await_agent_tui_on_screen(
         &self,
         pty_id: &str,
         agent_id: &str,
         timeout: std::time::Duration,
-    ) {
+    ) -> bool {
         let deadline = std::time::Instant::now() + timeout;
         loop {
             let screen = self.screen_state.lock().get_screen_text(pty_id);
@@ -222,11 +220,11 @@ impl ServiceContext {
                         .with_provider(agent_id, |p| p.screen_has_tui(&text))
                         .unwrap_or(false);
                 if ready {
-                    return;
+                    return true;
                 }
             }
             if std::time::Instant::now() >= deadline {
-                return;
+                return false;
             }
             std::thread::sleep(std::time::Duration::from_millis(200));
         }

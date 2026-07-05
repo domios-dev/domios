@@ -1,5 +1,5 @@
 //! `codeterm web` — web-mirror helpers. `web link` assembles a ready-to-
-//! open URL for THIS machine's /web with the API token embedded so the
+//! open URL for THIS machine's browser UI with the API token embedded so the
 //! General Agent can hand the user a one-click link.
 
 use crate::WebAction;
@@ -34,7 +34,6 @@ fn link(
         link_peer(json_mode, &base, &peer, query);
         return;
     }
-    // The link must embed the STABLE api.token from config.toml — never the signed mesh token read_api_config prefers (those expire in ~60s and
     // are nonce-protected against replay, i.e. dead on first reuse).
     let Some(token) = config_api_token().filter(|t| !t.is_empty()) else {
         eprintln!("Error: no api.token in config — web access needs one (Settings → Network).");
@@ -114,7 +113,7 @@ fn build_local_web_link(
     };
     let separator = if query { "?" } else { "#" };
     LocalWebLink {
-        url: format!("{}/web/{}token={}", base.0, separator, token),
+        url: format!("{}/{}token={}", base.0, separator, token),
         host: base.1,
         port: base.2,
     }
@@ -166,7 +165,7 @@ fn origin_host_port(origin: &str, default_port: u16) -> (String, u16) {
     (authority.to_string(), default_port)
 }
 
-/// Build a /web link for a paired mesh peer: resolve the peer name to its
+/// Build a browser UI link for a paired mesh peer: resolve the peer name to its
 /// instance id, then let the peer mint its own web token. The daemon's
 /// peer-web-token route already returns a `host` that prefers the peer's
 /// HTTPS tailscale-serve FQDN over a mixed-content http://IP front, so the
@@ -244,9 +243,9 @@ fn link_peer(json_mode: bool, base: &str, peer_name: &str, query: bool) {
 
     // `host` already carries the scheme (https://fqdn or http://ip:port).
     let url = if query {
-        format!("{}/web/?token={}", host, peer_token)
+        format!("{}/?token={}", host, peer_token)
     } else {
-        format!("{}/web/#token={}", host, peer_token)
+        format!("{}/#token={}", host, peer_token)
     };
     if json_mode {
         println!(
@@ -287,7 +286,7 @@ mod tests {
             "api_port": 7685
         });
         let link = build_local_web_link(Some(&status), None, 9999, false, "tok", false);
-        assert_eq!(link.url, "https://host.ts.net/web/#token=tok");
+        assert_eq!(link.url, "https://host.ts.net/#token=tok");
         assert_eq!(link.host, "host.ts.net");
         assert_eq!(link.port, 443);
     }
@@ -299,7 +298,7 @@ mod tests {
             "api_port": 7685
         });
         let link = build_local_web_link(Some(&status), None, 9999, false, "tok", false);
-        assert_eq!(link.url, "https://host.ts.net:8443/web/#token=tok");
+        assert_eq!(link.url, "https://host.ts.net:8443/#token=tok");
         assert_eq!(link.port, 8443);
     }
 
@@ -311,7 +310,7 @@ mod tests {
             "api_port": 7685
         });
         let link = build_local_web_link(Some(&status), None, 9999, false, "tok", false);
-        assert_eq!(link.url, "http://100.64.0.5:7685/web/#token=tok");
+        assert_eq!(link.url, "http://100.64.0.5:7685/#token=tok");
         assert_eq!(link.host, "100.64.0.5");
         assert_eq!(link.port, 7685);
     }
@@ -323,7 +322,7 @@ mod tests {
             "api_port": 7685
         });
         let link = build_local_web_link(Some(&status), Some("10.0.0.8"), 7777, true, "tok", false);
-        assert_eq!(link.url, "http://10.0.0.8:7777/web/#token=tok");
+        assert_eq!(link.url, "http://10.0.0.8:7777/#token=tok");
         assert_eq!(link.host, "10.0.0.8");
         assert_eq!(link.port, 7777);
     }
@@ -331,7 +330,7 @@ mod tests {
     #[test]
     fn local_web_link_query_token_form() {
         let link = build_local_web_link(None, None, 7685, false, "tok", true);
-        assert_eq!(link.url, "http://127.0.0.1:7685/web/?token=tok");
+        assert_eq!(link.url, "http://127.0.0.1:7685/?token=tok");
     }
 
     #[test]
@@ -342,7 +341,7 @@ mod tests {
             "api_port": 7685
         });
         let link = build_local_web_link(Some(&status), None, 7777, true, "tok", false);
-        assert_eq!(link.url, "http://100.64.0.5:7777/web/#token=tok");
+        assert_eq!(link.url, "http://100.64.0.5:7777/#token=tok");
         assert_eq!(link.port, 7777);
     }
 }

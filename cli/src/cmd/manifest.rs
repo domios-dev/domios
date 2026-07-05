@@ -57,7 +57,11 @@ fn walk(cmd: &Command) -> ManifestCommand {
         .collect();
     args.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let mut subcommands: Vec<ManifestCommand> = cmd.get_subcommands().map(walk).collect();
+    let mut subcommands: Vec<ManifestCommand> = cmd
+        .get_subcommands()
+        .filter(|c| c.get_name() != "help" && c.get_name() != "version" && !c.is_hide_set())
+        .map(walk)
+        .collect();
     subcommands.sort_by(|a, b| a.name.cmp(&b.name));
 
     let mut aliases: Vec<String> = cmd.get_visible_aliases().map(|s| s.to_string()).collect();
@@ -84,7 +88,7 @@ pub fn to_markdown() -> String {
     let root = build();
     let mut out = String::new();
     for cmd in &root.subcommands {
-        render_md(cmd, &[root.name.clone()], &mut out);
+        render_md(cmd, std::slice::from_ref(&root.name), &mut out);
     }
     out
 }
@@ -105,8 +109,11 @@ fn render_md(cmd: &ManifestCommand, path: &[String], out: &mut String) {
         } else {
             format!("`--{}`", a.name)
         };
-        let help = a.help.as_deref().unwrap_or("");
-        out.push_str(&format!("- {flag} — {help}\n"));
+        if let Some(help) = a.help.as_deref().filter(|help| !help.is_empty()) {
+            out.push_str(&format!("- {flag} — {help}\n"));
+        } else {
+            out.push_str(&format!("- {flag}\n"));
+        }
     }
     if !cmd.args.is_empty() {
         out.push('\n');
@@ -125,7 +132,11 @@ fn repo_path(rel: &str) -> std::path::PathBuf {
         .join(rel)
 }
 
-pub fn handle(write: bool) {
+pub fn handle(write: bool, markdown: bool) {
+    if markdown {
+        print!("{}", to_markdown());
+        return;
+    }
     if !write {
         print!("{}", to_json());
         return;
@@ -152,19 +163,51 @@ mod tests {
     }
 
     const MANIFEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/cli-manifest.json");
+    const CLI_MD_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/CLI.md");
+
+    fn codeterm_exe() -> Option<std::path::PathBuf> {
+        if let Ok(path) = std::env::var("CARGO_BIN_EXE_codeterm") {
+            return Some(path.into());
+        }
+        let exe = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug/codeterm");
+        exe.is_file().then_some(exe)
+    }
+
+    fn run_codeterm(args: &[&str]) -> std::process::Output {
+        if let Some(exe) = codeterm_exe() {
+            return std::process::Command::new(&exe)
+                .args(args)
+                .output()
+                .unwrap_or_else(|e| panic!("spawn {}: {e}", exe.display()));
+        }
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let mut command =
+            std::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
+        command.args(["run", "--quiet", "--manifest-path"]);
+        command.arg(manifest);
+        command.args(["--bin", "codeterm", "--"]);
+        command.args(args);
+        command.output().expect("spawn cargo run --bin codeterm")
+    }
 
     #[test]
     fn cli_manifest_is_fresh() {
         let committed = std::fs::read_to_string(MANIFEST_PATH)
             .expect("docs/cli-manifest.json missing — run `codeterm cli-manifest --write`");
+        let output = run_codeterm(&["cli-manifest"]);
+        assert!(
+            output.status.success(),
+            "codeterm cli-manifest failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let generated =
+            String::from_utf8(output.stdout).expect("codeterm cli-manifest stdout is utf-8");
         assert_eq!(
             normalize_newlines(&committed),
-            normalize_newlines(&to_json()),
+            normalize_newlines(&generated),
             "docs/cli-manifest.json is stale — run `codeterm cli-manifest --write`"
         );
     }
-
-    const CLI_MD_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/CLI.md");
 
     #[test]
     fn docs_cli_md_is_fresh() {
@@ -172,7 +215,15 @@ mod tests {
         let start = md.find(MD_START).expect("missing cli:auto-start marker") + MD_START.len();
         let end = md.find(MD_END).expect("missing cli:auto-end marker");
         let block = &md[start..end];
-        let expected = format!("\n{}\n", to_markdown());
+        let output = run_codeterm(&["cli-manifest", "--markdown"]);
+        assert!(
+            output.status.success(),
+            "codeterm cli-manifest --markdown failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let markdown =
+            String::from_utf8(output.stdout).expect("codeterm cli-manifest --markdown is utf-8");
+        let expected = format!("\n{markdown}\n");
         assert_eq!(
             normalize_newlines(block),
             normalize_newlines(&expected),
@@ -196,8 +247,6 @@ mod tests {
         Some(cur)
     }
 
-    // Every `codeterm <subcmd...>` head referenced in the prompt must resolve in
-    // the clap tree. Conservative: only flags a line whose command head matches
     #[test]
     fn prompt_cli_commands_exist() {
         let root = build();
@@ -208,7 +257,6 @@ mod tests {
             let Some(rest) = line.strip_prefix("codeterm ") else {
                 continue;
             };
-            // `codeterm --version` / `--help` etc. is the root + a global flag,
             // not a subcommand — valid, skip.
             if rest.trim_start().starts_with('-') {
                 continue;
@@ -236,6 +284,50 @@ mod tests {
             bad.is_empty(),
             "prompt references unknown CLI commands:\n{}",
             bad.join("\n")
+        );
+    }
+
+    // `about` string so docs/CLI.md and chat cards never render a blank line.
+    #[test]
+    fn every_leaf_command_has_about() {
+        fn walk(cmd: &Command, path: &[String], missing: &mut Vec<String>) {
+            let mut full = path.to_vec();
+            full.push(cmd.get_name().to_string());
+            let subs: Vec<&Command> = cmd
+                .get_subcommands()
+                .filter(|c| c.get_name() != "help" && !c.is_hide_set())
+                .collect();
+            if subs.is_empty() {
+                let about_empty = cmd
+                    .get_about()
+                    .map(|a| a.to_string().trim().is_empty())
+                    .unwrap_or(true);
+                if about_empty && !path.is_empty() {
+                    missing.push(full.join(" "));
+                }
+            } else {
+                for sub in subs {
+                    walk(sub, &full, missing);
+                }
+            }
+        }
+
+        let root = Cli::command();
+        let mut missing = Vec::new();
+        for sub in root
+            .get_subcommands()
+            .filter(|c| c.get_name() != "help" && !c.is_hide_set())
+        {
+            walk(
+                sub,
+                std::slice::from_ref(&root.get_name().to_string()),
+                &mut missing,
+            );
+        }
+        assert!(
+            missing.is_empty(),
+            "leaf commands missing an `about` description (add a /// doc comment):\n{}",
+            missing.join("\n")
         );
     }
 

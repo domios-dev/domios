@@ -27,7 +27,8 @@ import { IntegrationsTab } from "./IntegrationsTab";
 import { SecretsTab } from "./SecretsTab";
 import { LogsTab } from "./LogsTab";
 import { PluginsTab } from "./PluginsTab";
-import { UI_PANEL } from "../shared/design";
+import { HelpPanel } from "../../help/HelpPanel";
+import type { HelpSectionId } from "../../help/types";
 import {
   type SectionId,
   SECTION_ICONS,
@@ -35,12 +36,14 @@ import {
   sectionTitle,
   normalizeSection,
 } from "./sections";
+import { UI_PANEL } from "../shared/design";
 
 interface SettingsPanelProps {
   config: AppConfig;
   onUpdateConfig: (config: AppConfig) => Promise<void>;
   onClose: () => void;
   initialSection?: SectionId | "notifications";
+  initialHelpSection?: HelpSectionId;
 }
 
 type Route =
@@ -53,6 +56,7 @@ export function SettingsPanel({
   onUpdateConfig,
   onClose,
   initialSection,
+  initialHelpSection,
 }: SettingsPanelProps) {
   const normalizedInitial = normalizeSection(initialSection);
   const [stack, setStack] = useState<Route[]>(
@@ -70,6 +74,8 @@ export function SettingsPanel({
     const n = normalizeSection(initialSection);
     if (n) {
       setStack([{ kind: "root" }, { kind: "section", id: n }]);
+    } else {
+      setStack([{ kind: "root" }]);
     }
   }, [initialSection]);
 
@@ -137,7 +143,6 @@ export function SettingsPanel({
       ? sectionTitle(top.id)
       : "Provider";
 
-  // Back only when the parent is a real section (provider drill-down); returning
   // to the root grid is handled by closing — the titlebar menu is the entry point.
   const parent = stack.length >= 2 ? stack[stack.length - 2] : undefined;
   const parentSection = parent?.kind === "section" ? parent : undefined;
@@ -400,6 +405,8 @@ export function SettingsPanel({
 
                 <SettingsCard icon={<Keyboard size={16} />} title="Keybindings">
                   <KeybindGroup title="Tabs" bindings={[
+                    ["next_tab", "Next Tab / Plan Entry"],
+                    ["prev_tab", "Previous Tab / Plan Entry"],
                     ["reopen_tab", "Reopen Closed Tab"],
                   ]} config={localConfig} onUpdate={(c) => { setLocalConfig(c); onUpdateConfig(c).catch(() => {}); }} />
                 </SettingsCard>
@@ -459,6 +466,18 @@ export function SettingsPanel({
               <SettingsPage title="Logs" subtitle="App diagnostics from the daemon, mesh, agents, and integrations.">
                 <LogsTab config={localConfig} />
               </SettingsPage>
+            )}
+
+            {top.kind === "section" && top.id === "guide" && (
+              <div className="max-w-5xl mx-auto h-full min-h-[420px] flex flex-col" data-testid="settings-page" data-settings-page="guide">
+                <p className="sr-only">Guide</p>
+                <p className="text-sm text-[var(--ct-muted-fg)] mb-4 shrink-0">
+                  What CodeTerm is and how to work with it.
+                </p>
+                <div className="flex-1 min-h-0">
+                  <HelpPanel config={localConfig} initialSection={initialHelpSection} />
+                </div>
+              </div>
             )}
 
             {top.kind === "section" && top.id === "about" && (

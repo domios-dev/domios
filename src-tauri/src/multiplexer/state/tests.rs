@@ -64,6 +64,9 @@ fn test_create_tab() {
     assert!(!tab_id.is_empty());
     assert!(!pane_id.is_empty());
     assert!(state.get_pane(&pane_id).is_some());
+    let pane = state.get_pane(&pane_id).unwrap();
+    assert_eq!(pane.role, None, "user-created tab must start roleless");
+    assert!(!pane.can_spawn, "roleless tab must not inherit can_spawn");
 
     let ws = state.get_workspace(&ws_id).unwrap();
     assert_eq!(ws.tabs.len(), 2);
@@ -78,6 +81,59 @@ fn test_create_tab_invalid_workspace() {
 }
 
 #[test]
+fn test_claim_existing_tab_reuses_blank_pane_in_place() {
+    let (mut state, _) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let (tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
+    let tabs_before = state.get_workspace(&ws_id).unwrap().tabs.len();
+
+    let (claimed_tab_id, claimed_pane_id) = state.claim_existing_tab(&ws_id, &tab_id).unwrap();
+    assert_eq!(claimed_tab_id, tab_id, "claim must not mint a new tab id");
+    assert_eq!(
+        claimed_pane_id, pane_id,
+        "claim must not mint a new pane id"
+    );
+    assert_eq!(
+        state.get_workspace(&ws_id).unwrap().tabs.len(),
+        tabs_before,
+        "claim must not create a stray tab"
+    );
+}
+
+#[test]
+fn test_claim_existing_tab_rejects_tab_with_agent_already_attached() {
+    let (mut state, _) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let (tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
+    state.get_pane_mut(&pane_id).unwrap().agent_type = Some("claude".into());
+
+    let result = state.claim_existing_tab(&ws_id, &tab_id);
+    assert!(
+        result.is_err(),
+        "an already-spawned tab must not be claimable"
+    );
+}
+
+#[test]
+fn test_claim_existing_tab_rejects_unknown_tab() {
+    let (mut state, _) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let result = state.claim_existing_tab(&ws_id, "nonexistent-tab");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_claim_existing_tab_rejects_protected_pane() {
+    let (mut state, _) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let (tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
+    state.get_pane_mut(&pane_id).unwrap().protected = true;
+
+    let result = state.claim_existing_tab(&ws_id, &tab_id);
+    assert!(result.is_err(), "a protected pane must not be claimable");
+}
+
+#[test]
 fn test_create_tab_generates_unique_titles() {
     let (mut state, _) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
@@ -89,12 +145,9 @@ fn test_create_tab_generates_unique_titles() {
     let ws = state.get_workspace(&ws_id).unwrap();
     let mut titles = std::collections::HashSet::new();
     for tab in &ws.tabs {
-        assert_ne!(tab.title, "Terminal");
-        assert!(
-            titles.insert(tab.title.as_str()),
-            "duplicate tab title: {}",
-            tab.title
-        );
+        let title = state.get_pane(&tab.pane_id).unwrap().title.as_str();
+        assert_ne!(title, "Terminal");
+        assert!(titles.insert(title), "duplicate pane title: {}", title);
     }
 }
 
@@ -354,10 +407,17 @@ fn test_worker_requires_orchestrator_parent() {
 }
 
 #[test]
-fn test_worker_parent_must_be_orchestrator() {
-    let (mut state, pane_id) = MultiplexerState::new();
+fn test_worker_parent_must_not_be_worker() {
+    let (mut state, orch_id) = MultiplexerState::new();
+    state
+        .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
+        .unwrap();
+    let worker_parent = state.create_pane();
+    state
+        .set_pane_role(&worker_parent, AgentRole::Worker, Some(&orch_id))
+        .unwrap();
     let other_id = state.create_pane();
-    let result = state.set_pane_role(&pane_id, AgentRole::Worker, Some(&other_id));
+    let result = state.set_pane_role(&other_id, AgentRole::Worker, Some(&worker_parent));
     assert!(result.is_err());
 }
 
@@ -504,30 +564,23 @@ fn test_rename_pane_pins_title() {
 }
 
 #[test]
-fn test_rename_pane_does_not_change_tab_title() {
+fn test_rename_pane_changes_canonical_title() {
     let (mut state, pane_id) = MultiplexerState::new();
-    let ws_id = state.list_workspaces()[0].id.clone();
-    let original = state.get_workspace(&ws_id).unwrap().tabs[0].title.clone();
 
     state.rename_pane(&pane_id, "My Pane").unwrap();
 
-    let ws = state.get_workspace(&ws_id).unwrap();
-    assert_eq!(
-        ws.tabs[0].title, original,
-        "tab title must be stable across pane renames"
-    );
+    assert_eq!(state.display_label_for_pane(&pane_id), "My Pane");
 }
 
 #[test]
-fn test_rename_tab_changes_title() {
-    let (mut state, _) = MultiplexerState::new();
+fn test_rename_tab_changes_canonical_pane_title() {
+    let (mut state, pane_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     let tab_id = state.get_workspace(&ws_id).unwrap().tabs[0].id.clone();
 
     state.rename_tab(&ws_id, &tab_id, "Renamed").unwrap();
 
-    let ws = state.get_workspace(&ws_id).unwrap();
-    assert_eq!(ws.tabs[0].title, "Renamed");
+    assert_eq!(state.get_pane(&pane_id).unwrap().title, "Renamed");
 }
 
 #[test]
@@ -639,7 +692,6 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
         SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
     };
 
-    // Legacy snapshot path: agent_type is None (saved before reliable tracking), but the title preserved when the snapshot was captured carries
     // the provider name. Restore must recover agent_type so tab-bar icons show.
     for (title, expected) in [
         ("codex", "codex"),
@@ -673,6 +725,7 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
                         agent_type_locked: false,
                         claude_session_id: None,
                         role: None,
+                        role_profile: None,
                         parent_pane_id: None,
                         spawned_by_pane_id: None,
                         report_target_pane_id: None,
@@ -733,6 +786,7 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
                     agent_type_locked: false,
                     claude_session_id: None,
                     role: None,
+                    role_profile: None,
                     parent_pane_id: None,
                     spawned_by_pane_id: None,
                     report_target_pane_id: None,
@@ -771,7 +825,6 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
     use crate::session::store::{
         SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
     };
-    // Snapshot saved BEFORE agent_type_locked existed: only agent_type populated. Restore code must treat it as locked — pre-lock snapshots only
     // persisted agent_type via a real spawn or detection, both qualify as explicit intent.
     let snap = SessionSnapshot {
         version: "test".to_string(),
@@ -799,6 +852,7 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
                     agent_type_locked: false,
                     claude_session_id: None,
                     role: None,
+                    role_profile: None,
                     parent_pane_id: None,
                     spawned_by_pane_id: None,
                     report_target_pane_id: None,

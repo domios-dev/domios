@@ -22,6 +22,7 @@ impl MultiplexerState {
             session_binding_nonce: None,
             shell_integration_nonce: None,
             role: None,
+            role_profile: None,
             parent_pane_id: None,
             can_spawn: false,
             depth: 0,
@@ -39,9 +40,12 @@ impl MultiplexerState {
             exit_suspected_at: None,
             agent_booting: false,
             hidden: false,
+            skip_snapshot: false,
             show_in_tabbar: true,
             worker_id: None,
             restored_from_snapshot: false,
+            pending_greeting: None,
+            boot_stage: None,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -49,6 +53,16 @@ impl MultiplexerState {
 
     pub fn get_pane(&self, id: &str) -> Option<&Pane> {
         self.panes.get(id)
+    }
+
+    /// `(pane_id, pty_id)` for every pane currently backed by a PTY. Cheap
+    /// id-only clone for the multiplexed web output stream's per-tick sweep —
+    /// avoids the heavy full `snapshot()` on the hot path.
+    pub fn pty_backed_panes(&self) -> Vec<(String, String)> {
+        self.panes
+            .values()
+            .filter_map(|p| p.pty_id.clone().map(|pty| (p.id.clone(), pty)))
+            .collect()
     }
 
     /// Collect agent_session_ids from all panes except the given one.
@@ -97,14 +111,12 @@ impl MultiplexerState {
     /// nothing" UX bug). Callers in service-layer close paths should compare
     /// pre/post focus and emit `pane-focused` if it actually changed.
     pub fn fallback_focus_to_general(&mut self) -> Option<String> {
-        // Hard-coded alias mirrors `service::general_agent::GENERAL_ALIAS`. Kept as a string literal to avoid pulling a service-layer constant into
         // the state layer; if the alias name ever changes, update both.
         let target = self.resolve_pane_id("general")?;
         self.focused_pane_id = Some(target.clone());
         Some(target)
     }
 
-    /// Rename a pane and its containing tab. Pins the title to block OSC auto-rename.
     /// Rename a pane at User level (highest priority).
     pub fn rename_pane(&mut self, pane_id: &str, title: &str) -> Result<(), String> {
         self.rename_pane_at_level(pane_id, title, TitleLevel::User)
@@ -149,6 +161,21 @@ impl MultiplexerState {
         Ok(())
     }
 
+    /// Find an agent pane whose CWD starts with `project_root`. Used by the
+    /// runaway-sweeper to nudge the owning lane pane.
+    pub fn find_agent_pane_for_project(&self, project_root: &str) -> Option<String> {
+        self.panes
+            .values()
+            .find(|p| {
+                p.agent_type.is_some()
+                    && p.cwd
+                        .as_deref()
+                        .map(|cwd| cwd.starts_with(project_root))
+                        .unwrap_or(false)
+            })
+            .map(|p| p.id.clone())
+    }
+
     /// Find which workspace contains a given pane.
     pub fn find_workspace_for_pane(&self, pane_id: &str) -> Option<String> {
         for ws in &self.workspaces {
@@ -169,9 +196,8 @@ impl MultiplexerState {
         None
     }
 
-    /// Sidebar label for a pane — tab.title, falling back to pane.title, then short id.
+    /// Sidebar label for a pane — pane.title, falling back to short id.
     pub fn display_label_for_pane(&self, pane_id: &str) -> String {
-        // Callers may pass a short id / alias — resolve first so the tab-title lookup (which compares full ids) matches.
         let resolved = self
             .resolve_pane_id(pane_id)
             .unwrap_or_else(|| pane_id.to_string());
@@ -179,15 +205,6 @@ impl MultiplexerState {
             .get_pane(&resolved)
             .map(|p| p.title.clone())
             .unwrap_or_default();
-        for ws in &self.workspaces {
-            if let Some(tab) = ws.tabs.iter().find(|t| t.pane_id == resolved) {
-                let t = tab.title.trim();
-                if !t.is_empty() && t != pane_title.trim() {
-                    return t.to_string();
-                }
-                break;
-            }
-        }
         if !pane_title.trim().is_empty() {
             pane_title
         } else {
@@ -232,7 +249,6 @@ impl MultiplexerState {
             self.fallback_focus_to_general();
         }
 
-        // Children were already recorded as part of the cascade group in
         // close_pane; here we only tear them down.
         for cid in child_ids {
             if let Ok(child_ptys) = self.close_pane_inner(&cid) {
@@ -265,46 +281,80 @@ mod display_label_tests {
     use super::*;
 
     #[test]
-    fn display_label_prefers_tab_title_over_pane_title() {
-        // Regression: `[from MY-CUSTOM-TITLE pane=2503fbce]` showed the raw pane.title instead of the sidebar's friendly tab name. Recipients had no
-        // way to map the prefix back to the tab they could see.
+    fn display_label_uses_canonical_pane_title() {
         let (mut state, pane_id) = MultiplexerState::new();
         let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
         let tab_id = state.find_tab_for_pane(&pane_id).unwrap();
         state.rename_tab(&ws_id, &tab_id, "Fibonacci").unwrap();
-        state.rename_pane(&pane_id, "MY-CUSTOM-TITLE").unwrap();
         assert_eq!(state.display_label_for_pane(&pane_id), "Fibonacci");
     }
 
     #[test]
-    fn display_label_falls_back_to_pane_title_when_tab_matches() {
+    fn display_label_respects_user_pin_over_agent_title() {
         let (mut state, pane_id) = MultiplexerState::new();
-        let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
-        let tab_id = state.find_tab_for_pane(&pane_id).unwrap();
-        state.rename_tab(&ws_id, &tab_id, "Same").unwrap();
-        state.rename_pane(&pane_id, "Same").unwrap();
-        // Tab and pane title are identical — no point parroting the same word, fall back to pane.title so the resulting string isn't double-empty.
-        assert_eq!(state.display_label_for_pane(&pane_id), "Same");
+        state.rename_pane(&pane_id, "Euler").unwrap();
+        state
+            .rename_pane_at_level(&pane_id, "claude", TitleLevel::Agent)
+            .unwrap();
+        assert_eq!(state.display_label_for_pane(&pane_id), "Euler");
     }
 
     #[test]
-    fn auto_generated_tab_name_survives_pane_label_with_provider_id() {
-        // Regression: a new agent pane was labelled with the provider id ("claude") and that leaked into the tab title, so every fresh tab read "claude"
-        // instead of its unique auto-generated name. Labelling only the pane must leave the generated tab name intact.
+    fn auto_generated_pane_name_is_canonical() {
         let (mut state, _root) = MultiplexerState::new();
         let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
         let (_tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
-        let generated = state.find_tab_for_pane(&pane_id).and_then(|tid| {
-            state.workspaces[0]
-                .tabs
-                .iter()
-                .find(|t| t.id == tid)
-                .map(|t| t.title.clone())
-        });
-        let generated = generated.unwrap();
+        let generated = state.get_pane(&pane_id).unwrap().title.clone();
         assert_ne!(generated, "claude");
-        state.rename_pane(&pane_id, "claude").unwrap();
         assert_eq!(state.display_label_for_pane(&pane_id), generated);
+    }
+
+    /// Reproduces the web/CLI agent-spawn title decision: `create_tab` picks a
+    /// friendly name, then the spawn path decides whether to override it via
+    /// `creation_title_override`. A no-title, no-agent-name spawn (the "+ New
+    /// session" case that regressed to showing "cursor"/"codex") must keep the
+    /// generated name — never the raw provider id.
+    #[test]
+    fn agent_spawn_with_no_explicit_title_keeps_generated_name() {
+        let (mut state, _root) = MultiplexerState::new();
+        let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
+        let (_tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
+        let generated = state.get_pane(&pane_id).unwrap().title.clone();
+
+        let provider_id = "cursor";
+        let override_decision = crate::service::spawn_title::creation_title_override(None, None);
+        assert!(
+            override_decision.is_none(),
+            "no title/agent_name supplied: spawn must not compute a fallback title"
+        );
+        if let Some((title, level)) = override_decision {
+            state.rename_pane_at_level(&pane_id, &title, level).unwrap();
+        }
+
+        let final_title = state.get_pane(&pane_id).unwrap().title.clone();
+        assert_eq!(
+            final_title, generated,
+            "no-title agent spawn must keep the create_tab-generated name"
+        );
+        assert_ne!(
+            final_title, provider_id,
+            "the raw provider id must never become the pane title"
+        );
+    }
+
+    #[test]
+    fn agent_spawn_with_agent_name_overrides_generated_name_at_user_level() {
+        let (mut state, _root) = MultiplexerState::new();
+        let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
+        let (_tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
+
+        let (title, level) =
+            crate::service::spawn_title::creation_title_override(None, Some("Watson")).unwrap();
+        state.rename_pane_at_level(&pane_id, &title, level).unwrap();
+
+        let pane = state.get_pane(&pane_id).unwrap();
+        assert_eq!(pane.title, "Watson");
+        assert_eq!(pane.title_level, TitleLevel::User);
     }
 
     #[test]
@@ -312,7 +362,6 @@ mod display_label_tests {
         let (mut state, pane_id) = MultiplexerState::new();
         state.rename_pane(&pane_id, "").unwrap();
         let label = state.display_label_for_pane(&pane_id);
-        // Default auto-generated tab title is non-empty, so the label is either the tab title or the short id — either way, never empty.
         assert!(
             !label.is_empty(),
             "display label must never be empty (got {:?})",

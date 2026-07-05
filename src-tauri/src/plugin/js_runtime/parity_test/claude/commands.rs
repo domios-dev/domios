@@ -98,11 +98,17 @@ fn in_pane_command_surface_native_js_parity() {
         "exit_command must agree"
     );
     assert_eq!(
+        n.fresh_context_command(),
+        j.fresh_context_command(),
+        "fresh_context_command must agree"
+    );
+    assert_eq!(
         n.model_switch_format(),
         j.model_switch_format(),
         "model_switch_format must agree"
     );
     assert_eq!(n.compact_command(), Some("/compact"));
+    assert_eq!(n.fresh_context_command(), Some("/new"));
     assert_eq!(n.exit_command(), Some("/exit"));
     assert_eq!(n.model_switch_format(), Some("/model {model}"));
 }

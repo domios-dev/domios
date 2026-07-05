@@ -12,18 +12,18 @@ import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 const TERMINAL: SegmentedOption<PaneUiMode> = { value: "terminal", label: "Terminal" };
 const CHAT: SegmentedOption<PaneUiMode> = { value: "chat", label: "Chat" };
 
-/** Terminal | Chat switch for a pane. Emitting the mode fully swaps the view —
- *  TerminalPane mounts/unmounts the chat surface in response. When chat is the
- *  default view, it leads the picker. The initial state mirrors TerminalPane's
- *  own resolution so the knob never starts on the wrong segment and slides. */
+/** Terminal | Chat switch for a pane. Plan navigation lives in workspace actions
+ *  and the above-composer task strip, not as a third tab mode. */
 export function PaneModeSwitch({
   paneId,
   height,
   chatFirst = false,
+  chatPty = true,
 }: {
   paneId: string;
   height?: number;
   chatFirst?: boolean;
+  chatPty?: boolean;
 }) {
   const { state } = useMultiplexer();
   const pane = state.panes[paneId];
@@ -58,11 +58,15 @@ export function PaneModeSwitch({
     }));
   }), [paneId, chatCapable, pane?.chat_view]);
 
+  if (!chatPty) return null;
+
+  const baseOptions = defaultChatFirst ? [CHAT, TERMINAL] : [TERMINAL, CHAT];
+
   return (
     <Segmented
       data-testid="pane-mode-switch"
       value={mode}
-      options={defaultChatFirst ? [CHAT, TERMINAL] : [TERMINAL, CHAT]}
+      options={baseOptions}
       height={height}
       onChange={(next) => {
         setMode(next);

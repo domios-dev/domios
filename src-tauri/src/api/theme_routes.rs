@@ -78,7 +78,7 @@ pub async fn apply_theme_api(
     Json(body): Json<ApplyThemeBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    use tauri::{Emitter, Manager};
+    use tauri::Manager;
 
     let config_state = state.svc.app_handle.state::<crate::config::ConfigState>();
     let mut config = config_state.lock().clone();
@@ -90,7 +90,7 @@ pub async fn apply_theme_api(
     crate::config::save_config_pub(&config)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to save config"))?;
     *config_state.lock() = config.clone();
-    let _ = state.svc.app_handle.emit("config-changed", &config);
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "config-changed", &config);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

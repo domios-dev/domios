@@ -2,9 +2,11 @@ import { PaneModeSwitch } from "./PaneModeSwitch";
 import { ChatDefaultSuggestion } from "./ChatDefaultSuggestion";
 import { UsageBubble } from "../Usage/UsageBubble";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
+import type { ApiConfig } from "../../lib/types";
+import { PANE_BAR_CONTROL_H } from "./paneBarConstants";
 
 /** Single height rhythm for every control in the bar (switch + pills). */
-export const PANE_BAR_CONTROL_H = 27;
+export { PANE_BAR_CONTROL_H };
 
 interface PaneTopBarProps {
   paneId: string;
@@ -18,6 +20,7 @@ interface PaneTopBarProps {
   /** Usage provider id, or null to omit the usage pill. */
   usageProvider?: string | null;
   usageVisible?: boolean;
+  api?: ApiConfig;
 }
 
 /**
@@ -51,7 +54,12 @@ export function PaneTopBar({
       }}
     >
       <div className="flex min-w-0 items-center gap-2">
-        {showSwitch && <PaneModeSwitch paneId={paneId} height={PANE_BAR_CONTROL_H} chatFirst={chatFirst} />}
+        <PaneModeSwitch
+          paneId={paneId}
+          height={PANE_BAR_CONTROL_H}
+          chatFirst={chatFirst}
+          chatPty={showSwitch}
+        />
         {showSwitch && (
           <ChatDefaultSuggestion
             paneId={paneId}

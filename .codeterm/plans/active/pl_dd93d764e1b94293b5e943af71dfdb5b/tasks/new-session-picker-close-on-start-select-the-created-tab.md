@@ -1,0 +1,10 @@
+---
+plan_id: pl_dd93d764e1b94293b5e943af71dfdb5b
+kind: task
+id: task_28f48cd114eb4442a3651bbe99413e04
+handle: new-session-picker-close-on-start-select-the-created-tab
+title: 'New-session picker: close on Start + select the created tab'
+status: done
+---
+
+BUG (user, screenshot): pressing Start in the 'Start a session' picker spawns the pair/agent (sidebar fills up) but the picker tab STAYS OPEN, and the created tab is never selected. Required UX: on Start the picker closes and the newly created tab (or pair group) becomes the active, focused tab. LEADS (verified in code): (1) src/components/Terminal/NewSessionPicker.tsx:99-117 finishSpawn awaits the FULL runner before closeSessionPicker — and mux_create_orchestration_pair materializes both panes (known to take tens of seconds under load), so the picker sits 'open+busy' while the pair already appears via refresh; close must happen as soon as the create call is accepted — close optimistically after the RPC returns ids, not after full settle; on throw, keep current behavior (picker stays + error notification). (2) src/store/multiplexer/reducer.ts:496-498 CLOSE_SESSION_PICKER is a SILENT NO-OP when the virtualTabs entry id mismatches (v.tab.id !== action.tabId) — createOrchestrationPair calls refreshFromBackend() (src/store/multiplexer/index.tsx:516) BEFORE the close dispatch; verify the virtual picker tab survives that refresh with the same id (the picker-tab-leaks-into-snapshots ghost class lives nearby); if refresh can rebuild it, key the close on workspace, not exact tab id. (3) SELECTION MISSING ENTIRELY: nobody dispatches SET_ACTIVE_TAB for the created tab — CLOSE_SESSION_PICKER falls back to remaining[last] (reducer.ts:511-514). OrchestrationPairResult / spawnAgentTab return the created ids — after close, dispatch SET_ACTIVE_TAB (+ mux_set_active_tab + focused pane) to the new tab; for a pair, select the orchestrator tab of the group. Cover BOTH paths: single agent and orchestration pair, and the case where the pair is created in a DIFFERENT workspace than the picker's host (selectedWorkspaceId != workspaceId — switch active workspace too).

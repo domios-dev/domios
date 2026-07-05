@@ -120,8 +120,6 @@ fn read_rich_tail(path: &Path, tail_bytes: u64) -> Vec<crate::agent::chat_types:
         else {
             continue;
         };
-        // Each claude content block carries its discriminant in `type`; mirror
-        // it into the host's `MessageBlock.kind` so `parse_interactive_events`
         let blocks: Vec<MessageBlock> = content
             .iter()
             .filter_map(|b| {
@@ -145,7 +143,6 @@ fn read_rich_tail(path: &Path, tail_bytes: u64) -> Vec<crate::agent::chat_types:
 
 pub(super) fn detect_session_model(cwd: &str, session_id: &str) -> Option<String> {
     let path = session_file_path(cwd, session_id)?;
-    // Climb the tail in tiers — most sessions resolve from 64K, but resumed sessions that haven't received a new assistant turn yet can have many
     // hundreds of KB of file-backup/tool-call metadata trailing the last message. 4MB is plenty without hitting the disk hard.
     scan_tail(&path, 64 * 1024)
         .or_else(|| scan_tail(&path, 512 * 1024))
@@ -461,7 +458,6 @@ pub(super) fn detect_session_id(
     }
 
     let now = std::time::SystemTime::now();
-    // 5 min default: Claude may be idle waiting for input while JSONL sits unmodified
     let recency_limit = max_age.unwrap_or_else(|| Duration::from_secs(300));
     let mut sessions: Vec<(String, std::time::SystemTime)> = Vec::new();
 
@@ -492,8 +488,6 @@ pub(super) fn detect_session_id(
         }
     }
 
-    // Identity-bound, never "newest-for-cwd": refuse to guess when 2+ recent
-    // sessions are viable candidates (multiple agents sharing this cwd). Picking
     match sessions.as_slice() {
         [(id, _)] => Some(id.clone()),
         _ => None,
@@ -513,8 +507,6 @@ mod tests {
 
     #[test]
     fn encode_cwd_matches_real_claude_project_dirs() {
-        // FIXTURE GATE (CE3): pin the cwd -> ~/.claude/projects/<dir> encoding against
-        // REAL on-disk dir names observed in this machine's ~/.claude/projects. Claude
         let cases = [
             ("/Users/kandrey", "-Users-kandrey"),
             // /Users/kandrey/.codeterm-dev/general : the '/' before '.codeterm' AND the '.'
@@ -529,7 +521,6 @@ mod tests {
             ),
             // Windows native path: drive colon + backslashes all collapse to dashes.
             ("C:\\Users\\User\\proj", "C--Users-User-proj"),
-            // Forward-slash form of the same Windows path encodes identically — the
             // encoder is separator-agnostic, so a normalized cwd binds the same dir.
             ("C:/Users/User/proj", "C--Users-User-proj"),
         ];
@@ -540,8 +531,6 @@ mod tests {
 
     #[test]
     fn detect_session_id_refuses_to_guess_when_ambiguous_in_shared_cwd() {
-        // Bug B (#25 / W3): сессии перепутаны. When 2+ agents share a cwd and a
-        // pane's session is None (restart/resume), the newest-in-cwd guess hands
         let tmp = tempfile::tempdir().unwrap();
         let cwd = tmp.path().to_string_lossy().to_string();
         let s1 = "aaaa1111-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -581,8 +570,6 @@ mod tests {
 
     #[test]
     fn detect_active_session_never_grabs_a_sibling_session_in_same_cwd() {
-        // Bug B (#25 / W3): сессии перепутаны. Session resolution must be
-        // IDENTITY-BOUND — a pane is resolved only by its OWN recorded id, never
         let p = super::super::ClaudeProvider::new();
         let tmp = tempfile::tempdir().unwrap();
         let cwd = tmp.path().to_string_lossy().to_string();
@@ -611,7 +598,6 @@ mod tests {
 
     #[test]
     fn test_verbatim_cwd_encodes_like_plain_cwd() {
-        // The whole point: a verbatim-prefixed canonical path must encode to the
         // SAME claude project dir as the plain cwd — otherwise resume never matches.
         let plain = encode_cwd(r"C:\Users\User\.codeterm-dev\general");
         let verbatim = encode_cwd(&crate::paths::strip_verbatim_prefix(
@@ -623,8 +609,6 @@ mod tests {
 
     #[test]
     fn test_sessions_dir_real_cwd_has_no_verbatim_dashes() {
-        // Regression for the live bug: on Windows, canonicalize returns a
-        // `\\?\`-prefixed path; without stripping, the encoded project dir grew
         let cwd = std::env::temp_dir().to_string_lossy().to_string();
         let dir = sessions_dir(&cwd).unwrap();
         let leaf = dir.file_name().unwrap().to_string_lossy().to_string();
@@ -650,7 +634,6 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cwd = tmp.path().to_string_lossy().to_string();
 
-        // Build the path the provider expects, then materialize it so the default `session_exists` (which checks `session_file_path().exists()`) can
         // find it. Skips the test if HOME isn't writable.
         let real_path = match p.session_file_path(&cwd, "session-real") {
             Some(p) => p,

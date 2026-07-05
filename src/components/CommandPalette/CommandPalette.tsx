@@ -58,7 +58,6 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const animTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Filter commands by query
   const filtered = useMemo(() => {
     if (!query.trim()) return commands;
     const q = query.toLowerCase();
@@ -69,12 +68,10 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
     );
   }, [commands, query]);
 
-  // Clamp selected index when filter changes
   useEffect(() => {
     setSelectedIndex(0);
   }, [query]);
 
-  // Open/close with animation
   const doOpen = useCallback(() => {
     setQuery("");
     setSelectedIndex(0);
@@ -93,14 +90,12 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
     }, 150);
   }, []);
 
-  // Focus input when opened
   useEffect(() => {
     if (open && animState === "entering") {
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [open, animState]);
 
-  // Global Cmd+K / Ctrl+K listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const modKey = isMac ? e.metaKey : e.ctrlKey;
@@ -114,12 +109,10 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
         }
       }
     };
-    // Use capture to intercept before other handlers
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [open, doOpen, doClose]);
 
-  // Keyboard navigation inside palette
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -142,7 +135,6 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
         const cmd = filtered[selectedIndex];
         if (cmd) {
           doClose();
-          // Execute after close animation starts
           setTimeout(() => cmd.action(), 50);
         }
         return;
@@ -151,7 +143,6 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
     [doClose, filtered, selectedIndex]
   );
 
-  // Scroll selected item into view
   useEffect(() => {
     if (!listRef.current) return;
     const items = listRef.current.children;
@@ -161,7 +152,6 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
     }
   }, [selectedIndex]);
 
-  // Cleanup timeout on unmount
   useEffect(() => {
     return () => clearTimeout(animTimeoutRef.current);
   }, []);
@@ -171,7 +161,6 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
   const isEntering = animState === "entering";
   const isExiting = animState === "exiting";
 
-  // Group commands by section
   const sections: { name: string; items: CommandItem[] }[] = [];
   const sectionMap = new Map<string, CommandItem[]>();
   for (const cmd of filtered) {
@@ -183,7 +172,6 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
     sectionMap.get(sec)!.push(cmd);
   }
 
-  // Compute flat index for items across sections
   let flatIndex = 0;
 
   return createPortal(
@@ -241,7 +229,6 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
           transition: isEntering
             ? "transform 320ms cubic-bezier(0.175, 0.885, 0.32, 1.1), opacity 320ms cubic-bezier(0.175, 0.885, 0.32, 1.1)"
             : "transform 120ms cubic-bezier(0.16, 1, 0.3, 1), opacity 120ms cubic-bezier(0.16, 1, 0.3, 1)",
-          // Force animation start
           animation: isEntering ? "cp-panel-in 320ms cubic-bezier(0.175, 0.885, 0.32, 1.1) forwards" : undefined,
         }}
       >
@@ -346,7 +333,6 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
                 {section.items.map((cmd) => {
                   const itemIndex = flatIndex++;
                   const isSelected = itemIndex === selectedIndex;
-                  // Staggered animation delay: 20ms per item, capped at 100ms
                   const staggerDelay = Math.min(itemIndex * 20, 100);
 
                   return (
@@ -372,7 +358,6 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
                         fontFamily: "inherit",
                         textAlign: "left",
                         transition: "background 80ms ease",
-                        // Staggered fade-in
                         opacity: isEntering ? 0 : 1,
                         transform: isEntering ? "translateY(4px)" : "translateY(0)",
                         animation: animState === "entering" || animState === "visible"

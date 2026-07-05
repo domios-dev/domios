@@ -156,7 +156,6 @@ fn update_partial_only_changes_provided_fields() {
     )
     .unwrap();
 
-    // Update only tags + importance
     let updated = update(
         &conn,
         &id,
@@ -509,10 +508,8 @@ fn upsert_replaces_existing_in_place() {
     };
     let id1 = insert(&conn, &mk("placeholder"), &blobs).unwrap();
     assert_eq!(id1, "preference_identity");
-    // Plain insert collides → hash suffix
     let id2 = insert(&conn, &mk("real identity"), &blobs).unwrap();
     assert_ne!(id1, id2);
-    // Upsert collapses back to the canonical id
     let id3 = upsert(&conn, &mk("updated identity"), &blobs).unwrap();
     assert_eq!(id3, "preference_identity");
     let got = get(&conn, "preference_identity", &blobs).unwrap().unwrap();
@@ -681,7 +678,6 @@ fn graph_full_returns_nodes_and_edges() {
     assert!((got[0].x - 12.5).abs() < 1e-9);
     assert!((got[0].y - (-3.25)).abs() < 1e-9);
 
-    // unknown mem_id → returns false, nothing written
     let existed2 = set_pinned_position(&conn, "nope", 1.0, 2.0).unwrap();
     assert!(!existed2);
     assert_eq!(list_pinned_positions(&conn).unwrap().len(), 1);

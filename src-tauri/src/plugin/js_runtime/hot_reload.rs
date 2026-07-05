@@ -257,7 +257,6 @@ impl HotReloadRegistry {
                 }
             }
         }
-        // Collect removed ids under a short-held `state` lock, then drop it before
         // touching registries below it in the load order — holding `state` across them risks a deadlock.
         let removed: Vec<String> = {
             let mut state = self.state.lock();

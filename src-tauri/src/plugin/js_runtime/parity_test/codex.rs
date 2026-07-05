@@ -11,6 +11,17 @@ use super::*;
 const CODEX_UUID: &str = "11111111-1111-1111-1111-111111111111";
 const CODEX_STEM: &str = "rollout-2026-05-01T10-00-00-11111111-1111-1111-1111-111111111111";
 
+fn codex_status_fixture() -> String {
+    std::fs::read_to_string(
+        workspace_plugins_root()
+            .join("provider-codex")
+            .join("tests")
+            .join("fixtures")
+            .join("codex-status-v0-142-4.txt"),
+    )
+    .expect("fixture file must exist")
+}
+
 fn codex() -> JsProvider {
     load_js("codex")
 }
@@ -111,7 +122,6 @@ fn parse_session_delta_maps_response_items() {
         m0.blocks[0].data.get("text").and_then(|v| v.as_str()),
         Some("hello codex")
     );
-    // Codex must forward the raw ISO timestamp (parity with claude): RichMessage.timestamp ->
     // ChatMsg.timestamp is what the optimistic-echo matcher keys on. Emitting only `ts` (seconds)
     assert_eq!(
         m0.timestamp.as_deref(),
@@ -175,13 +185,33 @@ fn parse_session_messages_keeps_only_text_messages() {
 }
 
 #[test]
+fn parse_usage_uses_family_labels_for_codex_142_4_status() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = codex();
+    let parser = provider.usage_parser().expect("codex provides parseUsage");
+    let status = codex_status_fixture();
+    let usage = parser.parse(&status).expect("status should parse");
+    assert_eq!(usage.provider, "codex");
+    assert_eq!(usage.session_pct, Some(82.0));
+    assert_eq!(usage.weekly_pct, Some(56.0));
+    assert!(
+        usage.session_resets_at_ms.is_some(),
+        "session reset should parse"
+    );
+    assert!(
+        usage.weekly_resets_at_ms.is_some(),
+        "weekly reset should parse"
+    );
+}
+
+#[test]
 fn detect_session_id_and_active_session_are_null() {
     if require_plugins().is_none() {
         return;
     }
     let j = codex();
-    // Codex binds sessions via the SessionStart hook (not file-scan detection),
-    // so both detection hooks intentionally return None — assert the JS path
     assert_eq!(j.detect_session_id("/work/proj", &[], None), None);
     assert_eq!(j.detect_active_session("/work/proj", "current-sid"), None);
 }
@@ -243,7 +273,5 @@ fn codex_stays_on_native_prompt_detector() {
     if require_plugins().is_none() {
         return;
     }
-    // codex's app-server structured channel is not reachable in interactive-PTY
-    // mode, so codex has no structured prompt handle — pickers come from the
     assert!(!codex().supports_structured_prompts());
 }

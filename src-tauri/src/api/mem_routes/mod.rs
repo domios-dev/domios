@@ -1,5 +1,4 @@
 use axum::http::{HeaderMap, StatusCode};
-use tauri::Emitter;
 
 use crate::api::routes::AppState;
 use crate::mem::activity::{now_ms, MemActivityEvent, MemActivitySource};
@@ -14,6 +13,7 @@ pub mod graph;
 pub mod items;
 pub mod layout;
 pub mod pinned;
+pub mod search;
 pub mod sync;
 pub mod workers;
 
@@ -32,12 +32,13 @@ pub use graph::{
 pub use items::{
     mem_activity_recent, mem_append, mem_check_duplicate, mem_delete, mem_flush, mem_forget_area,
     mem_get, mem_history, mem_learn, mem_pinned_list, mem_promote, mem_reembed, mem_restore,
-    mem_save, mem_search, mem_stats, mem_tail, mem_taxonomy, mem_update, mem_wake_up,
+    mem_save, mem_stats, mem_tail, mem_taxonomy, mem_update, mem_wake_up,
 };
 pub use layout::{mem_graph_edges, mem_graph_labels, mem_graph_layout_rebuild, mem_graph_snapshot};
 pub use pinned::{
     mem_pinned_positions_delete, mem_pinned_positions_list, mem_pinned_positions_set,
 };
+pub use search::mem_search;
 pub use sync::{mem_sync, mem_sync_status};
 pub use workers::{
     workers_get, workers_kill, workers_list, workers_log, workers_progress, workers_report,
@@ -199,5 +200,5 @@ pub(super) fn emit_activity(state: &AppState, headers: &HeaderMap, op: &str, mem
     };
 
     state.svc.activity.record(event.clone());
-    let _ = state.svc.app_handle.emit("mem-activity", &event);
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "mem-activity", &event);
 }

@@ -41,7 +41,6 @@ pub(super) fn available_models() -> Vec<ModelInfo> {
 }
 
 pub(super) fn notifications_schema() -> Vec<SettingField> {
-    // Status badge from check_provider_integration + Install action that calls install_provider_integration. Both target the generic dispatcher
     // with `provider_id: "claude"` as the arg payload — the provider trait decides what "integration" means (hooks file for Claude, no-op for Codex/Opencode).
     let claude_args = Some(serde_json::json!({ "provider_id": "claude" }));
     vec![SettingField::Section {
@@ -98,7 +97,6 @@ pub(super) fn settings_schema() -> Vec<SettingField> {
             available_models(),
             crate::agent::model_catalog::resolve_default("claude").as_deref(),
         ),
-        // ── Section: Rule (Claude-specific instruction file) ──
         SettingField::Section {
             title: "Rule".into(),
             description: Some(
@@ -194,7 +192,6 @@ mod tests {
         assert!(ids.contains(&"sonnet"));
         assert!(ids.contains(&"opus"));
         assert!(ids.contains(&"haiku"));
-        // fable ships as a disabled alias — present but not yet selectable until
         // live discovery confirms the account can use it.
         let fable = models
             .iter()

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import type { ProviderDescriptor } from "../../lib/types";
+import { Button } from "../shared/Button";
+import { Card } from "../shared/Card";
+import { Chip } from "../shared/Chip";
 
 interface InstallPaneResult {
   tab_id: string;
@@ -50,7 +53,7 @@ export function ProviderInstallCard({ provider }: { provider: ProviderDescriptor
   if (!cliBinary) return null;
 
   return (
-    <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+    <Card className="p-4 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="text-xs font-medium text-[var(--ct-fg)]">CLI installation</div>
@@ -70,47 +73,39 @@ export function ProviderInstallCard({ provider }: { provider: ProviderDescriptor
       )}
 
       <div className="flex items-center justify-between gap-2">
-        <button
+        <Button
+          variant="ghost"
+          size="compact"
           onClick={refresh}
           disabled={status === "checking"}
-          className="px-2.5 py-1 text-[10px] font-medium rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors disabled:opacity-50"
+          className="text-[10px]"
         >
           Re-check
-        </button>
+        </Button>
         {installCommand && status !== "installed" && (
-          <button
+          <Button
+            variant="primary"
+            size="compact"
             onClick={onInstall}
             disabled={busy}
-            className="px-3 py-1 text-[11px] font-medium rounded bg-[var(--ct-accent)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+            className="text-[11px]"
           >
             {busy ? "Spawning…" : "Install"}
-          </button>
+          </Button>
         )}
       </div>
 
       {error && <div className="text-[10px] text-[var(--ct-red)]">{error}</div>}
-    </div>
+    </Card>
   );
 }
 
 function StatusBadge({ status }: { status: Status }) {
   if (status === "checking") {
-    return (
-      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-border)]/40 text-[var(--ct-muted)]">
-        checking…
-      </span>
-    );
+    return <Chip variant="muted" className="text-[9px]">checking…</Chip>;
   }
   if (status === "installed") {
-    return (
-      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]">
-        installed
-      </span>
-    );
+    return <Chip variant="success" className="text-[9px]">installed</Chip>;
   }
-  return (
-    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-red)]/20 text-[var(--ct-red)]">
-      not installed
-    </span>
-  );
+  return <Chip variant="danger" className="text-[9px]">not installed</Chip>;
 }

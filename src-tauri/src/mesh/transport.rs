@@ -163,6 +163,29 @@ impl PeerClient {
         }
     }
 
+    /// Open a signed GET against the peer's real endpoint for byte-pipe relaying
+    /// (D2 §3). A dedicated client with NO total timeout — the 5s unary client
+    /// would kill a long-lived SSE stream; only a connect timeout guards a dead
+    /// peer. Returns the raw response verbatim (status NOT checked): the caller
+    /// is a dumb pipe and forwards whatever the peer sent. `path` MUST be
+    /// caller-validated (whitelist + SSRF guard) before calling.
+    pub async fn open_relay_stream(&self, path: &str) -> Result<reqwest::Response, String> {
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            // off the whitelisted path — forward the redirect verbatim instead.
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap_or_default();
+        let url = format!("{}{}", self.base_url, path);
+        let mut req = client.get(&url);
+        if let Some((k, v)) = self.auth_header() {
+            req = req.header(&k, &v);
+        }
+        req.send()
+            .await
+            .map_err(|e| format!("Relay stream connect failed: {}", e))
+    }
+
     /// Notify a peer that we're unpairing.
     pub async fn send_unpair(&self, our_instance_id: &str) -> Result<(), String> {
         let url = format!("{}/api/mesh/peers/{}", self.base_url, our_instance_id);

@@ -83,7 +83,6 @@ test("@golden delete removes the item from get and search", async ({ api }) => {
   const del = await api.request<{ deleted: boolean }>("DELETE", `/mem/items/${id}`);
   expect(del.deleted).toBe(true);
 
-  // get must 404 now
   let status = 200;
   try {
     await api.get(`/mem/items/${id}`);

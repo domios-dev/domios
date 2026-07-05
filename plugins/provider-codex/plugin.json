@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.5.8",
+  "version": "1.6.2",
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "Codex",
@@ -64,6 +64,7 @@
   },
   "commands": {
     "compact": "/compact",
+    "freshContext": "/new",
     "exit": "/exit",
     "stopKey": "\u001b",
     "modelSwitchFormat": "/model {model}",

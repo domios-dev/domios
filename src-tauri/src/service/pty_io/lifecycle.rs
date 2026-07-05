@@ -50,6 +50,11 @@ impl ServiceContext {
                 env_vars.insert("CODETERM_WORKER_ID".into(), worker_id.clone());
             }
         }
+        drop(mux);
+        if let Some((plan_id, task_id)) = self.plan_store.task_binding_for_pane(pane_id) {
+            env_vars.insert("CODETERM_PLAN_ID".into(), plan_id);
+            env_vars.insert("CODETERM_TASK_ID".into(), task_id);
+        }
         env_vars
     }
 
@@ -94,8 +99,6 @@ impl ServiceContext {
     }
 
     pub(crate) fn ensure_pane_pty_for_send(&self, pane_id: &str) -> Result<(), String> {
-        // [G] A chatBackend pane must NEVER spawn a shell PTY (B1.1#4). Its
-        // session is opened by the spawn path; on send there is nothing to
         if self.pane_chat_backing(pane_id).is_some() {
             return Ok(());
         }

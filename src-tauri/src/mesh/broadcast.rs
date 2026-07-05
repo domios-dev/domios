@@ -306,7 +306,6 @@ pub fn refresh_local_addresses(mesh: &MeshState) -> bool {
     let new_ts = mesh.lock().tailscale_ip.clone();
     let new_lan = mesh.lock().local_ip.clone();
     let changed = prev_ts != new_ts || prev_lan != new_lan || prev_https != https;
-    // Routine refresh fires every cycle — only worth INFO when an address
     // actually changed; the steady state is debug to keep the log readable.
     if changed {
         log::info!(

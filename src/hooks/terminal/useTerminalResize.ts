@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
 import { invoke } from "../../lib/bridge";
+import { paneResizeChanged } from "./paneResize";
 
 export interface UseTerminalResizeOptions {
   containerRef: React.RefObject<HTMLDivElement | null>;
@@ -18,6 +19,7 @@ export interface UseTerminalResizeReturn {
   jiggleResize: (ptyId: string) => void;
 }
 
+
 export function useTerminalResize({
   containerRef,
   termRef,
@@ -28,8 +30,8 @@ export function useTerminalResize({
   resizeEnabled = true,
   resizeClientId,
 }: UseTerminalResizeOptions): UseTerminalResizeReturn {
-  // ConPTY resize jiggle: shrink by 1 col then restore to force SIGWINCH
   const jigglePendingRef = useRef(false);
+  const lastPaneResizeDimsRef = useRef({ w: 0, h: 0 });
   const jiggleResize = useCallback((ptyId: string) => {
     const term = termRef.current;
     if (!term || jigglePendingRef.current) return;
@@ -42,7 +44,6 @@ export function useTerminalResize({
       .finally(() => { jigglePendingRef.current = false; });
   }, [termRef, resizeClientId]);
 
-  // ResizeObserver + debounce + self-heal + HMR + visibility
   useEffect(() => {
     if (!termReady || !resizeEnabled || !containerRef.current) return;
 
@@ -55,6 +56,7 @@ export function useTerminalResize({
         resizeTimer = null;
         const el = containerRef.current;
         if (!el || el.clientWidth < 20 || el.clientHeight < 20) return;
+        lastPaneResizeDimsRef.current = { w: el.clientWidth, h: el.clientHeight };
         if (fitAddonRef.current) {
           try { fitAddonRef.current.fit(); } catch { /* teardown */ }
         }
@@ -64,7 +66,6 @@ export function useTerminalResize({
     const resizeObserver = new ResizeObserver(safefit);
     resizeObserver.observe(containerRef.current);
 
-    // Self-heal: refit on window focus and visibility change
     const handleVisibility = () => { if (!document.hidden) safefit(); };
     const handleFocus = () => safefit();
     document.addEventListener("visibilitychange", handleVisibility);
@@ -82,7 +83,6 @@ export function useTerminalResize({
       }
     }, 2000);
 
-    // HMR: force refit + repaint after hot module replacement
     let hmrCleanup: (() => void) | undefined;
     if (import.meta.hot) {
       const onHmr = () => {
@@ -105,6 +105,11 @@ export function useTerminalResize({
     const handlePaneResize = () => {
       requestAnimationFrame(() => {
         try {
+          const el = containerRef.current;
+          if (!el) return;
+          const w = el.clientWidth, h = el.clientHeight;
+          if (!paneResizeChanged(lastPaneResizeDimsRef.current, w, h)) return;
+          lastPaneResizeDimsRef.current = { w, h };
           fitAddonRef.current?.fit();
           const term = termRef.current;
           const currentPtyId = connectedPtyRef.current;
@@ -132,7 +137,6 @@ export function useTerminalResize({
     };
   }, [termReady, resizeEnabled, resizeClientId, containerRef, termRef, fitAddonRef, connectedPtyRef, jiggleResize]);
 
-  // Refit + focus when pane becomes focused
   useEffect(() => {
     if (isFocused && termReady && resizeEnabled) {
       requestAnimationFrame(() => {

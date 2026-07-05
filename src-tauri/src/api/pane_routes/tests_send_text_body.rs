@@ -232,7 +232,6 @@ fn send_without_source_never_marks() {
 
 #[test]
 fn create_pane_body_parses_chat_backend_and_config() {
-    // P1: the REST contract for opening a plugin-driven chat pane via
     // `POST /api/panes`. chat_backend + config map to PaneCommand::ChatBackend.
     let json = r#"{"chat_backend": "local-shell", "config": {"model": "llama"}}"#;
     let body: CreateShellPaneBody = serde_json::from_str(json).unwrap();

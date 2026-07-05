@@ -118,6 +118,13 @@ impl PaneStatusTracker {
             .unwrap_or(PaneStatus::Dead)
     }
 
+    /// Like `get_status`, but `None` for an untracked pty instead of defaulting
+    /// to `Dead` — lets snapshot hydration mirror exactly what a live
+    /// `pane-status-changed` event would have delivered (no event yet = no rail).
+    pub fn get_status_if_tracked(&self, pty_id: &str) -> Option<PaneStatus> {
+        self.statuses.get(pty_id).map(|e| e.status)
+    }
+
     pub fn remove(&mut self, pty_id: &str) {
         self.statuses.remove(pty_id);
     }
@@ -174,7 +181,6 @@ mod tests {
     fn test_check_idle_timed_out() {
         let mut tracker = PaneStatusTracker::new();
         tracker.update_output("pty-1", [1u8; 32]);
-        // Use zero duration to trigger immediate idle
         tracker.check_idle("pty-1", Duration::from_millis(0));
         assert_eq!(tracker.get_status("pty-1"), PaneStatus::Idle);
     }
@@ -186,7 +192,6 @@ mod tests {
         tracker.check_idle("pty-1", Duration::from_millis(0));
         assert_eq!(tracker.get_status("pty-1"), PaneStatus::Idle);
 
-        // New output should reset to Working
         tracker.update_output("pty-1", [2u8; 32]);
         assert_eq!(tracker.get_status("pty-1"), PaneStatus::Working);
     }
@@ -203,12 +208,21 @@ mod tests {
     fn test_same_screen_hash_does_not_reset_timer() {
         let mut tracker = PaneStatusTracker::new();
         tracker.update_output("pty-1", [1u8; 32]);
-        // Same hash — should NOT reset idle timer or set Working again
         tracker.check_idle("pty-1", Duration::from_millis(0));
         assert_eq!(tracker.get_status("pty-1"), PaneStatus::Idle);
-        // Same hash after idle — stays idle
         tracker.update_output("pty-1", [1u8; 32]);
         assert_eq!(tracker.get_status("pty-1"), PaneStatus::Idle);
+    }
+
+    #[test]
+    fn test_get_status_if_tracked() {
+        let mut tracker = PaneStatusTracker::new();
+        assert_eq!(tracker.get_status_if_tracked("pty-1"), None);
+        tracker.update_output("pty-1", [1u8; 32]);
+        assert_eq!(
+            tracker.get_status_if_tracked("pty-1"),
+            Some(PaneStatus::Working)
+        );
     }
 
     #[test]

@@ -96,7 +96,6 @@ pub struct GraphWorkerInfo {
     pub session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
-    // Verbs a plugin-spawned worker may invoke on its owning plugin via the
     // inverse seam — recorded from `host.agent.spawn(commands)` (C2 MINOR-2).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commands: Vec<String>,
@@ -154,7 +153,6 @@ impl GraphWorkerRegistry {
     }
 
     fn persist(&self) {
-        // Evict oldest done workers beyond MAX_HISTORY, delete their log files
         const MAX_HISTORY: usize = 200;
         {
             let mut map = self.inner.write();
@@ -401,7 +399,7 @@ pub fn spawn_headless(
         info.model = Some(model.clone());
     }
     svc.workers.register(info.clone());
-    let _ = tauri::Emitter::emit(&svc.app_handle, "graph-worker-spawned", &info);
+    crate::api::events::emit_everywhere(&svc.app_handle, "graph-worker-spawned", &info);
 
     let svc_task = svc.clone();
     let worker_id_task = worker_id.clone();

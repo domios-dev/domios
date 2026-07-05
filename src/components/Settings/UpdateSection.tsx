@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { AlertCircle, CheckCircle2, Download, ExternalLink, RefreshCw } from "lucide-react";
 import { useUpdate } from "../../hooks/useUpdate";
+import { BusySpinner } from "../shared/BusyState";
 import { UI_BUTTON } from "../shared/design";
 import { SettingsCard, SettingsPill } from "./shared";
 
@@ -80,7 +81,7 @@ export function UpdateSection() {
               disabled={installing || checking}
               className={`${UI_BUTTON.ghost} ${UI_BUTTON.sm} gap-1.5 disabled:opacity-50`}
             >
-              <RefreshCw size={13} className={checking ? "animate-spin" : ""} />
+              <BusySpinner icon={RefreshCw} size={13} spinning={checking} />
               <span>{checking ? "Checking..." : "Check again"}</span>
             </button>
           </div>

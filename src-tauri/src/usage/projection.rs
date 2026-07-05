@@ -46,7 +46,6 @@ const BASELINE_CACHE_TTL_S: i64 = 6 * 60 * 60;
 // Default daily profile: office hours 9:00–20:00 with peak mid-day and zero at 20:00.
 // Shape is normalized later; absolute levels are intentionally conservative near midnight.
 const DEFAULT_HOURLY_WEEKDAY: [f64; 24] = [
-    // 0  1   2   3   4   5   6
     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, // 7  8    9    10   11   12   13
     0.0, 0.6, 1.3, 1.5, 1.5, 1.0, 0.8, // 14   15   16   17   18  19
     1.3, 1.4, 1.3, 1.0, 0.7, 0.3, // 20 21 22 23
@@ -310,7 +309,6 @@ fn compute_weekly(
     let rest_of_today = (est_today_total - today_so_far).max(0.0);
     let end_of_today = current_pct + rest_of_today;
 
-    // Per-DOW estimate for each future day: blend today's pace-relative scale with the historical DOW-specific average. The "scale factor" is how
     // today's observed total compares to what's typical for today's DOW — if today is running 1.2× usual Monday, project 1.2× usual Tuesday too.
     let today_dow_hist = if baseline.dow_n[today_dow as usize] >= 3 {
         baseline.dow_total[today_dow as usize]
@@ -346,7 +344,6 @@ fn compute_weekly(
         cursor += DAY_MS;
     }
 
-    // For the response API: report the bucket-averaged weekday/weekend numbers (legacy compatibility) AND expose per-DOW so the frontend bar chart
     // can paint each future day with its own height.
     let est_wd_total = (1..=5).map(|d| dow_estimate(d)).sum::<f64>() / 5.0;
     let est_we_total = (dow_estimate(0) + dow_estimate(6)) / 2.0;
@@ -662,7 +659,6 @@ fn compute_baseline(
             entry.2.push((captured_at, pct, resets_at));
         }
 
-        // Track both totals and shape separately: totals catch large off-device jumps,
         // shape keeps the intra-day hour distribution signal stable.
         let mut day_hours: HashMap<String, (bool, [f64; 24], f64)> = HashMap::new();
         let mut day_dows: HashMap<String, usize> = HashMap::new();
@@ -688,7 +684,6 @@ fn compute_baseline(
                 }
                 // ALWAYS counts toward day total (capture genuine activity).
                 day_total += delta;
-                // SHAPE-only filter: attributing a giant off-device jump to one hour distorts the per-hour curve. Cap how much one pair can contribute to
                 // hours[] without losing the magnitude from day_total.
                 let gap_ms = ts_b - ts_a;
                 if gap_ms > SHAPE_PAIR_GAP_MS || delta > SHAPE_PAIR_DELTA_MAX {
@@ -700,7 +695,6 @@ fn compute_baseline(
             day_hours.insert(day, (is_we, hours, day_total));
         }
 
-        // Per day: normalize to shape (sum=1), then average across same dow-group. For totals we collect the per-day list to take a MEDIAN later —
         // robust against vacation weeks / odd outliers that would bias a mean.
         let mut wd_share_sum = [0.0_f64; 24];
         let mut we_share_sum = [0.0_f64; 24];

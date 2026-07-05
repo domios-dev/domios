@@ -52,8 +52,6 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn supports_structured_prompts(&self) -> bool {
-        // AskUserQuestion is structured in the parsed JSONL transcript
-        // (`parse_interactive_events`). Permission prompts have no PTY-mode
         true
     }
 
@@ -221,6 +219,10 @@ impl AgentProvider for ClaudeProvider {
         Some("/compact")
     }
 
+    fn fresh_context_command(&self) -> Option<&str> {
+        Some("/new")
+    }
+
     fn model_switch_format(&self) -> Option<&str> {
         Some("/model {model}")
     }
@@ -365,6 +367,12 @@ mod tests {
     fn claude_compact_command() {
         let p = ClaudeProvider::new();
         assert_eq!(p.compact_command(), Some("/compact"));
+    }
+
+    #[test]
+    fn claude_fresh_context_command() {
+        let p = ClaudeProvider::new();
+        assert_eq!(p.fresh_context_command(), Some("/new"));
     }
 
     #[test]

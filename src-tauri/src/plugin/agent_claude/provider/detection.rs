@@ -223,12 +223,10 @@ mod tests {
     fn test_detect_from_title() {
         assert!(detect_from_title("Claude Code"));
         assert!(detect_from_title("claude"));
-        // Claude v2.1+ spinner titles
         assert!(detect_from_title("⠐ General coding session"));
         assert!(detect_from_title("⠂ General coding session"));
         assert!(detect_from_title("✳ Claude Code"));
         assert!(detect_from_title("✳ Fix bug in parser"));
-        // Not Claude
         assert!(!detect_from_title("Aider"));
         assert!(!detect_from_title("C:\\WINDOWS\\System32\\powershell.exe"));
         assert!(!detect_from_title("PS C:\\Users\\User>"));
@@ -267,7 +265,6 @@ mod tests {
         let text = r#"if text.contains("Do you want to proceed?") && text.contains("Esc to cancel") {
             events.push(PermissionRequest);
         }
-        // Check for "1. Yes" and "2. No" patterns
         let options = vec!["1. Yes", "2. No"];"#;
         let events = detect_claude_events(text);
         assert!(!events.contains(&AgentEvent::PermissionRequest));

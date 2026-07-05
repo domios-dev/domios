@@ -9,7 +9,6 @@ const KNOWN_SUBCOMMANDS: &[&str] = &[
     "capabilities",
     "workspace",
     "pane",
-    "get-output",
     "send",
     "browser",
     "notify",
@@ -28,7 +27,6 @@ const KNOWN_SUBCOMMANDS: &[&str] = &[
     "-h",
     "--version",
     "-V",
-    // Global flags from cli/src/args/cli.rs that may precede a subcommand. Without these, `codeterm --json mem search foo` would be silently
     // swallowed by the GUI binary on macOS (regression of #51).
     "--json",
     "--mesh",
@@ -143,7 +141,6 @@ mod tests {
             "workspace",
             "pane",
             "send",
-            "get-output",
             "--help",
             "-h",
             "--version",
@@ -182,7 +179,6 @@ mod tests {
             "capabilities",
             "workspace",
             "pane",
-            "get-output",
             "send",
             "browser",
             "notify",
@@ -208,7 +204,6 @@ mod tests {
 
     #[test]
     fn detects_global_flags_before_subcommand() {
-        // `codeterm --json mem search foo` and `codeterm --mesh peer mem ls`: the first arg is a global flag, not a subcommand. Without these entries
         // the GUI binary silently swallows the launch.
         for name in ["--json", "--mesh"] {
             assert!(

@@ -121,6 +121,7 @@ pub(super) fn dispatch(
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),
+            data: None,
         }),
     }
 }
@@ -147,6 +148,7 @@ fn internal_err<E: ToString>(e: E) -> JsonRpcError {
     JsonRpcError {
         code: -32603,
         message: e.to_string(),
+        data: None,
     }
 }
 
@@ -154,5 +156,6 @@ fn invalid_params<S: Into<String>>(msg: S) -> JsonRpcError {
     JsonRpcError {
         code: -32602,
         message: msg.into(),
+        data: None,
     }
 }

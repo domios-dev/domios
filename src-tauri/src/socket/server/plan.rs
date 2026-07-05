@@ -1,0 +1,503 @@
+use super::plan_fields::{groups_from_csv, kinds_from_csv, tag_facets_field};
+use super::plan_linking::{owner_from_params, tags_field};
+use super::plan_refs;
+use super::{get_string_param, JsonRpcError};
+use crate::plan::{OrchestratorRef, PlanStatus, PlannerRef};
+use crate::service::plan::batch::BatchRequest;
+use crate::service::plan::{hints, PlanError};
+use crate::service::ServiceState;
+use serde_json::{json, Value};
+use tauri::AppHandle;
+pub(super) fn plan_rpc_err(e: PlanError) -> JsonRpcError {
+    let data = e.to_json();
+    JsonRpcError {
+        code: -32603,
+        message: e.to_string(),
+        data: Some(data),
+    }
+}
+pub(super) fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
+    crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
+}
+
+pub(super) fn dispatch(
+    method: &str,
+    params: &Option<Value>,
+    app: &AppHandle,
+    svc: &ServiceState,
+) -> Result<Value, JsonRpcError> {
+    let now = super::plan_time::epoch_ms();
+    if method.starts_with("plan.handoff.") {
+        return super::plan_handoff::dispatch(method, params, app, svc);
+    }
+    if method.starts_with("plan.heartbeat.") {
+        return super::plan_heartbeat::dispatch(method, params, app, svc);
+    }
+    if method.starts_with("plan.goal.") {
+        return super::plan_goal::dispatch(method, params, app, svc);
+    }
+    if method.starts_with("plan.qa.") {
+        return super::plan_qa::dispatch(method, params, app, svc);
+    }
+    if method.starts_with("plan.decision.") {
+        return super::plan_gates::dispatch(method, params, app, svc);
+    }
+    if super::plan_read::handles(method) {
+        return super::plan_read::dispatch(method, params, svc);
+    }
+    if super::plan_elements::handles(method) {
+        return super::plan_elements::dispatch(method, params, app, svc);
+    }
+    if super::plan_loops::handles(method) {
+        return super::plan_loops::dispatch(method, params, app, svc);
+    }
+    if super::plan_lifecycle::handles(method) {
+        return super::plan_lifecycle::dispatch(method, params, app, svc);
+    }
+    if super::plan_attachments::handles(method) {
+        return super::plan_attachments::dispatch(method, params, app, svc);
+    }
+    if super::plan_task_rpc::handles(method) {
+        return super::plan_task_rpc::dispatch(method, params, app, svc, now);
+    }
+    let p = params.as_ref();
+    let store = &svc.plan_store;
+
+    match method {
+        "plan.batch" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let body = p.ok_or(JsonRpcError {
+                code: -32602,
+                message: "params required".to_string(),
+                data: None,
+            })?;
+            let request = BatchRequest {
+                key: body.get("key").and_then(|v| v.as_str()).map(str::to_string),
+                ops: body
+                    .get("ops")
+                    .cloned()
+                    .ok_or(JsonRpcError {
+                        code: -32602,
+                        message: "Missing required parameter: ops".to_string(),
+                        data: None,
+                    })
+                    .and_then(|v| {
+                        serde_json::from_value(v).map_err(|e| JsonRpcError {
+                            code: -32602,
+                            message: format!("invalid batch ops: {e}"),
+                            data: None,
+                        })
+                    })?,
+            };
+            let result = store.apply_batch(&id, request, now).map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            serde_json::to_value(result).map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e.to_string(),
+                data: None,
+            })
+        }
+
+        "plan.create" => {
+            let body = p.ok_or(JsonRpcError {
+                code: -32602,
+                message: "params required".to_string(),
+                data: None,
+            })?;
+            let title = get_string_param(params, "title")?;
+            let project = body
+                .get("project_path")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| {
+                    std::env::current_dir()
+                        .map(|d| d.display().to_string())
+                        .unwrap_or_default()
+                });
+            let kinds = body
+                .get("kinds")
+                .and_then(|v| v.as_str())
+                .map(kinds_from_csv)
+                .unwrap_or_default();
+            let from_spec = body
+                .get("from_spec")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .map(str::to_string);
+            let plan = if let Some(spec_id) = from_spec.clone() {
+                store
+                    .create_plan_from_spec(&spec_id, title, owner_from_params(body), kinds, now)
+                    .map_err(plan_rpc_err)?
+            } else {
+                store
+                    .create_plan(title, project, owner_from_params(body), kinds, now)
+                    .map_err(plan_rpc_err)?
+            };
+            let plan_id = plan.id.clone();
+            let empty_sections = plan.sections.is_empty();
+            let mut response = json!({
+                "plan_id": plan_id.clone(),
+                "plan": plan,
+                "from_spec": from_spec.unwrap_or_default()
+            });
+            if empty_sections {
+                response["_hints"] = json!([hints::plan_sections_hint(&plan_id)]);
+            }
+            emit_plan_changed(app, &plan_id);
+            Ok(response)
+        }
+
+        "plan.list" => {
+            let want =
+                if let Some(project) = p.and_then(|x| x.get("project")).and_then(|v| v.as_str()) {
+                    Some(
+                        svc.ensure_plan_project_loaded(std::path::Path::new(project))
+                            .map_err(plan_rpc_err)?
+                            .display()
+                            .to_string(),
+                    )
+                } else {
+                    None
+                };
+            let mut entries = store.list_index();
+            if let Some(want) = &want {
+                entries.retain(|e| {
+                    store
+                        .get(&e.plan_id)
+                        .map(|pl| pl.project_path == *want)
+                        .unwrap_or(false)
+                });
+            }
+            if p.and_then(|x| x.get("unowned")).and_then(|v| v.as_bool()) == Some(true) {
+                entries.retain(|e| e.owner.pane_id.is_none() && e.owner.session_id.is_none());
+            }
+            if let Some(status) = p.and_then(|x| x.get("status")).and_then(|v| v.as_str()) {
+                entries.retain(|e| match status {
+                    "active" => e.status == PlanStatus::Active,
+                    "archived" => e.status == PlanStatus::Archived,
+                    _ => true,
+                });
+            }
+            Ok(json!({ "plans": entries }))
+        }
+
+        "plan.update" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let status = p
+                .and_then(|x| x.get("status"))
+                .and_then(|v| v.as_str())
+                .map(|s| serde_json::from_value::<PlanStatus>(Value::String(s.into())))
+                .transpose()
+                .map_err(|_| plan_rpc_err(PlanError::BadStatus))?;
+            let mode = p.and_then(|x| x.get("mode")).and_then(|v| v.as_str());
+            store
+                .update_plan(
+                    &id,
+                    p.and_then(|x| x.get("title")).and_then(|v| v.as_str()),
+                    status,
+                    mode,
+                    now,
+                )
+                .map_err(plan_rpc_err)?;
+            if let Some(planner_val) = p.and_then(|x| x.get("planner")) {
+                let planner_ref: Option<PlannerRef> = serde_json::from_value(planner_val.clone())
+                    .map_err(|e| JsonRpcError {
+                    code: -32602,
+                    message: format!("invalid planner: {e}"),
+                    data: None,
+                })?;
+                store
+                    .set_planner_ref(&id, planner_ref, now)
+                    .map_err(plan_rpc_err)?;
+            }
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "plan_id": id }))
+        }
+        "plan.archive" => super::plan_archive::archive(store, svc, app, params, now),
+        "plan.unarchive" => super::plan_archive::unarchive(store, app, params, now),
+        "plan.delete" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            store.delete(&id).map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e.to_string(),
+                data: None,
+            })?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "plan_id": id }))
+        }
+
+        "plan.transfer" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let to: OrchestratorRef = p
+                .and_then(|x| x.get("to"))
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .ok_or(JsonRpcError {
+                    code: -32602,
+                    message: "to required".into(),
+                    data: None,
+                })?;
+            let reason = p
+                .and_then(|x| x.get("reason"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            store.transfer(&id, to, reason, now).map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "plan_id": id }))
+        }
+
+        "plan.disown" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            store.disown(&id, now).map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "plan_id": id }))
+        }
+
+        "plan.claim" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let params_val = p.cloned().unwrap_or(json!({}));
+            let owner: OrchestratorRef = params_val
+                .get("owner")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_else(|| owner_from_params(&params_val));
+            store.claim(&id, owner.clone(), now).map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            let mut response_hints = Vec::new();
+            if matches!(
+                store.resolve_planner_pane(&id, |pid| svc.pane_probe(pid)),
+                crate::plan::peer::PeerResolution::Unbound
+            ) {
+                let spawn_cmd = crate::service::plan::peer_mandate::planner_spawn_cmd_hint(
+                    owner.pane_id.as_deref(),
+                    &id,
+                );
+                response_hints.push(crate::prompts::peer_pairing_mandate_full(&spawn_cmd));
+            }
+            Ok(json!({ "ok": true, "plan_id": id, "_hints": response_hints }))
+        }
+
+        "plan.ingest" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let markdown = get_string_param(params, "markdown")?;
+            let result = store
+                .ingest_plan_sections(&id, &markdown, now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(serde_json::to_value(result).unwrap_or_else(|_| json!({ "sections": [] })))
+        }
+
+        "plan.section.add" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let title =
+                get_string_param(params, "title").or_else(|_| get_string_param(params, "name"))?;
+            let body = p
+                .and_then(|x| x.get("body"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let parent = p.and_then(|x| x.get("parent")).and_then(|v| v.as_str());
+            let sid = store
+                .add_section(
+                    &id,
+                    &title,
+                    body,
+                    parent,
+                    &tags_field(p),
+                    p.and_then(|x| x.get("primary")).and_then(|v| v.as_str()),
+                    p.and_then(|x| x.get("handle")).and_then(|v| v.as_str()),
+                    now,
+                )
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            let caller_pane = p
+                .and_then(|x| x.get("caller_pane_id"))
+                .and_then(|v| v.as_str());
+            let mut resp = json!({ "section_id": sid });
+            if let Some(nudge) = store
+                .get(&id)
+                .as_ref()
+                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_pane))
+            {
+                resp["_planner_nudge"] = json!(nudge);
+            }
+            Ok(resp)
+        }
+
+        "plan.section.update" => {
+            let (id, sid) = plan_refs::resolve_section(store, params)?;
+            store
+                .update_section(
+                    &id,
+                    &sid,
+                    p.and_then(|x| x.get("title").or_else(|| x.get("name")))
+                        .and_then(|v| v.as_str()),
+                    p.and_then(|x| x.get("body")).and_then(|v| v.as_str()),
+                    &tags_field(p),
+                    p.and_then(|x| x.get("primary")).and_then(|v| v.as_str()),
+                    p.and_then(|x| x.get("handle")).and_then(|v| v.as_str()),
+                    now,
+                )
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            let caller_pane = p
+                .and_then(|x| x.get("caller_pane_id"))
+                .and_then(|v| v.as_str());
+            let mut resp = json!({ "ok": true, "section_id": sid });
+            if let Some(nudge) = store
+                .get(&id)
+                .as_ref()
+                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_pane))
+            {
+                resp["_planner_nudge"] = json!(nudge);
+            }
+            Ok(resp)
+        }
+
+        "plan.section.rm" => {
+            let (id, sid) = plan_refs::resolve_section(store, params)?;
+            store.rm_section(&id, &sid, now).map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "section_id": sid }))
+        }
+
+        "plan.section.show" => {
+            let (id, sid) = plan_refs::resolve_section(store, params)?;
+            let result = store.show_section(&id, &sid).map_err(plan_rpc_err)?;
+            serde_json::to_value(result).map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e.to_string(),
+                data: None,
+            })
+        }
+
+        "plan.kinds.set" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let kinds = get_string_param(params, "kinds")?;
+            store
+                .set_kinds(&id, kinds_from_csv(&kinds), now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "plan_id": id }))
+        }
+
+        "plan.tag_facets.set" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let facets =
+                tag_facets_field(params.as_ref(), "facets").map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
+                })?;
+            store
+                .set_tag_facets(&id, facets, now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "plan_id": id }))
+        }
+
+        "plan.coverage" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let report = store
+                .coverage_report(&id)
+                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+            Ok(serde_json::to_value(report).unwrap_or_default())
+        }
+
+        "plan.state" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let snapshot = svc.build_plan_state(&id, now).map_err(plan_rpc_err)?;
+            Ok(serde_json::to_value(snapshot).unwrap_or_default())
+        }
+
+        "plan.next" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let snapshot = svc.build_plan_state(&id, now).map_err(plan_rpc_err)?;
+            Ok(json!({ "plan_id": id, "next_actions": snapshot.next_actions }))
+        }
+
+        "plan.reconcile" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let fix = p.and_then(|x| x.get("fix")).and_then(|v| v.as_bool()) == Some(true);
+            let caller = p
+                .and_then(|x| x.get("caller_pane_id"))
+                .and_then(|v| v.as_str());
+            let report = svc
+                .reconcile_plan(&id, fix, caller, now)
+                .map_err(plan_rpc_err)?;
+            Ok(serde_json::to_value(report).unwrap_or_default())
+        }
+
+        "plan.groups.set" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let groups = get_string_param(params, "groups")?;
+            store
+                .set_task_groups(&id, groups_from_csv(&groups), now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "plan_id": id }))
+        }
+
+        "plan.link" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let to = get_string_param(params, "to")?;
+            store.link_plan(&id, &to, now).map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "plan_id": id }))
+        }
+
+        "plan.unlink" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let to = get_string_param(params, "to")?;
+            store.unlink_plan(&id, &to, now).map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "plan_id": id }))
+        }
+
+        "plan.skills.list" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let skills = crate::service::plan::plan_skills::list_plan_skills(store, &id)
+                .map_err(plan_rpc_err)?;
+            Ok(json!({ "plan_id": id, "skills": skills }))
+        }
+
+        "plan.skills.show" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let slug = get_string_param(params, "slug")?;
+            let skill = crate::service::plan::plan_skills::show_plan_skill(store, &id, &slug)
+                .map_err(plan_rpc_err)?;
+            Ok(json!({ "plan_id": id, "skill": skill }))
+        }
+
+        "plan.retrospective" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let body = p
+                .and_then(|x| x.get("body"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if body.is_empty() {
+                return Err(JsonRpcError {
+                    code: -32602,
+                    message: "body is required".to_string(),
+                    data: None,
+                });
+            }
+            let from = p
+                .and_then(|x| x.get("from"))
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_else(|| crate::plan::AgentRef::from_pane("unknown"));
+            let stride_id = store
+                .add_retrospective(&id, body, from, now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "plan_id": id, "stride_id": stride_id }))
+        }
+
+        _ => Err(JsonRpcError {
+            code: -32601,
+            message: "Method not found".to_string(),
+            data: None,
+        }),
+    }
+}
+
+#[cfg(test)]
+mod tests;

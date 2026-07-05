@@ -148,9 +148,6 @@ pub fn handle_mesh(json: bool, action: MeshAction) {
                 }
             }
         }
-        MeshAction::Output { target, pane } => {
-            mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "output", &pane, json);
-        }
         MeshAction::Panes { target } => {
             mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "panes", "", json);
         }
@@ -525,7 +522,6 @@ fn set_mesh_enabled(
     enabled: bool,
     json: bool,
 ) {
-    // Use the key/value form so we touch ONLY mesh.enabled — sending a partial `{"mesh": {...}}` would replace the whole `[mesh]` table and lose
     // instance_name, broadcast_duration_secs, etc.
     let body = serde_json::json!({"key": "mesh.enabled", "value": enabled});
     let resp = http

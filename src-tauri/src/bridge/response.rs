@@ -247,7 +247,6 @@ mod tests {
 
     #[test]
     fn test_chunk_multibyte_utf8() {
-        // Russian text: each Cyrillic char is 2 bytes in UTF-8
         let text = "Привет ".repeat(600); // ~4200 bytes
         let chunks = chunk_message(&text, 100);
         assert!(chunks.len() > 1);
@@ -260,7 +259,6 @@ mod tests {
 
     #[test]
     fn test_chunk_emoji() {
-        // Emoji: 4 bytes each in UTF-8
         let text = "🔥".repeat(30); // 120 bytes
         let chunks = chunk_message(&text, 10);
         assert!(chunks.len() > 1);

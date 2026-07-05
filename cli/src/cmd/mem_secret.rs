@@ -190,7 +190,6 @@ pub fn handle_mem_secret(
         }
         MemSecretAction::Unlock { email, password } => {
             // Master password resolution order: 1. --password flag (worst — visible to other users via `ps`) 2. stdin (preferred for scripted use) 3.
-            // neither — try server-side auto-unlock from the master password persisted on previous successful login
             let resolved: Option<String> = match password {
                 Some(p) => Some(p),
                 None => {

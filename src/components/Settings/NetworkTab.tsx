@@ -56,7 +56,7 @@ export function NetworkTab() {
 
 /**
  * Web Access — everything a browser/phone needs to reach this CodeTerm:
- * the /web URL on each known address and the API token to paste at the
+ * the browser URL on each known address and the API token to paste at the
  * token gate. Tokens for OTHER peers come from their own Web Access panel.
  */
 function WebAccessSection() {
@@ -108,7 +108,7 @@ function WebAccessSection() {
       setConfirming(false);
       if (res.ok) {
         setResultMsg(
-          res.warning ?? `Web Access enabled${res.https_url ? ` — ${res.https_url}/web/` : ""}`,
+          res.warning ?? `Web Access enabled${res.https_url ? ` — ${res.https_url}/` : ""}`,
         );
       } else {
         setResultMsg(`Could not enable Web Access (${res.code}).`);
@@ -173,7 +173,7 @@ function WebAccessSection() {
           className="text-xs text-[var(--ct-muted)] leading-snug flex items-center justify-between gap-2"
         >
           <span className="text-[var(--ct-green)]">
-            Web Access is active{serveStatus?.https_url ? ` — ${serveStatus.https_url}/web/` : ""}.
+            Web Access is active{serveStatus?.https_url ? ` — ${serveStatus.https_url}/` : ""}.
           </span>
           <button
             onClick={() => void runDisable()}

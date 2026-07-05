@@ -36,8 +36,6 @@ fn find_duplicate_relations_groups_by_exact_key() {
 
 #[test]
 fn find_duplicate_relations_members_expose_per_rowid_predicate() {
-    // Parallel edges: same node-pair, different predicates (about + applies_to +
-    // runs_on). Grouping by node-pair must surface each member's relation_type so
     let conn = fresh_conn();
     insert_relation(
         &conn,
@@ -214,7 +212,6 @@ fn delete_relations_by_rowids_nonexistent_rowid_is_audited_as_zero() {
 #[test]
 fn merge_relations_carries_over_max_confidence_and_merged_properties() {
     let conn = fresh_conn();
-    // UNIQUE(from,rel,to,valid_from) means same (a,knows,b) needs different valid_from values
     conn.execute(
         "INSERT INTO relations (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json, created_at)
          VALUES ('a','knows','b','global','2026-01-01T00:00:00Z',NULL,0.7,'{\"src\":\"x\",\"shared\":1}','2026-01-01T00:00:00Z'),

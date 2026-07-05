@@ -15,6 +15,7 @@ pub mod pairing;
 pub mod peer_services;
 pub mod peers;
 pub mod serve_setup;
+pub mod toggle;
 pub mod transport;
 pub mod types;
 
@@ -31,5 +32,6 @@ pub use serve_setup::{
     disable_web_serve, enable_web_serve, probe_serve_status, tailscale_serve_https_url,
     ServeResult, ServeStatus,
 };
+pub use toggle::set_mesh_enabled;
 
 pub type MeshState = Arc<Mutex<MeshManager>>;

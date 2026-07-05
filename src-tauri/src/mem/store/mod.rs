@@ -184,6 +184,12 @@ pub enum MemKind {
     Rule,
     Summary,
     Document,
+    Plan,
+    PlanSection,
+    Spec,
+    SpecSection,
+    Task,
+    Stride,
 }
 
 impl MemKind {
@@ -201,6 +207,12 @@ impl MemKind {
             Self::Rule => "rule",
             Self::Summary => "summary",
             Self::Document => "document",
+            Self::Plan => "plan",
+            Self::PlanSection => "plan_section",
+            Self::Spec => "spec",
+            Self::SpecSection => "spec_section",
+            Self::Task => "task",
+            Self::Stride => "stride",
         }
     }
 
@@ -218,6 +230,12 @@ impl MemKind {
             "rule" => Self::Rule,
             "summary" => Self::Summary,
             "document" => Self::Document,
+            "plan" => Self::Plan,
+            "plan_section" => Self::PlanSection,
+            "spec" => Self::Spec,
+            "spec_section" => Self::SpecSection,
+            "task" => Self::Task,
+            "stride" => Self::Stride,
             _ => return None,
         })
     }

@@ -307,6 +307,93 @@ print("  OK atomic save clean")
 PYEOF
 }
 
+# --- Plan-junk cleanup (test-harness hygiene) ------------------------
+# Matrix/creation/restore benches spin up throwaway plans; every one MUST
+# be deleted, even on failure/abort. Pattern: snapshot the plan-id set at
+# bench start, sweep everything created since at cleanup (by id-diff, NOT
+# by title — a regressed plan named "Orchestration"/"04:56" is still
+# swept), then assert before == after so a leak FAILS the bench.
+
+# NOTE: `python -c` (script via argv) — NOT `python - <<HEREDOC`. With a pipe
+# the heredoc becomes stdin, so json.load(sys.stdin) reads empty and the sweep
+# silently no-ops (false-green). Single-quote the -c body so $/\ stay literal.
+plan_ids() {
+  dc plan list --json 2>/dev/null | python -c '
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: d=[]
+for p in (d if isinstance(d,list) else d.get("plans",[])):
+    pid=p.get("plan_id") or p.get("id") or ""
+    if pid: print(pid)
+' 2>/dev/null
+}
+
+# Snapshot current plan ids (sorted) to $1. Requires dev alive — an empty
+# baseline from a dead daemon would make plan_sweep_new delete everything.
+plan_snapshot() {
+  local out="${1:?usage: plan_snapshot <file>}"
+  dev_alive || { echo "plan_snapshot: dev not on 7686 — refusing (unsafe empty baseline)" >&2; return 1; }
+  plan_ids | sort > "$out"
+}
+
+# Delete one plan id with retries (delete no-ops under load: db lock / exit 7).
+plan_delete_one() {
+  local id="$1" t
+  [ -n "$id" ] || return 0
+  for t in 1 2 3 4 5; do
+    dc plan delete "$id" 2>/dev/null | grep -qi "OK" && return 0
+    sleep 1
+  done
+  return 1
+}
+
+# Delete every plan absent from the baseline snapshot ($1). Idempotent —
+# safe from a trap on abort AND again on the happy path.
+plan_sweep_new() {
+  local base="${1:?usage: plan_sweep_new <baseline_file>}" id
+  [ -f "$base" ] || return 0
+  comm -13 "$base" <(plan_ids | sort) 2>/dev/null | while read -r id; do
+    [ -n "$id" ] || continue
+    if plan_delete_one "$id"; then echo "    · swept plan $id" >&2
+    else echo "    · WARN could not delete plan $id (manual: dc plan delete $id)" >&2; fi
+  done
+}
+
+# Emit "<id>\t<title>" for every plan whose title marks matrix/creation
+# junk: empty, bare 'Orchestration', 'orchmatrix*', or a HH:MM name.
+plan_junk_titles() {
+  dc plan list --json 2>/dev/null | python -c '
+import json,re,sys
+try: d=json.load(sys.stdin)
+except Exception: d=[]
+pat=re.compile(r"^(orchestration|\d{1,2}:\d{2})$", re.I)
+for p in (d if isinstance(d,list) else d.get("plans",[])):
+    t=(p.get("title") or "").strip()
+    if t=="" or pat.match(t) or "orchmatrix" in t.lower():
+        print("%s\t%r" % (p.get("plan_id") or p.get("id") or "?", t))
+' 2>/dev/null
+}
+
+# Assert the plan set returned to baseline ($1) AND no junk-titled plans
+# remain. $2 = label. Prints + returns non-zero on any leak.
+plan_assert_clean() {
+  local base="${1:?}" label="${2:-run}" leaked junk rc=0
+  leaked="$(comm -13 "$base" <(plan_ids | sort) 2>/dev/null)"
+  if [ -n "$leaked" ]; then
+    echo "  FAIL [$label] plan leak (before != after):" >&2
+    printf '%s\n' "$leaked" | sed 's/^/    + /' >&2
+    rc=1
+  fi
+  junk="$(plan_junk_titles)"
+  if [ -n "$junk" ]; then
+    echo "  FAIL [$label] junk-titled plans present:" >&2
+    printf '%s\n' "$junk" | sed 's/^/    ! /' >&2
+    rc=1
+  fi
+  [ "$rc" = 0 ] && echo "  OK [$label] plan set clean (before == after, no junk)"
+  return $rc
+}
+
 # --- One-shot scenario builders --------------------------------------
 
 # Create a workspace + return its id on stdout. Args: name, cwd.

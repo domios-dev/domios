@@ -21,7 +21,6 @@ import { expect, test } from "../../helpers/fixtures";
 test(
   "@golden composer focus is not stolen by background pane after async send",
   async ({ api, ui, paneCleanup }) => {
-    // Intercept the send endpoint to add a 300ms delay — this widens the
     // race window so the test can switch to B before A's finally block fires.
     await ui.page.route("**/api/panes/*/send", async (route) => {
       await new Promise((r) => setTimeout(r, 300));
@@ -65,7 +64,6 @@ test(
     const composerA = chatA.locator('[data-testid="chat-composer"]');
     await expect(composerA).toBeVisible({ timeout: 10_000 });
 
-    // Visit B's tab so it mounts (enters mountedTabIds) — both composers are
     // then alive simultaneously, enabling the multi-mount focus-steal scenario.
     if (paneB.tab_id) {
       const tabB = ui.page
@@ -104,7 +102,6 @@ test(
       await tabB.click();
     }
 
-    // Click B's composer and type text using physical keyboard — if focus is
     // stolen to A, the keystrokes will go to A's composer instead.
     await composerB.click();
     const marker = `pw-b-typed-${suffix}`;

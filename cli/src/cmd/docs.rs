@@ -16,8 +16,14 @@ const DOCS: &[(&str, &str)] = &[
         include_str!("../../../docs/TELEGRAM-SETUP.md"),
     ),
     ("SECRETS", include_str!("../../../docs/SECRETS.md")),
+    ("ROUTING", include_str!("../../../docs/ROUTING.md")),
     ("TEXT-HOOKS", include_str!("../../../docs/TEXT-HOOKS.md")),
     ("TRANSCRIBE", include_str!("../../../docs/TRANSCRIBE.md")),
+    (
+        "ORCHESTRATION",
+        include_str!("../../../docs/ORCHESTRATION.md"),
+    ),
+    ("LANES", include_str!("../../../docs/LANES.md")),
 ];
 
 const CODETERM_PANE_PREVIEW_LINES: usize = 120;
@@ -35,6 +41,24 @@ pub fn handle(name: Option<String>, full: bool, head: Option<usize>) {
                 std::process::exit(1);
             }
         },
+    }
+}
+
+pub fn handle_doc(name: String) {
+    let resolved = if name.eq_ignore_ascii_case("orchestration") {
+        "ORCHESTRATION"
+    } else {
+        name.as_str()
+    };
+    match render_doc(resolved, true, None, false) {
+        Ok(rendered) => print!("{}", rendered),
+        Err(available) => {
+            eprintln!("No doc named '{}'. Available:", name);
+            for name in available {
+                eprintln!("  {}", name);
+            }
+            std::process::exit(1);
+        }
     }
 }
 
@@ -152,5 +176,21 @@ mod tests {
 
         assert!(rendered.contains("showing 12/"));
         assert!(rendered.lines().count() < 30);
+    }
+
+    #[test]
+    fn orchestration_doc_alias_is_non_empty() {
+        let rendered = render_doc("orchestration", true, None, false).expect("doc exists");
+
+        assert!(rendered.contains("# Orchestration"));
+        assert!(rendered.len() > 100);
+    }
+
+    #[test]
+    fn lanes_doc_is_registered() {
+        let rendered = render_doc("lanes", true, None, false).expect("LANES doc exists");
+
+        assert!(rendered.contains("# Lane Lifecycle Standard"));
+        assert!(rendered.contains("Do not cherry-pick"));
     }
 }

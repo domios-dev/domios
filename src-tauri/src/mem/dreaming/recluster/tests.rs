@@ -80,12 +80,9 @@ async fn recluster_prompt_includes_existing_anchors() {
         captured: std::sync::Mutex::new(String::new()),
     };
 
-    {
-        let c = mem.conn().lock();
-        run_recluster_phase(&c, "haiku", dir.path(), &cap)
-            .await
-            .unwrap();
-    }
+    run_recluster_phase_with_lock(mem.conn(), "haiku", dir.path(), &cap)
+        .await
+        .unwrap();
     let prompt = cap.captured.lock().unwrap().clone();
     assert!(
         prompt.contains("topic_codeterm_mesh_topology"),
@@ -118,12 +115,9 @@ async fn recluster_validates_anchor_exists() {
     .to_string();
     let stub = StubCaller { response: resp };
 
-    let report = {
-        let c = mem.conn().lock();
-        run_recluster_phase(&c, "haiku", dir.path(), &stub)
-            .await
-            .unwrap()
-    };
+    let report = run_recluster_phase_with_lock(mem.conn(), "haiku", dir.path(), &stub)
+        .await
+        .unwrap();
     assert_eq!(
         report.clusters_proposed, 0,
         "missing-anchor cluster must be skipped"
@@ -151,12 +145,9 @@ async fn recluster_validates_source_exists() {
     .to_string();
     let stub = StubCaller { response: resp };
 
-    let report = {
-        let c = mem.conn().lock();
-        run_recluster_phase(&c, "haiku", dir.path(), &stub)
-            .await
-            .unwrap()
-    };
+    let report = run_recluster_phase_with_lock(mem.conn(), "haiku", dir.path(), &stub)
+        .await
+        .unwrap();
     assert_eq!(
         report.clusters_proposed, 0,
         "missing-source cluster must be skipped"
@@ -184,12 +175,9 @@ async fn recluster_validates_topic_id_slug() {
     .to_string();
     let stub = StubCaller { response: resp };
 
-    let report = {
-        let c = mem.conn().lock();
-        run_recluster_phase(&c, "haiku", dir.path(), &stub)
-            .await
-            .unwrap()
-    };
+    let report = run_recluster_phase_with_lock(mem.conn(), "haiku", dir.path(), &stub)
+        .await
+        .unwrap();
     assert_eq!(report.clusters_proposed, 0, "invalid slug must be skipped");
     assert!(report.message.to_lowercase().contains("invalid topic_id"));
 }
@@ -214,12 +202,9 @@ async fn recluster_skips_self_referential_sources() {
     .to_string();
     let stub = StubCaller { response: resp };
 
-    let report = {
-        let c = mem.conn().lock();
-        run_recluster_phase(&c, "haiku", dir.path(), &stub)
-            .await
-            .unwrap()
-    };
+    let report = run_recluster_phase_with_lock(mem.conn(), "haiku", dir.path(), &stub)
+        .await
+        .unwrap();
     assert_eq!(
         report.clusters_proposed, 0,
         "self-referential cluster must be skipped"
@@ -263,12 +248,9 @@ async fn recluster_writes_plan_file_to_disk() {
     .to_string();
     let stub = StubCaller { response: resp };
 
-    let report = {
-        let c = mem.conn().lock();
-        run_recluster_phase(&c, "haiku", dir.path(), &stub)
-            .await
-            .unwrap()
-    };
+    let report = run_recluster_phase_with_lock(mem.conn(), "haiku", dir.path(), &stub)
+        .await
+        .unwrap();
     assert_eq!(report.clusters_proposed, 1, "valid cluster must land");
     let plan_path_str = report.plan_path.expect("plan_path missing");
     let plan_path = std::path::PathBuf::from(&plan_path_str);

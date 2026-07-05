@@ -226,7 +226,6 @@ pub fn evict(dir: &Path, policy: EvictionPolicy) {
         })
         .collect();
 
-    // Sort oldest first — we delete from the front
     files.sort_by_key(|(_, _, t)| *t);
 
     match policy {
@@ -281,7 +280,6 @@ mod tests {
         assert!(path.exists());
         let content = std::fs::read(&path).unwrap();
         assert_eq!(content, b"hello world");
-        // cleanup
         let _ = std::fs::remove_dir_all(bucket_dir(&bucket));
     }
 
@@ -301,7 +299,6 @@ mod tests {
         let bucket = unique_bucket();
         let path = save_with_uuid(&bucket, ".png", b"data", EvictionPolicy::MaxCount(10)).unwrap();
         let name = path.file_name().unwrap().to_string_lossy();
-        // Should not have ".." in extension
         assert!(!name.contains(".."));
         assert!(name.ends_with(".png"));
         let _ = std::fs::remove_dir_all(bucket_dir(&bucket));
@@ -319,7 +316,6 @@ mod tests {
     #[test]
     fn test_max_count_eviction_keeps_newest() {
         let bucket = unique_bucket();
-        // Create 5 files with delays so modified times differ
         for i in 0..5 {
             save(
                 &bucket,
@@ -331,7 +327,6 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(15));
         }
 
-        // Now trim to 3 — oldest 2 should go
         evict(&bucket_dir(&bucket), EvictionPolicy::MaxCount(3));
 
         let remaining: Vec<_> = std::fs::read_dir(bucket_dir(&bucket))
@@ -340,7 +335,6 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
         assert_eq!(remaining.len(), 3);
-        // f0 and f1 should be gone (oldest), f2/f3/f4 remain
         assert!(!remaining.iter().any(|n| n == "f0.txt"));
         assert!(!remaining.iter().any(|n| n == "f1.txt"));
         assert!(remaining.iter().any(|n| n == "f4.txt"));
@@ -351,7 +345,6 @@ mod tests {
     #[test]
     fn test_max_bytes_eviction() {
         let bucket = unique_bucket();
-        // Create 3 files of 1000 bytes each — exceeds 2500 byte limit
         for i in 0..3 {
             save(
                 &bucket,
@@ -380,7 +373,6 @@ mod tests {
         let bucket = unique_bucket();
         let dir = bucket_dir(&bucket);
         std::fs::create_dir_all(&dir).unwrap();
-        // Should not panic on empty dir
         evict(&dir, EvictionPolicy::MaxCount(10));
         evict(&dir, EvictionPolicy::MaxBytes(1000));
         let _ = std::fs::remove_dir_all(&dir);
@@ -389,7 +381,6 @@ mod tests {
     #[test]
     fn test_evict_nonexistent_dir_no_panic() {
         let dir = std::env::temp_dir().join(format!("nonexistent-{}", uuid::Uuid::new_v4()));
-        // Should not panic
         evict(&dir, EvictionPolicy::MaxCount(10));
     }
 

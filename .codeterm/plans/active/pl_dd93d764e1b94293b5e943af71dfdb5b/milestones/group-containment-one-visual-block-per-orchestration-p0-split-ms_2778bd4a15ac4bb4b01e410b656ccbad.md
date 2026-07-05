@@ -1,0 +1,9 @@
+---
+plan_id: pl_dd93d764e1b94293b5e943af71dfdb5b
+kind: milestone
+id: ms_2778bd4a15ac4bb4b01e410b656ccbad
+handle: group-containment-one-visual-block-per-orchestration-p0-split-ms_2778bd4a15ac4bb4b01e410b656ccbad
+title: decision
+---
+
+REFINEMENT ROUND (round-38, user: 'better, now make it elegant'). Four precise moves, keep everything else: (1) HEADERS EARN THEIR ROW — the MANAGERS header is a full shouting row for a section that almost always holds exactly one planner whose badge already says PLANNER. Rule: render a section micro-header ONLY when the group has both sections populated OR a section has >1 member; a group with just one planner shows no MANAGERS header at all (planner-first ordering + badge carry the meaning). When shown: 8px, tracking-wide, muted 40%, no extra top gap. (2) BADGES LOSE THE BOX — bordered pills x2 per row is chrome noise. Role becomes borderless small-caps colored text (accent hue for ORCHESTRATOR, planner hue for PLANNER), model stays a muted lowercase suffix after the middot: 'Brahms  ORCHESTRATOR · opus' — one quiet line, zero boxes. Keep the pill ONLY if a hover/focus state needs a hit target (it does not — badges are not buttons). (3) LINE GOES HAIRLINE — containment line 1px (not 2-3px block), full group-body height INCLUDING any header row, presence color ~30% alpha, inset 10px; on group-head hover the line brightens slightly (+15%) — belonging becomes a felt affordance, not a diagram. Current state shows uneven partial segments with inconsistent hues between groups — the line must be one continuous element per group, same alpha rule for all. (4) RHYTHM — inner gaps 4px between child rows, 6px before a section header, 10px between groups; chevron ghosts in on row hover only. Acceptance: updated screenshot vs this spec; the single-planner group renders exactly three visual elements (head row, line, planner row) and nothing else.

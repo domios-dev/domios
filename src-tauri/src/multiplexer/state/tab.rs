@@ -9,19 +9,21 @@ impl MultiplexerState {
             .iter()
             .position(|w| w.id == workspace_id)
             .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
-        let title = names::generate_unique_tab_name(
-            self.workspaces[workspace_idx]
-                .tabs
-                .iter()
-                .map(|tab| tab.title.as_str()),
-        );
+        let existing_titles = self.workspaces[workspace_idx]
+            .tabs
+            .iter()
+            .filter_map(|tab| self.panes.get(&tab.pane_id).map(|pane| pane.title.as_str()));
+        let title = names::generate_unique_tab_name(existing_titles);
         let pane_id = self.create_pane();
+        if let Some(pane) = self.panes.get_mut(&pane_id) {
+            pane.title = title;
+            pane.title_level = crate::multiplexer::types::TitleLevel::Default;
+        }
         let tab_id = short_id();
         let sort_order = self.next_tab_sort_order(workspace_id);
 
         let tab = Tab {
             id: tab_id.clone(),
-            title,
             description: None,
             pane_id: pane_id.clone(),
             sort_order,
@@ -36,6 +38,37 @@ impl MultiplexerState {
         }
 
         Ok((tab_id, pane_id))
+    }
+
+    /// Claim an existing blank tab for a spawn instead of creating a new one
+    /// — used by the new-session picker's in-place pair spawn so confirming
+    /// the picker transforms that same tab rather than leaving an orphan
+    /// empty tab behind. Only claimable while the pane has no agent/backend
+    /// attached yet (still the picker's blank placeholder). Returns the same
+    /// (tab_id, pane_id) pair `create_tab` would have minted fresh.
+    pub fn claim_existing_tab(
+        &mut self,
+        workspace_id: &str,
+        tab_id: &str,
+    ) -> Result<(String, String), String> {
+        let pane_id = self
+            .get_workspace(workspace_id)
+            .and_then(|ws| ws.tabs.iter().find(|t| t.id == tab_id))
+            .map(|t| t.pane_id.clone())
+            .ok_or_else(|| format!("Tab not found in workspace {}: {}", workspace_id, tab_id))?;
+        let pane = self
+            .panes
+            .get(&pane_id)
+            .ok_or_else(|| format!("Pane not found: {}", pane_id))?;
+        if pane.agent_type.is_some()
+            || !matches!(pane.backing, crate::multiplexer::types::PaneBacking::Pty)
+        {
+            return Err(format!("Tab {} is not a blank picker tab", tab_id));
+        }
+        if pane.protected {
+            return Err(format!("Tab {} is protected and cannot be claimed", tab_id));
+        }
+        Ok((tab_id.to_string(), pane_id))
     }
 
     /// Close a tab and return PTY IDs that need to be killed.
@@ -122,18 +155,19 @@ impl MultiplexerState {
         tab_id: &str,
         title: &str,
     ) -> Result<(), String> {
-        let ws = self
-            .workspaces
-            .iter_mut()
-            .find(|w| w.id == workspace_id)
-            .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
-        let tab = ws
-            .tabs
-            .iter_mut()
-            .find(|t| t.id == tab_id)
-            .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
-        tab.title = title.to_string();
-        Ok(())
+        let pane_id = {
+            let ws = self
+                .workspaces
+                .iter()
+                .find(|w| w.id == workspace_id)
+                .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
+            ws.tabs
+                .iter()
+                .find(|t| t.id == tab_id)
+                .map(|tab| tab.pane_id.clone())
+                .ok_or_else(|| format!("Tab not found: {}", tab_id))?
+        };
+        self.rename_pane(&pane_id, title)
     }
 
     pub fn set_active_tab(&mut self, workspace_id: &str, tab_id: &str) -> Result<(), String> {

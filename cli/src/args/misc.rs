@@ -46,6 +46,11 @@ pub enum WorkspaceAction {
 pub enum PaneAction {
     /// List all panes as a workspace-grouped tree. `--agents` filters to
     /// agent panes only.
+    ///
+    /// Each pane carries a `backing.kind`: `pty` panes (terminal agents,
+    /// shells) have a real shell — `send` injects text you can execute.
+    /// `chat_backend` panes (LLM chat via plugin) have NO shell: `send`
+    /// delivers a chat message; never instruct them to run shell commands.
     List {
         /// Show only panes running an agent (have an agent_type).
         #[arg(long)]
@@ -72,7 +77,7 @@ pub enum PaneAction {
         eager: bool,
         /// Open a non-PTY chat-backend pane driven by the given plugin id
         /// (a plugin declaring the `chatBackend` capability).
-        /// `codeterm send`/`get-output` then route to the plugin, not a shell.
+        /// `codeterm send`/`pane get-text` then route to the plugin, not a shell.
         #[arg(long, value_name = "PLUGIN_ID")]
         chat_backend: Option<String>,
         /// JSON config object passed to the chat-backend plugin's `openSession`
@@ -380,7 +385,7 @@ pub enum ConfigAction {
 
 #[derive(clap::Subcommand)]
 pub enum WebAction {
-    /// Print a ready-to-open /web URL for THIS machine with the API token
+    /// Print a ready-to-open browser UI URL for THIS machine with the API token
     /// embedded in the URL fragment (use --query for ?token= instead).
     Link {
         /// Build a link for a paired mesh PEER (by instance name) instead of

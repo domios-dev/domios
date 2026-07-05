@@ -163,7 +163,7 @@ Operational details live in `tests/playwright/README.md`: CDP setup,
 projects/tags, golden-test policy, web-mirror mode, and prod guards.
 
 The legacy Tauri WebDriver/WDIO harness was removed; do not add new WebDriver
-tests. For browser-mode `/web` coverage, use the `tests/playwright/suites/12-web`
+tests. For browser-mode root web coverage, use the `tests/playwright/suites/12-web`
 suite, which launches a normal browser against the daemon's web mirror.
 
 ## Cross-platform test matrix
@@ -362,4 +362,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

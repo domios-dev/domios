@@ -104,7 +104,6 @@ impl BridgeManager {
         // Keep tx alive — if we drop it and telegram service dies, rx closes and select! breaks.
         let _keep_tx = tx;
 
-        // Per-chat state for auto-edit
         let mut chat_states: HashMap<i64, ChatState> = HashMap::new();
 
         log::info!("[bridge] manager v4 started (CLI + auto-edit + typing)");
@@ -131,7 +130,6 @@ impl BridgeManager {
                         }
                     }
 
-                    // Merge messages from same user
                     let merged_text: String = messages.iter()
                         .map(|m| m.text.as_str())
                         .filter(|t| !t.is_empty())
@@ -462,7 +460,6 @@ async fn send_media(
     let sanitized_caption = raw_caption.map(super::sanitize::sanitize_html_for_telegram);
     let caption = sanitized_caption.as_deref();
 
-    // Read file
     let file_bytes = tokio::fs::read(file_path)
         .await
         .map_err(|e| format!("Failed to read file {}: {}", file_path, e))?;
@@ -473,7 +470,6 @@ async fn send_media(
             .unwrap_or_else(|| "file".to_string())
     });
 
-    // Determine the multipart field name for the file
     let file_field = match method {
         "sendPhoto" => "photo",
         "sendDocument" => "document",
@@ -512,7 +508,6 @@ async fn send_media(
             .get("description")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown error");
-        // Retry without parse_mode if caption parsing failed
         if caption.is_some() && desc.contains("parse") {
             let file_bytes2 = tokio::fs::read(file_path)
                 .await
@@ -746,7 +741,6 @@ async fn inject_message(
         .write(&pty_id, paste.as_bytes())
         .map_err(|e| e.to_string())?;
 
-    // Send Enter with retry — Claude TUI needs time to process paste
     let pty = svc.pty.clone();
     let pty_id = pty_id.clone();
     std::thread::spawn(move || {

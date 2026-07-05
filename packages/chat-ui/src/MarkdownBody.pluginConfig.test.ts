@@ -1,4 +1,3 @@
-// Run: npx tsx packages/chat-ui/src/MarkdownBody.pluginConfig.test.ts
 import { parsePluginConfigMessage } from "./MarkdownBody";
 
 let passed = 0,

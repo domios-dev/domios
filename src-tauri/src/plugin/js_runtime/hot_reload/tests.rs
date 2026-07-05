@@ -15,8 +15,6 @@ fn test_caps() -> CapabilityRegistries {
 
 #[test]
 fn watcher_holds_threaded_capability_registries() {
-    // C0: the watcher must carry the existing capability registry handles so
-    // a later track can re-register a (re)loaded plugin's non-agent
     let root = tempfile::tempdir().unwrap();
     let registry = Arc::new(AgentRegistry::new());
     let caps = test_caps();
@@ -36,8 +34,6 @@ fn watcher_holds_threaded_capability_registries() {
 
 #[test]
 fn watcher_binds_service_into_freshly_loaded_vm() {
-    // P4: a plugin installed/reloaded AFTER daemon start must get the
-    // ServiceContext late-bound into its VM, or host.mem/worker/agent are
     use std::sync::Weak;
     let watcher = HotReloadRegistry::new(vec![], Arc::new(AgentRegistry::new()), test_caps());
     watcher.set_service_ref(Weak::new());
@@ -115,8 +111,6 @@ fn capability_manifest_full(id: &str, cap_field: &str, requires_reload: bool) ->
 
 #[test]
 fn requires_reload_plugin_installed_live_is_pending_not_active() {
-    // §1.8 P1: a plugin declaring requiresReload cannot hot-activate. A fresh
-    // install after daemon start is marked pending_reload and its capability
     let root = tempfile::tempdir().unwrap();
     let registry = Arc::new(AgentRegistry::new());
     let caps = test_caps();
@@ -125,7 +119,6 @@ fn requires_reload_plugin_installed_live_is_pending_not_active() {
         registry.clone(),
         caps.clone(),
     );
-    // No seed() — simulates a fresh install after startup (id not activated
     // at startup).
     let dir = root.path().join("needsreload");
     write(
@@ -157,7 +150,6 @@ fn requires_reload_plugin_installed_live_is_pending_not_active() {
 
 #[test]
 fn seeded_requires_reload_plugin_is_not_pending() {
-    // A plugin present at startup (seeded as activated) is already active from
     // the full process start — a later reload must NOT mark it pending.
     let root = tempfile::tempdir().unwrap();
     let registry = Arc::new(AgentRegistry::new());
@@ -328,8 +320,6 @@ fn duplicate_root_removal_falls_back_to_lower_priority_plugin() {
 
 #[test]
 fn tick_registers_capability_plugin_live_without_restart() {
-    // §1.8 P1: installing a capability-only plugin must re-register its
-    // capability registry live, so e.g. a status bubble appears without a
     let root = tempfile::tempdir().unwrap();
     let registry = Arc::new(AgentRegistry::new());
     let caps = test_caps();
@@ -347,7 +337,6 @@ fn tick_registers_capability_plugin_live_without_restart() {
 
     watcher.tick();
 
-    // Capability-only plugin: NOT an agent provider, but its bubble
     // capability is live in the registry.
     assert_eq!(registry.provider_count(), 0);
     assert!(
@@ -386,8 +375,6 @@ fn tick_deregisters_capability_on_folder_removal() {
 
 #[test]
 fn chat_preprocessor_plugin_mutates_outbound_text() {
-    // Regression gate: a JS chatPreprocessor plugin installed via hot-reload
-    // must intercept outbound text through run_text_stages and mutate it before
     let root = tempfile::tempdir().unwrap();
     let registry = Arc::new(AgentRegistry::new());
     let caps = test_caps();
@@ -533,8 +520,6 @@ fn chat_preprocessor_deregisters_on_uninstall() {
 
 #[test]
 fn config_yaml_edit_restamps_settings_without_vm_rebuild() {
-    // HIGH-2 (CRITICAL): editing the per-plugin config.yaml must NOT rebuild
-    // the VM — a rebuild wipes the plugin's module-scope in-memory sessions,
     let root = tempfile::tempdir().unwrap();
     let registry = Arc::new(AgentRegistry::new());
     let watcher = HotReloadRegistry::new(
@@ -576,7 +561,6 @@ fn config_yaml_edit_restamps_settings_without_vm_rebuild() {
         "a config-only edit must NOT rebuild the VM (a rebuild bricks live sessions)"
     );
 
-    // Same VM Arc, new settings visible — proves the re-stamp reached the
     // existing VM rather than a fresh one.
     let after: serde_json::Value = super::super::call_json(&vm, "settings", &[]).unwrap();
     assert_eq!(
@@ -616,8 +600,6 @@ fn tick_unregisters_plugins_after_folder_removal() {
 
 #[test]
 fn concurrent_tick_and_reload_does_not_deadlock() {
-    // Lock-fix regression: tick()'s removal path used to hold the `state`
-    // mutex across vms/pending_reload/activated_startup ops AND the
     use std::sync::atomic::{AtomicBool, Ordering};
     let root = tempfile::tempdir().unwrap();
     let registry = Arc::new(AgentRegistry::new());
@@ -662,8 +644,6 @@ fn concurrent_tick_and_reload_does_not_deadlock() {
         t.join().unwrap();
     }
 
-    // Quiesce: with the churn dir gone, a final tick must leave nothing tracked
-    // and no provider registered — proving the removal path ran to completion
     std::fs::remove_dir_all(&dir).ok();
     watcher.tick();
     assert!(watcher.tracked_ids().is_empty());

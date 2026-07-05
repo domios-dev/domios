@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { resetWebEvents } from "../../lib/webEvents";
+import {
+  formatLastActiveBadge,
+  pickResumePeer,
+  rankPeersByLastActive,
+} from "../../lib/peerRanking";
 import {
   clearRelayTarget,
+  dismissResumePrompt,
   localJson,
   relayTarget,
+  resumePromptDismissed,
   setRelayTarget,
   selfHost,
 } from "../../lib/webApi";
@@ -18,9 +26,12 @@ interface PairedPeer {
   api_port: number;
   online: boolean;
   https_url?: string | null;
+  last_active_ms?: number | null;
 }
 interface MeshPeers {
   paired: PairedPeer[];
+  local_last_active_ms?: number | null;
+  local_dev?: boolean;
 }
 
 /**
@@ -28,19 +39,25 @@ interface MeshPeers {
  * peers; selecting one sets a relay target so every request is proxied
  * through the local daemon's mesh relay (the browser stays pointed at its own
  * daemon — no re-point, no peer-scoped token). Selecting "this host" clears
- * the target. A reload gives each switch a clean slate (no stale panes/chat)
- * and reattaches event delivery.
+ * the target. In-place switch reattaches events and refreshes mux state.
  */
 export function WebPeerPicker() {
   const [peers, setPeers] = useState<PairedPeer[]>([]);
   const [open, setOpen] = useState(false);
+  const [resumePeer, setResumePeer] = useState<PairedPeer | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      // Always the LOCAL mesh — never relayed through the active peer.
       const res = await localJson<MeshPeers>("GET", "/api/mesh/peers");
-      setPeers(res.paired ?? []);
+      const paired = res.paired ?? [];
+      setPeers(rankPeersByLastActive(paired));
+      setResumePeer(
+        pickResumePeer(paired, res.local_last_active_ms ?? null, !!res.local_dev, {
+          hasRelayTarget: !!relayTarget(),
+          dismissedThisSession: resumePromptDismissed(),
+        }),
+      );
     } catch {
       // Peer list is a convenience — keep the last known list on errors.
     }
@@ -65,28 +82,67 @@ export function WebPeerPicker() {
   const onSelf = !target;
   const label = onSelf ? "this host" : target.name;
 
-  const switchTo = useCallback((peer: PairedPeer | null) => {
-    if (peer) {
-      setRelayTarget(peer.instance_id, peer.instance_name);
-    } else {
-      clearRelayTarget();
-    }
-    // Full reload: clean slate per target — no stale panes/mesh/chat from the
-    // previous view, and event delivery reattaches against the new target.
-    window.location.reload();
+  const switchTo = useCallback(
+    (peer: PairedPeer | null) => {
+      if (peer) {
+        setRelayTarget(peer.instance_id, peer.instance_name);
+      } else {
+        clearRelayTarget();
+      }
+      setOpen(false);
+      setResumePeer(null);
+      resetWebEvents();
+      window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
+    },
+    [],
+  );
+
+  const stayHere = useCallback(() => {
+    dismissResumePrompt();
+    setResumePeer(null);
   }, []);
 
   return (
     <div ref={rootRef} className="relative" data-testid="peer-picker">
+      {resumePeer && (
+        <div
+          data-testid="resume-prompt"
+          className="absolute left-0 top-full mt-1 z-50 min-w-[260px] rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] shadow-lg p-3 text-xs text-[var(--ct-fg)]"
+        >
+          <div className="mb-2">
+            You were last active on{" "}
+            <span className="font-medium">{resumePeer.instance_name}</span>
+            {formatLastActiveBadge(resumePeer.last_active_ms)
+              ? ` (${formatLastActiveBadge(resumePeer.last_active_ms)})`
+              : ""}
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              data-testid="resume-prompt-accept"
+              className="flex-1 min-h-[36px] rounded bg-[var(--ct-accent,#58a6ff)] text-white hover:opacity-90"
+              onClick={() => switchTo(resumePeer)}
+            >
+              Resume
+            </button>
+            <button
+              type="button"
+              data-testid="resume-prompt-dismiss"
+              className="flex-1 min-h-[36px] rounded border border-[var(--ct-border)] hover:bg-[var(--ct-hover)]"
+              onClick={stayHere}
+            >
+              Stay here
+            </button>
+          </div>
+        </div>
+      )}
       <button
         data-testid="peer-picker-button"
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 min-h-[44px] sm:min-h-0 sm:h-7 px-2.5 rounded text-xs text-[var(--ct-fg)] bg-[var(--ct-hover)] hover:bg-[var(--ct-active)] border border-[var(--ct-border)]"
         title="Switch CodeTerm host"
       >
-        <span
-          className="w-2 h-2 rounded-full bg-[var(--ct-green,#3fb950)]"
-        />
+        <span className="w-2 h-2 rounded-full bg-[var(--ct-green,#3fb950)]" />
         <span className="max-w-[120px] truncate">{label}</span>
         <span className="opacity-60 text-[9px]">▾</span>
       </button>
@@ -101,10 +157,13 @@ export function WebPeerPicker() {
             className={`w-full text-left px-3 min-h-[44px] flex items-center gap-2 text-xs hover:bg-[var(--ct-hover)] ${onSelf ? "text-[var(--ct-accent,#58a6ff)]" : "text-[var(--ct-fg)]"}`}
           >
             <span className="w-2 h-2 rounded-full bg-[var(--ct-green,#3fb950)]" />
-            this host ({selfHost().replace(/^https?:\/\//, "")})
+            <span className="flex-1 truncate">
+              this host ({selfHost().replace(/^https?:\/\//, "")})
+            </span>
           </button>
           {peers.map((p) => {
             const active = target?.id === p.instance_id;
+            const badge = formatLastActiveBadge(p.last_active_ms);
             return (
               <button
                 key={p.instance_id}
@@ -116,10 +175,15 @@ export function WebPeerPicker() {
                 title={p.instance_name}
               >
                 <span
-                  className={`w-2 h-2 rounded-full ${p.online ? "bg-[var(--ct-green,#3fb950)]" : "bg-[var(--ct-muted,#8b949e)]"}`}
+                  className={`w-2 h-2 rounded-full shrink-0 ${p.online ? "bg-[var(--ct-green,#3fb950)]" : "bg-[var(--ct-muted,#8b949e)]"}`}
                 />
                 <span className="flex-1 truncate">{p.instance_name}</span>
-                {!p.online && <span className="text-[9px] opacity-60">offline</span>}
+                {badge && (
+                  <span className="text-[9px] opacity-60 shrink-0">{badge}</span>
+                )}
+                {!p.online && !badge && (
+                  <span className="text-[9px] opacity-60 shrink-0">offline</span>
+                )}
               </button>
             );
           })}

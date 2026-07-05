@@ -20,6 +20,18 @@ pub struct UsageSnapshotRow {
     pub session_resets_at: Option<i64>,
     pub weekly_pct: Option<f32>,
     pub weekly_resets_at: Option<i64>,
+    #[serde(default)]
+    pub spend_cents: Option<f64>,
+    #[serde(default)]
+    pub spend_limit_cents: Option<f64>,
+    #[serde(default)]
+    pub spend_remaining_cents: Option<f64>,
+    #[serde(default)]
+    pub spend_resets_at: Option<i64>,
+    #[serde(default)]
+    pub failure_reason: Option<String>,
+    #[serde(default)]
+    pub probe_command: Option<String>,
 }
 
 // Keep up to a 90-day baseline (~30 samples/day) per provider.
@@ -51,6 +63,7 @@ impl UsageStore {
             .map_err(|e| format!("set busy_timeout: {}", e))?;
         conn.execute_batch(SCHEMA)
             .map_err(|e| format!("init usage schema: {}", e))?;
+        add_missing_columns(&conn)?;
         drop_legacy_columns(&conn)?;
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
@@ -92,16 +105,17 @@ impl UsageStore {
         provider: &str,
         account_id: Option<&str>,
         _raw_text: Option<&str>,
-        _error: &str,
+        error: &str,
+        probe_command: Option<&str>,
     ) -> Result<i64, String> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction().map_err(|e| format!("begin tx: {}", e))?;
         let now_ms = chrono::Utc::now().timestamp_millis();
         tx.execute(
             r#"INSERT INTO usage_snapshots
-               (provider, account_id, captured_at, parsed_ok)
-               VALUES (?1, ?2, ?3, 0)"#,
-            params![provider, account_id, now_ms],
+               (provider, account_id, captured_at, parsed_ok, failure_reason, probe_command)
+               VALUES (?1, ?2, ?3, 0, ?4, ?5)"#,
+            params![provider, account_id, now_ms, error, probe_command],
         )
         .map_err(|e| format!("insert failure: {}", e))?;
         let id = tx.last_insert_rowid();
@@ -200,7 +214,9 @@ impl UsageStore {
 
 const SELECT_HEADER: &str = r#"SELECT id, provider, account_id, captured_at, parsed_ok,
         session_pct, session_resets_at,
-        weekly_pct, weekly_resets_at
+        weekly_pct, weekly_resets_at,
+        spend_cents, spend_limit_cents, spend_remaining_cents, spend_resets_at,
+        failure_reason, probe_command
         FROM usage_snapshots"#;
 
 fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<UsageSnapshotRow> {
@@ -214,6 +230,12 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<UsageSnapshotRow> {
         session_resets_at: r.get(6)?,
         weekly_pct: r.get::<_, Option<f64>>(7)?.map(|v| v as f32),
         weekly_resets_at: r.get(8)?,
+        spend_cents: r.get(9)?,
+        spend_limit_cents: r.get(10)?,
+        spend_remaining_cents: r.get(11)?,
+        spend_resets_at: r.get(12)?,
+        failure_reason: r.get(13)?,
+        probe_command: r.get(14)?,
     })
 }
 
@@ -237,8 +259,9 @@ fn insert_header(tx: &rusqlite::Transaction<'_>, snap: &UsageSnapshot) -> Result
     tx.execute(
         r#"INSERT INTO usage_snapshots
            (provider, account_id, captured_at, parsed_ok,
-            session_pct, session_resets_at, weekly_pct, weekly_resets_at)
-           VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7)"#,
+            session_pct, session_resets_at, weekly_pct, weekly_resets_at,
+            spend_cents, spend_limit_cents, spend_remaining_cents, spend_resets_at)
+           VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
         params![
             &snap.provider,
             &snap.account_id,
@@ -247,6 +270,10 @@ fn insert_header(tx: &rusqlite::Transaction<'_>, snap: &UsageSnapshot) -> Result
             snap.session_resets_at_ms,
             snap.weekly_pct.map(|v| v as f64),
             snap.weekly_resets_at_ms,
+            snap.spend_cents,
+            snap.spend_limit_cents,
+            snap.spend_remaining_cents,
+            snap.spend_resets_at_ms,
         ],
     )
     .map_err(|e| format!("insert snapshot: {}", e))?;
@@ -269,19 +296,42 @@ const LEGACY_COLUMNS: &[&str] = &[
     "raw_text",
 ];
 
-fn drop_legacy_columns(conn: &Connection) -> Result<(), String> {
-    let mut existing: std::collections::HashSet<String> = std::collections::HashSet::new();
-    {
-        let mut stmt = conn
-            .prepare("PRAGMA table_info(usage_snapshots)")
-            .map_err(|e| format!("pragma: {}", e))?;
-        let cols = stmt
-            .query_map([], |r| r.get::<_, String>(1))
-            .map_err(|e| format!("pragma rows: {}", e))?;
-        for c in cols.flatten() {
-            existing.insert(c);
+// (CREATE TABLE IF NOT EXISTS leaves an already-created table untouched).
+const ADDED_COLUMNS: &[(&str, &str)] = &[
+    ("spend_cents", "REAL"),
+    ("spend_limit_cents", "REAL"),
+    ("spend_remaining_cents", "REAL"),
+    ("spend_resets_at", "INTEGER"),
+    ("failure_reason", "TEXT"),
+    ("probe_command", "TEXT"),
+];
+
+fn add_missing_columns(conn: &Connection) -> Result<(), String> {
+    let existing = table_columns(conn)?;
+    for (col, ty) in ADDED_COLUMNS {
+        if !existing.contains(*col) {
+            conn.execute(
+                &format!("ALTER TABLE usage_snapshots ADD COLUMN {} {}", col, ty),
+                [],
+            )
+            .map_err(|e| format!("add {}: {}", col, e))?;
         }
     }
+    Ok(())
+}
+
+fn table_columns(conn: &Connection) -> Result<std::collections::HashSet<String>, String> {
+    let mut stmt = conn
+        .prepare("PRAGMA table_info(usage_snapshots)")
+        .map_err(|e| format!("pragma: {}", e))?;
+    let cols = stmt
+        .query_map([], |r| r.get::<_, String>(1))
+        .map_err(|e| format!("pragma rows: {}", e))?;
+    Ok(cols.flatten().collect())
+}
+
+fn drop_legacy_columns(conn: &Connection) -> Result<(), String> {
+    let existing = table_columns(conn)?;
     for col in LEGACY_COLUMNS {
         if existing.contains(*col) {
             let sql = format!("ALTER TABLE usage_snapshots DROP COLUMN {}", col);
@@ -301,6 +351,38 @@ mod tests {
         s.session_pct = Some(42.0);
         s.weekly_pct = Some(10.0);
         s
+    }
+
+    #[test]
+    fn add_missing_columns_migrates_pre_spend_db() {
+        // Pre-spend schema: original columns only, no spend_* yet.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE usage_snapshots (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               provider TEXT NOT NULL, account_id TEXT,
+               captured_at INTEGER NOT NULL, parsed_ok INTEGER NOT NULL,
+               session_pct REAL, session_resets_at INTEGER,
+               weekly_pct REAL, weekly_resets_at INTEGER);",
+        )
+        .unwrap();
+        assert!(!table_columns(&conn).unwrap().contains("spend_cents"));
+
+        add_missing_columns(&conn).unwrap();
+        let cols = table_columns(&conn).unwrap();
+        assert!(cols.contains("spend_cents"), "spend_cents added");
+        assert!(
+            cols.contains("spend_limit_cents"),
+            "spend_limit_cents added"
+        );
+        assert!(
+            cols.contains("spend_remaining_cents"),
+            "spend_remaining_cents added"
+        );
+        assert!(cols.contains("spend_resets_at"), "spend_resets_at added");
+
+        // Idempotent: a second pass on an already-migrated DB is a no-op.
+        add_missing_columns(&conn).unwrap();
     }
 
     #[test]
@@ -360,13 +442,33 @@ mod tests {
         let good = make_snapshot(1_000_000_000_000);
         store.insert_snapshot(&good).unwrap();
         store
-            .insert_failure("claude", None, Some("raw"), "regex panic")
+            .insert_failure("claude", None, Some("raw"), "regex panic", Some("/usage"))
             .unwrap();
         let latest = store.get_latest("claude", None).unwrap().unwrap();
         assert!(latest.parsed_ok, "get_latest must skip failed snapshots");
         assert_eq!(latest.session_pct, Some(42.0));
         let hist = store.get_history("claude", 0, 10, None).unwrap();
         assert_eq!(hist.len(), 2, "history still contains the failure row");
+        assert_eq!(hist[0].failure_reason.as_deref(), Some("regex panic"));
+        assert_eq!(hist[0].probe_command.as_deref(), Some("/usage"));
+    }
+
+    #[test]
+    fn spend_fields_roundtrip() {
+        let store = UsageStore::open_in_memory().unwrap();
+        let mut s = UsageSnapshot::empty("cursor", "raw", 1_000_000_000_000);
+        s.spend_cents = Some(1743.5);
+        s.spend_limit_cents = Some(2000.0);
+        s.spend_remaining_cents = Some(256.5);
+        s.spend_resets_at_ms = Some(1_785_542_400_000);
+        let id = store.insert_snapshot(&s).unwrap();
+        assert!(id > 0);
+        let got = store.get_latest("cursor", None).unwrap().unwrap();
+        assert_eq!(got.spend_cents, Some(1743.5));
+        assert_eq!(got.spend_limit_cents, Some(2000.0));
+        assert_eq!(got.spend_remaining_cents, Some(256.5));
+        assert_eq!(got.spend_resets_at, Some(1_785_542_400_000));
+        assert_eq!(got.session_pct, None);
     }
 
     #[test]

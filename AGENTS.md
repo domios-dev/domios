@@ -18,7 +18,6 @@
 
 - **English only** in code, comments, commit messages.
 - **No external user base yet** — this is Andrey's personal project. No backward-compat shims, no migration paths. Breaking changes are fine. Delete legacy aggressively. When in doubt, rewrite rather than patch.
-- **Never commit/push without explicit user request.** No auto-commits, no "let me commit this". Wait for "коммить" / "commit" / "запушь".
 - **Never kill prod CodeTerm.** Prod = port 7685, dev = port 7686. See *Process safety* below.
 - **Hot-reload over restart.** Subsystems should support stop/start without restarting the whole daemon when possible.
 
@@ -48,6 +47,54 @@ All commands go through `build.sh`. Safe on Windows: never kills production Code
 ./build.sh e2e              # E2E tests against running dev
 source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 ```
+
+**Run Rust tests ONLY through `scripts/test-capped.sh`.** A bare `cargo test` in a lane worktree is a violation — the script kills the entire process group (cargo + all spawned `*/target/*/deps/*` test binaries) so no orphans survive a hang. If the 90s cap fires, read the code; do not re-run with a bigger cap.
+
+**Run ONE test at a time.** All `cargo test`/`build.sh test` runs share a single `target/.cargo-lock`; launching a second while one is in flight makes them queue (not parallelize) and looks like a multi-minute "hang" — narrow the filter, run it once in the background, wait for it; never fire concurrent runs.
+
+## Build speed (worktrees, tests, profiles)
+
+Parallel lanes mean cold worktrees; these are the levers that keep builds fast
+— configured once, documented here so nobody re-derives or reverts them:
+
+- **sccache (machine-level, `~/.cargo/config.toml` rustc-wrapper).** Shared
+  compile cache across ALL worktrees: a cold lane reuses every dep compiled by
+  any other checkout. Verify with `sccache --show-stats` (hits should climb
+  after the first full build). On a new machine: `brew install sccache` + the
+  rustc-wrapper line. We deliberately do NOT share `CARGO_TARGET_DIR` across
+  worktrees instead — a shared target serializes parallel lanes on
+  `.cargo-lock` and branch switches thrash incremental caches; sccache gives
+  the sharing without the contention.
+- **Cargo profiles are tuned — do not remove them.** `src-tauri/Cargo.toml`
+  and `cli/Cargo.toml` set `split-debuginfo = "unpacked"` (macOS: skips dSYM
+  packing at link time), `debug = "line-tables-only"` (usable backtraces at a
+  fraction of the debuginfo), and `debug = false` for all dependencies. The
+  CLI keeps `--release` (agents exec it constantly) but with
+  `incremental = true` so dev-restart rebuilds are cheap.
+- **Tests in lanes: narrow filter + hard cap, never bare open-ended runs.** A
+  cargo test past ~90s is a deadlock/busy-loop in the code under test, not a
+  slow build (a hung `plan_skill` test once burned 240% CPU for two hours).
+  Use the capped runner / nextest per-test timeouts once landed.
+- **Target-dir hygiene.** Old artifacts accumulate fast (`src-tauri/target`
+  once hit 93 GB — cargo never garbage-collects; every dep bump, flag change,
+  and toolchain update leaves a dead layer forever). Between efforts run
+  `cargo sweep --time 2`: with daily builds everything alive is touched
+  constantly, so a 2-day window keeps only the working set. Rarely-built
+  targets (embed release, parser-eval) may get swept and rebuild once when
+  next needed — cheap now, sccache serves the deps.
+
+**Pre-push gate is tiered by branch.** The `.githooks/pre-push` hook runs the
+FULL gate (shell guards, `cargo check`, fmt, clippy on both crates) only when
+pushing integration branches (`feat/*`, `develop`, `master`). Pushes of
+`lane/*` branches run LIGHT checks (shell guards + `cargo fmt --check`, zero
+compilation) — worker worktrees are cold, so a compile there is a
+multi-minute full dependency build, and heavy verification is centralized at
+the integration/QA gate anyway. Overrides: `PREPUSH_FULL=1` forces the full
+gate on a lane push; `PREPUSH_LIGHT=1` forces light anywhere. Do not "fix" a
+slow lane push by re-adding compilation to the hook — route heavy checks
+through the integration gate instead. Each worktree executes its own
+checked-out copy of `.githooks/`, so live lanes pick the current hook up on
+their next rebase onto integration.
 
 **Interactive dev restart from inside CodeTerm: prefer a visible pane.** On
 macOS/Tauri, `./build.sh dev --wait` can briefly report healthy and then lose the
@@ -79,6 +126,29 @@ UI automation runs Playwright on **both** platforms — `tests/playwright/helper
 - **macOS / Linux** → web-mode: Playwright launches its own Chromium against the dev web client (`/web/`). Same React UI, so it verifies shared UI logic (composer, chat-view, state) — but NOT desktop-native behaviour; use Windows/ROG for that.
 
 Run (any OS, against a healthy dev on 7686): `npx playwright test --config=tests/playwright/playwright.config.ts --project=golden` (projects: `smoke` / `golden` / `full`). On macOS this needs the dev running and Chromium installed (`npx playwright install chromium`). So a UI/chat-view fix on macOS IS gateable locally via web-mode — do not skip it. Operational docs: `tests/playwright/README.md`.
+
+**Playwright discipline — a new test is unverified code (learned at 20+ min
+per hang).** The failure pattern: specs get written and immediately run as a
+whole suite; one never-verified test awaits a selector that never resolves,
+and the run sits silent for 20+ minutes. Rules, same spirit as the cargo caps:
+
+1. **Verify in isolation first.** A freshly written or edited test runs ALONE
+   before it ever joins a batch: `npx playwright test <file> -g "<test title>"
+   --timeout=30000 --reporter=line`. A test that has never passed alone does
+   not get committed or included in a suite run.
+2. **Caps are mandatory on every agent-driven run**: `--timeout=30000`
+   (per-test) and `--global-timeout=600000` (whole run). A run without a
+   global timeout is a violation — nothing may be able to sit forever.
+3. **Check dev health BEFORE starting**: `curl -s http://127.0.0.1:7686/api/health`.
+   Half of all "hangs" are a down or mid-restart dev daemon; Playwright will
+   happily wait on a dead server.
+4. **Lanes run only their own specs.** Worker lanes run the file(s) they
+   touched with `-g` filters; `golden`/`full` suite runs are integration/QA
+   gate work, serialized like every broad gate.
+5. **A hang is information, not bad luck.** When the cap fires: run the single
+   test with `--trace on`, read the trace (it names the awaited selector), fix
+   the selector/await — do not re-run the batch blind, and never raise the cap
+   to "give it time".
 
 **Cargo tests on Windows — never lose 10 min to a hang:**
 - From PowerShell, run repo commands through `.\build.ps1 ...`; it selects Git
@@ -150,6 +220,8 @@ Acquire in order, drop before awaiting. parking_lot is **not reentrant** — `mu
 
 After parallel Rust refactors, grep for nested `.lock()` to verify ordering.
 
+`clippy::await_holding_lock` is **DENIED** at the full gate — never hold a `std`/parking_lot guard across `.await`; extract the data and drop the guard first (scope it in a `{ }` or `let x = guard.field.clone();`), never silence with `-A`. The five ordered locks are wrapped in `lock_hold::{TimedMutex,TimedRwLock}`: debug builds log `[LOCK-HOLD] <name>.<op>() held Nms` past 50ms (`lock_hold::LOCK_HOLD_THRESHOLD`); release compiles to a transparent zero-overhead parking_lot wrapper.
+
 ## Async runtime & hot-path discipline (perf — learned the hard way)
 
 Blocking/heavy work on the Tauri async runtime starves ALL IPC and freezes the WHOLE UI (every pane + sidebar), not just the caller. A 3-4s full-UI freeze on every tab switch was `plugin_manager_snapshot` forking CLI subprocesses (including a network `channel diff`) on the async runtime.
@@ -199,26 +271,43 @@ frontend-dev, code-reviewer, docs-sync, release) live in
 `src-tauri/`; your task: …") — there are no per-role `codeterm mem` entries to
 fetch (do not try `codeterm mem get skill_<role>_role` — those do not exist).
 
-**`.agents/skills/`** is the canonical project-local skill directory. **`.claude/skills/`**
-is a mirror for Claude Code compatibility, synced from `.agents/skills/`.
+**`.agents/skills/`** is the canonical project-local skill directory (mem indexes it directly).
 
 ### Where the codeterm-specific skill folders live
 
-CodeTerm-project skills live in **`<repo>/.agents/skills/`** — version-controlled, comes with the checkout, evolves with the codebase via PRs, and mirrors to `.claude/skills/` for Claude Code. Currently:
+CodeTerm-project skills live in **`<repo>/.agents/skills/`** — version-controlled, comes with the checkout, evolves with the codebase via PRs. Currently:
 
-- `.agents/skills/codeterm-orchestrator/` — orchestration discipline and gates
 - `.agents/skills/dev-run/` — dev daemon start/restart/diagnostics
 - `.agents/skills/dev-testing/` — dev API testing helpers
 - `.agents/skills/github-release/` — release pipeline procedure
 - `.agents/skills/prompt-evaluator/` — prompt regression harness
 
+> Orchestration discipline lives in embedded docs and role prompts: read
+> `codeterm docs ORCHESTRATION` and `codeterm docs LANES`. Machine-specific
+> build capacity or preferences belong in mem preferences, not copied skill files.
+
+### CodeTerm planning is the source of truth
+
+For multi-step project work, use the CodeTerm planner as the primary planning surface.
+Before creating or restructuring an effort, read `codeterm docs ORCHESTRATION`.
+For branch/worktree lifecycle, cleanup, and QA ownership, read `codeterm docs LANES`.
+
+- Set the GOAL first.
+- Put WHAT/WHY into `codeterm spec` sections.
+- Put HOW/execution phases into `codeterm plan` sections.
+- Put concrete execution work into `codeterm plan task` entries with body,
+  acceptance criteria, test plan, correctness vector, and section links.
+- Run `codeterm plan state <plan_id>` after structural edits and keep coverage clean.
+- `.codeterm/plans/**` is CodeTerm's tracked plan sidecar store in this repo.
+  It is valid to commit and push these files when a plan update intentionally changes them.
+- Do not use `docs/superpowers/plans/*` as the primary plan in this repo. Markdown
+  plans are exports/secondary artifacts only unless the user explicitly asks for one.
+- At orchestration start, check `codeterm mem wake-up --workspace $CODETERM_WORKSPACE_ID`
+  or `codeterm mem search "CodeTerm planner orchestration preferences"` for local
+  machine/user planning preferences. If the user gives a durable preference, save it
+  to mem instead of relying on chat context.
+
 Prod build lives in `./build.sh build`; Windows local NSIS self-install in `scripts/self-install-local.ps1`.
-
-After editing project skills, sync the Claude mirror:
-
-```bash
-node scripts/sync-agent-skills.mjs
-```
 
 On a fresh clone, register them with mem so the Librarian indexes them:
 
@@ -320,10 +409,12 @@ No `[Tag]`, `[Idea]`, `[Bug]` brackets — just the scope prefix.
 Branch as you like, then:
 
 1. **Develop → `develop`.** PR feature branches into `develop`. Reference issues with a **bare `#N`** (NOT `Closes #N` — that would let GitHub close on master-merge, before the build actually ships). On push to `develop` the referenced open issues get the **`ready-for-release`** label (still open).
-2. **Cut a release.** PR `develop` → `master`, merge it. Then on `master`, manually tag: `git tag release-X.Y.Z && git push origin release-X.Y.Z` (single tag — the workflow stamps `vX.Y.Z` itself). The self-hosted build machine builds + publishes.
+2. **Cut a release.** PR `develop` → `master` (or a release branch → `master`), merge it. **Always land `master` via a PR** — direct pushes to `master` are intentionally gated. Bump + sync the version on the branch first (`package.json` → `npm run sync:versions` → `check:versions`, commit `release: vX.Y.Z`). Then on `master`, manually tag: `git tag release-X.Y.Z && git push origin release-X.Y.Z` (single tag — the workflow stamps `vX.Y.Z` itself). The self-hosted build machine builds + publishes.
 3. **Published → done.** On a successful publish the release workflow closes every `ready-for-release` issue ("Released in vX.Y.Z") and drops the label. Close-on-publish, never on merge, so a failed build never closes an unshipped issue.
 
 Before tagging, a fast `cargo check` precheck (linux+macOS) gates the long build; failures surface per-engine in the Actions log.
+
+**Build farm + full release runbook:** **`.codeterm/build-machine/README.md`**. A single `release-X.Y.Z` tag fires **three** workflows in parallel, each on its own self-hosted runner: `release.yml` on the **Mac** (`codeterm-builder`) builds **macOS (native) + arm64 Linux (Docker)** via `build-all.sh`; `release-windows.yml` on the **ROG** (`ROG-windows-build`, label `windows-build`) builds + signs **Windows x64 + arm64** on the runner; `release-linux.yml` on the **ROG's WSL2 Ubuntu** (label `linux-build`) builds **x86_64 Linux .deb+.AppImage** natively. No SSH between machines (the old Mac→ROG SSH path is gone); each runner signs via `TAURI_SIGNING_PRIVATE_KEY` and publishes/mirrors itself. That doc has the three-runner table, per-runner provisioning, and the PR-based release steps.
 
 ## Documentation
 

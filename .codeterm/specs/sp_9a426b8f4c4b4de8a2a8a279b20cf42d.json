@@ -1,0 +1,26 @@
+{
+  "id": "sp_9a426b8f4c4b4de8a2a8a279b20cf42d",
+  "title": "Hint check spec 2",
+  "project_path": "/Users/rollacode/Developer/codeterm",
+  "status": "active",
+  "sections": [
+    {
+      "id": "sec_7601d9c2042648159e3f2809d1a48a99",
+      "title": "S1",
+      "handle": "s1",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    }
+  ],
+  "created_at": 1782375920124,
+  "updated_at": 1782375920176,
+  "canvas": {
+    "viewport": null
+  }
+}

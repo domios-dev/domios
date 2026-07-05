@@ -1,0 +1,285 @@
+use serde::Serialize;
+use std::collections::HashSet;
+use std::path::Path;
+
+use super::readback::pending_after_verified;
+use super::{NewTask, PlanError, PlanStore};
+use crate::plan::{
+    OrchestratorRef, Plan, PlanStatus, Section, Task, TaskStatus, INBOX_PLAN_ID, INBOX_PLAN_TITLE,
+};
+
+#[derive(Debug, Clone, Default)]
+pub struct TaskListFilter {
+    pub project_path: Option<String>,
+    pub active_only: bool,
+    pub mine_panes: HashSet<String>,
+    pub unassigned: bool,
+    pub plan_id: Option<String>,
+    pub status: Option<TaskStatus>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskSummary {
+    pub plan_id: String,
+    pub plan_title: String,
+    pub plan_owner: OrchestratorRef,
+    pub task: Task,
+    pub section_titles: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskDetail {
+    pub plan_id: String,
+    pub plan_title: String,
+    pub plan_owner: OrchestratorRef,
+    pub sections: Vec<TaskSection>,
+    pub parent: Option<TaskLabel>,
+    pub siblings: Vec<TaskLabel>,
+    pub subtasks: Vec<TaskLabel>,
+    pub task: Task,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskSection {
+    pub id: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskLabel {
+    pub id: String,
+    pub name: String,
+    pub status: TaskStatus,
+}
+
+fn canonical_project(project_path: &str) -> String {
+    super::paths::project_root(Path::new(project_path))
+        .display()
+        .to_string()
+}
+
+fn is_active_task(status: &TaskStatus) -> bool {
+    !matches!(status, TaskStatus::Done | TaskStatus::Cancelled)
+}
+
+fn collect_sections(sections: &[Section], ids: &HashSet<&str>, out: &mut Vec<TaskSection>) {
+    for section in sections {
+        if ids.contains(section.id.as_str()) {
+            out.push(TaskSection {
+                id: section.id.clone(),
+                title: section.title.clone(),
+            });
+        }
+        collect_sections(&section.subsections, ids, out);
+    }
+}
+
+fn task_sections(plan: &Plan, task: &Task) -> Vec<TaskSection> {
+    let ids = task.section_ids.iter().map(String::as_str).collect();
+    let mut out = vec![];
+    collect_sections(&plan.sections, &ids, &mut out);
+    out
+}
+
+fn task_label(task: &Task) -> TaskLabel {
+    TaskLabel {
+        id: task.id.clone(),
+        name: task.name.clone(),
+        status: task.status.clone(),
+    }
+}
+
+fn include_task(filter: &TaskListFilter, task: &Task) -> bool {
+    if filter.active_only && !is_active_task(&task.status) {
+        return false;
+    }
+    if filter.unassigned && task.assigned_pane_id.is_some() {
+        return false;
+    }
+    if filter
+        .status
+        .as_ref()
+        .is_some_and(|status| &task.status != status)
+    {
+        return false;
+    }
+    if !filter.mine_panes.is_empty() {
+        let Some(assigned) = task.assigned_pane_id.as_deref() else {
+            return false;
+        };
+        if !filter.mine_panes.contains(assigned) {
+            return false;
+        }
+    }
+    true
+}
+
+impl PlanStore {
+    pub fn ensure_inbox_plan(
+        &self,
+        project_path: &str,
+        owner: OrchestratorRef,
+        now_ms: u64,
+    ) -> Result<Plan, PlanError> {
+        let project_path = canonical_project(project_path);
+        if let Some(plan) = self.get(INBOX_PLAN_ID) {
+            if plan.project_path == project_path {
+                return Ok(plan);
+            }
+        }
+        let mut plan = Plan::new(INBOX_PLAN_TITLE.into(), project_path, owner);
+        plan.id = INBOX_PLAN_ID.into();
+        self.save(&mut plan, now_ms)
+            .map_err(|e| PlanError::Io(e.to_string()))?;
+        Ok(plan)
+    }
+
+    pub fn add_inbox_task(
+        &self,
+        project_path: &str,
+        owner: OrchestratorRef,
+        new: NewTask,
+        now_ms: u64,
+    ) -> Result<(String, String), PlanError> {
+        let plan = self.ensure_inbox_plan(project_path, owner, now_ms)?;
+        let task_id = self.add_task(&plan.id, new, now_ms)?;
+        Ok((plan.id, task_id))
+    }
+
+    pub fn list_tasks(&self, mut filter: TaskListFilter) -> Vec<TaskSummary> {
+        filter.project_path = filter.project_path.map(|p| canonical_project(&p));
+        let mut out = vec![];
+        for plan in self.list_full() {
+            if plan.status == PlanStatus::Archived {
+                continue;
+            }
+            if filter
+                .project_path
+                .as_deref()
+                .is_some_and(|project| plan.project_path != project)
+            {
+                continue;
+            }
+            if filter
+                .plan_id
+                .as_deref()
+                .is_some_and(|id| plan.id.as_str() != id)
+            {
+                continue;
+            }
+            for task in &plan.tasks {
+                if !include_task(&filter, task) {
+                    continue;
+                }
+                let sections = task_sections(&plan, task);
+                out.push(TaskSummary {
+                    plan_id: plan.id.clone(),
+                    plan_title: plan.title.clone(),
+                    plan_owner: plan.owner.clone(),
+                    task: task.clone(),
+                    section_titles: sections.into_iter().map(|s| s.title).collect(),
+                });
+            }
+        }
+        out.sort_by(|a, b| {
+            a.plan_title
+                .cmp(&b.plan_title)
+                .then_with(|| a.task.name.cmp(&b.task.name))
+        });
+        out
+    }
+
+    pub fn show_task(&self, task_id: &str) -> Option<TaskDetail> {
+        for plan in self.list_full() {
+            if plan.status == PlanStatus::Archived {
+                continue;
+            }
+            let Some(task) = plan
+                .tasks
+                .iter()
+                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            else {
+                continue;
+            };
+            let parent = task.parent_task_id.as_ref().and_then(|parent_id| {
+                plan.tasks
+                    .iter()
+                    .find(|candidate| candidate.id == *parent_id)
+                    .map(task_label)
+            });
+            return Some(TaskDetail {
+                plan_id: plan.id.clone(),
+                plan_title: plan.title.clone(),
+                plan_owner: plan.owner.clone(),
+                sections: task_sections(&plan, task),
+                parent,
+                siblings: plan
+                    .tasks
+                    .iter()
+                    .filter(|candidate| {
+                        candidate.id != task.id && candidate.parent_task_id == task.parent_task_id
+                    })
+                    .map(task_label)
+                    .collect(),
+                subtasks: plan
+                    .tasks
+                    .iter()
+                    .filter(|candidate| candidate.parent_task_id.as_deref() == Some(&task.id))
+                    .map(task_label)
+                    .collect(),
+                task: task.clone(),
+            });
+        }
+        None
+    }
+
+    pub fn set_task_assignment(
+        &self,
+        task_id: &str,
+        pane_id: Option<&str>,
+        taken_by_role: Option<&str>,
+        now_ms: u64,
+    ) -> Result<String, PlanError> {
+        let Some((plan_id, canonical_task_id)) = self.list_full().into_iter().find_map(|plan| {
+            if plan.status == PlanStatus::Archived {
+                return None;
+            }
+            plan.tasks
+                .iter()
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .map(|task| (plan.id, task.id.clone()))
+        }) else {
+            return Err(PlanError::TaskNotFound);
+        };
+        let write = self.with_plan(&plan_id, now_ms, |p| {
+            let task = p
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == canonical_task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            task.assigned_pane_id = pane_id.map(str::to_string);
+            task.taken_by_role = taken_by_role.map(str::to_string);
+            if let Some(pane) = pane_id {
+                let attempt = super::task_attempts::new_assignment_attempt(
+                    task,
+                    pane,
+                    None,
+                    taken_by_role,
+                    now_ms,
+                );
+                task.execution_attempts.push(attempt);
+            }
+            if pane_id.is_none() {
+                task.peer = None;
+            }
+            task.updated_at = now_ms;
+            Ok(())
+        });
+        pending_after_verified(
+            write,
+            self.verify_task_assignment(&plan_id, &canonical_task_id, pane_id, taken_by_role),
+            Some(canonical_task_id),
+        )?;
+        Ok(plan_id)
+    }
+}

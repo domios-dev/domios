@@ -30,23 +30,50 @@ impl MultiplexerState {
                     .get_mut(pane_id)
                     .ok_or_else(|| format!("Pane {} not found", pane_id))?;
                 pane.role = Some(AgentRole::Orchestrator);
+                pane.role_profile = None;
                 pane.parent_pane_id = None;
                 pane.can_spawn = true;
                 pane.depth = 1;
             }
             AgentRole::Worker => {
                 let parent_id = parent_pane_id.ok_or("Worker requires a parent_pane_id")?;
-                let parent = self
-                    .panes
-                    .get(parent_id)
-                    .ok_or(format!("Parent pane {} not found", parent_id))?;
-                if parent.role != Some(AgentRole::Orchestrator) {
-                    return Err("Worker's parent must be an Orchestrator".to_string());
-                }
-                if !parent.can_spawn {
-                    return Err("Parent does not allow spawning".to_string());
-                }
-                let parent_depth = parent.depth;
+                let (parent_role, parent_has_parent, parent_can_spawn, parent_depth) = {
+                    let parent = self
+                        .panes
+                        .get(parent_id)
+                        .ok_or(format!("Parent pane {} not found", parent_id))?;
+                    (
+                        parent.role,
+                        parent.parent_pane_id.is_some(),
+                        parent.can_spawn,
+                        parent.depth,
+                    )
+                };
+                let final_parent_depth = if parent_role == Some(AgentRole::Orchestrator) {
+                    if !parent_can_spawn {
+                        return Err("Parent does not allow spawning".to_string());
+                    }
+                    parent_depth
+                } else {
+                    if parent_has_parent {
+                        return Err(
+                            "Worker's parent is itself a Worker — workers cannot spawn workers"
+                                .to_string(),
+                        );
+                    }
+                    let parent = self
+                        .panes
+                        .get_mut(parent_id)
+                        .ok_or_else(|| format!("Parent pane {} not found", parent_id))?;
+                    parent.role = Some(AgentRole::Orchestrator);
+                    parent.role_profile = None;
+                    parent.parent_pane_id = None;
+                    parent.can_spawn = true;
+                    if parent.depth == 0 {
+                        parent.depth = 1;
+                    }
+                    parent.depth
+                };
                 let pane = self
                     .panes
                     .get_mut(pane_id)
@@ -54,7 +81,7 @@ impl MultiplexerState {
                 pane.role = Some(AgentRole::Worker);
                 pane.parent_pane_id = Some(parent_id.to_string());
                 pane.can_spawn = false;
-                pane.depth = parent_depth + 1;
+                pane.depth = final_parent_depth + 1;
             }
         }
 
@@ -71,6 +98,7 @@ impl MultiplexerState {
             .get_mut(pane_id)
             .ok_or(format!("Pane {} not found", pane_id))?;
         pane.role = None;
+        pane.role_profile = None;
         pane.parent_pane_id = None;
         pane.can_spawn = false;
         pane.depth = 0;
@@ -124,6 +152,7 @@ impl MultiplexerState {
             self.orphan_children(cid);
             if let Some(child) = self.panes.get_mut(cid) {
                 child.role = None;
+                child.role_profile = None;
                 child.parent_pane_id = None;
                 child.can_spawn = false;
                 child.depth = 0;
@@ -166,6 +195,53 @@ mod tests {
     }
 
     #[test]
+    fn worker_under_free_pane_auto_promotes_and_links() {
+        let (mut mux, _root) = MultiplexerState::new();
+        let parent = mux.create_pane(); // free: role=None, can_spawn=false by default
+        let worker = mux.create_pane();
+        mux.set_pane_role(&worker, AgentRole::Worker, Some(&parent))
+            .expect("worker attaches to a free parent (auto-promote)");
+        let p = mux.get_pane(&parent).unwrap();
+        assert_eq!(
+            p.role,
+            Some(AgentRole::Orchestrator),
+            "free parent auto-promoted to Orchestrator"
+        );
+        assert!(p.can_spawn);
+        let w = mux.get_pane(&worker).unwrap();
+        assert_eq!(
+            w.parent_pane_id.as_deref(),
+            Some(parent.as_str()),
+            "parent link must persist"
+        );
+        assert_eq!(w.role, Some(AgentRole::Worker));
+    }
+
+    #[test]
+    fn early_workers_under_uncommitted_orchestrator_all_link() {
+        let (mut mux, _root) = MultiplexerState::new();
+        let parent = mux.create_pane();
+        let w1 = mux.create_pane();
+        let w2 = mux.create_pane();
+        mux.set_pane_role(&w1, AgentRole::Worker, Some(&parent))
+            .expect("first early child");
+        mux.set_pane_role(&w2, AgentRole::Worker, Some(&parent))
+            .expect("second early child");
+        assert_eq!(
+            mux.get_pane(&w1).unwrap().parent_pane_id.as_deref(),
+            Some(parent.as_str())
+        );
+        assert_eq!(
+            mux.get_pane(&w2).unwrap().parent_pane_id.as_deref(),
+            Some(parent.as_str())
+        );
+        assert_eq!(
+            mux.get_pane(&parent).unwrap().role,
+            Some(AgentRole::Orchestrator)
+        );
+    }
+
+    #[test]
     fn worker_defaults_can_spawn_false() {
         let (mut mux, root) = fresh();
         mux.set_pane_role(&root, AgentRole::Orchestrator, None)
@@ -179,7 +255,6 @@ mod tests {
 
     #[test]
     fn explicit_set_can_spawn_after_role_does_not_clobber_role() {
-        // Pre-fix #42: callers chained set_pane_role + set_can_spawn(false) and accidentally reset Orchestrator's can_spawn to false on every spawn
         // Preserve old permissive role behavior: only override fields explicitly provided via --can-spawn.
         let (mut mux, _root) = MultiplexerState::new();
         let pane = mux.create_pane();

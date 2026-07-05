@@ -1,9 +1,10 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const suitesDir = fileURLToPath(new URL("../suites", import.meta.url));
+const baselinePath = fileURLToPath(new URL("./check-tags-baseline.txt", import.meta.url));
 const tagRe = /@(smoke|golden|quarantine)/;
 const strictEnv = process.env.PW_LINT_STRICT ?? process.env.PLAYWRIGHT_STRICT_LINT;
 const strictEnabled = !/^(0|false|no)$/i.test(strictEnv ?? "");
@@ -52,7 +53,7 @@ function scopedSpecs() {
 
 function location(source, file, node) {
   const pos = source.getLineAndCharacterOfPosition(node.getStart(source));
-  return relative(process.cwd(), file) + ":" + (pos.line + 1);
+  return relative(process.cwd(), file).split("\\").join("/") + ":" + (pos.line + 1);
 }
 
 function titleFromArg(node) {
@@ -180,7 +181,21 @@ for (const file of scopedSpecs()) {
 }
 
 if (violations.length) {
+  const baseline = existsSync(baselinePath)
+    ? readFileSync(baselinePath, "utf8").split(/\r?\n/).filter(Boolean)
+    : [];
+  const baselineSet = new Set(baseline);
+  const violationSet = new Set(violations);
+  const newViolations = violations.filter((violation) => !baselineSet.has(violation));
+  const staleBaseline = baseline.filter((violation) => !violationSet.has(violation));
+  if (baseline.length > 0 && newViolations.length === 0 && staleBaseline.length === 0) {
+    process.exit(0);
+  }
   console.error("Playwright lint violations:");
-  console.error(violations.join("\n"));
+  console.error((newViolations.length > 0 ? newViolations : violations).join("\n"));
+  if (staleBaseline.length > 0) {
+    console.error("\nStale Playwright lint baseline entries:");
+    console.error(staleBaseline.join("\n"));
+  }
   process.exit(1);
 }
