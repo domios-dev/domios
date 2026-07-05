@@ -43,8 +43,16 @@ pub fn enrich_ready_report(
     branch: Option<String>,
     sha: Option<String>,
     changed_files: Option<Vec<String>>,
+    acknowledge_dirty: bool,
 ) -> Result<(Option<String>, Option<String>, Option<Vec<String>>), ReportRefusal> {
-    enrich_ready_report_in(Path::new("."), status, branch, sha, changed_files)
+    enrich_ready_report_in(
+        Path::new("."),
+        status,
+        branch,
+        sha,
+        changed_files,
+        acknowledge_dirty,
+    )
 }
 
 #[allow(clippy::type_complexity)]
@@ -54,6 +62,7 @@ fn enrich_ready_report_in(
     branch: Option<String>,
     sha: Option<String>,
     changed_files: Option<Vec<String>>,
+    acknowledge_dirty: bool,
 ) -> Result<(Option<String>, Option<String>, Option<Vec<String>>), ReportRefusal> {
     if !is_readiness_status(status) {
         return Ok((branch, sha, changed_files));
@@ -71,11 +80,36 @@ fn enrich_ready_report_in(
             });
         }
     }
+    if let (Some(ref given), Some(ref head)) = (branch.as_deref(), metadata.branch.as_deref()) {
+        if given != head {
+            return Err(ReportRefusal {
+                reason: format!(
+                    "readiness report refused: provided --branch '{given}' does not match current branch '{head}'."
+                ),
+                dirty_files: Vec::new(),
+            });
+        }
+    }
+    if !acknowledge_dirty {
+        if let Some(dirty) = load_lane_dirty(cwd) {
+            return Err(readiness_dirty_error(dirty));
+        }
+    }
     Ok((
         branch.or(metadata.branch),
         sha.or(metadata.sha),
         changed_files.or(metadata.changed_files),
     ))
+}
+
+fn load_lane_dirty(cwd: &Path) -> Option<Vec<String>> {
+    let dirty = git_lines(cwd, &["status", "--porcelain", "-uall"]).ok()?;
+    let lane_dirty = lane_dirty_files(&dirty);
+    if lane_dirty.is_empty() {
+        None
+    } else {
+        Some(lane_dirty)
+    }
 }
 
 fn is_readiness_status(status: Option<ReportStatusArg>) -> bool {
@@ -94,11 +128,6 @@ fn sha_matches_head(given: &str, head: &str) -> bool {
 fn inspect_git_worktree(cwd: &Path) -> Result<Option<ReportGitMetadata>, ReportRefusal> {
     if !git_success(cwd, &["rev-parse", "--is-inside-work-tree"]) {
         return Ok(None);
-    }
-    let dirty = git_lines(cwd, &["status", "--porcelain", "-uall"]).map_err(git_refusal)?;
-    let lane_dirty = lane_dirty_files(&dirty);
-    if !lane_dirty.is_empty() {
-        return Err(readiness_dirty_error(lane_dirty));
     }
     let sha = git_one(cwd, &["rev-parse", "HEAD"]).map_err(git_refusal)?;
     let branch = git_one(cwd, &["branch", "--show-current"]).ok();
@@ -237,11 +266,39 @@ mod tests {
         let dir = repo();
         fs::write(dir.path().join("a.txt"), "dirty\n").unwrap();
 
-        let err = inspect_git_worktree(dir.path()).unwrap_err();
+        let err = enrich_ready_report_in(
+            dir.path(),
+            Some(ReportStatusArg::InReview),
+            None,
+            None,
+            None,
+            false,
+        )
+        .unwrap_err();
 
         assert!(err.message().contains("readiness report refused"));
         assert!(err.message().contains("--status partial"));
         assert_eq!(err.dirty_files, vec!["a.txt"]);
+    }
+
+    #[test]
+    fn acknowledge_dirty_skips_dirty_check() {
+        let dir = repo();
+        fs::write(dir.path().join("a.txt"), "dirty\n").unwrap();
+
+        let (branch, sha, changed) = enrich_ready_report_in(
+            dir.path(),
+            Some(ReportStatusArg::InReview),
+            None,
+            None,
+            None,
+            true,
+        )
+        .unwrap();
+
+        assert!(sha.unwrap().len() >= 7);
+        assert!(changed.unwrap().contains(&"a.txt".to_string()));
+        assert_eq!(branch.as_deref(), Some("main"));
     }
 
     #[test]
@@ -251,9 +308,17 @@ mod tests {
         fs::create_dir_all(&plans_dir).unwrap();
         fs::write(plans_dir.join("mirror.md"), "tool state\n").unwrap();
 
-        let metadata = inspect_git_worktree(dir.path()).unwrap().unwrap();
+        let (_branch, sha, _changed) = enrich_ready_report_in(
+            dir.path(),
+            Some(ReportStatusArg::InReview),
+            None,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
 
-        assert!(metadata.sha.unwrap().len() >= 7);
+        assert!(sha.unwrap().len() >= 7);
     }
 
     #[test]
@@ -264,7 +329,15 @@ mod tests {
         fs::write(plans_dir.join("mirror.md"), "tool state\n").unwrap();
         fs::write(dir.path().join("src.rs"), "lane dirt\n").unwrap();
 
-        let err = inspect_git_worktree(dir.path()).unwrap_err();
+        let err = enrich_ready_report_in(
+            dir.path(),
+            Some(ReportStatusArg::InReview),
+            None,
+            None,
+            None,
+            false,
+        )
+        .unwrap_err();
 
         assert_eq!(err.dirty_files, vec!["src.rs"]);
         assert!(!err.message().contains(".codeterm/plans"));
@@ -290,6 +363,7 @@ mod tests {
                 None,
                 Some("deadbeef".into()),
                 None,
+                false,
             )
             .unwrap_err()
         };
@@ -298,6 +372,24 @@ mod tests {
             .message()
             .contains("provided --sha deadbeef does not match HEAD"));
         assert!(err.message().contains("--status partial"));
+    }
+
+    #[test]
+    fn wrong_branch_is_refused() {
+        let dir = repo();
+
+        let err = enrich_ready_report_in(
+            dir.path(),
+            Some(ReportStatusArg::InReview),
+            Some("lane/wrong".into()),
+            None,
+            None,
+            false,
+        )
+        .unwrap_err();
+
+        assert!(err.message().contains("--branch"));
+        assert!(err.message().contains("does not match current branch"));
     }
 
     #[test]
@@ -314,6 +406,7 @@ mod tests {
             None,
             None,
             Some(vec!["manual.rs".into()]),
+            false,
         )
         .unwrap();
 
