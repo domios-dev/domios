@@ -157,6 +157,12 @@ pub fn handle_update(
         } => {
             if let Some(path) = from_file {
                 let pane = continue_pane.or_else(|| std::env::var("CODETERM_PANE_ID").ok());
+                // Persist current pane ids NOW so restore reuses them and the
+                // continue-pane target survives the restart (30s autosave may be stale).
+                let save_url = format!("{}/api/session/save", base_url);
+                if let Err(e) = http.post(&save_url).send() {
+                    eprintln!("[install --from-file] WARN: session save failed ({e}) — pane id may rotate");
+                }
                 crate::cmd::install::run_install_from_file(
                     &path,
                     json,
