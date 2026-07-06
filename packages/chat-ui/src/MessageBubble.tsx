@@ -49,6 +49,8 @@ import type { InteractiveAnswerHandler } from "./interactive/InteractiveQuestion
 import { pickUiFontScaleValue } from "./uiFontScale";
 import { ToolOutputContent } from "./ToolOutputContent";
 import { isImageOnlyToolOutput, toolResultPreviewLine } from "./toolImageOutput";
+import { ContextRequestCard } from "./ContextRequestCard";
+import { WatcherVerdictCard } from "./WatcherVerdictCard";
 import {
   INBOUND_KIND_LABELS,
   contentSize,
@@ -119,6 +121,14 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
         <ImageBadge />
       </div>
     );
+  }
+
+  if (message.type === "context_request") {
+    return <ContextRequestCard content={message.content} fontScale={fontScale} />;
+  }
+
+  if (message.type === "watcher_verdict") {
+    return <WatcherVerdictCard content={message.content} />;
   }
 
   if (message.type === "user") {

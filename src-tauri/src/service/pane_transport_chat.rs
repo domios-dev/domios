@@ -283,7 +283,10 @@ impl ServiceContext {
         text: &str,
     ) -> Result<(), String> {
         if self.chatbackend_session_is_watcher(plugin_id, session_id) {
-            return Err("this pane is a watcher (read-only); its inputs come from the tick scheduler".into());
+            return Err(
+                "this pane is a watcher (read-only); its inputs come from the tick scheduler"
+                    .into(),
+            );
         }
         self.chatbackend_provider(plugin_id)?
             .send_message(session_id, text)
@@ -331,6 +334,18 @@ impl ServiceContext {
     ) -> Result<StructuredChat, String> {
         self.chatbackend_provider(plugin_id)?
             .poll(session_id, cursor)
+            .map_err(|e| e.to_string())
+    }
+
+    /// Enqueue one watcher machine tick; completion arrives through the poll loop.
+    pub fn chatbackend_watcher_tick(
+        &self,
+        plugin_id: &str,
+        session_id: &str,
+        input: serde_json::Value,
+    ) -> Result<(), String> {
+        self.chatbackend_provider(plugin_id)?
+            .watcher_tick(session_id, input)
             .map_err(|e| e.to_string())
     }
 

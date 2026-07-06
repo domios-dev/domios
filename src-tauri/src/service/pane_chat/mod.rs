@@ -675,6 +675,7 @@ mod chat_snapshot_tests {
             Ok(crate::agent::chat_types::StructuredChat {
                 messages: self.messages.clone(),
                 cursor: None,
+                done: None,
             })
         }
         fn close_session(&self, _session_id: &str) -> Result<(), ChatBackendError> {
