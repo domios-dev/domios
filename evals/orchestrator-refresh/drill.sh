@@ -19,6 +19,12 @@ PROVIDER="${PROVIDER:-claude}"
 CWD="$(pwd)/target-check/evals/orchestrator-refresh"
 mkdir -p "$CWD"
 
+# Realistic timeouts for a LIVE agent: /compact alone takes ~40s; a fresh agent
+# needs seconds to read+run each injected command. Tight caps strand the cycle.
+dc config set orchestration.refresh.handoff_timeout_secs 60 >/dev/null 2>&1
+dc config set orchestration.refresh.settle_timeout_secs 40 >/dev/null 2>&1
+dc config set orchestration.refresh.verify_timeout_secs 90 >/dev/null 2>&1
+
 echo "== [1/6] spawn a $PROVIDER orchestrator pane + bind a plan"
 WS=$(new_workspace "REFRESH-DRILL" "$CWD")
 [ -n "$WS" ] || { echo "FAIL: workspace create" >&2; exit 1; }
@@ -31,7 +37,7 @@ esac
 [ -n "$PANE" ] || { echo "FAIL: pane spawn ($PROVIDER)" >&2; exit 1; }
 echo "   pane=$PANE"
 
-PLAN=$(dc plan create "refresh drill" --json 2>/dev/null \
+PLAN=$(dc plan create --title "refresh drill" --json 2>/dev/null \
   | python -c "import json,sys; print(json.load(sys.stdin).get('plan_id',''))")
 [ -n "$PLAN" ] || { echo "FAIL: plan create" >&2; exit 1; }
 echo "   plan=$PLAN"
@@ -41,8 +47,18 @@ dc orchestrator heartbeat set --plan "$PLAN" --focus "ship refresh cycle" >/dev/
 FRONTIER_BEFORE=$(plan_focus "$PLAN")
 echo "   frontier_before='$FRONTIER_BEFORE'"
 
-echo "== [2/6] give the pane a moment to reach its prompt"
-sleep 8
+echo "== [2/6] wait for the pane to reach READY, then prime its orchestrator contract"
+# Real readiness signal (learned by manual walk): the daemon logs 'agent ready in
+# pane X' ~14s after spawn. A fixed sleep races the boot and the S1 injection lands
+# in a not-yet-ready agent that never submits it.
+for _ in $(seq 1 30); do
+  grep -qaE "agent ready in pane $PANE" "$DEV_LOG" 2>/dev/null && break
+  sleep 2
+done
+sleep 3
+# A BARE agent strands the cycle — prime it to run the exact command each injection names.
+dc pane send --pane "$PANE" "You are a test orchestrator. Stay idle at your prompt. When you receive an injected message naming an exact shell command (e.g. codeterm orchestrator handoff --plan ..., or codeterm plan state ...), run THAT exact command verbatim, using the plan id written in the message. Do nothing else." >/dev/null 2>&1
+sleep 2
 
 OFF=$(log_offset)
 

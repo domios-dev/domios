@@ -29,7 +29,7 @@ rc=0
 echo "########## BRANCH B: dead resumption -> re-nudge once -> ALERT ##########"
 WS=$(new_workspace "REFRESH-FAIL" "$CWD")
 PANE=$(new_shell_pane "$WS" "$CWD" "shell-orch")
-PLAN=$(dc plan create "refresh fail drill" --json 2>/dev/null \
+PLAN=$(dc plan create --title "refresh fail drill" --json 2>/dev/null \
   | python -c "import json,sys; print(json.load(sys.stdin).get('plan_id',''))")
 [ -n "$PANE" ] && [ -n "$PLAN" ] || { echo "FAIL: setup" >&2; exit 1; }
 
@@ -71,7 +71,7 @@ echo "Precondition: set [orchestration.refresh] settle_timeout_secs = 5 in dev c
 echo "The machine must log s3_settle then s4_reorient with NO compaction signature."
 WS2=$(new_workspace "REFRESH-HUNG" "$CWD")
 PANE2=$(new_claude_pane "$WS2" "$CWD" "orch-hung")
-PLAN2=$(dc plan create "refresh hung drill" --json 2>/dev/null \
+PLAN2=$(dc plan create --title "refresh hung drill" --json 2>/dev/null \
   | python -c "import json,sys; print(json.load(sys.stdin).get('plan_id',''))")
 [ -n "$PANE2" ] && [ -n "$PLAN2" ] || { echo "FAIL: setup B" >&2; exit 1; }
 sleep 8
