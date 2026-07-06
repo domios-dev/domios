@@ -153,3 +153,9 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
+
+# One-off legacy plan.json → store_v2 yaml migration (T7). Deep-compare gate;
+# never deletes on mismatch. Rehearse on a project copy with --dry-run first.
+[[bin]]
+name = "convert-plan-storage"
+path = "../scripts/convert-plan-storage.rs"

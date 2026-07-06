@@ -6,6 +6,7 @@ pub mod canvas_elements;
 pub mod cleanup_debt;
 pub mod competition;
 pub mod complete_wrapup;
+pub mod convert_storage;
 pub mod digest_rules;
 pub mod element_queries;
 pub mod gates;
@@ -35,7 +36,9 @@ pub mod section_queries;
 pub mod skill_registry;
 pub mod spec;
 pub mod spec_files;
+pub mod spec_store_v2;
 pub mod state;
+pub mod store_v2;
 pub mod stride_log;
 pub mod tag_model;
 pub mod task_attempts;
@@ -463,6 +466,13 @@ impl PlanStore {
         }
         *plan = guard.clone();
         let path = Self::write_atomic(&guard)?;
+        // v2 yaml store, written alongside legacy plan.json during transition.
+        // Per-entity + write-if-changed: untouched task files do not move.
+        if let Some(dir) = path.parent() {
+            if let Err(e) = store_v2::write_plan(dir, &guard) {
+                log::warn!("[plan.store_v2] write failed for {}: {}", guard.id, e);
+            }
+        }
         self.note_plan_write(&guard, &path);
         if let Err(e) = self.mirror_plan_index(&guard) {
             log::warn!("[plan.index] mirror lag in save for {}: {}", guard.id, e);
@@ -499,6 +509,12 @@ impl PlanStore {
         }
         *spec = guard.clone();
         let path = Self::write_spec_atomic(&guard)?;
+        // v2 yaml store alongside legacy json during transition (sections inline).
+        if let Some(dir) = path.parent() {
+            if let Err(e) = spec_store_v2::write_spec(dir, &guard) {
+                log::warn!("[plan.spec_store_v2] write failed for {}: {}", guard.id, e);
+            }
+        }
         self.note_spec_write(&guard, &path);
         if let Err(e) = self.mirror_spec_index(&guard) {
             log::warn!(
@@ -599,6 +615,30 @@ impl PlanStore {
             .get(id)
             .map(|e| e.file_path.clone())
             .ok_or(PlanError::NotFound)?;
+        // v2-first: a converted plan has plan.yaml — load it directly (walk the
+        // hierarchy, no plan.json, no hydrate-and-rewrite churn). Fall through
+        // to the legacy json path for plans not yet converted.
+        if let Some(dir) = path.parent() {
+            if store_v2::plan_yaml_path(dir).exists() {
+                let mut plan =
+                    store_v2::load_plan(dir).map_err(|e| PlanError::Io(e.to_string()))?;
+                if plan.id != id {
+                    return Err(PlanError::Io(format!(
+                        "plan id mismatch: expected {id}, found {}",
+                        plan.id
+                    )));
+                }
+                let project_root = paths::project_root(Path::new(&plan.project_path));
+                paths::normalize_plan_paths(&mut plan, &project_root);
+                tag_model::normalize_plan(&mut plan);
+                let committed = self.upsert_plan_arc(plan);
+                let _ = self.mirror_plan_index(&committed);
+                self.index
+                    .write()
+                    .insert(committed.id.clone(), Self::index_entry(&committed, path));
+                return Ok(());
+            }
+        }
         let json = std::fs::read_to_string(&path).map_err(|e| PlanError::Io(e.to_string()))?;
         let mut plan: Plan =
             serde_json::from_str(&json).map_err(|e| PlanError::Io(e.to_string()))?;
