@@ -6,4 +6,3 @@ handle: task-priority-field-priority-cli-canvas-render
 title: Task.priority field + --priority CLI + canvas render
 status: done
 ---
-

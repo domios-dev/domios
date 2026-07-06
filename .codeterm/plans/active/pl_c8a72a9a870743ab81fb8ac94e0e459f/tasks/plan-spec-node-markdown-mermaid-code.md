@@ -6,4 +6,3 @@ handle: plan-spec-node-markdown-mermaid-code
 title: 'Plan+Spec node: markdown + mermaid + code'
 status: done
 ---
-

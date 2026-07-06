@@ -6,4 +6,3 @@ handle: dax-independent-design-reviews
 title: Dax — independent design reviews
 status: done
 ---
-

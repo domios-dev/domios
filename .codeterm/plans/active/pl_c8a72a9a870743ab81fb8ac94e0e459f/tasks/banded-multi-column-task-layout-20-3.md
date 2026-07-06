@@ -6,4 +6,3 @@ handle: banded-multi-column-task-layout-20-3
 title: Banded Multi-Column task layout (§20.3)
 status: cancelled
 ---
-

@@ -6,4 +6,3 @@ handle: cli-agent-spawn-must-report-resolved-provider-model
 title: 'CLI: agent spawn must report resolved provider + model'
 status: done
 ---
-

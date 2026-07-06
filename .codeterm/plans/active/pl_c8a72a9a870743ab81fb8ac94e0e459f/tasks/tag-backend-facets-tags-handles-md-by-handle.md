@@ -6,4 +6,3 @@ handle: tag-backend-facets-tags-handles-md-by-handle
 title: 'Tag backend: facets + tags + handles + .md-by-handle'
 status: done
 ---
-

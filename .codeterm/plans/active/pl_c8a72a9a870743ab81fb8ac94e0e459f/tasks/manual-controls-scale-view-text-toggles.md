@@ -6,4 +6,3 @@ handle: manual-controls-scale-view-text-toggles
 title: Manual controls (scale/view/text toggles)
 status: cancelled
 ---
-

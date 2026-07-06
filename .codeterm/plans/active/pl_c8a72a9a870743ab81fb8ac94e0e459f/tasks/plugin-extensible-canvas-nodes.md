@@ -6,4 +6,3 @@ handle: plugin-extensible-canvas-nodes
 title: Plugin-extensible canvas nodes (external e.g. GitHub) + agent CLI to read them
 status: done
 ---
-

@@ -6,4 +6,3 @@ handle: plan-goal-north-star
 title: Plan GOAL — first-class always-visible north-star (data model + canvas + periodic reinjection)
 status: done
 ---
-

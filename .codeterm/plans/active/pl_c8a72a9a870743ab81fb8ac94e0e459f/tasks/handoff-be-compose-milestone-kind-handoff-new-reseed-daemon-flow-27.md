@@ -6,4 +6,3 @@ handle: handoff-be-compose-milestone-kind-handoff-new-reseed-daemon-flow-27
 title: 'Handoff BE: compose + milestone kind=handoff + /new-reseed daemon flow §27'
 status: done
 ---
-

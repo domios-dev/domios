@@ -5,4 +5,3 @@ id: sec_7efb364a93114b24927d73a0378d2365
 handle: plan-alternate-views-canvas-list-board
 title: 'Plan alternate views: Canvas/List/Board'
 ---
-

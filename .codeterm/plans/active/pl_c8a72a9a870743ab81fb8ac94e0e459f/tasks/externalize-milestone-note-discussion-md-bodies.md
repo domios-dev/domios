@@ -6,4 +6,3 @@ handle: externalize-milestone-note-discussion-md-bodies
 title: Externalize milestone/note/discussion .md bodies
 status: done
 ---
-

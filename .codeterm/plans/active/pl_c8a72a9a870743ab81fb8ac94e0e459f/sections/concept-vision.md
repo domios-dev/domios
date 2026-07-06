@@ -5,4 +5,3 @@ id: sec_d2d466e4c7eb474db55aa3ee102bc08f
 handle: concept-vision
 title: Concept Vision
 ---
-

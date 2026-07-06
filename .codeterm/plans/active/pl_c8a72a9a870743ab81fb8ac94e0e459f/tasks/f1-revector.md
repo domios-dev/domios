@@ -6,4 +6,3 @@ handle: f1-revector
 title: 'F1c: update/re-vector via write-hook + existing file-watcher; upsert by stable id, no orphans, delete on archive'
 status: done
 ---
-

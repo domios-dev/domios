@@ -6,4 +6,3 @@ handle: 22-2-merge-plan-spec-into-one-sectioned-node-show-bodies-outputs
 title: '§22.2: merge plan+spec into ONE sectioned node (show bodies + outputs)'
 status: cancelled
 ---
-
