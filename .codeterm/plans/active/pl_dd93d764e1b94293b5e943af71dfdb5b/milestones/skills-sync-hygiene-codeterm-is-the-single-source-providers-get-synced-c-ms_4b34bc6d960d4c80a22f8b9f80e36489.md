@@ -1,0 +1,9 @@
+---
+plan_id: pl_dd93d764e1b94293b5e943af71dfdb5b
+kind: milestone
+id: ms_4b34bc6d960d4c80a22f8b9f80e36489
+handle: skills-sync-hygiene-codeterm-is-the-single-source-providers-get-synced-c-ms_4b34bc6d960d4c80a22f8b9f80e36489
+title: review
+---
+
+BOUNCE (round-98, Andrey verbatim: 'не надо синкать блять' — and he is right; SUPERSEDES the round-95 'sync becomes the fix' wording, which was MY error and enabled this misread). The lane's disposition table blessed wholesale mirroring ('in sync — OK' x9, codeterm-orchestrator included, only the empty scaffold deleted) — that is the OPPOSITE of the round-81 architecture. THE ARCHITECTURE, unambiguous: (1) KILL WHOLESALE MIRRORING — mirror_skills_to_providers (commands/skills.rs) must NOT mirror the canonical set; replace it with installing EXACTLY ONE entry into ~/.claude/skills and ~/.agents/skills: the codeterm skill (the CLI-reference/pointer skill). Nothing else, ever — not atlassian, not nextcloud, not orchestrator, nothing. (2) DELETE all other provider-dir copies again — they stay gone this time because the mirror no longer resurrects them. (3) Andrey's personal skills LIVE IN CANONICAL ONLY (~/.codeterm/skills), mem-indexed — agents find them via mem search per the standing protocol; provider dirs are not a distribution channel. (4) codeterm-orchestrator porting order stands: general content -> docs/ORCHESTRATION, build-capacity -> mem preference, then DELETE FROM CANONICAL. (5) The orphan guard INVERTS: any codeterm-managed provider-dir entry that is not 'codeterm' gets flagged (and with the mirror reduced, cannot reappear). (6) Also check the exe-adjacent source (skills.rs:23) does not re-seed anything beyond codeterm. Acceptance replaces the old table: final state ls of both provider dirs shows EXACTLY [codeterm]; daemon restart does NOT resurrect anything; unit test asserts the installer writes only the codeterm entry.

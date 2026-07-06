@@ -1,0 +1,9 @@
+---
+plan_id: pl_dd93d764e1b94293b5e943af71dfdb5b
+kind: milestone
+id: ms_54b31f26814247aabf1bdd508faf722c
+handle: final-acceptance-dev-walkthrough-of-wave-24-plan-wrap-up-ms_54b31f26814247aabf1bdd508faf722c
+title: decision
+---
+
+RETROSPECTIVE STEP MADE EXPLICIT (round-97, Andrey verification — the task body's wrap-up list never named the retrospective; the automatic PLAN_RETROSPECTIVE_NUDGE exists in code, but the human checklist must carry it too). ADDED to this task's wrap-up sequence, after Andrey's approval and BEFORE archive: run 'codeterm plan retrospective' synthesizing the recorded inputs — this plan accumulated an unusually rich retro corpus, inventoried here so nothing is lost: (1) Puccini's self-reflection (round-40) + Planner's critical evaluation with the three flaws and generalization limits; (2) the polling/shell-gate incident analysis + affordance-asymmetry root cause; (3) the state-drift retro (claims-vs-observations, four gaps, meta root cause: recording system vs supervised state machine); (4) the shared-checkout retro (isolation-was-prose, alarm-fatigue-by-design, adoption debt x3); (5) the section-bloat retro (convenience linking, third-task rule); (6) the orchestrator token audit (yield-watching, narration diet, turn-count economics); (7) the handoff rehearsal findings (Puccini->Rossini: what transferred cleanly, the planner-relink gap); (8) skills-adoption gap (built-but-unused pattern, three occurrences) + the skills-resurrection/sync findings. GRADUATION step per the amended nudge: proven skills/scripts promote UP — machine-wide -> codeterm mem skill, repo-shaped -> .agents/skills or scripts/ via a reviewed lane. The retrospective is a first-class deliverable of this plan, not a formality — it produced the process charter a whole product wave now encodes.
