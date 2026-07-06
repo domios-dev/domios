@@ -107,10 +107,29 @@ impl PlanStore {
         Self::default()
     }
 
+    #[cfg(test)]
     fn file_path(plan: &Plan) -> std::io::Result<PathBuf> {
         paths::plan_json_path(paths::plan_sidecar_root(plan), &plan.status, &plan.id)
     }
 
+    /// The single plan persist path: yaml store only (no plan.json, no md
+    /// sidecar fan-out). Per-entity write-if-changed, so a mutation touches
+    /// only the file(s) that changed. Returns the plan.yaml path for the index.
+    fn persist_plan(plan: &Plan) -> std::io::Result<PathBuf> {
+        let mut normalized = plan.clone();
+        if normalized.canonical_project_path.trim().is_empty() {
+            normalized.canonical_project_path = normalized.project_path.clone();
+        }
+        tag_model::normalize_plan(&mut normalized);
+        let dir = store_v2::plan_state_dir(&normalized)?;
+        store_v2::write_plan(&dir, &normalized)?;
+        Self::remove_other_status_dir(plan, &store_v2::plan_yaml_path(&dir))?;
+        Ok(store_v2::plan_yaml_path(&dir))
+    }
+
+    /// Legacy plan.json + md-sidecar writer. Retained ONLY for the one-off
+    /// conversion tool and tests; the live daemon never calls this.
+    #[cfg(test)]
     fn write_atomic(plan: &Plan) -> std::io::Result<PathBuf> {
         let path = Self::file_path(plan)?;
         let mut normalized = plan.clone();
@@ -172,6 +191,16 @@ impl PlanStore {
 
     fn note_plan_write(&self, plan: &Plan, path: &Path) {
         self.note_write(path);
+        // Track the v2 yaml files this plan writes, so the watcher recognizes
+        // its own writes and does not reconcile-storm on them.
+        if let Ok(dir) = store_v2::plan_state_dir(plan) {
+            self.note_write(&store_v2::plan_yaml_path(&dir));
+            self.note_write(&store_v2::goal_yaml_path(&dir));
+            for task in &plan.tasks {
+                self.note_write(&store_v2::task_yaml_path(&dir, task));
+            }
+        }
+        // Legacy body paths too, harmless while both formats can exist on disk.
         if let Ok(body_paths) = body_files::body_paths(plan) {
             for path in body_paths {
                 self.note_write(&path);
@@ -327,7 +356,7 @@ impl PlanStore {
 
     pub(super) fn commit_loaded_plan(&self, plan: Plan) -> Result<(), PlanError> {
         let committed = self.upsert_plan_arc(plan);
-        let path = Self::write_atomic(&committed).map_err(|e| PlanError::Io(e.to_string()))?;
+        let path = Self::persist_plan(&committed).map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_plan_write(&committed, &path);
         if let Err(e) = self.mirror_plan_index(&committed) {
             log::warn!(
@@ -373,7 +402,7 @@ impl PlanStore {
             let migrated = body_files::hydrate_and_migrate(&mut plan)
                 .map_err(|e| PlanError::Io(e.to_string()))?;
             if migrated {
-                let wp = Self::write_atomic(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
+                let wp = Self::persist_plan(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
                 self.note_plan_write(&plan, &wp);
             }
             plan
@@ -483,14 +512,7 @@ impl PlanStore {
             *guard = plan.clone();
         }
         *plan = guard.clone();
-        let path = Self::write_atomic(&guard)?;
-        // v2 yaml store, written alongside legacy plan.json during transition.
-        // Per-entity + write-if-changed: untouched task files do not move.
-        if let Some(dir) = path.parent() {
-            if let Err(e) = store_v2::write_plan(dir, &guard) {
-                log::warn!("[plan.store_v2] write failed for {}: {}", guard.id, e);
-            }
-        }
+        let path = Self::persist_plan(&guard)?;
         self.note_plan_write(&guard, &path);
         if let Err(e) = self.mirror_plan_index(&guard) {
             log::warn!("[plan.index] mirror lag in save for {}: {}", guard.id, e);
@@ -526,13 +548,9 @@ impl PlanStore {
             *guard = spec.clone();
         }
         *spec = guard.clone();
+        // Specs stay on the legacy json store for now (they churn rarely);
+        // spec_store_v2 exists for a later spec migration. No dual-write.
         let path = Self::write_spec_atomic(&guard)?;
-        // v2 yaml store alongside legacy json during transition (sections inline).
-        if let Some(dir) = path.parent() {
-            if let Err(e) = spec_store_v2::write_spec(dir, &guard) {
-                log::warn!("[plan.spec_store_v2] write failed for {}: {}", guard.id, e);
-            }
-        }
         self.note_spec_write(&guard, &path);
         if let Err(e) = self.mirror_spec_index(&guard) {
             log::warn!(
@@ -672,7 +690,7 @@ impl PlanStore {
             body_files::hydrate_and_migrate(&mut plan).map_err(|e| PlanError::Io(e.to_string()))?;
         tag_model::normalize_plan(&mut plan);
         if migrated {
-            let path = Self::write_atomic(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
+            let path = Self::persist_plan(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
             self.note_plan_write(&plan, &path);
         }
         let committed = self.upsert_plan_arc(plan);

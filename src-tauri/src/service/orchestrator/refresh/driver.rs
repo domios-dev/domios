@@ -9,7 +9,6 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
-use crate::agent::provider::AgentProvider;
 use crate::agent::status::PaneStatus;
 use crate::service::inject_verify::screen_contains_echo;
 use crate::service::messenger::{MessageEnvelope, Messenger};

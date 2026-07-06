@@ -495,7 +495,28 @@ mod tests {
                 4,
             )
             .unwrap();
-        store.get(&plan.id).unwrap()
+        // The store now persists yaml; this fixture must be pure LEGACY
+        // (plan.json + md sidecars) for the converter to convert. Rewrite it
+        // in legacy form and strip the yaml the store wrote.
+        let final_plan = store.get(&plan.id).unwrap();
+        let plan_dir = dir.join(format!(".codeterm/plans/active/{}", final_plan.id));
+        let _ = std::fs::remove_file(plan_dir.join("plan.yaml"));
+        let _ = std::fs::remove_file(plan_dir.join("goal.yaml"));
+        for f in glob_yaml(&plan_dir.join("tasks")) {
+            let _ = std::fs::remove_file(f);
+        }
+        PlanStore::write_atomic(&final_plan).unwrap();
+        final_plan
+    }
+
+    fn glob_yaml(dir: &Path) -> Vec<std::path::PathBuf> {
+        std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("yaml"))
+            .collect()
     }
 
     #[test]
