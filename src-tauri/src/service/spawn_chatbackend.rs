@@ -727,7 +727,10 @@ impl ServiceContext {
                 .map(|(a, r)| format!("{} -> {:?} ({r})", a.kind, a.pane))
                 .collect::<Vec<_>>()
                 .join(", ");
-            self.emit_watcher_note(pane_id, format!("Guardrails dropped actions: {dropped_summary}"));
+            self.emit_watcher_note(
+                pane_id,
+                format!("Guardrails dropped actions: {dropped_summary}"),
+            );
         }
         let actions = outcome.allowed_actions.clone();
         let applied = {
