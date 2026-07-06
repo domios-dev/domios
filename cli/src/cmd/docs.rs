@@ -23,7 +23,7 @@ const DOCS: &[(&str, &str)] = &[
         "ORCHESTRATION",
         include_str!("../../../docs/ORCHESTRATION.md"),
     ),
-    ("EDITING", include_str!("../../../docs/EDITING.md")),
+    ("PLAN-EDITING", include_str!("../../../docs/PLAN-EDITING.md")),
     ("LANES", include_str!("../../../docs/LANES.md")),
 ];
 
