@@ -22,8 +22,13 @@ pub enum SpecAction {
     },
     /// Show a hydrated spec
     Show { spec_id: String },
-    /// List generated section body files
-    Files { spec_id: String },
+    /// Delete a spec (scrubs plan references, removes the yaml)
+    Delete {
+        spec_id: String,
+        /// Confirm permanent deletion.
+        #[arg(long, alias = "confirm")]
+        yes: bool,
+    },
     /// Spec sections
     Section {
         #[command(subcommand)]

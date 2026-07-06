@@ -58,7 +58,29 @@ impl PlanStore {
         plan.sections = mirror_sections(&spec.sections, &mut links, spec_id);
         plan.spec_links = links;
         self.commit_loaded_plan(plan.clone())?;
+        self.adopt_spec_to_plan(spec_id, &plan.id, now_ms)?;
         Ok(plan)
+    }
+
+    /// Bind a spec to its owning plan (1:1). Persisting it then co-locates the
+    /// spec.yaml into the plan dir and drops the orphan global copy.
+    fn adopt_spec_to_plan(
+        &self,
+        spec_id: &str,
+        plan_id: &str,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_spec(spec_id, now_ms, |spec| {
+            if let Some(owner) = spec.plan_id.as_deref() {
+                if owner != plan_id {
+                    return Err(PlanError::Io(format!(
+                        "spec {spec_id} already owned by plan {owner}"
+                    )));
+                }
+            }
+            spec.plan_id = Some(plan_id.to_string());
+            Ok(())
+        })
     }
 
     pub fn create_spec(
@@ -115,7 +137,9 @@ impl PlanStore {
             guard.canonical_project_path = guard.project_path.clone();
         }
         super::tag_model::normalize_sections_for_spec(&mut guard.sections);
-        let path = Self::write_spec_atomic(&guard).map_err(|e| PlanError::Io(e.to_string()))?;
+        let path = self
+            .persist_spec(&guard)
+            .map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_spec_write(&guard, &path);
         self.mirror_spec_index(&guard)
             .map_err(|e| PlanError::Io(e.to_string()))?;
@@ -227,7 +251,12 @@ impl PlanStore {
                 plan.spec_links.push(link);
             }
             Ok(())
-        })
+        })?;
+        // First link claims ownership: co-locate the spec into this plan.
+        if spec.plan_id.as_deref() != Some(plan_id) {
+            self.adopt_spec_to_plan(spec_id, plan_id, now_ms)?;
+        }
+        Ok(())
     }
 
     pub fn unlink_spec_section(
@@ -252,6 +281,35 @@ impl PlanStore {
             }
             Ok(())
         })
+    }
+
+    pub fn delete_spec(&self, spec_id: &str, now_ms: u64) -> Result<(), PlanError> {
+        let spec = self.get_spec(spec_id).ok_or(PlanError::NotFound)?;
+        // Scrub references from every plan that points at this spec.
+        let referencing: Vec<String> = self
+            .plans
+            .read()
+            .iter()
+            .filter(|(_, plan)| plan.lock().spec_refs.iter().any(|r| r == spec_id))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for plan_id in referencing {
+            self.with_plan(&plan_id, now_ms, |plan| {
+                plan.spec_refs.retain(|r| r != spec_id);
+                plan.spec_links.retain(|l| l.spec_id != spec_id);
+                if plan.primary_spec_id.as_deref() == Some(spec_id) {
+                    plan.primary_spec_id = None;
+                }
+                Ok(())
+            })?;
+        }
+        let path = self
+            .spec_yaml_target(&spec)
+            .map_err(|e| PlanError::Io(e.to_string()))?;
+        let _ = std::fs::remove_file(path);
+        self.specs.write().remove(spec_id);
+        self.spec_index.write().remove(spec_id);
+        Ok(())
     }
 
     pub fn list_spec_links(&self, spec_id: &str) -> Vec<(String, SpecLink)> {
@@ -310,7 +368,7 @@ mod tests {
     }
 
     #[test]
-    fn spec_storage_roundtrip_externalizes_sections() {
+    fn orphan_spec_persists_inline_yaml_and_reloads() {
         let (root, store) = store_root();
         let spec = store
             .create_spec("Requirements".into(), root.display().to_string(), 10)
@@ -319,19 +377,14 @@ mod tests {
             .add_spec_section(&spec.id, "Login", "body text", None, &[], None, None, 11)
             .unwrap();
 
-        let json_path = root
+        // Orphan (no owning plan) -> global yaml, bodies inline, no json/md fan-out.
+        let yaml_path = root
             .join(".codeterm")
             .join("specs")
-            .join(format!("{}.json", spec.id));
-        let body_path = root
-            .join(".codeterm")
-            .join("specs")
-            .join(&spec.id)
-            .join("sections")
-            .join("login.md");
-        assert!(json_path.exists());
-        assert_eq!(std::fs::read_to_string(&body_path).unwrap(), "body text\n");
-        assert!(!std::fs::read_to_string(&json_path)
+            .join(format!("{}.yaml", spec.id));
+        assert!(yaml_path.is_file());
+        assert!(!root.join(".codeterm/specs").join(&spec.id).exists());
+        assert!(std::fs::read_to_string(&yaml_path)
             .unwrap()
             .contains("body text"));
 
@@ -339,7 +392,45 @@ mod tests {
         reloaded.scan_project(&root).unwrap();
         let spec = reloaded.get_spec(&spec.id).unwrap();
         assert_eq!(spec.sections[0].id, sid);
-        assert_eq!(spec.sections[0].body, "body text\n");
+        assert_eq!(spec.sections[0].body, "body text");
+        assert_eq!(spec.plan_id, None);
+    }
+
+    #[test]
+    fn linking_adopts_spec_into_plan_dir() {
+        let (root, store) = store_root();
+        let spec = store
+            .create_spec("Reqs".into(), root.display().to_string(), 1)
+            .unwrap();
+        let ssec = store
+            .add_spec_section(&spec.id, "Req", "", None, &[], None, None, 2)
+            .unwrap();
+        let plan = create_plan(&store, &root, "Plan");
+        let psec = store
+            .add_section(&plan.id, "Build", "", None, &[], None, None, 3)
+            .unwrap();
+        let global = root
+            .join(".codeterm/specs")
+            .join(format!("{}.yaml", spec.id));
+        assert!(global.is_file());
+
+        store
+            .link_spec_section(&plan.id, &spec.id, &ssec, &psec, 4)
+            .unwrap();
+
+        let co_located =
+            crate::service::plan::store_v2::plan_state_dir(&store.get(&plan.id).unwrap())
+                .unwrap()
+                .join("spec.yaml");
+        assert!(co_located.is_file(), "spec.yaml must land in the plan dir");
+        assert!(
+            !global.exists(),
+            "orphan global yaml must be dropped on adoption"
+        );
+        assert_eq!(
+            store.get_spec(&spec.id).unwrap().plan_id.as_deref(),
+            Some(plan.id.as_str())
+        );
     }
 
     #[test]
@@ -443,6 +534,84 @@ mod tests {
         let plan = store.get(&plan.id).unwrap();
         assert_eq!(plan.spec_refs, vec![spec_id.clone()]);
         assert_eq!(plan.spec_links.len(), 1);
+    }
+
+    #[test]
+    fn plan_delete_evicts_owned_spec_from_memory() {
+        let (root, store) = store_root();
+        let spec = store
+            .create_spec("Reqs".into(), root.display().to_string(), 1)
+            .unwrap();
+        store
+            .add_spec_section(&spec.id, "Req", "body", None, &[], None, None, 2)
+            .unwrap();
+        let plan = store
+            .create_plan_from_spec(
+                &spec.id,
+                "Plan".into(),
+                OrchestratorRef::default(),
+                vec![],
+                3,
+            )
+            .unwrap();
+        assert_eq!(
+            store.get_spec(&spec.id).unwrap().plan_id.as_deref(),
+            Some(plan.id.as_str())
+        );
+
+        store.delete(&plan.id).unwrap();
+
+        assert!(
+            store.get_spec(&spec.id).is_none(),
+            "owned spec must die with its plan"
+        );
+        assert!(!store.list_spec_index().iter().any(|e| e.spec_id == spec.id));
+    }
+
+    #[test]
+    fn delete_spec_removes_orphan_file_and_memory() {
+        let (root, store) = store_root();
+        let spec = store
+            .create_spec("Loose".into(), root.display().to_string(), 1)
+            .unwrap();
+        let yaml = root
+            .join(".codeterm/specs")
+            .join(format!("{}.yaml", spec.id));
+        assert!(yaml.is_file());
+
+        store.delete_spec(&spec.id, 2).unwrap();
+
+        assert!(!yaml.exists());
+        assert!(store.get_spec(&spec.id).is_none());
+    }
+
+    #[test]
+    fn delete_spec_scrubs_plan_references() {
+        let (root, store) = store_root();
+        let spec = store
+            .create_spec("Reqs".into(), root.display().to_string(), 1)
+            .unwrap();
+        let ssec = store
+            .add_spec_section(&spec.id, "Req", "", None, &[], None, None, 2)
+            .unwrap();
+        let plan = create_plan(&store, &root, "Plan");
+        let psec = store
+            .add_section(&plan.id, "Build", "", None, &[], None, None, 3)
+            .unwrap();
+        store
+            .link_spec_section(&plan.id, &spec.id, &ssec, &psec, 4)
+            .unwrap();
+
+        store.delete_spec(&spec.id, 5).unwrap();
+
+        let plan = store.get(&plan.id).unwrap();
+        assert!(plan.spec_refs.is_empty());
+        assert!(plan.spec_links.is_empty());
+        assert_eq!(plan.primary_spec_id, None);
+        let co_located = crate::service::plan::store_v2::plan_state_dir(&plan)
+            .unwrap()
+            .join("spec.yaml");
+        assert!(!co_located.exists(), "co-located yaml must be removed");
     }
 
     #[test]

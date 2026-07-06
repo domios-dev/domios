@@ -97,6 +97,12 @@ pub(super) fn dispatch(
             }
             Ok(json!({ "specs": entries }))
         }
+        "spec.delete" => {
+            let id = super::plan_refs::resolve_spec(store, params)?;
+            store.delete_spec(&id, now).map_err(plan_rpc_err)?;
+            emit_spec_changed(app, &id);
+            Ok(json!({ "ok": true, "spec_id": id }))
+        }
         "spec.show" => {
             let id = super::plan_refs::resolve_spec(store, params)?;
             if p.and_then(|x| x.get("full")).and_then(|v| v.as_bool()) == Some(true) {
@@ -108,11 +114,6 @@ pub(super) fn dispatch(
                 .get_spec(&id)
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
             Ok(json!({ "spec": spec }))
-        }
-        "spec.files" => {
-            let id = super::plan_refs::resolve_spec(store, params)?;
-            let manifest = store.spec_file_manifest(&id).map_err(plan_rpc_err)?;
-            Ok(serde_json::to_value(manifest).unwrap_or_default())
         }
         "spec.section.add" => {
             let id = super::plan_refs::resolve_spec(store, params)?;
