@@ -20,14 +20,15 @@ fn plan_yaml(root: &std::path::Path, plan: &Plan) -> std::path::PathBuf {
     store_v2::plan_yaml_path(&dir)
 }
 
-// External process writes a plan.json for `plan` at `updated_at`, changing mtime.
+// External process writes plan.yaml for `plan` at `updated_at`, changing mtime.
 fn external_write(root: &std::path::Path, plan: &Plan, title: &str, updated_at: u64) {
     let mut copy = plan.clone();
     copy.title = title.into();
     copy.updated_at = updated_at;
-    let path = plan_json(root, &copy);
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(&path, serde_json::to_string_pretty(&copy).unwrap()).unwrap();
+    let project = paths::project_root(root);
+    let dir = paths::plan_dir(&project, &copy.status, &copy.id).unwrap();
+    store_v2::write_plan(&dir, &copy).unwrap();
+    let path = store_v2::plan_yaml_path(&dir);
     // Force a distinct mtime so is_own_recent_write cannot mistake it for ours.
     filetime::set_file_mtime(
         &path,
@@ -115,6 +116,28 @@ fn in_flight_memory_wins_over_stale_disk_read() {
     assert_eq!(outcome, WatchOutcome::Loaded);
     assert_eq!(store.get(&plan.id).unwrap().title, "In-flight newer");
     assert_eq!(store.get(&plan.id).unwrap().updated_at, 5000);
+}
+
+#[test]
+fn v2_plan_survives_when_legacy_json_absent() {
+    // Regression: a v2 plan persists only plan.yaml (no plan.json). A watcher
+    // burst — e.g. the one-off conversion deleting the legacy json — must NOT
+    // evict it. The old json-only discovery returned None here and forgot it.
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let project = paths::project_root(dir.path());
+    let mut plan = new_plan(dir.path(), "V2 only");
+    store.save(&mut plan, 1000).unwrap();
+    assert!(plan_yaml(dir.path(), &plan).is_file());
+    assert!(!plan_json(dir.path(), &plan).is_file());
+
+    let outcome = store.reconcile_watched_plan(&project, &plan.id).unwrap();
+    assert_ne!(outcome, WatchOutcome::Removed);
+    assert!(
+        store.get(&plan.id).is_some(),
+        "v2 plan must survive when only the legacy json is gone"
+    );
+    assert_eq!(store.get(&plan.id).unwrap().title, "V2 only");
 }
 
 #[test]

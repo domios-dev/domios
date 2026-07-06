@@ -892,11 +892,15 @@ impl PlanStore {
         (plan, entry_path)
     }
 
-    fn find_plan_json_on_disk(&self, project_root: &Path, plan_id: &str) -> Option<PathBuf> {
+    fn find_plan_file_on_disk(&self, project_root: &Path, plan_id: &str) -> Option<PathBuf> {
         for status in [PlanStatus::Active, PlanStatus::Archived] {
-            let path = paths::plan_json_path_unchecked(project_root, &status, plan_id);
-            if path.is_file() {
-                return Some(path);
+            let json = paths::plan_json_path_unchecked(project_root, &status, plan_id);
+            let yaml = store_v2::plan_yaml_path(json.parent()?);
+            if yaml.is_file() {
+                return Some(yaml);
+            }
+            if json.is_file() {
+                return Some(json);
             }
         }
         None
@@ -909,7 +913,7 @@ impl PlanStore {
         project_root: &Path,
         plan_id: &str,
     ) -> Result<WatchOutcome, PlanError> {
-        match self.find_plan_json_on_disk(project_root, plan_id) {
+        match self.find_plan_file_on_disk(project_root, plan_id) {
             Some(path) => {
                 if self.is_own_recent_write(&path) {
                     return Ok(WatchOutcome::Unchanged);
