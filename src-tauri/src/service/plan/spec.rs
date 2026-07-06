@@ -537,6 +537,45 @@ mod tests {
     }
 
     #[test]
+    fn archive_carries_co_located_spec_yaml() {
+        let (root, store) = store_root();
+        let spec = store
+            .create_spec("Reqs".into(), root.display().to_string(), 1)
+            .unwrap();
+        store
+            .add_spec_section(&spec.id, "Req", "req body", None, &[], None, None, 2)
+            .unwrap();
+        let plan = store
+            .create_plan_from_spec(
+                &spec.id,
+                "Plan".into(),
+                OrchestratorRef::default(),
+                vec![],
+                3,
+            )
+            .unwrap();
+        let active_spec = root
+            .join(".codeterm/plans/active")
+            .join(&plan.id)
+            .join("spec.yaml");
+        assert!(active_spec.is_file());
+
+        store.archive(&plan.id, 4).unwrap();
+
+        let archived_spec = root
+            .join(".codeterm/plans/archive")
+            .join(&plan.id)
+            .join("spec.yaml");
+        assert!(
+            archived_spec.is_file(),
+            "spec.yaml must move with its plan on archive"
+        );
+        assert!(!active_spec.exists());
+        let text = std::fs::read_to_string(&archived_spec).unwrap();
+        assert!(text.contains("req body"));
+    }
+
+    #[test]
     fn plan_delete_evicts_owned_spec_from_memory() {
         let (root, store) = store_root();
         let spec = store
