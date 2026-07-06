@@ -179,6 +179,7 @@ function TaskDetail({
         <Chip label="status" value={statusLabel} color={TASK_STATUS_COLORS[task.status]} testId="status-chip" />
         {task.priority && <Chip label="priority" value={task.priority.toUpperCase()} />}
         {task.type && <Chip label="type" value={task.type} />}
+        {task.executor_role?.trim() && <Chip label="role" value={task.executor_role} testId="task-executor-role" />}
         {onOpenPane && paneId && (
           <button
             type="button"
@@ -194,6 +195,11 @@ function TaskDetail({
       {attachmentThumbnails && (
         <Block label="Attachments">
           <div data-testid="plan-detail-attachment-thumbnails">{attachmentThumbnails}</div>
+        </Block>
+      )}
+      {task.role_guidance?.trim() && (
+        <Block label="Role guidance" testId="task-role-guidance">
+          <Markdown text={task.role_guidance} />
         </Block>
       )}
       <Block label="Description" testId="canvas-detail-description">
