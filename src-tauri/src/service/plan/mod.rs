@@ -128,6 +128,33 @@ impl PlanStore {
         Ok(store_v2::plan_yaml_path(&dir))
     }
 
+    /// persist_plan + carry the co-located owned spec. A status move
+    /// (active<->archive) relocates the plan dir and remove_other_status_dir
+    /// wipes the old one INCLUDING spec.yaml — re-persist the spec into
+    /// wherever the plan now lives (write-if-changed: no-op otherwise).
+    fn persist_plan_and_spec(&self, plan: &Plan) -> std::io::Result<PathBuf> {
+        let path = Self::persist_plan(plan)?;
+        let owned = {
+            self.specs
+                .read()
+                .values()
+                .find(|s| s.lock().plan_id.as_deref() == Some(plan.id.as_str()))
+                .cloned()
+        };
+        if let Some(spec) = owned {
+            let guard = spec.lock();
+            // Target from the fresh plan, not the index — mid-transition the
+            // index still points at the old status dir.
+            let dir = store_v2::plan_state_dir(plan)?;
+            let target = spec_store::spec_yaml_path_in_plan(&dir);
+            let spec_path = self.persist_spec_at(&guard, target)?;
+            self.note_spec_write(&guard, &spec_path);
+            let entry = Self::spec_index_entry(&guard, spec_path);
+            self.spec_index.write().insert(guard.id.clone(), entry);
+        }
+        Ok(path)
+    }
+
     /// Legacy plan.json + md-sidecar writer. Retained ONLY for the one-off
     /// conversion tool and tests; the live daemon never calls this.
     #[cfg(test)]
@@ -162,11 +189,17 @@ impl PlanStore {
     }
 
     /// Spec v2 write target: owned spec -> `<plan_dir>/spec.yaml`, orphan ->
-    /// `.codeterm/specs/<id>.yaml`. Needs &self to resolve the owning plan dir.
+    /// `.codeterm/specs/<id>.yaml`. Resolves the plan dir via the INDEX (map
+    /// lock only) — never the plan mutex, so spec persists can run while a
+    /// plan guard is held on this thread (no ABBA / reentrant deadlock).
     fn spec_yaml_target(&self, spec: &Spec) -> std::io::Result<PathBuf> {
         if let Some(pid) = spec.plan_id.as_deref() {
-            if let Some(plan) = self.get(pid) {
-                let dir = store_v2::plan_state_dir(&plan)?;
+            let plan_dir = self
+                .index
+                .read()
+                .get(pid)
+                .and_then(|e| e.file_path.parent().map(Path::to_path_buf));
+            if let Some(dir) = plan_dir {
                 return Ok(spec_store::spec_yaml_path_in_plan(&dir));
             }
         }
@@ -175,17 +208,24 @@ impl PlanStore {
     }
 
     fn persist_spec(&self, spec: &Spec) -> std::io::Result<PathBuf> {
+        let path = self.spec_yaml_target(spec)?;
+        self.persist_spec_at(spec, path)
+    }
+
+    fn persist_spec_at(&self, spec: &Spec, path: PathBuf) -> std::io::Result<PathBuf> {
         let mut normalized = spec.clone();
         if normalized.canonical_project_path.trim().is_empty() {
             normalized.canonical_project_path = normalized.project_path.clone();
         }
         tag_model::normalize_sections_for_spec(&mut normalized.sections);
-        let path = self.spec_yaml_target(&normalized)?;
         // A spec owned by a plan lives at <plan>/spec.yaml; when it was
         // previously orphaned, drop the stale global yaml so there is one copy.
-        if spec.plan_id.is_some() {
+        if normalized.plan_id.is_some() {
             let specs_dir = paths::specs_dir(paths::spec_sidecar_root(&normalized))?;
-            let _ = std::fs::remove_file(spec_store::spec_yaml_path(&specs_dir, &normalized.id));
+            let global = spec_store::spec_yaml_path(&specs_dir, &normalized.id);
+            if global != path {
+                let _ = std::fs::remove_file(global);
+            }
         }
         spec_store::write_spec_at(&path, &normalized)?;
         Ok(path)
@@ -363,7 +403,9 @@ impl PlanStore {
 
     pub(super) fn commit_loaded_plan(&self, plan: Plan) -> Result<(), PlanError> {
         let committed = self.upsert_plan_arc(plan);
-        let path = Self::persist_plan(&committed).map_err(|e| PlanError::Io(e.to_string()))?;
+        let path = self
+            .persist_plan_and_spec(&committed)
+            .map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_plan_write(&committed, &path);
         if let Err(e) = self.mirror_plan_index(&committed) {
             log::warn!(
@@ -523,7 +565,7 @@ impl PlanStore {
             *guard = plan.clone();
         }
         *plan = guard.clone();
-        let path = Self::persist_plan(&guard)?;
+        let path = self.persist_plan_and_spec(&guard)?;
         self.note_plan_write(&guard, &path);
         if let Err(e) = self.mirror_plan_index(&guard) {
             log::warn!("[plan.index] mirror lag in save for {}: {}", guard.id, e);

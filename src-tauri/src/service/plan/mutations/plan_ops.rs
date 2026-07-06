@@ -235,7 +235,9 @@ impl PlanStore {
             guard.canonical_project_path = guard.project_path.clone();
         }
         super::tag_model::normalize_plan(&mut guard);
-        let path = Self::persist_plan(&guard).map_err(|e| PlanError::Io(e.to_string()))?;
+        let path = self
+            .persist_plan_and_spec(&guard)
+            .map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_plan_write(&guard, &path);
         if let Err(e) = self.mirror_plan_index(&guard) {
             log::warn!(
