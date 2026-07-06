@@ -140,6 +140,120 @@ fn v2_plan_survives_when_legacy_json_absent() {
     assert_eq!(store.get(&plan.id).unwrap().title, "V2 only");
 }
 
+fn bump_mtime(path: &std::path::Path) {
+    filetime::set_file_mtime(path, filetime::FileTime::from_unix_time(9_999_999_999, 0)).unwrap();
+}
+
+#[test]
+fn hand_edited_task_yaml_reconciles_while_plan_yaml_is_own_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let project = paths::project_root(dir.path());
+    let mut plan = new_plan(dir.path(), "Tasks");
+    store.save(&mut plan, 1000).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            crate::service::plan::NewTask {
+                name: "hand edit me".into(),
+                body: "original body line.\nsecond line.".into(),
+                ..Default::default()
+            },
+            1001,
+        )
+        .unwrap();
+
+    // Hand-edit ONLY the task yaml; plan.yaml stays our own recent write.
+    let plan_dir = store_v2::plan_state_dir(&store.get(&plan.id).unwrap()).unwrap();
+    let task_yaml = plan_dir.join("tasks/hand-edit-me.yaml");
+    let text = std::fs::read_to_string(&task_yaml).unwrap();
+    std::fs::write(&task_yaml, text.replace("original body", "EDITED body")).unwrap();
+    bump_mtime(&task_yaml);
+
+    let outcome = store.reconcile_watched_plan(&project, &plan.id).unwrap();
+    assert_eq!(outcome, WatchOutcome::Loaded);
+    let task = store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|t| t.id == task_id)
+        .unwrap();
+    assert!(task.body.contains("EDITED body"), "got: {}", task.body);
+}
+
+#[test]
+fn hand_edited_co_located_spec_yaml_reconciles() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let project = paths::project_root(dir.path());
+    let spec = store
+        .create_spec("Reqs".into(), dir.path().display().to_string(), 1)
+        .unwrap();
+    store
+        .add_spec_section(
+            &spec.id,
+            "Req",
+            "spec body one.\nspec body two.",
+            None,
+            &[],
+            None,
+            None,
+            2,
+        )
+        .unwrap();
+    let plan = store
+        .create_plan_from_spec(
+            &spec.id,
+            "Plan".into(),
+            OrchestratorRef::default(),
+            vec![],
+            3,
+        )
+        .unwrap();
+
+    let plan_dir = store_v2::plan_state_dir(&store.get(&plan.id).unwrap()).unwrap();
+    let spec_yaml = plan_dir.join("spec.yaml");
+    let text = std::fs::read_to_string(&spec_yaml).unwrap();
+    std::fs::write(
+        &spec_yaml,
+        text.replace("spec body one", "HAND-EDITED spec body"),
+    )
+    .unwrap();
+    bump_mtime(&spec_yaml);
+
+    let outcome = store.reconcile_watched_plan(&project, &plan.id).unwrap();
+    assert_eq!(outcome, WatchOutcome::Loaded);
+    let loaded = store.get_spec(&spec.id).unwrap();
+    assert!(
+        loaded.sections[0].body.contains("HAND-EDITED spec body"),
+        "got: {}",
+        loaded.sections[0].body
+    );
+}
+
+#[test]
+fn untouched_plan_dir_stays_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let project = paths::project_root(dir.path());
+    let mut plan = new_plan(dir.path(), "Quiet");
+    store.save(&mut plan, 1000).unwrap();
+    store
+        .add_task(
+            &plan.id,
+            crate::service::plan::NewTask {
+                name: "quiet task".into(),
+                ..Default::default()
+            },
+            1001,
+        )
+        .unwrap();
+
+    let outcome = store.reconcile_watched_plan(&project, &plan.id).unwrap();
+    assert_eq!(outcome, WatchOutcome::Unchanged);
+}
+
 #[test]
 fn reconcile_absent_plan_is_noop() {
     let dir = tempfile::tempdir().unwrap();

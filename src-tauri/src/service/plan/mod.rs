@@ -968,6 +968,34 @@ impl PlanStore {
         None
     }
 
+    /// True when any file of the plan's on-disk state (plan.yaml, goal.yaml,
+    /// spec.yaml, tasks/*.yaml) was modified by someone other than us.
+    fn plan_dir_externally_dirty(&self, plan_yaml: &Path) -> bool {
+        if !self.is_own_recent_write(plan_yaml) {
+            return true;
+        }
+        let Some(dir) = plan_yaml.parent() else {
+            return false;
+        };
+        for name in ["goal.yaml", "spec.yaml"] {
+            let p = dir.join(name);
+            if p.is_file() && !self.is_own_recent_write(&p) {
+                return true;
+            }
+        }
+        if let Ok(entries) = std::fs::read_dir(dir.join("tasks")) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.extension().and_then(|e| e.to_str()) == Some("yaml")
+                    && !self.is_own_recent_write(&p)
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Reconcile one plan against its on-disk sidecar after an external FS event.
     /// Loaded=added/updated, Removed=external delete, Unchanged=own write, Absent=nothing.
     pub fn reconcile_watched_plan(
@@ -977,7 +1005,10 @@ impl PlanStore {
     ) -> Result<WatchOutcome, PlanError> {
         match self.find_plan_file_on_disk(project_root, plan_id) {
             Some(path) => {
-                if self.is_own_recent_write(&path) {
+                // Own-write suppression must consider every per-entity file: a
+                // hand-edit of tasks/<h>.yaml or spec.yaml arrives while
+                // plan.yaml itself is still our own untouched write.
+                if !self.plan_dir_externally_dirty(&path) {
                     return Ok(WatchOutcome::Unchanged);
                 }
                 self.load_file_into_index(path, project_root)?;
