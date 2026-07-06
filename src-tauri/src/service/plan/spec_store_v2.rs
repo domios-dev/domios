@@ -31,7 +31,7 @@ fn write_if_changed(path: &Path, content: &str) -> io::Result<bool> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    super::atomic_write::write_atomic(path, content.to_string())?;
+    super::atomic_write::write_atomic(path, content)?;
     Ok(true)
 }
 
