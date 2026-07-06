@@ -14,6 +14,11 @@ pub fn spec_yaml_path(specs_dir: &Path, spec_id: &str) -> PathBuf {
     specs_dir.join(format!("{spec_id}.yaml"))
 }
 
+/// Co-located owned spec: `<plan_dir>/spec.yaml`.
+pub fn spec_yaml_path_in_plan(plan_dir: &Path) -> PathBuf {
+    plan_dir.join("spec.yaml")
+}
+
 fn to_yaml<T: serde::Serialize>(value: &T) -> io::Result<String> {
     serde_yaml::to_string(value).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
@@ -35,15 +40,24 @@ fn write_if_changed(path: &Path, content: &str) -> io::Result<bool> {
     Ok(true)
 }
 
-/// Persist a complete spec with all section bodies inline.
+/// Persist an orphan spec to the global specs dir. write-if-changed semantics.
 pub fn write_spec(specs_dir: &Path, spec: &Spec) -> io::Result<bool> {
     write_if_changed(&spec_yaml_path(specs_dir, &spec.id), &to_yaml(spec)?)
 }
 
-/// Load a spec from its v2 YAML file. Never writes.
+/// Write a spec to an explicit path (co-located `<plan>/spec.yaml` or custom).
+pub fn write_spec_at(path: &Path, spec: &Spec) -> io::Result<bool> {
+    write_if_changed(path, &to_yaml(spec)?)
+}
+
+/// Load a spec from its v2 YAML file at an explicit path. Never writes.
+pub fn load_spec_from_path(path: &Path) -> io::Result<Spec> {
+    from_yaml(&std::fs::read_to_string(path)?)
+}
+
+/// Load an orphan spec from the global specs dir.
 pub fn load_spec(specs_dir: &Path, spec_id: &str) -> io::Result<Spec> {
-    let text = std::fs::read_to_string(spec_yaml_path(specs_dir, spec_id))?;
-    from_yaml(&text)
+    load_spec_from_path(&spec_yaml_path(specs_dir, spec_id))
 }
 
 #[cfg(test)]

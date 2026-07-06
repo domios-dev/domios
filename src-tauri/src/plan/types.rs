@@ -562,6 +562,8 @@ pub struct EffortLink {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Spec {
     pub id: String,
+    #[serde(default)]
+    pub plan_id: Option<String>,
     pub title: String,
     pub project_path: String,
     #[serde(default)]
@@ -684,6 +686,7 @@ impl Spec {
     pub fn new(title: String, project_path: String) -> Self {
         Self {
             id: super::ids::short_id("sp"),
+            plan_id: None,
             title,
             project_path: project_path.clone(),
             canonical_project_path: project_path,
