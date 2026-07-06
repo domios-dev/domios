@@ -6,3 +6,4 @@ handle: section-to-task-nav
 title: Click plan section → navigate to its task(s); go-to-task / go-to-spec buttons
 status: done
 ---
+

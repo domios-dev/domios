@@ -6,3 +6,4 @@ handle: camera-never-disrupt-live
 title: 'FOUNDATIONAL UX: live changes never move camera/focus + off-screen change signal §31'
 status: done
 ---
+
