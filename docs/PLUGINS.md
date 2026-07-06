@@ -209,18 +209,61 @@ and each owns its own "brain". The shipped reference instance is **lmstudio**
 
 | Export | Role |
 |--------|------|
-| `openSession(ctx)` | start a session; `ctx = { paneId, config, systemPrompt?, preset?, model? }`. Resolve the preset (`ctx.preset` or `defaultPreset`), apply any `ctx.systemPrompt` override, and **emit a `system_prompt` first message** so the prompt is observable. |
+| `openSession(ctx)` | start a session; `ctx = { paneId, config, systemPrompt?, preset?, model?, mode?, engine? }`. Resolve the preset (`ctx.preset` or `defaultPreset`), apply any `ctx.systemPrompt` override, and **emit a `system_prompt` first message** so the prompt is observable. Watcher sessions receive `mode: "watcher"` and a machine `engine` instead of accepting user turns. |
 | `sendMessage(sid, text)` | enqueue a user turn; kick the ReAct loop. |
+| `watcherTick(sid, input)` *(optional)* | enqueue one host-driven watcher tick for sessions opened with `mode: "watcher"`. It returns immediately; `pump`/`poll` streams the context card, model reply, and verdict. |
 | `pump(sid)` *(optional)* | drive one loop step: stream the LLM call, append the growing assistant message (stable id), scan the completed message for tool blocks, execute each curated tool, append a `tool_result`, continue (capped — e.g. 8 rounds/turn). |
 | `poll(sid, cursor)` | return the transcript delta; stable message ids + growing `content` give in-place streaming. |
 | `closeSession(sid)` | tear down. |
 | `listModels()` *(optional)* | model picker entries. |
 | `listPresets()` *(optional)* | `[{ id, name, description? }]`; the host returns `[]` if absent. |
 
-`ctx.systemPrompt`/`preset`/`model` are **optional** — a shell that ignores them
-still works (backward-safe). Token streaming uses the sync `host.fetchStream` /
-`host.fetchStreamPoll` / `host.fetchStreamClose` primitive (job-id + chunked
-poll, same network allowlist as `host.fetch` — no new confinement class).
+`ctx.systemPrompt`/`preset`/`model`/`mode`/`engine` are **optional** — a shell
+that ignores them still works as a normal interactive shell. Token streaming uses
+the sync `host.fetchStream` / `host.fetchStreamPoll` / `host.fetchStreamClose`
+primitive (job-id + chunked poll, same network allowlist as `host.fetch` — no new
+confinement class).
+
+### Session modes, context engines, and watcher ticks
+
+Open agent shells support two orthogonal session knobs:
+
+- `mode: "interactive"` (default) accepts user and routed pane messages through
+  `sendMessage`.
+- `mode: "watcher"` is read-only. The host rejects user sends; only the tick
+  scheduler calls `watcherTick`.
+- `engine: { kind: "chat", window? }` is the normal chat-history engine. A
+  window policy can bound the retained message set.
+- `engine: { kind: "machine", charter, observations?, tickIntervalSecs? }` is a
+  state-machine engine. Each tick is assembled from the immutable charter, the
+  current state, and the host-provided observation input; raw transcript history
+  is not part of the next request.
+
+A watcher-capable plugin declares the capability in its manifest:
+
+```json
+{ "capabilities": { "chatBackend": { "spawnable": true, "watcher": true } } }
+```
+
+The SDK shape is `watcherTick(sessionId, input)` where `input` contains
+`tick`, `nowMs`, `state`, and optional `observations`. The plugin should append a
+transparent `context_request` normalized message before the LLM call, stream the
+assistant reply normally, then append a final `watcher_verdict` message whose
+content is the model's verdict JSON. The host parses that verdict, persists the
+next watcher state, and executes only allowlisted actions.
+
+Verdicts use this contract:
+
+```ts
+type WatcherVerdictStatus = "ok" | "attention" | "stalled";
+type WatcherAction = { kind: "nudge" | "notify" | "report"; pane?: string; message: string };
+type WatcherVerdict = { status: WatcherVerdictStatus; summary: string; state?: unknown; actions?: WatcherAction[] };
+```
+
+Watcher sessions are deliberately read-only. Plugins should treat `sendMessage`
+on a watcher session as unsupported or a no-op, and must not run text-tool loops
+from watcher replies; the host owns observation assembly, verdict parsing,
+cooldowns, action limits, and nudge delivery.
 
 ### Presets (plugin-owned)
 
@@ -267,6 +310,8 @@ exactly — it is the single source of truth.
    codeterm agent spawn lmstudio                              # uses defaultPreset
    codeterm agent spawn lmstudio --preset rhymes              # pick a preset
    codeterm agent spawn lmstudio --system "You answer only in rhymes."
+   codeterm agent spawn lmstudio --role Watcher --parent <orch-pane> \
+     --charter charter:watcher-orchestration --interval 30s
    ```
 
 Editing presets, the LM Studio continuation semantics, and the curated tools are
@@ -574,4 +619,4 @@ tax (see also `docs/contributing/architecture.md`):
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->
