@@ -6,4 +6,3 @@ handle: f1-tdd-tests
 title: 'F1e: TDD tests — upsert/reindex/no-orphan, scope-stable, embed-only, recall, related dangling-safety, similar kNN'
 status: done
 ---
-
