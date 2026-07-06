@@ -289,6 +289,44 @@ fn run_plan(
             return Ok(None);
         }
 
+        PlanAction::Locate {
+            plan_id,
+            task,
+            section,
+            spec_section,
+        } => {
+            let mut params = json!({ "plan_id": plan_id });
+            if let Some(t) = task {
+                params["task"] = json!(t);
+            }
+            if let Some(s) = section {
+                params["section"] = json!(s);
+            }
+            if let Some(s) = spec_section {
+                params["spec_section"] = json!(s);
+            }
+            let val = call(client, "plan.locate", params)?;
+            if json {
+                return Ok(Some(val));
+            }
+            let file = val.get("file").and_then(|v| v.as_str()).unwrap_or("?");
+            let start = val.get("start_line").and_then(|v| v.as_u64()).unwrap_or(0);
+            let end = val.get("end_line").and_then(|v| v.as_u64()).unwrap_or(0);
+            let editable = val
+                .get("editable")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            println!("{file}:{start}-{end}");
+            if editable {
+                println!("body is a yaml block scalar (markdown); edit these lines in place, keep the indentation");
+            } else {
+                println!(
+                    "body is empty/inline — set it via CLI (--body/--body-file) instead of editing"
+                );
+            }
+            return Ok(None);
+        }
+
         PlanAction::Files { plan_id } => {
             let val = call(client, "plan.files", json!({ "plan_id": plan_id }))?;
             if json {

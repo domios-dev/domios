@@ -19,6 +19,7 @@ pub(super) fn handles(method: &str) -> bool {
             | "plan.related"
             | "plan.search"
             | "plan.reindex"
+            | "plan.locate"
     )
 }
 
@@ -50,6 +51,33 @@ pub(super) fn dispatch(
                 .spec_markdown(&id)
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
             Ok(json!({ "plan_id": id, "spec": spec }))
+        }
+        "plan.locate" => {
+            use crate::service::plan::locate::LocateTarget;
+            let id = super::plan_refs::resolve_plan(store, params)?;
+            let p = params.as_ref();
+            let pick = |key: &str| {
+                p.and_then(|x| x.get(key))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+            };
+            let (task, section, spec_section) =
+                (pick("task"), pick("section"), pick("spec_section"));
+            let target = if let Some(sel) = task.as_deref() {
+                LocateTarget::Task(sel)
+            } else if let Some(sel) = section.as_deref() {
+                LocateTarget::PlanSection(sel)
+            } else if let Some(sel) = spec_section.as_deref() {
+                LocateTarget::SpecSection(sel)
+            } else {
+                return Err(JsonRpcError {
+                    code: -32602,
+                    message: "one of task|section|spec_section is required".into(),
+                    data: None,
+                });
+            };
+            let loc = store.locate_body(&id, target).map_err(plan_rpc_err)?;
+            Ok(serde_json::to_value(loc).unwrap_or_default())
         }
         "plan.files" => {
             let id = super::plan_refs::resolve_plan(store, params)?;
