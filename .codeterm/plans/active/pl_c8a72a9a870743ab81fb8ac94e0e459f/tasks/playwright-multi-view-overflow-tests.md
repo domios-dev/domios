@@ -6,5 +6,3 @@ handle: playwright-multi-view-overflow-tests
 title: Playwright multi-view overflow tests
 status: done
 ---
-
-Screenshot + bbox asserts across modes × zoom bands: no overflow, no overlap, every mode legible.

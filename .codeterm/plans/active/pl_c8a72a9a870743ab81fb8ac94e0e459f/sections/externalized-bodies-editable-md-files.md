@@ -5,4 +5,3 @@ id: sec_88f5ddb0905e4f53b4b5b5bb1b0aaa3e
 handle: externalized-bodies-editable-md-files
 title: Externalized Bodies Editable MD Files
 ---
-

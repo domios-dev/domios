@@ -1,6 +1,0 @@
----
-tags:
-- orchestrator
-- skill
-- mesh
----

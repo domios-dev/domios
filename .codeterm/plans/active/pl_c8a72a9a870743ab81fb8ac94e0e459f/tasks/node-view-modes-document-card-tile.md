@@ -6,5 +6,3 @@ handle: node-view-modes-document-card-tile
 title: Node view modes (Document/Card/Tile)
 status: cancelled
 ---
-
-Replace continuous counter-scale with 3 discrete designed modes per node, fixed readable text size; mode swaps representation.

@@ -9,5 +9,3 @@ tags:
 - cli
 - build
 ---
-
-Fix the latent CLI packaging footgun found during release analysis: build.sh install_cli_to and scripts/bundle-cli.js must locate the cargo-built CLI under CARGO_TARGET_DIR when that env var is set, instead of hardcoding cli/target.

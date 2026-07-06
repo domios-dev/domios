@@ -13,7 +13,8 @@
         "x": null,
         "y": null,
         "collapsed": false
-      }
+      },
+      "attachments": []
     }
   ],
   "status": "archived",
@@ -24,6 +25,7 @@
     "title": null
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
+  "canonical_project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782370043277,
   "updated_at": 1782761891587,
   "milestone_kinds": [
@@ -85,6 +87,8 @@
       "test_plan": "N/A (research) — deliverable is a written decision recorded as a plan section + this task body.",
       "correctness": "Recommendation must satisfy the GOAL invariant (object size fixed, crisp at any zoom, no reflow) AND keep markdown/mermaid feasible.",
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782370080689,
@@ -95,6 +99,8 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -118,7 +124,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_8085c5cef2ab4ed9a270bd7fef480f5d",
@@ -133,6 +141,8 @@
       "test_plan": "N/A (research).",
       "correctness": "No capability silently dropped; markdown+mermaid have a real path.",
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782370080782,
@@ -143,6 +153,8 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -166,7 +178,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_6bf08952d04749bab0f5e16488798ac6",
@@ -182,6 +196,8 @@
       "test_plan": "Spec self-review (placeholders/contradictions/scope/ambiguity) per brainstorming skill.",
       "correctness": "Design preserves worlds-LOD + focus-by-id + live-update camera stability; satisfies the GOAL invariant.",
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782370080870,
@@ -192,6 +208,8 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -215,7 +233,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_1356d9161530411d8a443081866d75f3",
@@ -232,6 +252,8 @@
       "test_plan": "Playwright web-mode (focus-by-id) on dev 7686: size-constant assertion across bands, crisp check, screenshots; frontend-design skill scores them vs GOAL.",
       "correctness": "No per-card re-rasterization; size invariance comes from the camera matrix, not a counter-scale hack.",
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782370080946,
@@ -242,6 +264,8 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -265,7 +289,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_03d359701b9b44c39486d0d5410d1e8f",
@@ -281,6 +307,8 @@
       "test_plan": "Playwright launches own Chromium against a local static HTML file; screenshot crops at 1x and 10x; frontend-design skill scores crispness; no dev daemon, no cargo build",
       "correctness": "Settles the idle-node renderer architecture for D1/S1; verdict must be backed by pixel evidence, not assertion",
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782377614167,
@@ -293,6 +321,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -316,7 +346,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_efc06368a5d54aea8b0844b2fd62fbd9",
@@ -333,6 +365,8 @@
       "test_plan": "Research deliverable: plan milestone/section with decision matrix + recommended architecture + migration slice. Verify by checking it directly answers the W2 shrink/wobble root cause and names the exact follow-up implementation task.",
       "correctness": "The result must answer which canvas/world architecture should replace the current Worlds v3 path, why it solves shrinking/wobble/reflow at the root, and what the first implementation slice should be.",
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p0",
       "created_at": 1782399794487,
@@ -350,6 +384,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": "f61e6203",
@@ -375,7 +411,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_3d7b1860732047f5b27a8bfd96bcf935",
@@ -387,6 +425,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p0",
       "created_at": 1782466185212,
@@ -399,6 +439,8 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": "73b9572b",
@@ -424,7 +466,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_638dbd55d0894626ab459d5d6112f09d",
@@ -436,6 +480,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p0",
       "created_at": 1782466185368,
@@ -448,6 +494,8 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": "93eca089",
@@ -473,7 +521,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_7d5b3f4089b24c51903e04eaa170ce84",
@@ -485,6 +535,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p1",
       "created_at": 1782466185497,
@@ -497,6 +549,8 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": "ce8669f3",
@@ -522,7 +576,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_7f3081ed0b9a4f609e59599ab17a211e",
@@ -538,6 +594,8 @@
       "test_plan": "Run focused scene hit-test/overlay-budget unit tests, npx tsc --noEmit, and Playwright @canvas-passive-renderer plus a new/updated overlay budget gate.",
       "correctness": "Canvas interaction and focused rich content are driven by fixed scene geometry; DOM richness is limited to selected/focused overlays.",
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p1",
       "created_at": 1782466185605,
@@ -550,6 +608,8 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": "667f069d",
@@ -575,7 +635,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_983a719b928d49f7b1953d90048e7193",
@@ -591,6 +653,8 @@
       "test_plan": "Focused unit/component tests plus orchestrator-run Playwright with substrate/overlay flags enabled.",
       "correctness": "Rich content moves toward a Figma-like overlay model: canvas/scene geometry owns layout, DOM richness is capped to focused nodes.",
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782469883785,
@@ -605,6 +669,8 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -630,7 +696,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_49da65ccc9314196bf83a734b9554bf8",
@@ -646,6 +714,8 @@
       "test_plan": "Focused component/unit tests and orchestrator-run Playwright budget gate with canvas.substrateV2/canvas.overlayBudget/canvas.passiveRenderer enabled.",
       "correctness": "World layer becomes cheap; DOM richness is reserved for bounded overlays.",
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782470526859,
@@ -660,6 +730,8 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": "33b96cec",
@@ -685,7 +757,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_57e08f54ffd5451f9a52db2068574035",
@@ -699,6 +773,8 @@
       "test_plan": "Use dev/prod canvas with substrate flags on/off; capture Playwright/Chrome performance evidence where possible; inspect downloaded renderer references.",
       "correctness": "Next implementation slices are driven by measurements and include verification gates for frame budget, DOM mount count, and visual correctness.",
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782474006132,
@@ -714,6 +790,8 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": "53854ac8",
@@ -739,7 +817,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_1cff17806abd4bafbc9c56d471ddd72c",
@@ -753,6 +833,8 @@
       "test_plan": "Run focused Playwright perf spec on dev with flags off and on; include exact command and artifacts.",
       "correctness": "Metrics distinguish React/DOM derivation costs from canvas draw costs so Tier1/Tier2 work is measurable.",
       "status": "cancelled",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": "superseded by main canvas dogfood plan",
       "priority": "p2",
       "created_at": 1782474584121,
@@ -770,6 +852,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -795,7 +879,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_bb87400104f24e13857324fa3ec3b2fd",
@@ -809,6 +895,8 @@
       "test_plan": "Run focused canvas unit tests, npx tsc, T-R4.1 perf spec, and relevant 13-canvas Playwright goldens.",
       "correctness": "Visual behavior remains the same while per-frame derivation work is bounded.",
       "status": "cancelled",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": "superseded by main canvas dogfood plan",
       "priority": "p2",
       "created_at": 1782474584370,
@@ -826,6 +914,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -851,7 +941,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_6f6bbab91eef413b86b3ec2e5573b619",
@@ -865,6 +957,8 @@
       "test_plan": "Run T-R4.1 perf spec, canvas nonblank checks, overlay budget checks, focus/hit Playwright goldens, npx tsc, pnpm build.",
       "correctness": "Large canvases pan/zoom smoothly without losing active rich content behavior.",
       "status": "cancelled",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": "superseded by main canvas dogfood plan",
       "priority": "p2",
       "created_at": 1782474584529,
@@ -882,6 +976,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -907,7 +1003,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_4791af2e2a8c4a56b58dde843144e3b8",
@@ -921,6 +1019,8 @@
       "test_plan": "Inspect CodeTerm canvas code plus downloaded/local reference projects; provide exact source paths/links and recommended implementation gates.",
       "correctness": "Recommended fix preserves world footprint and slot geometry under zoom while allowing intentional LOD swaps only at controlled thresholds.",
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782474666247,
@@ -938,6 +1038,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": "53854ac8",
@@ -963,7 +1065,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_7a10164bf5994ebca2f892c6eeaaead6",
@@ -977,6 +1081,8 @@
       "test_plan": "Run focused slot-rect Playwright probe, 13-canvas worlds/goldens, npx tsc --noEmit, pnpm build; cargo checks only if Rust touched.",
       "correctness": "All zoom scale changes come from the camera matrix or intentional LOD swaps; no per-card CSS zoom reflow remains.",
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782475117853,
@@ -994,6 +1100,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": "53854ac8",
@@ -1019,7 +1127,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_377bdc3aeb0646e3a4c61157185a7c42",
@@ -1031,6 +1141,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782490478823,
@@ -1043,6 +1155,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "scale the canvas to the real target without a WebGL rewrite",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1066,7 +1180,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_665e61df45564dba955cf2dea7238766",
@@ -1078,6 +1194,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782490479187,
@@ -1090,6 +1208,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "fulfill the goal vector: card never resizes, camera-only zoom, zero reflow",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1113,7 +1233,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_c45b40916e4c4e13b39b1af1f84eef17",
@@ -1125,6 +1247,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782497423621,
@@ -1137,6 +1261,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1160,7 +1286,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_c71e90ab24fb4846b7cfd8db396ed3fc",
@@ -1172,6 +1300,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782498941072,
@@ -1184,6 +1314,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1207,7 +1339,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_870f922462044dac97d0b9617a7c64ba",
@@ -1219,6 +1353,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782499532656,
@@ -1231,6 +1367,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1254,7 +1392,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_2602669039364066802595719cc21070",
@@ -1266,6 +1406,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "pending",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782500230514,
@@ -1278,6 +1420,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "emergent presence/navigation/liveness UX",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1301,7 +1445,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_7fc3763892944b74a95852bfcae2eff1",
@@ -1313,6 +1459,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "pending",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782500230601,
@@ -1325,6 +1473,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "emergent presence/navigation/liveness UX",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1348,7 +1498,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_141233c4024841ac912564fa066a96c6",
@@ -1360,6 +1512,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "pending",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782500230674,
@@ -1372,6 +1526,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "emergent presence/navigation/liveness UX",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1395,7 +1551,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_f1b8ba2ab6dc4c1785e4ad60985d0752",
@@ -1407,6 +1565,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "pending",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782500230745,
@@ -1419,6 +1579,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "emergent presence/navigation/liveness UX",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1442,7 +1604,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_6362002d11794c6981ea51508793301e",
@@ -1454,6 +1618,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "pending",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782500230832,
@@ -1466,6 +1632,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "emergent presence/navigation/liveness UX",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1489,7 +1657,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_6e5e3ea3e9b540069ec63fb3fb7aff58",
@@ -1501,6 +1671,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "pending",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782500230906,
@@ -1513,6 +1685,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "emergent presence/navigation/liveness UX",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1536,7 +1710,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_1007dda6b4a0436a8585a771bdc7ceed",
@@ -1548,6 +1724,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "pending",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782500230989,
@@ -1560,6 +1738,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "emergent presence/navigation/liveness UX",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1583,7 +1763,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_fa1d543ef6634cff91f5f98cbf56b8b9",
@@ -1595,6 +1777,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782501573813,
@@ -1607,6 +1791,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1630,7 +1816,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_600d5b69e2e9400a921fdae60d8fb894",
@@ -1642,6 +1830,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782501706058,
@@ -1654,6 +1844,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1677,7 +1869,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_3af47a6c0387454db7155ebd61f67d65",
@@ -1689,6 +1883,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782502164385,
@@ -1701,6 +1897,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1724,7 +1922,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_e212f7a1291e42e29224c41f9d9742af",
@@ -1736,6 +1936,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782503003737,
@@ -1748,6 +1950,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1771,7 +1975,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_3792db7e34624cc6a8a9c2abf1daee02",
@@ -1783,6 +1989,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782504345215,
@@ -1795,6 +2003,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1818,7 +2028,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_fafa545a0ea447029a45165d25c403e3",
@@ -1830,6 +2042,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782505919779,
@@ -1842,6 +2056,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1865,7 +2081,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_0f276e362f254cb28cd9c7162c52a285",
@@ -1877,6 +2095,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782507495452,
@@ -1889,6 +2109,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1912,7 +2134,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_58c8c022476c4c8e8831342f8d50a704",
@@ -1924,6 +2148,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "pending",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782507519539,
@@ -1936,6 +2162,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "tracked debt from canvas design loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -1959,7 +2187,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_c481715d091045e28cc09f8b81a9c062",
@@ -1971,6 +2201,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782508849779,
@@ -1983,6 +2215,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -2006,7 +2240,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_95984606dff445fe9ef540bff8731446",
@@ -2018,6 +2254,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782510170773,
@@ -2030,6 +2268,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -2053,7 +2293,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_22791c5a306c4507a0eebae301b8d6e6",
@@ -2065,6 +2307,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782511192522,
@@ -2077,6 +2321,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -2100,7 +2346,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_008a761617084c54994b172c1b22a201",
@@ -2112,6 +2360,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782512468328,
@@ -2124,6 +2374,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -2147,7 +2399,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_55b0ea7b5b0f4590a746ebf5042ca883",
@@ -2159,6 +2413,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782513186847,
@@ -2171,6 +2427,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -2194,7 +2452,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_95ade7c944fd4ea7b871d9799807d17f",
@@ -2206,6 +2466,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782513981151,
@@ -2218,6 +2480,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -2241,7 +2505,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_0500d133311a4e4189cf6aa7d221dea3",
@@ -2253,6 +2519,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782514900224,
@@ -2265,6 +2533,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -2288,7 +2558,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_a500973448524356b125c115e2d7e35d",
@@ -2300,6 +2572,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782516051254,
@@ -2312,6 +2586,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -2335,7 +2611,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_e9cd3dadec9145db9137090414b80a47",
@@ -2347,6 +2625,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782516680258,
@@ -2359,6 +2639,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -2382,7 +2664,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_06663ceef7d64f4cb8482fa980c6dd5a",
@@ -2394,6 +2678,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782518318397,
@@ -2406,6 +2692,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -2429,7 +2717,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_1555ba110d9045c7b27465a3ba95e446",
@@ -2441,6 +2731,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782519779853,
@@ -2453,6 +2745,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "canvas UI/UX polish loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -2476,7 +2770,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_9b360c0502814692b2c7b37d77a4c70f",
@@ -2488,6 +2784,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "pending",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782519811300,
@@ -2500,6 +2798,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": "tracked debt from canvas design loop",
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -2523,7 +2823,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     }
   ],
   "task_groups": [],
@@ -2558,5 +2860,10 @@
   "canvas": {
     "viewport": null
   },
-  "owner_history": []
+  "owner_history": [],
+  "planner": null,
+  "planning_state": "drafting",
+  "planning_log": [],
+  "gates": [],
+  "strides": []
 }

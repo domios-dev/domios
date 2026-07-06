@@ -6,4 +6,3 @@ handle: prod-kill-guard
 title: 'PROD-KILL GUARD: build.sh refuses port 7685 (committed 1932a235)'
 status: done
 ---
-

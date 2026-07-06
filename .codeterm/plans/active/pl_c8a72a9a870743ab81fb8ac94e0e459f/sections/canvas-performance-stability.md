@@ -8,5 +8,3 @@ tags:
 - performance
 - stability
 ---
-
-Make the canvas comfortable under real orchestration load. Working agents must not make the board lag. Presence pins/connectors must move with the same camera transform as nodes and must never leave orphan dotted lines. Adding/updating tasks must preserve unrelated node world positions and must not auto-refit/jitter the camera. Acceptance requires focused perf/stability tests plus Playwright/manual dev verification on the real dogfood plan.

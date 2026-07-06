@@ -8,5 +8,3 @@ status: done
 tags:
 - sidebar,plan,canvas-focus
 ---
-
-Worker report bounced by Orchestrator: UX behavior appears on-target, but touched files exceed repo hard limit after patch (CanvasView.tsx 1002, Sidebar.tsx 1015). Worker must split the new glue/helper code and rerun focused TS gates before integration.

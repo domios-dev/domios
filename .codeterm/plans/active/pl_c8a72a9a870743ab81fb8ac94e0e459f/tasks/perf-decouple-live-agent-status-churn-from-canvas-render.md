@@ -10,5 +10,3 @@ tags:
 - presence
 - canvas
 ---
-
-Working agents update live state/status lines frequently. The canvas must not rebuild scene/layout/lookups or rerender the whole board on each agent_state tick. Audit panes/plans props and memo keys, isolate presence-relevant fields, throttle/debounce non-visual status churn, and add counters/tests proving canvas recompute is bounded under working-agent updates.

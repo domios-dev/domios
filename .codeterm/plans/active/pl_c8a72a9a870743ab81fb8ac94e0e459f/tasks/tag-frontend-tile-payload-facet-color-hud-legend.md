@@ -7,4 +7,3 @@ title: 'Tag frontend: Tile payload + facet color + HUD legend'
 status: done
 ---
 
-Tile = tags substitute body (concept map far-view), facet PRIMARY = left-border accent (coverage = row bg, no clash), Card = tags+digest, Document = header chip strip; Tag Map HUD (facet→values+counts, click=filter/highlight+hull, no n2 edges) with §18 controls. Queued AFTER the view-modes FE lane (builds on Tile/Card/Document).

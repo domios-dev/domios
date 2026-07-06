@@ -6,5 +6,3 @@ handle: calm-canvas-ux-simplification
 title: L4 calm canvas UX simplification
 status: done
 ---
-
-Simplify canvas/plan UI: remove dead plan-mode surface if unused, calm or remove noisy tab activity animation, presence progressive disclosure (far zoom dot/avatar only; connector/action/flag on hover or deep zoom + selected), compact swarm roster with details only when opened, and style Plan row as a workspace action rather than a tab clone.

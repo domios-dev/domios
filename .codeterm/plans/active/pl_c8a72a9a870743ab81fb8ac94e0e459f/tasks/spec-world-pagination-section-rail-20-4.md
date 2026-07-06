@@ -7,4 +7,3 @@ title: 'Spec-world: pagination + section RAIL (§20.4)'
 status: cancelled
 ---
 
-Paged A4 + on-canvas pager + persistent left section rail (TOC); chunk-worlds when extreme.

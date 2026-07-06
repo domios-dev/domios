@@ -8,5 +8,3 @@ status: done
 tags:
 - sidebar,plan,ux-polish
 ---
-
-Follow-up from user UX review after 694a36c9: current functional behavior is right for plan-owned workspaces, but the row should be visually integrated as a workspace action rather than looking exactly like another tab. Keep empty workspaces like General clean: do not render a placeholder Plan/canvas entry until we design that empty state.

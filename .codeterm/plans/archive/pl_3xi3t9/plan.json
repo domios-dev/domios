@@ -2,7 +2,7 @@
   "id": "pl_3xi3t9",
   "title": "manual refresh walk",
   "sections": [],
-  "status": "active",
+  "status": "archived",
   "mode": "planning",
   "owner": {
     "pane_id": "",
@@ -12,7 +12,7 @@
   "project_path": "/Users/rollacode/Developer/codeterm",
   "canonical_project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1783313851375,
-  "updated_at": 1783313862167,
+  "updated_at": 1783314245162,
   "milestone_kinds": [],
   "loops": [],
   "elements": [
