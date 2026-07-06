@@ -659,6 +659,9 @@ pub async fn open_chat_backend_pane(
         system_prompt.as_deref(),
         preset.as_deref(),
         model.as_deref(),
+        None,
+        None,
+        None,
     );
     if let (Some(base), Some(extra)) = (config.as_object_mut(), overrides.as_object()) {
         for (key, value) in extra {
@@ -667,10 +670,18 @@ pub async fn open_chat_backend_pane(
     } else if !overrides.as_object().map(|o| o.is_empty()).unwrap_or(true) {
         config = overrides;
     }
+    crate::service::spawn::reject_direct_watcher_chatbackend_config(&config)?;
     let handle = svc.spawn_pane(SpawnPaneSpec {
         workspace_id,
         visibility: PaneVisibility::Visible,
-        command: PaneCommand::ChatBackend { plugin_id, config },
+        command: PaneCommand::ChatBackend {
+            plugin_id,
+            config,
+            role: None,
+            role_profile: None,
+            can_spawn: None,
+            watcher: None,
+        },
         ..Default::default()
     })?;
     Ok(handle.pane_id)

@@ -68,5 +68,9 @@ assert(
   source.includes("pp.title === np.title"),
   "TabItem memo must compare pane.title for rename re-renders",
 );
+assert(
+  source.includes('data-testid="tab-pane-icon"'),
+  "TabItem exposes a left provider icon marker for child/manager rows",
+);
 
 console.log("✓ TabItem quiet tab chrome: no task bubbles, no working spin, subdued subtitles");

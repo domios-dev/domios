@@ -61,16 +61,17 @@ setupDom();
 
 test("manager child without plan binding renders in Managers and workers remain in Workers", async () => {
   const panes: Record<string, Pane> = {
-    orch: pane({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
+    orch: pane({ id: "orch", title: "Orchestrator", role: "Orchestrator", agent_type: "claude" }),
     manager: pane({
       id: "manager",
       title: "Watcher",
       role: "Manager",
       role_profile: "watcher",
       parent_pane_id: "orch",
+      agent_type: "codex",
     }),
-    w1: pane({ id: "w1", title: "Worker A", role: "Worker", parent_pane_id: "orch" }),
-    w2: pane({ id: "w2", title: "Worker B", role: "Worker", parent_pane_id: "orch" }),
+    w1: pane({ id: "w1", title: "Worker A", role: "Worker", parent_pane_id: "orch", agent_type: "claude" }),
+    w2: pane({ id: "w2", title: "Worker B", role: "Worker", parent_pane_id: "orch", agent_type: "opencode" }),
   };
   const tabs = [
     tab("tab-orch", "orch", 0),
@@ -124,6 +125,10 @@ test("manager child without plan binding renders in Managers and workers remain 
   assert(!workerWrap?.textContent?.includes("Watcher"), "Manager excluded from worker subtree");
   assert(host.textContent?.includes("Managers 1"), "Managers count is 1");
   assert(host.textContent?.includes("Workers 2"), "Workers count is 2");
+  const managerIcon = managerWrap?.querySelector('[data-testid="tab-pane-icon"] .agent-icon');
+  assert(managerIcon, "manager child row renders left provider icon");
+  const workerIcons = workerWrap?.querySelectorAll('[data-testid="hierarchy-pane-icon"] .agent-icon');
+  assert(workerIcons && workerIcons.length === 2, "each worker hierarchy row renders left provider icon");
   await act(async () => root.unmount());
 });
 
