@@ -1,0 +1,231 @@
+id: task_b6f1f0cf50254157a4818227a43dba34
+name: 'BUG: keep current-agent task presence accurate on canvas'
+type: fix
+model: cursor/composer-2.5
+model_rationale: Frontend/state derivation bug with focused canvas presence; good fit for bounded UI code investigation.
+acceptance_criteria:
+- Assigning/reassigning panes updates canvas presence without stale markers; no dotted connector renders without a live visible agent dot/avatar; presence connector/bubble moves with the canvas during pan/scroll/zoom; live working-agent status updates do not trigger full canvas jank.
+test_plan: Add/update focused unit tests for exclusive pane binding plus orphan connector suppression; add Playwright/manual dev check that pan/scroll keeps presence anchored and no orphan dashed lines remain.
+correctness: Task assignment changes produce accurate canvas presence/focus without stale bubbles or restart.
+status: done
+review_stage: review
+qa_state: null
+status_label: pane-gone
+priority: p2
+created_at: 1782762627491
+updated_at: 1782764612165
+status_changed_at: 1782764515201
+handle: bug-keep-current-agent-task-presence-accurate-on-canvas
+tags:
+- presence
+- canvas
+section_ids:
+- sec_01e8608d75e14c65bb8fea48dc3521ae
+- sec_81bd893081b04915b053dd4ba53c6d0e
+body: ''
+role_guidance: null
+executor_role: null
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: null
+lane:
+  pane_id: 37dbbe1b
+  workspace_id: null
+  workspace_name: null
+  worktree_path: /Users/rollacode/Developer/codeterm-presence-binding
+  branch: lane/presence-binding
+  base: feat/canvas-updates
+  destination: feat/canvas-updates
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_3dccc75611e144bc8fa4b5cdf4e9388d
+  from:
+    pane_id: 4d479b6c
+    session_id: null
+    title: null
+  kind: decision
+  text: ' user repro clarified presence connector/bubble is screen-overlay-lagging during canvas pan; fix must anchor it in world/camera layer or synchronously transform it with nodes'
+  ts: 1782762884802
+  links:
+  - key:27668135ea445c8c
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_1fbbbe7ced9c47fdb4560ff6cde3d589
+  from:
+    pane_id: 37dbbe1b
+    session_id: null
+    title: null
+  kind: decision
+  text: exclusive pane→task map gates buildTaskPresence; tightened focusApplies; prefixed overlay actions; extended presenceDataKey
+  ts: 1782762994134
+  links:
+  - key:e20bb1b8c054d3ed
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_8cbe693d1a0b43feb13ec903366bc211
+  from:
+    pane_id: 4d479b6c
+    session_id: null
+    title: null
+  kind: decision
+  text: ' user reports working agents themselves make canvas lag; presence/live-agent status updates must be throttled or decoupled so agent_state churn does not force full canvas recompute/render'
+  ts: 1782763003707
+  links:
+  - key:77fd273c0dbb21a7
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_4c69d6df49294ed39608f892d60fde41
+  from:
+    pane_id: 37dbbe1b
+    session_id: 8a2cdf87-f42c-4b9c-84e1-0c6cddde4835
+    title: presence-binding
+  kind: status_update
+  text: |
+    STATUS: in_review
+    CHANGES: paneCurrentTask.ts(+resolvePlanExclusivePaneTasks), taskPresence.ts, useCanvasLookups.ts, useCanvasOverlays.ts, cardContent.ts, CanvasView.tsx, paneOwnedPlans.ts, taskPresence.test.ts, paneCurrentTask.test.ts @ c3dd2290
+    BUILD/TYPECHECK/TESTS: npx tsx taskPresence.test.ts PASS; npx tsx paneCurrentTask.test.ts PASS; tsc --noEmit skipped for Canvas (8 pre-existing plugin-sdk errors unrelated)
+    FOLLOWUP: Root cause — assign_task does not clear stale assigned_pane_id/lane.pane_id on other tasks, so multiple tasks showed presence for one pane. Frontend now gates via resolvePlanExclusivePaneTasks (same liveness ranking as pane strip). focusApplies no longer matches loose pane-id substrings; overlay actions prefixed focus·/stride·; task cards show labeled focus field separate from subtasks N/M. Orchestrator gate: merge lane/presence-binding into feat/canvas-updates, ./build.sh dev, manual reassignment of pane 4d479b6c — verify old task pin disappears and new task gets pin+focus without restart.
+  ts: 1782763012134
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_4d84c9470ff8472fa2254e9e3546372a
+  from:
+    pane_id: 4d479b6c
+    session_id: null
+    title: null
+  kind: decision
+  text: ' user found orphan dotted connectors with no agent dot; acceptance requires connector and dot/avatar to be one live-gated unit, never dashed line alone'
+  ts: 1782763093730
+  links:
+  - key:ce317aea0695d1bc
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_08ac147147d943c09604a48b3944424a
+  from:
+    pane_id: 37dbbe1b
+    session_id: null
+    title: null
+  kind: decision
+  text: presence pins moved to layerRef world layer with world anchors; paintLayer sync on gesture
+  ts: 1782763161994
+  links:
+  - key:9122e8c27baf7743
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_85089902735743239abd1cd1089b2cfa
+  from:
+    pane_id: 37dbbe1b
+    session_id: 8a2cdf87-f42c-4b9c-84e1-0c6cddde4835
+    title: presence-binding
+  kind: status_update
+  text: |
+    STATUS: in_review
+    CHANGES: CanvasPresenceLayer.tsx, CanvasView.tsx(+layerRef world layer), presenceOverlays.ts(world anchors), presenceGlide.ts, useCanvasViewport.ts(export paintLayer), presenceOverlays.test.ts @ c04d9939 (on top of c3dd2290 exclusive-pane gating)
+    BUILD/TYPECHECK/TESTS: npx tsx presenceOverlays.test.ts PASS (11); taskPresence.test.ts PASS; paneCurrentTask.test.ts PASS
+    FOLLOWUP: Root cause of pan lag — pins used screen-space anchors recomputed only on debounced React transform (~130ms) while canvas blits via transformRef every rAF. Fix mounts presence inside layerRef; buildPresenceOverlays emits world top-right anchors; paintLayer updates layer on every gesture event. Connectors use per-pin local SVG at world anchor. Orchestrator gate: merge lane/presence-binding, dev build, pan canvas during active task assignment — pin+connector must track node with zero trail; verify reassignment still clears stale pins (c3dd2290).
+  ts: 1782763172259
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_9334a2009fd44bfebb8114bfc7370536
+  from:
+    pane_id: 37dbbe1b
+    session_id: null
+    title: null
+  kind: decision
+  text: unified pin unit (connector+avatar); paintLayer on every canvas blit; live-agent gate
+  ts: 1782763435845
+  links:
+  - key:19aa4f57cefa85ae
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_96a22918d7544850b2a5201cbc4b849c
+  from:
+    pane_id: 37dbbe1b
+    session_id: 8a2cdf87-f42c-4b9c-84e1-0c6cddde4835
+    title: presence-binding
+  kind: status_update
+  text: |
+    STATUS: in_review
+    CHANGES: CanvasPresenceLayer.tsx(unified PresencePin unit), presencePinUnit.ts+.test.ts, CanvasView.tsx(onPaintImpl+paintWorldLayer+layerRef fix), CanvasWorldCanvas.tsx(onCameraPaint), presenceOverlays.ts, useCanvasOverlays.ts @ 6d351496 (branch lane/presence-binding, commits c3dd2290+c04d9939+6d351496)
+    BUILD/TYPECHECK/TESTS: presencePinUnit.test PASS(4); presenceOverlays.test PASS(11); taskPresence.test PASS; paneCurrentTask.test PASS
+    FOLLOWUP: Pan lag root cause: viewport paintLayer targeted layerRef but a duplicate local ref was attached to the DOM in an intermediate patch — schedule() painted a detached ref while canvas blitted with live transformRef. Fixed: single viewport layerRef on canvas-world-layer div; paintLayer also runs on every canvas rAF via onCameraPaint. Stale connector-alone: separate SVG loop + glide moving only avatar — merged connector+dot+avatar into one glide span; livePresencePins gates on non-peer lead agent. Orchestrator gate: merge lane/presence-binding, dev build, pan during active assignment — no trailing lines, no orphan dashes.
+  ts: 1782763441899
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_7d4e9cfc434941ef98690cb78f65dfb6
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: |
+    Accepted: merged presence-binding fixes (exclusive pane→task selection, world-space unified presence pin/link, camera-synchronous paint). Verified focused unit tests, tsc, build.sh check, and @canvas-presence Playwright (workers=3 links=3 actions=2; no orphan connector dashes).
+  ts: 1782764515201
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts: []
+park_reason: null
+attachments: []

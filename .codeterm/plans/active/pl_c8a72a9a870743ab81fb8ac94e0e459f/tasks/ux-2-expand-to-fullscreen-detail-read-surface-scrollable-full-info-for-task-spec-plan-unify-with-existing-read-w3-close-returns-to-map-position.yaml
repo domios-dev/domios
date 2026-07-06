@@ -1,0 +1,49 @@
+id: task_ba9c8d9bd0e94d3bbcebda9225e1d64e
+name: UX-2 expand to fullscreen detail (READ) surface — scrollable full info for task/spec/plan; unify with existing Read/W3; close returns to map position
+type: feat
+model: null
+model_rationale: null
+acceptance_criteria:
+- Expand opens full scrollable detail for all 3 node types; full fields present; returns to exact map pos
+test_plan: null
+correctness: null
+status: done
+review_stage: review
+qa_state: null
+status_label: accepted during orchestrator reset
+priority: p2
+created_at: 1782587511090
+updated_at: 1782762334928
+status_changed_at: 1782762334928
+handle: ux-2-expand-to-fullscreen-detail-read-surface-scrollable-full-info-for-task-spec-plan-unify-with-existing-read-w3-close-returns-to-map-position
+tags: []
+section_ids:
+- sec_81bd893081b04915b053dd4ba53c6d0e
+body: ''
+role_guidance: null
+executor_role: null
+competition: null
+intent: null
+parent_task_id: task_79e13e3ee34547eebbd4943d06e73da2
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+park_reason: null
+attachments: []
