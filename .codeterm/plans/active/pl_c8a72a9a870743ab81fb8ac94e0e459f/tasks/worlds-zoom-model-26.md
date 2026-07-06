@@ -6,3 +6,4 @@ handle: worlds-zoom-model-26
 title: Worlds zoom model — unify §20/§23.7/§25 into one LOD ladder §26
 status: done
 ---
+

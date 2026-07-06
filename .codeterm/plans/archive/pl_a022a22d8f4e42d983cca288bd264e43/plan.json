@@ -13,8 +13,7 @@
         "x": null,
         "y": null,
         "collapsed": false
-      },
-      "attachments": []
+      }
     }
   ],
   "status": "archived",
@@ -25,7 +24,6 @@
     "title": null
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
-  "canonical_project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782370589310,
   "updated_at": 1782761887486,
   "milestone_kinds": [
@@ -72,8 +70,6 @@
       "test_plan": "CLI: spec create -> plan create --from-spec -> assert primary_spec_id + spec_links>0 via GET /api/plans/{id}. Contract/manifest tests green.",
       "correctness": "Binding goes through the typed spec_links/primary_spec_id, not a faked Spec section.",
       "status": "done",
-      "review_stage": "review",
-      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782370628295,
@@ -84,8 +80,6 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
-      "executor_role": null,
-      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -109,9 +103,7 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": [],
-      "park_reason": null,
-      "attachments": []
+      "execution_attempts": []
     },
     {
       "id": "task_13b3072db79049d2836a2282005878e6",
@@ -127,8 +119,6 @@
       "test_plan": "CLI snapshot of hint output per command; contract test if applicable.",
       "correctness": "Hints reflect the real model (M:N, spec-first), not invented commands.",
       "status": "done",
-      "review_stage": "review",
-      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782370628365,
@@ -139,8 +129,6 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
-      "executor_role": null,
-      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -164,9 +152,7 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": [],
-      "park_reason": null,
-      "attachments": []
+      "execution_attempts": []
     },
     {
       "id": "task_a7562da81298440a81092346016cb6fa",
@@ -181,8 +167,6 @@
       "test_plan": "Manual read; doc-lint if any.",
       "correctness": "Matches the shipped model + commands exactly.",
       "status": "done",
-      "review_stage": "review",
-      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782370628445,
@@ -193,8 +177,6 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
-      "executor_role": null,
-      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -218,9 +200,7 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": [],
-      "park_reason": null,
-      "attachments": []
+      "execution_attempts": []
     },
     {
       "id": "task_b01fecea86814a7ab794607153cc12f5",
@@ -235,8 +215,6 @@
       "test_plan": "Playwright: open each board, assert a real spec node distinct from plan + linked rows.",
       "correctness": "No plan whose only spec is a faked plan.sections entry.",
       "status": "done",
-      "review_stage": "review",
-      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782370628517,
@@ -247,8 +225,6 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
-      "executor_role": null,
-      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -272,9 +248,7 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": [],
-      "park_reason": null,
-      "attachments": []
+      "execution_attempts": []
     },
     {
       "id": "task_a7af60bc22764f9f937f1b391ef9a3e1",
@@ -290,8 +264,6 @@
       "test_plan": "CLI: set goal, amend with reason, GET shows history; malformed POST -> 4xx.",
       "correctness": "Goal is current-state + an append-only change log; no silent writes.",
       "status": "cancelled",
-      "review_stage": "review",
-      "qa_state": null,
       "status_label": "superseded by main canvas dogfood plan",
       "priority": "p2",
       "created_at": 1782370915358,
@@ -302,8 +274,6 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
-      "executor_role": null,
-      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -327,9 +297,7 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": [],
-      "park_reason": null,
-      "attachments": []
+      "execution_attempts": []
     },
     {
       "id": "task_b25ef4449e6e483b8daef00ded63ba0e",
@@ -345,8 +313,6 @@
       "test_plan": "Manual read against the live CLI.",
       "correctness": "No invented commands; reflects reality.",
       "status": "done",
-      "review_stage": "review",
-      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782370915430,
@@ -357,8 +323,6 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
-      "executor_role": null,
-      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -382,9 +346,7 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": [],
-      "park_reason": null,
-      "attachments": []
+      "execution_attempts": []
     },
     {
       "id": "task_b8f723f8e649428a9db32495b43b47ae",
@@ -399,8 +361,6 @@
       "test_plan": "Read back skill via codeterm mem get; doc read.",
       "correctness": "Matches the handoff CLI (--mode new|compact, reseed).",
       "status": "done",
-      "review_stage": "review",
-      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782370915525,
@@ -411,8 +371,6 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
-      "executor_role": null,
-      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -436,9 +394,7 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": [],
-      "park_reason": null,
-      "attachments": []
+      "execution_attempts": []
     },
     {
       "id": "task_35181929d2f34e5da21d67469bfa4742",
@@ -454,8 +410,6 @@
       "test_plan": "Playwright web-mode focus-by-id on a plan with >1 spec_link; assert edge endpoints land on linked rows.",
       "correctness": "Edges derive from plan.spec_links, never same-id assumption.",
       "status": "cancelled",
-      "review_stage": "review",
-      "qa_state": null,
       "status_label": "superseded by main canvas dogfood plan",
       "priority": "p2",
       "created_at": 1782374271804,
@@ -466,8 +420,6 @@
       "section_ids": [],
       "body": "",
       "role_guidance": null,
-      "executor_role": null,
-      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -491,9 +443,7 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": [],
-      "park_reason": null,
-      "attachments": []
+      "execution_attempts": []
     }
   ],
   "task_groups": [],
@@ -531,10 +481,5 @@
   "canvas": {
     "viewport": null
   },
-  "owner_history": [],
-  "planner": null,
-  "planning_state": "drafting",
-  "planning_log": [],
-  "gates": [],
-  "strides": []
+  "owner_history": []
 }
