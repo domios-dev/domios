@@ -280,6 +280,7 @@ fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskShowOpts>) {
             println!("---");
         }
         print_task_quality(task);
+        print_strides(task);
         print_attachments(task.get("attachments"));
         print_label_list("sections", val.get("sections"));
         print_single_label("parent", val.get("parent"));
@@ -484,6 +485,80 @@ fn print_task_quality(task: &Value) {
     }
 }
 
+fn milestone_author(from: Option<&Value>) -> Option<String> {
+    let from = from?;
+    let title = from
+        .get("title")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if let Some(title) = title {
+        return Some(title.to_string());
+    }
+    from.get("pane_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(short_display_id)
+}
+
+fn format_milestone_ts(ts: u64) -> String {
+    if ts == 0 {
+        return "-".to_string();
+    }
+    chrono::DateTime::from_timestamp_millis(ts as i64)
+        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn render_stride_line(milestone: &Value) -> String {
+    let ts = milestone.get("ts").and_then(|v| v.as_u64()).unwrap_or(0);
+    let kind = milestone
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("?");
+    let mut line = format!("- {} [{kind}]", format_milestone_ts(ts));
+    if let Some(author) = milestone_author(milestone.get("from")) {
+        line.push_str(&format!(" {author}"));
+    }
+    let text = milestone
+        .get("text")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .unwrap_or_default();
+    if !text.is_empty() {
+        line.push_str(&format!(": {text}"));
+    }
+    line
+}
+
+fn render_strides(task: &Value) -> Option<String> {
+    let items = task.get("milestones").and_then(|v| v.as_array())?;
+    if items.is_empty() {
+        return None;
+    }
+    let mut sorted: Vec<&Value> = items.iter().collect();
+    sorted.sort_by(|a, b| {
+        let ta = a.get("ts").and_then(|v| v.as_u64()).unwrap_or(0);
+        let tb = b.get("ts").and_then(|v| v.as_u64()).unwrap_or(0);
+        tb.cmp(&ta)
+    });
+    let mut out = String::from("strides:");
+    for milestone in sorted {
+        out.push('\n');
+        out.push_str(&render_stride_line(milestone));
+    }
+    Some(out)
+}
+
+fn print_strides(task: &Value) {
+    if let Some(block) = render_strides(task) {
+        println!("{block}");
+    }
+}
+
 fn print_label_list(label: &str, value: Option<&Value>) {
     let items = value
         .and_then(|v| v.as_array())
@@ -639,5 +714,52 @@ mod executor_role_render_tests {
         assert!(executor_role_line(&json!({ "id": "task_1" })).is_none());
         assert!(executor_role_line(&json!({ "executor_role": "  " })).is_none());
         assert!(executor_role_line(&json!({ "executor_role": null })).is_none());
+    }
+}
+
+#[cfg(test)]
+mod strides_render_tests {
+    use super::render_strides;
+    use serde_json::json;
+
+    #[test]
+    fn omits_when_no_milestones() {
+        assert!(render_strides(&json!({ "id": "task_1" })).is_none());
+        assert!(render_strides(&json!({ "id": "task_1", "milestones": [] })).is_none());
+    }
+
+    #[test]
+    fn renders_newest_first_with_author_kind_ts_text() {
+        let task = json!({
+            "milestones": [
+                { "id": "ms_1", "kind": "status", "ts": 1_000u64,
+                  "from": { "title": "Elgar" }, "text": "started" },
+                { "id": "ms_2", "kind": "report", "ts": 2_000u64,
+                  "from": { "title": "Elgar" }, "text": "done" },
+            ]
+        });
+        let block = render_strides(&task).expect("block");
+        let lines: Vec<&str> = block.lines().collect();
+        assert_eq!(lines[0], "strides:");
+        assert!(lines[1].contains("[report]"), "newest first: {}", lines[1]);
+        assert!(lines[1].contains("Elgar"));
+        assert!(lines[1].ends_with(": done"));
+        assert!(lines[2].contains("[status]"));
+    }
+
+    #[test]
+    fn survives_legacy_and_empty_shapes() {
+        let task = json!({
+            "milestones": [
+                {},
+                { "kind": "note", "ts": 0u64 },
+                { "kind": "status", "ts": 5_000u64, "from": { "pane_id": "pane_abcdef01234" } },
+            ]
+        });
+        let block = render_strides(&task).expect("block");
+        assert!(block.starts_with("strides:"));
+        assert_eq!(block.lines().count(), 4);
+        assert!(block.contains("[?]"));
+        assert!(block.contains("pane_abcdef"));
     }
 }
