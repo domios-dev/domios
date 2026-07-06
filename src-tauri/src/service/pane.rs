@@ -1,11 +1,26 @@
 //! Pane lifecycle: close, rename, focus.
 
 use super::ServiceContext;
-use crate::multiplexer::types::TitleLevel;
+use crate::multiplexer::types::{AgentRole, TitleLevel};
+use crate::plan::peer::{resolve_planner_ref, PeerResolution};
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const MAX_PANE_DESCRIPTION_CHARS: usize = 200;
+
+/// Prefix on every self-termination refusal so transports can classify it.
+pub(crate) const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
+
+/// A coordinator must not self-terminate: an Orchestrator role, an owner of a
+/// plan, or a bound Planner of a plan. There is no AgentRole::Planner — planner
+/// identity comes from the plan graph, not a pane role.
+pub(crate) fn is_coordinator(
+    role: Option<AgentRole>,
+    is_plan_owner: bool,
+    is_bound_planner: bool,
+) -> bool {
+    matches!(role, Some(AgentRole::Orchestrator)) || is_plan_owner || is_bound_planner
+}
 
 pub fn normalize_pane_description(value: &str) -> Result<Option<String>, String> {
     let trimmed = value.trim();
@@ -30,6 +45,62 @@ fn epoch_ms() -> u64 {
 }
 
 impl ServiceContext {
+    /// True when `pane_id` is a coordinator (Orchestrator role, plan owner, or
+    /// bound Planner) and so must not close itself. Keys off caller identity in
+    /// the mux + plan graph, never a display name.
+    pub(crate) fn is_self_close_protected(&self, pane_id: &str) -> bool {
+        let role = self.mux.read().get_pane(pane_id).and_then(|p| p.role);
+        if is_coordinator(role, false, false) {
+            return true;
+        }
+        for plan in self.plan_store.list_full() {
+            let is_owner = plan.owner.pane_id.as_deref() == Some(pane_id);
+            let is_planner = match resolve_planner_ref(&plan.planner, &plan.owner, |p| {
+                self.pane_probe(p)
+            }) {
+                PeerResolution::Planner { pane_id: p } => p == pane_id,
+                _ => false,
+            };
+            if is_coordinator(None, is_owner, is_planner) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Close a pane on behalf of `caller_pane_id`. Refuses a coordinator closing
+    /// its OWN pane; Workers self-close on report+exit and closing any other
+    /// pane is unaffected. Fail-safe: an absent caller against a coordinator
+    /// target is refused (we cannot prove it is not the target closing itself),
+    /// while non-coordinator targets close normally.
+    pub fn close_pane_guarded(
+        &self,
+        caller_pane_id: Option<&str>,
+        target_pane_id: &str,
+    ) -> Result<(), String> {
+        let (canon_target, canon_caller) = {
+            let mux = self.mux.read();
+            let target = mux
+                .resolve_pane_id(target_pane_id)
+                .unwrap_or_else(|| target_pane_id.to_string());
+            let caller = caller_pane_id.and_then(|c| mux.resolve_pane_id(c));
+            (target, caller)
+        };
+        // Absent (or unresolvable) caller is treated as self — fail-safe.
+        let is_self = canon_caller
+            .as_deref()
+            .map(|c| c == canon_target.as_str())
+            .unwrap_or(true);
+        if is_self && self.is_self_close_protected(&canon_target) {
+            return Err(format!(
+                "{SELF_CLOSE_REFUSAL_PREFIX}: a coordinator cannot close its own pane \
+                 ({canon_target}) — have your parent or another pane close it, or move first. \
+                 Workers self-close on report+exit."
+            ));
+        }
+        self.close_pane(target_pane_id)
+    }
+
     pub fn close_pane(&self, pane_id: &str) -> Result<(), String> {
         // iteration; once close_pane drops the entry, future polls would see Provider::None and bail anyway, but explicit stop joins the thread cleanly and frees the JSONL handle.
         self.chat_registry.stop(pane_id);
@@ -650,4 +721,31 @@ pub(crate) fn focus_pane_hot_path(
     emit_focus_changed(pane_id);
     schedule_model_refresh();
     Ok(())
+}
+
+#[cfg(test)]
+mod self_close_tests {
+    use super::*;
+
+    #[test]
+    fn orchestrator_is_coordinator() {
+        assert!(is_coordinator(Some(AgentRole::Orchestrator), false, false));
+    }
+
+    #[test]
+    fn plan_owner_is_coordinator() {
+        assert!(is_coordinator(Some(AgentRole::Worker), true, false));
+        assert!(is_coordinator(None, true, false));
+    }
+
+    #[test]
+    fn bound_planner_is_coordinator() {
+        assert!(is_coordinator(Some(AgentRole::Worker), false, true));
+    }
+
+    #[test]
+    fn plain_worker_is_not_coordinator() {
+        assert!(!is_coordinator(Some(AgentRole::Worker), false, false));
+        assert!(!is_coordinator(None, false, false));
+    }
 }

@@ -30,7 +30,7 @@ pub mod orchestrator_digests;
 mod orchestrator_onboard;
 mod output;
 mod output_feed;
-mod pane;
+pub(crate) mod pane;
 pub mod pane_budget;
 pub mod pane_chat;
 pub mod pane_transport;
