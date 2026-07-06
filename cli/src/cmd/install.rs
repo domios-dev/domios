@@ -132,13 +132,144 @@ pub fn run_install_from_file(
     let _ = std::io::stderr().flush();
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+pub fn run_install_from_file(
+    installer_path: &str,
+    json_output: bool,
+    continue_prompt: Option<&str>,
+    continue_pane: Option<&str>,
+) {
+    use std::io::Write;
+    use std::os::unix::process::CommandExt;
+
+    let src = std::path::Path::new(installer_path);
+    if !src.exists() {
+        eprintln!("Installer not found: {}", installer_path);
+        std::process::exit(1);
+    }
+    let pane = continue_pane
+        .map(str::to_string)
+        .or_else(|| std::env::var("CODETERM_PANE_ID").ok());
+    let cli_exe = std::env::current_exe().unwrap_or_else(|_| "codeterm".into());
+    let tmp = std::env::temp_dir();
+    let log = tmp.join("codeterm-self-install.log");
+    let script = tmp.join(format!("codeterm-self-install-{}.sh", std::process::id()));
+
+    // The continuation prompt is written to a file the detached script sends
+    // to the pane once the new daemon is healthy — the session continues.
+    let continue_file = continue_prompt.map(|text| {
+        let p = tmp.join(format!("codeterm-continuation-{}.txt", std::process::id()));
+        let _ = std::fs::write(&p, text);
+        p
+    });
+    let continue_block = match (continue_file.as_ref(), pane.as_ref()) {
+        (Some(file), Some(pane)) => format!(
+            "echo '[self-install] waiting for daemon API'\n\
+             for i in $(seq 1 60); do\n\
+             \x20 code=$(curl -s -m 2 -o /dev/null -w '%{{http_code}}' http://127.0.0.1:7685/api/health || true)\n\
+             \x20 [ \"$code\" = 200 ] && break\n\
+             \x20 sleep 1\n\
+             done\n\
+             echo '[self-install] daemon healthy; waiting 5s for shell+agent resume'\n\
+             sleep 5\n\
+             \"{cli}\" send --pane {pane} --from-file \"{file}\"\n\
+             echo '[self-install] continue prompt delivered'\n\
+             rm -f \"{file}\"\n",
+            cli = cli_exe.display(),
+            pane = pane,
+            file = file.display(),
+        ),
+        _ => String::new(),
+    };
+
+    // .dmg → mount, copy the .app out, detach; .app → copy directly.
+    let install_block = if installer_path.to_lowercase().ends_with(".dmg") {
+        format!(
+            "echo '[self-install] mounting dmg'\n\
+             MP=$(hdiutil attach -nobrowse -readonly \"{dmg}\" | grep -o '/Volumes/[^ ]*' | tail -1)\n\
+             APP=$(ls -d \"$MP\"/*.app | head -1)\n\
+             echo \"[self-install] installing $APP\"\n\
+             ditto \"$APP\" /Applications/CodeTerm.app\n\
+             hdiutil detach \"$MP\" >/dev/null 2>&1 || true\n",
+            dmg = installer_path,
+        )
+    } else {
+        format!(
+            "echo '[self-install] installing {app}'\n\
+             ditto \"{app}\" /Applications/CodeTerm.app\n",
+            app = installer_path,
+        )
+    };
+
+    let body = format!(
+        "#!/bin/bash\n\
+         exec >> \"{log}\" 2>&1\n\
+         echo \"[self-install] start $(date)\"\n\
+         sleep 2\n\
+         echo '[self-install] quitting CodeTerm'\n\
+         osascript -e 'quit app \"CodeTerm\"' >/dev/null 2>&1 || true\n\
+         sleep 2\n\
+         pkill -f '/Applications/CodeTerm.app/Contents/MacOS/codeterm' 2>/dev/null || true\n\
+         sleep 1\n\
+         {install_block}\
+         echo '[self-install] relaunching'\n\
+         open -a /Applications/CodeTerm.app\n\
+         {continue_block}\
+         echo '[self-install] done'\n\
+         rm -f \"{script}\"\n",
+        log = log.display(),
+        install_block = install_block,
+        continue_block = continue_block,
+        script = script.display(),
+    );
+    if let Err(e) = std::fs::write(&script, body) {
+        eprintln!("Failed to write self-install helper: {}", e);
+        std::process::exit(1);
+    }
+
+    eprintln!("[install --from-file] Source: {}", installer_path);
+    eprintln!("[install --from-file] Log:    {}", log.display());
+    match (continue_prompt.is_some(), pane.is_some()) {
+        (true, true) => eprintln!(
+            "[install --from-file] Continue: prompt will reach pane {} after restart",
+            pane.as_deref().unwrap_or("?")
+        ),
+        (true, false) => {
+            eprintln!("[install --from-file] WARN: --continue-prompt set but no pane — it will be DROPPED")
+        }
+        _ => {}
+    }
+    eprintln!("[install --from-file] Detaching. CodeTerm goes down in ~2s.");
+
+    // Detach into its own process group so it survives this CLI + the daemon.
+    let spawn = std::process::Command::new("bash")
+        .arg(&script)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .process_group(0)
+        .spawn();
+    if let Err(e) = spawn {
+        eprintln!("Failed to spawn self-install helper: {}", e);
+        std::process::exit(1);
+    }
+    if json_output {
+        println!(
+            "{{\"status\":\"helper_detached\",\"log\":\"{}\"}}",
+            log.display()
+        );
+    }
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn run_install_from_file(
     _installer_path: &str,
     _json_output: bool,
     _continue_prompt: Option<&str>,
     _continue_pane: Option<&str>,
 ) {
-    eprintln!("--from-file is currently Windows-only");
+    eprintln!("--from-file is currently Windows/macOS-only");
     std::process::exit(2);
 }
