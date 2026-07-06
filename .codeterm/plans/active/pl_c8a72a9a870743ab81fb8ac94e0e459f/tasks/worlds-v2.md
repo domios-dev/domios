@@ -6,4 +6,3 @@ handle: worlds-v2
 title: WORLDS v2 — birds-eye fill, hierarchy-dim, bounded growth, stride-snake, interactivity §32
 status: done
 ---
-

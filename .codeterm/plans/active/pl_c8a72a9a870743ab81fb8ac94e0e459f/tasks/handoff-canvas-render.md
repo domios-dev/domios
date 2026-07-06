@@ -6,4 +6,3 @@ handle: handoff-canvas-render
 title: Handoff canvas render — §27.4 timeline marker (kind=handoff renderer)
 status: done
 ---
-
