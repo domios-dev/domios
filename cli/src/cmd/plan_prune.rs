@@ -41,11 +41,7 @@ fn prune_report(project: Option<String>, apply: bool) -> Result<Value, String> {
         if is_inbox_plan(&Value::Null, &path) {
             continue;
         }
-        let raw = match std::fs::read_to_string(&path) {
-            Ok(raw) => raw,
-            Err(_) => continue,
-        };
-        let plan: Value = match serde_json::from_str(&raw) {
+        let plan: Value = match crate::cmd::plan_local::load_plan_value(&path) {
             Ok(plan) => plan,
             Err(_) => continue,
         };
