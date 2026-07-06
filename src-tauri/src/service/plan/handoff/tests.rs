@@ -89,17 +89,16 @@ fn create_handoff_adds_element_milestone_history_and_sidecar() {
 
     let sidecar = dir.path().join(&result.body_path);
     assert_eq!(std::fs::read_to_string(sidecar).unwrap(), "Overlay body\n");
-    let index = std::fs::read_to_string(
-        dir.path()
-            .join(".codeterm")
-            .join("plans")
-            .join("active")
-            .join(&plan_id)
-            .join("INDEX.md"),
-    )
-    .unwrap();
-    assert!(index.contains("## Handoffs"));
-    assert!(index.contains(&result.handoff_id));
+    store.plans.write().clear();
+    store.reload_from_disk(&plan_id).unwrap();
+    let reloaded = store.get(&plan_id).unwrap();
+    let element = reloaded
+        .elements
+        .iter()
+        .find(|element| element.id == result.handoff_id)
+        .unwrap();
+    assert_eq!(element.kind, "handoff");
+    assert_eq!(element.content["goal"], "Land backend handoff");
 }
 
 #[test]

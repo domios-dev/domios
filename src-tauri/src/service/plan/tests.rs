@@ -118,15 +118,14 @@ fn generated_index_regenerates_with_current_titles() {
         )
         .unwrap();
 
-    let index_path = dir
-        .path()
-        .join(format!(".codeterm/plans/active/{}/INDEX.md", plan.id));
-    let index = std::fs::read_to_string(index_path).unwrap();
-    assert!(index.contains("# After"));
-    assert!(index.contains("- [new-spec (New Spec)](sections/new-spec.md)"));
-    assert!(index.contains("- [new-task (New Task)](tasks/new-task.md)"));
-    assert!(!index.contains("Old Spec"));
-    assert!(!index.contains("Old Task"));
+    store.plans.write().clear();
+    store.reload_from_disk(&plan.id).unwrap();
+    let loaded = store.get(&plan.id).unwrap();
+    assert_eq!(loaded.title, "After");
+    assert_eq!(loaded.sections[0].title, "New Spec");
+    assert_eq!(loaded.tasks[0].name, "New Task");
+    assert_ne!(loaded.sections[0].handle.as_deref(), Some("old-spec"));
+    assert_ne!(loaded.tasks[0].handle.as_deref(), Some("old-task"));
 }
 
 #[test]
@@ -240,12 +239,12 @@ fn external_section_body_edit_reloads_into_full_plan() {
     let _section_id = store
         .add_section(&plan.id, "Spec", "before", None, &[], None, None, 2)
         .unwrap();
-    let section_path = dir.path().join(format!(
-        ".codeterm/plans/active/{}/sections/spec.md",
-        plan.id
-    ));
-
-    std::fs::write(&section_path, "after direct edit").unwrap();
+    let plan_dir = store_v2::plan_state_dir(&store.get(&plan.id).unwrap()).unwrap();
+    let plan_path = store_v2::plan_yaml_path(&plan_dir);
+    let mut disk: Plan =
+        serde_yaml::from_str(&std::fs::read_to_string(&plan_path).unwrap()).unwrap();
+    disk.sections[0].body = "after direct edit".into();
+    std::fs::write(&plan_path, serde_yaml::to_string(&disk).unwrap()).unwrap();
     store.reload_from_disk(&plan.id).unwrap();
 
     let list_plan = store
@@ -261,6 +260,7 @@ fn external_section_body_edit_reloads_into_full_plan() {
 }
 
 #[test]
+#[ignore = "legacy body-file format, superseded by store_v2 yaml"]
 fn inline_body_plan_migrates_to_markdown_files_on_load() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
@@ -340,6 +340,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
 }
 
 #[test]
+#[ignore = "legacy body-file format, superseded by store_v2 yaml"]
 fn atomic_body_write_leaves_only_final_markdown_file() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
@@ -365,13 +366,11 @@ fn atomic_body_write_leaves_only_final_markdown_file() {
         )
         .unwrap();
 
-    let section_dir = dir
-        .path()
-        .join(format!(".codeterm/plans/active/{}/sections", plan.id));
-    assert!(std::fs::read_to_string(section_dir.join("spec.md"))
-        .unwrap()
-        .ends_with("replacement\n"));
-    assert!(!section_dir.join("spec.md.tmp").exists());
+    let plan_dir = store_v2::plan_state_dir(&store.get(&plan.id).unwrap()).unwrap();
+    let plan_path = store_v2::plan_yaml_path(&plan_dir);
+    let disk: Plan = serde_yaml::from_str(&std::fs::read_to_string(&plan_path).unwrap()).unwrap();
+    assert_eq!(disk.sections[0].body, "replacement\n");
+    assert!(!plan_dir.join("sections/spec.md.tmp").exists());
 }
 
 #[test]
@@ -933,7 +932,7 @@ fn inbox_plan_is_lazy_and_idempotent() {
     assert_eq!(second.created_at, first.created_at);
     assert!(root
         .path()
-        .join(".codeterm/plans/active/_inbox/plan.json")
+        .join(".codeterm/plans/active/_inbox/plan.yaml")
         .exists());
 }
 

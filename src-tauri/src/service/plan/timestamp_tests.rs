@@ -81,6 +81,9 @@ fn task_timestamps_track_create_update_and_status_transition() {
     assert_eq!(renamed.status_changed_at, 20);
 
     store
+        .fill_task_lane_if_empty(&id, &task_id, Some("pane-1"), None, None, 29)
+        .unwrap();
+    store
         .update_task(
             &id,
             &task_id,

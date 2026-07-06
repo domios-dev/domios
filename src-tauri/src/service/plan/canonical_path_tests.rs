@@ -77,11 +77,11 @@ fn create_from_linked_worktree_persists_canonical_project_path_and_routes_sideca
         main_root.display().to_string()
     );
     assert!(main_root
-        .join(format!(".codeterm/plans/active/{}/plan.json", plan.id))
+        .join(format!(".codeterm/plans/active/{}/plan.yaml", plan.id))
         .is_file());
     assert!(main_root
         .join(format!(
-            ".codeterm/plans/active/{}/tasks/write-sidecar.md",
+            ".codeterm/plans/active/{}/tasks/write-sidecar.yaml",
             plan.id
         ))
         .is_file());

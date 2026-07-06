@@ -38,7 +38,7 @@ fn task_queries_filter_by_status() {
             None,
             None,
             Some("blocked"),
-            None,
+            Some(Some("waiting on dependency")),
             None,
             None,
             None,

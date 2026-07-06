@@ -681,7 +681,7 @@ fn linked_worktree_uses_main_project_for_listing_search_and_index_scope() {
     let loaded = store.get(&plan.id).unwrap();
     assert_eq!(loaded.project_path, main_root.display().to_string());
     assert!(main_root
-        .join(format!(".codeterm/plans/active/{}/plan.json", plan.id))
+        .join(format!(".codeterm/plans/active/{}/plan.yaml", plan.id))
         .exists());
     assert!(!linked.join(".codeterm/plans").exists());
 
