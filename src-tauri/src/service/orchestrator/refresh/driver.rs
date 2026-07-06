@@ -112,12 +112,7 @@ impl ServiceContext {
     /// Post-reflection trigger (config-gated OFF). Fires a refresh only after a
     /// reflection block's learning is recorded — keyed on the `reflection` tag so
     /// ordinary `orchestrator learn` calls never trip it.
-    pub fn maybe_refresh_after_reflection(
-        &self,
-        pane_id: &str,
-        plan_id: &str,
-        tag: Option<&str>,
-    ) {
+    pub fn maybe_refresh_after_reflection(&self, pane_id: &str, plan_id: &str, tag: Option<&str>) {
         if tag != Some("reflection") {
             return;
         }
@@ -208,7 +203,11 @@ fn run_cycle(svc: &ServiceContext, req: &RefreshRequest, ctx: &PaneCtx) {
 
     // S1 entry: request the pre-compaction snapshot.
     log_phase(ctx, req.trigger, phase);
-    svc.inject(&ctx.pane_id, &template::render(HANDOFF_REQUEST, &req.plan_id), true);
+    svc.inject(
+        &ctx.pane_id,
+        &template::render(HANDOFF_REQUEST, &req.plan_id),
+        true,
+    );
 
     loop {
         std::thread::sleep(TICK);
@@ -292,12 +291,11 @@ fn build_observation(
         RefreshPhase::Reorient => {
             // Delivered == the injected body drained from the composer (submitted).
             let tail = svc.screen_tail(&ctx.pty_id);
-            obs.reorient_delivered = !reorient_needle.is_empty()
-                && !screen_contains_echo(&tail, reorient_needle);
+            obs.reorient_delivered =
+                !reorient_needle.is_empty() && !screen_contains_echo(&tail, reorient_needle);
         }
         RefreshPhase::VerifyResumption => {
-            obs.resumption_observed =
-                matches!(svc.pane_status(&ctx.pty_id), PaneStatus::Working);
+            obs.resumption_observed = matches!(svc.pane_status(&ctx.pty_id), PaneStatus::Working);
         }
         RefreshPhase::Compact | RefreshPhase::Resumed | RefreshPhase::Alerted => {}
     }
@@ -367,7 +365,10 @@ fn send_compact(svc: &ServiceContext, _req: &RefreshRequest, ctx: &PaneCtx) {
 }
 
 fn alert_stranded(svc: &ServiceContext, req: &RefreshRequest, ctx: &PaneCtx, reason: &str) {
-    let title = format!("Refresh stranded the orchestrator on pane {}", short(&ctx.pane_id));
+    let title = format!(
+        "Refresh stranded the orchestrator on pane {}",
+        short(&ctx.pane_id)
+    );
     let body = format!(
         "plan {} — {reason}. The orchestrator did not resume after refresh + one re-nudge. Decide: re-seed manually or hand off.",
         req.plan_id

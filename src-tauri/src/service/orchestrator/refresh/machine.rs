@@ -185,7 +185,10 @@ mod tests {
             elapsed_in_phase: t.handoff_timeout,
             ..obs()
         };
-        assert_eq!(advance(RefreshPhase::HandoffSnapshot, &stale, &t), Step::Alert);
+        assert_eq!(
+            advance(RefreshPhase::HandoffSnapshot, &stale, &t),
+            Step::Alert
+        );
     }
 
     #[test]
@@ -223,10 +226,7 @@ mod tests {
     fn s3_hung_compact_still_reaches_reorient_on_timeout() {
         // The hung-compact failure branch: never stranded, always re-orients.
         let t = tuning();
-        assert_eq!(
-            advance(RefreshPhase::CompactSettle, &obs(), &t),
-            Step::Hold
-        );
+        assert_eq!(advance(RefreshPhase::CompactSettle, &obs(), &t), Step::Hold);
         let timed_out = Observation {
             settle_detected: false,
             elapsed_in_phase: t.settle_timeout,
