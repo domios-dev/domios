@@ -89,7 +89,7 @@ sections:
     y: null
     collapsed: false
   attachments: []
-status: active
+status: archived
 mode: planning
 owner:
   pane_id: 73884b5e
@@ -98,7 +98,7 @@ owner:
 project_path: /Users/rollacode/Developer/codeterm
 canonical_project_path: /Users/rollacode/Developer/codeterm
 created_at: 1783315871742
-updated_at: 1783316427036
+updated_at: 1783366877638
 milestone_kinds: []
 loops: []
 elements: []

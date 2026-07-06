@@ -1,7 +1,7 @@
-id: pl_3e061386171d47d0aed85e360249a12d
+id: pl_a337d2590fd4455887bc754ad3444f5d
 title: Plan storage v2
 sections: []
-status: active
+status: archived
 mode: planning
 owner:
   pane_id: 9c8ec282
@@ -9,8 +9,8 @@ owner:
   title: null
 project_path: /Users/rollacode/Developer/codeterm
 canonical_project_path: /Users/rollacode/Developer/codeterm
-created_at: 1783315852856
-updated_at: 1783315852856
+created_at: 1783315831961
+updated_at: 1783366872746
 milestone_kinds: []
 loops: []
 elements: []

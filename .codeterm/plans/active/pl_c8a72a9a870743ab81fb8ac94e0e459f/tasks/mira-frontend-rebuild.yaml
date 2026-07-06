@@ -12,8 +12,8 @@ qa_state: null
 status_label: null
 priority: p2
 created_at: 0
-updated_at: 1782375509925
-status_changed_at: 0
+updated_at: 1783364962733
+status_changed_at: 1783364962733
 handle: mira-frontend-rebuild
 tags: []
 section_ids:
