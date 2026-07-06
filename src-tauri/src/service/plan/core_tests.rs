@@ -1,9 +1,10 @@
 use super::*;
 use crate::plan::{OrchestratorRef, Plan, PlanStatus, TaskStatus};
 
-fn plan_path(root: &std::path::Path, plan: &Plan) -> std::path::PathBuf {
-    let project = paths::project_root(root);
-    paths::plan_json_path(&project, &plan.status, &plan.id).unwrap()
+fn plan_path(_root: &std::path::Path, plan: &Plan) -> std::path::PathBuf {
+    // Persistence is yaml now; the canonical on-disk file is plan.yaml.
+    let dir = super::store_v2::plan_state_dir(plan).unwrap();
+    super::store_v2::plan_yaml_path(&dir)
 }
 
 #[test]
@@ -36,10 +37,10 @@ fn reload_from_disk_replaces_memory_and_index() {
     store.save(&mut p, 1000).unwrap();
 
     let path = plan_path(dir.path(), &p);
-    let mut edited: Plan = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let mut edited: Plan = serde_yaml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     edited.title = "Edited".into();
     edited.updated_at = 2000;
-    std::fs::write(&path, serde_json::to_string_pretty(&edited).unwrap()).unwrap();
+    std::fs::write(&path, serde_yaml::to_string(&edited).unwrap()).unwrap();
 
     store.reload_from_disk(&p.id).unwrap();
 
@@ -174,10 +175,10 @@ fn reload_from_disk_preserves_plan_arc_for_concurrent_holders() {
     let held = store.plans.read().get(&p.id).cloned().unwrap();
 
     let path = plan_path(dir.path(), &p);
-    let mut edited: Plan = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let mut edited: Plan = serde_yaml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     edited.title = "Edited".into();
     edited.updated_at = 2000;
-    std::fs::write(&path, serde_json::to_string_pretty(&edited).unwrap()).unwrap();
+    std::fs::write(&path, serde_yaml::to_string(&edited).unwrap()).unwrap();
 
     store.reload_from_disk(&p.id).unwrap();
 
@@ -199,10 +200,10 @@ fn reload_from_disk_does_not_overwrite_newer_in_flight_plan_mutation() {
     let held = store.plans.read().get(&p.id).cloned().unwrap();
 
     let path = plan_path(dir.path(), &p);
-    let mut stale: Plan = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let mut stale: Plan = serde_yaml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     stale.title = "Stale disk snapshot".into();
     stale.updated_at = 3000;
-    std::fs::write(&path, serde_json::to_string_pretty(&stale).unwrap()).unwrap();
+    std::fs::write(&path, serde_yaml::to_string(&stale).unwrap()).unwrap();
 
     let mut guard = held.lock();
     let reload_store = store.clone();
@@ -243,8 +244,8 @@ fn scan_project_loads_plan_written_directly_to_disk() {
     plan.created_at = 1000;
     plan.updated_at = 2000;
     let plan_id = plan.id.clone();
-    let path = paths::plan_json_path(&project, &plan.status, &plan_id).unwrap();
-    std::fs::write(&path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();
+    let path = plan_path(dir.path(), &plan);
+    std::fs::write(&path, serde_yaml::to_string(&plan).unwrap()).unwrap();
 
     let loaded_project = store.scan_project(dir.path()).unwrap();
     let plans: Vec<_> = store
