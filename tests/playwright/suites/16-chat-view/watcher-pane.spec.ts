@@ -13,13 +13,8 @@ const CHARTER = "Observe orchestration health. Report stalled workers.";
 
 async function lmStudioWatcherCapable(api: import("../../helpers/api-client").ApiClient): Promise<boolean> {
   try {
-    const plugins = await api.get<Array<{ id: string; capabilities?: { chatBackend?: boolean | { watcher?: boolean } } }>>(
-      "/plugins",
-    );
-    const lm = plugins.find((p) => p.id === PLUGIN_ID);
-    const cap = lm?.capabilities?.chatBackend;
-    if (cap === true) return false;
-    return cap?.watcher === true;
+    const providers = await api.get<Array<{ id: string; supports_watcher?: boolean }>>("/agents/providers");
+    return providers.find((p) => p.id === PLUGIN_ID)?.supports_watcher === true;
   } catch {
     return false;
   }

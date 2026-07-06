@@ -549,6 +549,10 @@ pub struct ProviderDescriptor {
     /// structured handle first and only falls back to PTY scraping otherwise.
     #[serde(default)]
     pub supports_structured_prompts: bool,
+    /// `true` when a chatBackend plugin implements watcher mode (manifest
+    /// `chatBackend: { watcher: true }`). Always `false` for PTY transports.
+    #[serde(default)]
+    pub supports_watcher: bool,
     /// Trust status of the bundle backing this provider. `system` =
     /// shipped by CodeTerm, hash matched the build-time table, or was
     /// installed from the official codeterm-core system channel.
@@ -1097,6 +1101,7 @@ pub trait AgentProvider: Send + Sync {
             supports_stop: self.stop_keystroke().is_some(),
             supports_chat_ui: self.supports_chat_ui(),
             supports_structured_prompts: self.supports_structured_prompts(),
+            supports_watcher: false,
             trust: self.trust(),
             transport: ProviderTransport::Pty,
             behavior_config: self.behavior_config(),

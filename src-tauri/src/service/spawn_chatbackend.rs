@@ -216,6 +216,14 @@ fn execute_watcher_actions_with<N, O, R>(
     }
 }
 
+/// Nudge targets include the orchestrator itself — the canonical health
+/// watcher nudges its own orchestrator, which is not a descendant.
+fn guardrail_group(watch: crate::service::watcher::WatchGroup) -> HashSet<String> {
+    let mut group: HashSet<String> = watch.pane_ids.into_iter().collect();
+    group.insert(watch.orchestrator_id);
+    group
+}
+
 /// Pure per-tick planning for the poll loop. Emit only when the delta is
 /// non-empty AND differs from the last emitted payload — a streaming message
 /// re-returned unchanged is suppressed to avoid redundant IPC + O(n²) bytes.
@@ -703,6 +711,24 @@ impl ServiceContext {
             now_ms,
             &previous_state,
         );
+        for (dropped, reason) in &outcome.dropped {
+            log::warn!(
+                "[watcher] pane {} dropped {} action to {:?}: {}",
+                pane_id,
+                dropped.kind,
+                dropped.pane,
+                reason
+            );
+        }
+        if !outcome.dropped.is_empty() {
+            let dropped_summary = outcome
+                .dropped
+                .iter()
+                .map(|(a, r)| format!("{} -> {:?} ({r})", a.kind, a.pane))
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.emit_watcher_note(pane_id, format!("Guardrails dropped actions: {dropped_summary}"));
+        }
         let actions = outcome.allowed_actions.clone();
         let applied = {
             let mut mux = self.mux.write();
@@ -738,11 +764,7 @@ impl ServiceContext {
         };
         let spec = snapshot.panes.get(pane_id)?.watcher.as_ref()?;
         spec.tick_inflight_since_ms?;
-        let group = collect_watch_group(&snapshot, pane_id)
-            .ok()?
-            .pane_ids
-            .into_iter()
-            .collect();
+        let group = guardrail_group(collect_watch_group(&snapshot, pane_id).ok()?);
         Some((spec.policy.clone(), spec.state.clone(), group))
     }
 
@@ -760,7 +782,12 @@ impl ServiceContext {
             cooldowns,
             |target, message| {
                 let envelope = MessageEnvelope::pane("Watcher", pane_id);
-                Messenger::deliver(self, target, envelope, message).map(|_| ())
+                Messenger::deliver(self, target, envelope, message).map(|_| {
+                    self.emit_watcher_note(
+                        pane_id,
+                        format!("Nudge delivered to {target}: {message}"),
+                    );
+                })
             },
             |message| {
                 self.create_notification(
