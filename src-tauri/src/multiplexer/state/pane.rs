@@ -23,6 +23,7 @@ impl MultiplexerState {
             shell_integration_nonce: None,
             role: None,
             role_profile: None,
+            watcher: None,
             parent_pane_id: None,
             can_spawn: false,
             depth: 0,

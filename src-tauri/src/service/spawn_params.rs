@@ -109,6 +109,10 @@ impl SpawnPaneSpec {
             system_prompt: None,
             preset: None,
             resume_session_id: agent.resume_session_id.clone(),
+            charter: None,
+            tick_interval_secs: None,
+            nudge_cooldown_secs: None,
+            max_actions_per_tick: None,
             activate: agent.activate,
             structured_prompt_server: None,
         })

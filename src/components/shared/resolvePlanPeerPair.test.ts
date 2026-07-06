@@ -55,7 +55,7 @@ function mkPlan(over: Partial<Plan> = {}): Plan {
   const plans = [mkPlan()];
   const panes = {
     "orch-1": mkPane("orch-1", { role: "Orchestrator" }),
-    "plan-1": mkPane("plan-1", { role: "Worker", role_profile: "planner", parent_pane_id: "orch-1" }),
+    "plan-1": mkPane("plan-1", { role: "Manager", role_profile: "planner", parent_pane_id: "orch-1" }),
     "worker-1": mkPane("worker-1", { role: "Worker", parent_pane_id: "orch-1" }),
   };
   const pair = resolvePlanPeerPair("orch-1", plans, panes);

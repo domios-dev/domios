@@ -57,7 +57,7 @@ export interface Tab {
   sort_order?: number;
 }
 
-export type AgentRole = "Orchestrator" | "Worker";
+export type AgentRole = "Orchestrator" | "Manager" | "Worker";
 
 export interface PromptOption {
   label: string;

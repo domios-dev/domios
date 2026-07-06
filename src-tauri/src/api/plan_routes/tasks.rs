@@ -21,7 +21,11 @@ fn planner_role_for_pane(state: &AppState, pane_id: &str) -> Option<&'static str
         .mux
         .read()
         .get_pane(pane_id)
-        .and_then(|pane| (pane.role_profile.as_deref() == Some("planner")).then_some("planner"))
+        .and_then(|pane| {
+            (pane.role == Some(crate::multiplexer::types::AgentRole::Manager)
+                && pane.role_profile.as_deref() == Some("planner"))
+            .then_some("planner")
+        })
 }
 
 fn lane_update_field(body: &Value) -> Result<Option<TaskLaneUpdate>, String> {

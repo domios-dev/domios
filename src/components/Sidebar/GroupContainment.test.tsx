@@ -38,13 +38,14 @@ async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: R
 
 interface Member {
   id: string;
+  role: "Manager" | "Worker";
   roleProfile: string | null;
 }
 
 function GroupBlock({ orchId, members }: { orchId: string; members: Member[] }) {
   const [collapsed, setCollapsed] = useState(false);
-  const managers = members.filter((m) => m.roleProfile === "planner");
-  const workers = members.filter((m) => m.roleProfile !== "planner");
+  const managers = members.filter((m) => m.role === "Manager");
+  const workers = members.filter((m) => m.role === "Worker");
   const counts = countBySection(members);
   const summary = summarizeGroupCounts(counts);
   return (
@@ -97,8 +98,18 @@ function GroupBlock({ orchId, members }: { orchId: string; members: Member[] }) 
 test("two adjacent groups each render their own containment line in the owner's presence color", async () => {
   const { host, root } = await render(
     <div>
-      <GroupBlock orchId="planck" members={[{ id: "kepler", roleProfile: "planner" }, { id: "bohr", roleProfile: null }, { id: "curie", roleProfile: null }]} />
-      <GroupBlock orchId="euler" members={[{ id: "noether", roleProfile: "planner" }]} />
+      <GroupBlock
+        orchId="planck"
+        members={[
+          { id: "kepler", role: "Manager", roleProfile: "planner" },
+          { id: "bohr", role: "Worker", roleProfile: null },
+          { id: "curie", role: "Worker", roleProfile: null },
+        ]}
+      />
+      <GroupBlock
+        orchId="euler"
+        members={[{ id: "noether", role: "Manager", roleProfile: "planner" }]}
+      />
     </div>,
   );
   const containers = host.querySelectorAll('[data-testid="group-container"]');
@@ -119,7 +130,13 @@ test("two adjacent groups each render their own containment line in the owner's 
 
 test("section headers live INSIDE the container, at child level", async () => {
   const { host, root } = await render(
-    <GroupBlock orchId="planck" members={[{ id: "kepler", roleProfile: "planner" }, { id: "bohr", roleProfile: null }]} />,
+    <GroupBlock
+      orchId="planck"
+      members={[
+        { id: "kepler", role: "Manager", roleProfile: "planner" },
+        { id: "bohr", role: "Worker", roleProfile: null },
+      ]}
+    />,
   );
   const container = host.querySelector('[data-testid="group-container"]')!;
   assert(container.querySelector('[data-testid="group-section-managers"]'), "Managers header inside the block");
@@ -131,7 +148,14 @@ test("section headers live INSIDE the container, at child level", async () => {
 
 test("collapse hides children + headers and shows the count; expand restores", async () => {
   const { host, root } = await render(
-    <GroupBlock orchId="planck" members={[{ id: "kepler", roleProfile: "planner" }, { id: "bohr", roleProfile: null }, { id: "curie", roleProfile: null }]} />,
+    <GroupBlock
+      orchId="planck"
+      members={[
+        { id: "kepler", role: "Manager", roleProfile: "planner" },
+        { id: "bohr", role: "Worker", roleProfile: null },
+        { id: "curie", role: "Worker", roleProfile: null },
+      ]}
+    />,
   );
   const toggle = host.querySelector<HTMLButtonElement>('[data-testid="group-collapse-toggle"]')!;
   assert(host.querySelector('[data-testid="group-container"]'), "expanded: container present");
@@ -151,7 +175,10 @@ test("collapse hides children + headers and shows the count; expand restores", a
 
 test("one-planner group = exactly 3 visual elements: head, hairline, planner row — no header, no box, no dot", async () => {
   const { host, root } = await render(
-    <GroupBlock orchId="planck" members={[{ id: "kepler", roleProfile: "planner" }]} />,
+    <GroupBlock
+      orchId="planck"
+      members={[{ id: "kepler", role: "Manager", roleProfile: "planner" }]}
+    />,
   );
   const group = host.querySelector('[data-orchestration-group="planck"]')!;
   assert(group.querySelector('[data-testid="group-head"]'), "element 1: group head");

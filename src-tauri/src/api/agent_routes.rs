@@ -58,6 +58,10 @@ pub(crate) struct SpawnAgentBody {
     #[serde(alias = "system")]
     system_prompt: Option<String>,
     preset: Option<String>,
+    charter: Option<String>,
+    tick_interval_secs: Option<u64>,
+    nudge_cooldown_secs: Option<u64>,
+    max_actions_per_tick: Option<u32>,
     activate: Option<bool>,
 }
 
@@ -186,7 +190,9 @@ pub async fn spawn_agent(
         role_profile: body.role_profile.clone(),
         ..Default::default()
     };
-    role_probe.normalize_role_profile();
+    role_probe
+        .normalize_role_profile()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     if let Some(ref role) = role_probe.role {
         crate::service::ServiceContext::parse_role(role)
             .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
@@ -218,6 +224,10 @@ pub async fn spawn_agent(
         system_prompt: body.system_prompt,
         preset: body.preset,
         resume_session_id: None,
+        charter: body.charter,
+        tick_interval_secs: body.tick_interval_secs,
+        nudge_cooldown_secs: body.nudge_cooldown_secs,
+        max_actions_per_tick: body.max_actions_per_tick,
         activate: body.activate,
         structured_prompt_server: None,
     };
@@ -321,7 +331,9 @@ pub async fn set_pane_role(
         role_profile: body.role_profile,
         ..Default::default()
     };
-    role_probe.normalize_role_profile();
+    role_probe
+        .normalize_role_profile()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let role = role_probe.role.unwrap_or_else(|| "Worker".into());
     let parsed_role = crate::service::ServiceContext::parse_role(&role)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;

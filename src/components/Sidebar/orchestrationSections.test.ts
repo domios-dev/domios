@@ -7,7 +7,7 @@ import {
   roleBadgeLabel,
   roleBadgeTestId,
   SECTION_LABEL,
-  sectionForRoleProfile,
+  sectionForRole,
   summarizeGroupClose,
 } from "./orchestrationSections";
 
@@ -25,22 +25,22 @@ console.debug = (...args: unknown[]) => {
   debugCalls.push(args.join(" "));
 };
 try {
-  assert(sectionForRoleProfile("planner") === "manager", "planner → manager");
-  assert(sectionForRoleProfile("Planner") === "manager", "case-insensitive planner → manager");
-  assert(sectionForRoleProfile(" watcher ") === "manager", "watcher (future) → manager");
-  assert(sectionForRoleProfile("worker") === "worker", "worker → worker");
-  assert(sectionForRoleProfile(null) === "worker", "null → worker");
-  assert(sectionForRoleProfile(undefined) === "worker", "undefined → worker");
-  assert(sectionForRoleProfile("") === "worker", "empty → worker");
+  assert(sectionForRole("Manager", "planner") === "manager", "planner Manager -> manager");
+  assert(sectionForRole("Manager", "watcher") === "manager", "watcher Manager -> manager");
+  assert(sectionForRole("Worker", "planner") === "worker", "Worker profile does not make a manager");
+  assert(sectionForRole("Worker", "worker") === "worker", "worker -> worker");
+  assert(sectionForRole(null, null) === "worker", "null -> worker");
+  assert(sectionForRole(undefined, undefined) === "worker", "undefined -> worker");
+  assert(sectionForRole("Worker", "") === "worker", "empty -> worker");
   const before = debugCalls.length;
-  assert(sectionForRoleProfile("reviewer") === "worker", "unknown role → worker fallback");
+  assert(sectionForRole("Worker", "reviewer") === "worker", "unknown worker profile -> worker fallback");
   assert(debugCalls.length === before + 1, "unknown role logs exactly one debug breadcrumb");
   assert(debugCalls[before].includes("reviewer"), "debug breadcrumb names the unknown role");
   // Known buckets never spam the log.
   const q = debugCalls.length;
-  sectionForRoleProfile("planner");
-  sectionForRoleProfile("worker");
-  sectionForRoleProfile(null);
+  sectionForRole("Manager", "planner");
+  sectionForRole("Worker", "worker");
+  sectionForRole(null, null);
   assert(debugCalls.length === q, "known/empty roles never log");
 } finally {
   console.debug = origDebug;
@@ -48,11 +48,11 @@ try {
 
 assert(roleBadgeLabel(pane({ role: "Orchestrator" })) === "ORCHESTRATOR", "orchestrator badge");
 assert(
-  roleBadgeLabel(pane({ role: "Worker", role_profile: "planner" })) === "PLANNER",
+  roleBadgeLabel(pane({ role: "Manager", role_profile: "planner" })) === "PLANNER",
   "planner badge",
 );
 assert(
-  roleBadgeLabel(pane({ role: "Worker", role_profile: "watcher" })) === "WATCHER",
+  roleBadgeLabel(pane({ role: "Manager", role_profile: "watcher" })) === "WATCHER",
   "watcher badge (future)",
 );
 assert(roleBadgeLabel(pane({ role: "Worker" })) === null, "plain worker has no role badge");
@@ -62,9 +62,9 @@ assert(roleBadgeTestId("ORCHESTRATOR") === "role-badge-orchestrator", "orchestra
 assert(roleBadgeTestId("PLANNER") === "role-badge-planner", "planner testid");
 
 const nodes = [
-  { pane: pane({ id: "w1", role_profile: null }) },
-  { pane: pane({ id: "planner", role_profile: "planner" }) },
-  { pane: pane({ id: "w2", role_profile: "worker" }) },
+  { pane: pane({ id: "w1", role: "Worker", role_profile: null }) },
+  { pane: pane({ id: "planner", role: "Manager", role_profile: "planner" }) },
+  { pane: pane({ id: "w2", role: "Worker", role_profile: "worker" }) },
 ];
 const part = partitionBySection(nodes);
 assert(part.managers.map((n) => n.pane.id).join(",") === "planner", "managers = planner only");
@@ -72,10 +72,10 @@ assert(part.workers.map((n) => n.pane.id).join(",") === "w1,w2", "workers keep s
 
 assert(SECTION_LABEL.manager === "Managers" && SECTION_LABEL.worker === "Workers", "section labels");
 const counts = countBySection([
-  { roleProfile: "planner" },
-  { roleProfile: "worker" },
-  { roleProfile: null },
-  { roleProfile: "worker" },
+  { role: "Manager", roleProfile: "planner" },
+  { role: "Worker", roleProfile: "worker" },
+  { role: "Worker", roleProfile: null },
+  { role: "Worker", roleProfile: "worker" },
 ]);
 assert(counts.managers === 1 && counts.workers === 3, "counts split by section");
 assert(summarizeGroupClose(counts) === "1 manager, 3 workers", "singular manager, plural workers");
