@@ -700,7 +700,13 @@ fn remove_file_if_exists(path: &Path) -> std::io::Result<()> {
 }
 
 pub fn write_markdown_atomic(path: &Path, body: &str) -> std::io::Result<()> {
-    super::atomic_write::write_atomic(path, normalize_markdown_eof(body))
+    let normalized = normalize_markdown_eof(body);
+    // Whole-plan saves fan out here for every entity; skipping identical
+    // content is what keeps untouched task files out of git and off disk.
+    if matches!(std::fs::read_to_string(path), Ok(existing) if existing == normalized) {
+        return Ok(());
+    }
+    super::atomic_write::write_atomic(path, normalized)
 }
 
 fn remove_stale_id_path(
@@ -831,4 +837,54 @@ fn parse_frontmatter_tags(text: &str) -> (Vec<String>, String) {
         .and_then(|value| serde_yaml::from_value::<Vec<String>>(value).ok())
         .unwrap_or_default();
     (tags, body.to_string())
+}
+
+#[cfg(test)]
+mod write_if_changed_tests {
+    use super::write_markdown_atomic;
+
+    #[test]
+    fn identical_content_skips_the_write_entirely() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("task.md");
+        write_markdown_atomic(&path, "body text").unwrap();
+        // A read-only parent makes any attempted write fail loudly, so Ok()
+        // proves the identical-content branch never touched the filesystem.
+        let mut perms = std::fs::metadata(dir.path()).unwrap().permissions();
+        std::fs::set_permissions(dir.path(), {
+            use std::os::unix::fs::PermissionsExt;
+            let mut p = perms.clone();
+            p.set_mode(0o555);
+            p
+        })
+        .unwrap();
+        let result = write_markdown_atomic(&path, "body text");
+        // restore before asserting so the tempdir can clean up on failure too
+        {
+            use std::os::unix::fs::PermissionsExt;
+            perms.set_mode(0o755);
+        }
+        std::fs::set_permissions(dir.path(), perms).unwrap();
+        result.unwrap();
+    }
+
+    #[test]
+    fn changed_content_still_writes_and_normalizes_eof() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("task.md");
+        write_markdown_atomic(&path, "v1").unwrap();
+        write_markdown_atomic(&path, "v2  \n\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "v2\n");
+    }
+
+    #[test]
+    fn eof_normalized_equivalence_counts_as_identical() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("task.md");
+        write_markdown_atomic(&path, "stable body").unwrap();
+        let before = std::fs::metadata(&path).unwrap().modified().unwrap();
+        write_markdown_atomic(&path, "stable body\n\n  ").unwrap();
+        let after = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert_eq!(before, after, "normalized-equal content must not rewrite");
+    }
 }
