@@ -359,17 +359,27 @@ impl PlanStore {
     }
 
     fn load_file_into_index(&self, path: PathBuf, project_root: &Path) -> Result<(), PlanError> {
-        let json = std::fs::read_to_string(&path).map_err(|e| PlanError::Io(e.to_string()))?;
-        let mut plan: Plan =
-            serde_json::from_str(&json).map_err(|e| PlanError::Io(e.to_string()))?;
+        // v2 plan: load straight from the yaml hierarchy (no plan.json, no
+        // hydrate-and-rewrite). Legacy plan: the json + body-file path below.
+        let mut plan = if path.file_name().and_then(|n| n.to_str()) == Some("plan.yaml") {
+            let dir = path
+                .parent()
+                .ok_or_else(|| PlanError::Io("plan.yaml has no parent dir".into()))?;
+            store_v2::load_plan(dir).map_err(|e| PlanError::Io(e.to_string()))?
+        } else {
+            let json = std::fs::read_to_string(&path).map_err(|e| PlanError::Io(e.to_string()))?;
+            let mut plan: Plan =
+                serde_json::from_str(&json).map_err(|e| PlanError::Io(e.to_string()))?;
+            let migrated = body_files::hydrate_and_migrate(&mut plan)
+                .map_err(|e| PlanError::Io(e.to_string()))?;
+            if migrated {
+                let wp = Self::write_atomic(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
+                self.note_plan_write(&plan, &wp);
+            }
+            plan
+        };
         paths::normalize_plan_paths(&mut plan, project_root);
-        let migrated =
-            body_files::hydrate_and_migrate(&mut plan).map_err(|e| PlanError::Io(e.to_string()))?;
         tag_model::normalize_plan(&mut plan);
-        if migrated {
-            let path = Self::write_atomic(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
-            self.note_plan_write(&plan, &path);
-        }
         let committed = self.upsert_plan_arc(plan);
         self.note_plan_write(&committed, &path);
         let entry = Self::index_entry(&committed, path);
@@ -412,10 +422,18 @@ impl PlanStore {
                 let Ok(entry) = entry else {
                     continue;
                 };
-                let path = entry.path().join("plan.json");
-                if !path.is_file() {
+                // v2-first discovery: a converted plan dir has plan.yaml and no
+                // plan.json; a legacy dir has plan.json. Find either.
+                let dir = entry.path();
+                let yaml = dir.join("plan.yaml");
+                let json = dir.join("plan.json");
+                let path = if yaml.is_file() {
+                    yaml
+                } else if json.is_file() {
+                    json
+                } else {
                     continue;
-                }
+                };
                 if let Err(e) = self.load_file_into_index(path.clone(), &project_root) {
                     log::warn!("[plan] skip malformed plan {}: {}", path.display(), e);
                 }
