@@ -9,7 +9,7 @@
 //! No plan.json, no frontmatter, no per-entity fan-out: a mutation writes
 //! only the entity it touched, and write-if-changed skips no-op rewrites.
 
-use crate::plan::{Goal, Plan, Task};
+use crate::plan::{Plan, Task};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -77,7 +77,7 @@ fn write_if_changed(path: &Path, content: &str) -> io::Result<bool> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    super::atomic_write::write_atomic(path, content.to_string())?;
+    super::atomic_write::write_atomic(path, content)?;
     Ok(true)
 }
 
@@ -163,7 +163,7 @@ pub fn load_plan(plan_dir: &Path) -> io::Result<Plan> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plan::{OrchestratorRef, PlanMode, TaskStatus};
+    use crate::plan::{Goal, OrchestratorRef, PlanMode, TaskStatus};
     use crate::service::plan::{NewTask, PlanStore};
 
     // Build a real, fully-populated Plan+Task via the production store, then
