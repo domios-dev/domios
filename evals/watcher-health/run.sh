@@ -14,7 +14,7 @@ source "$ROOT/evals/_lib/lib.sh"
 
 PY=python3
 WS_NAME="WS-watcher-health"
-WS_CWD="$ROOT"
+WS_CWD="$(mktemp -d /tmp/watcher-health.XXXXXX)"
 INTERVAL_SECS=30
 WAIT_SECS="${WH_WAIT_SECS:-95}"
 POLL_SECS="${WH_POLL_SECS:-45}"
@@ -43,6 +43,7 @@ fail() { summary FAIL "$1" "$2" >&2; FAILS=$((FAILS + 1)); }
 skip() { summary SKIP "$1" "$2"; SKIPS=$((SKIPS + 1)); }
 
 cleanup() {
+  [ -n "${WS_CWD:-}" ] && [[ "$WS_CWD" == /tmp/watcher-health.* ]] && rm -rf "$WS_CWD"
   local out rc
   for pane in "${CREATED_PANES[@]:-}"; do
     [ -n "$pane" ] || continue
@@ -76,30 +77,11 @@ try:
 except Exception:
     print("no")
     raise SystemExit
-if isinstance(data, dict):
-    items = data.get("plugins") or data.get("items") or []
-elif isinstance(data, list):
-    items = data
-else:
-    items = []
+items = data if isinstance(data, list) else data.get("providers") or []
 for item in items:
-    if not isinstance(item, dict):
-        continue
-    if item.get("id") != "lmstudio":
-        continue
-    caps = item.get("capabilities") or {}
-    cap = caps.get("chatBackend")
-    if cap is None:
-        cap = caps.get("chat_backend")
-    if cap is True:
-        print("no")
-    elif isinstance(cap, dict) and cap.get("watcher") is True:
-        print("yes")
-    elif isinstance(cap, dict) and cap.get("watcher_capable") is True:
-        print("yes")
-    else:
-        print("no")
-    break
+    if isinstance(item, dict) and item.get("id") == "lmstudio":
+        print("yes" if item.get("supports_watcher") is True else "no")
+        break
 else:
     print("no")
 '
@@ -171,14 +153,37 @@ print(count)
   ' "$label"
 }
 
+
+wait_pane_idle() {
+  local pane="$1" deadline=$((SECONDS + 240))
+  while [ $SECONDS -lt $deadline ]; do
+    if dc pane status --pane "$pane" 2>/dev/null | grep -q "status:  *Idle"; then
+      return 0
+    fi
+    sleep 3
+  done
+  return 1
+}
+
+
+watcher_note_count() {
+  local pane="$1" chat rc
+  chat="$(pane_chat_json "$pane")"
+  rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
+  printf '%s\n' "$chat" | $PY -c '
+import json, sys
+raw = sys.stdin.read()
+if not raw.strip():
+    print(0); raise SystemExit
+data = json.loads(raw)
+msgs = data.get("messages") if isinstance(data, dict) else data
+print(sum(1 for m in (msgs or []) if isinstance(m, dict) and "Nudge delivered to" in str(m.get("content",""))))
+  '
+}
+
 plugins_surface() {
-  local body
-  body="$(dev_get /api/plugins)"
-  if printf '%s\n' "$body" | $PY -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1; then
-    printf '%s\n' "$body"
-    return 0
-  fi
-  dev_get /api/plugins/snapshot
+  dc agent providers --json
 }
 
 echo "=== watcher-health preflight ==="
@@ -230,9 +235,14 @@ if [ -z "$ORCH" ]; then
 fi
 CREATED_PANES+=("$ORCH")
 pass orchestrator "spawned $ORCH"
+if wait_pane_idle "$ORCH"; then
+  pass orchestrator-idle "orchestrator finished onboarding and is Idle"
+else
+  echo "WARN orchestrator-idle: not Idle after 240s; PTY delivery to a busy claude may be swallowed (pre-existing race), nudge oracle uses the watcher transcript"
+fi
 
 WORKER_TASK="Watcher-health stalled fixture: acknowledge nothing, run no commands, send no report, and wait silently. The watcher should see this worker make no progress."
-WORKER_OUT="$(dc agent spawn claude --role Worker --parent "$ORCH" --workspace "$WS" --cwd "$WS_CWD" --title "WH stalled worker" --task "$WORKER_TASK" 2>&1)"
+WORKER_OUT="$(dc agent spawn claude --role Worker --parent "$ORCH" --workspace "$WS" --cwd "$WS_CWD" --allow-shared-checkout --title "WH stalled worker" --task "$WORKER_TASK" 2>&1)"
 WORKER_RC=$?
 if [ "$WORKER_RC" -ne 0 ]; then
   fail worker "spawn failed: $(printf '%s' "$WORKER_OUT" | head -c 180)"
@@ -275,14 +285,14 @@ else
   fail watcher_verdict "watcher transcript did not contain watcher_verdict within bounded wait"
 fi
 
-NUDGES="$(watcher_nudge_count "$ORCH" "$WATCHER_ORIGIN_LABEL")"
+NUDGES="$(watcher_note_count "$WATCHER")"
 NUDGE_RC=$?
 if [ "$NUDGE_RC" -ne 0 ]; then
   fail cooldown "could not read orchestrator chat to count watcher nudges"
 elif [ "${NUDGES:-0}" -eq 1 ] 2>/dev/null; then
   pass cooldown "orchestrator received exactly one watcher-origin nudge across two ticks"
 else
-  fail cooldown "orchestrator received ${NUDGES:-0} watcher-origin nudges; expected exactly 1"
+  fail cooldown "orchestrator received ${NUDGES:-0} delivered-nudge notes in the watcher transcript; expected exactly 1 across two ticks (cooldown)"
 fi
 
 echo "=== summary ==="

@@ -355,3 +355,14 @@ fn restored_pane_with_ancient_last_tick_fires_one_tick_not_burst() {
     );
     assert_eq!(restored.state, json!({ "phase": "restored" }));
 }
+
+#[test]
+fn guardrail_group_includes_the_orchestrator() {
+    let group = super::guardrail_group(crate::service::watcher::WatchGroup {
+        orchestrator_id: "orch-1".into(),
+        pane_ids: vec!["worker-1".into(), "planner-1".into()],
+    });
+    assert!(group.contains("orch-1"), "nudging the own orchestrator is the canonical case");
+    assert!(group.contains("worker-1"));
+    assert_eq!(group.len(), 3);
+}
