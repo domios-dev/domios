@@ -6,3 +6,4 @@ handle: workspace-plan-entry-softlock
 title: Workspace-tab Plan button → board without an agent (fix soft-lock)
 status: done
 ---
+

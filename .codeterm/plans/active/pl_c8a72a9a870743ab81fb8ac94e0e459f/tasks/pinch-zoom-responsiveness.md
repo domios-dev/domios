@@ -6,3 +6,4 @@ handle: pinch-zoom-responsiveness
 title: Pinch zoom responsiveness
 status: done
 ---
+
