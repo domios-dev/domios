@@ -52,6 +52,19 @@ pub enum PlanAction {
     },
     /// Print only the plan's hydrated section prose (no goal, tasks, or metadata)
     Spec { plan_id: String },
+    /// File + line range of a body block, for in-place edits with file tools
+    Locate {
+        plan_id: String,
+        /// Task id or handle
+        #[arg(long, conflicts_with_all = ["section", "spec_section"])]
+        task: Option<String>,
+        /// Plan section id or handle
+        #[arg(long, conflicts_with_all = ["task", "spec_section"])]
+        section: Option<String>,
+        /// Spec section id or handle (of the plan's spec)
+        #[arg(long, conflicts_with_all = ["task", "section"])]
+        spec_section: Option<String>,
+    },
     /// List generated section/task body files
     Files { plan_id: String },
     /// Show tag facets, counts, topics, and duplicate warnings

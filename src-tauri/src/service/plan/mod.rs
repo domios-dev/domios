@@ -16,6 +16,7 @@ pub mod hints;
 pub mod ingest;
 mod lane_metadata;
 pub mod lifecycle;
+pub mod locate;
 pub mod loop_mutations;
 pub mod milestone_gates;
 pub mod mutations;

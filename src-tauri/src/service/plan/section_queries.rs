@@ -48,12 +48,12 @@ fn section_details(container_id: String, section: Section) -> SectionDetails {
     }
 }
 
-fn find_section<'a>(sections: &'a [Section], id: &str) -> Option<&'a Section> {
+fn find_section<'a>(sections: &'a [Section], selector: &str) -> Option<&'a Section> {
     for section in sections {
-        if section.id == id {
+        if section.id == selector || section.handle.as_deref() == Some(selector) {
             return Some(section);
         }
-        if let Some(found) = find_section(&section.subsections, id) {
+        if let Some(found) = find_section(&section.subsections, selector) {
             return Some(found);
         }
     }
@@ -117,6 +117,26 @@ mod tests {
         assert_eq!(details.title, "Child");
         assert!(details.markdown.contains("# Child"));
         assert!(details.markdown.contains("Child body"));
+    }
+
+    #[test]
+    fn show_section_finds_by_handle() {
+        let (_dir, store, plan_id, child) = store_with_section();
+        store
+            .update_section(
+                &plan_id,
+                &child,
+                None,
+                None,
+                &[],
+                None,
+                Some("child-handle"),
+                4,
+            )
+            .unwrap();
+
+        let details = store.show_section(&plan_id, "child-handle").unwrap();
+        assert_eq!(details.section.id, child);
     }
 
     #[test]
