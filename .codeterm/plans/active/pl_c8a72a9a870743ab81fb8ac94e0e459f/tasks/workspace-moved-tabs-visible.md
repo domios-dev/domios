@@ -6,3 +6,4 @@ handle: workspace-moved-tabs-visible
 title: Workspace moved tabs visible in sidebar
 status: done
 ---
+

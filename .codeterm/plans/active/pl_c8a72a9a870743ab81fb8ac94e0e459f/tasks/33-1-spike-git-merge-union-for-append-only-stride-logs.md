@@ -6,3 +6,4 @@ handle: 33-1-spike-git-merge-union-for-append-only-stride-logs
 title: §33.1 spike git merge=union for append-only stride logs
 status: done
 ---
+

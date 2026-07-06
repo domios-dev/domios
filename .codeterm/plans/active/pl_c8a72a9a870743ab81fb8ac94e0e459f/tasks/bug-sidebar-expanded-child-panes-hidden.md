@@ -6,3 +6,4 @@ handle: bug-sidebar-expanded-child-panes-hidden
 title: 'bug: Sidebar hides expanded child panes from backend tree'
 status: done
 ---
+

@@ -6,3 +6,4 @@ handle: 33-6-watcher-reloads-task-stride-log-sidecar-changes
 title: §33.6 watcher reloads task stride-log sidecar changes
 status: done
 ---
+

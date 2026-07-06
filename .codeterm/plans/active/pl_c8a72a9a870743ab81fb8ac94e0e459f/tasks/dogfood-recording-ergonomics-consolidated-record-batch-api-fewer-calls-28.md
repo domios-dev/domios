@@ -6,3 +6,4 @@ handle: dogfood-recording-ergonomics-consolidated-record-batch-api-fewer-calls-2
 title: 'Dogfood-recording ergonomics: consolidated record/batch API (fewer calls) §28'
 status: done
 ---
+
