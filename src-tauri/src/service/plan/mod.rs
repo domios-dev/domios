@@ -35,8 +35,8 @@ pub mod section_links;
 pub mod section_queries;
 pub mod skill_registry;
 pub mod spec;
-pub mod spec_files;
-pub mod spec_store_v2;
+pub mod spec_render;
+pub mod spec_store;
 pub mod state;
 pub mod store_v2;
 pub mod stride_log;
@@ -160,22 +160,33 @@ impl PlanStore {
         Ok(())
     }
 
-    fn spec_file_path(spec: &Spec) -> std::io::Result<PathBuf> {
-        Ok(paths::specs_dir(paths::spec_sidecar_root(spec))?.join(format!("{}.json", spec.id)))
+    /// Spec v2 write target: owned spec -> `<plan_dir>/spec.yaml`, orphan ->
+    /// `.codeterm/specs/<id>.yaml`. Needs &self to resolve the owning plan dir.
+    fn spec_yaml_target(&self, spec: &Spec) -> std::io::Result<PathBuf> {
+        if let Some(pid) = spec.plan_id.as_deref() {
+            if let Some(plan) = self.get(pid) {
+                let dir = store_v2::plan_state_dir(&plan)?;
+                return Ok(spec_store::spec_yaml_path_in_plan(&dir));
+            }
+        }
+        let specs_dir = paths::specs_dir(paths::spec_sidecar_root(spec))?;
+        Ok(spec_store::spec_yaml_path(&specs_dir, &spec.id))
     }
 
-    fn write_spec_atomic(spec: &Spec) -> std::io::Result<PathBuf> {
-        let path = Self::spec_file_path(spec)?;
+    fn persist_spec(&self, spec: &Spec) -> std::io::Result<PathBuf> {
         let mut normalized = spec.clone();
         if normalized.canonical_project_path.trim().is_empty() {
             normalized.canonical_project_path = normalized.project_path.clone();
         }
         tag_model::normalize_sections_for_spec(&mut normalized.sections);
-        spec_files::persist_bodies(&normalized)?;
-        let json_spec = spec_files::strip_bodies(&normalized);
-        let json = serde_json::to_string_pretty(&json_spec)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        atomic_write::write_atomic(&path, json)?;
+        let path = self.spec_yaml_target(&normalized)?;
+        // A spec owned by a plan lives at <plan>/spec.yaml; when it was
+        // previously orphaned, drop the stale global yaml so there is one copy.
+        if spec.plan_id.is_some() {
+            let specs_dir = paths::specs_dir(paths::spec_sidecar_root(&normalized))?;
+            let _ = std::fs::remove_file(spec_store::spec_yaml_path(&specs_dir, &normalized.id));
+        }
+        spec_store::write_spec_at(&path, &normalized)?;
         Ok(path)
     }
 
@@ -208,13 +219,8 @@ impl PlanStore {
         }
     }
 
-    fn note_spec_write(&self, spec: &Spec, path: &Path) {
+    fn note_spec_write(&self, _spec: &Spec, path: &Path) {
         self.note_write(path);
-        if let Ok(body_paths) = spec_files::body_paths(spec) {
-            for path in body_paths {
-                self.note_write(&path);
-            }
-        }
     }
 
     pub fn is_own_recent_write(&self, path: &Path) -> bool {
@@ -373,7 +379,9 @@ impl PlanStore {
 
     pub(super) fn commit_loaded_spec(&self, spec: Spec) -> Result<(), PlanError> {
         let committed = self.upsert_spec_arc(spec);
-        let path = Self::write_spec_atomic(&committed).map_err(|e| PlanError::Io(e.to_string()))?;
+        let path = self
+            .persist_spec(&committed)
+            .map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_spec_write(&committed, &path);
         if let Err(e) = self.mirror_spec_index(&committed) {
             log::warn!(
@@ -411,8 +419,17 @@ impl PlanStore {
         tag_model::normalize_plan(&mut plan);
         let committed = self.upsert_plan_arc(plan);
         self.note_plan_write(&committed, &path);
-        let entry = Self::index_entry(&committed, path);
+        let entry = Self::index_entry(&committed, path.clone());
         self.index.write().insert(committed.id.clone(), entry);
+        // Co-located spec.yaml rides with its plan (startup scan + reconcile).
+        if let Some(dir) = path.parent() {
+            let spec_yaml = dir.join("spec.yaml");
+            if spec_yaml.is_file() {
+                if let Err(e) = self.load_spec_file_into_index(spec_yaml, project_root) {
+                    log::warn!("[spec] skip malformed co-located spec: {e}");
+                }
+            }
+        }
         Ok(())
     }
 
@@ -421,16 +438,9 @@ impl PlanStore {
         path: PathBuf,
         project_root: &Path,
     ) -> Result<(), PlanError> {
-        let json = std::fs::read_to_string(&path).map_err(|e| PlanError::Io(e.to_string()))?;
         let mut spec: Spec =
-            serde_json::from_str(&json).map_err(|e| PlanError::Io(e.to_string()))?;
+            spec_store::load_spec_from_path(&path).map_err(|e| PlanError::Io(e.to_string()))?;
         paths::normalize_spec_paths(&mut spec, project_root);
-        let migrated =
-            spec_files::hydrate_and_migrate(&mut spec).map_err(|e| PlanError::Io(e.to_string()))?;
-        if migrated {
-            let path = Self::write_spec_atomic(&spec).map_err(|e| PlanError::Io(e.to_string()))?;
-            self.note_spec_write(&spec, &path);
-        }
         let committed = self.upsert_spec_arc(spec);
         self.note_spec_write(&committed, &path);
         let entry = Self::spec_index_entry(&committed, path);
@@ -476,7 +486,7 @@ impl PlanStore {
                     continue;
                 };
                 let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                if path.extension().and_then(|e| e.to_str()) != Some("yaml") {
                     continue;
                 }
                 if let Err(e) = self.load_spec_file_into_index(path.clone(), &project_root) {
@@ -548,9 +558,7 @@ impl PlanStore {
             *guard = spec.clone();
         }
         *spec = guard.clone();
-        // Specs stay on the legacy json store for now (they churn rarely);
-        // spec_store_v2 exists for a later spec migration. No dual-write.
-        let path = Self::write_spec_atomic(&guard)?;
+        let path = self.persist_spec(&guard)?;
         self.note_spec_write(&guard, &path);
         if let Err(e) = self.mirror_spec_index(&guard) {
             log::warn!(
@@ -634,14 +642,9 @@ impl PlanStore {
         body_files::file_manifest(&plan).map_err(|e| PlanError::Io(e.to_string()))
     }
 
-    pub fn spec_file_manifest(&self, id: &str) -> Result<spec_files::SpecFileManifest, PlanError> {
-        let spec = self.get_spec(id).ok_or(PlanError::NotFound)?;
-        spec_files::file_manifest(&spec).map_err(|e| PlanError::Io(e.to_string()))
-    }
-
     pub fn spec_document_markdown(&self, id: &str) -> Option<String> {
         self.get_spec(id)
-            .map(|spec| spec_files::spec_markdown(&spec))
+            .map(|spec| spec_render::spec_markdown(&spec))
     }
 
     pub fn reload_from_disk(&self, id: &str) -> Result<(), PlanError> {
@@ -879,6 +882,7 @@ impl PlanStore {
     }
 
     /// Drop a plan from the in-memory index + search units without touching disk.
+    /// The plan's owned spec (1:1, co-located) lives and dies with it.
     fn forget_plan(&self, id: &str) -> (Option<Plan>, Option<PathBuf>) {
         let plan = self
             .plans
@@ -889,7 +893,22 @@ impl PlanStore {
         if let Some(plan) = plan.as_ref() {
             let _ = search_index::delete_plan_units(plan);
         }
+        self.forget_owned_spec(id);
         (plan, entry_path)
+    }
+
+    fn forget_owned_spec(&self, plan_id: &str) {
+        let owned: Vec<String> = self
+            .specs
+            .read()
+            .iter()
+            .filter(|(_, spec)| spec.lock().plan_id.as_deref() == Some(plan_id))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for spec_id in owned {
+            self.specs.write().remove(&spec_id);
+            self.spec_index.write().remove(&spec_id);
+        }
     }
 
     fn find_plan_file_on_disk(&self, project_root: &Path, plan_id: &str) -> Option<PathBuf> {

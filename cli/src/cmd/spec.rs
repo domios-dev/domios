@@ -39,21 +39,6 @@ fn render_section(section: &Value, depth: usize, out: &mut String) {
     }
 }
 
-fn render_file_manifest(val: &Value) -> String {
-    let mut out = String::new();
-    if let Some(index_path) = val.get("index_path").and_then(|v| v.as_str()) {
-        out.push_str(&format!("INDEX.md\t{index_path}\n"));
-    }
-    if let Some(entries) = val.get("entries").and_then(|v| v.as_array()) {
-        for entry in entries {
-            let title = entry.get("title").and_then(|v| v.as_str()).unwrap_or("?");
-            let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("?");
-            out.push_str(&format!("{title}\t{path}\n"));
-        }
-    }
-    out
-}
-
 pub fn handle_spec(client: &mut SocketClient, json_output: bool, action: SpecAction) {
     match run_spec(client, json_output, action) {
         Ok(None) => {}
@@ -88,6 +73,13 @@ fn run_spec(
 ) -> Result<Option<Value>, String> {
     let result = match action {
         SpecAction::Create { title, project } => {
+            // Default to the caller's cwd — the daemon's own cwd is meaningless
+            // (often / when launched via `open -a`, which is read-only).
+            let project = project.or_else(|| {
+                std::env::current_dir()
+                    .ok()
+                    .map(|d| d.display().to_string())
+            });
             let mut params = json!({ "title": title });
             if let Some(project) = project {
                 params["project_path"] = json!(project);
@@ -133,13 +125,11 @@ fn run_spec(
             println!("{}", render_spec_markdown(&val));
             return Ok(None);
         }
-        SpecAction::Files { spec_id } => {
-            let val = call(client, "spec.files", json!({ "spec_id": spec_id }))?;
-            if json_output {
-                return Ok(Some(val));
+        SpecAction::Delete { spec_id, yes } => {
+            if !yes {
+                return Err("refusing to delete without --yes".into());
             }
-            print!("{}", render_file_manifest(&val));
-            return Ok(None);
+            call(client, "spec.delete", json!({ "spec_id": spec_id }))
         }
         SpecAction::Section { action } => match action {
             SpecSectionAction::Add {
