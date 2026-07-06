@@ -1,5 +1,5 @@
 use super::{NewTask, PlanStore};
-use crate::plan::{AgentRef, OrchestratorRef, Plan, PlanMode};
+use crate::plan::{AgentRef, OrchestratorRef, PlanMode};
 
 fn store_with_plan(owner: &str) -> (tempfile::TempDir, PlanStore, String) {
     let dir = tempfile::tempdir().unwrap();
@@ -45,17 +45,9 @@ fn heartbeat_learning_persists_reloads_and_dedups() {
     assert!(duplicate.deduped);
     assert_eq!(duplicate.learning.id, first.learning.id);
 
-    let raw = std::fs::read_to_string(
-        dir.path()
-            .join(".codeterm")
-            .join("plans")
-            .join("active")
-            .join(&plan_id)
-            .join("plan.json"),
-    )
-    .unwrap();
-    let plan: Plan = serde_json::from_str(&raw).unwrap();
-    assert_eq!(plan.heartbeat.learnings.len(), 1);
+    store.plans.write().clear();
+    store.reload_from_disk(&plan_id).unwrap();
+    assert_eq!(store.get(&plan_id).unwrap().heartbeat.learnings.len(), 1);
 
     let reloaded = PlanStore::new_for_test(dir.path());
     reloaded.scan_project(dir.path()).unwrap();

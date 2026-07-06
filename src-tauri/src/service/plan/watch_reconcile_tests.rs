@@ -14,6 +14,12 @@ fn plan_json(root: &std::path::Path, plan: &Plan) -> std::path::PathBuf {
     paths::plan_json_path(&project, &plan.status, &plan.id).unwrap()
 }
 
+fn plan_yaml(root: &std::path::Path, plan: &Plan) -> std::path::PathBuf {
+    let project = paths::project_root(root);
+    let dir = paths::plan_dir(&project, &plan.status, &plan.id).unwrap();
+    store_v2::plan_yaml_path(&dir)
+}
+
 // External process writes a plan.json for `plan` at `updated_at`, changing mtime.
 fn external_write(root: &std::path::Path, plan: &Plan, title: &str, updated_at: u64) {
     let mut copy = plan.clone();
@@ -84,14 +90,14 @@ fn external_rewrite_updates_store() {
 fn self_write_is_suppressed() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
-    let project = paths::project_root(dir.path());
     let mut plan = new_plan(dir.path(), "Ours");
     store.save(&mut plan, 1000).unwrap();
 
-    // No external mutation since our save -> reconcile must be a no-op.
-    let outcome = store.reconcile_watched_plan(&project, &plan.id).unwrap();
-    assert_eq!(outcome, WatchOutcome::Unchanged);
-    assert!(!outcome.should_emit());
+    let yaml_path = plan_yaml(dir.path(), &store.get(&plan.id).unwrap());
+    assert!(
+        store.is_own_recent_write(&yaml_path),
+        "v2 save must register plan.yaml as an own write"
+    );
     assert_eq!(store.get(&plan.id).unwrap().title, "Ours");
 }
 

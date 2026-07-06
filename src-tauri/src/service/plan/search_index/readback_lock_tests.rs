@@ -29,6 +29,9 @@ fn related_traversal_is_dangling_safe() {
         )
         .unwrap();
     store
+        .fill_task_lane_if_empty(&plan.id, &task_id, Some("pane-1"), None, None, 3)
+        .unwrap();
+    store
         .update_task(
             &plan.id,
             &task_id,

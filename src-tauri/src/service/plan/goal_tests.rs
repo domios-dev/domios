@@ -24,21 +24,23 @@ fn goal_persists_and_reloads_from_sidecar() {
         )
         .unwrap();
 
-    let goal_path = dir
-        .path()
-        .join(format!(".codeterm/plans/active/{}/goal.md", plan.id));
-    let json_path = dir
-        .path()
-        .join(format!(".codeterm/plans/active/{}/plan.json", plan.id));
-    let markdown = std::fs::read_to_string(&goal_path).unwrap();
-    assert!(markdown.contains(&format!("plan_id: {}", plan.id)));
-    assert!(markdown.contains("kind: goal"));
-    assert!(markdown.ends_with("Long markdown\n\n- detail\n"));
-    let raw_json = std::fs::read_to_string(&json_path).unwrap();
-    assert!(raw_json.contains("\"goal\""));
-    assert!(!raw_json.contains("Long markdown"));
+    let plan_dir = super::store_v2::plan_state_dir(&store.get(&plan.id).unwrap()).unwrap();
+    let goal_path = super::store_v2::goal_yaml_path(&plan_dir);
+    let plan_path = super::store_v2::plan_yaml_path(&plan_dir);
+    let goal_yaml: Goal =
+        serde_yaml::from_str(&std::fs::read_to_string(&goal_path).unwrap()).unwrap();
+    assert_eq!(goal_yaml.vector, "Ship the north-star");
+    assert_eq!(goal_yaml.vision, "Long markdown\n\n- detail");
+    let plan_yaml: Plan =
+        serde_yaml::from_str(&std::fs::read_to_string(&plan_path).unwrap()).unwrap();
+    assert!(
+        plan_yaml.goal.is_none(),
+        "goal lives in goal.yaml, not plan.yaml"
+    );
 
-    std::fs::write(&goal_path, "Edited vision").unwrap();
+    let mut edited_goal = goal_yaml;
+    edited_goal.vision = "Edited vision".into();
+    std::fs::write(&goal_path, serde_yaml::to_string(&edited_goal).unwrap()).unwrap();
     store.reload_from_disk(&plan.id).unwrap();
     let loaded = store.get(&plan.id).unwrap();
     let goal = loaded.goal.unwrap();

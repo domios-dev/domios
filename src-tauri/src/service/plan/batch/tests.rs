@@ -1,5 +1,6 @@
 use super::*;
-use crate::plan::{OrchestratorRef, Plan};
+use crate::plan::{Goal, OrchestratorRef, Plan};
+use crate::service::plan::store_v2;
 use std::path::PathBuf;
 
 fn store_with_plan() -> (PlanStore, String) {
@@ -422,19 +423,17 @@ fn batch_set_goal_persists_goal_sidecar() {
         .unwrap();
 
     let plan = store.get(&plan_id).unwrap();
+    let plan_dir = store_v2::plan_state_dir(&plan).unwrap();
+    let goal_path = store_v2::goal_yaml_path(&plan_dir);
     let goal = plan.goal.unwrap();
     assert_eq!(goal.vector, "Keep the foundation coherent");
     assert_eq!(goal.vision, "# Vision\n\nShip the model first.");
     assert_eq!(goal.constraints, vec!["no frontend"]);
     assert_eq!(goal.postulates, vec!["plan get before handoff"]);
-    let sidecar = root
-        .join(".codeterm")
-        .join("plans")
-        .join("active")
-        .join(&plan_id)
-        .join("goal.md");
-    let markdown = std::fs::read_to_string(sidecar).unwrap();
-    assert!(markdown.contains(&format!("plan_id: {plan_id}")));
-    assert!(markdown.contains("kind: goal"));
-    assert!(markdown.ends_with("# Vision\n\nShip the model first.\n"));
+    let goal_yaml: Goal =
+        serde_yaml::from_str(&std::fs::read_to_string(&goal_path).unwrap()).unwrap();
+    assert_eq!(goal_yaml.vector, "Keep the foundation coherent");
+    assert_eq!(goal_yaml.vision, "# Vision\n\nShip the model first.");
+    assert_eq!(goal_yaml.constraints, vec!["no frontend"]);
+    assert_eq!(goal_yaml.postulates, vec!["plan get before handoff"]);
 }
