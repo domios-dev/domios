@@ -421,6 +421,7 @@ Before tagging, a fast `cargo check` precheck (linux+macOS) gates the long build
 Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 
 - `docs/API.md` — REST / Socket / CLI reference
+- `docs/PLUGINS.md` — plugin ecosystem map: **what is published where** (npm `@codeterm/plugin-sdk`; in-repo `plugins/provider-*` → embedded `codeterm-core` channel; external `rollacode/codeterm-plugins` repo → marketplace channel), authoring, release/publish flows. Read its "Ecosystem at a glance" before touching anything plugin- or npm-related
 - `docs/CONFIG.md` — config options, themes, keybindings
 - `docs/SKILLS.md` — Claude Code skill for CodeTerm control
 - `docs/BUILD.md` — build instructions
