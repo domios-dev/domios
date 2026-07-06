@@ -1,6 +1,8 @@
 import type { Pane, PaneStatus } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
-import { TelegramIcon } from "../Icons";
+import { usePaneProvider } from "../../lib/usePaneProvider";
+import { TelegramIcon, TerminalIcon } from "../Icons";
+import { ProviderGlyph } from "../ProviderGlyph";
 import { presenceColor } from "../Canvas/presence/identity";
 import {
   activeWorkForPane,
@@ -57,6 +59,39 @@ function workingVariantClass(variant: HierarchyWorkingVariant): string {
     default:
       return "sidebar-hierarchy-working--aurora";
   }
+}
+
+function HierarchyPaneIcon({
+  pane,
+  status,
+}: {
+  pane: Pane;
+  status: PaneStatus | null;
+}) {
+  const provider = usePaneProvider(pane);
+  const providerName = provider?.displayName || "Agent";
+  const title =
+    status === "Working"
+      ? `${providerName} working...`
+      : status === "Waiting"
+        ? `${providerName} — waiting for input`
+        : providerName;
+
+  return (
+    <span data-testid="hierarchy-pane-icon" className="shrink-0 leading-none">
+      {provider ? (
+        <ProviderGlyph
+          iconSvg={provider.iconSvg}
+          iconColor={provider.iconColor}
+          iconHint={provider.iconHint}
+          className="text-[10px] leading-none"
+          title={title}
+        />
+      ) : (
+        <TerminalIcon className="shrink-0 scale-90" title={title} />
+      )}
+    </span>
+  );
 }
 
 function HierarchyTaskLine({
@@ -150,6 +185,7 @@ function HierarchyRow({
         className={rowClass}
         title={`${node.pane.title}${taskTitle ? `\n${taskTitle}` : ""}${status ? ` (${status})` : ""}`}
       >
+        <HierarchyPaneIcon pane={node.pane} status={status} />
         <span className="min-w-0 flex-1 text-left">
           <span
             className={`block truncate ${isOrchestrator ? "font-semibold" : ""} ${isDead ? "sidebar-hierarchy-dead-title" : ""}`}

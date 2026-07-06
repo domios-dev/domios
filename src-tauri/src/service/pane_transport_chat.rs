@@ -71,10 +71,13 @@ fn build_chatbackend_open_session_ctx(
             serde_json::Value::String(workspace_id.to_string()),
         );
     }
-    for key in ["systemPrompt", "preset", "model"] {
+    for key in ["systemPrompt", "preset", "model", "mode"] {
         if let Some(value) = config.get(key).and_then(|v| v.as_str()) {
             ctx.insert(key.into(), serde_json::Value::String(value.to_string()));
         }
+    }
+    if let Some(value) = config.get("engine") {
+        ctx.insert("engine".into(), value.clone());
     }
     ctx.insert("config".into(), config);
     serde_json::Value::Object(ctx)
@@ -279,9 +282,27 @@ impl ServiceContext {
         session_id: &str,
         text: &str,
     ) -> Result<(), String> {
+        if self.chatbackend_session_is_watcher(plugin_id, session_id) {
+            return Err("this pane is a watcher (read-only); its inputs come from the tick scheduler".into());
+        }
         self.chatbackend_provider(plugin_id)?
             .send_message(session_id, text)
             .map_err(|e| e.to_string())
+    }
+
+    fn chatbackend_session_is_watcher(&self, plugin_id: &str, session_id: &str) -> bool {
+        use crate::multiplexer::types::PaneBacking;
+
+        self.mux.read().snapshot().panes.iter().any(|(_, pane)| {
+            pane.watcher.is_some()
+                && matches!(
+                    &pane.backing,
+                    PaneBacking::ChatBackend {
+                        plugin_id: pane_plugin,
+                        session_id: pane_session,
+                    } if pane_plugin == plugin_id && pane_session == session_id
+                )
+        })
     }
 
     /// Deliver one user turn to a chatBackend pane, re-opening a restored pane's
@@ -517,6 +538,12 @@ mod tests {
                 "systemPrompt": "You are CodeTerm.",
                 "preset": "codeterm",
                 "model": "qwen",
+                "mode": "watcher",
+                "engine": {
+                    "kind": "machine",
+                    "charter": "Watch the group.",
+                    "tickIntervalSecs": 120
+                },
                 "temperature": 0.2
             }),
         );
@@ -527,6 +554,10 @@ mod tests {
         assert_eq!(ctx["systemPrompt"], "You are CodeTerm.");
         assert_eq!(ctx["preset"], "codeterm");
         assert_eq!(ctx["model"], "qwen");
+        assert_eq!(ctx["mode"], "watcher");
+        assert_eq!(ctx["engine"]["kind"], "machine");
+        assert_eq!(ctx["engine"]["charter"], "Watch the group.");
+        assert_eq!(ctx["engine"]["tickIntervalSecs"], 120);
     }
 
     #[test]
@@ -539,5 +570,7 @@ mod tests {
         assert!(ctx.get("systemPrompt").is_none());
         assert!(ctx.get("preset").is_none());
         assert!(ctx.get("model").is_none());
+        assert!(ctx.get("mode").is_none());
+        assert!(ctx.get("engine").is_none());
     }
 }

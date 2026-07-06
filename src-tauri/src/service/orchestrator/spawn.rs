@@ -76,7 +76,7 @@ impl ServiceContext {
             .or_else(|| params.agent_name.clone())
             .unwrap_or_else(|| agent.clone());
         let model = params.model.clone();
-        self.classify_spawn_target(&agent)?;
+        self.classify_spawn_target_for_params(&agent, &params)?;
         let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params_with_chatbackends(
             self.chatbackend_registry.as_ref(),
             params,
@@ -124,7 +124,7 @@ impl ServiceContext {
             .agent
             .clone()
             .unwrap_or_else(|| default_provider.clone());
-        let is_shell = self.classify_spawn_target(&agent_cmd)?;
+        let is_shell = self.classify_spawn_target_for_params(&agent_cmd, &params)?;
         if is_shell {
             let role = params.role.clone();
             let role_profile = params.role_profile.clone();

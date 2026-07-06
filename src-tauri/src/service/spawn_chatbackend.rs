@@ -75,8 +75,22 @@ where
 
 impl ServiceContext {
     pub(crate) fn spawn_chatbackend_impl(&self, spec: SpawnPaneSpec) -> Result<PaneHandle, String> {
-        let (plugin_id, config) = match &spec.command {
-            PaneCommand::ChatBackend { plugin_id, config } => (plugin_id.clone(), config.clone()),
+        let (plugin_id, config, role, role_profile, can_spawn, watcher) = match &spec.command {
+            PaneCommand::ChatBackend {
+                plugin_id,
+                config,
+                role,
+                role_profile,
+                can_spawn,
+                watcher,
+            } => (
+                plugin_id.clone(),
+                config.clone(),
+                role.clone(),
+                role_profile.clone(),
+                *can_spawn,
+                watcher.clone(),
+            ),
             _ => return Err("spawn_chatbackend_impl called without ChatBackend command".into()),
         };
 
@@ -120,9 +134,20 @@ impl ServiceContext {
                     session_id: String::new(),
                 };
                 pane.chat_view = true;
+                pane.role_profile = role_profile.clone();
+                pane.watcher = watcher.clone();
                 if let Some(ref dir) = resolved_cwd {
                     pane.cwd = Some(dir.clone());
                 }
+            }
+        }
+        if let Some(ref role) = role {
+            if let Err(e) =
+                self.set_pane_role(&pane_id, role, spec.parent_pane_id.as_deref(), can_spawn)
+            {
+                let _ = self.mux.write().close_tab(&ws_id, &tab_id);
+                self.emit_state_changed();
+                return Err(e);
             }
         }
         self.emit_state_changed();

@@ -57,6 +57,7 @@ pub mod sync_watcher;
 mod tests;
 pub mod tokens;
 pub mod transport;
+pub mod watcher;
 mod workspace;
 
 use std::sync::atomic::{AtomicBool, Ordering};

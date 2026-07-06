@@ -8,7 +8,11 @@ use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
 pub(crate) use super::spawn_cli::{cli_binary_on_path, provider_cli_install_warning};
-pub(crate) use super::spawn_params::chatbackend_spawn_config;
+pub(crate) use super::spawn_params::{
+    chatbackend_spawn_config, reject_direct_watcher_chatbackend_config,
+};
+#[cfg(test)]
+pub(crate) use super::spawn_params::validate_watcher_spawn_target;
 
 #[path = "spawn_hidden_delivery.rs"]
 mod spawn_hidden_delivery;
@@ -53,6 +57,14 @@ pub enum PaneCommand {
         plugin_id: String,
         #[serde(default)]
         config: serde_json::Value,
+        #[serde(default)]
+        role: Option<String>,
+        #[serde(default)]
+        role_profile: Option<String>,
+        #[serde(default)]
+        can_spawn: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        watcher: Option<crate::multiplexer::types::WatcherSpec>,
     },
 }
 

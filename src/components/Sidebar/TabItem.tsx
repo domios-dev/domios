@@ -217,17 +217,19 @@ function TabItemInner({
       />
       {isActive && <ActiveTabPill />}
       <div className={`flex flex-1 items-center min-w-0 relative z-[1] ${touchMode ? "gap-2.5" : "gap-2"}`}>
-        {provider ? (
-          <ProviderGlyph
-            iconSvg={provider.iconSvg}
-            iconColor={provider.iconColor}
-            iconHint={provider.iconHint}
-            className={`shrink-0 leading-none ${touchMode ? "text-[15px]" : isSubPane ? "text-[10px]" : "text-[12px]"}`}
-            title={status === "Working" ? `${providerName} working...` : status === "Waiting" ? `${providerName} — waiting for input` : providerName}
-          />
-        ) : (
-          <TerminalIcon className={`shrink-0 ${touchMode ? "scale-110" : isSubPane ? "scale-90" : ""}`} />
-        )}
+        <span data-testid="tab-pane-icon" className="shrink-0 leading-none">
+          {provider ? (
+            <ProviderGlyph
+              iconSvg={provider.iconSvg}
+              iconColor={provider.iconColor}
+              iconHint={provider.iconHint}
+              className={`leading-none ${touchMode ? "text-[15px]" : isSubPane ? "text-[10px]" : "text-[12px]"}`}
+              title={status === "Working" ? `${providerName} working...` : status === "Waiting" ? `${providerName} — waiting for input` : providerName}
+            />
+          ) : (
+            <TerminalIcon className={`${touchMode ? "scale-110" : isSubPane ? "scale-90" : ""}`} />
+          )}
+        </span>
         {editing ? (
           <input
             autoFocus

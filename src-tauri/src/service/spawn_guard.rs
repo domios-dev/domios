@@ -164,7 +164,9 @@ mod tests {
     use std::process::Command;
 
     fn git(dir: &Path, args: &[&str]) {
-        let status = Command::new("git")
+        let mut cmd = Command::new("git");
+        crate::process_util::no_window_std(&mut cmd);
+        let status = cmd
             .current_dir(dir)
             .args(args)
             .status()

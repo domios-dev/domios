@@ -75,5 +75,13 @@ assert(
   source.includes("excludePaneIds"),
   "HierarchyTree buildHierarchySubtree accepts excludePaneIds for attached Planners",
 );
+assert(
+  source.includes('data-testid="hierarchy-pane-icon"'),
+  "HierarchyTree rows expose a left provider icon marker",
+);
+assert(
+  source.includes("ProviderGlyph") && source.includes("usePaneProvider"),
+  "HierarchyTree resolves provider icons the same way TabItem does",
+);
 
 console.log("✓ HierarchyTree: row states, task line, static order, variants, no StatusDot clutter");

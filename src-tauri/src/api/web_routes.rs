@@ -206,25 +206,20 @@ pub async fn events_stream(
 
     let stream = async_stream::stream! {
         // tracks the highest seq yielded so the live loop drops the overlap.
-        let mut replayed_max: u64;
-        let replay = match plan {
+        let (mut replayed_max, replay) = match plan {
             ReplayPlan::FromNow => {
-                replayed_max = 0;
-                Vec::new()
+                (0, Vec::new())
             }
             ReplayPlan::BootChanged { next_seq } => {
-                replayed_max = 0;
                 yield Ok(overflow_frame("boot-changed", &boot, next_seq, None));
-                Vec::new()
+                (0, Vec::new())
             }
             ReplayPlan::Covered { replay } => {
-                replayed_max = cursor_seq.unwrap_or(0);
-                replay
+                (cursor_seq.unwrap_or(0), replay)
             }
             ReplayPlan::Evicted { oldest, next_seq, replay } => {
-                replayed_max = next_seq.saturating_sub(1);
                 yield Ok(overflow_frame("ring-evicted", &boot, next_seq, Some(oldest)));
-                replay
+                (next_seq.saturating_sub(1), replay)
             }
         };
         for se in &replay {
@@ -810,6 +805,9 @@ pub async fn open_chat_backend_pane(
         req.system_prompt.as_deref(),
         req.preset.as_deref(),
         req.model.as_deref(),
+        None,
+        None,
+        None,
     );
     if let (Some(base), Some(extra)) = (config.as_object_mut(), overrides.as_object()) {
         for (key, value) in extra {
@@ -818,6 +816,8 @@ pub async fn open_chat_backend_pane(
     } else if !overrides.as_object().map(|o| o.is_empty()).unwrap_or(true) {
         config = overrides;
     }
+    crate::service::spawn::reject_direct_watcher_chatbackend_config(&config)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let handle = state
         .svc
         .spawn_pane(SpawnPaneSpec {
@@ -826,6 +826,10 @@ pub async fn open_chat_backend_pane(
             command: PaneCommand::ChatBackend {
                 plugin_id: req.plugin_id,
                 config,
+                role: None,
+                role_profile: None,
+                can_spawn: None,
+                watcher: None,
             },
             ..Default::default()
         })
