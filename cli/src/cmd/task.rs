@@ -270,6 +270,15 @@ fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskShowOpts>) {
         println!("plan: {plan_title} ({plan})");
         print_competition(task, plan, id);
         print_executor_role(task);
+        if let Some(body) = task
+            .get("body")
+            .and_then(|v| v.as_str())
+            .filter(|b| !b.trim().is_empty())
+        {
+            println!("---");
+            println!("{}", body.trim_end());
+            println!("---");
+        }
         print_task_quality(task);
         print_attachments(task.get("attachments"));
         print_label_list("sections", val.get("sections"));
