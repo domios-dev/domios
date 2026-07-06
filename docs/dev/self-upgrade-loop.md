@@ -91,11 +91,63 @@ dead loop — worse than not upgrading.
   CLI `--help`. This doc is the only home. An agent learns it exists only if a
   human points it here in a dev session.
 
+## Working today: `codeterm update install --from-file`
+
+The `dev self-upgrade` command above is still design. What already works — and
+is what to use to rebuild-and-reinstall on request — is the existing installer
+path with a continuation prompt:
+
+```bash
+# 1. build a signed DMG from the current tree (env -u bypasses the prod-port guard)
+env -u CODETERM_API_PORT -u CODETERM_INSTANCE ./build.sh build
+# -> src-tauri/target/release/bundle/dmg/CodeTerm_<ver>_aarch64.dmg
+
+# 2. install it in place and resume THIS pane afterwards
+codeterm update install \
+  --from-file src-tauri/target/release/bundle/dmg/CodeTerm_<ver>_aarch64.dmg \
+  --continue-pane "$CODETERM_PANE_ID" \
+  --continue-prompt "you're back on the new build — continue <the task>"
+```
+
+`run_install_from_file` (`cli/src/cmd/install.rs`) writes a detached bash helper
+that outlives the daemon, then returns. The helper:
+
+1. (CLI, before detaching) forces `POST /api/session/save` so current pane ids —
+   including panes spawned since the last 30s autosave — are on disk.
+2. quits + hard-kills the app, `rm -rf`s the old bundle, `ditto`s the new one
+   into `/Applications`, relaunches, waits for `/api/health`, then delivers the
+   continue-prompt to `--continue-pane` via `codeterm send`.
+
+Restore reuses saved pane ids, so the continue-pane target resolves and the
+agent resumes mid-task.
+
+### macOS gotchas (learned the hard way — do not regress)
+
+- **`osascript -e 'quit app "CodeTerm"'` does NOT terminate.** The CloseRequested
+  handler calls `prevent_close()` + hide-to-tray, so "quit" just hides the
+  window. You must actually kill the process (SIGTERM loop → SIGKILL) and wait
+  for it to be gone, or every later step silently no-ops against the still-live
+  old app (which then answers health and eats the continue-prompt — the install
+  looks like it worked but nothing changed).
+- **You cannot `ditto` over a running Mach-O** — the kernel returns ETXTBSY and
+  the old binary stays. `rm -rf /Applications/CodeTerm.app` FIRST (unlink drops
+  the directory entry even while a stale process holds the inode), then `ditto`
+  the fresh bundle.
+- **Mount at a space-free `-mountpoint`.** Volume names collide and stack
+  (`/Volumes/CodeTerm`, `/Volumes/CodeTerm 1`, …); a `grep '/Volumes/[^ ]*'`
+  truncates on the space to a path that does not exist. Use
+  `hdiutil attach -mountpoint "$(mktemp -d)"`.
+- **The `/api/health` `build` hash can be stale.** `build.rs` stamps the git
+  hash but does not `rerun-if-changed=.git/HEAD`, so an incremental build keeps
+  the previous hash. Do NOT trust the hash alone to confirm "the new build is
+  running" — verify a behavioural signal instead (e.g. task writes land as
+  `tasks/*.yaml`, not legacy `plan.json` + `*.md`).
+
 ## Status
 
-Design only (this doc). The seams above are real and current; implementation
-is the glue command + the per-tab flag + the resume hook + the hidden `dev`
-subcommand. Build it behind the dev gate; keep it out of every agent-facing
-surface.
+`update install --from-file` (above) is implemented and is the current path.
+The `dev self-upgrade` glue (per-tab flag + resume hook + hidden `dev`
+subcommand) is still design. Build it behind the dev gate; keep it out of every
+agent-facing surface.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

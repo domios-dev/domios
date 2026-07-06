@@ -182,15 +182,19 @@ pub fn run_install_from_file(
         _ => String::new(),
     };
 
-    // .dmg → mount, copy the .app out, detach; .app → copy directly.
+    // .dmg → mount at a space-free temp mountpoint, copy the .app out, detach;
+    // .app → copy directly. The old app is rm -rf'd in the body before this,
+    // so ditto never overwrites a busy Mach-O (ETXTBSY on a running binary).
     let install_block = if installer_path.to_lowercase().ends_with(".dmg") {
         format!(
             "echo '[self-install] mounting dmg'\n\
-             MP=$(hdiutil attach -nobrowse -readonly \"{dmg}\" | grep -o '/Volumes/[^ ]*' | tail -1)\n\
+             MP=$(mktemp -d)\n\
+             hdiutil attach -nobrowse -readonly -mountpoint \"$MP\" \"{dmg}\"\n\
              APP=$(ls -d \"$MP\"/*.app | head -1)\n\
              echo \"[self-install] installing $APP\"\n\
              ditto \"$APP\" /Applications/CodeTerm.app\n\
-             hdiutil detach \"$MP\" >/dev/null 2>&1 || true\n",
+             hdiutil detach \"$MP\" >/dev/null 2>&1 || true\n\
+             rmdir \"$MP\" 2>/dev/null || true\n",
             dmg = installer_path,
         )
     } else {
@@ -207,10 +211,19 @@ pub fn run_install_from_file(
          echo \"[self-install] start $(date)\"\n\
          sleep 2\n\
          echo '[self-install] quitting CodeTerm'\n\
-         osascript -e 'quit app \"CodeTerm\"' >/dev/null 2>&1 || true\n\
-         sleep 2\n\
-         pkill -f '/Applications/CodeTerm.app/Contents/MacOS/codeterm' 2>/dev/null || true\n\
+         osascript -e 'tell application \"CodeTerm\" to quit' >/dev/null 2>&1 || true\n\
          sleep 1\n\
+         echo '[self-install] terminating any surviving process'\n\
+         P='/Applications/CodeTerm.app/Contents/MacOS/codeterm'\n\
+         for i in $(seq 1 20); do\n\
+         \x20 pgrep -f \"$P\" >/dev/null 2>&1 || break\n\
+         \x20 pkill -TERM -f \"$P\" 2>/dev/null || true\n\
+         \x20 sleep 0.5\n\
+         done\n\
+         pkill -9 -f \"$P\" 2>/dev/null || true\n\
+         sleep 1\n\
+         echo '[self-install] removing old app (unlink dodges ETXTBSY)'\n\
+         rm -rf /Applications/CodeTerm.app\n\
          {install_block}\
          echo '[self-install] relaunching'\n\
          open -a /Applications/CodeTerm.app\n\
