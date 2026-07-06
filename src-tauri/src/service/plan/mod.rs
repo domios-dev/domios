@@ -40,6 +40,7 @@ pub mod spec_render;
 pub mod spec_store;
 pub mod state;
 pub mod store_v2;
+pub mod stride_context;
 pub mod stride_log;
 pub mod tag_model;
 pub mod task_attempts;

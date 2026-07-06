@@ -5,6 +5,7 @@ use crate::plan::{LoopSpec, LoopStatus, Plan, PlanMode, PlanStatus, TaskStatus};
 struct WorkerAssignmentContext {
     task_id: String,
     role_guidance: Option<String>,
+    strides: Option<String>,
     loop_spec: Option<LoopSpec>,
     live_attempt_count: usize,
     skill_count: usize,
@@ -135,6 +136,7 @@ impl PlanStore {
                 return Some(WorkerAssignmentContext {
                     task_id: task.id.clone(),
                     role_guidance: task.role_guidance.clone(),
+                    strides: super::stride_context::render_worker_strides(&task.milestones),
                     loop_spec: loop_for_task(&plan, &task.id),
                     live_attempt_count: super::task_attempts::live_attempt_count(task),
                     skill_count: super::skill_registry::count_plan_skills_for(&plan),
@@ -169,6 +171,9 @@ impl PlanStore {
             .filter(|guidance| !guidance.trim().is_empty())
         {
             charter = format!("Role guidance:\n{}\n\n{charter}", guidance.trim());
+        }
+        if let Some(strides) = context.strides.as_deref() {
+            charter = format!("{charter}\n\n{strides}");
         }
         if text.trim().is_empty() {
             charter
@@ -288,6 +293,47 @@ mod tests {
         assert!(out.contains(&loop_iteration_line(&loop_spec)));
         assert!(out.contains(&loop_stop_when_line(&loop_spec)));
         assert!(out.contains(crate::prompts::WORKER_LOOP_EVIDENCE_RULE));
+    }
+
+    #[test]
+    fn no_stride_block_when_task_has_no_relevant_strides() {
+        let (_dir, store, _task_id) = store_with_assigned_task();
+
+        let out = store.prepend_worker_charter_for_pane("worker-pane", "continue");
+
+        assert!(!out.contains("Recent task strides"));
+    }
+
+    #[test]
+    fn prepends_pinned_decision_stride_for_assigned_pane() {
+        let (_dir, store, task_id) = store_with_assigned_task();
+        store
+            .with_plan("pl_charter", 3, |plan| {
+                let task = plan
+                    .tasks
+                    .iter_mut()
+                    .find(|t| t.id == task_id)
+                    .expect("task present");
+                task.milestones.push(crate::plan::Milestone {
+                    id: "ms_dec".into(),
+                    from: crate::plan::AgentRef::from_pane("orchestrator"),
+                    kind: "decision".into(),
+                    text: "use approach A".into(),
+                    ts: 10,
+                    links: vec![],
+                    loop_id: None,
+                    iteration: None,
+                    canvas: Default::default(),
+                    attachments: vec![],
+                });
+                Ok(())
+            })
+            .unwrap();
+
+        let out = store.prepend_worker_charter_for_pane("worker-pane", "continue");
+
+        assert!(out.contains("Recent task strides"));
+        assert!(out.contains("[decision] use approach A"));
     }
 
     #[test]
