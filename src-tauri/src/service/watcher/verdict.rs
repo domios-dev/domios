@@ -115,10 +115,7 @@ fn parse_actions(v: Option<&Value>) -> Vec<WatcherAction> {
         .filter_map(|item| {
             let kind = item.get("kind")?.as_str()?.to_string();
             let message = item.get("message")?.as_str()?.to_string();
-            let pane = item
-                .get("pane")
-                .and_then(Value::as_str)
-                .map(str::to_string);
+            let pane = item.get("pane").and_then(Value::as_str).map(str::to_string);
             Some(WatcherAction {
                 kind,
                 pane,
@@ -212,10 +209,7 @@ fn state_blob_bytes(state: &Value) -> usize {
 fn action_targets_group(action: &WatcherAction, group: &HashSet<String>) -> bool {
     match action.kind.as_str() {
         "notify" => true,
-        "nudge" | "report" => action
-            .pane
-            .as_deref()
-            .is_some_and(|p| group.contains(p)),
+        "nudge" | "report" => action.pane.as_deref().is_some_and(|p| group.contains(p)),
         _ => false,
     }
 }

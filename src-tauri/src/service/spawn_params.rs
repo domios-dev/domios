@@ -177,7 +177,12 @@ pub(crate) fn reject_direct_watcher_chatbackend_config(
 
 fn watcher_spec_from_params(params: &SpawnAgentParams) -> Option<WatcherSpec> {
     (params.role_profile.as_deref() == Some("watcher")).then(|| WatcherSpec {
-        charter: params.charter.clone().unwrap_or_default().trim().to_string(),
+        charter: params
+            .charter
+            .clone()
+            .unwrap_or_default()
+            .trim()
+            .to_string(),
         policy: WatcherPolicy::clamped(
             params.tick_interval_secs,
             params.nudge_cooldown_secs,

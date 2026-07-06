@@ -278,7 +278,9 @@ mod tests {
     #[test]
     fn manager_requires_parent() {
         let (mut mux, pane) = fresh();
-        let err = mux.set_pane_role(&pane, AgentRole::Manager, None).unwrap_err();
+        let err = mux
+            .set_pane_role(&pane, AgentRole::Manager, None)
+            .unwrap_err();
         assert!(err.contains("Manager requires a parent_pane_id"));
     }
 

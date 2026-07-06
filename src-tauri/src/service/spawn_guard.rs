@@ -166,11 +166,7 @@ mod tests {
     fn git(dir: &Path, args: &[&str]) {
         let mut cmd = Command::new("git");
         crate::process_util::no_window_std(&mut cmd);
-        let status = cmd
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .expect("git runs");
+        let status = cmd.current_dir(dir).args(args).status().expect("git runs");
         assert!(status.success(), "git {:?} failed", args);
     }
 

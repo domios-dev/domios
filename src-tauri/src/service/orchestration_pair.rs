@@ -182,9 +182,11 @@ impl ServiceContext {
                         .unwrap_or(false)
                 };
                 if is_leaf {
-                    return Err("Manager and Worker panes cannot create orchestration pairs; \
+                    return Err(
+                        "Manager and Worker panes cannot create orchestration pairs; \
                          leaf roles cannot spawn orchestrators"
-                        .into());
+                            .into(),
+                    );
                 }
             }
         }
