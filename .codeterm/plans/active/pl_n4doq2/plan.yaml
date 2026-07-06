@@ -67,6 +67,17 @@ sections:
     y: null
     collapsed: false
   attachments: []
+- id: sec_gpc6l6
+  title: Inline spec-section links
+  handle: inline-spec-section-links
+  tags: []
+  body: 'Add Section.spec_section (Option<String>, serde default). Rewrite: link_spec_section/unlink -> set/clear the field; spec_coverage_report + doctor + plan state read sections; batch LinkSpecSection op targets the field; UI canvas edges derive from sections (grep spec_links in src/). Delete SpecLink struct + spec_links + spec_refs from Plan. One-off python migration folds existing spec_links into sections. Tests: link/unlink round-trip, coverage two-hop, migration on fixture.'
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 status: active
 mode: approved
 owner:
@@ -76,7 +87,7 @@ owner:
 project_path: /Users/rollacode/Developer/codeterm
 canonical_project_path: /Users/rollacode/Developer/codeterm
 created_at: 1783371194348
-updated_at: 1783371279097
+updated_at: 1783371980964
 milestone_kinds: []
 loops: []
 elements: []
@@ -105,6 +116,9 @@ spec_links:
 - spec_id: sp_kufdk2
   spec_section_id: sec_btfggm
   plan_section_id: sec_qw9qaf
+- spec_id: sp_kufdk2
+  spec_section_id: sec_qnlcyj
+  plan_section_id: sec_gpc6l6
 primary_spec_id: sp_kufdk2
 lineage: []
 goal: null

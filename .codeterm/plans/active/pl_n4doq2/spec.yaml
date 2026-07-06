@@ -103,7 +103,23 @@ sections:
     y: null
     collapsed: false
   attachments: []
+- id: sec_qnlcyj
+  title: Inline spec-section links on plan sections
+  handle: inline-spec-links
+  tags: []
+  body: |-
+    **WHAT:** Replace plan-level `spec_links: [{spec_id, spec_section_id, plan_section_id}]` (and `spec_refs`) with a single optional `spec_section: <id>` field ON each plan Section. `primary_spec_id` stays as the one plan->spec pointer.
+
+    **WHY (Andrey, from reading plan.yaml):** with one-plan-one-spec every link repeats the same spec_id and lives far from the section it describes; inline is shorter, local, and hand-editable.
+
+    **Acceptance gate:** plan.yaml carries no spec_links/spec_refs; each linked section has spec_section; coverage, doctor, canvas edges, batch LinkSpecSection all work off the inline field; one-off script migrates existing plans.
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 created_at: 1783371156338
-updated_at: 1783371194348
+updated_at: 1783371966394
 canvas:
   viewport: null
