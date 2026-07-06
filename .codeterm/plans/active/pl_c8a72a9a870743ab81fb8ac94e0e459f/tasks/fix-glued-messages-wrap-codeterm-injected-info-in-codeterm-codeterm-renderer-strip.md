@@ -6,5 +6,3 @@ handle: fix-glued-messages-wrap-codeterm-injected-info-in-codeterm-codeterm-rend
 title: 'Fix glued messages: wrap codeterm-injected info in <codeterm>-=- -=-</codeterm> + renderer strip'
 status: done
 ---
-
-Prefix-builder: close the injected -=- block (delimiter at both ends, wrap in <codeterm>...</codeterm>). Chat renderer: detect+strip these blocks, render meta as a separate chip, so two messages don't merge.

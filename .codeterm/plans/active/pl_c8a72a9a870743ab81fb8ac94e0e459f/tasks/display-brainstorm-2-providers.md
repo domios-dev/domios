@@ -6,5 +6,3 @@ handle: display-brainstorm-2-providers
 title: Display brainstorm (2 providers)
 status: cancelled
 ---
-
-Brainstorm the canvas display methodology; produce concrete proposals for semantic zoom, portyanka-bounding, plan+spec node, mermaid/code at scale, auto-bounds, layout testing.

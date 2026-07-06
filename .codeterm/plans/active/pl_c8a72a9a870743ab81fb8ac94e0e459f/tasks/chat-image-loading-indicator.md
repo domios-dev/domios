@@ -6,4 +6,3 @@ handle: chat-image-loading-indicator
 title: 'Chat: show image loading/uploading indicator on paste/drop'
 status: done
 ---
-

@@ -6,5 +6,3 @@ handle: split-plan-routes-mod-rs-999-lines-near-limit
 title: Split plan_routes/mod.rs (999 lines, near limit)
 status: done
 ---
-
-Split src-tauri/src/api/plan_routes/mod.rs by responsibility (tasks/sections/tags/coverage handlers) before adding more routes.

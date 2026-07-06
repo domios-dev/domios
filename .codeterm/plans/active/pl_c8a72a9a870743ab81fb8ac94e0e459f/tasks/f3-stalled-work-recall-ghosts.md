@@ -6,5 +6,3 @@ handle: f3-stalled-work-recall-ghosts
 title: F3 Stalled-work recall ('ghosts')
 status: done
 ---
-
-Surface abandoned (cancelled/blocked, old) tasks semantically near active work as dismissible HUD cards — dead plans become a memory asset.

@@ -6,5 +6,3 @@ handle: fix-task-body-overflows-card-bounds-must-fit-22-1
 title: 'FIX: task body overflows card bounds (must fit, §22.1)'
 status: cancelled
 ---
-
-Per §22.1: a node's bounds are fixed; content inside MUST fit (clamp/ellipsis/internal-scroll per view mode), never bleed past the card. Fix task-card body overflow; add a no-overflow assertion.

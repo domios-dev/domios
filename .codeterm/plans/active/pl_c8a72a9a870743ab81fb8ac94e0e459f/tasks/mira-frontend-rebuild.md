@@ -6,5 +6,3 @@ handle: mira-frontend-rebuild
 title: Mira — frontend rebuild
 status: done
 ---
-
-Rebuilt the whole Canvas frontend: compact sectioned plan node, spec node, curved section-row→task edges, step bubble clusters, orchestrator groups, trackpad navigation, Plan-as-mode, composer + activity bubble, no-drag deterministic auto-pack, coverage tint, markdown, bounds discipline. Drove 10 polish iterations.

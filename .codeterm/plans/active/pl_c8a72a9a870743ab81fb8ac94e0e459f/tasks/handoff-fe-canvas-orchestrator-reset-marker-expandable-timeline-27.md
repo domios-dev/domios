@@ -6,5 +6,3 @@ handle: handoff-fe-canvas-orchestrator-reset-marker-expandable-timeline-27
 title: 'Handoff FE: canvas orchestrator-reset marker + expandable + timeline §27'
 status: done
 ---
-
-Frontend §27: render handoff on canvas (mandatory) — orchestrator-reset marker on plan/orchestrator group, expandable to full handoff, multiple = timeline. Unmissable, not dominating. Follows §26 content-LOD.

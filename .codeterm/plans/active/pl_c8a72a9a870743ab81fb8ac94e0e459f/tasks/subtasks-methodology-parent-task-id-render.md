@@ -6,5 +6,3 @@ handle: subtasks-methodology-parent-task-id-render
 title: Subtasks methodology (parent_task_id + render)
 status: done
 ---
-
-Add Task.parent_task_id (backend), render subtasks as child clusters under their parent on the canvas.

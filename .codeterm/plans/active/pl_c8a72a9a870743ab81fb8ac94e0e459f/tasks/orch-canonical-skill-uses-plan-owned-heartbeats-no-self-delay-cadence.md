@@ -10,4 +10,3 @@ tags:
 - heartbeat
 ---
 
-Canonicalize the orchestrator skill so normal orchestration uses plan-owned heartbeat/reminder injection, not delayed self-send messages. Remove stale duplicate user skill folders so mem indexes exactly one canonical copy.

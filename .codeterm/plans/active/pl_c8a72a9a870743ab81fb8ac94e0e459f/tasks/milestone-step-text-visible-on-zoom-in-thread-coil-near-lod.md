@@ -6,5 +6,3 @@ handle: milestone-step-text-visible-on-zoom-in-thread-coil-near-lod
 title: Milestone/step text visible on zoom-in (Thread & Coil near-LOD)
 status: cancelled
 ---
-
-Implement §16.9 near-LOD: when zoomed into a task, its step cluster shows step CARDS with the milestone TEXT (kind + title + body), inside the task's fixed bounds. Currently bubbles are just dots with no text.

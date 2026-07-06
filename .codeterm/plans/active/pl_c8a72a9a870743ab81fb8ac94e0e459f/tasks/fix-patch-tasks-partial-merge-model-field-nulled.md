@@ -6,5 +6,3 @@ handle: fix-patch-tasks-partial-merge-model-field-nulled
 title: Fix PATCH /tasks partial-merge (model field nulled)
 status: done
 ---
-
-PATCH /api/plans/{id}/tasks/{tid} and socket task.update must do a PARTIAL merge: only overwrite provided fields, preserve model/why/status_label/etc. Add a test: set model, then patch parent_task_id, assert model survives.

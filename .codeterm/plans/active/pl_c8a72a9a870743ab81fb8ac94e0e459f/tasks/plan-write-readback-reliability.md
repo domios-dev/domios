@@ -7,4 +7,3 @@ title: L6 plan-write reliability and read-back verification
 status: done
 ---
 
-Fix blind-OK-then-stale-read and database locked behavior for plan/task writes. Mutations that return OK must read back and verify the requested state, or surface an explicit busy/pending error. Never blind-retry database locked because the write may have succeeded; verify by reading back first.

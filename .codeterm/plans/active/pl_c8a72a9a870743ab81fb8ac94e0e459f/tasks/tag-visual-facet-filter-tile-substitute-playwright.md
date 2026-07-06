@@ -6,5 +6,3 @@ handle: tag-visual-facet-filter-tile-substitute-playwright
 title: 'Tag visual: facet filter + Tile-substitute Playwright'
 status: done
 ---
-
-Playwright: facet filter dims non-matching; Tile shows tags (not gray body); facet color = left border; handle-named .md exists; no-overflow per view mode.

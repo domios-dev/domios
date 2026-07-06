@@ -6,5 +6,3 @@ handle: layout-integrity-playwright-tests
 title: Layout-integrity Playwright tests
 status: done
 ---
-
-Playwright bounding-box assertions: no overflow, no overlap, readable at each zoom band; run across zoom levels.
