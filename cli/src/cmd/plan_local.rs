@@ -63,6 +63,17 @@ pub(crate) fn load_plan_value(path: &Path) -> Result<serde_json::Value, String> 
         serde_yaml::from_str(&raw).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut tasks = Vec::new();
     if let Some(dir) = path.parent() {
+        // goal.yaml is a per-entity file like tasks; fold it back in.
+        let goal_path = dir.join("goal.yaml");
+        if goal_path.is_file() {
+            let raw = std::fs::read_to_string(&goal_path)
+                .map_err(|e| format!("{}: {e}", goal_path.display()))?;
+            let goal: serde_json::Value =
+                serde_yaml::from_str(&raw).map_err(|e| format!("{}: {e}", goal_path.display()))?;
+            if let Some(obj) = plan.as_object_mut() {
+                obj.insert("goal".into(), goal);
+            }
+        }
         if let Ok(entries) = std::fs::read_dir(dir.join("tasks")) {
             let mut task_paths: Vec<PathBuf> = entries
                 .flatten()
