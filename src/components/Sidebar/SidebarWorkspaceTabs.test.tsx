@@ -120,6 +120,7 @@ test("manager child without plan binding renders in Managers and workers remain 
   const managerWrap = host.querySelector('[data-group-section-wrap="manager"]');
   const workerWrap = host.querySelector('[data-group-section-wrap="worker"]');
   assert(managerWrap?.textContent?.includes("Watcher"), "Manager row rendered without plan binding");
+  assert(host.querySelector('[data-testid="role-badge-watcher"]'), "WATCHER badge on manager row");
   assert(workerWrap?.textContent?.includes("Worker A"), "first worker rendered");
   assert(workerWrap?.textContent?.includes("Worker B"), "second worker rendered");
   assert(!workerWrap?.textContent?.includes("Watcher"), "Manager excluded from worker subtree");

@@ -94,3 +94,5 @@ export const markReport = (from: string, body: string) =>
   buildMarker("report", [["from", from]], body);
 export const markHook = (json: string) => buildMarker("hook", [], json);
 export const markSystemPrompt = (body: string) => buildMarker("system_prompt", [], body);
+export const markContextRequest = (body: string) => buildMarker("context_request", [], body);
+export const markWatcherVerdict = (body: string) => buildMarker("watcher_verdict", [], body);

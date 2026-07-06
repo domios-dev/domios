@@ -88,6 +88,8 @@ enum PollOut {
         messages: Vec<ChatMsg>,
         #[serde(default)]
         cursor: Option<String>,
+        #[serde(default)]
+        done: Option<bool>,
     },
 }
 
@@ -222,8 +224,18 @@ impl ChatBackendProvider for JsChatBackend {
             PollOut::List(messages) => StructuredChat {
                 messages,
                 cursor: None,
+                // Legacy list pollers do not advertise busy state, so watcher arming is host-gated only.
+                done: None,
             },
-            PollOut::Wrapped { messages, cursor } => StructuredChat { messages, cursor },
+            PollOut::Wrapped {
+                messages,
+                cursor,
+                done,
+            } => StructuredChat {
+                messages,
+                cursor,
+                done,
+            },
         })
     }
 
@@ -308,20 +320,14 @@ impl ChatBackendProvider for JsChatBackend {
         input: serde_json::Value,
     ) -> Result<(), ChatBackendError> {
         let _guard = self.exec_env_scope(session_id);
-        match call_json::<serde_json::Value>(
-            &self.vm,
-            "watcherTick",
-            &[json!(session_id), input],
-        ) {
+        match call_json::<serde_json::Value>(&self.vm, "watcherTick", &[json!(session_id), input]) {
             Ok(_) => Ok(()),
             Err(VmError::MissingFunction(_)) => Err(ChatBackendError::Call(
                 "this chatBackend does not support watcher mode".into(),
             )),
-            Err(VmError::Script(msg)) if msg.contains("not a function") => {
-                Err(ChatBackendError::Call(
-                    "this chatBackend does not support watcher mode".into(),
-                ))
-            }
+            Err(VmError::Script(msg)) if msg.contains("not a function") => Err(
+                ChatBackendError::Call("this chatBackend does not support watcher mode".into()),
+            ),
             Err(e) => Err(map_err("watcherTick", e)),
         }
     }

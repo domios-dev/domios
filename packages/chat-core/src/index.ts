@@ -43,5 +43,13 @@ export {
   markReport,
   markHook,
   markSystemPrompt,
+  markContextRequest,
+  markWatcherVerdict,
   type ParsedMarker,
 } from "./markers";
+export {
+  parseWatcherVerdictContent,
+  type ParsedWatcherVerdict,
+  type WatcherVerdictAction,
+  type WatcherVerdictStatus,
+} from "./watcherVerdict";

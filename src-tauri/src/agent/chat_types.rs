@@ -220,4 +220,6 @@ pub struct StructuredChat {
     pub messages: Vec<ChatMsg>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub done: Option<bool>,
 }

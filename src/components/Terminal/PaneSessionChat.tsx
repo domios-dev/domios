@@ -17,6 +17,7 @@ import { useAttachments } from "./useAttachments";
 import { useChatSession } from "./useChatSession";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
+import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
 
 interface Props {
   paneId: string;
@@ -96,6 +97,8 @@ export function PaneSessionChat({
   const backendState = pane?.agent_state ?? null;
   const chatBacking = pane?.backing?.kind === "chat_backend" ? pane.backing : null;
   const effectiveChatBackend = chatBackend || chatBacking !== null;
+  const watcherSpec = pane?.watcher ?? null;
+  const isWatcherPane = watcherSpec != null;
   const pendingPrompt: PendingPrompt | null = pane?.pending_prompt ?? null;
   const isActive = isVisible;
 
@@ -437,6 +440,17 @@ export function PaneSessionChat({
         </button>
       )}
       </div>
+      {isWatcherPane && watcherSpec ? (
+        <WatcherReadOnlyBar
+          watcher={watcherSpec}
+          modelBubble={effectiveChatBackend && chatBacking ? (
+            <>
+              <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} readOnly />
+              <ChatPresetBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} readOnly />
+            </>
+          ) : undefined}
+        />
+      ) : (
       <ChatComposer
         paneId={paneId}
         paneProvider={paneProvider}
@@ -460,6 +474,7 @@ export function PaneSessionChat({
           </>
         ) : undefined}
       />
+      )}
     </div>
   );
 }
