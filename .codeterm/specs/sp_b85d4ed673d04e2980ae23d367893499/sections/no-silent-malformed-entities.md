@@ -1,1 +1,0 @@
-No CLI/API path may silently persist a malformed or empty entity. Observed bug: POST /api/plans/{id}/goal accepted a wrong-shape body (string instead of Goal struct) and stored null with an OK response. Every authoring endpoint validates and errors loudly.

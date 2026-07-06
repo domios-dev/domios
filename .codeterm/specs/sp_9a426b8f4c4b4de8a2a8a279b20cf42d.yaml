@@ -1,0 +1,23 @@
+id: sp_9a426b8f4c4b4de8a2a8a279b20cf42d
+plan_id: null
+canonical_project_path: /Users/rollacode/Developer/codeterm
+canvas:
+  viewport: null
+created_at: 1782375920124
+project_path: /Users/rollacode/Developer/codeterm
+sections:
+- attachments: []
+  body: |
+    b
+  canvas:
+    collapsed: false
+    x: null
+    y: null
+  handle: s1
+  id: sec_7601d9c2042648159e3f2809d1a48a99
+  subsections: []
+  tags: []
+  title: S1
+status: active
+title: Hint check spec 2
+updated_at: 1782375920176

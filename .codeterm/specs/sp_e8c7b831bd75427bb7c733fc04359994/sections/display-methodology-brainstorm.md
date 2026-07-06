@@ -1,1 +1,0 @@
-Two independent agents (codex + cursor, different providers) are brainstorming how to display plan/spec/tasks on a pan/zoom canvas: semantic zoom that never hides info, bounding портянки, plan+spec node type, mermaid/code at scale, auto-bounds, and how to test layout integrity. Their proposals are synthesized into the v3 design and dogfooded here.

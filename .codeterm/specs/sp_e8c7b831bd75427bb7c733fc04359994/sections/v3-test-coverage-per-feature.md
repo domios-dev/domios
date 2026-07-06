@@ -1,1 +1,0 @@
-Standing rule: EVERY implementation task ships its own tests (tsx happy-dom for logic + a Playwright spec that runs against dev for visual/no-overflow) and the agent self-checks via Playwright before reporting. Dedicated specs grow the canvas-layout-integrity suite. Orchestrator runs the far/mid/near + per-view-mode + per-facet visual loop and opus+frontend-design Dax reviews.

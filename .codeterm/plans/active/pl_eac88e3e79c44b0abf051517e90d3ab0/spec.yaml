@@ -1,0 +1,44 @@
+id: sp_050573da3b02400d850f4055581baa2b
+plan_id: pl_eac88e3e79c44b0abf051517e90d3ab0
+canonical_project_path: /Users/rollacode/Developer/codeterm
+canvas:
+  viewport: null
+created_at: 1783315810559
+project_path: /Users/rollacode/Developer/codeterm
+sections:
+- attachments: []
+  body: 'P1 DUPLICATED TRUTH: structured fields (status, title, handle, executor_role) live in BOTH plan.json and each sidecar YAML frontmatter — every status flip double-writes; the 135-file frontmatter churn walls are this duplication breathing. P2 MISNAMED FILES: sidecars are 60-80 percent YAML frontmatter with thin bodies — YAML records wearing .md extensions; .md must change only on hand edits and today it does not. P3 RUNTIME STATE IN THE GIT WORKTREE: daemon writes land in the repo, polluting whichever branch is checked out (stray Plans commits on release/v1.6.2), fighting merges, training dirty-check alarm fatigue. P4 WHOLE-PLAN FAN-OUT: every mutation re-serializes goal+sections+all tasks (persist_bodies); the write-if-changed pre-fix stops identical rewrites, the fan-out itself remains. P5 LAZY FORMAT MIGRATIONS: serializer changes re-emit every file on first touch instead of one explicit wave.'
+  canvas:
+    collapsed: false
+    x: null
+    y: null
+  handle: problems-all-live-incidents
+  id: sec_9a14b3dcb77145399d1c9a4999992fd9
+  subsections: []
+  tags: []
+  title: Problems (all live incidents)
+- attachments: []
+  body: 'A1 SINGLE STRUCTURED STORE out of the worktree: the plan graph lives in machine-owned state under ~/.codeterm keyed by canonical project path (evaluate json-per-plan vs consolidating into the existing plan-index sqlite — ONE store, not two). A2 PROSE FILES ARE PURE PROSE: .md holds only human text (task body, section body, goal vision, milestone text) — zero frontmatter; a .md changes iff its text was edited. A3 STRIDES stay append-only jsonl. A4 GIT GETS SNAPSHOTS ON DEMAND: codeterm plan export renders the human-readable tree into the repo as a deliberate reviewed commit — rendering at export time, never runtime duplication. A5 PER-ENTITY PERSISTENCE: a mutation writes the mutated entity only. A6 EXPLICIT MIGRATIONS: format changes run as a one-shot migration command. A7 MIGRATION PATH: one-time import of existing .codeterm/plans into the store; in-repo history frozen as archive + pointer README. NON-GOALS: plan semantics and CLI surface unchanged beyond storage; mem/index layers untouched beyond the store seam.'
+  canvas:
+    collapsed: false
+    x: null
+    y: null
+  handle: target-architecture
+  id: sec_45f46027b9684774aa4e3a499958e88c
+  subsections: []
+  tags: []
+  title: Target architecture
+- attachments: []
+  body: 'Per plan directory, exactly this: goal.yaml (auto-generated, freely hand-editable — daemon respects edits); spec.yaml (ALL spec sections in one file — section folders die); plan.yaml (plan-level metadata + ALL plan sections in one file); tasks/<handle>.yaml (the complete task record — every structured field PLUS the body as a YAML block scalar, one self-contained hand-editable file per task); tasks/<handle>.jsonl (the task''s stride/activity log, append-only). KILLED: plan.json (its graph metadata moves into plan.yaml), INDEX.md inside the plan (indices are DERIVED artifacts — the daemon''s own cache/sqlite serves search/board; a human-readable index may be rendered at export time only), sections/ folders on both spec and plan, frontmattered .md sidecars (the format IS yaml, so the files are named .yaml — honest naming). PROPERTIES: everything hand-editable and watched (edit a yaml -> daemon reconciles); write-if-changed + per-entity writes apply (a task mutation touches exactly its one yaml); lives in the machine-owned state dir per the Option-B decision, with ''plan export'' rendering snapshots into the repo. Supersedes A1/A2''s abstract wording — this section is the concrete contract.'
+  canvas:
+    collapsed: false
+    x: null
+    y: null
+  handle: canonical-layout-decided-by-andrey-round-110
+  id: sec_c91a8749225e40d3867a8e4b7dfac125
+  subsections: []
+  tags: []
+  title: Canonical layout (decided by Andrey, round-110)
+status: active
+title: Plan storage v2
+updated_at: 1783316252481
