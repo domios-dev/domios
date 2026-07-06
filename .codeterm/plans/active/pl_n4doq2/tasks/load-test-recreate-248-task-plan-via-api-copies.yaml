@@ -9,14 +9,14 @@ acceptance_criteria:
 - copy deleted, daemon state clean (plan list count back)
 test_plan: scripted run against dev 7686 via evals/_lib dc wrapper; timing + churn logged in task report
 correctness: proves the whole v2 write path at real scale
-status: pending
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783371278473
-updated_at: 1783371278473
-status_changed_at: 1783371278473
+updated_at: 1783373610529
+status_changed_at: 1783373610529
 handle: load-test-recreate-248-task-plan-via-api-copies
 tags: []
 section_ids:

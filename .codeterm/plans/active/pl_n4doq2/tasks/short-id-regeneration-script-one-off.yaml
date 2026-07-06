@@ -9,14 +9,14 @@ acceptance_criteria:
 - deep structural compare passes modulo remapped ids
 test_plan: dry-run on repo copy; then live with backup; codeterm plan doctor all-plans + plan reindex + spot task show
 correctness: single migration wave, no runtime id-mapping shim in Rust
-status: pending
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783371257065
-updated_at: 1783371257065
-status_changed_at: 1783371257065
+updated_at: 1783373610395
+status_changed_at: 1783373610395
 handle: short-id-regeneration-script-one-off
 tags: []
 section_ids:
