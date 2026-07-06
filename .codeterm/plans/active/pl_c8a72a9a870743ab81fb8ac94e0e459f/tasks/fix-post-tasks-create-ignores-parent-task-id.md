@@ -6,5 +6,3 @@ handle: fix-post-tasks-create-ignores-parent-task-id
 title: 'Fix: POST /tasks create ignores parent_task_id'
 status: done
 ---
-
-POST /api/plans/{id}/tasks (and task add) must read parent_task_id from the body so a task can be created already-nested, matching task update. Add a test.

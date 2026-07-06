@@ -6,5 +6,3 @@ handle: be-tasks-cli-isolation
 title: BE — tasks/CLI/isolation
 status: done
 ---
-
-Standalone tasks via the reserved Inbox plan, codeterm task list/show/take/drop/add, plan gaps, codeterm canvas focus emission, strict workspace project-root scoping, archive cascade. New REST + socket + CLI surface, manifest regenerated.

@@ -6,5 +6,3 @@ handle: externalize-milestone-note-discussion-md-bodies
 title: Externalize milestone/note/discussion .md bodies
 status: done
 ---
-
-Extend body_files to milestone/note bodies so attached discussion md is editable + doesn't inflate the plan JSON.

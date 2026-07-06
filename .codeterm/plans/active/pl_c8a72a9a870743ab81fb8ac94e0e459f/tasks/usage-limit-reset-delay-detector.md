@@ -6,5 +6,3 @@ handle: usage-limit-reset-delay-detector
 title: Usage limit reset detector and auto-delay scheduling
 status: done
 ---
-
-Detect provider limit/reset messages for Codex and Claude usage states. For Codex, parse the reset-time message shown in the uploaded screenshot /Users/rollacode/.codeterm/uploads/33daede5-______________2026_06_25___22.38.30.heic and convert it into a next-available timestamp. For Claude, reuse/improve the existing detector but avoid blocking picker flows. Surface the reset time in usage/status and offer or create a delayed orchestrator reminder when a worker is limited.

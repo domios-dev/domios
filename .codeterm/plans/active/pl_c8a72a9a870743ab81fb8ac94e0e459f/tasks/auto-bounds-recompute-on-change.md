@@ -6,5 +6,3 @@ handle: auto-bounds-recompute-on-change
 title: Auto-bounds recompute on change
 status: done
 ---
-
-Recompute bounds on every data change so nodes never overlap; stable under fast fly/zoom.

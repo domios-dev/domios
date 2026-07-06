@@ -7,4 +7,3 @@ title: Task timestamps (created/updated/status_changed)
 status: done
 ---
 
-Add Task.created_at/updated_at (set on create + any mutation) + status_changed_at (set when status transitions). Sections too if cheap. Drives 'updated 2h ago' / 'in-progress for 5h' on the canvas.

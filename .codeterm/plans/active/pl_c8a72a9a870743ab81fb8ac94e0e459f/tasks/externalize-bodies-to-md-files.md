@@ -6,5 +6,3 @@ handle: externalize-bodies-to-md-files
 title: Externalize bodies to .md files
 status: done
 ---
-
-Move section/task bodies to sibling .md files, hydrate on read / persist on write, watcher reloads on external edit. Per design §17.

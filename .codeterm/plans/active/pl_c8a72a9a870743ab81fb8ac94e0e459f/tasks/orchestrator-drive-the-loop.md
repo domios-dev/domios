@@ -6,5 +6,3 @@ handle: orchestrator-drive-the-loop
 title: Orchestrator — drive the loop
 status: done
 ---
-
-Designed v2, decomposed into lanes, spawned + coordinated the workers, ran the integrate→screenshot→score→critique loop, preserved lost work, neutralized infra traps, dogfooded the plan onto its own canvas.

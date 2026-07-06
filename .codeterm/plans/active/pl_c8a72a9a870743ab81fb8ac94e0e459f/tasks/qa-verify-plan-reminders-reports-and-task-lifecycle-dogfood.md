@@ -9,5 +9,3 @@ tags:
 - qa
 - dogfood
 ---
-
-Dogfood the orchestration substrate after the reset: verify plan reminder envelopes reach the owner, worker reports auto-inject, task assignment/status changes drive plan/canvas state, and old side plans stay archived.
