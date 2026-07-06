@@ -6,3 +6,4 @@ handle: body-text-must-reveal-on-zoom-worlds-content-band-26
 title: Body text must reveal on zoom (worlds content band) §26
 status: done
 ---
+

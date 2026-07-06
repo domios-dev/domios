@@ -6,3 +6,4 @@ handle: distance-gated-internal-scroll-wheel-pan-far-scroll-content-near
 title: Distance-gated internal scroll (wheel=pan far / scroll-content near)
 status: cancelled
 ---
+

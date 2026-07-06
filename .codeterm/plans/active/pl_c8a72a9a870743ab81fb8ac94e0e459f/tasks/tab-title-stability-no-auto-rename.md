@@ -6,3 +6,4 @@ handle: tab-title-stability-no-auto-rename
 title: 'Tab title stability: remove automatic rename on unselect'
 status: done
 ---
+

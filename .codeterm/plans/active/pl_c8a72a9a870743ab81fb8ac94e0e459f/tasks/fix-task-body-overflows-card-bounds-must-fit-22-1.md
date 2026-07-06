@@ -6,3 +6,4 @@ handle: fix-task-body-overflows-card-bounds-must-fit-22-1
 title: 'FIX: task body overflows card bounds (must fit, §22.1)'
 status: cancelled
 ---
+
