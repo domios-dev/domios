@@ -1,3 +1,0 @@
-Canvas is a Figma-like 2D board, scoped per workspace, that visualizes live multi-agent orchestration: the orchestrators in a workspace, the **plans** they own, and for each plan the cascade Spec → Tasks → chain of report-milestones, looping into self-improving processes. It is the spatial, persistent counterpart to orchestration that today lives only as ephemeral chat + the report ledger. Two entry points: click a workspace for the overview of all plans, or the per-pane **Plan** button to focus on what that agent works on.
-
-**[EDITED DIRECTLY IN THE .MD FILE — no CLI]**

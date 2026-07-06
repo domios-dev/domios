@@ -1,1 +1,0 @@
-Trackpad two-finger scroll pans both axes; Cmd/Ctrl+scroll zooms around the pointer; pinch zoom works via the synthesized ctrlKey wheel; middle-button and space+drag pan as fallback. The wheel listener is non-passive so the page never rubber-bands. fit-to-view frames the real content bbox on mount and fills the viewport. All smooth via requestAnimationFrame batching.

@@ -1,0 +1,35 @@
+id: sp_73ce178fcd6a4f149f084befefb6e4ad
+plan_id: null
+canonical_project_path: /Users/rollacode/Developer/codeterm
+canvas:
+  viewport: null
+created_at: 1782375901338
+project_path: /Users/rollacode/Developer/codeterm
+sections:
+- attachments: []
+  body: |
+    what
+  canvas:
+    collapsed: false
+    x: null
+    y: null
+  handle: discovery
+  id: sec_3dfe86a025ea46d09db60ae878c51a76
+  subsections: []
+  tags: []
+  title: Discovery
+- attachments: []
+  body: |
+    what
+  canvas:
+    collapsed: false
+    x: null
+    y: null
+  handle: implementation
+  id: sec_de3141fae69b4258b0afae932788d721
+  subsections: []
+  tags: []
+  title: Implementation
+status: active
+title: Worker spec-first proof
+updated_at: 1782375903022
