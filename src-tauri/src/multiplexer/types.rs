@@ -124,11 +124,7 @@ impl WatcherPolicy {
     const DEFAULT_MAX_ACTIONS: u32 = 3;
     const MAX_MAX_ACTIONS: u32 = 5;
 
-    pub fn clamped(
-        interval: Option<u64>,
-        cooldown: Option<u64>,
-        max_actions: Option<u32>,
-    ) -> Self {
+    pub fn clamped(interval: Option<u64>, cooldown: Option<u64>, max_actions: Option<u32>) -> Self {
         Self {
             tick_interval_secs: interval
                 .unwrap_or(Self::DEFAULT_INTERVAL_SECS)

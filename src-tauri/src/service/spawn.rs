@@ -8,11 +8,11 @@ use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
 pub(crate) use super::spawn_cli::{cli_binary_on_path, provider_cli_install_warning};
+#[cfg(test)]
+pub(crate) use super::spawn_params::validate_watcher_spawn_target;
 pub(crate) use super::spawn_params::{
     chatbackend_spawn_config, reject_direct_watcher_chatbackend_config,
 };
-#[cfg(test)]
-pub(crate) use super::spawn_params::validate_watcher_spawn_target;
 
 #[path = "spawn_hidden_delivery.rs"]
 mod spawn_hidden_delivery;

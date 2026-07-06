@@ -127,12 +127,7 @@ fn build_observation_includes_expected_panes() {
         reports: &[],
         last_activity_ms: &activity,
     };
-    let obs = build_observation(
-        &snap,
-        &ids.watcher,
-        &ObservationConfig::default(),
-        &sources,
-    );
+    let obs = build_observation(&snap, &ids.watcher, &ObservationConfig::default(), &sources);
     let panes = obs["panes"].as_array().expect("panes array");
     let pane_ids: Vec<_> = panes
         .iter()

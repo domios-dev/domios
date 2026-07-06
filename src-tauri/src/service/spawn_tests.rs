@@ -789,7 +789,9 @@ fn chatbackend_pane_command_deserializes() {
     let json = r#"{"kind":"chat_backend","plugin_id":"local-shell","config":{"model":"qwen"}}"#;
     let cmd: PaneCommand = serde_json::from_str(json).unwrap();
     match cmd {
-        PaneCommand::ChatBackend { plugin_id, config, .. } => {
+        PaneCommand::ChatBackend {
+            plugin_id, config, ..
+        } => {
             assert_eq!(plugin_id, "local-shell");
             assert_eq!(config["model"], "qwen");
         }
@@ -870,7 +872,9 @@ fn spawn_agent_params_for_registered_chatbackend_routes_to_chatbackend_config() 
     );
 
     match spec.command {
-        PaneCommand::ChatBackend { plugin_id, config, .. } => {
+        PaneCommand::ChatBackend {
+            plugin_id, config, ..
+        } => {
             assert_eq!(plugin_id, "local-shell");
             assert_eq!(config["systemPrompt"], "You are terse.");
             assert_eq!(config["preset"], "ops");
@@ -935,14 +939,8 @@ fn watcher_spawn_params_route_to_machine_watcher_config_and_spec() {
 
 #[test]
 fn watcher_spawn_config_omits_engine_when_charter_is_empty() {
-    let config = chatbackend_spawn_config(
-        None,
-        None,
-        None,
-        Some("watcher"),
-        Some("   "),
-        Some(120),
-    );
+    let config =
+        chatbackend_spawn_config(None, None, None, Some("watcher"), Some("   "), Some(120));
 
     assert_eq!(config["mode"], "watcher");
     assert!(config.get("engine").is_none());
@@ -959,8 +957,8 @@ fn watcher_spawn_validation_rejects_pty_provider_via_params_entry() {
         ..spawn_params("pty-agent")
     };
 
-    let err = validate_watcher_spawn_target(&providers, &backends, "pty-agent", &params)
-        .unwrap_err();
+    let err =
+        validate_watcher_spawn_target(&providers, &backends, "pty-agent", &params).unwrap_err();
     assert!(
         err.contains("watcher-capable chatBackend provider") && err.contains("PTY provider"),
         "unexpected error: {err}"
@@ -985,13 +983,8 @@ fn watcher_spawn_validation_rejects_missing_charter() {
         ..spawn_params("local-shell")
     };
 
-    let err = validate_watcher_spawn_target(
-        &providers,
-        &backends,
-        "local-shell",
-        &params,
-    )
-    .unwrap_err();
+    let err =
+        validate_watcher_spawn_target(&providers, &backends, "local-shell", &params).unwrap_err();
     assert_eq!(err, "watcher spawn requires --charter or --charter-file");
 }
 
@@ -1013,13 +1006,8 @@ fn watcher_spawn_validation_rejects_non_watcher_capable_chatbackend() {
         ..spawn_params("local-shell")
     };
 
-    let err = validate_watcher_spawn_target(
-        &providers,
-        &backends,
-        "local-shell",
-        &params,
-    )
-    .unwrap_err();
+    let err =
+        validate_watcher_spawn_target(&providers, &backends, "local-shell", &params).unwrap_err();
     assert!(
         err.contains("watcher-capable chatBackend provider"),
         "unexpected error: {err}"

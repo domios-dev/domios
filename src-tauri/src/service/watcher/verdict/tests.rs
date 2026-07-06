@@ -75,7 +75,14 @@ fn guardrail_drops_out_of_group_nudge() {
     };
     let policy = WatcherPolicy::clamped(None, None, None);
     let group = group(&["inside"]);
-    let out = apply_guardrails(&verdict, &policy, &group, &HashMap::new(), 1_000, &json!({}));
+    let out = apply_guardrails(
+        &verdict,
+        &policy,
+        &group,
+        &HashMap::new(),
+        1_000,
+        &json!({}),
+    );
     assert!(out.allowed_actions.is_empty());
     assert_eq!(out.dropped.len(), 1);
     assert_eq!(out.dropped[0].1, "out_of_group");
@@ -171,8 +178,14 @@ fn guardrail_dedupes_before_overflow_cap() {
     assert_eq!(out.allowed_actions.len(), 2);
     assert_eq!(out.allowed_actions[0].pane.as_deref(), Some("p1"));
     assert_eq!(out.allowed_actions[1].pane.as_deref(), Some("p2"));
-    assert!(out.dropped.iter().any(|(a, r)| a.message == "dup" && *r == "cooldown"));
-    assert!(out.dropped.iter().any(|(a, r)| a.pane.as_deref() == Some("p3") && *r == "overflow"));
+    assert!(out
+        .dropped
+        .iter()
+        .any(|(a, r)| a.message == "dup" && *r == "cooldown"));
+    assert!(out
+        .dropped
+        .iter()
+        .any(|(a, r)| a.pane.as_deref() == Some("p3") && *r == "overflow"));
 }
 
 #[test]

@@ -128,8 +128,7 @@ impl Serialize for ChatBackendCap {
     {
         if self.enabled && (self.spawnable || self.watcher) {
             use serde::ser::SerializeMap;
-            let len =
-                (if self.spawnable { 1 } else { 0 }) + (if self.watcher { 1 } else { 0 });
+            let len = (if self.spawnable { 1 } else { 0 }) + (if self.watcher { 1 } else { 0 });
             let mut m = s.serialize_map(Some(len))?;
             if self.spawnable {
                 m.serialize_entry("spawnable", &true)?;

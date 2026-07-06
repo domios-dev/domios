@@ -34,10 +34,7 @@ pub fn observation_config_from_json(v: &Value) -> ObservationConfig {
             .get("orchestration")
             .and_then(Value::as_bool)
             .unwrap_or(true),
-        chat_tail: v
-            .get("chatTail")
-            .and_then(Value::as_u64)
-            .unwrap_or(0) as usize,
+        chat_tail: v.get("chatTail").and_then(Value::as_u64).unwrap_or(0) as usize,
         reports: v.get("reports").and_then(Value::as_bool).unwrap_or(false),
     }
 }
@@ -219,11 +216,7 @@ pub fn build_observation(
                     role: role_label(pane.role),
                     role_profile: pane.role_profile.clone(),
                     status: pane_status_label(snapshot, &pane.id),
-                    last_activity_ms: sources
-                        .last_activity_ms
-                        .get(&pane.id)
-                        .copied()
-                        .unwrap_or(0),
+                    last_activity_ms: sources.last_activity_ms.get(&pane.id).copied().unwrap_or(0),
                     chat_tail,
                 }
             })

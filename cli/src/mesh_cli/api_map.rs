@@ -438,7 +438,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     &mut std::io::stdin(),
                 ) {
                     Ok(t) => t,
-                    Err(e) => return unsupported(&format!("agent spawn charter input error: {}", e)),
+                    Err(e) => {
+                        return unsupported(&format!("agent spawn charter input error: {}", e))
+                    }
                 };
                 let agent_name = agent.as_str();
                 let mut body = serde_json::json!({

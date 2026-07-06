@@ -487,9 +487,10 @@ mod tests {
 
     #[test]
     fn spawn_watcher_role_maps_to_manager_profile() {
-        let cli =
-            Cli::try_parse_from(["codeterm", "agent", "spawn", "lmstudio", "--role", "Watcher"])
-                .expect("watcher role parses");
+        let cli = Cli::try_parse_from([
+            "codeterm", "agent", "spawn", "lmstudio", "--role", "Watcher",
+        ])
+        .expect("watcher role parses");
         match cli.command {
             crate::Commands::Agent {
                 action: AgentAction::Spawn { role, .. },

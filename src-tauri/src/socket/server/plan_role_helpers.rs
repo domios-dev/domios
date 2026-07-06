@@ -8,14 +8,11 @@ use super::plan_fields::optional_string_field;
 use super::{get_string_param, JsonRpcError};
 
 pub(super) fn planner_role_for_pane(svc: &ServiceState, pane_id: &str) -> Option<&'static str> {
-    svc.mux
-        .read()
-        .get_pane(pane_id)
-        .and_then(|pane| {
-            (pane.role == Some(crate::multiplexer::types::AgentRole::Manager)
-                && pane.role_profile.as_deref() == Some("planner"))
-            .then_some("planner")
-        })
+    svc.mux.read().get_pane(pane_id).and_then(|pane| {
+        (pane.role == Some(crate::multiplexer::types::AgentRole::Manager)
+            && pane.role_profile.as_deref() == Some("planner"))
+        .then_some("planner")
+    })
 }
 
 fn plan_rpc_err(e: PlanError) -> JsonRpcError {
