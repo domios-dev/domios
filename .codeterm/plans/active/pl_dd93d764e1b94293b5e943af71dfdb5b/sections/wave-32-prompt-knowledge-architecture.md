@@ -5,4 +5,3 @@ id: sec_2f39aa7bb60045ec81e7110a523b4a75
 handle: wave-32-prompt-knowledge-architecture
 title: Wave 32 — Prompt & knowledge architecture
 ---
-
