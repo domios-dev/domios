@@ -427,7 +427,7 @@ impl ServiceContext {
                 self.emit_state_changed();
                 return Err(e);
             }
-            if role_str == "Worker" {
+            if role_str == "Worker" || role_str == "Manager" {
                 if let Some(ref parent) = spec.parent_pane_id {
                     if let Err(e) = self.expect_spawn_parent_link(&pane_id, parent) {
                         let _ = self.mux.write().close_tab(&ws_id, &tab_id);

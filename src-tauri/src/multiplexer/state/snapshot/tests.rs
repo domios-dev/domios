@@ -24,6 +24,7 @@ fn chatbackend_leaf(pane_id: &str, plugin_id: &str, session_id: &str) -> SplitNo
         agent_session_model: None,
         chatbackend_plugin_id: Some(plugin_id.into()),
         chatbackend_session_id: Some(session_id.into()),
+        watcher: None,
     }
 }
 
@@ -48,6 +49,43 @@ fn snapshot_with(leaf: SplitNodeSnapshot) -> SessionSnapshot {
             }],
         }],
     }
+}
+
+#[test]
+fn watcher_spec_round_trips_through_snapshot() {
+    use crate::multiplexer::types::{WatcherPolicy, WatcherSpec};
+
+    let (mut state, _root) = MultiplexerState::new();
+    let wsid = state.list_workspaces()[0].id.clone();
+    let (_, pane_id) = state.create_tab(&wsid).unwrap();
+    let spec = WatcherSpec {
+        charter: "Observe this orchestration.".into(),
+        policy: WatcherPolicy::clamped(Some(90), Some(120), Some(2)),
+        observations: serde_json::json!({"orchestration": true, "chatTail": 2}),
+        state: serde_json::json!({"round": 1}),
+        tick: 4,
+        last_tick_ms: Some(1_700_000_000_000),
+        last_status: Some("attention".into()),
+        tick_inflight_since_ms: Some(1_700_000_000_100),
+    };
+    state.get_pane_mut(&pane_id).unwrap().watcher = Some(spec.clone());
+
+    let snap = state.to_session_snapshot();
+    let restored = MultiplexerState::from_session_snapshot(&snap);
+    let pane = restored.panes.get(&pane_id).expect("pane restored");
+    assert_eq!(
+        pane.watcher,
+        Some(spec.clone()),
+        "WatcherSpec must survive session snapshot round-trip"
+    );
+
+    let round = restored.to_session_snapshot();
+    let again = MultiplexerState::from_session_snapshot(&round);
+    assert_eq!(
+        again.panes.get(&pane_id).unwrap().watcher,
+        Some(spec),
+        "second round-trip must preserve WatcherSpec identically"
+    );
 }
 
 #[test]
@@ -114,6 +152,7 @@ fn pty_pane_round_trips_without_chatbackend_fields() {
         agent_session_model: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        watcher: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let pane = state.panes.get("p2").expect("pane restored");
@@ -144,6 +183,7 @@ fn pane_description_round_trips_through_snapshot() {
         agent_session_model: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        watcher: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let pane = state.panes.get("p-desc").expect("pane restored");
@@ -191,6 +231,7 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
         agent_session_model: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        watcher: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let pane = state.panes.get("worker-1").expect("pane restored");
@@ -231,6 +272,7 @@ fn legacy_tab_title_seeds_default_provider_pane_title() {
         agent_session_model: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        watcher: None,
     };
     let mut snap = snapshot_with(leaf);
     snap.workspaces[0].tabs[0].title = "Euler".into();
@@ -470,6 +512,7 @@ fn spawned_by_round_trips_through_snapshot() {
         agent_session_model: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        watcher: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let round = state.to_session_snapshot();
@@ -538,6 +581,7 @@ fn ghost_repro_restore_from_old_snapshot_drops_picker_pane() {
                     agent_session_model: None,
                     chatbackend_plugin_id: None,
                     chatbackend_session_id: None,
+                    watcher: None,
                 },
                 sort_order: 0,
             }],

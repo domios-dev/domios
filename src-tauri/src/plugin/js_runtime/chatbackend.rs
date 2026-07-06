@@ -1,7 +1,7 @@
 //! `JsChatBackend` — adapts a JS `capabilities.chatBackend` plugin to the core
 //! [`ChatBackendProvider`](crate::chatbackend::ChatBackendProvider) trait via the
 //! synchronous `call_json` (the VM is not `Send`, so it's called on the caller's thread).
-//! Plugin surface: `openSession` / `sendMessage` / `poll` / `closeSession` / `listModels` / `listPresets`.
+//! Plugin surface: `openSession` / `sendMessage` / `watcherTick` / `poll` / `closeSession` / `listModels` / `listPresets`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,6 +24,7 @@ pub struct JsChatBackend {
     icon_color: Option<String>,
     /// `{ spawnable: true }` ⇒ user-openable from the picker; bare `chatBackend: true` ⇒ false (backend-only).
     spawnable: bool,
+    watcher_capable: bool,
     session_exec_env: parking_lot::Mutex<HashMap<String, HashMap<String, String>>>,
 }
 
@@ -38,6 +39,7 @@ impl JsChatBackend {
             icon_svg: None,
             icon_color: None,
             spawnable: false,
+            watcher_capable: false,
             session_exec_env: parking_lot::Mutex::new(HashMap::new()),
         }
     }
@@ -51,6 +53,7 @@ impl JsChatBackend {
             icon_svg: manifest.icon_svg.clone(),
             icon_color: manifest.icon_color.clone(),
             spawnable: manifest.capabilities.chat_backend_spawnable(),
+            watcher_capable: manifest.capabilities.chat_backend_watcher_capable(),
             session_exec_env: parking_lot::Mutex::new(HashMap::new()),
         }
     }
@@ -158,6 +161,10 @@ impl ChatBackendProvider for JsChatBackend {
 
     fn spawnable(&self) -> bool {
         self.spawnable
+    }
+
+    fn watcher_capable(&self) -> bool {
+        self.watcher_capable
     }
 
     fn icon_hint(&self) -> Option<&str> {
@@ -292,6 +299,30 @@ impl ChatBackendProvider for JsChatBackend {
                 ))
             }
             Err(e) => Err(map_err("setModel", e)),
+        }
+    }
+
+    fn watcher_tick(
+        &self,
+        session_id: &str,
+        input: serde_json::Value,
+    ) -> Result<(), ChatBackendError> {
+        let _guard = self.exec_env_scope(session_id);
+        match call_json::<serde_json::Value>(
+            &self.vm,
+            "watcherTick",
+            &[json!(session_id), input],
+        ) {
+            Ok(_) => Ok(()),
+            Err(VmError::MissingFunction(_)) => Err(ChatBackendError::Call(
+                "this chatBackend does not support watcher mode".into(),
+            )),
+            Err(VmError::Script(msg)) if msg.contains("not a function") => {
+                Err(ChatBackendError::Call(
+                    "this chatBackend does not support watcher mode".into(),
+                ))
+            }
+            Err(e) => Err(map_err("watcherTick", e)),
         }
     }
 }
@@ -547,6 +578,58 @@ mod tests {
         );
         let b = JsChatBackend::new(vm, "local-shell");
         assert!(b.send_message("s1", "hello").is_ok());
+    }
+
+    #[test]
+    fn watcher_tick_forwards_session_and_input() {
+        let vm = vm_with(
+            r#"let last = "";
+               module.exports.default = {
+                 watcherTick(sid, input) { last = JSON.stringify({ sid, input }); },
+                 poll() { return [{ id: "1", type: "assistant", content: last }]; }
+               }"#,
+        );
+        let b = JsChatBackend::new(vm, "local-shell");
+        let input = json!({
+            "tick": 3,
+            "nowMs": 123456,
+            "state": { "round": 2 },
+            "observations": { "panes": ["orch", "worker"] }
+        });
+
+        b.watcher_tick("watch-1", input.clone()).unwrap();
+        let msgs = b.poll("watch-1", None).unwrap().messages;
+        let forwarded: serde_json::Value = serde_json::from_str(&msgs[0].content).unwrap();
+
+        assert_eq!(forwarded, json!({ "sid": "watch-1", "input": input }));
+    }
+
+    #[test]
+    fn watcher_tick_missing_export_errors_unsupported() {
+        let vm = vm_with(r#"module.exports.default = { poll() { return []; } }"#);
+        let b = JsChatBackend::new(vm, "local-shell");
+        let err = b.watcher_tick("s1", json!({ "tick": 1 })).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("this chatBackend does not support watcher mode"));
+    }
+
+    #[test]
+    fn watcher_capable_comes_from_manifest_flag() {
+        let manifest: PluginManifest = serde_json::from_str(
+            r#"{
+                "id": "lmstudio",
+                "version": "0.1.0",
+                "displayName": "LM Studio",
+                "capabilities": { "chatBackend": { "spawnable": true, "watcher": true } }
+            }"#,
+        )
+        .unwrap();
+        let b = JsChatBackend::from_manifest(vm_with("module.exports.default = {}"), &manifest);
+
+        assert!(b.spawnable());
+        assert!(b.watcher_capable());
     }
 
     #[test]

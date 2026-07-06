@@ -218,12 +218,58 @@ export interface PresetInfo {
   description?: string;
 }
 
+export type SessionMode = "interactive" | "watcher";
+
+export interface ChatWindowConfig {
+  maxMessages?: number;
+  policy?: "top";
+}
+
+export interface ObservationConfig {
+  orchestration?: boolean;
+  chatTail?: number;
+  reports?: boolean;
+}
+
+export type ContextEngineConfig =
+  | { kind: "chat"; window?: ChatWindowConfig }
+  | {
+      kind: "machine";
+      charter: string;
+      observations?: ObservationConfig;
+      tickIntervalSecs?: number;
+    };
+
+export interface WatcherTickInput {
+  tick: number;
+  nowMs: number;
+  state: unknown;
+  observations?: unknown;
+}
+
+export type WatcherVerdictStatus = "ok" | "attention" | "stalled";
+
+export interface WatcherAction {
+  kind: "nudge" | "notify" | "report";
+  pane?: string;
+  message: string;
+}
+
+export interface WatcherVerdict {
+  status: WatcherVerdictStatus;
+  summary: string;
+  state?: unknown;
+  actions?: WatcherAction[];
+}
+
 export interface ChatBackendOpenSessionCtx {
   paneId: string;
   config: unknown;
   systemPrompt?: string;
   preset?: string;
   model?: string;
+  mode?: SessionMode;
+  engine?: ContextEngineConfig;
 }
 
 // Live state of an open session (mirrors Rust ChatSessionInfo). `model` absent ⇒ no per-session model.
@@ -231,8 +277,8 @@ export interface ChatSessionInfo {
   model?: string;
 }
 
-// user-spawnable (host-/agent-driven); `{ spawnable: true }` = user-openable in the picker.
-export type ChatBackendCapability = boolean | { spawnable?: boolean };
+// `spawnable` makes the backend user-openable; `watcher` opts into host-driven watcher ticks.
+export type ChatBackendCapability = boolean | { spawnable?: boolean; watcher?: boolean };
 
 export interface ChatBackend {
   openSession(ctx: ChatBackendOpenSessionCtx): { sessionId: string };
@@ -250,6 +296,8 @@ export interface ChatBackend {
   sessionInfo?(sessionId: string): ChatSessionInfo;
   // Optional: switch the model used on the next turn; omit if the backend can't (host surfaces "unsupported").
   setModel?(sessionId: string, model: string): void;
+  // Enqueue one machine query; pump/poll streams the completion.
+  watcherTick?(sessionId: string, input: WatcherTickInput): void;
 }
 
 // ── chatPreprocessor (compose/send-time outbound stage) ──

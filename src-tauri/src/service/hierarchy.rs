@@ -892,15 +892,18 @@ pub(crate) fn resolve_plan_ctx(
     }
 }
 
-/// Whether a dying pane needs a synthetic worker-death report, and to whom — a
-/// worker whose PTY dies without ever reporting leaves its orchestrator blind.
-/// Returns `(target, message)` for a hierarchy worker that hasn't already reported
-/// to that target; `None` for non-hierarchy panes or workers that already reported.
+/// Whether a dying leaf pane needs a synthetic death report, and to whom.
+/// Returns `(target, message)` when the pane has not reported to that target.
 pub fn worker_death_report(
     mux: &crate::multiplexer::state::MultiplexerState,
     report_store: &crate::agent::reports::ReportStore,
     pane_id: &str,
 ) -> Option<(String, String)> {
+    let role_label = match mux.get_pane(pane_id)?.role {
+        Some(crate::multiplexer::types::AgentRole::Manager) => "MANAGER",
+        Some(crate::multiplexer::types::AgentRole::Worker) => "WORKER",
+        _ => "WORKER",
+    };
     let (_from_title, target) = resolve_report_target(mux, pane_id).ok()?;
     let target = target?;
     let storage_key = target.storage_key();
@@ -909,7 +912,7 @@ pub fn worker_death_report(
     }
     Some((
         storage_key,
-        format!("WORKER {} EXITED without reporting (dead)", pane_id),
+        format!("{role_label} {} EXITED without reporting (dead)", pane_id),
     ))
 }
 

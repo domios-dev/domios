@@ -28,6 +28,7 @@ pub fn should_nudge(turns: u32, last_nudge: u32, cfg: &NudgeConfig) -> Option<Nu
         return Some(NudgeKind::Escalated);
     }
     match cfg.role {
+        Some(AgentRole::Manager) => Some(NudgeKind::Worker),
         Some(AgentRole::Worker) => Some(NudgeKind::Worker),
         _ => Some(NudgeKind::Orchestrator),
     }
@@ -281,6 +282,10 @@ mod tests {
         assert_eq!(
             should_nudge(12, 0, &cfg(AgentRole::Orchestrator)),
             Some(NudgeKind::Orchestrator)
+        );
+        assert_eq!(
+            should_nudge(12, 0, &cfg(AgentRole::Manager)),
+            Some(NudgeKind::Worker)
         );
     }
 

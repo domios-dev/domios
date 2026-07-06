@@ -34,14 +34,15 @@ fn resolve_spawn_workspace_prefers_explicit_workspace_over_parent() {
 fn invalid_role_lead_is_rejected() {
     let err = ServiceContext::parse_role("Lead").unwrap_err();
     assert!(
-        err.contains("Orchestrator") && err.contains("Worker"),
+        err.contains("Orchestrator") && err.contains("Manager") && err.contains("Worker"),
         "error must name valid roles: {err}"
     );
 }
 
 #[test]
-fn valid_role_worker_is_accepted() {
+fn valid_role_worker_and_manager_are_accepted() {
     assert!(ServiceContext::parse_role("Worker").is_ok());
+    assert!(ServiceContext::parse_role("Manager").is_ok());
 }
 
 fn agent_spec(provider: &str) -> SpawnPaneSpec {
@@ -84,6 +85,10 @@ fn spawn_params(provider: &str) -> SpawnAgentParams {
         system_prompt: None,
         preset: None,
         resume_session_id: None,
+        charter: None,
+        tick_interval_secs: None,
+        nudge_cooldown_secs: None,
+        max_actions_per_tick: None,
         activate: None,
         structured_prompt_server: None,
     }
@@ -491,6 +496,10 @@ fn from_agent_params_carries_model_into_spec() {
         system_prompt: None,
         preset: None,
         resume_session_id: None,
+        charter: None,
+        tick_interval_secs: None,
+        nudge_cooldown_secs: None,
+        max_actions_per_tick: None,
         activate: None,
         structured_prompt_server: None,
     };
@@ -597,6 +606,10 @@ fn from_agent_params_preserves_can_spawn_option() {
         system_prompt: None,
         preset: None,
         resume_session_id: None,
+        charter: None,
+        tick_interval_secs: None,
+        nudge_cooldown_secs: None,
+        max_actions_per_tick: None,
         activate: None,
         structured_prompt_server: None,
     };
@@ -645,6 +658,10 @@ fn from_agent_params_carries_activate_into_spec() {
         system_prompt: None,
         preset: None,
         resume_session_id: None,
+        charter: None,
+        tick_interval_secs: None,
+        nudge_cooldown_secs: None,
+        max_actions_per_tick: None,
         activate: Some(true),
         structured_prompt_server: None,
     };

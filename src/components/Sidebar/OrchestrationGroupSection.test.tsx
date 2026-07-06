@@ -92,7 +92,7 @@ test("seeded group (orch + planner + 2 workers) renders both section headers, pl
     <Group
       panes={[
         pane({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
-        pane({ id: "planner", title: "Planner", role: "Worker", role_profile: "planner" }),
+        pane({ id: "planner", title: "Planner", role: "Manager", role_profile: "planner" }),
         pane({ id: "w1", title: "Worker A", role: "Worker" }),
         pane({ id: "w2", title: "Worker B", role: "Worker" }),
       ]}
@@ -123,7 +123,7 @@ test("one-planner group drops the MANAGERS header (single section, one member) b
     <Group
       panes={[
         pane({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
-        pane({ id: "planner", title: "Kepler", role: "Worker", role_profile: "planner" }),
+        pane({ id: "planner", title: "Kepler", role: "Manager", role_profile: "planner" }),
       ]}
     />,
   );
@@ -168,7 +168,7 @@ test("headers RETURN when a section disambiguates: >1 worker, or both sections p
     <Group
       panes={[
         pane({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
-        pane({ id: "planner", title: "Kepler", role: "Worker", role_profile: "planner" }),
+        pane({ id: "planner", title: "Kepler", role: "Manager", role_profile: "planner" }),
         pane({ id: "w1", title: "Worker A", role: "Worker" }),
       ]}
     />,

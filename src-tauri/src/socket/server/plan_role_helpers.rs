@@ -11,7 +11,11 @@ pub(super) fn planner_role_for_pane(svc: &ServiceState, pane_id: &str) -> Option
     svc.mux
         .read()
         .get_pane(pane_id)
-        .and_then(|pane| (pane.role_profile.as_deref() == Some("planner")).then_some("planner"))
+        .and_then(|pane| {
+            (pane.role == Some(crate::multiplexer::types::AgentRole::Manager)
+                && pane.role_profile.as_deref() == Some("planner"))
+            .then_some("planner")
+        })
 }
 
 fn plan_rpc_err(e: PlanError) -> JsonRpcError {

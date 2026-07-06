@@ -35,6 +35,28 @@ impl MultiplexerState {
                 pane.can_spawn = true;
                 pane.depth = 1;
             }
+            AgentRole::Manager => {
+                let parent_id = parent_pane_id.ok_or("Manager requires a parent_pane_id")?;
+                let parent = self
+                    .panes
+                    .get(parent_id)
+                    .ok_or(format!("Parent pane {} not found", parent_id))?;
+                if parent.role != Some(AgentRole::Orchestrator) {
+                    return Err("Manager requires an Orchestrator parent".to_string());
+                }
+                if !parent.can_spawn {
+                    return Err("Parent does not allow spawning".to_string());
+                }
+                let final_parent_depth = parent.depth;
+                let pane = self
+                    .panes
+                    .get_mut(pane_id)
+                    .ok_or_else(|| format!("Pane {} not found", pane_id))?;
+                pane.role = Some(AgentRole::Manager);
+                pane.parent_pane_id = Some(parent_id.to_string());
+                pane.can_spawn = false;
+                pane.depth = final_parent_depth + 1;
+            }
             AgentRole::Worker => {
                 let parent_id = parent_pane_id.ok_or("Worker requires a parent_pane_id")?;
                 let (parent_role, parent_has_parent, parent_can_spawn, parent_depth) = {
@@ -57,7 +79,7 @@ impl MultiplexerState {
                 } else {
                     if parent_has_parent {
                         return Err(
-                            "Worker's parent is itself a Worker — workers cannot spawn workers"
+                            "Worker's parent is a leaf role; leaf roles cannot spawn workers"
                                 .to_string(),
                         );
                     }
@@ -251,6 +273,67 @@ mod tests {
             .expect("Worker under Orchestrator");
         let p = mux.get_pane(&worker).unwrap();
         assert!(!p.can_spawn, "Worker must default to can_spawn=false");
+    }
+
+    #[test]
+    fn manager_requires_parent() {
+        let (mut mux, pane) = fresh();
+        let err = mux.set_pane_role(&pane, AgentRole::Manager, None).unwrap_err();
+        assert!(err.contains("Manager requires a parent_pane_id"));
+    }
+
+    #[test]
+    fn manager_requires_orchestrator_parent() {
+        let (mut mux, root) = fresh();
+        let worker = mux.create_pane();
+        mux.set_pane_role(&worker, AgentRole::Worker, Some(&root))
+            .unwrap();
+        let manager = mux.create_pane();
+        let err = mux
+            .set_pane_role(&manager, AgentRole::Manager, Some(&worker))
+            .unwrap_err();
+        assert!(err.contains("Orchestrator parent"));
+    }
+
+    #[test]
+    fn manager_under_orchestrator_is_leaf() {
+        let (mut mux, root) = fresh();
+        mux.set_pane_role(&root, AgentRole::Orchestrator, None)
+            .unwrap();
+        let manager = mux.create_pane();
+        mux.set_pane_role(&manager, AgentRole::Manager, Some(&root))
+            .unwrap();
+        let p = mux.get_pane(&manager).unwrap();
+        assert_eq!(p.role, Some(AgentRole::Manager));
+        assert_eq!(p.parent_pane_id.as_deref(), Some(root.as_str()));
+        assert!(!p.can_spawn, "Manager must default to can_spawn=false");
+    }
+
+    #[test]
+    fn manager_set_can_spawn_true_is_rejected() {
+        let (mut mux, root) = fresh();
+        mux.set_pane_role(&root, AgentRole::Orchestrator, None)
+            .unwrap();
+        let manager = mux.create_pane();
+        mux.set_pane_role(&manager, AgentRole::Manager, Some(&root))
+            .unwrap();
+        let err = mux.set_can_spawn(&manager, true).unwrap_err();
+        assert!(err.contains("Only Orchestrator"));
+    }
+
+    #[test]
+    fn manager_cannot_spawn_worker_child() {
+        let (mut mux, root) = fresh();
+        mux.set_pane_role(&root, AgentRole::Orchestrator, None)
+            .unwrap();
+        let manager = mux.create_pane();
+        mux.set_pane_role(&manager, AgentRole::Manager, Some(&root))
+            .unwrap();
+        let child = mux.create_pane();
+        let err = mux
+            .set_pane_role(&child, AgentRole::Worker, Some(&manager))
+            .unwrap_err();
+        assert!(err.contains("leaf roles cannot spawn workers"));
     }
 
     #[test]
