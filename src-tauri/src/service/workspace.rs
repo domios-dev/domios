@@ -89,6 +89,47 @@ impl ServiceContext {
         Ok(())
     }
 
+    /// True when any top-level pane of `workspace_id` is a coordinator. Reads
+    /// the tab pane ids under one lock, then probes each after releasing it so
+    /// no nested pane lock is held across the coordinator resolution.
+    fn workspace_has_protected_pane(&self, workspace_id: &str) -> bool {
+        let pane_ids: Vec<String> = {
+            let mux = self.mux.read();
+            match mux.get_workspace(workspace_id) {
+                Some(ws) => ws.tabs.iter().map(|t| t.pane_id.clone()).collect(),
+                None => return false,
+            }
+        };
+        pane_ids.iter().any(|pid| self.is_self_close_protected(pid))
+    }
+
+    /// Close a workspace on behalf of `caller_pane_id`. Refuses when a
+    /// coordinator (Orchestrator/plan owner/Planner) targets the workspace it
+    /// runs in; closing any OTHER workspace is unaffected. Fail-safe: an absent
+    /// caller against a workspace that hosts a coordinator is refused.
+    pub fn close_workspace_guarded(
+        &self,
+        caller_pane_id: Option<&str>,
+        workspace_id: &str,
+    ) -> Result<(), String> {
+        let refuse = match caller_pane_id {
+            Some(caller) => {
+                let owns_it = self.mux.read().find_workspace_for_pane(caller).as_deref()
+                    == Some(workspace_id);
+                owns_it && self.is_self_close_protected(caller)
+            }
+            None => self.workspace_has_protected_pane(workspace_id),
+        };
+        if refuse {
+            return Err(format!(
+                "{}: a coordinator cannot close the workspace it runs in ({workspace_id}) — \
+                 have your parent or another pane close it, or move first.",
+                crate::service::pane::SELF_CLOSE_REFUSAL_PREFIX
+            ));
+        }
+        self.close_workspace(workspace_id)
+    }
+
     pub fn close_workspace(&self, id: &str) -> Result<(), String> {
         let pre_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.write().close_workspace(id)?;
