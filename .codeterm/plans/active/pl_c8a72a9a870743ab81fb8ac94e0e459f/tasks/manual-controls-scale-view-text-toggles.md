@@ -6,5 +6,3 @@ handle: manual-controls-scale-view-text-toggles
 title: Manual controls (scale/view/text toggles)
 status: cancelled
 ---
-
-Zoom in/out/fit/reset buttons; view-mode switch; text on/off toggle; optional auto-by-distance, user-lockable.

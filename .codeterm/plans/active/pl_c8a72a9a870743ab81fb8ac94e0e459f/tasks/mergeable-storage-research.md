@@ -6,4 +6,3 @@ handle: mergeable-storage-research
 title: 'RESEARCH: mergeable plan/memory storage across git (vs sqlite)'
 status: done
 ---
-

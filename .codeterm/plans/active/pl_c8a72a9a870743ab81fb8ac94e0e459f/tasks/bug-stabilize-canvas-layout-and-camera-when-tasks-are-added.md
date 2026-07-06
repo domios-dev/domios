@@ -11,4 +11,3 @@ tags:
 - stability
 ---
 
-When plan tasks are added or updated, the canvas cloud structure shifts too much and the camera visibly jumps/jitters. Stabilize layout identity/order/bounds so incremental plan mutations do not cause large unrelated node movement or camera shake.

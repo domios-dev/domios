@@ -6,5 +6,3 @@ handle: render-attached-discussion-docs-chat-canvas-expandable
 title: Render attached discussion docs (chat + canvas, expandable)
 status: done
 ---
-
-Discussion milestones/notes render as expandable doc cards on the canvas (near LOD) and nicely in chat when agents send them.

@@ -6,4 +6,3 @@ handle: s0-crisp-text-discriminator-micro-spike-dom-under-single-matrix-vs-alter
 title: S0 — crisp-text discriminator micro-spike (DOM under single matrix() vs alternatives @10x)
 status: done
 ---
-

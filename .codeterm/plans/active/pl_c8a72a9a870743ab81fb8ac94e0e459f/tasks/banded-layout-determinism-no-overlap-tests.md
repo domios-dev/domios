@@ -6,5 +6,3 @@ handle: banded-layout-determinism-no-overlap-tests
 title: 'Banded layout: determinism + no-overlap tests'
 status: done
 ---
-
-Unit: same data→same layout; band assignment; top-down sweep no-overlap; realtime insert recomputes only changed band down. + Playwright: 19-task dogfood stays bounded height, no overlap at all zoom.

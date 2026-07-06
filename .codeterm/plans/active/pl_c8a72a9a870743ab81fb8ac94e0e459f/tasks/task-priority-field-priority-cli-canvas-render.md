@@ -6,5 +6,3 @@ handle: task-priority-field-priority-cli-canvas-render
 title: Task.priority field + --priority CLI + canvas render
 status: done
 ---
-
-Add Task.priority closed enum (p0|p1|p2|p3, default p2). CLI plan task add/update --priority. Canvas: priority badge on the task world, drives band sort order + a far-view signal alongside status. So we can prioritize work and SEE it.

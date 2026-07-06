@@ -10,4 +10,3 @@ tags:
 - canvas
 ---
 
-Investigate and fix stale/misleading canvas presence for the current agent: when an orchestrator/worker is attached to a plan task, the canvas should show the correct current task/plan focus and update when assignment changes.

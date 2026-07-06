@@ -6,5 +6,3 @@ handle: pinch-zoom-responsiveness
 title: Pinch zoom responsiveness
 status: done
 ---
-
-Raise pinch/cmd-wheel zoom sensitivity ~2-3x, keep smooth; pan unchanged.

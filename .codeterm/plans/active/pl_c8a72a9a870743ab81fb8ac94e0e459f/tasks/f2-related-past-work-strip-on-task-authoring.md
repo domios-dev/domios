@@ -6,5 +6,3 @@ handle: f2-related-past-work-strip-on-task-authoring
 title: F2 'Related past work' strip on task authoring
 status: done
 ---
-
-On task create/edit, debounced top-3 similar past tasks (up-weight cancelled/stalled); click→canvas focus. Non-blocking.

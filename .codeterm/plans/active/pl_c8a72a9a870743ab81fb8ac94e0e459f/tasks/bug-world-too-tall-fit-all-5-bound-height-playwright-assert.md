@@ -6,5 +6,3 @@ handle: bug-world-too-tall-fit-all-5-bound-height-playwright-assert
 title: 'BUG: world too tall (fit-all 5%) — bound height + Playwright assert'
 status: cancelled
 ---
-
-Investigate why fit-all=5%: plan-node Document height truly fixed 640? task field hugging fixed rail-Y range? Add Playwright assert world-bbox height < bound, fail on km-strip.

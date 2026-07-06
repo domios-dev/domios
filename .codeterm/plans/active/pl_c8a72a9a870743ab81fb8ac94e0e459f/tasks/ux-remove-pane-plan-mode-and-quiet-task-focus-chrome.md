@@ -10,4 +10,3 @@ tags:
 - dogfood
 ---
 
-Remove the pane-level Plan mode from Terminal|Chat chrome, remove the ambiguous orchestrator progress bubble above composer, keep worker task focus visible only when a pane has an assigned task, and make tab activity indicators calm/static.

@@ -11,7 +11,3 @@ tags:
 - dogfood
 ---
 
-Additional accepted safety follow-up:
-- build.sh web watcher cleanup now kills the pidfile process tree instead of only the parent pid.
-- kill_web_watch also removes orphan `vite build --watch` processes whose cwd is exactly the current worktree, preventing stale watcher accumulation across dev restarts.
-- Verification: bash -n build.sh; bash -n scripts/check-build-kill-safety.sh; git diff --check; process scan confirms no `vite build --watch` processes remain for /Users/rollacode/Developer/codeterm, only separate /Users/rollacode/Developer/codeterm-int watchers remain.

@@ -7,4 +7,3 @@ title: 'Tab title stability: remove automatic rename on unselect'
 status: done
 ---
 
-Remove unintended automatic tab renaming on unselect/focus changes. Valid title sources: initial title assigned at creation/spawn, explicit user rename, or explicit agent self-rename. No passive detector/focus/unselect path should overwrite a user-level title.

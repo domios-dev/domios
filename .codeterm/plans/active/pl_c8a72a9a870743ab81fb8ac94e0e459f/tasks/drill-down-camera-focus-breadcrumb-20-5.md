@@ -6,5 +6,3 @@ handle: drill-down-camera-focus-breadcrumb-20-5
 title: 'Drill-down: camera-focus + breadcrumb (§20.5)'
 status: cancelled
 ---
-
-In-place zoom default; double-click=zoom-to-fit+lock Document+dim rest+breadcrumb HUD; Esc=back.
