@@ -13,7 +13,8 @@
         "x": null,
         "y": null,
         "collapsed": false
-      }
+      },
+      "attachments": []
     },
     {
       "id": "sec_ded3816eb13842c79681937ad2501bf7",
@@ -26,7 +27,8 @@
         "x": null,
         "y": null,
         "collapsed": false
-      }
+      },
+      "attachments": []
     }
   ],
   "status": "archived",
@@ -37,6 +39,7 @@
     "title": null
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
+  "canonical_project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782304328402,
   "updated_at": 1782761884371,
   "milestone_kinds": [
@@ -74,6 +77,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782304328487,
@@ -86,6 +91,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -109,7 +116,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_edcb5efae8f94250b258e53791fe5280",
@@ -121,6 +130,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782304328487,
@@ -133,6 +144,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -156,7 +169,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_1c0f03b13c5c4e81a31bc0c33c645ee5",
@@ -168,6 +183,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782304328487,
@@ -180,6 +197,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -203,7 +222,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_46fdd786057c424d87e3107efb2afed7",
@@ -215,6 +236,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "done",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": null,
       "priority": "p2",
       "created_at": 1782304328487,
@@ -227,6 +250,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -250,7 +275,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     },
     {
       "id": "task_aa86bb7dfdc34d6ea64da023ddf55971",
@@ -262,6 +289,8 @@
       "test_plan": null,
       "correctness": null,
       "status": "cancelled",
+      "review_stage": "review",
+      "qa_state": null,
       "status_label": "superseded by main canvas dogfood plan",
       "priority": "p2",
       "created_at": 1782316696545,
@@ -274,6 +303,8 @@
       ],
       "body": "",
       "role_guidance": null,
+      "executor_role": null,
+      "competition": null,
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
@@ -297,7 +328,9 @@
         "collapsed": false
       },
       "milestones": [],
-      "execution_attempts": []
+      "execution_attempts": [],
+      "park_reason": null,
+      "attachments": []
     }
   ],
   "task_groups": [],
@@ -324,5 +357,10 @@
   "canvas": {
     "viewport": null
   },
-  "owner_history": []
+  "owner_history": [],
+  "planner": null,
+  "planning_state": "drafting",
+  "planning_log": [],
+  "gates": [],
+  "strides": []
 }

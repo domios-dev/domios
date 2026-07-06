@@ -6,4 +6,3 @@ handle: usage-auto-refresh
 title: 'U1: auto-refresh / proactive reset on timer expiry'
 status: done
 ---
-
