@@ -5,4 +5,3 @@ id: sec_3e44b8f015d84aa2b1627caa7d94f814
 handle: spec-plan-goal
 title: Spec⊥Plan & GOAL
 ---
-

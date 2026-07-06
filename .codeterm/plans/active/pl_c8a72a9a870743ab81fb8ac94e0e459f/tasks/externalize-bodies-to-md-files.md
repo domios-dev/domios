@@ -6,4 +6,3 @@ handle: externalize-bodies-to-md-files
 title: Externalize bodies to .md files
 status: done
 ---
-

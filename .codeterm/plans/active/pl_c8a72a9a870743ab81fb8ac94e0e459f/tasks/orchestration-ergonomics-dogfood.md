@@ -6,4 +6,3 @@ handle: orchestration-ergonomics-dogfood
 title: Orchestration ergonomics — orchestrator + workers dogfood the plan workflow, improve from friction
 status: done
 ---
-

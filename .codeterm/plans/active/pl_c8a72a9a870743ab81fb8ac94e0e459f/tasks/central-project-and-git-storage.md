@@ -6,4 +6,3 @@ handle: central-project-and-git-storage
 title: Central project across worktrees (git-common-dir) + plan storage/git strategy
 status: done
 ---
-

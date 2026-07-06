@@ -6,4 +6,3 @@ handle: auto-bounds-recompute-on-change
 title: Auto-bounds recompute on change
 status: done
 ---
-

@@ -6,4 +6,3 @@ handle: dogfood-the-tags-facets-retag-rename-to-handles
 title: Dogfood the tags (facets + retag + rename to handles)
 status: done
 ---
-

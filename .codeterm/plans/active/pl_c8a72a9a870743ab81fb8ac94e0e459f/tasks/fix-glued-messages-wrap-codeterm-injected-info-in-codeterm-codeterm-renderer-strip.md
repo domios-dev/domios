@@ -6,4 +6,3 @@ handle: fix-glued-messages-wrap-codeterm-injected-info-in-codeterm-codeterm-rend
 title: 'Fix glued messages: wrap codeterm-injected info in <codeterm>-=- -=-</codeterm> + renderer strip'
 status: done
 ---
-

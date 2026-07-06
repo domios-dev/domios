@@ -6,4 +6,3 @@ handle: f1-index-store
 title: 'F1a: in-project index store (.codeterm/plan-index.sqlite, FTS5+sqlite-vec, reuse mem engine)'
 status: done
 ---
-

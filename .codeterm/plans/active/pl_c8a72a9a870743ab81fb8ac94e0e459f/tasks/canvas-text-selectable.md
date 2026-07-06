@@ -6,4 +6,3 @@ handle: canvas-text-selectable
 title: 'BUG: canvas text must be selectable/copyable'
 status: done
 ---
-

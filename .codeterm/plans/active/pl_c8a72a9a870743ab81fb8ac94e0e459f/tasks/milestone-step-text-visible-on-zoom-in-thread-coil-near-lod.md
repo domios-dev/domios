@@ -6,4 +6,3 @@ handle: milestone-step-text-visible-on-zoom-in-thread-coil-near-lod
 title: Milestone/step text visible on zoom-in (Thread & Coil near-LOD)
 status: cancelled
 ---
-

@@ -5,4 +5,3 @@ id: sec_81bd893081b04915b053dd4ba53c6d0e
 handle: substrate-render
 title: Substrate & render
 ---
-
