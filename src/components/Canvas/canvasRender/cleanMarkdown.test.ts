@@ -1,23 +1,36 @@
+import { describe, expect, it } from "vitest";
 
 import { cleanMarkdown } from "./drawCard";
 
-let passed = 0;
-let failed = 0;
-function ok(label: string, cond: unknown) {
-  if (cond) { console.log(`  ✓ ${label}`); passed++; }
-  else { console.error(`  ✗ ${label}`); failed++; }
-}
-
-ok("strips inline code backticks", cleanMarkdown("run `codeterm plan`").includes("run codeterm plan"));
-ok("strips bold markers", cleanMarkdown("this is **important**") === "this is important");
-ok("strips strikethrough markers", cleanMarkdown("~~old~~ new") === "old new");
-ok("strips heading marks", cleanMarkdown("## Overview") === "Overview");
-ok("links collapse to their text", cleanMarkdown("see [the docs](https://x.io/y)") === "see the docs");
-ok("images collapse to alt text", cleanMarkdown("![diagram](a.png)") === "diagram");
-ok("blockquote marks removed", cleanMarkdown("> quoted line") === "quoted line");
-ok("bullets normalized to •", cleanMarkdown("- first\n* second\n+ third") === "• first\n• second\n• third");
-ok("underscores in identifiers preserved", cleanMarkdown("task_body and section_ids") === "task_body and section_ids");
-ok("plain prose untouched", cleanMarkdown("just a sentence.") === "just a sentence.");
-
-console.log(`\n${passed} passed, ${failed} failed`);
-if (failed > 0) process.exit(1);
+describe("cleanMarkdown", () => {
+  it("strips inline code backticks", () => {
+    expect(cleanMarkdown("run `codeterm plan`")).toContain("run codeterm plan");
+  });
+  it("strips bold markers", () => {
+    expect(cleanMarkdown("this is **important**")).toBe("this is important");
+  });
+  it("strips strikethrough markers", () => {
+    expect(cleanMarkdown("~~old~~ new")).toBe("old new");
+  });
+  it("strips heading marks", () => {
+    expect(cleanMarkdown("## Overview")).toBe("Overview");
+  });
+  it("collapses links to their text", () => {
+    expect(cleanMarkdown("see [the docs](https://x.io/y)")).toBe("see the docs");
+  });
+  it("collapses images to alt text", () => {
+    expect(cleanMarkdown("![diagram](a.png)")).toBe("diagram");
+  });
+  it("removes blockquote marks", () => {
+    expect(cleanMarkdown("> quoted line")).toBe("quoted line");
+  });
+  it("normalizes bullets to •", () => {
+    expect(cleanMarkdown("- first\n* second\n+ third")).toBe("• first\n• second\n• third");
+  });
+  it("preserves underscores in identifiers", () => {
+    expect(cleanMarkdown("task_body and section_ids")).toBe("task_body and section_ids");
+  });
+  it("leaves plain prose untouched", () => {
+    expect(cleanMarkdown("just a sentence.")).toBe("just a sentence.");
+  });
+});
