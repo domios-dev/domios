@@ -155,31 +155,46 @@ export type ChatBackendCapability = boolean | { spawnable?: boolean; watcher?: b
 
 ## Phase 2 — Role, spawn, persistence
 
-### Task 4: `watcher` role profile + CLI sugar
+### Task 4: `Manager` as a first-class role + `watcher` profile + CLI sugar
+
+Manager stops being a UI illusion over `role_profile` and becomes a structural
+role: `AgentRole::{Orchestrator, Manager, Worker}`. `role_profile` becomes the
+manager's *specialization* (`planner` | `watcher`) — required and validated on
+managers, rejected loudly when unknown (today unknown profiles silently
+downgrade to generic Worker). No compat shims for previously persisted
+Worker+planner panes (repo rule: delete legacy aggressively).
 
 **Files:**
-- Modify: `src-tauri/src/service/role_profile.rs:52-106` (`normalize_spawn_params`)
+- Modify: `src-tauri/src/multiplexer/state/role.rs` — add `Manager` to `AgentRole` (serde string form `"Manager"`); invariants: Manager requires an Orchestrator parent; Manager cannot spawn children (same leaf rule as Worker); follow every existing invariant test pattern in that file
+- Modify: `src-tauri/src/service/role_profile.rs:52-106` (`normalize_spawn_params`) — full rewrite of the match
+- Modify: every `AgentRole` exhaustive match the compiler flags after adding the variant (`launch.rs::role_onboarding_task` `(Worker, planner)` arm → `(Manager, planner)`; `spawn.rs` planner branch; `orchestration_pair.rs` planner spawn; hierarchy/report paths; grep `AgentRole::` to enumerate)
 - Modify: `cli/src/args/agent.rs` (`SpawnRole` enum ~line 233, flags ~lines 9-24)
-- Test: `src-tauri/src/service/role_profile.rs` sibling tests (find with `grep -rn normalize_spawn_params src-tauri/src --include=*tests*`)
+- Test: role.rs invariant tests + `role_profile.rs` sibling tests (find with `grep -rn normalize_spawn_params src-tauri/src`)
 
-- [ ] **Step 1: Failing test** — spawn params `{role: "Watcher"}` and `{role: "Worker", role_profile: "watcher"}` both normalize to `role=Worker, role_profile=Some("watcher")` (mirror the existing planner cases).
-- [ ] **Step 2: Verify fail** — `./build.sh test -- role_profile`. Expected: FAIL (watcher stripped to generic Worker).
-- [ ] **Step 3: Implement** — add match arms mirroring Planner's:
+- [ ] **Step 1: Failing tests** — (a) `{role: "Planner"}` and `{role: "Watcher"}` normalize to `role=Manager` + profile `planner`/`watcher`; (b) `{role: "Manager", role_profile: "planner"}` passes through; (c) `{role: "Manager"}` with missing or unknown profile is an **Err**, not a downgrade; (d) role.rs invariants: Manager without parent rejected, Manager spawning a child rejected, Manager under Orchestrator accepted.
+- [ ] **Step 2: Implement** — normalization core:
 
 ```rust
+        Some("Planner") | Some("planner") => {
+            params.role = Some("Manager".into());
+            params.role_profile = Some("planner".into());
+        }
         Some("Watcher") | Some("watcher") => {
-            params.role = Some("Worker".into());
+            params.role = Some("Manager".into());
             params.role_profile = Some("watcher".into());
         }
-        Some("Worker") | None if matches!(profile, Some("Watcher" | "watcher")) => {
-            params.role = Some("Worker".into());
-            params.role_profile = Some("watcher".into());
-        }
+        Some("Manager") => match profile {
+            Some("planner" | "Planner") => params.role_profile = Some("planner".into()),
+            Some("watcher" | "Watcher") => params.role_profile = Some("watcher".into()),
+            other => return Err(format!("Manager requires a known role_profile (planner|watcher), got {other:?}")),
+        },
 ```
 
-  CLI: add `Watcher` to `SpawnRole` and new flags `--charter <TEXT>`, `--charter-file <PATH>` (mutually exclusive; file read client-side), plus the policy trio — `--interval <DURATION>`, `--nudge-cooldown <DURATION>`, `--max-actions <N>` (durations parse like `send --delay`; all optional, host defaults + clamps apply). Pass through spawn params JSON as `charter` / `tick_interval_secs` / `nudge_cooldown_secs` / `max_actions_per_tick`.
-- [ ] **Step 4: Verify pass** — same filter. Expected: PASS. Also `cargo check` in `cli/`.
-- [ ] **Step 5: Commit** — `git commit -m "feat(spawn): watcher role profile + CLI charter/interval flags"`
+  (`normalize_spawn_params` becomes fallible — thread the `Result` to its callers; spawn surfaces the message verbatim.) Migrate planner spawn paths to `Manager` and update the sidebar-feeding role serialization so the pane snapshot exposes `"Manager"`.
+  CLI: add `Manager`/`Watcher` to `SpawnRole` and new flags `--charter <TEXT>`, `--charter-file <PATH>` (mutually exclusive; file read client-side), plus the policy trio — `--interval <DURATION>`, `--nudge-cooldown <DURATION>`, `--max-actions <N>` (durations parse like `send --delay`; all optional, host defaults + clamps apply). Pass through spawn params JSON as `charter` / `tick_interval_secs` / `nudge_cooldown_secs` / `max_actions_per_tick`.
+- [ ] **Step 3: Frontend follows the role** — `src/components/Sidebar/orchestrationSections.ts`: `sectionForRoleProfile` becomes `sectionForRole(role, profile)` keyed on `role === "Manager"`; delete `MANAGER_ROLE_PROFILES`; badge from profile (`PLANNER`/`WATCHER`). Update its tests and callers (`SidebarWorkspaceTabs.tsx`, group summaries).
+- [ ] **Step 4: Verify** — `./build.sh test -- role_profile` then `-- role` (one at a time); `cargo check` in `cli/`; frontend tests for the touched components.
+- [ ] **Step 5: Commit** — `git commit -m "feat(roles): Manager as a first-class role; planner/watcher are manager profiles"`
 
 ### Task 5: Spawn config plumbing + watcher-capability validation
 
@@ -308,7 +323,7 @@ pub fn apply_guardrails(
 **Files:**
 - Modify: `src/components/Terminal/PaneSessionChat.tsx` (~line 458 — model/preset bubbles row)
 - Modify: `packages/chat-core/src/markers.ts` (context/verdict marker twins), `packages/chat-ui/src/MessageBubble*.tsx` (card rendering)
-- Modify: `src/components/Sidebar/orchestrationSections.ts` — no change expected (`watcher` already in `MANAGER_ROLE_PROFILES`); verify only
+- Verify: `src/components/Sidebar/orchestrationSections.ts` — Task 4 Step 3 already moved sectioning to `role === "Manager"`; here only confirm a watcher pane lands in Managers with a `WATCHER` badge
 - Test: Playwright web-mode spec `tests/playwright/specs/` + component tests next to the touched files
 
 - [ ] **Step 1: Component tests first** — (a) `backing.kind === "chat_backend"` + pane `watcher` set ⇒ composer replaced by a static "Watcher — read-only" bar with the charter preview; (b) a `context_request` message renders as a collapsible card (reuse the system-prompt card pattern from `markers.ts`); (c) a `watcher_verdict` message renders a status card; pane header shows a badge colored by `last_status` (`ok`→ok, `attention`→warn, `stalled`→danger tones).

@@ -217,13 +217,30 @@ own; nothing becomes a combine.
 
 ## Orchestration integration
 
-- `role_profile.rs` accepts `watcher` (today it strips unknown profiles to
-  generic Worker). `--role Watcher` CLI sugar → `Worker` + profile `watcher`,
-  same as Planner's.
-- Spawn validation: `--role Watcher` requires a watcher-capable chatBackend
-  provider (manifest `chatBackend: { watcher: true }`).
-- The watcher pane lands in the sidebar **Managers** section (frontend set
-  `MANAGER_ROLE_PROFILES` already contains `"watcher"`).
+**Manager becomes a first-class role.** Today the backend role model is only
+`AgentRole::{Orchestrator, Worker}` and a "manager" is a UI illusion — a
+Worker whose `role_profile` string happens to be in the frontend's
+`MANAGER_ROLE_PROFILES` set; unknown profiles (including `watcher`) are
+silently stripped to generic Worker. That changes:
+
+- `AgentRole` gains `Manager`: `{ Orchestrator, Manager, Worker }`. A manager
+  is the orchestrator's delegated leadership; `role_profile` is the manager's
+  **specialization** (`planner`, `watcher`), required and validated.
+- Hierarchy invariants (`multiplexer/state/role.rs`): a Manager requires an
+  Orchestrator parent; a Manager cannot spawn children (same leaf rule as
+  Worker, v1); Workers still cannot spawn.
+- Normalization (`role_profile.rs`): `--role Planner` → `Manager` + profile
+  `planner`; `--role Watcher` → `Manager` + profile `watcher`; a Manager with
+  a missing or unknown profile is a **spawn error**, never a silent
+  downgrade. Existing planner spawn paths (`orchestration new`, planner spawn
+  sugar, pairing nudges) migrate to `Manager`. No compat shims for old
+  persisted panes (repo rule: no external users, delete legacy aggressively).
+- Spawn validation: `--role Watcher` additionally requires a watcher-capable
+  chatBackend provider (manifest `chatBackend: { watcher: true }`).
+- The sidebar **Managers** section keys off the structural role
+  (`role == Manager`); the profile only picks the badge (`PLANNER`,
+  `WATCHER`). The frontend `MANAGER_ROLE_PROFILES` set is deleted in favor of
+  the role.
 - Observation snapshot derives the watched group from `parent_pane_id`
   (the orchestrator) — consistent with how the hierarchy already works.
 
