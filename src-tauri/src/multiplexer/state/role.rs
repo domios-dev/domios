@@ -106,6 +106,22 @@ impl MultiplexerState {
         Ok(())
     }
 
+    /// Repoint a pane's parent edge. No-op returning false if the pane is absent.
+    /// Overwrites any stale parent, keeping depth = parent.depth + 1 when known.
+    pub fn repoint_parent(&mut self, pane_id: &str, new_parent: &str) -> bool {
+        let parent_depth = self.panes.get(new_parent).map(|p| p.depth);
+        match self.panes.get_mut(pane_id) {
+            Some(pane) => {
+                pane.parent_pane_id = Some(new_parent.to_string());
+                if let Some(d) = parent_depth {
+                    pane.depth = d + 1;
+                }
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Set whether a pane can spawn child agents.
     pub fn set_can_spawn(&mut self, pane_id: &str, can_spawn: bool) -> Result<(), String> {
         let pane = self

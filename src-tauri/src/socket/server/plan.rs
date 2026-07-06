@@ -240,7 +240,13 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("reason"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
+            let new_owner_pane = to.pane_id.clone();
             store.transfer(&id, to, reason, now).map_err(plan_rpc_err)?;
+            // Relink AFTER transfer returns — mux is only reachable here, never
+            // under the plan lock (lock ordering: mux is acquired first).
+            if let Some(pane) = new_owner_pane {
+                svc.relink_plan_hierarchy(&id, &pane);
+            }
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true, "plan_id": id }))
         }
