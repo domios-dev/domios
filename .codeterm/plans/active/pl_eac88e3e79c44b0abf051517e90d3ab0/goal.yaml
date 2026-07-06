@@ -1,0 +1,4 @@
+vector: 'Plan runtime storage rebuilt: structured truth lives in one machine-owned store outside the git worktree; .md sidecars are pure prose that change only on hand edits; git receives plan history solely via deliberate export snapshots; every mutation writes only what it touched; format changes run as explicit one-shot migrations. Zero data loss through migration; plan semantics and CLI surface unchanged.'
+vision: ''
+constraints: []
+postulates: []

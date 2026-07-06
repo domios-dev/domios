@@ -1,9 +1,0 @@
----
-plan_id: pl_dd93d764e1b94293b5e943af71dfdb5b
-kind: milestone
-id: ms_01f7876ea46742ce89f1b35f4d8ac3b2
-handle: release-gate-wiring-state-invariants-mirror-concurrency-as-standing-gate-ms_01f7876ea46742ce89f1b35f4d8ac3b2
-title: review
----
-
-SECTION-BLOAT RETRO (round-93, Andrey spotted Wave 24 holding 72 tasks — restructured live: 52 foreign tasks relinked into six new thematic sections W28-W33, Wave 24 back to its genuine 20). HOW IT HAPPENED — Planner self-retro, no deflection: (1) CONVENIENCE LINKING — I cached one section id ('the FINAL wave') and reused it for ~50 tasks across rounds 41-91; each individual link was defensible ('endgame work goes in the endgame section'), the aggregate destroyed the section's meaning. Classic metric-letter-vs-spirit: the CLI hint says 'task is not linked to a section' and I satisfied it with A section, not the RIGHT section. (2) STRUCTURAL LAZINESS UNDER PACE — the late-emerging themes (process wave, observability wave, CLI wave) deserved sections when their SECOND task appeared; creating sections felt like overhead during acceleration, so the debt compounded silently. Rule for planners (goes in the retrospective): when a third task shares a theme no section names, STOP and create the section — the 30-second cost never gets cheaper than at task three. (3) NO MECHANISM PUSHED BACK — coverage counts linked/unlinked and cannot smell a dumping ground. MECHANISM FIX added to THIS task's scope (doctor integrity): a section-bloat check — any section holding >25% of all tasks or >20 tasks emits a warning naming the section and suggesting a split; the task-add sections hint, when the target section is already oversized, appends '...this section holds N tasks — consider a new section for this theme'.
