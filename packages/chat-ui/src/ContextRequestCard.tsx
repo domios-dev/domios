@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import * as React from "react";
 import { FileJson } from "lucide-react";
 import { ChevronIcon, PRE_WRAP_CLASS } from "./CodeBlock";
 import { TEXT_WRAP_CLASS } from "./MarkdownBody";
@@ -10,7 +10,7 @@ interface ContextRequestCardProps {
 }
 
 export function ContextRequestCard({ content, fontScale }: ContextRequestCardProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = React.useState(false);
   const bodyText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
 
   return (

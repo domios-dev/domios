@@ -3,6 +3,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import { MessageBubble } from "./MessageBubble";
+import { CROSS_PANE_BUBBLE_TESTID, CROSS_PANE_SHELL_TESTID, crossPaneBubbleClassName } from "./crossPaneBubble";
 import { attachToolResults } from "@codeterm/chat-core";
 import {
   providerTranscriptFixtures,
@@ -713,6 +714,13 @@ test("chatBackend structured inbound renders sender header and kind badge", asyn
     const badge = host.querySelector('[data-testid="chat-inbound-kind-badge"]');
     assert(badge, "expected inbound kind badge");
     assert((badge.textContent ?? "").includes("pane"), "expected pane badge");
+    const shell = host.querySelector(`[data-testid="${CROSS_PANE_SHELL_TESTID}"]`) as HTMLElement | null;
+    assert(shell, "inbound cross-pane uses shared shell");
+    assert(shell!.className.includes("justify-start"), "inbound cross-pane is left aligned");
+    const bubble = host.querySelector(`[data-testid="${CROSS_PANE_BUBBLE_TESTID}"]`) as HTMLElement | null;
+    assert(bubble, "inbound cross-pane uses shared bubble");
+    assert(bubble!.className === crossPaneBubbleClassName("text-base"), "inbound uses shared cross-pane bubble class");
+    assert(!bubble!.className.includes("border"), "inbound cross-pane bubble has no accent border");
   } finally {
     await act(async () => root.unmount());
     host.remove();

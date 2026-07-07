@@ -76,8 +76,9 @@ assert(
   "HierarchyTree buildHierarchySubtree accepts excludePaneIds for attached Planners",
 );
 assert(
-  source.includes('data-testid="hierarchy-pane-icon"'),
-  "HierarchyTree rows expose a left provider icon marker",
+  css.includes(".sidebar-group-container .sidebar-hierarchy-level") &&
+    css.includes("border-left: none"),
+  "globals.css flattens worker hierarchy stripes inside orchestration groups",
 );
 assert(
   source.includes("ProviderGlyph") && source.includes("usePaneProvider"),

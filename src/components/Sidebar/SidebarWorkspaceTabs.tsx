@@ -237,7 +237,7 @@ export function SidebarWorkspaceTabs({
               >
                 <HierarchyTree
                   nodes={workerNodes}
-                  depth={depth + 1}
+                  depth={0}
                   onJumpToPane={(paneId) => {
                     const childTab = sortedTabs.find((t) => t.pane_id === paneId);
                     if (childTab) onActivateTab(childTab.id);

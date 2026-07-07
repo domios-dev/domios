@@ -27,6 +27,23 @@ function setupDom() {
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
   Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
   Object.defineProperty(globalThis, "MouseEvent", { value: window.MouseEvent, configurable: true });
+  if (typeof (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame !== "function") {
+    (globalThis as { requestAnimationFrame: (cb: FrameRequestCallback) => number }).requestAnimationFrame = (
+      cb: FrameRequestCallback,
+    ) => {
+      cb(0);
+      return 0;
+    };
+    (globalThis as { cancelAnimationFrame: (id: number) => void }).cancelAnimationFrame = () => {};
+  }
+}
+
+async function openTabActionsMenu(tabRow: Element): Promise<void> {
+  const trigger = tabRow.querySelector('button[title="Tab actions"]');
+  assert(trigger?.parentElement, "tab actions trigger present");
+  await act(async () => {
+    trigger.parentElement!.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+  });
 }
 
 async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
@@ -130,6 +147,94 @@ test("manager child without plan binding renders in Managers and workers remain 
   assert(managerIcon, "manager child row renders left provider icon");
   const workerIcons = workerWrap?.querySelectorAll('[data-testid="hierarchy-pane-icon"] .agent-icon');
   assert(workerIcons && workerIcons.length === 2, "each worker hierarchy row renders left provider icon");
+  const workerLevels = workerWrap?.querySelectorAll(".sidebar-hierarchy-level");
+  assert(workerLevels && workerLevels.length > 0, "worker hierarchy levels present");
+  for (const level of workerLevels) {
+    assert(
+      !level.className.includes("border-l"),
+      "worker rows align flat with managers — no nested left stripe",
+    );
+  }
+  await act(async () => root.unmount());
+});
+
+test("manager rows expose close control and fire onCloseTab", async () => {
+  const closedTabIds: string[] = [];
+  const panes: Record<string, Pane> = {
+    orch: pane({ id: "orch", title: "Orchestrator", role: "Orchestrator", agent_type: "claude" }),
+    planner: pane({
+      id: "planner",
+      title: "Planner",
+      role: "Manager",
+      role_profile: "planner",
+      parent_pane_id: "orch",
+      agent_type: "claude",
+    }),
+    manager: pane({
+      id: "manager",
+      title: "Watcher",
+      role: "Manager",
+      role_profile: "watcher",
+      parent_pane_id: "orch",
+      agent_type: "codex",
+    }),
+  };
+  const tabs = [
+    tab("tab-orch", "orch", 0),
+    tab("tab-planner", "planner", 1),
+    tab("tab-manager", "manager", 2),
+  ];
+  const workspace: Workspace = {
+    id: "ws",
+    name: "Workspace",
+    tabs,
+    active_tab_id: "tab-orch",
+    cwd: null,
+  };
+  const { host, root } = await render(
+    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
+      <SidebarWorkspaceTabs
+        workspace={workspace}
+        activeTabId="tab-orch"
+        sortedTabs={tabs}
+        panes={panes}
+        paneStatuses={{}}
+        planIndex={[]}
+        plans={[]}
+        activeWork={null}
+        remoteWorkers={{}}
+        closingTabIds={new Set()}
+        appearingTabIds={new Set()}
+        isActiveVisual={false}
+        workspaceCanvasActive={false}
+        touchMode={false}
+        compact={false}
+        sidebarActionText="text-xs"
+        orchestrators={[panes.orch]}
+        onBeforeOpenPlan={() => {}}
+        onActivateTab={() => {}}
+        onCloseTab={(tabId) => {
+          closedTabIds.push(tabId);
+        }}
+        onRenameTab={() => {}}
+        onNewSession={() => {}}
+      />
+    </SidebarDnd>,
+  );
+
+  for (const tabId of ["tab-planner", "tab-manager"] as const) {
+    const row = host.querySelector(`[data-tab-id="${tabId}"]`);
+    assert(row, `manager row rendered for ${tabId}`);
+    await openTabActionsMenu(row);
+    const closeItem = document.querySelector('[data-testid="tab-menu-close"]');
+    assert(closeItem && !(closeItem as HTMLButtonElement).disabled, `close enabled for ${tabId}`);
+    await act(async () => {
+      (closeItem as HTMLButtonElement).click();
+    });
+    assert(closedTabIds.includes(tabId), `onCloseTab fired for ${tabId}`);
+    document.body.querySelectorAll("[data-testid='tab-menu-close']").forEach((el) => el.remove());
+  }
+
   await act(async () => root.unmount());
 });
 
