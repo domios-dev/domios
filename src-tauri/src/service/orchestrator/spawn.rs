@@ -393,6 +393,10 @@ impl ServiceContext {
         } else {
             bg_task
         };
+        // Planner-start injection point: pull machine-local orchestration preferences off the hot path.
+        if params.role_profile.as_deref() == Some("planner") {
+            self.deliver_orchestration_preferences(&pane_id);
+        }
         // Tag with the spawner's origin prefix uniformly for every provider; delivery handles the marker per provider (TUI-typed for PtyInput, positional after `--` for inline-flag).
         let bg_task = bg_task.map(|t| match self.spawn_task_prefix(&pane_id) {
             Some(pfx) => format!("{}{}", pfx, t),

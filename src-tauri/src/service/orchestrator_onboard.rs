@@ -1,8 +1,64 @@
 //! Promote a pane to Orchestrator and inject the onboarding cheat-sheet.
 
 use super::ServiceContext;
+use crate::mem::{SearchHit, SearchQuery};
 use crate::multiplexer::types::{AgentRole, Pane};
 use crate::service::messenger::{MessageEnvelope, Messenger};
+
+const PREF_QUERY: &str = "CodeTerm orchestration and planning preferences";
+const PREF_LIMIT: usize = 5;
+const PREF_ITEM_CAP: usize = 400;
+const PREF_TOTAL_CAP: usize = 2000;
+
+pub fn orchestration_preference_query() -> SearchQuery {
+    SearchQuery {
+        query: PREF_QUERY.to_string(),
+        kind: Some("preference".to_string()),
+        scope: None,
+        area: Some("orchestration".to_string()),
+        limit: Some(PREF_LIMIT),
+    }
+}
+
+/// Bounded English delta block from area=orchestration preferences. None when empty.
+pub fn format_orchestration_preferences(hits: &[SearchHit]) -> Option<String> {
+    if hits.is_empty() {
+        return None;
+    }
+    let mut out = String::from(
+        "Machine-local orchestration preferences (mem, area=orchestration) — apply as deltas over the ORCHESTRATION doc:",
+    );
+    for hit in hits {
+        let body = hit.item.body.trim();
+        let text: &str = if body.is_empty() {
+            hit.item.summary.as_deref().unwrap_or("").trim()
+        } else {
+            body
+        };
+        if text.is_empty() {
+            continue;
+        }
+        let mut clipped: String = text.chars().take(PREF_ITEM_CAP).collect();
+        if clipped.len() < text.len() {
+            clipped.push('…');
+        }
+        let title = hit.item.title.trim();
+        let line = if title.is_empty() {
+            format!("\n- {clipped}")
+        } else {
+            format!("\n- {title}: {clipped}")
+        };
+        if out.len() + line.len() > PREF_TOTAL_CAP {
+            break;
+        }
+        out.push_str(&line);
+    }
+    if out.contains("\n- ") {
+        Some(out)
+    } else {
+        None
+    }
+}
 
 pub fn pane_is_agent_capable(pane: &Pane) -> bool {
     pane.agent_type.is_some() || pane.is_chat_backend()
@@ -42,9 +98,9 @@ pub fn orchestrator_onboarding_body(pane_id: &str) -> String {
     format!(
         "You are now the Orchestrator for this pane (role=Orchestrator, can_spawn=true).\n\
 \n\
-First load the orchestration rules and local preferences:\n\
+First load the orchestration rules:\n\
   codeterm docs ORCHESTRATION\n\
-  codeterm mem search \"CodeTerm planner orchestration preferences\"\n\
+Machine-local orchestration preferences are pulled from mem and injected automatically — no manual search needed.\n\
 \n\
 Planning rule: CodeTerm planner is the source of truth. Set GOAL first; put WHAT/WHY in Spec, HOW in Plan sections, and concrete work in Tasks. Do not create markdown implementation plans as the primary plan unless the user explicitly asks for an export.\n\
 \n\
@@ -79,6 +135,36 @@ impl ServiceContext {
         let envelope = MessageEnvelope::reminder("CodeTerm", "orchestrator-onboard");
         if let Err(e) = Messenger::deliver(self, pane_id, envelope, &body) {
             log::warn!("[orchestrator-onboard] deliver to {pane_id} failed: {e}");
+        }
+        self.deliver_orchestration_preferences(pane_id);
+    }
+
+    /// Off-hot-path pull of machine-local area=orchestration preferences,
+    /// injected as a delta reminder. mem search is blocking (FTS + embeddings)
+    /// so it runs on a blocking thread; empty result is a clean no-op.
+    pub fn deliver_orchestration_preferences(&self, pane_id: &str) {
+        let svc = self.clone();
+        let pane_id = pane_id.to_string();
+        let job = move || {
+            let hits = match svc.mem.search(&orchestration_preference_query()) {
+                Ok(hits) => hits,
+                Err(e) => {
+                    log::warn!("[orchestration-prefs] mem search failed for {pane_id}: {e}");
+                    return;
+                }
+            };
+            let Some(body) = format_orchestration_preferences(&hits) else {
+                return;
+            };
+            let envelope = MessageEnvelope::reminder("CodeTerm", "orchestration-prefs");
+            if let Err(e) = Messenger::deliver(&svc, &pane_id, envelope, &body) {
+                log::warn!("[orchestration-prefs] deliver to {pane_id} failed: {e}");
+            }
+        };
+        if tokio::runtime::Handle::try_current().is_ok() {
+            tokio::task::spawn_blocking(job);
+        } else {
+            std::thread::spawn(job);
         }
     }
 
@@ -181,7 +267,8 @@ mod tests {
         let msg = orchestrator_onboarding_body("pane-abc");
         assert!(msg.contains("You are now the Orchestrator"));
         assert!(msg.contains("CodeTerm planner is the source of truth"));
-        assert!(msg.contains("codeterm mem search \"CodeTerm planner orchestration preferences\""));
+        assert!(msg.contains("injected automatically"));
+        assert!(!msg.contains("codeterm mem search"));
         assert!(msg.contains("codeterm doc orchestration"));
         assert!(msg.contains("codeterm docs ORCHESTRATION"));
         assert!(msg.contains("codeterm orchestrator status --plan PLAN_ID"));
@@ -243,6 +330,62 @@ mod tests {
         protected.agent_type = Some("claude".into());
         protected.protected = true;
         assert!(validate_make_orchestrator(&protected).is_err());
+    }
+
+    fn mk_hit(title: &str, body: &str) -> SearchHit {
+        use crate::mem::store::MemItem;
+        SearchHit {
+            item: MemItem {
+                id: "id".into(),
+                uid: "uid".into(),
+                kind: "preference".into(),
+                scope: "global".into(),
+                title: title.into(),
+                summary: None,
+                area: Some("orchestration".into()),
+                tags: vec![],
+                body: body.into(),
+                source: None,
+                importance: 0.0,
+                created_at: String::new(),
+                updated_at: String::new(),
+                accessed_at: None,
+                access_count: 0,
+                recurrence_count: 0,
+            },
+            score: 1.0,
+        }
+    }
+
+    #[test]
+    fn preference_query_is_scoped_to_orchestration_preferences() {
+        let q = orchestration_preference_query();
+        assert_eq!(q.kind.as_deref(), Some("preference"));
+        assert_eq!(q.area.as_deref(), Some("orchestration"));
+        assert!(q.limit.is_some());
+    }
+
+    #[test]
+    fn empty_preferences_produce_no_injection() {
+        assert!(format_orchestration_preferences(&[]).is_none());
+    }
+
+    #[test]
+    fn preferences_format_bounded_english_block() {
+        let hits = vec![
+            mk_hit("Build cap", "Only two concurrent QA gates on this machine"),
+            mk_hit("", "x".repeat(5000).as_str()),
+        ];
+        let block = format_orchestration_preferences(&hits).expect("non-empty");
+        assert!(block.contains("area=orchestration"));
+        assert!(block.contains("Build cap"));
+        assert!(block.len() <= PREF_TOTAL_CAP);
+    }
+
+    #[test]
+    fn blank_bodies_are_skipped() {
+        let hits = vec![mk_hit("empty", "   ")];
+        assert!(format_orchestration_preferences(&hits).is_none());
     }
 
     #[test]
