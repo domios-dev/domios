@@ -8,14 +8,14 @@ acceptance_criteria:
 - Unmerged branch or live pane -> left intact + hint emitted; never force-deletes unmerged work
 test_plan: 'Unit-test executor: merged->cleaned+done; unmerged->refused hint; live pane->refused. Integration on scratch git repo'
 correctness: Merge-check against the lane actual integration target (base/destination), not assumed master; irreversible deletes gated behind the merged check
-status: in_review
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783375612499
-updated_at: 1783379519785
-status_changed_at: 1783379519409
+updated_at: 1783407563648
+status_changed_at: 1783407563648
 handle: t3-cleanup
 tags: []
 section_ids:
@@ -28,16 +28,16 @@ executor_role: backend-dev
 competition: null
 intent: null
 parent_task_id: null
-assigned_pane_id: '50620346'
+assigned_pane_id: null
 lane:
-  pane_id: '50620346'
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: /Users/rollacode/Developer/ct-lanes/t3-cleanup
   branch: lane/t3-cleanup
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -120,7 +120,7 @@ execution_attempts:
   assigned_at: 1783376290955
   reported_at: 1783379474977
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783407563648
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

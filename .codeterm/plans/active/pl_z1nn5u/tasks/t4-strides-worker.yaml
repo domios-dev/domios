@@ -8,14 +8,14 @@ acceptance_criteria:
 - Tasks with no strides unaffected; most-recent/pinned N cap respected (no prompt bloat)
 test_plan: 'Unit-test build_prompt includes a pinned-decision stride + respects the N cap; smoke: dispatched worker prompt contains the stride. ./build.sh test'
 correctness: Strides are read-only context; stable ordering (pinned/newest first); English only
-status: in_review
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783375612586
-updated_at: 1783378278982
-status_changed_at: 1783378278694
+updated_at: 1783407564140
+status_changed_at: 1783407564140
 handle: t4-strides-worker
 tags: []
 section_ids:
@@ -28,16 +28,16 @@ executor_role: backend-dev
 competition: null
 intent: null
 parent_task_id: null
-assigned_pane_id: c8752fde
+assigned_pane_id: null
 lane:
-  pane_id: c8752fde
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: /Users/rollacode/Developer/ct-lanes/t4-strides-worker
   branch: lane/t4-strides-worker
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -163,7 +163,7 @@ execution_attempts:
   assigned_at: 1783375942710
   reported_at: 1783378226850
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783407564140
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

@@ -10,14 +10,14 @@ acceptance_criteria:
 - Demote = status->pending + clear assigned_pane_id + ONE stride; idempotent (no duplicate strides/re-demote per tick); reuse start_plan_reminder_scheduler cadence
 test_plan: 'Unit-test the reconcile action with a fake clock + pane_probe stub: dead+overdue->demoted; alive->untouched; dead-but-recent->grace. ./build.sh test'
 correctness: Gate on plan/lane_liveness.rs derive_lane_liveness (PaneGone vs ReportOverdue + thresholds), never raw instantaneous InProgressPaneGone; demoting a ReportOverdue lane kills active work — forbidden; idempotent; respect other-orchestrator ownership; liveness keyed to the task's own session
-status: in_review
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783375646960
-updated_at: 1783400270132
-status_changed_at: 1783400269986
+updated_at: 1783407566681
+status_changed_at: 1783407566681
 handle: t9-watchdog
 tags: []
 section_ids:
@@ -30,16 +30,16 @@ executor_role: backend-dev
 competition: null
 intent: null
 parent_task_id: null
-assigned_pane_id: 216f3abd
+assigned_pane_id: null
 lane:
-  pane_id: 216f3abd
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: /Users/rollacode/Developer/ct-lanes/t9-watchdog
   branch: lane/t9-watchdog
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -120,7 +120,7 @@ execution_attempts:
   assigned_at: 1783376297278
   reported_at: 1783400220598
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783407566681
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

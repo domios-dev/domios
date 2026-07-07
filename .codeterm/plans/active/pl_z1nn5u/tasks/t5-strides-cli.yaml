@@ -7,14 +7,14 @@ acceptance_criteria:
 - task show <id> prints a strides section when milestones exist; omitted cleanly when none
 test_plan: Unit/snapshot test of the renderer over a task fixture with milestones; manual task show on a real task
 correctness: No crash on empty/legacy milestone shapes; consistent ordering
-status: in_review
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783375612671
-updated_at: 1783377072800
-status_changed_at: 1783377072323
+updated_at: 1783407564560
+status_changed_at: 1783407564560
 handle: t5-strides-cli
 tags: []
 section_ids:
@@ -27,16 +27,16 @@ executor_role: backend-dev
 competition: null
 intent: null
 parent_task_id: null
-assigned_pane_id: 30bab1d4
+assigned_pane_id: null
 lane:
-  pane_id: 30bab1d4
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: /Users/rollacode/Developer/ct-lanes/t5-strides-cli
   branch: lane/t5-strides-cli
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -117,7 +117,7 @@ execution_attempts:
   assigned_at: 1783376304773
   reported_at: 1783377013391
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783407564560
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

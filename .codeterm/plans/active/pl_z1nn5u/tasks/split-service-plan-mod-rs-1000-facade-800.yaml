@@ -8,14 +8,14 @@ acceptance_criteria:
 - cargo check passes; all existing exports preserved; no behavior change
 test_plan: bash scripts/check-file-sizes.sh clean for service/plan/mod.rs; cargo check --lib
 correctness: Facade-only mod.rs; moved logic keeps identical visibility/paths; no import breakage
-status: in_review
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783404766483
-updated_at: 1783405559284
-status_changed_at: 1783405559145
+updated_at: 1783407569662
+status_changed_at: 1783407569662
 handle: split-service-plan-mod-rs-1000-facade-800
 tags: []
 section_ids: []
@@ -25,16 +25,16 @@ executor_role: backend-dev
 competition: null
 intent: null
 parent_task_id: null
-assigned_pane_id: 259025ef
+assigned_pane_id: null
 lane:
-  pane_id: 259025ef
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: /Users/rollacode/Developer/ct-lanes/t14-modsplit
   branch: lane/t14-modsplit
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -82,6 +82,23 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_9oac5j
+  from:
+    pane_id: a0481d40
+    session_id: null
+    title: null
+  kind: status_update
+  text: 'INTEGRATION GATE (src-tauri): cargo check 0 err; clippy --lib 0 issues; lib tests 2818 passed / 3 failed. The 3 fails (mem::graph::add_alias_cleans_alias_vectors, mem::graph_repair::orphans::repair_orphan_vectors_finds_and_deletes, process_util::spawn_audit::daemon_windows_spawns_use_no_window_helper) are in files BYTE-IDENTICAL to base 8285461d (git diff empty) -> pre-existing base-branch failures in unrelated subsystems (mem-vector determinism + inline spawn-audit test helper), NOT effort regressions. Fixed 2 real integration issues: write_atomic pub(super) after mod split; earlier manifest ''staleness'' was a stale target/debug/codeterm fallback binary (manifest actually fresh, 407 CLI tests pass).'
+  ts: 1783407226876
+  links:
+  - key:155fce1b70465bc4
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_73pprm
   executor_pane_id: 259025ef
@@ -115,7 +132,7 @@ execution_attempts:
   assigned_at: 1783404918892
   reported_at: 1783405535272
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783407569662
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

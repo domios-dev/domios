@@ -8,14 +8,14 @@ acceptance_criteria:
 - A failed spawn does not leave a task in_progress with no pane (rollback); existing spawn/assign/send callers unchanged
 test_plan: 'Unit-test the RPC composes the three ops in order + rolls back on spawn failure; CLI smoke on scratch plan: pane spawned + task in_progress + brief delivered. ./build.sh test'
 correctness: Dispatch is atomic-ish; brief must contain the report command so the worker can report back
-status: in_review
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783375612308
-updated_at: 1783400513622
-status_changed_at: 1783400513032
+updated_at: 1783407562681
+status_changed_at: 1783407562681
 handle: t1-dispatch
 tags: []
 section_ids:
@@ -28,16 +28,16 @@ executor_role: backend-dev
 competition: null
 intent: null
 parent_task_id: null
-assigned_pane_id: 903d5788
+assigned_pane_id: null
 lane:
-  pane_id: 903d5788
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: /Users/rollacode/Developer/ct-lanes/t1-dispatch
   branch: lane/t1-dispatch
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -120,7 +120,7 @@ execution_attempts:
   assigned_at: 1783375940959
   reported_at: 1783400447141
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783407562681
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

@@ -7,14 +7,14 @@ acceptance_criteria:
 - CLI args-parse tests run to completion AND the process exits within the cap on macOS, no orphan; or documented proof the hang is already resolved
 test_plan: scripts/test-capped.sh narrowed to the args-parse/manifest tests; confirm exit code + prompt termination; check for lingering threads
 correctness: Fix must not mask the hang by increasing the cap; the process must actually terminate (no detached runtime)
-status: in_review
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783375647325
-updated_at: 1783401023777
-status_changed_at: 1783399978416
+updated_at: 1783407568959
+status_changed_at: 1783407568959
 handle: t13-clihang
 tags: []
 section_ids:
@@ -27,16 +27,16 @@ executor_role: infra
 competition: null
 intent: null
 parent_task_id: null
-assigned_pane_id: 4ce64e70
+assigned_pane_id: null
 lane:
-  pane_id: 4ce64e70
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: /Users/rollacode/Developer/ct-lanes/t13-clihang
   branch: lane/t13-clihang
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -140,7 +140,7 @@ execution_attempts:
   assigned_at: 1783375946115
   reported_at: 1783399871505
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783407568959
   competition_group_id: null
   competition_lane: null
   judge_verdict: null
