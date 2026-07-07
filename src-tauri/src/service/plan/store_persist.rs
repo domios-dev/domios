@@ -51,7 +51,7 @@ impl PlanStore {
     /// Legacy plan.json + md-sidecar writer. Retained ONLY for the one-off
     /// conversion tool and tests; the live daemon never calls this.
     #[cfg(test)]
-    fn write_atomic(plan: &Plan) -> std::io::Result<PathBuf> {
+    pub(super) fn write_atomic(plan: &Plan) -> std::io::Result<PathBuf> {
         let path = Self::file_path(plan)?;
         let mut normalized = plan.clone();
         if normalized.canonical_project_path.trim().is_empty() {
