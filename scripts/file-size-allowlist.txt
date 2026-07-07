@@ -20,4 +20,5 @@ cli/src/cmd/plugin.rs	1743
 # Agent provider abstraction — no split task yet; baselined to unblock CI.
 src-tauri/src/agent/provider.rs	1231
 # Mem hybrid search — no split task yet; baselined to unblock CI.
-src-tauri/src/mem/search.rs	1137
+# Moved into codeterm-mem crate (T2 extraction); baseline preserved through the move.
+src-tauri/crates/codeterm-mem/src/search.rs	1129
