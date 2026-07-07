@@ -698,6 +698,19 @@ pub enum PlanTaskAction {
         #[arg(long, alias = "peer")]
         mesh: Option<String>,
     },
+    /// Spawn a worker, assign the task, and deliver its brief in one atomic call
+    Dispatch {
+        plan_id: String,
+        task_id: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        model: Option<String>,
+        #[arg(long, help = "Parent pane override (defaults to the caller pane)")]
+        parent: Option<String>,
+        #[arg(long)]
+        workspace: Option<String>,
+        #[arg(long)]
+        cwd: Option<String>,
+    },
     /// List execution attempts for a plan task
     Attempts { plan_id: String, task_id: String },
     /// Show one execution attempt for a plan task
