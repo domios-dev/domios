@@ -160,7 +160,6 @@ pub struct WatcherSpec {
     pub tick_inflight_since_ms: Option<u64>,
 }
 
-
 /// What backs a pane's I/O. A `Pty` pane runs a terminal; a `ChatBackend` pane is
 /// driven by a plugin's `chatBackend` capability and keeps `pty_id: None`
 /// permanently (no backend reader, no screen state). The single discriminator the

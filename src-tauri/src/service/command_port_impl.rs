@@ -28,7 +28,11 @@ impl CommandPort for ServiceContext {
             .read_output(offset, max_bytes, strip_ansi, full)
     }
 
-    fn read_pane_screen(&self, pane_id: &str, formatted: bool) -> Result<serde_json::Value, String> {
+    fn read_pane_screen(
+        &self,
+        pane_id: &str,
+        formatted: bool,
+    ) -> Result<serde_json::Value, String> {
         self.pane_transport(pane_id)?.read_screen(formatted)
     }
 

@@ -18,7 +18,8 @@ pub trait CommandPort: Send + Sync {
         strip_ansi: bool,
         full: bool,
     ) -> Result<serde_json::Value, String>;
-    fn read_pane_screen(&self, pane_id: &str, formatted: bool) -> Result<serde_json::Value, String>;
+    fn read_pane_screen(&self, pane_id: &str, formatted: bool)
+        -> Result<serde_json::Value, String>;
     fn close_pane_guarded(&self, caller: Option<&str>, pane_id: &str) -> Result<(), String>;
     fn focus_pane(&self, pane_id: &str) -> Result<(), String>;
     fn rename_pane(&self, pane_id: &str, title: &str) -> Result<(), String>;
@@ -32,10 +33,7 @@ pub trait CommandPort: Send + Sync {
     fn rename_workspace(&self, ws_id: &str, name: &str) -> Result<(), String>;
     fn close_workspace_guarded(&self, caller: Option<&str>, ws_id: &str) -> Result<(), String>;
     fn list_workspaces(&self) -> Vec<crate::multiplexer::state::WorkspaceInfo>;
-    fn list_recently_closed(
-        &self,
-        ws_id: &str,
-    ) -> Vec<crate::multiplexer::types::ClosedPane>;
+    fn list_recently_closed(&self, ws_id: &str) -> Vec<crate::multiplexer::types::ClosedPane>;
     fn reopen_closed_pane(
         &self,
         ws_id: &str,

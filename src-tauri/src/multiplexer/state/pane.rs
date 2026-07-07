@@ -323,7 +323,8 @@ mod display_label_tests {
         let generated = state.get_pane(&pane_id).unwrap().title.clone();
 
         let provider_id = "cursor";
-        let override_decision = crate::multiplexer::spawn_title::creation_title_override(None, None);
+        let override_decision =
+            crate::multiplexer::spawn_title::creation_title_override(None, None);
         assert!(
             override_decision.is_none(),
             "no title/agent_name supplied: spawn must not compute a fallback title"

@@ -575,7 +575,6 @@ fn ghost_repro_normal_pane_survives_snapshot_round_trip() {
     );
 }
 
-
 /// Mixed workspace: only the ephemeral pane is dropped; the real pane survives.
 #[test]
 fn ghost_repro_mixed_workspace_drops_only_ephemeral() {

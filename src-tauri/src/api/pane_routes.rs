@@ -223,9 +223,11 @@ pub async fn focus_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    let result =
-        crate::dispatch::dispatch(&crate::dispatch::Command::PaneFocus { pane_id }, state.svc.as_ref())
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+    let result = crate::dispatch::dispatch(
+        &crate::dispatch::Command::PaneFocus { pane_id },
+        state.svc.as_ref(),
+    )
+    .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
     Ok(Json(result.into_json()))
 }
 
