@@ -4,6 +4,7 @@
 //! - IdentityManager — signing, authentication, keypair operations
 //! - MeshManager — thin facade composing identity + peer/discovery state
 
+mod app_ports;
 pub mod broadcast;
 pub mod crown;
 pub mod discovered;
@@ -12,6 +13,7 @@ pub mod health;
 pub mod identity;
 pub mod manager;
 pub mod pairing;
+pub mod ports;
 pub mod peer_services;
 pub mod peers;
 pub mod serve_setup;
@@ -32,6 +34,6 @@ pub use serve_setup::{
     disable_web_serve, enable_web_serve, probe_serve_status, tailscale_serve_https_url,
     ServeResult, ServeStatus,
 };
-pub use toggle::set_mesh_enabled;
+pub use toggle::{apply_mesh_enabled, set_mesh_enabled};
 
 pub type MeshState = Arc<Mutex<MeshManager>>;
