@@ -507,15 +507,25 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if !attachments.is_empty() {
                 body["attachments"] = serde_json::json!(attachments);
             }
-            let result = client
-                .call_detailed("agent.report", Some(body.clone()))
-                .map_err(|err| {
-                    if body.get("plan_id").and_then(|v| v.as_str()).is_some() {
-                        render_plan_call_error(err, &body)
-                    } else {
-                        err.to_string()
-                    }
-                });
+            // A lost report leaves the orchestrator blind while the worker
+            // idles (live ENOSPC incident) — retry once, then fail UNMISSABLY.
+            let mut result = client.call_detailed("agent.report", Some(body.clone()));
+            if result.is_err() {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                result = client.call_detailed("agent.report", Some(body.clone()));
+            }
+            let result = result.map_err(|err| {
+                let rendered = if body.get("plan_id").and_then(|v| v.as_str()).is_some() {
+                    render_plan_call_error(err, &body)
+                } else {
+                    err.to_string()
+                };
+                format!(
+                    "!!! REPORT NOT DELIVERED (after retry) — your orchestrator is BLIND to this task.\n\
+                     Fix the cause and re-run the exact same `codeterm agent report` command.\n\
+                     cause: {rendered}"
+                )
+            });
             if let Ok(ref val) = result {
                 print_report_notices(json, val);
             }

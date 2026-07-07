@@ -119,6 +119,16 @@ impl ServiceContext {
                  (orchestrators must be pinned to a workspace)"
                 .into());
         }
+        // Low disk turns lanes into silent stalls (workers idle, reports lost
+        // to ENOSPC) — warn loudly at spawn time while there is still room.
+        if let Some(free_gb) = free_disk_gb(params.cwd.as_deref().unwrap_or("/")) {
+            if free_gb < 10 {
+                log::warn!(
+                    "[spawn] LOW DISK: {free_gb}GB free — worker lanes fill disk fast (cargo targets); reclaim finished-lane targets before spawning more"
+                );
+            }
+        }
+        apply_worker_hierarchy_defaults(&mut params);
         let default_provider = crate::config::default_agent_provider();
         let agent_cmd = params
             .agent
@@ -488,4 +498,84 @@ impl ServiceContext {
             None,
         )
     }
+}
+
+/// Deterministic hierarchy defaults: a local Worker with no explicit --parent
+/// belongs to its CALLER, and reports route to its parent — never to whichever
+/// other orchestrator happens to share the workspace.
+fn apply_worker_hierarchy_defaults(params: &mut SpawnAgentParams) {
+    if params.role.as_deref() != Some("Worker") || params.report_target_mesh_peer.is_some() {
+        return;
+    }
+    if params.parent_pane_id.is_none() {
+        params.parent_pane_id = params
+            .spawned_by_pane_id
+            .clone()
+            .filter(|sb| !sb.is_empty());
+    }
+    if params.report_target_pane_id.is_none() {
+        params.report_target_pane_id = params.parent_pane_id.clone();
+    }
+}
+
+#[cfg(test)]
+mod hierarchy_defaults_tests {
+    use super::*;
+
+    fn worker_params(spawned_by: Option<&str>) -> SpawnAgentParams {
+        SpawnAgentParams {
+            role: Some("Worker".into()),
+            spawned_by_pane_id: spawned_by.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn worker_without_parent_defaults_to_caller_and_reports_to_parent() {
+        let mut p = worker_params(Some("caller-pane"));
+        apply_worker_hierarchy_defaults(&mut p);
+        assert_eq!(p.parent_pane_id.as_deref(), Some("caller-pane"));
+        assert_eq!(p.report_target_pane_id.as_deref(), Some("caller-pane"));
+    }
+
+    #[test]
+    fn explicit_parent_and_report_target_are_untouched() {
+        let mut p = worker_params(Some("caller-pane"));
+        p.parent_pane_id = Some("boss".into());
+        p.report_target_pane_id = Some("boss".into());
+        apply_worker_hierarchy_defaults(&mut p);
+        assert_eq!(p.parent_pane_id.as_deref(), Some("boss"));
+        assert_eq!(p.report_target_pane_id.as_deref(), Some("boss"));
+    }
+
+    #[test]
+    fn cross_mesh_and_non_worker_are_skipped() {
+        let mut mesh = worker_params(Some("caller"));
+        mesh.report_target_mesh_peer = Some("peer".into());
+        apply_worker_hierarchy_defaults(&mut mesh);
+        assert_eq!(mesh.parent_pane_id, None);
+
+        let mut orch = SpawnAgentParams {
+            role: Some("Orchestrator".into()),
+            spawned_by_pane_id: Some("caller".into()),
+            ..Default::default()
+        };
+        apply_worker_hierarchy_defaults(&mut orch);
+        assert_eq!(orch.parent_pane_id, None);
+    }
+}
+
+#[cfg(unix)]
+fn free_disk_gb(path: &str) -> Option<u64> {
+    let c_path = std::ffi::CString::new(path).ok()?;
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) } != 0 {
+        return None;
+    }
+    Some((stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64) / 1_073_741_824)
+}
+
+#[cfg(not(unix))]
+fn free_disk_gb(_path: &str) -> Option<u64> {
+    None
 }

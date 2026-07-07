@@ -118,6 +118,19 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
             handle_result(json, final_result);
         }
         PaneAction::Current { last } => {
+            // The pane this command RUNS IN is the env var — the focused pane
+            // is whatever tab the human is looking at (an orchestrator once
+            // adopted a foreign focused pane as its own id and mis-parented
+            // eleven workers). Fall back to focus only outside pane context,
+            // loudly.
+            if !last {
+                if let Ok(own) = std::env::var("CODETERM_PANE_ID") {
+                    if !own.trim().is_empty() {
+                        println!("{}", own.trim());
+                        return;
+                    }
+                }
+            }
             let result = client.call("pane.list", None);
             match result {
                 Ok(value) => {
@@ -125,6 +138,9 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                         let pane = if last {
                             arr.last()
                         } else {
+                            eprintln!(
+                                "warning: no CODETERM_PANE_ID in this shell — falling back to the FOCUSED pane, which may not be yours"
+                            );
                             arr.iter()
                                 .find(|p| {
                                     p.get("focused").and_then(|v| v.as_bool()).unwrap_or(false)
