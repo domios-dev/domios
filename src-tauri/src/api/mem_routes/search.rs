@@ -106,11 +106,16 @@ fn append_plan_hits(
     project: &str,
     q: &SearchQuery,
 ) -> Result<(), (StatusCode, String)> {
+    use crate::service::plan::ports::PlanIndexQuery;
     let project_root = state
         .svc
         .ensure_plan_project_loaded(std::path::Path::new(project))
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let mut plan_query = q.clone();
+    let mut plan_query = PlanIndexQuery {
+        query: q.query.clone(),
+        scope: q.scope.clone(),
+        limit: q.limit,
+    };
     if let Some(limit) = q.limit {
         plan_query.limit = Some((limit * 5).clamp(limit, 50));
     }

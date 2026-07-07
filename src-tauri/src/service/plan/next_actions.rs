@@ -30,7 +30,7 @@ pub struct NextAction {
 // name and surface any approval blockers. Shared wording lives in prompts.
 fn planning_next_action_message(s: &PlanStateSnapshot) -> String {
     let peer = crate::service::plan::peer_mandate::planner_peer_label(&s.planner_resolution);
-    let mut msg = crate::prompts::orch_defer_structure_line(&peer);
+    let mut msg = super::prompts_plan::orch_defer_structure_line(&peer);
     if s.planning_approval_blockers.is_empty() {
         msg.push_str(" Structure looks ready — run the quality doctor, then approve.");
     } else {
@@ -105,7 +105,7 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
             kind: NextActionKind::RegressionGate,
             task_id: None,
             loop_id: None,
-            message: crate::prompts::milestone_gate_suggestion(&gate.key, &gate.label),
+            message: super::prompts_plan::milestone_gate_suggestion(&gate.key, &gate.label),
         });
     }
 

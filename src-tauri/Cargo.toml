@@ -5,7 +5,7 @@ edition = "2021"
 default-run = "codeterm"
 
 [workspace]
-members = [".", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-mesh", "crates/codeterm-mem"]
+members = [".", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan"]
 exclude = ["pty-fork"]
 resolver = "2"
 
@@ -32,6 +32,7 @@ codeterm-types = { path = "crates/codeterm-types" }
 codeterm-util = { path = "crates/codeterm-util" }
 codeterm-mesh = { path = "crates/codeterm-mesh" }
 codeterm-mem = { path = "crates/codeterm-mem", features = ["embeddings"] }
+codeterm-plan = { path = "crates/codeterm-plan" }
 log = "0.4"
 fern = "0.7"
 parking_lot = "0.12"

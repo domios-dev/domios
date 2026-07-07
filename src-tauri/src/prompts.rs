@@ -3,79 +3,20 @@
 //! Edit the .md files in `src-tauri/prompts/` to change instructions.
 //! Rust code uses `include_str!()` so changes require recompilation.
 
-/// Appended to Worker tasks — tells them how to report back.
-pub const WORKER_SUFFIX: &str = include_str!("../prompts/worker_suffix.md");
-
-/// Shared worker testing discipline fragment.
-pub const TESTING_DISCIPLINE: &str = include_str!("../prompts/testing_discipline.md");
-
-/// Shared QA queue discipline fragment.
-pub const QA_PIPELINE_DISCIPLINE: &str = include_str!("../prompts/qa_pipeline_discipline.md");
-
-/// Worker charter heading for loop-specific execution context.
-pub const WORKER_LOOP_CONTEXT_TITLE: &str = "Loop context:";
-
-/// Worker charter reminder to report loop iteration evidence explicitly.
-pub const WORKER_LOOP_EVIDENCE_RULE: &str =
-    "When you report, include this iteration's evidence, whether it made progress, and whether the loop should continue or stop.";
-
-/// Worker charter heading for competitive-attempt isolation.
-pub const WORKER_COMPETITIVE_CONTEXT_TITLE: &str = "Competitive context:";
-
-/// Competitive worker-attempt isolation rules shared by charter renderers and tests.
-pub const WORKER_COMPETITIVE_ISOLATION_RULES: [&str; 3] = [
-    "Work only in your own assigned lane, branch, and worktree.",
-    "Do not inspect, tail, or reuse another live attempt's pane, worktree, or branch.",
-    "The Orchestrator compares the attempts and decides the winner or next follow-up.",
-];
-
-/// Orchestrator heartbeat heading for live concurrent attempts.
-pub const HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE: &str = "Competitive attempts:";
-
-/// Milestone kind for a group-scoped regression working point (the full-gate record).
-pub const REGRESSION_MILESTONE_KIND: &str = "regression";
-
-/// Heartbeat / next-action heading for completed groups awaiting their full-gate run.
-pub const MILESTONE_GATE_HEARTBEAT_TITLE: &str = "Regression gates:";
+pub use crate::service::plan::prompts_plan::{
+    milestone_gate_suggestion, orch_defer_structure_line, reflection_block, worker_suffix,
+    HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE, MILESTONE_GATE_HEARTBEAT_TITLE,
+    MILESTONE_GATE_SUGGESTION, PEER_ORCH_DEFER_STRUCTURE_LINE, PEER_PLANNER_CHARTER_LINE,
+    PEER_WAIVER_HINT, PLAN_ARCHIVE_SUGGESTION, PLAN_RETROSPECTIVE_NUDGE, PLAN_SKILLS_PRINCIPLES,
+    PLAN_SKILLS_REGISTRY_LINE, PLAN_SKILLS_WORKER_LINE, QA_PIPELINE_DISCIPLINE, REFLECTION_BLOCK,
+    REFLECTION_HEARTBEAT_TITLE, REGRESSION_MILESTONE_KIND, TESTING_DISCIPLINE,
+    WORKER_COMPETITIVE_CONTEXT_TITLE, WORKER_COMPETITIVE_ISOLATION_RULES,
+    WORKER_LOOP_CONTEXT_TITLE, WORKER_LOOP_EVIDENCE_RULE, WORKER_SUFFIX,
+};
 
 /// The three-tier testing ladder. Single source shared by next-actions/heartbeat prose
 /// and asserted verbatim in the ORCHESTRATION doc so the wording never drifts.
 pub const MILESTONE_GATE_LADDER: &str = "Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit + playwright golden, serialized in the warm checkout); per-release = the farm matrix across every platform.";
-
-/// Regression-gate suggestion template emitted when a task group (milestone) closes.
-/// `{label}` / `{key}` are the group's display label and key. Shared by next-actions and heartbeat.
-pub const MILESTONE_GATE_SUGGESTION: &str = "group {label} complete — run the full gate once: cargo suite + ts-unit + playwright golden, serialized in the warm checkout / remote-test farm, then record it with `codeterm plan qa next --group {key} --claim --note \"<scope>\"`.";
-
-/// Fills the `{label}` and `{key}` placeholders in [`MILESTONE_GATE_SUGGESTION`].
-pub fn milestone_gate_suggestion(key: &str, label: &str) -> String {
-    MILESTONE_GATE_SUGGESTION
-        .replace("{label}", label)
-        .replace("{key}", key)
-}
-
-/// Heartbeat heading for the one-shot self-review block.
-pub const REFLECTION_HEARTBEAT_TITLE: &str = "Reflection:";
-
-/// One-shot reflection block. `{trigger}` names why it fired; `{closed}`/`{bounces}`/`{leaks}`
-/// are honest window counts (zero when not derivable). Routes lessons to existing primitives —
-/// it invents no storage; recording a learning clears it until the next trigger.
-pub const REFLECTION_BLOCK: &str = "{trigger} — pause and self-review this window (tasks closed: {closed}, bounces: {bounces}, gate leaks: {leaks}). Route every lesson to an existing home, do not invent a store: a durable orchestration lesson -> `codeterm orchestrator learn \"<lesson>\"`; a reusable recipe/procedure -> `codeterm plan skill new <slug>` or edit an existing one; a prompt or process defect -> propose the prompt change to your Planner. Recording a learning clears this block until the next group close or gate window. Then run the VELOCITY AND COST sweep over the open frontier: is it shrinking — and if not, what blocks it? Which open tasks no longer earn their priority (descope, defer, or split — propose it to your Planner)? Which gates can batch into one QA run instead of several? Which remaining work fits a cheaper model or an idle machine? Green lanes get one-line verdicts, not essays — spend tokens on findings, not ceremony.";
-
-/// Fills [`REFLECTION_BLOCK`] placeholders from a reflection window.
-pub fn reflection_block(
-    trigger: &str,
-    window: &crate::service::plan::reflection::ReflectionWindow,
-) -> String {
-    REFLECTION_BLOCK
-        .replace("{trigger}", trigger)
-        .replace("{closed}", &window.tasks_closed.to_string())
-        .replace("{bounces}", &window.bounces.to_string())
-        .replace("{leaks}", &window.gate_leaks.to_string())
-}
-
-pub fn worker_suffix() -> String {
-    format!("{TESTING_DISCIPLINE}\n{QA_PIPELINE_DISCIPLINE}\n{WORKER_SUFFIX}")
-}
 
 /// Appended to Planner-profile Worker tasks.
 pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");
@@ -125,23 +66,6 @@ pub use crate::mem::prompts::MEM_RERANK;
 /// REM-phase dreaming prompt — optimization steps for the headless dream worker. No placeholders.
 pub use crate::mem::prompts::DREAMING_REM;
 
-/// One-time archive line prepended before [`PLAN_RETROSPECTIVE_NUDGE`] for complete active plans.
-pub const PLAN_ARCHIVE_SUGGESTION: &str = "This plan is complete. Before archiving, CLEAN UP AFTER THE EFFORT — this is a mandatory closeout step, not optional tidiness:\n\
-- Close every finished worker pane/tab you spawned (`codeterm pane close <id>`), and the attached Planner pane once its work is done.\n\
-- Remove lane worktrees and delete merged branches (`git worktree remove`, `git branch -d`), and stop any lane-specific dev daemons.\n\
-- Prune stale or superseded milestones so the completed plan reads clean.\n\
-Orphaned tabs, worktrees, branches, and dev daemons you spawned are THIS effort's mess to clear — never the next orchestrator's. Then archive with `codeterm plan archive <plan>`.";
-
-/// Pinned verbatim by the Planner — do not reword.
-pub const PLAN_RETROSPECTIVE_NUDGE: &str = "This plan is complete. Before archiving, write its retrospective:\n\
-`codeterm plan retrospective <plan> --body \"...\"` — what worked, what failed and why, which plan skills proved out, and which deserve promotion to machine memory (`codeterm mem skill`). Honest beats flattering: the discarded approaches are the most useful part.\n\
-Graduate the proven ones: a durable know-how skill or helper script earned in this effort belongs in machine mem (`codeterm mem skill`) and, when it is repo-shaped, in `.agents/skills/` or `scripts/` — landed through a reviewed lane, never edited straight into the integration checkout.";
-
-/// Planner role line — attached specialist, not a co-owner.
-pub const PEER_PLANNER_CHARTER_LINE: &str = "Planner is the attached planning specialist: \
-     draft GOAL, Spec, Plan structure, task briefs, and decision options when the \
-     Orchestrator delegates planning work.";
-
 /// Orchestrator authority line when a planner is bound.
 pub const PEER_ORCH_DEFERENCE_LINE: &str =
     "The Orchestrator is the single owner of the plan and the execution authority: \
@@ -153,22 +77,6 @@ pub const PEER_PAIRING_MANDATE_BLOCK: &str = "\
 
 This plan requires an attached Planner specialist. Spawn it with `{spawn_cmd}` if it is not live. \
 The Orchestrator remains the single authority for plan structure, execution, and acceptance.";
-
-/// Planning-phase delegation line. `{planner}` is filled with the resolved
-/// planner label. Shared by next-actions, the plan nudge, and prompts.
-pub const PEER_ORCH_DEFER_STRUCTURE_LINE: &str =
-    "Planning is not approved yet — delegate GOAL/spec/plan/task-graph drafting to {planner}, \
-     then review and approve the structure as Orchestrator.";
-
-/// Fills the `{planner}` placeholder in [`PEER_ORCH_DEFER_STRUCTURE_LINE`].
-pub fn orch_defer_structure_line(planner: &str) -> String {
-    PEER_ORCH_DEFER_STRUCTURE_LINE.replace("{planner}", planner)
-}
-
-/// Hint shown when no planner is bound and no waiver is set.
-pub const PEER_WAIVER_HINT: &str = "No Planner specialist is bound. \
-     Bind one with `codeterm plan update --planner <PANE_ID>` or waive with \
-     `codeterm plan update --planner none --note <reason>`.";
 
 /// Orchestrator's opening greeting on a fresh pair spawn — rendered verbatim
 /// as the pane's first assistant message (never model-improvised), so the
@@ -206,25 +114,6 @@ pub fn peer_pairing_mandate_full(spawn_cmd: &str) -> String {
         peer_pairing_mandate_block(spawn_cmd)
     )
 }
-
-/// Five emergent plan-skill principles. Single source shared by the orchestrator
-/// and planner suffixes (via the `{plan_skills_principles}` placeholder) so the
-/// behavior emerges from why+when phrasing rather than a re-typed checklist.
-pub const PLAN_SKILLS_PRINCIPLES: &str = "\
-Plan skills — the plan's own know-how:
-- Learned something reusable in this effort (a test recipe, a seeding script, a gotcha)? Record it: `codeterm plan skill new <slug>`. Improve an existing skill before writing a new one.
-- A skill names what is FIXED (the oracle: the command or observation that proves success) and what is MUTABLE. Never edit the oracle to make results look better.
-- Prefer skills with a --check command; cite the check when keeping or discarding an approach.
-- Simplicity wins: a marginal gain that adds hacky steps is a loss; a deletion that preserves results is a win.
-- Every skill edit logs keep/discard/superseded + why. Discarded approaches are data, not embarrassment.";
-
-/// Appended to the worker charter only when the plan already carries >=1 skill.
-pub const PLAN_SKILLS_WORKER_LINE: &str = "This plan has skills — procedures earlier agents proved out. Check before inventing: `codeterm plan skill list`. Learned something reusable yourself? `codeterm plan skill new <slug>` — future workers inherit it.";
-
-/// Orchestrator-heartbeat registry line template. `{n}` is the skill count and
-/// `{slug1}, {slug2}, …` is the placeholder slug region, both filled at render.
-pub const PLAN_SKILLS_REGISTRY_LINE: &str =
-    "Plan skills ({n}): {slug1}, {slug2}, … — codeterm plan skill show <slug> | new | edit.";
 
 /// Planner testing methodology, part 1 — oracle-first (inserted after workflow
 /// item 5 via the `{planner_testing_methodology}` placeholder).

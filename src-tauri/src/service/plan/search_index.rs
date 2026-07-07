@@ -1,13 +1,25 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc, OnceLock};
+use std::sync::{mpsc, Arc, OnceLock};
 
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::mem::{embeddings, search, store};
+use super::ports::{PlanIndexHit, PlanIndexQuery, PlanSearchPort};
 use crate::plan::{Milestone, Plan, PlanStatus, Section, Spec, Task};
+
+pub use super::search_related::{RelatedGroup, RelatedUnit};
+
+static SEARCH_PORT: OnceLock<Arc<dyn PlanSearchPort>> = OnceLock::new();
+
+pub fn init_search_port(port: Arc<dyn PlanSearchPort>) {
+    SEARCH_PORT.get_or_init(|| port);
+}
+
+fn port() -> &'static Arc<dyn PlanSearchPort> {
+    SEARCH_PORT.get().expect("search port not initialized; call init_search_port before using search_index")
+}
 
 const INDEX_FILE: &str = "plan-index.sqlite";
 #[cfg(not(test))]
@@ -33,21 +45,6 @@ pub struct PlanSearchHit {
     pub unit_title: String,
     pub parent_title: String,
     pub status: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct RelatedGroup {
-    pub edge_type: String,
-    pub units: Vec<RelatedUnit>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct RelatedUnit {
-    pub id: String,
-    pub kind: String,
-    pub title: String,
-    #[serde(default)]
-    pub removed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,7 +101,7 @@ impl super::PlanStore {
     pub fn search_plan_index(
         &self,
         project: &Path,
-        q: &search::SearchQuery,
+        q: &PlanIndexQuery,
     ) -> Result<Vec<PlanSearchHit>, String> {
         search_project(project, q, PlanSearchStatus::Active)
     }
@@ -112,7 +109,7 @@ impl super::PlanStore {
     pub fn search_plan_index_with_status(
         &self,
         project: &Path,
-        q: &search::SearchQuery,
+        q: &PlanIndexQuery,
         status: PlanSearchStatus,
     ) -> Result<Vec<PlanSearchHit>, String> {
         search_project(project, q, status)
@@ -152,7 +149,7 @@ impl super::PlanStore {
     }
 
     pub fn related_units(&self, id: &str) -> Vec<RelatedGroup> {
-        related_units(&self.list_full(), &self.list_specs_full(), id)
+        super::search_related::related_units(&self.list_full(), &self.list_specs_full(), id)
     }
 
     pub fn list_specs_full(&self) -> Vec<Spec> {
@@ -171,7 +168,8 @@ pub fn project_index_path(project_root: &Path) -> PathBuf {
 
 pub fn project_index_dir(project_root: &Path) -> PathBuf {
     let root = super::paths::project_root(project_root);
-    crate::paths::data_dir()
+    port()
+        .data_dir()
         .join("plan-indexes")
         .join(project_scope(&root))
 }
@@ -242,7 +240,7 @@ fn index_units_vectors(root: PathBuf, units: Vec<Unit>) {
         return;
     };
     for unit in units {
-        if let Err(err) = embeddings::index(&conn, &unit.id, &unit.body) {
+        if let Err(err) = port().embed(&conn, &unit.id, &unit.body) {
             log::warn!(
                 "[plan.index] vector mirror skipped for {}: {}",
                 unit.id,
@@ -294,14 +292,14 @@ fn open_index_with_timeout(
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("create plan index dir: {e}"))?;
     }
-    embeddings::ensure_extension_registered();
+    port().ensure_embedding_registered();
     let conn = Connection::open(&db_path).map_err(|e| format!("open plan index: {e}"))?;
     conn.busy_timeout(timeout)
         .map_err(|e| format!("set plan index busy_timeout: {e}"))?;
     if init_schema {
-        store::init_schema(&conn).map_err(|e| format!("init plan index schema: {e}"))?;
+        port().init_schema(&conn)?;
     }
-    let _ = embeddings::init_extension(&conn);
+    port().init_embedding_ext(&conn);
     Ok(conn)
 }
 
@@ -346,7 +344,7 @@ fn replace_units_once(
     if sync_embed {
         let conn = open_index(project_root)?;
         for unit in &changed {
-            let _ = embeddings::index(&conn, &unit.id, &unit.body);
+            let _ = port().embed(&conn, &unit.id, &unit.body);
         }
     }
     Ok(changed)
@@ -743,7 +741,7 @@ fn section_titles(sections: &[Section]) -> String {
 
 pub fn search_project(
     project: &Path,
-    q: &search::SearchQuery,
+    q: &PlanIndexQuery,
     status: PlanSearchStatus,
 ) -> Result<Vec<PlanSearchHit>, String> {
     let root = super::paths::project_root(project);
@@ -762,7 +760,7 @@ pub fn search_project(
         let limit = requested_limit.unwrap_or(5).clamp(1, 50);
         scoped.limit = Some((limit * 5).clamp(limit, 50));
     }
-    let hits = search::run(&conn, &scoped, &blobs)?;
+    let hits = port().run_search(&conn, &scoped, &blobs)?;
     let mut hits = hits
         .into_iter()
         .map(plan_hit)
@@ -788,9 +786,8 @@ fn plan_hit_matches_status(hit: &PlanSearchHit, status: PlanSearchStatus) -> boo
     }
 }
 
-fn plan_hit(hit: search::SearchHit) -> PlanSearchHit {
+fn plan_hit(hit: PlanIndexHit) -> PlanSearchHit {
     let meta: serde_json::Value = hit
-        .item
         .source
         .as_deref()
         .and_then(|s| serde_json::from_str(s).ok())
@@ -798,16 +795,16 @@ fn plan_hit(hit: search::SearchHit) -> PlanSearchHit {
     let updated_at = meta
         .get("updated_at")
         .and_then(|v| v.as_u64())
-        .or_else(|| rfc3339_to_timestamp_ms(&hit.item.updated_at))
+        .or_else(|| rfc3339_to_timestamp_ms(&hit.updated_at))
         .unwrap_or_default();
     PlanSearchHit {
         source: "plan",
         score: hit.score,
-        id: hit.item.id,
-        kind: hit.item.kind,
-        title: hit.item.title,
-        body: hit.item.body,
-        scope: hit.item.scope,
+        id: hit.id,
+        kind: hit.kind,
+        title: hit.title,
+        body: hit.body,
+        scope: hit.scope,
         updated_at,
         age_ms: u64::try_from(chrono::Utc::now().timestamp_millis())
             .unwrap_or_default()
@@ -846,128 +843,6 @@ fn rfc3339_to_timestamp_ms(value: &str) -> Option<u64> {
     chrono::DateTime::parse_from_rfc3339(value)
         .ok()
         .and_then(|dt| u64::try_from(dt.timestamp_millis()).ok())
-}
-
-fn related_units(plans: &[Plan], specs: &[Spec], id: &str) -> Vec<RelatedGroup> {
-    let mut groups = Vec::new();
-    let Some(plan) = plans.iter().find(|plan| {
-        plan.id == id
-            || section_contains_any(&plan.sections, id)
-            || plan.tasks.iter().any(|task| task.id == id)
-    }) else {
-        return groups;
-    };
-
-    if let Some(task) = plan.tasks.iter().find(|task| task.id == id) {
-        let sections = task
-            .section_ids
-            .iter()
-            .map(|section_id| {
-                find_section(&plan.sections, section_id)
-                    .map(|section| unit(section.id.clone(), "plan_section", section.title.clone()))
-                    .unwrap_or_else(|| removed(section_id, "plan_section"))
-            })
-            .collect();
-        groups.push(RelatedGroup {
-            edge_type: "task_sections".into(),
-            units: sections,
-        });
-
-        let children = plan
-            .tasks
-            .iter()
-            .filter(|candidate| candidate.parent_task_id.as_deref() == Some(&task.id))
-            .map(|task| unit(task.id.clone(), "task", task.name.clone()))
-            .collect();
-        groups.push(RelatedGroup {
-            edge_type: "subtasks".into(),
-            units: children,
-        });
-    } else if section_contains_any(&plan.sections, id) {
-        let tasks = plan
-            .tasks
-            .iter()
-            .filter(|task| task.section_ids.iter().any(|section_id| section_id == id))
-            .map(|task| unit(task.id.clone(), "task", task.name.clone()))
-            .collect();
-        groups.push(RelatedGroup {
-            edge_type: "section_tasks".into(),
-            units: tasks,
-        });
-
-        let spec_links = plan
-            .spec_links
-            .iter()
-            .filter(|link| link.plan_section_id == id)
-            .map(|link| {
-                specs
-                    .iter()
-                    .find(|spec| spec.id == link.spec_id)
-                    .and_then(|spec| find_section(&spec.sections, &link.spec_section_id))
-                    .map(|section| unit(section.id.clone(), "spec_section", section.title.clone()))
-                    .unwrap_or_else(|| removed(&link.spec_section_id, "spec_section"))
-            })
-            .collect();
-        groups.push(RelatedGroup {
-            edge_type: "spec_links".into(),
-            units: spec_links,
-        });
-    }
-
-    let lineage = plan
-        .lineage
-        .iter()
-        .map(|link| {
-            plans
-                .iter()
-                .find(|candidate| candidate.id == link.to)
-                .map(|plan| unit(plan.id.clone(), "plan", plan.title.clone()))
-                .unwrap_or_else(|| removed(&link.to, "plan"))
-        })
-        .collect();
-    groups.push(RelatedGroup {
-        edge_type: "lineage".into(),
-        units: lineage,
-    });
-    groups
-}
-
-fn unit(id: String, kind: &str, title: String) -> RelatedUnit {
-    RelatedUnit {
-        id,
-        kind: kind.into(),
-        title,
-        removed: false,
-    }
-}
-
-fn removed(id: &str, kind: &str) -> RelatedUnit {
-    RelatedUnit {
-        id: id.into(),
-        kind: kind.into(),
-        title: "removed".into(),
-        removed: true,
-    }
-}
-
-fn find_section<'a>(sections: &'a [Section], id: &str) -> Option<&'a Section> {
-    for section in sections {
-        if section.id == id {
-            return Some(section);
-        }
-        if let Some(found) = find_section(&section.subsections, id) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-fn section_contains(section: &Section, id: &str) -> bool {
-    section.id == id || section.subsections.iter().any(|s| section_contains(s, id))
-}
-
-fn section_contains_any(sections: &[Section], id: &str) -> bool {
-    sections.iter().any(|section| section_contains(section, id))
 }
 
 #[cfg(test)]

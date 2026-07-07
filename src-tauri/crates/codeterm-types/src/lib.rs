@@ -4,3 +4,4 @@ pub mod mesh;
 pub mod plan;
 pub mod pty;
 pub mod update;
+pub mod usage;
