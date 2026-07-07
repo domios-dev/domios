@@ -31,16 +31,20 @@ esac
 # BSD find (macOS) and GNU find (Linux/CI) both work — `-regextype` is GNU-only
 # and silently scans zero files on macOS.
 
-# Path-based exclusions for build artifacts, vendored sources, generated code.
-EXCLUDE_PATHS='(/target/|/node_modules/|/dist/|/build/|/gen/|/references/|/vendor/|/pty-fork/|/\.git/|/\.claude/)'
+# Build artifacts, vendored sources, generated code are pruned by dir name in
+# the find below (see the traversal at the end of the loop).
 
 violations=()           # files exceeding LIMIT
 mod_rs_violations=()    # mod.rs files over MOD_RS_LIMIT (advisory, always warn)
 
-while IFS= read -r file; do
+# Count all files in ONE batched `wc -l` pass — per-file wc+tr subprocess spawns
+# over 1000+ source files dominated the runtime. `wc -l <many>` prints
+# "<count> <path>" per line plus a trailing "total"; read count+path directly.
+while read -r lines file; do
+    [ "$file" = "total" ] && continue
+    [ -z "${file:-}" ] && continue
     rel="${file#$ROOT/}"
     rel="${rel#./}"
-    lines="$(wc -l < "$file" | tr -d ' ')"
 
     # mod.rs has a tighter target — flag separately, doesn't fail in either mode
     case "$rel" in *'/mod.rs'|'mod.rs')
@@ -53,13 +57,19 @@ while IFS= read -r file; do
         violations+=("${rel}|${lines}")
     fi
 done < <(
-    find "$ROOT" -type f \( \
+    # Prune excluded dirs by name DURING traversal (don't walk target/ — it can
+    # be tens of GB), then a single batched wc -l over the survivors.
+    find "$ROOT" \( -type d \( \
+        -name target -o -name node_modules -o -name dist -o -name build -o \
+        -name gen -o -name references -o -name vendor -o -name pty-fork -o \
+        -name .git -o -name .claude \
+    \) -prune \) -o \( -type f \( \
         -name '*.rs' -o \
         -name '*.ts' -o \
         -name '*.tsx' -o \
         -name '*.py' -o \
         -name '*.swift' \
-    \) | grep -Ev "$EXCLUDE_PATHS"
+    \) -print0 \) | xargs -0 wc -l 2>/dev/null
 )
 
 # Reporting

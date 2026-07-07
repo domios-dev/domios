@@ -50,6 +50,11 @@ echo "Pre-push: running shell guards..."
 bash scripts/check-mux-write.sh
 bash scripts/check-blocking-in-async.sh
 
+# File-size discipline — pure line-count scan, no compile, runs on every push
+# (lane + integration) so oversized files never reach the farm.
+echo "Pre-push: checking file sizes..."
+bash scripts/check-file-sizes.sh --fail
+
 if [ "$LIGHT" = "1" ]; then
     echo "Pre-push: lane branch — light checks only (fmt); heavy gates run at the integration/QA gate."
     if ! cargo fmt --manifest-path src-tauri/Cargo.toml --all --check; then
