@@ -48,8 +48,28 @@ plan create --from-spec <spec> --title ...   # 3. Plan (HOW), built FROM the spe
   ...workers run, report → strides/milestones...
   # §38 acceptance: workers report in_review; the ORCHESTRATOR judges `done`.
   plan loop create                            #    declare a self-improving cycle
+  # CLOSEOUT (mandatory before archive): close every worker + Planner pane you
+  # spawned, remove lane worktrees + delete merged branches, stop lane dev
+  # daemons, prune stale/superseded milestones. Your spawned tabs/worktrees/
+  # branches are THIS effort's mess to clear — never the next orchestrator's.
   plan archive                                #    done; hidden from canvas
 ```
+
+## Closeout is part of the effort — leaving no mess
+
+An effort is not complete when the code merges; it is complete when the workspace
+is clean. Before `plan archive`, the orchestrator MUST:
+
+1. **Close every worker pane and the Planner pane** it spawned (`codeterm pane close <id>`).
+   Accepted lanes must not linger as zombie tabs — a screen full of dead worker
+   tabs is unfinished cleanup, not finished work.
+2. **Sweep lanes** (LANES rule 8): remove merged worktrees, delete merged branches,
+   stop lane-specific dev daemons, record `--cleanup-status done` per task.
+3. **Prune milestones**: drop stale/superseded strides so the completed plan reads clean.
+
+The self-termination guard prevents an orchestrator/planner from closing its OWN
+pane — so close children, not yourself. Sweep at every group close too, not only
+at the end, so tabs and worktrees never accumulate.
 
 Edit while work runs — `codeterm plan ...`/`spec ...` mutate a running effort safely. Re-orient with `plan get PLAN_ID` / `spec show SPEC_ID` (markdown) at any time.
 
