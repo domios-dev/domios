@@ -323,6 +323,30 @@ impl PlanStore {
         )
     }
 
+    /// Undo an optimistic dispatch (assign + in_progress) when a later pipeline
+    /// step fails — clears the pane and returns the task to pending.
+    pub fn revert_task_dispatch(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |p| {
+            let task = p
+                .tasks
+                .iter_mut()
+                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            let assigned = task.assigned_pane_id.clone();
+            super::task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
+            clear_task_assignment(task);
+            task.status = crate::plan::TaskStatus::Pending;
+            task.status_changed_at = now_ms;
+            task.updated_at = now_ms;
+            Ok(())
+        })
+    }
+
     pub fn update_milestone(
         &self,
         plan_id: &str,
@@ -442,6 +466,26 @@ mod fill_lane_tests {
         let t = p.tasks.iter().find(|t| t.id == task).unwrap();
         assert_eq!(t.assigned_pane_id.as_deref(), Some("first"));
         assert_eq!(t.lane.branch.as_deref(), Some("branch-a"));
+    }
+
+    #[test]
+    fn revert_dispatch_clears_pane_and_returns_pending() {
+        let (_d, store, plan, task) = setup();
+        store
+            .assign_task_with_role(&plan, &task, "worker-pane", None, Some("worker"), 5)
+            .unwrap();
+        store
+            .update_task(
+                &plan, &task, None, None, None, None, Some("in_progress"), None, None, None, None,
+                None, None, None, None, &[], None, None, 6,
+            )
+            .unwrap();
+        store.revert_task_dispatch(&plan, &task, 7).unwrap();
+        let p = store.get(&plan).unwrap();
+        let t = p.tasks.iter().find(|t| t.id == task).unwrap();
+        assert!(t.assigned_pane_id.is_none());
+        assert!(t.lane.pane_id.is_none());
+        assert_eq!(t.status, crate::plan::TaskStatus::Pending);
     }
 
     #[test]
