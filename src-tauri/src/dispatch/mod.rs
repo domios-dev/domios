@@ -2,8 +2,48 @@
 //! entry point. REST, Socket, Tauri IPC, and CLI adapters deserialize into Command
 //! and call dispatch — no duplicated glue per transport.
 
-use crate::service::ServiceContext;
 use serde::{Deserialize, Serialize};
+
+/// Abstraction over the app-side context that dispatch commands execute against.
+/// Defined group-side; implemented app-side (ServiceContext).
+pub trait CommandPort: Send + Sync {
+    fn mark_user_activity(&self);
+    fn mux_snapshot(&self) -> crate::multiplexer::state::MultiplexerSnapshot;
+    fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String>;
+    fn read_pane_output(
+        &self,
+        pane_id: &str,
+        offset: Option<usize>,
+        max_bytes: Option<usize>,
+        strip_ansi: bool,
+        full: bool,
+    ) -> Result<serde_json::Value, String>;
+    fn read_pane_screen(&self, pane_id: &str, formatted: bool)
+        -> Result<serde_json::Value, String>;
+    fn close_pane_guarded(&self, caller: Option<&str>, pane_id: &str) -> Result<(), String>;
+    fn focus_pane(&self, pane_id: &str) -> Result<(), String>;
+    fn rename_pane(&self, pane_id: &str, title: &str) -> Result<(), String>;
+    fn set_pane_description(&self, pane_id: &str, desc: &str) -> Result<(), String>;
+    fn create_workspace(
+        &self,
+        name: String,
+        cwd: Option<String>,
+        activate: bool,
+    ) -> crate::multiplexer::state::WorkspaceInfo;
+    fn rename_workspace(&self, ws_id: &str, name: &str) -> Result<(), String>;
+    fn close_workspace_guarded(&self, caller: Option<&str>, ws_id: &str) -> Result<(), String>;
+    fn list_workspaces(&self) -> Vec<crate::multiplexer::state::WorkspaceInfo>;
+    fn list_recently_closed(&self, ws_id: &str) -> Vec<crate::multiplexer::types::ClosedPane>;
+    fn reopen_closed_pane(
+        &self,
+        ws_id: &str,
+        index: Option<usize>,
+    ) -> Result<(String, String), String>;
+    fn reopen_closed_group(&self, group_id: &str) -> Result<(String, String, String), String>;
+    fn resize_pane(&self, pane_id: &str, cols: u16, rows: u16) -> Result<(), String>;
+    fn kill_pane_pty(&self, pane_id: &str) -> Result<(), String>;
+    fn list_agent_providers(&self) -> Vec<serde_json::Value>;
+}
 
 /// Unified command enum — every operation CodeTerm supports.
 /// Start with 5 operations, migrate the rest incrementally.
@@ -139,20 +179,19 @@ impl CommandResult {
     }
 }
 
-/// Dispatch a command against ServiceContext. Pure logic, no transport concerns.
-// Run a synchronous (possibly blocking) dispatch off the async runtime so heavy commands never starve Tauri IPC.
+/// Offloads a blocking dispatch call off the async runtime.
 pub async fn dispatch_blocking(
     cmd: Command,
-    svc: crate::service::ServiceState,
+    ctx: std::sync::Arc<dyn CommandPort>,
 ) -> Result<CommandResult, String> {
-    tokio::task::spawn_blocking(move || dispatch(&cmd, svc.as_ref()))
+    tokio::task::spawn_blocking(move || dispatch(&cmd, ctx.as_ref()))
         .await
         .map_err(|e| e.to_string())?
 }
 
-pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, String> {
+pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, String> {
     if is_mutating_user_command(cmd) {
-        ctx.user_last_activity.mark();
+        ctx.mark_user_activity();
     }
     match cmd {
         Command::Health => cmd_health(),
@@ -243,9 +282,8 @@ fn cmd_health() -> Result<CommandResult, String> {
     })))
 }
 
-fn cmd_pane_list(ctx: &ServiceContext) -> Result<CommandResult, String> {
-    let mux = ctx.mux.write();
-    let snapshot = mux.snapshot();
+fn cmd_pane_list(ctx: &dyn CommandPort) -> Result<CommandResult, String> {
+    let snapshot = ctx.mux_snapshot();
     let panes = build_pane_list_json(&snapshot);
     Ok(CommandResult::Json(serde_json::json!(panes)))
 }
@@ -303,7 +341,7 @@ pub(crate) fn build_pane_list_json(
 }
 
 fn cmd_send_text(
-    ctx: &ServiceContext,
+    ctx: &dyn CommandPort,
     pane_id: &str,
     text: &str,
     enter: bool,
@@ -313,32 +351,28 @@ fn cmd_send_text(
 }
 
 fn cmd_get_output(
-    ctx: &ServiceContext,
+    ctx: &dyn CommandPort,
     pane_id: &str,
     offset: Option<usize>,
     max_bytes: Option<usize>,
     strip_ansi: bool,
     full: bool,
 ) -> Result<CommandResult, String> {
-    // chatBackend panes return their transcript (B1.2 [T]).
-    let json = ctx
-        .pane_transport(pane_id)?
-        .read_output(offset, max_bytes, strip_ansi, full)?;
+    let json = ctx.read_pane_output(pane_id, offset, max_bytes, strip_ansi, full)?;
     Ok(CommandResult::Json(json))
 }
 
 fn cmd_get_text(
-    ctx: &ServiceContext,
+    ctx: &dyn CommandPort,
     pane_id: &str,
     formatted: bool,
 ) -> Result<CommandResult, String> {
-    // their transcript (B1.2 [T]).
-    let json = ctx.pane_transport(pane_id)?.read_screen(formatted)?;
+    let json = ctx.read_pane_screen(pane_id, formatted)?;
     Ok(CommandResult::Json(json))
 }
 
 fn cmd_pane_close(
-    ctx: &ServiceContext,
+    ctx: &dyn CommandPort,
     pane_id: &str,
     caller_pane_id: Option<&str>,
 ) -> Result<CommandResult, String> {
@@ -346,13 +380,13 @@ fn cmd_pane_close(
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
-fn cmd_pane_focus(ctx: &ServiceContext, pane_id: &str) -> Result<CommandResult, String> {
+fn cmd_pane_focus(ctx: &dyn CommandPort, pane_id: &str) -> Result<CommandResult, String> {
     ctx.focus_pane(pane_id)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
 fn cmd_pane_rename(
-    ctx: &ServiceContext,
+    ctx: &dyn CommandPort,
     pane_id: &str,
     title: &str,
 ) -> Result<CommandResult, String> {
@@ -361,7 +395,7 @@ fn cmd_pane_rename(
 }
 
 fn cmd_pane_describe(
-    ctx: &ServiceContext,
+    ctx: &dyn CommandPort,
     pane_id: &str,
     description: &str,
 ) -> Result<CommandResult, String> {
@@ -370,7 +404,7 @@ fn cmd_pane_describe(
 }
 
 fn cmd_workspace_create(
-    ctx: &ServiceContext,
+    ctx: &dyn CommandPort,
     name: String,
     cwd: Option<String>,
     activate: bool,
@@ -381,7 +415,7 @@ fn cmd_workspace_create(
 }
 
 fn cmd_workspace_rename(
-    ctx: &ServiceContext,
+    ctx: &dyn CommandPort,
     workspace_id: &str,
     name: &str,
 ) -> Result<CommandResult, String> {
@@ -390,7 +424,7 @@ fn cmd_workspace_rename(
 }
 
 fn cmd_workspace_close(
-    ctx: &ServiceContext,
+    ctx: &dyn CommandPort,
     workspace_id: &str,
     caller_pane_id: Option<&str>,
 ) -> Result<CommandResult, String> {
@@ -398,7 +432,7 @@ fn cmd_workspace_close(
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
-fn cmd_workspace_list(ctx: &ServiceContext) -> Result<CommandResult, String> {
+fn cmd_workspace_list(ctx: &dyn CommandPort) -> Result<CommandResult, String> {
     let workspaces = ctx.list_workspaces();
     let json =
         serde_json::to_value(&workspaces).map_err(|e| format!("serialize workspaces: {}", e))?;
@@ -406,7 +440,7 @@ fn cmd_workspace_list(ctx: &ServiceContext) -> Result<CommandResult, String> {
 }
 
 fn cmd_workspace_recently_closed(
-    ctx: &ServiceContext,
+    ctx: &dyn CommandPort,
     workspace_id: &str,
 ) -> Result<CommandResult, String> {
     let closed = ctx.list_recently_closed(workspace_id);
@@ -416,7 +450,7 @@ fn cmd_workspace_recently_closed(
 }
 
 fn cmd_workspace_reopen_closed_pane(
-    ctx: &ServiceContext,
+    ctx: &dyn CommandPort,
     workspace_id: &str,
     index: Option<usize>,
 ) -> Result<CommandResult, String> {
@@ -428,7 +462,7 @@ fn cmd_workspace_reopen_closed_pane(
 }
 
 fn cmd_workspace_reopen_closed_group(
-    ctx: &ServiceContext,
+    ctx: &dyn CommandPort,
     group_id: &str,
 ) -> Result<CommandResult, String> {
     let (workspace_id, tab_id, pane_id) = ctx.reopen_closed_group(group_id)?;
@@ -440,7 +474,7 @@ fn cmd_workspace_reopen_closed_group(
 }
 
 fn cmd_pty_resize(
-    ctx: &ServiceContext,
+    ctx: &dyn CommandPort,
     pane_id: &str,
     cols: u16,
     rows: u16,
@@ -449,14 +483,14 @@ fn cmd_pty_resize(
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
-fn cmd_pty_kill(ctx: &ServiceContext, pane_id: &str) -> Result<CommandResult, String> {
+fn cmd_pty_kill(ctx: &dyn CommandPort, pane_id: &str) -> Result<CommandResult, String> {
     ctx.kill_pane_pty(pane_id)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
-fn cmd_list_agent_providers(ctx: &ServiceContext) -> Result<CommandResult, String> {
+fn cmd_list_agent_providers(ctx: &dyn CommandPort) -> Result<CommandResult, String> {
     Ok(CommandResult::Json(serde_json::Value::Array(
-        crate::api::agent_routes::list_agent_provider_values(&ctx.provider_registry),
+        ctx.list_agent_providers(),
     )))
 }
 
@@ -609,14 +643,6 @@ mod tests {
             }
             _ => panic!("wrong variant"),
         }
-    }
-
-    #[test]
-    fn next_char_boundary_handles_multibyte_offsets() {
-        use crate::service::pane_transport::next_char_boundary;
-        let s = "abкd";
-        assert_eq!(next_char_boundary(s, 3), 4);
-        assert_eq!(&s[next_char_boundary(s, 3)..], "d");
     }
 
     #[test]

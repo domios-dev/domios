@@ -1,4 +1,4 @@
-use crate::multiplexer::types::TitleLevel;
+pub(crate) use crate::multiplexer::spawn_title::creation_title_override;
 
 const MSYS_ROOT_PREFIXES: &[&str] = &[
     "c:/program files/git/",
@@ -9,22 +9,6 @@ const MSYS_ROOT_PREFIXES: &[&str] = &[
 
 pub(crate) fn normalize_agent_title(title: Option<String>) -> Option<String> {
     title.map(|value| normalize_agent_title_value(&value))
-}
-
-/// The single decision seam for whether a freshly spawned pane's title should
-/// override the `create_tab`-generated name. Returns `None` when neither a
-/// real explicit title nor a real agent name was supplied — callers MUST then
-/// leave the generated name alone; the raw provider id / agent_cmd is never
-/// an acceptable title on any spawn path.
-pub(crate) fn creation_title_override(
-    explicit: Option<&str>,
-    agent_name: Option<&str>,
-) -> Option<(String, TitleLevel)> {
-    explicit
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
-        .or_else(|| agent_name.map(str::trim).filter(|n| !n.is_empty()))
-        .map(|t| (t.to_string(), TitleLevel::User))
 }
 
 fn normalize_agent_title_value(title: &str) -> String {
@@ -45,6 +29,7 @@ fn normalize_agent_title_value(title: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::multiplexer::types::TitleLevel;
 
     #[test]
     fn strips_git_bash_root_from_path_converted_title() {

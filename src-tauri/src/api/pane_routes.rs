@@ -22,7 +22,7 @@ pub async fn list_panes(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let result = crate::dispatch::dispatch(&crate::dispatch::Command::PaneList, &state.svc)
+    let result = crate::dispatch::dispatch(&crate::dispatch::Command::PaneList, state.svc.as_ref())
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list panes"))?;
     Ok(Json(result.into_json()))
 }
@@ -223,9 +223,11 @@ pub async fn focus_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    let result =
-        crate::dispatch::dispatch(&crate::dispatch::Command::PaneFocus { pane_id }, &state.svc)
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+    let result = crate::dispatch::dispatch(
+        &crate::dispatch::Command::PaneFocus { pane_id },
+        state.svc.as_ref(),
+    )
+    .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
     Ok(Json(result.into_json()))
 }
 
@@ -385,7 +387,7 @@ pub async fn close_pane(
             pane_id,
             caller_pane_id,
         },
-        &state.svc,
+        state.svc.as_ref(),
     )
     .map_err(map_close_error)?;
     Ok(Json(result.into_json()))
@@ -427,7 +429,7 @@ pub async fn rename_pane(
             pane_id,
             title: body.title,
         },
-        &state.svc,
+        state.svc.as_ref(),
     )
     .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
     Ok(Json(result.into_json()))
@@ -451,7 +453,7 @@ pub async fn describe_pane(
             pane_id,
             description: body.description,
         },
-        &state.svc,
+        state.svc.as_ref(),
     )
     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(result.into_json()))
@@ -477,7 +479,7 @@ pub async fn resize_pane(
             cols: body.cols,
             rows: body.rows,
         },
-        &state.svc,
+        state.svc.as_ref(),
     )
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to resize PTY"))?;
     Ok(Json(result.into_json()))

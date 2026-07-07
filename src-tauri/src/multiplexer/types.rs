@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub use codeterm_types::pty::{AgentRole, PendingPrompt, PromptOption, PromptSection};
+
 /// A workspace contains multiple tabs and tracks which tab is active.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Workspace {
@@ -156,61 +158,6 @@ pub struct WatcherSpec {
     pub last_status: Option<String>,
     #[serde(default)]
     pub tick_inflight_since_ms: Option<u64>,
-}
-
-/// Agent role in the orchestration hierarchy.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum AgentRole {
-    /// Top-level orchestrator (depth 1). Can spawn Managers and Workers.
-    Orchestrator,
-    /// Manager (depth 2). Specialized by role_profile. Cannot spawn in v1.
-    Manager,
-    /// Worker (depth 2). Executes tasks, reports back. Cannot spawn.
-    Worker,
-}
-
-impl AgentRole {
-    pub fn from_str_compat(s: &str) -> Option<Self> {
-        match s {
-            "Orchestrator" | "Conductor" => Some(Self::Orchestrator),
-            "Manager" => Some(Self::Manager),
-            "Worker" => Some(Self::Worker),
-            _ => None,
-        }
-    }
-}
-
-/// An interactive prompt detected in agent output (e.g. permission request).
-/// Provider-agnostic — any agent can have pending prompts.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PromptOption {
-    pub label: String,
-    /// Value to send to PTY (e.g. "1", "y", "n")
-    pub value: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PromptSection {
-    pub label: String,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub active: bool,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub completed: bool,
-}
-
-/// A pending interactive prompt from an agent.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PendingPrompt {
-    pub question: String,
-    pub options: Vec<PromptOption>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sections: Option<Vec<PromptSection>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub multi_select: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub submit_available: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub selected_values: Option<Vec<String>>,
 }
 
 /// What backs a pane's I/O. A `Pty` pane runs a terminal; a `ChatBackend` pane is
@@ -379,7 +326,7 @@ pub struct Pane {
     /// snapshot. Runtime-only — recomputed at spawn, never persisted (the
     /// hand-built session snapshot omits it).
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub boot_stage: Option<crate::service::boot_stage::BootStage>,
+    pub boot_stage: Option<codeterm_types::pty::BootStage>,
 }
 
 fn default_show_in_tabbar() -> bool {
@@ -480,7 +427,7 @@ mod tests {
 
     #[test]
     fn mid_boot_snapshot_exposes_current_stage() {
-        use crate::service::boot_stage::BootStage;
+        use codeterm_types::pty::BootStage;
         // the live snapshot.
         let mut p = pane_with("a", PaneBacking::Pty);
         p.boot_stage = Some(BootStage::AgentLaunching);
