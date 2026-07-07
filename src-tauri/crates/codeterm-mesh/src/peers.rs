@@ -12,7 +12,7 @@ use super::types::{MeshIdentity, PairedPeer, RevocationList};
 
 /// `~/.codeterm/mesh/` (or `~/.codeterm-dev/mesh/` in dev builds).
 pub fn mesh_dir() -> PathBuf {
-    let dir = crate::paths::data_dir().join("mesh");
+    let dir = codeterm_paths::data_dir().join("mesh");
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
@@ -124,7 +124,7 @@ pub fn load_peers() -> HashMap<String, PairedPeer> {
         .into_iter()
         .map(|(id, d)| {
             let before = d.addresses.len();
-            let clean = crate::mesh::types::sanitize_addresses(&d.addresses);
+            let clean = crate::types::sanitize_addresses(&d.addresses);
             scrubbed += before - clean.len();
             (
                 id,
