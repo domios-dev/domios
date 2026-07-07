@@ -116,6 +116,13 @@ pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, Stri
 
     let mut command = Command::new(&resolved);
     crate::process_util::no_window_std(&mut command);
+    // Own process group so a timeout kill reaps descendants too — a grandchild
+    // inheriting stdout/stderr would otherwise keep the reader threads blocked.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
     let mut child = match command
         .args(&opts.args)
         .envs(&opts.env)
@@ -204,7 +211,12 @@ fn terminate_child(child: &mut Child) {
 
 #[cfg(not(windows))]
 fn terminate_child(child: &mut Child) {
-    let _ = child.kill();
+    // Negative pid = the process group set at spawn; falls back to the direct
+    // child if the group kill fails for any reason.
+    let killed_group = unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) } == 0;
+    if !killed_group {
+        let _ = child.kill();
+    }
 }
 
 /// Extract the binary name from an exec-opts JSON blob, for the permission check.
