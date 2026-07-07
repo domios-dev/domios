@@ -14,6 +14,7 @@ pub(crate) use super::spawn_params::{
     chatbackend_spawn_config, reject_direct_watcher_chatbackend_config,
 };
 
+#[path = "spawn_model.rs"]
 mod spawn_model;
 pub(crate) use spawn_model::{
     model_fallback_notice_title, non_empty_model, resolve_fresh_agent_model,
