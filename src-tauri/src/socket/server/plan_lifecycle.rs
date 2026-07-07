@@ -55,6 +55,23 @@ pub(super) fn dispatch(
             emit_plan_changed(app, &id);
             let mut resp = json!({ "ok": true });
             if let Some(plan) = store.get(&id) {
+                let outcome = crate::service::plan::lane_cleanup::try_cleanup_task_lane(
+                    store,
+                    &plan,
+                    &tid,
+                    |pane_id| svc.pane_probe(pane_id).exists,
+                    now,
+                );
+                resp["cleanup"] = json!({ "status": outcome.status(), "reason": outcome.reason() });
+                if matches!(
+                    outcome,
+                    crate::service::plan::lane_cleanup::LaneCleanupOutcome::Cleaned
+                ) {
+                    emit_plan_changed(app, &id);
+                }
+            }
+            // Re-read so hints reflect any cleanup that just ran.
+            if let Some(plan) = store.get(&id) {
                 let cleanup = crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(
                     &plan,
                     |pane_id| svc.pane_probe(pane_id).exists,
