@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use codeterm_types::agent::ReportStatus;
 use crate::plan::{
     AgentRef, Task, TaskExecutionAttempt, TaskExecutionReportSnapshot, TaskLaneMetadata, TaskStatus,
 };
+use codeterm_types::agent::ReportStatus;
 
 use super::{PlanError, PlanStore};
 

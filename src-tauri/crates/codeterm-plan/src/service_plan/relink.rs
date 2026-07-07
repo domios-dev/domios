@@ -31,7 +31,11 @@ fn relink_targets(plan: &Plan) -> Vec<String> {
 /// Repoint planner + in_progress workers to `new_owner_pane`. Returns the number
 /// of panes whose parent edge was moved. Absent panes and a target equal to the
 /// new owner are graceful no-ops; idempotent.
-pub fn relink_to_owner(mux: &mut dyn PlanLaneStatePort, plan: &Plan, new_owner_pane: &str) -> usize {
+pub fn relink_to_owner(
+    mux: &mut dyn PlanLaneStatePort,
+    plan: &Plan,
+    new_owner_pane: &str,
+) -> usize {
     let new_owner_pane = new_owner_pane.trim();
     if new_owner_pane.is_empty() {
         return 0;

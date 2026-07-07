@@ -18,7 +18,9 @@ pub fn init_search_port(port: Arc<dyn PlanSearchPort>) {
 }
 
 fn port() -> &'static Arc<dyn PlanSearchPort> {
-    SEARCH_PORT.get().expect("search port not initialized; call init_search_port before using search_index")
+    SEARCH_PORT
+        .get()
+        .expect("search port not initialized; call init_search_port before using search_index")
 }
 
 const INDEX_FILE: &str = "plan-index.sqlite";

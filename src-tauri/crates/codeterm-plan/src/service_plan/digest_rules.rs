@@ -1,5 +1,7 @@
-use codeterm_types::config::schema::{DigestCondition, DigestRuleConfig, OrchestrationDigestsConfig};
 use crate::plan::{Plan, TaskStatus};
+use codeterm_types::config::schema::{
+    DigestCondition, DigestRuleConfig, OrchestrationDigestsConfig,
+};
 
 pub const DEFAULT_IN_REVIEW_THRESHOLD: u32 = 3;
 pub const DEFAULT_IN_PROGRESS_THRESHOLD: u32 = 8;

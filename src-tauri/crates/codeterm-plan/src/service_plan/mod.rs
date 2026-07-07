@@ -27,7 +27,6 @@ pub mod peer_mandate;
 pub mod plan_skills;
 pub mod ports;
 pub mod prompts_plan;
-pub mod search_related;
 pub mod qa;
 mod readback;
 mod reconcile_fixes;
@@ -37,6 +36,7 @@ pub mod reminders;
 pub mod resolve;
 pub mod retrospective;
 pub mod search_index;
+pub mod search_related;
 pub mod section_links;
 pub mod section_queries;
 pub mod skill_registry;
@@ -79,13 +79,13 @@ mod subtask_close_tests;
 #[cfg(test)]
 mod task_attempt_tests;
 #[cfg(test)]
+pub mod test_support;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod timestamp_tests;
 #[cfg(test)]
 mod watch_reconcile_tests;
-#[cfg(test)]
-pub mod test_support;
 
 use crate::plan::{Plan, PlanMode, PlanStatus, Spec, TaskStatus};
 use parking_lot::{Mutex, RwLock};
@@ -96,8 +96,8 @@ use std::time::SystemTime;
 
 pub use relink::relink_to_owner;
 pub use state::{
-    build_plan_state_snapshot, planning_approval_blockers, HeartbeatSnapshot, LiveAgent, LoopSnapshot,
-    OpenLane, PlanStateSnapshot, PlanningReadiness, StrideSnapshot, TaskCounts,
+    build_plan_state_snapshot, planning_approval_blockers, HeartbeatSnapshot, LiveAgent,
+    LoopSnapshot, OpenLane, PlanStateSnapshot, PlanningReadiness, StrideSnapshot, TaskCounts,
 };
 pub use store_watch::WatchOutcome;
 pub use types::{
@@ -124,9 +124,9 @@ impl PlanStore {
         #[cfg(test)]
         {
             paths::mark_test_project_root(_root);
-            search_index::init_search_port(std::sync::Arc::new(
-                test_support::TestSearchPort::new(_root),
-            ));
+            search_index::init_search_port(std::sync::Arc::new(test_support::TestSearchPort::new(
+                _root,
+            )));
         }
         Self::default()
     }
