@@ -321,6 +321,7 @@ impl PlanStore {
             kind: new.kind,
             model: new.model,
             model_rationale: new.model_rationale,
+            personality: new.personality,
             acceptance_criteria: new.acceptance_criteria,
             test_plan: new.test_plan,
             correctness: new.correctness,

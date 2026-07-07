@@ -25,6 +25,49 @@ fn spawn_failed(message: String) -> JsonRpcError {
     }
 }
 
+pub(super) struct DispatchRouting {
+    pub agent: Option<String>,
+    pub model: Option<String>,
+}
+
+/// Resolve the provider/model a dispatch should spawn. Precedence: an explicit
+/// `agent` provider wins (any model rides along verbatim); otherwise a requested
+/// model (RPC param, else the task's own routing field) that NAMES a registered
+/// provider is treated as that provider at its default model; anything else is a
+/// model name for the default provider. Never guesses a provider from a literal
+/// id list — matches against the live registry.
+pub(super) fn resolve_dispatch_routing(
+    explicit_agent: Option<String>,
+    rpc_model: Option<String>,
+    task_model: Option<String>,
+    provider_ids: &[String],
+) -> DispatchRouting {
+    let clean = |s: Option<String>| s.filter(|v| !v.trim().is_empty());
+    let requested_model = clean(rpc_model).or_else(|| clean(task_model));
+    if let Some(agent) = clean(explicit_agent) {
+        return DispatchRouting {
+            agent: Some(agent),
+            model: requested_model,
+        };
+    }
+    if let Some(model) = requested_model {
+        if provider_ids.iter().any(|p| p.eq_ignore_ascii_case(&model)) {
+            return DispatchRouting {
+                agent: Some(model),
+                model: None,
+            };
+        }
+        return DispatchRouting {
+            agent: None,
+            model: Some(model),
+        };
+    }
+    DispatchRouting {
+        agent: None,
+        model: None,
+    }
+}
+
 /// Atomic: spawn a Worker pane, assign the task (in_progress + lane metadata),
 /// then deliver the brief. Any post-spawn failure reverts the task and closes
 /// the pane, so a task is never left in_progress without a live pane.
@@ -43,16 +86,53 @@ pub(super) fn dispatch(
 
     // Parent defaults to the dispatching (caller) pane, resolved server-side.
     let parent = owned_str(p, "parent_pane_id").or_else(|| owned_str(p, "caller_pane_id"));
+    let routing = resolve_dispatch_routing(
+        owned_str(p, "agent"),
+        owned_str(p, "model"),
+        detail.task.model.clone(),
+        &svc.agent_registry.provider_ids(),
+    );
+
+    // Surface an unknown-model fallback loudly instead of silently downgrading.
+    let resolved_provider = routing
+        .agent
+        .clone()
+        .unwrap_or_else(crate::config::default_agent_provider);
+    let mut warnings: Vec<String> = Vec::new();
+    if let Some(notice) = crate::service::spawn::resolve_fresh_agent_model_with_notice(
+        &svc.agent_registry,
+        &resolved_provider,
+        routing.model.clone(),
+        None,
+    )
+    .fallback_notice
+    {
+        warnings.push(format!(
+            "requested model '{}' is not available for provider '{}'; spawning with '{}' instead",
+            notice.requested, resolved_provider, notice.using
+        ));
+    }
+
+    // A personality is the executor persona: it names the pane and opens the brief.
+    let title = detail
+        .task
+        .personality
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| detail.task.name.clone());
+
     let spawn_params = SpawnAgentParams {
-        agent: owned_str(p, "agent"),
+        agent: routing.agent.clone(),
         cwd: owned_str(p, "cwd"),
-        title: Some(detail.task.name.clone()),
+        title: Some(title),
         role: Some("Worker".into()),
         parent_pane_id: parent,
         plan_id: Some(plan_id.clone()),
         task_id: Some(task_id.clone()),
         workspace_id: owned_str(p, "workspace_id"),
-        model: owned_str(p, "model"),
+        model: routing.model.clone(),
         spawned_by_pane_id: owned_str(p, "caller_pane_id"),
         ..Default::default()
     };
@@ -87,13 +167,18 @@ pub(super) fn dispatch(
     }
 
     emit_plan_changed(app, &plan_id);
-    Ok(json!({
+    let mut result = json!({
         "ok": true,
         "plan_id": plan_id,
         "task_id": task_id,
         "pane_id": pane_id,
+        "agent": resolved_provider,
         "spawn": spawn,
-    }))
+    });
+    if !warnings.is_empty() {
+        result["warnings"] = json!(warnings);
+    }
+    Ok(result)
 }
 
 fn set_in_progress(
@@ -130,7 +215,19 @@ fn set_in_progress(
 /// Assemble the worker brief: body, acceptance, test plan, section links,
 /// strides (milestones — T4 enriches later), and the mandatory report command.
 pub(super) fn build_brief(task: &Task, sections: &[TaskSection]) -> String {
-    let mut out = format!("# {}\n\n", task.name);
+    let mut out = String::new();
+    if let Some(persona) = task
+        .personality
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        out.push_str(&format!(
+            "You are {persona} — executor for: {}\n\n",
+            task.name
+        ));
+    }
+    out.push_str(&format!("# {}\n\n", task.name));
 
     let body = task.body.trim();
     if !body.is_empty() {

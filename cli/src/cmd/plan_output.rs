@@ -86,6 +86,16 @@ pub(crate) fn print_plan_result(json: bool, val: &Value) {
     }
 }
 
+/// With --json, callers pipe stdout into a JSON parser — an error must stay
+/// structured (`{"error": ...}`) instead of leaking a human hint that fails jq.
+pub(crate) fn print_plan_error(json: bool, message: &str) {
+    if json {
+        println!("{}", serde_json::json!({ "error": message }));
+    } else {
+        println!("{message}");
+    }
+}
+
 pub(crate) fn print_mutation_tail(json: bool, val: &Value) {
     if json {
         println!("{}", serde_json::to_string_pretty(val).unwrap());

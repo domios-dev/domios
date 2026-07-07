@@ -405,6 +405,7 @@ mod tests {
             kind: "implement".into(),
             status: TaskStatus::Parked,
             park_reason: None,
+            personality: None,
             model: None,
             model_rationale: None,
             acceptance_criteria: vec![],

@@ -444,6 +444,8 @@ pub struct Task {
     pub model: Option<String>,
     pub model_rationale: Option<String>,
     #[serde(default)]
+    pub personality: Option<String>,
+    #[serde(default)]
     pub acceptance_criteria: Vec<String>,
     pub test_plan: Option<String>,
     pub correctness: Option<String>,

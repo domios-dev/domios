@@ -280,6 +280,10 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("why"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
+                        personality: p
+                            .and_then(|x| x.get("personality"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
                         acceptance_criteria,
                         test_plan,
                         correctness,
@@ -422,6 +426,7 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             super::plan_role_helpers::update_role_guidance_if_present(store, &id, &tid, p, now)?;
+            super::plan_role_helpers::update_personality_if_present(store, &id, &tid, p, now)?;
             if let Some(competition) = super::plan_competition::update_field(p)? {
                 store
                     .update_task_competition(&id, &tid, competition, now)
