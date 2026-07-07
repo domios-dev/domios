@@ -286,15 +286,8 @@ pub(crate) fn validate_watcher_spawn_target(
     if params.role_profile.as_deref() != Some("watcher") {
         return Ok(());
     }
-    if params
-        .charter
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .is_none()
-    {
-        return Err("watcher spawn requires --charter or --charter-file".into());
-    }
+    // No charter is fine: watcher-capable plugins fall back to their shipped
+    // default charter (the out-of-the-box orchestration health watcher).
     match providers.transport_of(agent_cmd) {
         Some(crate::agent::provider::ProviderTransport::ChatBackend) => {
             if chatbackends

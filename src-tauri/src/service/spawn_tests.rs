@@ -966,7 +966,7 @@ fn watcher_spawn_validation_rejects_pty_provider_via_params_entry() {
 }
 
 #[test]
-fn watcher_spawn_validation_rejects_missing_charter() {
+fn watcher_spawn_without_charter_uses_plugin_default() {
     let agents = Arc::new(AgentRegistry::new());
     let backends = Arc::new(crate::chatbackend::ChatBackendRegistry::new());
     backends.register(
@@ -983,9 +983,8 @@ fn watcher_spawn_validation_rejects_missing_charter() {
         ..spawn_params("local-shell")
     };
 
-    let err =
-        validate_watcher_spawn_target(&providers, &backends, "local-shell", &params).unwrap_err();
-    assert_eq!(err, "watcher spawn requires --charter or --charter-file");
+    validate_watcher_spawn_target(&providers, &backends, "local-shell", &params)
+        .expect("bare watcher spawn is valid: the plugin falls back to its shipped charter");
 }
 
 #[test]
