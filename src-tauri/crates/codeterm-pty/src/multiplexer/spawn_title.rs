@@ -5,7 +5,7 @@ use crate::multiplexer::types::TitleLevel;
 /// real explicit title nor a real agent name was supplied — callers MUST then
 /// leave the generated name alone; the raw provider id / agent_cmd is never
 /// an acceptable title on any spawn path.
-pub(crate) fn creation_title_override(
+pub fn creation_title_override(
     explicit: Option<&str>,
     agent_name: Option<&str>,
 ) -> Option<(String, TitleLevel)> {

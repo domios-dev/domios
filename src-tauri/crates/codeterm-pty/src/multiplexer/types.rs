@@ -282,7 +282,7 @@ pub struct Pane {
     /// the chat view's state indicator. Runtime-only — recomputed from output,
     /// never persisted to the session snapshot (which is hand-built).
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub agent_state: Option<crate::agent::offline_state_classifier::AgentLiveState>,
+    pub agent_state: Option<codeterm_types::pty::AgentLiveState>,
     /// Auto-approve prompts (set when spawned with skip_permissions).
     /// When true, detected prompts are answered automatically instead of shown to user.
     #[serde(default)]

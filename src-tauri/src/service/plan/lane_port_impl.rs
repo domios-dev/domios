@@ -1,8 +1,10 @@
-use super::ports::PlanLaneStatePort;
 use crate::multiplexer::state::MultiplexerState;
+use codeterm_plan::service_plan::ports::PlanLaneStatePort;
 
-impl PlanLaneStatePort for MultiplexerState {
+pub struct LaneStatePort<'a>(pub &'a mut MultiplexerState);
+
+impl PlanLaneStatePort for LaneStatePort<'_> {
     fn repoint_parent(&mut self, pane_id: &str, new_parent_id: &str) -> bool {
-        self.repoint_parent(pane_id, new_parent_id)
+        self.0.repoint_parent(pane_id, new_parent_id)
     }
 }
