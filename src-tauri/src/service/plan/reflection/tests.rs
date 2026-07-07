@@ -214,7 +214,7 @@ fn render_emits_block_with_counts_and_routing_primitives() {
 
     let mut out = String::new();
     render_reflection(&plan, DEFAULT_REFLECT_EVERY_GATES, &mut out);
-    assert!(out.contains(crate::prompts::REFLECTION_HEARTBEAT_TITLE));
+    assert!(out.contains(crate::service::plan::prompts_plan::REFLECTION_HEARTBEAT_TITLE));
     assert!(out.contains("tasks closed: 2"));
     assert!(out.contains("gate leaks: 1"));
     assert!(out.contains("codeterm orchestrator learn"));

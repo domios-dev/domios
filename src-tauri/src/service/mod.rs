@@ -328,7 +328,9 @@ impl ServiceContext {
             match crate::service::plan::watcher::PlanWatcher::watch_project(
                 &project_root,
                 self.plan_store.clone(),
-                self.app_handle.clone(),
+                std::sync::Arc::new(crate::service::plan::sink_impl::TauriPlanEventSink::new(
+                    self.app_handle.clone(),
+                )),
             ) {
                 Ok(watcher) => {
                     watchers.insert(project_root.clone(), watcher);

@@ -618,6 +618,12 @@ pub fn run() {
                 agent_registry.clone(),
                 chatbackend_registry.clone(),
             ));
+            crate::service::plan::search_index::init_search_port(Arc::new(
+                crate::service::plan::search_port_impl::MemSearchPort,
+            ));
+            crate::service::plan::heartbeat::init_reflect_every(
+                crate::config::load_config().orchestration.reflect.every_gates,
+            );
             let plan_store = Arc::new(crate::service::plan::PlanStore::new());
             let plan_turn_counter =
                 Arc::new(crate::service::plan::reminders::TurnCounter::new());

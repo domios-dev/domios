@@ -48,21 +48,21 @@ pub(super) fn competitive_attempt_count_line(live_attempt_count: usize) -> Strin
 fn render_loop_context(loop_spec: &LoopSpec) -> String {
     format!(
         "{}\n{}\n{}\n{}\n- {}\n",
-        crate::prompts::WORKER_LOOP_CONTEXT_TITLE,
+        super::prompts_plan::WORKER_LOOP_CONTEXT_TITLE,
         loop_id_line(loop_spec),
         loop_iteration_line(loop_spec),
         loop_stop_when_line(loop_spec),
-        crate::prompts::WORKER_LOOP_EVIDENCE_RULE
+        super::prompts_plan::WORKER_LOOP_EVIDENCE_RULE
     )
 }
 
 fn render_competitive_context(live_attempt_count: usize) -> String {
     let mut out = format!(
         "{}\n{}\n",
-        crate::prompts::WORKER_COMPETITIVE_CONTEXT_TITLE,
+        super::prompts_plan::WORKER_COMPETITIVE_CONTEXT_TITLE,
         competitive_attempt_count_line(live_attempt_count)
     );
-    for rule in crate::prompts::WORKER_COMPETITIVE_ISOLATION_RULES {
+    for rule in super::prompts_plan::WORKER_COMPETITIVE_ISOLATION_RULES {
         out.push_str("- ");
         out.push_str(rule);
         out.push('\n');
@@ -87,7 +87,7 @@ You are a Worker on task {task_id}. Three rules:\n\
 ",
     );
     if skill_count >= 1 {
-        out.push_str(crate::prompts::PLAN_SKILLS_WORKER_LINE);
+        out.push_str(super::prompts_plan::PLAN_SKILLS_WORKER_LINE);
     } else {
         out.push_str(super::skill_registry::PLAN_SKILL_REGISTRY_POINTER);
     }
@@ -98,9 +98,9 @@ You are a Worker on task {task_id}. Three rules:\n\
     if live_attempt_count > 1 {
         out.push_str(&render_competitive_context(live_attempt_count));
     }
-    out.push_str(crate::prompts::TESTING_DISCIPLINE.trim());
+    out.push_str(super::prompts_plan::TESTING_DISCIPLINE.trim());
     out.push('\n');
-    out.push_str(crate::prompts::QA_PIPELINE_DISCIPLINE.trim());
+    out.push_str(super::prompts_plan::QA_PIPELINE_DISCIPLINE.trim());
     out.push_str("\n</codeterm-worker-charter>");
     out
 }
@@ -225,8 +225,8 @@ mod tests {
         assert!(out.contains("<codeterm-worker-charter"));
         assert!(out.contains(&task_id));
         assert!(out.contains("NEVER spawn agents"));
-        assert!(out.contains(crate::prompts::TESTING_DISCIPLINE.trim()));
-        assert!(out.contains(crate::prompts::QA_PIPELINE_DISCIPLINE.trim()));
+        assert!(out.contains(super::prompts_plan::TESTING_DISCIPLINE.trim()));
+        assert!(out.contains(super::prompts_plan::QA_PIPELINE_DISCIPLINE.trim()));
         assert!(out.trim_end().ends_with("continue"));
     }
 
@@ -237,7 +237,7 @@ mod tests {
         let out = store.prepend_worker_charter_for_pane("worker-pane", "continue");
 
         assert!(out.contains(super::super::skill_registry::PLAN_SKILL_REGISTRY_POINTER));
-        assert!(!out.contains(crate::prompts::PLAN_SKILLS_WORKER_LINE));
+        assert!(!out.contains(super::prompts_plan::PLAN_SKILLS_WORKER_LINE));
     }
 
     #[test]
@@ -251,7 +251,7 @@ mod tests {
 
         let out = store.prepend_worker_charter_for_pane("worker-pane", "continue");
 
-        assert!(out.contains(crate::prompts::PLAN_SKILLS_WORKER_LINE));
+        assert!(out.contains(super::prompts_plan::PLAN_SKILLS_WORKER_LINE));
         assert!(!out.contains(super::super::skill_registry::PLAN_SKILL_REGISTRY_POINTER));
     }
 
@@ -288,11 +288,11 @@ mod tests {
             deviation: None,
             last_iteration_at: None,
         };
-        assert!(out.contains(crate::prompts::WORKER_LOOP_CONTEXT_TITLE));
+        assert!(out.contains(super::prompts_plan::WORKER_LOOP_CONTEXT_TITLE));
         assert!(out.contains(&loop_id_line(&loop_spec)));
         assert!(out.contains(&loop_iteration_line(&loop_spec)));
         assert!(out.contains(&loop_stop_when_line(&loop_spec)));
-        assert!(out.contains(crate::prompts::WORKER_LOOP_EVIDENCE_RULE));
+        assert!(out.contains(super::prompts_plan::WORKER_LOOP_EVIDENCE_RULE));
     }
 
     #[test]
@@ -348,9 +348,9 @@ mod tests {
 
         let out = store.prepend_worker_charter_for_pane("worker-pane", "continue");
 
-        assert!(out.contains(crate::prompts::WORKER_COMPETITIVE_CONTEXT_TITLE));
+        assert!(out.contains(super::prompts_plan::WORKER_COMPETITIVE_CONTEXT_TITLE));
         assert!(out.contains(&competitive_attempt_count_line(2)));
-        for rule in crate::prompts::WORKER_COMPETITIVE_ISOLATION_RULES {
+        for rule in super::prompts_plan::WORKER_COMPETITIVE_ISOLATION_RULES {
             assert!(out.contains(rule));
         }
         assert!(!out.contains("worker-pane-2"));

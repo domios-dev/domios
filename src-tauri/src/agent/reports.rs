@@ -7,28 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::ledger::{LedgerRow, OrchestrationLedger};
 
-/// Worker-declared outcome of a task. Optional — a freeform report (and the
-/// synthetic worker-death report) carries no status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ReportStatus {
-    Done,
-    InReview,
-    Blocked,
-    Partial,
-}
-
-impl ReportStatus {
-    /// Capitalized label for the deterministic inject block.
-    pub fn label(self) -> &'static str {
-        match self {
-            ReportStatus::Done => "Done",
-            ReportStatus::InReview => "In Review",
-            ReportStatus::Blocked => "Blocked",
-            ReportStatus::Partial => "Partial",
-        }
-    }
-}
+pub use codeterm_types::agent::ReportStatus;
 
 /// Optional structured fields a worker can attach to a report. All `None` for a
 /// freeform / synthetic message-only report, which then round-trips unchanged.

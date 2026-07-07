@@ -141,7 +141,7 @@ fn heartbeat_renders_live_competitive_attempt_summary() {
 
     assert!(shown
         .reinjection
-        .contains(crate::prompts::HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE));
+        .contains(super::prompts_plan::HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE));
     assert!(shown
         .reinjection
         .contains(&super::heartbeat::competitive_attempt_summary_line(
