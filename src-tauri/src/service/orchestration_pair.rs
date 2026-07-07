@@ -328,6 +328,21 @@ impl ServiceContext {
                         "[orchestration-pair] failed to notify orchestrator {orch_pane_id} of live Planner specialist: {e}"
                     );
                 }
+                // Activate server-side: the client continuation may be gone by
+                // the time the pair lands (page reload); the daemon owns focus.
+                {
+                    let mut mux = self.mux.write();
+                    let orch_tab = mux
+                        .get_workspace(&workspace_id)
+                        .and_then(|ws| ws.tabs.iter().find(|t| t.pane_id == orch_pane_id))
+                        .map(|t| t.id.clone());
+                    let _ = mux.set_active_workspace(&workspace_id);
+                    if let Some(tab_id) = orch_tab {
+                        let _ = mux.set_active_tab(&workspace_id, &tab_id);
+                    }
+                }
+                let _ = self.focus_pane(&orch_pane_id);
+                self.emit_state_changed();
                 // final count is the authoritative one for the nudge.
                 let budget_notice = self.workspace_pane_budget_notice(&workspace_id);
                 Ok(OrchestrationPairResult {
