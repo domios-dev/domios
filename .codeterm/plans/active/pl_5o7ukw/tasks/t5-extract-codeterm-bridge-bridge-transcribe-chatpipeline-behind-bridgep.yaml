@@ -12,14 +12,14 @@ acceptance_criteria:
 - socket/server/bridge.rs + api/bridge_routes untouched beyond shims; full workspace green + 3-platform CI
 test_plan: '1) scripts/test-capped.sh cargo test -p codeterm-bridge — all moved tests pass; 2) scripts/test-capped.sh cargo test --test main — relocated migrate_test passes in app integration binary; 3) ONE full ./build.sh test in warm QA — matches baseline; 4) bash scripts/clippy-gate.sh — green; 5) cargo metadata jq dep-whitelist oracle; 6) live smoke on dev 7686: bridge status route only — NO external Telegram sends; 7) 3-platform CI green'
 correctness: 'Move+rewire only. Telegram/message-marker wire behavior untouched. Voice/chat pipeline stage order unchanged. chatpreprocessor module stays app-side until t6 (port keeps direction clean). Two-commit discipline: pre-move + inversion in place, then pure move.'
-status: in_progress
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783425208134
-updated_at: 1783440823814
-status_changed_at: 1783438602510
+updated_at: 1783441825616
+status_changed_at: 1783441821697
 handle: t5-extract-codeterm-bridge-bridge-transcribe-chatpipeline-behind-bridgep
 tags: []
 section_ids:
@@ -53,16 +53,16 @@ executor_role: rust-backend-dev
 competition: null
 intent: null
 parent_task_id: null
-assigned_pane_id: a53288fb
+assigned_pane_id: null
 lane:
-  pane_id: a53288fb
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: null
   branch: null
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -122,7 +122,7 @@ execution_attempts:
   assigned_at: 1783438602510
   reported_at: 1783440824036
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783441821697
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

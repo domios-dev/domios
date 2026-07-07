@@ -63,7 +63,9 @@ impl ChatPreprocessorPort for crate::registry::CapabilityRegistry<dyn ChatPrepro
     }
 }
 
-impl ChatPreprocessorPort for Arc<crate::registry::CapabilityRegistry<dyn ChatPreprocessorProvider>> {
+impl ChatPreprocessorPort
+    for Arc<crate::registry::CapabilityRegistry<dyn ChatPreprocessorProvider>>
+{
     fn preprocessor_ids(&self) -> Vec<String> {
         self.ids()
     }

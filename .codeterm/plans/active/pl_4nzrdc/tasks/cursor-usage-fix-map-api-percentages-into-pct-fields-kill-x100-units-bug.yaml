@@ -1,0 +1,92 @@
+id: task_evut0b
+name: 'cursor usage fix: map API percentages into pct fields, kill x100 units bug, pct-first bubble'
+type: implement
+model: claude
+model_rationale: small single-lane fix, ~95% in the JS plugin + 1 line React; claude routing while codex quota >80%
+personality: Ada
+acceptance_criteria:
+- Cursor bubble shows pct progress (session=apiPercentUsed 84.8 warn, weekly=totalPercentUsed 96.7 danger from fixture) with classify colors — not a neutral $ pill
+- 'Units fixed: spend_cents == totalSpend verbatim (cents), cursorDollarsToCents x100 removed; dead planUsage.remaining read removed'
+- fetchUsage collapsed to single GetCurrentPeriodUsage call; resets = billingCycleEnd
+- Plugin tests rewritten against the attached REAL fixture and green; npm run sync:versions && check:versions green after plugin.js rebuild
+- No provider-id branching in core; UsageBubble change is the single pct-preference predicate at line ~65
+test_plan: '1) plugin tests: provider-cursor test suite green with fixture-driven asserts (weekly_pct=96.7, session_pct=84.84, spend_cents=18856 NOT x100); 2) live: ./build.sh kill && dev restart on 7686, open cursor pane -> bubble shows two pct glyphs warn(85%)/danger(97%), aria-label ''usage session 85% weekly 97%''; 3) UsageDetail shows $188.56 total / $20.00 included as secondary; 4) usage projection endpoint returns rows for provider=cursor; 5) npm run check:versions green'
+correctness: Plugin-side + 1-line UsageBubble pct-preference. Units verbatim cents. Do not invent 'remaining' semantics (field absent in real API). parseUsage TUI-text path stays null-returning. No Rust schema changes.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783442535798
+updated_at: 1783442541409
+status_changed_at: 1783442535798
+handle: cursor-usage-fix-map-api-percentages-into-pct-fields-kill-x100-units-bug
+tags: []
+section_ids:
+- sec_wcir26
+- sec_g7cf2a
+body: |
+  Cursor provider usage shows garbage dollars instead of plan-limit progress. User wants "how much limit is left" — the % progress cursor itself reports. Probe DONE (live token, 2026-07-07): evidence below is from the real API, fixture attached to this task.
+
+  ## Verified evidence (live GetCurrentPeriodUsage response — see attached fixture)
+  ```
+  planUsage: { totalSpend: 18856, includedSpend: 2000, bonusSpend: 16856, limit: 2000,
+               remainingBonus: false, autoPercentUsed: 100, apiPercentUsed: 84.84, totalPercentUsed: 96.70 }
+  billingCycleStart: "1781881493000", billingCycleEnd: "1784473493000"
+  displayMessage: "You've hit your usage limit"
+  autoModelSelectedDisplayMessage: "You've used 97% of your included total usage"
+  namedModelSelectedDisplayMessage: "You've used 85% of your included API usage"
+  ```
+
+  ## Bugs confirmed in plugins/provider-cursor/src/plugin.ts
+  1. `parseUsage()` leaves session_pct/weekly_pct null "by design" (spend-based assumption, line ~315) — but the API RETURNS ready percentages (autoPercentUsed / apiPercentUsed / totalPercentUsed). The whole progress pipeline (UsageBubble classify colors, usage/projection.rs burn-rate) never lights up for cursor.
+  2. `fetchUsage()` reads `planUsage.remaining` — the field DOES NOT EXIST in the real response (only remainingBonus: bool). remainingCents is always null.
+  3. UNITS BUG: planUsage values are CENTS (limit 2000 = the $20 Pro allowance; totalSpend 18856 = $188.56 incl. bonus), but `cursorDollarsToCents()` multiplies by 100 again — spend is inflated 100x. This is the "weird dollars" the user sees.
+  4. `fetchUsage()` makes 3 API calls (GetMonthlyInvoice + GetAggregatedUsageEvents + GetCurrentPeriodUsage); GetCurrentPeriodUsage alone carries everything needed incl. billingCycleStart/End.
+
+  ## Fix plan
+  1. PLUGIN (plugins/provider-cursor/src/plugin.ts):
+     - fetchUsage: single GetCurrentPeriodUsage call; payload = { totalPct, apiPct, autoPct, spendCents: totalSpend, limitCents: limit(+bonus context), resetsAtMs: billingCycleEnd, periodStartMs: billingCycleStart, fetchedAtMs }.
+     - parseUsage mapping: weekly_pct = totalPercentUsed, weekly_resets_at_ms = billingCycleEnd; session_pct = apiPercentUsed (named-model bucket — what agent panes consume), session_resets_at_ms = billingCycleEnd. Keep spend_cents = totalSpend, spend_limit_cents = limit AS CENTS (delete the x100 conversion), spend_remaining_cents = max(0, limit - includedSpend) or null — decide from field semantics, do not invent.
+     - Tests: replace synthetic fetchUsage/parseUsage block (tests/plugin.test.ts ~600-634) with the attached real fixture (values above). Assert weekly_pct 96.7 / session_pct 84.84 / no x100 inflation.
+     - Rebuild plugin.js; npm run sync:versions && npm run check:versions (system-plugin hash lockstep).
+  2. FRONTEND (1 line, src/components/Usage/UsageBubble.tsx:65): prefer pct when present — `isSpend = spend_cents != null && session_pct == null && weekly_pct == null`. With weekly_pct 96.7 the bubble goes danger-red, matching cursor's own "You've hit your usage limit". Dollars remain in UsageDetail as secondary.
+  3. VERIFY (live): dev 7686 restart, open cursor pane -> bubble shows two pct glyphs (85% / 97%) with warn/danger colors; projection returns rows for provider=cursor; UsageDetail shows sane $ (188.56 total / 20.00 included, not x100).
+
+  ## Notes
+  - ~95% plugin-side; only the bubble priority line touches core UI. No Rust changes.
+  - No provider-id branching in core (pct-preference is data-shaped).
+  - Out of scope of pl_5o7ukw — separate small lane.
+role_guidance: null
+executor_role: frontend-dev
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+park_reason: null
+attachments:
+- id: att_p47s02
+  name: GetCurrentPeriodUsage.fixture.json
+  path: attachments/tasks/task_evut0b/att_p47s02-GetCurrentPeriodUsage.fixture.json
+  media_type: application/octet-stream
+  size_bytes: 1097
+  created_at: 1783442541409

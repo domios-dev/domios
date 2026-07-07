@@ -143,7 +143,9 @@ fn no_new_resolve_pty_id_outside_allowlist() {
         "api/pane_routes.rs",
         "api/pane_routes/send.rs",
         "api/mem_routes/items/mod.rs",
-        "bridge/manager/mod.rs",
+        // bridge manager moved into codeterm-bridge; the guarded pane-keyed op
+        // now lives in the app-side BridgePanePort impl.
+        "bridge_host.rs",
     ];
 
     let src_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");

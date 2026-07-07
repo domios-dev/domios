@@ -158,8 +158,9 @@ pub(super) fn dispatch(
                 })?;
             let emoji = get_string_param(params, "emoji")?;
 
-            let token = crate::bridge::telegram::read_token(&crate::bridge_host::AppAttachmentStorePort)
-                .unwrap_or_default();
+            let token =
+                crate::bridge::telegram::read_token(&crate::bridge_host::AppAttachmentStorePort)
+                    .unwrap_or_default();
             tokio::spawn(async move {
                 let client = reqwest::Client::new();
                 let resp = client

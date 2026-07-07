@@ -8,11 +8,11 @@ fn test_create_outbound_channel() {
 }
 
 use super::text_hooks;
-use codeterm_types::config::schema::TextHooksConfig;
 use axum::{
     routing::{get, post},
     Json, Router,
 };
+use codeterm_types::config::schema::TextHooksConfig;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::net::TcpListener;
