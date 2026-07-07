@@ -217,16 +217,19 @@ fn storage_warns_about_stray_linked_worktree_sidecar_copy() {
 
     let report = doctor_report(None, Some(linked.display().to_string()), "storage").unwrap();
     let findings = report["findings"].as_array().unwrap();
+    // Compare through the same canonicalization production uses — raw tempdir
+    // paths differ from emitted ones (8.3 short names in service TEMP, /var
+    // symlinks) and can never mismatch when both sides share the helper.
+    let main_c = super::inspect::canonicalize_path(&main)
+        .display()
+        .to_string();
+    let linked_c = super::inspect::canonicalize_path(&linked)
+        .display()
+        .to_string();
     assert!(findings.iter().any(|f| {
         f["kind"] == "stray_sidecar_copy"
-            && f["detail"]
-                .as_str()
-                .unwrap()
-                .contains(main.to_str().unwrap())
-            && f["path"]
-                .as_str()
-                .unwrap()
-                .contains(linked.to_str().unwrap())
+            && f["detail"].as_str().unwrap().contains(&main_c)
+            && f["path"].as_str().unwrap().contains(&linked_c)
     }));
 }
 
