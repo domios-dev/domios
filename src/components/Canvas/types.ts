@@ -181,6 +181,7 @@ export interface Task {
   section_ids: string[];
   body: string;
   role_guidance?: string | null;
+  executor_role?: string | null;
   acceptance_criteria?: string[];
   test_plan?: string;
   /** Correctness vector — what "done right" means (rendered in the READ detail). */
