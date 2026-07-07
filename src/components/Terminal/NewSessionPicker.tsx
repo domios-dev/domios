@@ -96,18 +96,18 @@ export function NewSessionPicker({
     if (info?.id) setSelectedWorkspaceId(info.id);
   }, [newWorkspaceName, createWorkspace]);
 
-  // On accept: close the picker (as soon as the create call returns ids, not
-  // after full settle) then select + focus the created tab. `null` means the
-  // create was rejected — keep the picker open (spawnAgentTab already notified).
+  // On accept: keep the picker visible while the agent spawns, select the
+  // created tab, THEN drop the picker — the new session replaces it in place
+  // with no blank flash. `null` / a throw keeps the picker open to retry.
   const finishSpawn = useCallback(async (
     runner: () => Promise<{ workspaceId: string; paneId: string } | null>,
   ) => {
     setBusy(true);
-    closeSessionPicker(workspaceId, tabId);
     try {
       const created = await runner();
       if (!created) return;
       await selectTabByPane(created.workspaceId, created.paneId);
+      closeSessionPicker(workspaceId, tabId);
     } catch (e) {
       addNotification({
         pane_id: null,

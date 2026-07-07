@@ -1310,9 +1310,7 @@ button,
    group-head hover. Rhythm: 10px indent, 10px child inset, 8px inter-group gap. */
 .sidebar-orchestration-group {
   margin-bottom: 8px; /* inter-group gap so two groups never read as one */
-  border-radius: 8px;
   background: color-mix(in srgb, var(--ct-fg) 4%, transparent);
-  overflow: hidden; /* children share the group's rounded fill */
 }
 
 .sidebar-group-container {
