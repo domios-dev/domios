@@ -466,6 +466,22 @@ export interface MeshConfig {
   broadcast_duration_secs: number;
 }
 
+// Mirrors `src-tauri/src/config/schema/mod.rs` OrchestrationConfig / IdlePokeConfig.
+export interface IdlePokeConfig {
+  enabled: boolean;
+  idle_threshold_secs: number;
+  live_lane_cap: number;
+  max_per_day: number;
+  backoff_base_secs: number;
+}
+
+export interface OrchestrationConfig {
+  plan_reminders: boolean;
+  nudge_after_turns: number;
+  nudge_interval_secs: number;
+  idle_poke: IdlePokeConfig;
+}
+
 export interface MeshStatus {
   enabled: boolean;
   instance_id: string;
@@ -584,6 +600,7 @@ export interface AppConfig {
   memory: MemoryConfig;
   integrations: IntegrationsConfig;
   mesh: MeshConfig;
+  orchestration: OrchestrationConfig;
   ui?: UiConfig;
 }
 
