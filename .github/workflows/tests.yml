@@ -25,6 +25,8 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # full history so affected-crates diff resolves origin/master
 
       # Runner service PATH has no node (same as release-linux.yml).
       - name: Setup Node.js
@@ -50,7 +52,9 @@ jobs:
         run: bash scripts/clippy-gate.sh
 
       - name: Rust lib tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+        # Full workspace on integration branches (comprehensive gate); affected
+        # crates only on lane/PR builds. See scripts/ci-test.sh.
+        run: bash scripts/ci-test.sh
 
       - name: CLI tests
         run: cargo test --manifest-path cli/Cargo.toml
@@ -67,6 +71,8 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # full history so affected-crates diff resolves origin/master
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -80,7 +86,9 @@ jobs:
           node scripts/prepare-embed-stub.js
 
       - name: Rust lib tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+        # Full workspace on integration branches (comprehensive gate); affected
+        # crates only on lane/PR builds. See scripts/ci-test.sh.
+        run: bash scripts/ci-test.sh
 
       - name: CLI tests
         run: cargo test --manifest-path cli/Cargo.toml
@@ -98,6 +106,8 @@ jobs:
       # runner service account (NETWORK SERVICE) can't take a system gitconfig,
       # so inject core.longpaths per-invocation via GIT_CONFIG_* env instead.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # full history so affected-crates diff resolves origin/master
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
@@ -162,6 +172,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # full history so affected-crates diff resolves origin/master
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
