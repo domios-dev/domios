@@ -1100,6 +1100,7 @@ dependencies = [
  "codeterm-mem-store",
  "codeterm-paths",
  "codeterm-plugins",
+ "codeterm-types",
  "conpty",
  "crash-context",
  "crash-handler",
@@ -1195,6 +1196,16 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
+ "uuid",
+]
+
+[[package]]
+name = "codeterm-types"
+version = "1.6.2"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toml 0.8.2",
  "uuid",
 ]
 
