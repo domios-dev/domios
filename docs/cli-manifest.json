@@ -458,6 +458,22 @@
               "aliases": []
             },
             {
+              "name": "charter",
+              "positional": false,
+              "value_name": "CHARTER",
+              "default": null,
+              "help": "Watcher charter text",
+              "aliases": []
+            },
+            {
+              "name": "charter_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read watcher charter text from a file",
+              "aliases": []
+            },
+            {
               "name": "cwd",
               "positional": false,
               "value_name": "CWD",
@@ -474,11 +490,35 @@
               "aliases": []
             },
             {
+              "name": "interval",
+              "positional": false,
+              "value_name": "INTERVAL",
+              "default": null,
+              "help": "Watcher tick interval, e.g. 90s, 5m, 1h",
+              "aliases": []
+            },
+            {
+              "name": "max_actions",
+              "positional": false,
+              "value_name": "MAX_ACTIONS",
+              "default": null,
+              "help": "Max watcher actions per tick",
+              "aliases": []
+            },
+            {
               "name": "model",
               "positional": false,
               "value_name": "MODEL",
               "default": null,
               "help": "Model selector (e.g. \"github-copilot/claude-haiku-4.5\", \"gpt-5\"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available",
+              "aliases": []
+            },
+            {
+              "name": "nudge_cooldown",
+              "positional": false,
+              "value_name": "NUDGE_COOLDOWN",
+              "default": null,
+              "help": "Watcher nudge cooldown, e.g. 10m",
               "aliases": []
             },
             {
@@ -518,7 +558,7 @@
               "positional": false,
               "value_name": "ROLE",
               "default": null,
-              "help": "Role: Worker, Orchestrator, or Planner profile sugar",
+              "help": "Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar",
               "aliases": []
             },
             {
@@ -605,8 +645,8 @@
               "name": "announce_chat_id",
               "positional": false,
               "value_name": "ANNOUNCE_CHAT_ID",
-              "default": "186809246",
-              "help": "Sentinel chat id for --announce. Defaults to the maintainer's chat",
+              "default": null,
+              "help": "Sentinel chat id for --announce. Defaults to the target's first allow-listed bridge user",
               "aliases": []
             },
             {

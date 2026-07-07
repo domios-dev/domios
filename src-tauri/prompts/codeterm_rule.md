@@ -23,7 +23,7 @@ Tool-call narration in pane is fine. Conversational reply is not.
 
 ### When to use CodeTerm CLI
 
-- "in terminal" / "в терминале" / "в консоли" → CodeTerm workspace/pane, NOT filesystem
+- "in terminal" / "in the console" (in any language) → CodeTerm workspace/pane, NOT filesystem
 - "create project X" → `codeterm workspace create "X"`
 - "run tests there" → `codeterm send "command" --pane PANE_ID`
 - "stop the agent in that pane" / "interrupt" / `/stop` from a bridge → `codeterm pane stop --pane ID` (does NOT close the pane)
@@ -38,7 +38,7 @@ Always use CLI, never raw curl:
 ```bash
 codeterm mesh peers                                        # find peers (paired = can send)
 codeterm pane list --mesh "home-laptop"                    # list panes on remote
-codeterm send "git pull && ./build.sh dev" --pane ID --mesh PEER  # send command
+codeterm send "git pull && npm run dev" --pane ID --mesh PEER  # send command
 codeterm agent spawn claude --task "..." --mesh PEER       # spawn agent remotely
 codeterm pane get-text --pane ID --mesh PEER               # read remote visible terminal text
 ```

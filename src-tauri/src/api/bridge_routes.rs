@@ -254,8 +254,16 @@ fn persist_token_file(token: &str) -> Result<(), String> {
 pub struct AnnounceBody {
     #[serde(default = "default_service")]
     pub service: String,
-    pub chat_id: i64,
+    pub chat_id: Option<i64>,
     pub text: String,
+}
+
+fn first_allowed_bridge_user() -> Option<i64> {
+    crate::config::load_config()
+        .integrations
+        .telegram_allowed_users
+        .iter()
+        .find_map(|id| id.trim().parse::<i64>().ok())
 }
 
 pub async fn bridge_announce(
@@ -266,6 +274,11 @@ pub async fn bridge_announce(
     check_auth(&state, &headers)?;
     ensure_telegram(&body.service)?;
 
+    let chat_id = body.chat_id.or_else(first_allowed_bridge_user).ok_or((
+        StatusCode::BAD_REQUEST,
+        "No chat_id given and no allow-listed bridge users to default to",
+    ))?;
+
     if !state.svc.bridge_supervisor.is_active() {
         return Err((StatusCode::SERVICE_UNAVAILABLE, "Bridge not active"));
     }
@@ -275,7 +288,7 @@ pub async fn bridge_announce(
         .as_ref()
         .ok_or((StatusCode::SERVICE_UNAVAILABLE, "Bridge not active"))?;
     tx.send(crate::bridge::manager::OutboundMessage {
-        user_id: Some(body.chat_id),
+        user_id: Some(chat_id),
         content: crate::bridge::traits::OutboundContent::Text { text: body.text },
         append: false,
         buttons: None,
