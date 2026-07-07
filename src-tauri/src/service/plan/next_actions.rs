@@ -232,6 +232,7 @@ mod tests {
             loops: vec![],
             heartbeat: Default::default(),
             open_lanes: vec![],
+            lanes: vec![],
             blocked_lanes: vec![],
             live_agents: vec![],
             recent_strides: vec![],
