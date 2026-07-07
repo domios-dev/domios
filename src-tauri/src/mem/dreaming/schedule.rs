@@ -1,5 +1,10 @@
 //! Schedule management for the bundled dreaming + legacy librarian crons.
 
+use codeterm_types::agent::models::canonicalize_short;
+use codeterm_types::config::MemoryConfig;
+
+use crate::mem::ports::{MemCronCreateParams, MemSchedulerPort};
+
 /// Marker name for the auto-installed dreaming cron job. Used to
 /// detect "already exists" so we don't create duplicates on every start.
 pub const DREAMING_CRON_NAME: &str = "mem-dreaming-auto";
@@ -16,17 +21,13 @@ const DREAMING_TASK: &str = "codeterm mem dream && codeterm agent report \"dream
 ///
 /// Returns true if a new cron was created, false if one already existed.
 pub fn ensure_dreaming_cron(
-    cron_store: &mut crate::cron::store::CronStore,
+    cron_store: &mut dyn MemSchedulerPort,
+    mem_cfg: &MemoryConfig,
+    default_agent: &str,
 ) -> Result<bool, String> {
-    let mem_cfg = crate::config::memory_config();
-
-    if let Some(job) = cron_store
-        .list()
-        .iter()
-        .find(|j| j.name == DREAMING_CRON_NAME)
-    {
+    if let Some(job) = cron_store.find_job_by_name(DREAMING_CRON_NAME) {
         let desired_agent = if mem_cfg.dreaming_agent.is_empty() {
-            crate::config::default_agent_provider()
+            default_agent.to_string()
         } else {
             mem_cfg.dreaming_agent.clone()
         };
@@ -36,43 +37,48 @@ pub fn ensure_dreaming_cron(
 
         if agent_changed || legacy_schedule_match || legacy_jitter_match {
             let job_id = job.id.clone();
-            if let Some(j) = cron_store.get_mut(&job_id) {
-                if agent_changed {
-                    j.agent = desired_agent;
-                }
-                if legacy_schedule_match {
-                    j.schedule = "0 6 * * *".into();
-                }
-                if legacy_jitter_match {
-                    j.jitter_max_ms = Some(1_800_000);
-                }
-                // Migrated schedule: stale `next_run` can cause an extra run on startup.
-                // Recompute to avoid double-fire after migration.
-                if j.enabled && !j.oneshot {
-                    // Only overwrite next_run when compute returns Some(_). None means no future run exists.
-                    // Keeping old next_run avoids accidentally disabling jobs (issue #96).
-                    match crate::cron::store::compute_next_run_jittered_in(
-                        &j.schedule,
-                        j.jitter_max_ms,
-                        j.tz.as_deref(),
-                    ) {
-                        Ok(Some(nr)) => j.next_run = Some(nr),
-                        Ok(None) => log::warn!(
-                            "[dreaming] schedule {:?} has no upcoming occurrence; \
-                             leaving next_run={:?} unchanged",
-                            j.schedule,
-                            j.next_run,
-                        ),
-                        Err(e) => log::warn!(
-                            "[dreaming] recompute next_run after migration failed: {}; \
-                             leaving next_run={:?} unchanged",
-                            e,
-                            j.next_run,
-                        ),
-                    }
-                }
-                let _ = cron_store.save();
+            let mut schedule = job.schedule.clone();
+            let mut jitter = job.jitter_max_ms;
+            let enabled = job.enabled;
+            let oneshot = job.oneshot;
+            let tz = job.tz.clone();
+            let mut next_run = job.next_run;
+            if legacy_schedule_match {
+                schedule = "0 6 * * *".into();
             }
+            if legacy_jitter_match {
+                jitter = Some(1_800_000);
+            }
+            if enabled && !oneshot {
+                match cron_store.compute_next_run_jittered_in(
+                    &schedule,
+                    jitter,
+                    tz.as_deref(),
+                ) {
+                    Ok(Some(nr)) => next_run = Some(nr),
+                    Ok(None) => log::warn!(
+                        "[dreaming] schedule {:?} has no upcoming occurrence; \
+                         leaving next_run={:?} unchanged",
+                        schedule,
+                        next_run,
+                    ),
+                    Err(e) => log::warn!(
+                        "[dreaming] recompute next_run after migration failed: {}; \
+                         leaving next_run={:?} unchanged",
+                        e,
+                        next_run,
+                    ),
+                }
+            }
+            cron_store.update_job(&job_id, &mut |j| {
+                if agent_changed {
+                    j.agent = desired_agent.clone();
+                }
+                j.schedule = schedule.clone();
+                j.jitter_max_ms = jitter;
+                j.next_run = next_run;
+            })?;
+            let _ = cron_store.save();
         }
         return Ok(false);
     }
@@ -83,7 +89,6 @@ pub fn ensure_dreaming_cron(
         Some(mem_cfg.dreaming_agent.clone())
     };
 
-    // Prefer `dreaming_model` override; otherwise store shared `worker_model` for manual-run parity.
     let model = if !mem_cfg.dreaming_model.is_empty() {
         Some(mem_cfg.dreaming_model.clone())
     } else if !mem_cfg.worker_model.is_empty() {
@@ -91,9 +96,9 @@ pub fn ensure_dreaming_cron(
     } else {
         None
     }
-    .map(|s| crate::agent::models::canonicalize_short(&s).to_string());
+    .map(|s| canonicalize_short(&s).to_string());
 
-    let _ = cron_store.create(crate::cron::store::CronCreateParams {
+    cron_store.create_job(MemCronCreateParams {
         name: DREAMING_CRON_NAME.into(),
         workspace_id: String::new(),
         schedule: "0 6 * * *".into(),
@@ -111,15 +116,9 @@ pub fn ensure_dreaming_cron(
         tz: None,
         timeout_seconds: Some(mem_cfg.dreaming_timeout_seconds),
     })?;
-    if let Some(job) = cron_store
-        .list()
-        .iter()
-        .find(|j| j.name == DREAMING_CRON_NAME)
-    {
+    if let Some(job) = cron_store.find_job_by_name(DREAMING_CRON_NAME) {
         let job_id = job.id.clone();
-        if let Some(j) = cron_store.get_mut(&job_id) {
-            j.protected = true;
-        }
+        cron_store.set_job_protected(&job_id, true)?;
         let _ = cron_store.save();
     }
     Ok(true)
@@ -130,17 +129,13 @@ pub const LIBRARIAN_CRON_NAME: &str = "mem-librarian-auto";
 /// Removes the legacy LLM-based librarian cron if it still exists from older
 /// installs. The librarian now runs as a CLI subprocess via the supervisor;
 /// kept as a migration step.
-pub fn remove_legacy_librarian_cron(cron_store: &mut crate::cron::store::CronStore) -> bool {
+pub fn remove_legacy_librarian_cron(cron_store: &mut dyn MemSchedulerPort) -> bool {
     let existing = cron_store
-        .list()
-        .iter()
-        .find(|j| j.name == LIBRARIAN_CRON_NAME)
+        .find_job_by_name(LIBRARIAN_CRON_NAME)
         .map(|j| j.id.clone());
     if let Some(id) = existing {
-        if let Some(job) = cron_store.get_mut(&id) {
-            job.protected = false;
-        }
-        let _ = cron_store.delete(&id);
+        let _ = cron_store.set_job_protected(&id, false);
+        let _ = cron_store.delete_job(&id);
         let _ = cron_store.save();
         true
     } else {

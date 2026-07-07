@@ -1,8 +1,23 @@
 use super::*;
+use crate::cron::store::CronStore;
 use crate::mem::store::{MemKind, MemScope, NewMemItem};
 use crate::mem::MemManager;
+use crate::mem_host::CronSchedulerPort;
 use chrono::Timelike;
+use codeterm_types::config::MemoryConfig;
 use rusqlite::{params, Connection};
+
+fn test_mem_cfg() -> MemoryConfig {
+    MemoryConfig::default()
+}
+
+fn ensure_dreaming(store: &mut CronStore) -> Result<bool, String> {
+    super::ensure_dreaming_cron(
+        &mut CronSchedulerPort(store),
+        &test_mem_cfg(),
+        "claude",
+    )
+}
 
 #[tokio::test]
 async fn light_phase_promotes_accessed_learnings() {
@@ -87,9 +102,9 @@ fn ensure_dreaming_cron_idempotent() {
     std::mem::forget(dir);
     let mut store = crate::cron::store::CronStore::new_with_path(path);
 
-    let first = ensure_dreaming_cron(&mut store).unwrap();
+    let first = ensure_dreaming(&mut store).unwrap();
     assert!(first, "first call should create");
-    let second = ensure_dreaming_cron(&mut store).unwrap();
+    let second = ensure_dreaming(&mut store).unwrap();
     assert!(!second, "second call should be no-op");
     let count = store
         .list()
@@ -119,7 +134,7 @@ fn legacy_jitter_90min_migrates_to_30min() {
     std::mem::forget(dir);
     let mut store = crate::cron::store::CronStore::new_with_path(path);
 
-    ensure_dreaming_cron(&mut store).unwrap();
+    ensure_dreaming(&mut store).unwrap();
     let id = store
         .list()
         .iter()
@@ -132,7 +147,7 @@ fn legacy_jitter_90min_migrates_to_30min() {
     }
     let _ = store.save();
 
-    ensure_dreaming_cron(&mut store).unwrap();
+    ensure_dreaming(&mut store).unwrap();
 
     let job = store
         .list()
@@ -153,7 +168,7 @@ fn legacy_3am_schedule_migrates_to_6am() {
     std::mem::forget(dir);
     let mut store = crate::cron::store::CronStore::new_with_path(path);
 
-    ensure_dreaming_cron(&mut store).unwrap();
+    ensure_dreaming(&mut store).unwrap();
     let id = store
         .list()
         .iter()
@@ -166,7 +181,7 @@ fn legacy_3am_schedule_migrates_to_6am() {
     }
     let _ = store.save();
 
-    ensure_dreaming_cron(&mut store).unwrap();
+    ensure_dreaming(&mut store).unwrap();
 
     let job = store
         .list()
@@ -182,7 +197,7 @@ fn legacy_3am_schedule_migrates_to_6am() {
 #[test]
 fn dreaming_telegram_step_substitution() {
     // Enabled (default): the placeholder must expand to the real bridge-send instructions so the dreamer pushes its 🧠 brief to Telegram.
-    let enabled = crate::prompts::DREAMING_REM.replace(
+    let enabled = crate::mem::prompts::DREAMING_REM.replace(
         "{telegram_notify_step}",
         super::DREAMING_TELEGRAM_STEP_ENABLED,
     );
@@ -200,7 +215,7 @@ fn dreaming_telegram_step_substitution() {
     );
 
     // Disabled: the placeholder expands to an explicit "skip" directive and the bridge-send command must NOT appear in the final prompt.
-    let disabled = crate::prompts::DREAMING_REM.replace(
+    let disabled = crate::mem::prompts::DREAMING_REM.replace(
         "{telegram_notify_step}",
         super::DREAMING_TELEGRAM_STEP_DISABLED,
     );
@@ -226,7 +241,7 @@ fn legacy_schedule_migration_recomputes_next_run() {
     std::mem::forget(dir);
     let mut store = crate::cron::store::CronStore::new_with_path(path);
 
-    ensure_dreaming_cron(&mut store).unwrap();
+    ensure_dreaming(&mut store).unwrap();
     let id = store
         .list()
         .iter()
@@ -247,7 +262,7 @@ fn legacy_schedule_migration_recomputes_next_run() {
     }
     let _ = store.save();
 
-    ensure_dreaming_cron(&mut store).unwrap();
+    ensure_dreaming(&mut store).unwrap();
 
     let job = store
         .list()
@@ -278,7 +293,7 @@ fn custom_user_schedule_is_preserved() {
     std::mem::forget(dir);
     let mut store = crate::cron::store::CronStore::new_with_path(path);
 
-    ensure_dreaming_cron(&mut store).unwrap();
+    ensure_dreaming(&mut store).unwrap();
     let id = store
         .list()
         .iter()
@@ -291,7 +306,7 @@ fn custom_user_schedule_is_preserved() {
     }
     let _ = store.save();
 
-    ensure_dreaming_cron(&mut store).unwrap();
+    ensure_dreaming(&mut store).unwrap();
 
     let job = store
         .list()
@@ -311,7 +326,7 @@ fn dream_cron_enabled_state_round_trips_through_store() {
     std::mem::forget(dir);
     let mut store = crate::cron::store::CronStore::new_with_path(path);
 
-    ensure_dreaming_cron(&mut store).expect("create dream cron");
+    ensure_dreaming(&mut store).expect("create dream cron");
     let id = store
         .list()
         .iter()

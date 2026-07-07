@@ -12,6 +12,8 @@ pub mod graph_repair;
 pub mod ids;
 pub mod layers;
 pub mod learnings;
+pub mod ports;
+pub mod prompts;
 pub mod rerank;
 pub mod search;
 pub mod seed;

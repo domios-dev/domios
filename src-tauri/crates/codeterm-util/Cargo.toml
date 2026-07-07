@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 parking_lot = "0.12"
 log = "0.4"
+vt100 = "0.16"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
