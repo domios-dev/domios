@@ -124,9 +124,7 @@ impl PlanStore {
         #[cfg(test)]
         {
             paths::mark_test_project_root(_root);
-            search_index::init_search_port(std::sync::Arc::new(test_support::TestSearchPort::new(
-                _root,
-            )));
+            search_index::init_search_port(std::sync::Arc::new(test_support::TestSearchPort));
         }
         Self::default()
     }

@@ -17,10 +17,11 @@ pub fn init_search_port(port: Arc<dyn PlanSearchPort>) {
     SEARCH_PORT.get_or_init(|| port);
 }
 
-fn port() -> &'static Arc<dyn PlanSearchPort> {
+fn port() -> Arc<dyn PlanSearchPort> {
     SEARCH_PORT
         .get()
         .expect("search port not initialized; call init_search_port before using search_index")
+        .clone()
 }
 
 const INDEX_FILE: &str = "plan-index.sqlite";
