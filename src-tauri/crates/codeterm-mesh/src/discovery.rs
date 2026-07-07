@@ -85,7 +85,7 @@ pub fn init_mdns_daemon(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
                     if addresses.is_empty() {
                         continue;
                     }
-                    let sighting = crate::mesh::discovered::DiscoverySighting {
+                    let sighting = crate::discovered::DiscoverySighting {
                         instance_id: id.clone(),
                         instance_name: name.clone(),
                         addresses,
@@ -589,7 +589,7 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
                     if beacon.id == instance_id {
                         continue;
                     }
-                    let sighting = crate::mesh::discovered::DiscoverySighting {
+                    let sighting = crate::discovered::DiscoverySighting {
                         instance_id: beacon.id.clone(),
                         instance_name: beacon.name,
                         addresses: vec![PeerAddress::from_ip(&src_addr.ip().to_string())],

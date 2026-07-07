@@ -24,6 +24,7 @@ pub struct MeshManager {
     pub local_ip: Option<String>,
     pub local_https_url: Option<String>,
     pub api_port: u16,
+    pub build_hash: String,
     pub pairing_targets: HashMap<String, (String, u16, String)>,
     pub mdns_daemon: Option<ServiceDaemon>,
     pub mdns_service_fullname: Option<String>,
@@ -63,6 +64,7 @@ impl MeshManager {
             local_ip: None,
             local_https_url: None,
             api_port,
+            build_hash: String::new(),
             pairing_targets: HashMap::new(),
             mdns_daemon: None,
             mdns_service_fullname: None,
@@ -134,7 +136,7 @@ impl MeshManager {
             enabled: true,
             instance_id: self.ident.identity.instance_id.clone(),
             instance_name: self.ident.instance_name.clone(),
-            build: env!("BUILD_HASH").to_string(),
+            build: self.build_hash.clone(),
             discovery_active: self.discovery_active,
             broadcast_active: self.broadcast_active,
             broadcast_expires_at: self.broadcast_expires_at,
@@ -531,7 +533,7 @@ mod liveness_tests {
 
     #[test]
     fn build_sync_payload_includes_self_last_active() {
-        let activity = super::super::ports::RecordingLastActivity::new(cfg!(debug_assertions));
+        let activity = crate::ports::RecordingLastActivity::new(cfg!(debug_assertions));
         let mesh = MeshManager::with_last_activity("local".into(), 7685, activity.clone());
         activity.mark();
         let payload = mesh.build_sync_payload();
@@ -649,19 +651,19 @@ mod liveness_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mesh::types::{PairedPeer, PairingRequest, PeerAddress, PeerAnnounce};
+    use crate::types::{PairedPeer, PairingRequest, PeerAddress, PeerAnnounce};
 
     #[test]
     fn check_and_record_nonce_rejects_replay() {
         let mut mgr = MeshManager::new("test-node".to_string(), 7777);
         mgr.disk_persist = false;
 
-        let (priv_key, pub_key) = crate::mesh::crown::generate_peer_keypair();
+        let (priv_key, pub_key) = crate::crown::generate_peer_keypair();
         mgr.ident.identity.private_key = Some(priv_key.clone());
         mgr.ident.identity.public_key = Some(pub_key.clone());
         let instance_id = mgr.ident.identity.instance_id.clone();
 
-        let token = crate::mesh::crown::sign_request(&priv_key, &instance_id).unwrap();
+        let token = crate::crown::sign_request(&priv_key, &instance_id).unwrap();
 
         assert!(
             mgr.check_and_record_nonce(&token).is_ok(),

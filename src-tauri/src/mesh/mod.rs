@@ -1,39 +1,36 @@
-//! CodeTerm Mesh — peer-to-peer networking between CodeTerm instances.
-//!
-//! Architecture:
-//! - IdentityManager — signing, authentication, keypair operations
-//! - MeshManager — thin facade composing identity + peer/discovery state
+//! App shim — domain logic lives in `codeterm-mesh`.
 
 mod app_ports;
-pub mod broadcast;
-pub mod crown;
-pub mod discovered;
-pub mod discovery;
-pub mod health;
-pub mod identity;
-pub mod manager;
-pub mod pairing;
-pub mod ports;
-pub mod peer_services;
-pub mod peers;
-pub mod serve_setup;
-pub mod toggle;
-pub mod transport;
-pub mod types;
 
-use std::sync::Arc;
+pub use codeterm_mesh::*;
 
-use parking_lot::Mutex;
+use app_ports::AppMeshEventSink;
 
-pub use broadcast::{
-    broadcast_announce, broadcast_introductions, broadcast_sync, refresh_local_addresses,
-    AnnounceReport,
-};
-pub use manager::MeshManager;
-pub use serve_setup::{
-    disable_web_serve, enable_web_serve, probe_serve_status, tailscale_serve_https_url,
-    ServeResult, ServeStatus,
-};
-pub use toggle::{apply_mesh_enabled, set_mesh_enabled};
+/// Persist config + drive mesh runtime for the sidebar toggle.
+pub fn set_mesh_enabled(
+    mesh: &MeshState,
+    config: &crate::config::ConfigState,
+    app: &tauri::AppHandle,
+    enabled: bool,
+) -> bool {
+    let changed = {
+        let mut cfg = config.lock();
+        let was = cfg.mesh.enabled;
+        cfg.mesh.enabled = enabled;
+        was != enabled
+    };
+    if changed {
+        let snapshot = config.lock().clone();
+        if let Err(e) = crate::config::save_config_pub(&snapshot) {
+            log::error!("[mesh] failed to persist mesh.enabled: {}", e);
+        }
+        let sink = AppMeshEventSink { app };
+        sink.emit_config_changed(serde_json::to_value(&snapshot).unwrap_or_default());
+    }
 
-pub type MeshState = Arc<Mutex<MeshManager>>;
+    let sink = AppMeshEventSink { app };
+    codeterm_mesh::apply_mesh_enabled(mesh, enabled, &sink);
+    enabled
+}
+
+pub use app_ports::UserLastActivityProvider;
