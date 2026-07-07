@@ -1,3 +1,4 @@
+use super::lane_liveness::{derive_lane_liveness, LaneInputs, LaneLiveness, LaneThresholds};
 use super::{Plan, Task, TaskStatus};
 use serde::{Deserialize, Serialize};
 
@@ -238,6 +239,90 @@ pub fn detect_pane_gone(plan: &Plan, pane_id: &str) -> Vec<DriftItem> {
         .collect()
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaneDemotion {
+    pub task_id: String,
+    pub plan_id: String,
+    pub reason: String,
+}
+
+// Freshest known activity for a lane: last stride/report, else when it entered
+// in_progress. Zero when no baseline exists (never demote without a clock).
+pub fn lane_last_activity_ms(task: &Task) -> u64 {
+    task.milestones
+        .iter()
+        .map(|m| m.ts)
+        .chain(task.execution_attempts.iter().filter_map(|a| a.reported_at))
+        .max()
+        .unwrap_or(0)
+        .max(task.status_changed_at)
+}
+
+fn lane_inputs(task: &Task, probe: Option<&PaneProbe>, now_ms: u64) -> LaneInputs {
+    LaneInputs {
+        has_assigned_pane: probe.is_some(),
+        pane_present_local: probe.is_some_and(|p| p.exists),
+        has_peer: task.peer.as_deref().is_some_and(|p| !p.trim().is_empty()),
+        // Mesh presence unknown here: derive stays conservative (a peer lane
+        // absent locally reads Working, never Gone) so a sleeping laptop is safe.
+        peer_online: None,
+        tracker_active: probe.map(|p| p.live_agent),
+        last_activity_ms: lane_last_activity_ms(task),
+        now_ms,
+    }
+}
+
+/// Watchdog demotion pass, meant to run on the reminder-scheduler cadence.
+/// Demotes an in_progress lane ONLY when its assigned pane is genuinely gone
+/// (absent locally, no peer that could still host it — via derive_lane_liveness)
+/// AND it has been silent past the grace window. Never touches ReportOverdue /
+/// IdleStalled lanes (honest slow work), pane-less lanes (UI-owned), or lanes
+/// owned by another orchestrator. The caller's probe keys `exists` off the
+/// lane's OWN session, so a recycled pane id hosting a different agent reads gone.
+pub fn detect_lane_demotions<F>(
+    plan: &Plan,
+    config: &ReconcileConfig,
+    thresholds: &LaneThresholds,
+    pane_probe: F,
+) -> Vec<LaneDemotion>
+where
+    F: Fn(&str) -> PaneProbe,
+{
+    plan.tasks
+        .iter()
+        .filter(|task| task.status == TaskStatus::InProgress)
+        .filter_map(|task| {
+            let assigned_pane = task
+                .assigned_pane_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|pane_id| !pane_id.is_empty());
+            let probe = assigned_pane.map(&pane_probe);
+            if probe
+                .as_ref()
+                .is_some_and(|p| assigned_to_other_orchestrator(p, config))
+            {
+                return None;
+            }
+            let inputs = lane_inputs(task, probe.as_ref(), config.now_ms);
+            if derive_lane_liveness(&inputs, thresholds) != LaneLiveness::PaneGone {
+                return None;
+            }
+            if inputs.last_activity_ms == 0 {
+                return None;
+            }
+            let idle = config.now_ms.saturating_sub(inputs.last_activity_ms);
+            (idle > thresholds.t_overdue_ms).then(|| LaneDemotion {
+                task_id: task.id.clone(),
+                plan_id: plan.id.clone(),
+                reason: format!(
+                    "watchdog: assigned pane gone and silent for {idle}ms — demoted to pending"
+                ),
+            })
+        })
+        .collect()
+}
+
 fn assigned_to_other_orchestrator(probe: &PaneProbe, config: &ReconcileConfig) -> bool {
     if probe.role != Some(PaneRole::Worker) {
         return false;
@@ -449,6 +534,81 @@ mod tests {
             parent_pane_id: Some("other-orch".into()),
         });
         assert!(items[0].not_mine);
+    }
+
+    fn lane_thresholds() -> LaneThresholds {
+        LaneThresholds {
+            t_stall_ms: 100,
+            t_overdue_ms: 1_000,
+        }
+    }
+
+    fn in_progress_lane(id: &str, pane: &str, status_changed_at: u64) -> Task {
+        let mut t = task(id, TaskStatus::InProgress);
+        t.assigned_pane_id = Some(pane.into());
+        t.status_changed_at = status_changed_at;
+        t
+    }
+
+    #[test]
+    fn demotes_dead_lane_past_grace() {
+        let t = in_progress_lane("t1", "dead", 1);
+        let demotions =
+            detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| PaneProbe {
+                exists: false,
+                ..Default::default()
+            });
+        assert_eq!(demotions.len(), 1);
+        assert_eq!(demotions[0].task_id, "t1");
+    }
+
+    #[test]
+    fn leaves_live_lane_untouched() {
+        let t = in_progress_lane("t1", "live", 4_900);
+        let demotions =
+            detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| PaneProbe {
+                exists: true,
+                live_agent: true,
+                ..Default::default()
+            });
+        assert!(demotions.is_empty());
+    }
+
+    #[test]
+    fn never_demotes_report_overdue_lane() {
+        // Pane present but silent past overdue: honest slow work, not gone.
+        let t = in_progress_lane("t1", "live", 1);
+        let demotions =
+            detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| PaneProbe {
+                exists: true,
+                live_agent: true,
+                ..Default::default()
+            });
+        assert!(demotions.is_empty());
+    }
+
+    #[test]
+    fn grace_window_spares_recently_active_dead_lane() {
+        let t = in_progress_lane("t1", "dead", 4_900);
+        let demotions =
+            detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| PaneProbe {
+                exists: false,
+                ..Default::default()
+            });
+        assert!(demotions.is_empty());
+    }
+
+    #[test]
+    fn never_demotes_other_orchestrator_lane() {
+        let t = in_progress_lane("t1", "worker", 1);
+        let demotions =
+            detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| PaneProbe {
+                exists: false,
+                live_agent: false,
+                role: Some(PaneRole::Worker),
+                parent_pane_id: Some("other-orch".into()),
+            });
+        assert!(demotions.is_empty());
     }
 
     #[test]
