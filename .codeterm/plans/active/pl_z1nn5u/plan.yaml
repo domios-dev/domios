@@ -138,7 +138,7 @@ owner:
 project_path: /Users/rollacode/Developer/codeterm
 canonical_project_path: /Users/rollacode/Developer/codeterm
 created_at: 1783373357907
-updated_at: 1783403717080
+updated_at: 1783405892977
 milestone_kinds:
 - key: status_update
   label: status_update
@@ -317,14 +317,14 @@ primary_spec_id: sp_gma7gv
 lineage: []
 goal: null
 heartbeat:
-  current_focus: 'AWAITING REINSTALL (Andrey signaled). Post-restart: resume P6 per handoff el_a4zxot — merge lanes -> debt fixes -> QA -> close 13 to done -> accept'
+  current_focus: 'P6 in progress: all 13 lanes MERGED into feat/canvas-updates (check 0 err). Fix-lanes t14-modsplit(259025ef)+t15-clidebt(2f37723b) running. On their reports -> verify+merge -> final gate (clippy+test+manifest regen+file-size) -> rebuild dev -> Playwright t6/t7 + t1 smoke -> close 13 to done -> accept'
   active_lanes:
-  - t2-lanes=c9b693f3
-  - t10-polling=4ff9c09d
+  - t14-modsplit=259025ef
+  - t15-clidebt=2f37723b
   rules:
-  - All 13 ACCEPTED (in_review), zero bounces; work on lane/* branches in ../ct-lanes; plan state persisted. Safe to restart.
-  - 'REAL orchestrator pane = a0481d40 (not c1a3fc71). Future spawns: --parent/--report-to a0481d40'
-  - 'P6 runbook in handoff el_a4zxot: merge (t1 first) -> mod.rs split + fmt -> CLI test-debt lane (Sagan verdict: STALE-7 fixtures, FIX-1 renderer arms, trivial plan_skill walk) -> regen manifest -> rebuild dev -> check+clippy+test -> Playwright t6/t7 + t1 smoke -> stale-sweep -> accept'
+  - MERGED (13 lanes + Andrey auto-execution 9c93a413 + plan-reminder log-line 767cf3ec + fmt bf92118d). Committed Andrey's uncommitted work first per his instruction.
+  - 'REMAINING gate debt: mod.rs 1046 split (t14), 8 CLI test fails (t15), manifest regen (needs new CLI build), then clippy+test both crates'
+  - Real pane a0481d40. Disk 89GB. Dev still down (rebuild before Playwright)
   learnings:
   - id: learn_97i28l
     text: 'Lane cargo tests on this host: a 90s-cap ''hang'' is usually a COLD dep recompile (esp. after a disk-reclaim wipes .rlibs), not a code hang. Precompile with ''cargo test --lib --no-run'' (sccache-served) then run execution-only under the cap. Bare ''cargo test'' (no --lib) builds integration+doctests and blows the cold cap — always narrow with --lib.'
