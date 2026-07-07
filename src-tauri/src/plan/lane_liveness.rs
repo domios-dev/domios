@@ -2,6 +2,8 @@
 //! task's assigned pane maps to a live/idle/gone verdict. Consumed by reconcile,
 //! plan-lanes, and the lane watchdog so their verdicts can never disagree.
 
+use serde::Serialize;
+
 use super::reconcile::NEEDS_REASSIGN_LABEL;
 
 pub const DEFAULT_T_STALL_MS: u64 = 10 * 60 * 1000;
@@ -44,7 +46,8 @@ pub struct LaneInputs {
     pub now_ms: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum LaneLiveness {
     NoPane,
     Working,

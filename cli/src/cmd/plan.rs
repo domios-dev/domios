@@ -10,6 +10,7 @@ use crate::cmd::plan_errors::render_plan_call_error;
 
 mod gate_cmd;
 mod qa_cmd;
+mod read_cmd;
 mod task_cmd;
 #[cfg(test)]
 use crate::cmd::plan_errors::render_plan_error;
@@ -345,18 +346,10 @@ fn run_plan(
             return Ok(None);
         }
 
-        PlanAction::State { plan_id } => {
-            let mut params = json!({});
-            if let Some(plan_id) = plan_id {
-                params["plan_id"] = json!(plan_id);
-            }
-            maybe_inject_caller_pane(&mut params);
-            let val = call(client, "plan.state", params)?;
-            if json {
-                return Ok(Some(val));
-            }
-            print!("{}", crate::cmd::plan_state::render_state(&val));
-            return Ok(None);
+        PlanAction::State { plan_id } => return read_cmd::state(client, json, plan_id),
+
+        PlanAction::Lanes { plan_id, stale } => {
+            return read_cmd::lanes(client, json, plan_id, stale)
         }
 
         PlanAction::Next { plan_id } => {
