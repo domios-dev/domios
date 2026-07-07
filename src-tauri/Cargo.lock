@@ -1101,6 +1101,7 @@ dependencies = [
  "codeterm-paths",
  "codeterm-plugins",
  "codeterm-types",
+ "codeterm-util",
  "conpty",
  "crash-context",
  "crash-handler",
@@ -1207,6 +1208,16 @@ dependencies = [
  "serde_json",
  "toml 0.8.2",
  "uuid",
+]
+
+[[package]]
+name = "codeterm-util"
+version = "1.6.2"
+dependencies = [
+ "libc",
+ "log",
+ "parking_lot",
+ "tempfile",
 ]
 
 [[package]]

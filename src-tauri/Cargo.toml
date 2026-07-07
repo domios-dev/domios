@@ -5,7 +5,7 @@ edition = "2021"
 default-run = "codeterm"
 
 [workspace]
-members = [".", "crates/codeterm-types"]
+members = [".", "crates/codeterm-types", "crates/codeterm-util"]
 exclude = ["pty-fork"]
 resolver = "2"
 
@@ -29,6 +29,7 @@ serde_json = "1"
 serde_yaml = "0.9"
 uuid = { version = "1", features = ["v4", "serde"] }
 codeterm-types = { path = "crates/codeterm-types" }
+codeterm-util = { path = "crates/codeterm-util" }
 log = "0.4"
 fern = "0.7"
 parking_lot = "0.12"
