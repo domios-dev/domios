@@ -3,15 +3,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
-pub enum PaneStatus {
-    Working,
-    Waiting,
-    Idle,
-    Dead,
-}
+pub use codeterm_types::pty::PaneStatus;
 
 pub struct PaneStatusTracker {
     statuses: HashMap<String, PaneStatusEntry>,

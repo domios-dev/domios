@@ -187,7 +187,7 @@ pub async fn resume_session_api(
                     cwd: Some(cwd.clone()),
                     activate: Some(true),
                 };
-                let result = crate::dispatch::dispatch(&cmd, &state.svc)
+                let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref())
                     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
                 result
                     .into_json()
