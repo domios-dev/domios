@@ -162,11 +162,14 @@ fn render_regression_gates(plan: &Plan, out: &mut String) {
     }
 }
 
+static REFLECT_EVERY_GATES: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+
+pub fn init_reflect_every(every_gates: u32) {
+    REFLECT_EVERY_GATES.get_or_init(|| every_gates);
+}
+
 fn reflect_every_gates() -> u32 {
-    crate::config::load_config()
-        .orchestration
-        .reflect
-        .every_gates
+    *REFLECT_EVERY_GATES.get().unwrap_or(&5)
 }
 
 fn render_open_gates(plan: &Plan, now_ms: u64, out: &mut String) {

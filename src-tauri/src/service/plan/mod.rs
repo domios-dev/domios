@@ -25,7 +25,12 @@ pub mod next_actions;
 pub mod paths;
 pub mod peer_mandate;
 pub mod plan_skills;
+pub mod lane_port_impl;
+pub mod ports;
 pub mod prompts_plan;
+pub mod search_port_impl;
+pub mod search_related;
+pub mod sink_impl;
 pub mod qa;
 mod readback;
 mod reconcile_fixes;
@@ -114,6 +119,9 @@ impl PlanStore {
     pub fn new_for_test(_root: &Path) -> Self {
         #[cfg(test)]
         paths::mark_test_project_root(_root);
+        search_index::init_search_port(std::sync::Arc::new(
+            search_port_impl::MemSearchPort,
+        ));
         Self::default()
     }
 }
