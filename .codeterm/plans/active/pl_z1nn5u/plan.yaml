@@ -130,7 +130,7 @@ sections:
     collapsed: false
   attachments: []
 status: active
-mode: execution
+mode: complete
 owner:
   pane_id: a0481d40
   session_id: null
@@ -138,7 +138,7 @@ owner:
 project_path: /Users/rollacode/Developer/codeterm
 canonical_project_path: /Users/rollacode/Developer/codeterm
 created_at: 1783373357907
-updated_at: 1783407624598
+updated_at: 1783407897319
 milestone_kinds:
 - key: status_update
   label: status_update
@@ -317,13 +317,12 @@ primary_spec_id: sp_gma7gv
 lineage: []
 goal: null
 heartbeat:
-  current_focus: 'P6 nearly done: all 15 lanes MERGED + gated GREEN (check/clippy/test/fmt/file-size/manifest); stale-sweep complete (branches+worktrees cleaned). Awaiting dev rebuild -> t1 CLI smoke + Playwright t6/t7 -> close 15 to done -> accept to Andrey'
+  current_focus: COMPLETE — 15/15 done, merged to feat/canvas-updates, gated green, retrospective ms_wl1zti. settings-orchestration folded in. Awaiting release decision from Andrey
   active_lanes:
   - t14-modsplit=259025ef
   - t15-clidebt=2f37723b
   rules:
-  - Gate green except 3 PRE-EXISTING base failures (mem-vector x2 + windows spawn-audit) in files unchanged since base 8285461d — not effort regressions, surfaced to Andrey
-  - 'Fixed at gate: Andrey auto-execution committed, plan-reminder log line, fmt, mod.rs split, write_atomic pub(super), manifest regen. Stale target/debug/codeterm caused false manifest-fail.'
+  - 'Deferred: pixel Playwright t6/t7 (code+data+build verified). 3 pre-existing base failures (mem/windows) not effort regressions.'
   learnings:
   - id: learn_97i28l
     text: 'Lane cargo tests on this host: a 90s-cap ''hang'' is usually a COLD dep recompile (esp. after a disk-reclaim wipes .rlibs), not a code hang. Precompile with ''cargo test --lib --no-run'' (sccache-served) then run execution-only under the cap. Bare ''cargo test'' (no --lib) builds integration+doctests and blows the cold cap — always narrow with --lib.'
