@@ -6,6 +6,7 @@ import type {
 } from "@codeterm/chat-core";
 import {
   Bot,
+  Copy,
   Download, FileText, Image,
   Pencil,
   Search,
@@ -59,14 +60,17 @@ import {
   parsedToolInput,
   previewLine,
   resolveCuratedToolKind,
+  shouldRenderInlineToolRow,
   structuredInboundFromMessage,
   textArg,
   toolDisplayLabel,
 } from "./MessageBubble.helpers";
 import { CrossPaneMessageShell } from "./crossPaneBubble";
+import { InlineToolRow } from "./InlineToolRow";
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  isLatestFailedToolCall?: boolean;
   /** Route an interactive widget's answer back to the agent (existing send path). */
   onAnswerInteractive?: InteractiveAnswerHandler;
   /** Widget ids already answered — kept in the parent so they survive remounts. */
@@ -90,11 +94,18 @@ interface MessageBubbleProps {
 }
 
 const INTERACTIVE_QUESTIONS_ENABLED = false;
+const TOOL_EXPANDED_BY_ID = new Map<string, boolean>();
 
-export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onOpenPlan, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, isLatestFailedToolCall = false, origin, originAvatar, onOriginClick, resolvePaneName, onOpenPlan, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
+  const isFailedToolCall = message.type === "tool_call" && message.toolError === true;
   const shouldAutoExpand = message.type === "tool_call"
-    && (message.toolInput?.content != null || extractEdits(message).length > 0);
-  const [expanded, setExpanded] = useState(shouldAutoExpand);
+    && (message.toolInput?.content != null
+      || extractEdits(message).length > 0
+      || (isFailedToolCall && isLatestFailedToolCall));
+  const [expanded, setExpanded] = useState(() => {
+    const persisted = TOOL_EXPANDED_BY_ID.get(message.id);
+    return persisted ?? shouldAutoExpand;
+  });
   const [viewingImage, setViewingImage] = useState<ImageAttachment | null>(null);
 
   const renderedContent = useMemo(() => {
@@ -109,8 +120,23 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   }, []);
 
   useEffect(() => {
-    if (shouldAutoExpand) setExpanded(true);
-  }, [shouldAutoExpand]);
+    const persisted = TOOL_EXPANDED_BY_ID.get(message.id);
+    if (persisted != null) {
+      setExpanded(persisted);
+      return;
+    }
+    if (shouldAutoExpand) {
+      setExpanded(true);
+      TOOL_EXPANDED_BY_ID.set(message.id, true);
+    } else {
+      setExpanded(false);
+    }
+  }, [message.id, shouldAutoExpand]);
+
+  const setExpandedPersistent = useCallback((next: boolean) => {
+    TOOL_EXPANDED_BY_ID.set(message.id, next);
+    setExpanded(next);
+  }, [message.id]);
 
   if (!isRenderableMessage(message)) {
     return null;
@@ -153,7 +179,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           >
             <button
               type="button"
-              onClick={() => setExpanded(!expanded)}
+              onClick={() => setExpandedPersistent(!expanded)}
               className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:brightness-110"
               style={{ color: "var(--ct-fg)" }}
             >
@@ -424,7 +450,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           label="Session continued from summary"
           text={message.content}
           expanded={expanded}
-          onToggle={() => setExpanded(!expanded)}
+          onToggle={() => setExpandedPersistent(!expanded)}
           markdown
         />
       );
@@ -448,7 +474,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           label="System context"
           text={message.content}
           expanded={expanded}
-          onToggle={() => setExpanded(!expanded)}
+          onToggle={() => setExpandedPersistent(!expanded)}
           markdown
         />
       );
@@ -459,7 +485,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           label={isSkillContext ? "skill context" : label}
           text={message.content}
           expanded={expanded}
-          onToggle={() => setExpanded(!expanded)}
+          onToggle={() => setExpandedPersistent(!expanded)}
           markdown={isSkillContext || /\.md\b/i.test(label)}
         />
       );
@@ -517,6 +543,16 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     const hasToolContent = message.toolInput?.content != null;
     const toolContent = hasToolContent ? String(message.toolInput!.content) : null;
     const edits = extractEdits(message);
+    const toolStatus: "running" | "completed" | "failed" =
+      message.toolError === true ? "failed" : (message.toolResult ? "completed" : "running");
+    const statusGlyph = toolStatus === "running" ? "◜" : toolStatus === "failed" ? "✕" : "✓";
+    const statusGlyphClass = toolStatus === "running" ? "animate-spin opacity-60" : (toolStatus === "completed" ? "opacity-60" : "opacity-100");
+    const cardBorderStyle = toolStatus === "failed"
+      ? "dashed"
+      : "solid";
+    const cardBorderColor = toolStatus === "failed"
+      ? "color-mix(in srgb, var(--ct-border) 90%, var(--ct-fg) 10%)"
+      : "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)";
     const addedLines = edits.reduce((n, e) => n + (e.new ? e.new.split("\n").length : 0), 0);
     const removedLines = edits.reduce((n, e) => n + (e.old ? e.old.split("\n").length : 0), 0);
 
@@ -559,7 +595,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             inv={inv}
             result={message.toolResult}
             expanded={expanded}
-            onToggle={() => setExpanded(!expanded)}
+            onToggle={() => setExpandedPersistent(!expanded)}
             resolvePaneName={resolvePaneName}
             onOpenPlan={onOpenPlan}
             fontScale={fontScale}
@@ -569,6 +605,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     }
 
     const curatedKind = resolveCuratedToolKind(message.toolName);
+    const showInlineRow = shouldRenderInlineToolRow(message, curatedKind, edits.length > 0);
     if (curatedKind) {
       const input = parsedToolInput(message);
       const Icon =
@@ -608,25 +645,59 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
         curatedKind === "spawn_agent"
           ? [providerText, workspaceText ? `workspace ${workspaceText}` : null].filter(Boolean).join(" | ")
           : null;
+      if (showInlineRow) {
+        const inlineGlyph = curatedKind === "read_file" ? "read" : (curatedKind === "mem_search" ? "search" : "generic");
+        return (
+          <InlineToolRow
+            label={title}
+            primaryArg={primary}
+            resultText={message.toolResult}
+            status={toolStatus === "completed" ? "ok" : (toolStatus === "failed" ? "failed" : "pending")}
+            glyphKind={inlineGlyph}
+            expanded={expanded}
+            onToggle={() => setExpandedPersistent(!expanded)}
+            expandedContent={
+              <>
+                <pre className={`${PRE_WRAP_CLASS} m-0 font-mono`} style={{ color: "var(--ct-fg)" }}>
+                  {JSON.stringify(input, null, 2) || message.content}
+                </pre>
+                {message.toolResult && (
+                  <div className="mt-2">
+                    <ToolOutputContent text={message.toolResult} maxHeight="16rem" />
+                  </div>
+                )}
+              </>
+            }
+          />
+        );
+      }
 
       return (
-        <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
+        <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto group">
           <div className="flex w-full min-w-0 flex-col">
             <button
               data-testid={`chatbackend-tool-${curatedKind}`}
-              onClick={() => setExpanded(!expanded)}
-              className="flex w-full min-w-0 items-center gap-1.5 text-left rounded-md border px-2.5 py-1.5 text-xs transition-colors duration-150 hover:brightness-110"
+              onClick={() => setExpandedPersistent(!expanded)}
+              className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 text-left rounded-md border px-2.5 py-1.5 text-xs transition-colors duration-150 hover:brightness-110"
               style={{
                 background: "color-mix(in srgb, var(--ct-surface, #161b22) 88%, black 4%)",
-                borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
+                borderColor: cardBorderColor,
+                borderStyle: cardBorderStyle,
                 color: "var(--ct-muted-fg)",
               }}
             >
+              <span
+                className={`w-4 text-center font-mono ${statusGlyphClass}`}
+                style={{ color: "var(--ct-muted-fg)" }}
+                title={toolStatus}
+              >
+                {statusGlyph}
+              </span>
               <Icon
                 size={13}
                 strokeWidth={2}
                 className="flex-shrink-0"
-                style={{ color: "color-mix(in srgb, var(--ct-green, #3fb950) 75%, var(--ct-fg, #c9d1d9) 25%)" }}
+                style={{ color: "var(--ct-muted-fg)" }}
               />
               <span className="font-medium font-mono" style={{ color: "var(--ct-muted-fg)" }}>
                 {title}
@@ -639,12 +710,12 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                   {secondary}
                 </span>
               )}
-              <ChevronIcon expanded={expanded} className="ml-1 opacity-50" />
+              <ChevronIcon expanded={expanded} className="ml-1 opacity-0 transition-opacity group-hover:opacity-100" />
             </button>
 
             {message.toolResult && !expanded && !isImageOnlyToolOutput(message.toolResult) && (
               <button
-                onClick={() => setExpanded(true)}
+                onClick={() => setExpandedPersistent(true)}
                 className="mt-0.5 flex min-w-0 items-start gap-1 pl-2.5 text-left text-[11px] font-mono"
                 style={{ color: "var(--ct-muted-fg)" }}
                 title="Show full output"
@@ -679,6 +750,20 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                     >
                       Result
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const payload = commandText
+                          ? `$ ${commandText}\n\n${message.toolResult ?? ""}`
+                          : (message.toolResult ?? "");
+                        void navigator.clipboard.writeText(payload);
+                      }}
+                      className="mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] opacity-0 transition-opacity group-hover:opacity-100"
+                      style={{ color: "var(--ct-muted-fg)", border: "1px solid var(--ct-border)" }}
+                    >
+                      <Copy size={11} />
+                      Copy
+                    </button>
                     <ToolOutputContent text={message.toolResult} maxHeight="12rem" />
                   </div>
                 )}
@@ -696,21 +781,29 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     const resultText = message.toolResult;
 
     return (
-      <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
+      <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto group">
         <div className="flex w-full min-w-0 flex-col">
           <button
             data-testid="chat-tool-call"
-            onClick={() => setExpanded(!expanded)}
-            className="flex w-full min-w-0 items-center gap-1.5 text-left rounded-md border px-2.5 py-1.5 text-xs transition-colors duration-150 hover:brightness-110"
+            onClick={() => setExpandedPersistent(!expanded)}
+            className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 text-left rounded-md border px-2.5 py-1.5 text-xs transition-colors duration-150 hover:brightness-110"
             style={{
               background: "color-mix(in srgb, var(--ct-surface, #161b22) 88%, black 4%)",
-              borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
+              borderColor: cardBorderColor,
+              borderStyle: cardBorderStyle,
               color: "var(--ct-muted-fg)",
             }}
           >
             <span
+              className={`w-4 text-center font-mono ${statusGlyphClass}`}
+              style={{ color: "var(--ct-muted-fg)" }}
+              title={toolStatus}
+            >
+              {statusGlyph}
+            </span>
+            <span
               className="flex-shrink-0"
-              style={{ color: "color-mix(in srgb, var(--ct-green, #3fb950) 75%, var(--ct-fg, #c9d1d9) 25%)" }}
+              style={{ color: "var(--ct-muted-fg)" }}
             >
               <ToolIcon name={toolName} />
             </span>
@@ -731,14 +824,14 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                 <span style={{ color: "var(--ct-red, #f85149)" }}>-{removedLines}</span>
               </span>
             )}
-            <ChevronIcon expanded={expanded} className="ml-1 opacity-50" />
+            <ChevronIcon expanded={expanded} className="ml-1 opacity-0 transition-opacity group-hover:opacity-100" />
           </button>
 
           {/* Compact inline tail — last line of output, always visible while
               collapsed. Click to reveal the full result under the command. */}
           {resultText && !expanded && !isImageOnlyToolOutput(resultText) && (
             <button
-              onClick={() => setExpanded(true)}
+              onClick={() => setExpandedPersistent(true)}
               className="mt-0.5 flex min-w-0 items-start gap-1 pl-2.5 text-left text-[11px] font-mono"
               style={{ color: "var(--ct-muted-fg)" }}
               title="Show full output"
@@ -778,6 +871,18 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                   >
                     Result
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const payload = command ? `$ ${command}\n\n${resultText ?? ""}` : (resultText ?? "");
+                      void navigator.clipboard.writeText(payload);
+                    }}
+                    className="mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] opacity-0 transition-opacity group-hover:opacity-100"
+                    style={{ color: "var(--ct-muted-fg)", border: "1px solid var(--ct-border)" }}
+                  >
+                    <Copy size={11} />
+                    Copy
+                  </button>
                   <ToolOutputContent text={resultText} maxHeight="12rem" />
                 </div>
               )}
@@ -804,7 +909,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           label="tool result"
           text={message.content}
           expanded={expanded}
-          onToggle={() => setExpanded(!expanded)}
+          onToggle={() => setExpandedPersistent(!expanded)}
         />
       );
     }
@@ -815,7 +920,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     return (
       <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto pl-4">
         <button
-          onClick={() => setExpanded(!expanded)}
+          onClick={() => setExpandedPersistent(!expanded)}
           className="inline-flex max-w-full min-w-0 items-start gap-1.5 text-left rounded-md px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110 sm:max-w-md"
           style={{
             color: "var(--ct-muted-fg)",
@@ -844,7 +949,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     return (
       <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
         <button
-          onClick={() => setExpanded(!expanded)}
+          onClick={() => setExpandedPersistent(!expanded)}
           className="inline-flex items-center gap-1.5 text-left rounded-md px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110"
           style={{
             color: "var(--ct-muted-fg)",

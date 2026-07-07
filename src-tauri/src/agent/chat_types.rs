@@ -180,6 +180,8 @@ pub struct ChatMsg {
     pub tool_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_result: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_error: Option<bool>,
     /// Images attached to a user message.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub attachments: Option<Vec<ChatAttachment>>,

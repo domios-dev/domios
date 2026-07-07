@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
 import { getAgentProvider } from "../../lib/agentProviders";
@@ -118,6 +118,16 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
   const messages = allMessages.length > visibleCount
     ? allMessages.slice(allMessages.length - visibleCount)
     : allMessages;
+  const renderedMessages = useMemo(() => attachToolResults(messages), [messages]);
+  const latestFailedToolCallId = useMemo(() => {
+    for (let i = renderedMessages.length - 1; i >= 0; i -= 1) {
+      const msg = renderedMessages[i];
+      if (msg.type === "tool_call" && msg.toolError === true) {
+        return msg.id;
+      }
+    }
+    return null;
+  }, [renderedMessages]);
   const hasMore = allMessages.length > visibleCount;
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -427,9 +437,9 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
                 </button>
               </div>
             )}
-            {attachToolResults(messages).map((msg) => (
+            {renderedMessages.map((msg) => (
               <div key={msg.id} data-testid="direct-chat-message" data-message-role={msg.type}>
-                <MessageBubble message={msg} />
+                <MessageBubble message={msg} isLatestFailedToolCall={msg.id === latestFailedToolCallId} />
               </div>
             ))}
             {/* Thinking indicator — shown after sending message, before Claude responds */}
