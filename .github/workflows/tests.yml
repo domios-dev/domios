@@ -46,11 +46,8 @@ jobs:
       - name: File-size discipline
         run: bash scripts/check-file-sizes.sh
 
-      - name: clippy (src-tauri)
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings -D clippy::await_holding_lock
-
-      - name: clippy (cli)
-        run: cargo clippy --manifest-path cli/Cargo.toml -- -D warnings
+      - name: clippy (repo gate)
+        run: bash scripts/clippy-gate.sh
 
       - name: Rust lib tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
