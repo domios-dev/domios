@@ -18,7 +18,7 @@ qa_state: null
 status_label: null
 priority: p2
 created_at: 1783425208134
-updated_at: 1783438637523
+updated_at: 1783440823814
 status_changed_at: 1783438602510
 handle: t5-extract-codeterm-bridge-bridge-transcribe-chatpipeline-behind-bridgep
 tags: []
@@ -71,7 +71,26 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_baych7
+  from:
+    pane_id: a53288fb
+    session_id: 353f27b4-e974-4ae9-b88b-9790f669b3f0
+    title: Bell
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: Two commits on lane/codeterm-bridge. (1) message_markers → codeterm-types + re-export shim; BridgePanePort/ChatPreprocessorPort/AttachmentStorePort defined with app impls in bridge_host; transcribe registry lifted off plugin::capability; migrate_test relocated. (2) Extracted crates/codeterm-bridge (bridge/transcribe/chatpipeline); app shims + bridge_host + transcribe_adapter; capture_response stays app-side; supervisor uses tokio JoinHandle (no tauri).
+    TESTS RUN: scripts/test-capped.sh -p codeterm-bridge → 95 passed. scripts/test-capped.sh --test main migrate_handover → 1 passed. scripts/test-capped.sh --test main outbound_stages → 1 passed. cargo check --workspace → green. cargo metadata codeterm-bridge deps: codeterm-types, codeterm-util, async-trait, chrono, log, parking_lot, reqwest, serde, serde_json, tokio, uuid (+ axum dev-only). grep forbidden refs in crates/codeterm-bridge/src → 0 hits.
+  ts: 1783440823814
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_gfev9u
   executor_pane_id: a53288fb
@@ -88,9 +107,20 @@ execution_attempts:
   worktree_path: null
   base: null
   destination: null
-  report: null
+  report:
+    id: report_1783440824036
+    message: |-
+      STATUS: done
+      CHANGES: Two commits on lane/codeterm-bridge. (1) message_markers → codeterm-types + re-export shim; BridgePanePort/ChatPreprocessorPort/AttachmentStorePort defined with app impls in bridge_host; transcribe registry lifted off plugin::capability; migrate_test relocated. (2) Extracted crates/codeterm-bridge (bridge/transcribe/chatpipeline); app shims + bridge_host + transcribe_adapter; capture_response stays app-side; supervisor uses tokio JoinHandle (no tauri).
+      TESTS RUN: scripts/test-capped.sh -p codeterm-bridge → 95 passed. scripts/test-capped.sh --test main migrate_handover → 1 passed. scripts/test-capped.sh --test main outbound_stages → 1 passed. cargo check --workspace → green. cargo metadata codeterm-bridge deps: codeterm-types, codeterm-util, async-trait, chrono, log, parking_lot, reqwest, serde, serde_json, tokio, uuid (+ axum dev-only). grep forbidden refs in crates/codeterm-bridge/src → 0 hits.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
   assigned_at: 1783438602510
-  reported_at: null
+  reported_at: 1783440824036
   reviewed_at: null
   closed_at: null
   competition_group_id: null
