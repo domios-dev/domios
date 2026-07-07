@@ -12,7 +12,7 @@ use super::types::{MeshIdentity, PairedPeer, RevocationList};
 
 /// `~/.codeterm/mesh/` (or `~/.codeterm-dev/mesh/` in dev builds).
 pub fn mesh_dir() -> PathBuf {
-    let dir = crate::paths::data_dir().join("mesh");
+    let dir = codeterm_paths::data_dir().join("mesh");
     let _ = std::fs::create_dir_all(&dir);
     dir
 }

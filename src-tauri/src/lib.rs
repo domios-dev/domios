@@ -623,7 +623,9 @@ pub fn run() {
             plan_store.bind_turn_counter(plan_turn_counter.clone());
 
             let user_last_activity = crate::user_last_activity::UserLastActivity::new();
-            states.mesh.lock().user_last_activity = user_last_activity.clone();
+            states.mesh.lock().last_activity = Arc::new(
+                crate::mesh::app_ports::UserLastActivityProvider(user_last_activity.clone()),
+            );
 
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),

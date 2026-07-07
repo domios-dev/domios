@@ -347,7 +347,7 @@ pub(crate) fn tailscale_binary() -> Option<String> {
     for cmd in TAILSCALE_CANDIDATES {
         let mut c = std::process::Command::new(cmd);
         c.arg("version");
-        crate::process_util::no_window_std(&mut c);
+        codeterm_util::process_util::no_window_std(&mut c);
         if let Some((true, _)) = run_with_timeout(&mut c, std::time::Duration::from_secs(3)) {
             return Some(cmd.to_string());
         }
@@ -363,7 +363,7 @@ pub(crate) fn run_tailscale_json(
     for cmd in TAILSCALE_CANDIDATES {
         let mut c = std::process::Command::new(cmd);
         c.args(args);
-        crate::process_util::no_window_std(&mut c);
+        codeterm_util::process_util::no_window_std(&mut c);
         let Some((true, raw)) = run_with_timeout(&mut c, timeout) else {
             continue;
         };
@@ -400,7 +400,7 @@ pub fn find_tailscale_ip() -> Option<String> {
 fn try_tailscale_probe(cmd: &str) -> Option<String> {
     let mut command = std::process::Command::new(cmd);
     command.args(["ip", "-4"]);
-    crate::process_util::no_window_std(&mut command);
+    codeterm_util::process_util::no_window_std(&mut command);
     let (ok, raw) = run_with_timeout(&mut command, PROBE_TIMEOUT)?;
     if !ok {
         return None;

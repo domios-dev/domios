@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use mdns_sd::ServiceDaemon;
 
+use super::ports::{default_last_activity, LastActivityProvider};
 use super::types::{
     self, DiscoveredPeer, MeshPeersResponse, MeshStatus, PairedPeer, PairingRequest, RevocationList,
 };
@@ -31,7 +32,7 @@ pub struct MeshManager {
     pub disk_persist: bool,
     pub seen_nonces: HashMap<String, u64>,
     pub peer_services: peer_services::PeerServicesCache,
-    pub user_last_activity: Arc<crate::user_last_activity::UserLastActivity>,
+    pub last_activity: Arc<dyn LastActivityProvider>,
 }
 
 impl MeshManager {
@@ -70,8 +71,18 @@ impl MeshManager {
             disk_persist: true,
             seen_nonces: HashMap::new(),
             peer_services: peer_services::PeerServicesCache::default(),
-            user_last_activity: crate::user_last_activity::UserLastActivity::new(),
+            last_activity: default_last_activity(),
         }
+    }
+
+    pub fn with_last_activity(
+        instance_name: String,
+        api_port: u16,
+        last_activity: Arc<dyn LastActivityProvider>,
+    ) -> Self {
+        let mut mgr = Self::new(instance_name, api_port);
+        mgr.last_activity = last_activity;
+        mgr
     }
 
     // ── Forwarding methods (minimize caller changes) ────────────────
@@ -154,8 +165,8 @@ impl MeshManager {
                 })
                 .cloned()
                 .collect(),
-            local_last_active_ms: self.user_last_activity.read_for_gossip(),
-            local_dev: crate::paths::is_dev_instance(),
+            local_last_active_ms: self.last_activity.read_for_gossip(),
+            local_dev: codeterm_paths::is_dev_instance(),
         }
     }
 
@@ -306,8 +317,8 @@ impl MeshManager {
     }
 
     pub fn build_sync_payload(&self) -> types::MeshSyncPayload {
-        let is_dev = crate::paths::is_dev_instance();
-        let self_last = self.user_last_activity.read_for_gossip();
+        let is_dev = codeterm_paths::is_dev_instance();
+        let self_last = self.last_activity.read_for_gossip();
         let mut peers: Vec<types::GossipPeerInfo> = self
             .paired_peers
             .values()
@@ -520,8 +531,9 @@ mod liveness_tests {
 
     #[test]
     fn build_sync_payload_includes_self_last_active() {
-        let mesh = MeshManager::new("local".into(), 7685);
-        mesh.user_last_activity.mark();
+        let activity = super::super::ports::RecordingLastActivity::new(cfg!(debug_assertions));
+        let mesh = MeshManager::with_last_activity("local".into(), 7685, activity.clone());
+        activity.mark();
         let payload = mesh.build_sync_payload();
         let self_entry = payload
             .peers
