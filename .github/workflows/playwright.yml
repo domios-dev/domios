@@ -1,0 +1,100 @@
+name: playwright
+
+# UI regression suite on the self-hosted farm. Manual (pre-release gate): the
+# suite is heavier than the per-push tests and drives a full dev build per runner.
+#
+#   - Windows (windows-build) drives the REAL WebView2 desktop app over CDP —
+#     the most faithful path.
+#   - macOS (codeterm-builder) + Linux (linux-build) run web-mode: Playwright's
+#     own Chromium against the dev web client. Same React UI, no native shell.
+#
+# Playwright's globalSetup starts dev itself via `./build.sh dev --wait`, so each
+# job just installs deps + browsers and runs the suite.
+
+on:
+  workflow_dispatch:
+    inputs:
+      project:
+        description: 'Playwright project'
+        type: choice
+        default: smoke
+        options: [smoke, golden, full]
+
+concurrency:
+  group: playwright-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pw-macos:
+    name: playwright (macos, web)
+    runs-on: [self-hosted, codeterm-builder]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm exec playwright install chromium
+      - name: Run ${{ inputs.project }}
+        run: pnpm test:pw:${{ inputs.project }} -- --global-timeout=1800000
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pw-macos-artifacts
+          path: tests/playwright/artifacts
+          retention-days: 7
+
+  pw-linux:
+    name: playwright (linux, web)
+    runs-on: [self-hosted, linux-build]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run ${{ inputs.project }}
+        run: pnpm test:pw:${{ inputs.project }} -- --global-timeout=1800000
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pw-linux-artifacts
+          path: tests/playwright/artifacts
+          retention-days: 7
+
+  pw-windows:
+    name: playwright (windows, webview2)
+    runs-on: [self-hosted, windows-build]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+      # Windows drives the real WebView2 app over CDP (no Chromium download).
+      - name: Run ${{ inputs.project }}
+        run: pnpm test:pw:${{ inputs.project }} -- --global-timeout=1800000
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pw-windows-artifacts
+          path: tests/playwright/artifacts
+          retention-days: 7
