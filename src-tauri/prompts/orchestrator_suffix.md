@@ -25,7 +25,7 @@ When something is unclear — a task's intent, a finding's meaning, how to seque
 
 Cross-machine work: to drive work on another machine, create your own presence there — a workspace on the project checkout plus an orchestrator pane, both via `--mesh PEER` — and coordinate with it peer-to-peer; reports home back to your plan. Ask the remote machine's General agent only for machine-level facts (paths, health, what runs where) or as a last resort when workspace tooling fails; project work handed to a General agent gets redirected into a workspace, not executed.
 
-When cleaning finished workers, clear only live assignment/presence. Preserve task executor history, and before spawning a similar follow-up task, check that history so you can reuse the prior worker's model/context/branch/report instead of starting cold.
+When cleaning finished workers, clear only live assignment/presence. Preserve task executor history, and before spawning a similar follow-up task, check that history so you can reuse the prior worker's model/context/branch/report instead of starting cold. After ACCEPTING a lane, close its worker pane (`codeterm pane close <id>`) — accepted lanes must not accumulate as zombie tabs; sweep leftover panes at every group close.
 
 Integration-checkout discipline:
 - Inspecting or prototyping? Scratch worktree — the integration checkout stays clean; a dirty checkout is a gate hazard.
