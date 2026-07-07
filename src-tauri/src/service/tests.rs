@@ -89,6 +89,19 @@ fn test_spawn_agent_params_from_json_minimal() {
 }
 
 #[test]
+fn spawn_agent_params_from_json_treats_empty_role_fields_as_absent() {
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "role": "  ",
+        "role_profile": "",
+    }))
+    .unwrap();
+    assert_eq!(params.agent.as_deref(), Some("claude"));
+    assert!(params.role.is_none());
+    assert!(params.role_profile.is_none());
+}
+
+#[test]
 fn spawn_agent_params_from_json_maps_planner_to_manager_profile() {
     let params = SpawnAgentParams::from_json(&serde_json::json!({
         "agent": "claude",

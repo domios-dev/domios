@@ -5,6 +5,8 @@ import { MessageBubble } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
 import { useMultiplexer } from "../../store/multiplexer";
+import { usePaneProvider, useShellSessionModel } from "../../lib/usePaneProvider";
+import { formatModelBadge } from "../../lib/formatModelBadge";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { openPlanDeepLink } from "../Canvas/workspacePlanEntry";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -92,6 +94,10 @@ export function PaneSessionChat({
   const { index: planIndex } = usePlanIndexOptional();
   const pane = muxState.panes[paneId];
   const paneProvider = pane?.agent_type ?? null;
+  const provider = usePaneProvider(pane);
+  const shellSessionModel = useShellSessionModel(pane);
+  const tabModel = pane?.agent_session_model ?? shellSessionModel;
+  const workingModelBadge = tabModel ? formatModelBadge(tabModel) : null;
   const agentSessionId = pane?.agent_session_id ?? null;
   const currentPtyId = pane?.pty_id ?? null;
   const backendState = pane?.agent_state ?? null;
@@ -419,6 +425,8 @@ export function PaneSessionChat({
           <div className="w-full max-w-4xl min-w-0 mx-auto">
             <AgentStateIndicator
               state={liveAgentState}
+              providerName={provider?.displayName ?? null}
+              model={workingModelBadge}
               onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
               onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
               onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}

@@ -24,13 +24,24 @@ export function sectionForRole(
   return "worker";
 }
 
-/** Role-badge label shown in place of the model chip for group leadership:
- *  ORCHESTRATOR for the head, the uppercased specialization for a Manager
- *  (PLANNER, WATCHER, …), null for a Worker (which keeps its model chip). */
+/** Leadership label for the model-chip slot (legacy surfaces). */
 export function roleBadgeLabel(
   pane: Pick<Pane, "role" | "role_profile"> | null | undefined,
 ): string | null {
   if (!pane) return null;
+  if (pane.role === "Orchestrator") return "ORCHESTRATOR";
+  if (pane.role === "Manager") {
+    const profile = (pane.role_profile ?? "").trim();
+    return profile ? profile.toUpperCase() : "MANAGER";
+  }
+  return null;
+}
+
+/** Role shield on tab line 2 — leadership only: ORCHESTRATOR / PLANNER / WATCHER. */
+export function roleShieldLabel(
+  pane: Pick<Pane, "role" | "role_profile"> | null | undefined,
+): string | null {
+  if (!pane?.role) return null;
   if (pane.role === "Orchestrator") return "ORCHESTRATOR";
   if (pane.role === "Manager") {
     const profile = (pane.role_profile ?? "").trim();
@@ -93,18 +104,15 @@ export function summarizeGroupClose(counts: GroupSectionCounts): string {
   return parts.join(", ");
 }
 
-/** A section header earns its row ONLY when it disambiguates: either both
- *  sections are present (so the reader needs to tell them apart) or this section
- *  has more than one member (so the label groups a set). The common one-planner
- *  group therefore drops the MANAGERS row entirely — the containment line and
- *  the single indented row already say everything. */
+/** A section header renders whenever its section is non-empty — even a lone
+ *  manager gets its MANAGERS separator so the group structure is always
+ *  explicit. Empty sections never render a header. */
 export function shouldShowSectionHeader(
   section: OrchestrationSection,
   counts: GroupSectionCounts,
 ): boolean {
-  const bothPresent = counts.managers > 0 && counts.workers > 0;
   const self = section === "manager" ? counts.managers : counts.workers;
-  return bothPresent || self > 1;
+  return self > 0;
 }
 
 /** Collapsed group-head summary: "1 manager · 2 workers". Same count source as

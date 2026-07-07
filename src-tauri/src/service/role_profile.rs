@@ -55,6 +55,16 @@ impl SpawnAgentParams {
 }
 
 pub(super) fn normalize_spawn_params(params: &mut SpawnAgentParams) -> Result<(), String> {
+    params.role = params
+        .role
+        .take()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    params.role_profile = params
+        .role_profile
+        .take()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     let role = params
         .role
         .as_deref()

@@ -185,18 +185,7 @@ pub async fn spawn_agent(
     Json(body): Json<SpawnAgentBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let mut role_probe = crate::service::SpawnAgentParams {
-        role: body.role.clone(),
-        role_profile: body.role_profile.clone(),
-        ..Default::default()
-    };
-    role_probe
-        .normalize_role_profile()
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    if let Some(ref role) = role_probe.role {
-        crate::service::ServiceContext::parse_role(role)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    }
+    let role_probe = validate_spawn_role(body.role.clone(), body.role_profile.clone())?;
     let params = crate::service::SpawnAgentParams {
         agent: body.agent,
         agent_name: body.agent_name,
@@ -256,6 +245,25 @@ pub async fn spawn_agent(
         resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
     }
     Ok(Json(resp))
+}
+
+fn validate_spawn_role(
+    role: Option<String>,
+    role_profile: Option<String>,
+) -> Result<crate::service::SpawnAgentParams, (StatusCode, String)> {
+    let mut role_probe = crate::service::SpawnAgentParams {
+        role,
+        role_profile,
+        ..Default::default()
+    };
+    role_probe
+        .normalize_role_profile()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    if let Some(ref role) = role_probe.role {
+        crate::service::ServiceContext::parse_role(role)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    }
+    Ok(role_probe)
 }
 
 /// Paired creation (task_7e5f9354): create an Orchestrator + Planner in one
@@ -702,6 +710,21 @@ mod tests {
     fn spawn_body_empty_object() {
         let body: SpawnAgentBody = serde_json::from_str("{}").unwrap();
         assert_eq!(body.agent, None);
+    }
+
+    #[test]
+    fn spawn_role_validation_treats_empty_strings_as_absent() {
+        let role_probe = validate_spawn_role(Some("  ".into()), Some("".into())).unwrap();
+        assert!(role_probe.role.is_none());
+        assert!(role_probe.role_profile.is_none());
+    }
+
+    #[test]
+    fn spawn_role_validation_rejects_unknown_role_with_body() {
+        let (status, body) = validate_spawn_role(Some("Lead".into()), None).unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("Invalid role: Lead"));
+        assert!(!body.is_empty());
     }
 
     struct ListingShell;
