@@ -323,7 +323,7 @@ mod display_label_tests {
         let generated = state.get_pane(&pane_id).unwrap().title.clone();
 
         let provider_id = "cursor";
-        let override_decision = crate::service::spawn_title::creation_title_override(None, None);
+        let override_decision = crate::multiplexer::spawn_title::creation_title_override(None, None);
         assert!(
             override_decision.is_none(),
             "no title/agent_name supplied: spawn must not compute a fallback title"
@@ -350,7 +350,7 @@ mod display_label_tests {
         let (_tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
 
         let (title, level) =
-            crate::service::spawn_title::creation_title_override(None, Some("Watson")).unwrap();
+            crate::multiplexer::spawn_title::creation_title_override(None, Some("Watson")).unwrap();
         state.rename_pane_at_level(&pane_id, &title, level).unwrap();
 
         let pane = state.get_pane(&pane_id).unwrap();
