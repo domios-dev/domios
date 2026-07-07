@@ -337,8 +337,9 @@ mod tests {
 
     #[test]
     fn ghost_repro_restore_from_old_snapshot_drops_picker_pane() {
-        use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot,
-            WorkspaceSnapshot};
+        use crate::session::store::{
+            SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
+        };
 
         let old_snapshot = SessionSnapshot {
             version: "test".into(),

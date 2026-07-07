@@ -1,8 +1,8 @@
 use serde::Serialize;
 use tauri::State;
 
-use crate::multiplexer::state::{MultiplexerSnapshot, WorkspaceInfo};
 use crate::multiplexer::commands::MuxState;
+use crate::multiplexer::state::{MultiplexerSnapshot, WorkspaceInfo};
 use crate::service::{BatchOp, ServiceState};
 
 #[derive(Debug, Clone, Serialize)]
