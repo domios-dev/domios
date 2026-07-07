@@ -163,7 +163,9 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
             handle_result(json, result);
         }
         PaneAction::Close { id } => {
-            let result = client.call("pane.close", Some(serde_json::json!({ "pane_id": id })));
+            let mut params = serde_json::json!({ "pane_id": id });
+            crate::cmd::plan::maybe_inject_caller_pane(&mut params);
+            let result = client.call("pane.close", Some(params));
             handle_result(json, result);
         }
         PaneAction::Rename { pane, title } => {

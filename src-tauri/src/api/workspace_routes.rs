@@ -102,11 +102,15 @@ pub async fn close_workspace(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let cmd = crate::dispatch::Command::WorkspaceClose { workspace_id: id };
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let caller_pane_id = crate::api::pane_routes::caller_pane_header(&headers);
+    let cmd = crate::dispatch::Command::WorkspaceClose {
+        workspace_id: id,
+        caller_pane_id,
+    };
     let result = crate::dispatch::dispatch(&cmd, &state.svc)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
+        .map_err(crate::api::pane_routes::map_close_error)?;
     Ok(Json(result.into_json()))
 }
 

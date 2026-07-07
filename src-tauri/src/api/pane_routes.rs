@@ -364,13 +364,37 @@ pub async fn close_pane(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(raw_pane_id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    let result =
-        crate::dispatch::dispatch(&crate::dispatch::Command::PaneClose { pane_id }, &state.svc)
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let caller_pane_id = caller_pane_header(&headers);
+    let result = crate::dispatch::dispatch(
+        &crate::dispatch::Command::PaneClose {
+            pane_id,
+            caller_pane_id,
+        },
+        &state.svc,
+    )
+    .map_err(map_close_error)?;
     Ok(Json(result.into_json()))
+}
+
+pub(crate) fn caller_pane_header(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("X-CodeTerm-Pane-Id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// A self-termination refusal is a 403 (authenticated but forbidden); anything
+/// else from a close is a missing target.
+pub(crate) fn map_close_error(e: String) -> (StatusCode, String) {
+    if e.starts_with(crate::service::pane::SELF_CLOSE_REFUSAL_PREFIX) {
+        (StatusCode::FORBIDDEN, e)
+    } else {
+        (StatusCode::NOT_FOUND, e)
+    }
 }
 
 #[derive(Deserialize)]
