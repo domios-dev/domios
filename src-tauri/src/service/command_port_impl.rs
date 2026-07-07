@@ -9,7 +9,7 @@ impl CommandPort for ServiceContext {
     }
 
     fn mux_snapshot(&self) -> MultiplexerSnapshot {
-        self.mux.write().snapshot()
+        self.mux.read().snapshot()
     }
 
     fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
