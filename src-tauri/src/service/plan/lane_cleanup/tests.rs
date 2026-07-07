@@ -21,9 +21,10 @@ fn input<'a>(
 
 #[test]
 fn merged_branch_cleans_worktree_then_branch() {
-    let decision = decide_lane_cleanup(&input(false, true, Some("lane/x"), Some("main")), |_, _| {
-        true
-    });
+    let decision =
+        decide_lane_cleanup(&input(false, true, Some("lane/x"), Some("main")), |_, _| {
+            true
+        });
     assert_eq!(
         decision,
         LaneCleanupDecision::Clean(vec![
@@ -35,9 +36,10 @@ fn merged_branch_cleans_worktree_then_branch() {
 
 #[test]
 fn unmerged_branch_is_refused() {
-    let decision = decide_lane_cleanup(&input(false, true, Some("lane/x"), Some("main")), |_, _| {
-        false
-    });
+    let decision =
+        decide_lane_cleanup(&input(false, true, Some("lane/x"), Some("main")), |_, _| {
+            false
+        });
     assert!(matches!(decision, LaneCleanupDecision::Refuse(r) if r.contains("not merged")));
 }
 
@@ -54,9 +56,10 @@ fn live_pane_is_refused_before_any_delete() {
 
 #[test]
 fn missing_integration_target_is_refused() {
-    let decision =
-        decide_lane_cleanup(&input(false, true, Some("lane/x"), None), |_, _| true);
-    assert!(matches!(decision, LaneCleanupDecision::Refuse(r) if r.contains("no known integration target")));
+    let decision = decide_lane_cleanup(&input(false, true, Some("lane/x"), None), |_, _| true);
+    assert!(
+        matches!(decision, LaneCleanupDecision::Refuse(r) if r.contains("no known integration target"))
+    );
 }
 
 #[test]
@@ -76,7 +79,10 @@ fn worktree_only_skips_merge_gate() {
         decision,
         LaneCleanupDecision::Clean(vec![LaneCleanupAction::RemoveWorktree("/tmp/lane".into())])
     );
-    assert!(!merge_checked, "no branch -> no irreversible delete -> no gate");
+    assert!(
+        !merge_checked,
+        "no branch -> no irreversible delete -> no gate"
+    );
 }
 
 fn git(dir: &Path, args: &[&str]) {
@@ -158,5 +164,8 @@ fn run_action_refuses_dirty_worktree() {
     )
     .unwrap_err();
     assert!(err.contains("could not be removed"));
-    assert!(wt.exists(), "dirty worktree must be left intact, never forced");
+    assert!(
+        wt.exists(),
+        "dirty worktree must be left intact, never forced"
+    );
 }

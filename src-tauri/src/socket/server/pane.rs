@@ -189,7 +189,8 @@ pub(super) fn dispatch(
                     let m = mux.write();
                     (
                         m.resolve_pane_id(src).unwrap_or_else(|| src.to_string()),
-                        m.resolve_pane_id(&pane_id).unwrap_or_else(|| pane_id.clone()),
+                        m.resolve_pane_id(&pane_id)
+                            .unwrap_or_else(|| pane_id.clone()),
                     )
                 };
                 svc.as_ref().maybe_send_polling_nudge(&caller, &target);

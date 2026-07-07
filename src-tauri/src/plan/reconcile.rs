@@ -554,9 +554,11 @@ mod tests {
     fn demotes_dead_lane_past_grace() {
         let t = in_progress_lane("t1", "dead", 1);
         let demotions =
-            detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| PaneProbe {
-                exists: false,
-                ..Default::default()
+            detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| {
+                PaneProbe {
+                    exists: false,
+                    ..Default::default()
+                }
             });
         assert_eq!(demotions.len(), 1);
         assert_eq!(demotions[0].task_id, "t1");
@@ -566,10 +568,12 @@ mod tests {
     fn leaves_live_lane_untouched() {
         let t = in_progress_lane("t1", "live", 4_900);
         let demotions =
-            detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| PaneProbe {
-                exists: true,
-                live_agent: true,
-                ..Default::default()
+            detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| {
+                PaneProbe {
+                    exists: true,
+                    live_agent: true,
+                    ..Default::default()
+                }
             });
         assert!(demotions.is_empty());
     }
@@ -579,10 +583,12 @@ mod tests {
         // Pane present but silent past overdue: honest slow work, not gone.
         let t = in_progress_lane("t1", "live", 1);
         let demotions =
-            detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| PaneProbe {
-                exists: true,
-                live_agent: true,
-                ..Default::default()
+            detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| {
+                PaneProbe {
+                    exists: true,
+                    live_agent: true,
+                    ..Default::default()
+                }
             });
         assert!(demotions.is_empty());
     }
@@ -591,9 +597,11 @@ mod tests {
     fn grace_window_spares_recently_active_dead_lane() {
         let t = in_progress_lane("t1", "dead", 4_900);
         let demotions =
-            detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| PaneProbe {
-                exists: false,
-                ..Default::default()
+            detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| {
+                PaneProbe {
+                    exists: false,
+                    ..Default::default()
+                }
             });
         assert!(demotions.is_empty());
     }
@@ -602,11 +610,13 @@ mod tests {
     fn never_demotes_other_orchestrator_lane() {
         let t = in_progress_lane("t1", "worker", 1);
         let demotions =
-            detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| PaneProbe {
-                exists: false,
-                live_agent: false,
-                role: Some(PaneRole::Worker),
-                parent_pane_id: Some("other-orch".into()),
+            detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| {
+                PaneProbe {
+                    exists: false,
+                    live_agent: false,
+                    role: Some(PaneRole::Worker),
+                    parent_pane_id: Some("other-orch".into()),
+                }
             });
         assert!(demotions.is_empty());
     }

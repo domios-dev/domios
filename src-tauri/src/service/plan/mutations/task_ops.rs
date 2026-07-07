@@ -476,8 +476,25 @@ mod fill_lane_tests {
             .unwrap();
         store
             .update_task(
-                &plan, &task, None, None, None, None, Some("in_progress"), None, None, None, None,
-                None, None, None, None, &[], None, None, 6,
+                &plan,
+                &task,
+                None,
+                None,
+                None,
+                None,
+                Some("in_progress"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                &[],
+                None,
+                None,
+                6,
             )
             .unwrap();
         store.revert_task_dispatch(&plan, &task, 7).unwrap();

@@ -21,7 +21,11 @@ fn worker_pane(mux: &mut MultiplexerState, parent: &str) -> String {
 }
 
 fn plan_with(tasks: Vec<Task>, planner: Option<PlannerRef>) -> Plan {
-    let mut plan = Plan::new("t".into(), "/repo".into(), OrchestratorRef::from_pane("old"));
+    let mut plan = Plan::new(
+        "t".into(),
+        "/repo".into(),
+        OrchestratorRef::from_pane("old"),
+    );
     plan.tasks = tasks;
     plan.planner = planner;
     plan
