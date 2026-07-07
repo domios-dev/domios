@@ -803,4 +803,3 @@ fn chatbackend_pane_command_config_defaults_to_null() {
     let cmd: PaneCommand = serde_json::from_str(json).unwrap();
     assert!(matches!(cmd, PaneCommand::ChatBackend { config, .. } if config.is_null()));
 }
-
