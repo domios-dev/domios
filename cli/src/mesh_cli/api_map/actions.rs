@@ -570,7 +570,11 @@ pub(crate) fn service_to_api(action: &ServiceAction) -> (String, String, Option<
             if let Some(v) = description {
                 body["description"] = json!(v);
             }
-            ("POST".into(), "/api/services".into(), Some(body.to_string()))
+            (
+                "POST".into(),
+                "/api/services".into(),
+                Some(body.to_string()),
+            )
         }
         ServiceAction::Show { id } => (
             "GET".into(),
