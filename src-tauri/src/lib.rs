@@ -23,6 +23,7 @@ mod liveness;
 pub mod lock_hold;
 pub mod logs;
 pub mod mem;
+pub mod mem_host;
 pub mod mesh;
 pub mod message_markers;
 pub mod multiplexer;

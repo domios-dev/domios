@@ -108,7 +108,7 @@ pub const BOOTSTRAP_INSTRUCTIONS_TEMPLATE: &str =
     include_str!("../prompts/bootstrap_instructions.md");
 
 /// Wrapper applied to every headless memory worker task. Placeholders: `{intent}`, `{worker_id}`, `{task}`.
-pub const WORKER_TASK_PREAMBLE: &str = include_str!("../prompts/worker_task_preamble.md");
+pub use crate::mem::prompts::WORKER_TASK_PREAMBLE;
 
 /// Wrapper for plugin-spawned agents (chatBackend NPCs, etc). Unlike memory
 /// workers they own their whole prompt and act through plugin verbs, so they
@@ -117,13 +117,13 @@ pub const PLUGIN_AGENT_TASK_PREAMBLE: &str =
     include_str!("../prompts/plugin_agent_task_preamble.md");
 
 /// Auto-extraction prompt for the haiku graph worker. Placeholders: `{id}`, `{title}`, `{body}`.
-pub const MEM_EXTRACTION: &str = include_str!("../prompts/mem_extraction.md");
+pub use crate::mem::prompts::MEM_EXTRACTION;
 
 /// Search-result reranking prompt sent directly to the model API. Placeholders: `{query}`, `{items}`.
-pub const MEM_RERANK: &str = include_str!("../prompts/mem_rerank.md");
+pub use crate::mem::prompts::MEM_RERANK;
 
 /// REM-phase dreaming prompt — optimization steps for the headless dream worker. No placeholders.
-pub const DREAMING_REM: &str = include_str!("../prompts/dreaming_rem.md");
+pub use crate::mem::prompts::DREAMING_REM;
 
 /// One-time archive line prepended before [`PLAN_RETROSPECTIVE_NUDGE`] for complete active plans.
 pub const PLAN_ARCHIVE_SUGGESTION: &str = "This plan is complete. Before archiving, CLEAN UP AFTER THE EFFORT — this is a mandatory closeout step, not optional tidiness:\n\
