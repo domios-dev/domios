@@ -1098,6 +1098,7 @@ dependencies = [
  "chrono-tz",
  "clipboard-win",
  "codeterm-mem-store",
+ "codeterm-mesh",
  "codeterm-paths",
  "codeterm-plugins",
  "codeterm-types",
@@ -1178,6 +1179,33 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "codeterm-mesh"
+version = "1.6.2"
+dependencies = [
+ "aes-gcm",
+ "base64 0.22.1",
+ "chrono",
+ "codeterm-paths",
+ "codeterm-types",
+ "codeterm-util",
+ "dirs 6.0.0",
+ "ed25519-dalek",
+ "hostname",
+ "if-addrs",
+ "log",
+ "mdns-sd",
+ "parking_lot",
+ "rand 0.8.5",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "uuid",
+ "x25519-dalek",
 ]
 
 [[package]]

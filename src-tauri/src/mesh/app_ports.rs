@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::ports::{LastActivityProvider, MeshEventSink};
+use codeterm_mesh::{LastActivityProvider, MeshEventSink};
 
 pub struct AppMeshEventSink<'a> {
     pub app: &'a tauri::AppHandle,
