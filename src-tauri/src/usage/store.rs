@@ -26,6 +26,7 @@ pub struct DailyRollup {
 pub struct UsageStore {
     conn: Mutex<Connection>,
     db_path: PathBuf,
+    cap: i64,
 }
 
 pub type UsageStoreHandle = Arc<UsageStore>;
@@ -45,17 +46,24 @@ impl UsageStore {
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
             db_path,
+            cap: MAX_ROWS_PER_PROVIDER,
         }))
     }
 
     #[cfg(test)]
     pub fn open_in_memory() -> Result<UsageStoreHandle, String> {
+        Self::open_in_memory_with_cap(MAX_ROWS_PER_PROVIDER)
+    }
+
+    #[cfg(test)]
+    pub fn open_in_memory_with_cap(cap: i64) -> Result<UsageStoreHandle, String> {
         let conn = Connection::open_in_memory().map_err(|e| format!("open :memory:: {}", e))?;
         conn.execute_batch(SCHEMA)
             .map_err(|e| format!("init usage schema: {}", e))?;
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
             db_path: PathBuf::from(":memory:"),
+            cap,
         }))
     }
 
@@ -72,7 +80,7 @@ impl UsageStore {
         let mut conn = self.conn.lock();
         let tx = conn.transaction().map_err(|e| format!("begin tx: {}", e))?;
         let id = insert_header(&tx, snapshot)?;
-        trim_to_cap(&tx, &snapshot.provider)?;
+        trim_to_cap(&tx, &snapshot.provider, self.cap)?;
         tx.commit().map_err(|e| format!("commit: {}", e))?;
         Ok(id)
     }
@@ -96,7 +104,7 @@ impl UsageStore {
         )
         .map_err(|e| format!("insert failure: {}", e))?;
         let id = tx.last_insert_rowid();
-        trim_to_cap(&tx, provider)?;
+        trim_to_cap(&tx, provider, self.cap)?;
         tx.commit().map_err(|e| format!("commit: {}", e))?;
         Ok(id)
     }
@@ -216,7 +224,7 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<UsageSnapshotRow> {
     })
 }
 
-fn trim_to_cap(tx: &rusqlite::Transaction<'_>, provider: &str) -> Result<(), String> {
+fn trim_to_cap(tx: &rusqlite::Transaction<'_>, provider: &str, cap: i64) -> Result<(), String> {
     tx.execute(
         r#"DELETE FROM usage_snapshots
            WHERE provider = ?1
@@ -226,7 +234,7 @@ fn trim_to_cap(tx: &rusqlite::Transaction<'_>, provider: &str) -> Result<(), Str
                ORDER BY captured_at DESC
                LIMIT ?2
              )"#,
-        params![provider, MAX_ROWS_PER_PROVIDER],
+        params![provider, cap],
     )
     .map_err(|e| format!("trim: {}", e))?;
     Ok(())
@@ -465,8 +473,12 @@ mod tests {
 
     #[test]
     fn trim_to_cap_keeps_only_last_n() {
-        let store = UsageStore::open_in_memory().unwrap();
-        for i in 0..(MAX_ROWS_PER_PROVIDER + 25) {
+        // Small cap so pruning is exercised in <1s: inserting 10k+ rows one tx
+        // each (the real cap) took ~70s and dominated the whole suite. The trim
+        // logic is cap-agnostic, so a 50-row cap proves the same behavior.
+        const CAP: i64 = 50;
+        let store = UsageStore::open_in_memory_with_cap(CAP).unwrap();
+        for i in 0..(CAP + 25) {
             store
                 .insert_snapshot(&make_snapshot(1_000_000_000_000 + i * 1000))
                 .unwrap();
@@ -479,9 +491,9 @@ mod tests {
             )
             .unwrap()
         });
-        assert_eq!(count, MAX_ROWS_PER_PROVIDER, "rows beyond cap are pruned");
+        assert_eq!(count, CAP, "rows beyond cap are pruned");
         let latest = store.get_latest("claude", None).unwrap().unwrap();
-        let expected_latest = 1_000_000_000_000 + (MAX_ROWS_PER_PROVIDER + 24) * 1000;
+        let expected_latest = 1_000_000_000_000 + (CAP + 24) * 1000;
         assert_eq!(latest.captured_at, expected_latest, "newest row survives");
     }
 
