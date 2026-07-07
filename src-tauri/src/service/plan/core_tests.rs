@@ -261,6 +261,67 @@ fn scan_project_loads_plan_written_directly_to_disk() {
 }
 
 #[test]
+fn approved_plan_flips_to_execution_on_first_in_progress_task() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Modes".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("abc"),
+    );
+    p.mode = crate::plan::PlanMode::Approved;
+    store.save(&mut p, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &p.id,
+            NewTask {
+                name: "first lane".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    assert_eq!(
+        store.get(&p.id).unwrap().mode,
+        crate::plan::PlanMode::Approved,
+        "adding a pending task must not flip mode"
+    );
+
+    store
+        .set_task_assignment(&task_id, Some("worker-pane"), Some("worker"), 3)
+        .unwrap();
+    store
+        .update_task(
+            &p.id,
+            &task_id,
+            None,
+            None,
+            None,
+            None,
+            Some("in_progress"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            4,
+        )
+        .unwrap();
+
+    assert_eq!(
+        store.get(&p.id).unwrap().mode,
+        crate::plan::PlanMode::Execution,
+        "first in_progress task must flip approved -> execution"
+    );
+}
+
+#[test]
 fn archive_moves_plan_folder_between_buckets() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());

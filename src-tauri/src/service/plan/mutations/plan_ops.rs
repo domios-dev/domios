@@ -234,6 +234,17 @@ impl PlanStore {
         if guard.canonical_project_path.trim().is_empty() {
             guard.canonical_project_path = guard.project_path.clone();
         }
+        // A running task IS execution: approved plans flip on the first
+        // in_progress so mode-gated machinery (reminders, watchdogs) engages,
+        // regardless of which mutation path moved the status.
+        if guard.mode == crate::plan::PlanMode::Approved
+            && guard
+                .tasks
+                .iter()
+                .any(|t| t.status == crate::plan::TaskStatus::InProgress)
+        {
+            guard.mode = crate::plan::PlanMode::Execution;
+        }
         super::tag_model::normalize_plan(&mut guard);
         let path = self
             .persist_plan_and_spec(&guard)
