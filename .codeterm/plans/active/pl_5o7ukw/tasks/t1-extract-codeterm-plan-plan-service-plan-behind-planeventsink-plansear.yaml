@@ -18,7 +18,7 @@ qa_state: null
 status_label: bounced
 priority: p2
 created_at: 1783425138763
-updated_at: 1783438953740
+updated_at: 1783440310282
 status_changed_at: 1783438524971
 handle: t1-extract-codeterm-plan-plan-service-plan-behind-planeventsink-plansear
 tags: []
@@ -133,6 +133,23 @@ milestones:
   ts: 1783438953740
   links:
   - key:358a45f78d39a9ba
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_501fl2
+  from:
+    pane_id: c1a3fc71
+    session_id: null
+    title: null
+  kind: decision
+  text: '2nd post-merge CI catch — 12 app tests panicked (search port uninit). Noether gated new_for_test/TestSearchPort behind cfg(test) which doesn''t fire for app-crate test builds. Fixed via test-support cargo feature (5ef92a41) + deleted 850-line dead search_index.rs dup. Lesson: RUN app lib tests locally, cfg(test) test-utils need a feature for cross-crate use.'
+  ts: 1783440310282
+  links:
+  - key:8ea1e3311b6c815f
   loop_id: null
   iteration: null
   canvas:

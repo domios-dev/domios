@@ -1,0 +1,69 @@
+id: task_q72muc
+name: 'fix: cursor usage shows dollars — parse plan-limit progress (% left) instead'
+type: task
+model: claude
+model_rationale: user-reported; cursor plans are rate-limit based now, spend-only snapshot gives no progress/thresholds/projection
+personality: null
+acceptance_criteria:
+- Cursor usage bubble shows plan % (classify colors work), not a neutral $ pill
+- pct formula verified against cursor-agent /usage output from a live probe, fixture captured into plugin tests
+- plugin tests green; npm run check:versions green; no provider-id branching added in core
+test_plan: '1) node plugin tests for provider-cursor; 2) live: dev 7686 restart, open cursor pane, bubble shows N% and UsageDetail shows spend as secondary; 3) usage projection returns rows for provider=cursor'
+correctness: Plugin-side change + 1-line UsageBubble pct-preference; spend_* fields kept; no Rust schema changes
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783440804238
+updated_at: 1783440804238
+status_changed_at: 1783440804238
+handle: fix-cursor-usage-shows-dollars-parse-plan-limit-progress-left-instead
+tags: []
+section_ids: []
+body: |
+  Cursor provider usage/status shows dollars instead of plan-limit progress. User wants "how much limit is left" (a % progress like claude/codex), not spend dollars.
+
+  ## Diagnosis (verified in code)
+  - `plugins/provider-cursor/src/plugin.ts` `fetchUsage()` (line ~272) calls Cursor Connect-RPC API (GetMonthlyInvoice, GetAggregatedUsageEvents, GetCurrentPeriodUsage) and extracts `planUsage.{limit, remaining, includedSpend}` as dollars -> cents.
+  - `parseUsage()` (line ~316) fills ONLY `spend_*` fields and leaves `session_pct`/`weekly_pct` null BY DESIGN (comment: "billed by spend"). That assumption is outdated — Cursor plans are now rate-limit/progress based (cursor-agent /usage shows % bars).
+  - Consequences: `src/components/Usage/UsageBubble.tsx` line 65 `isSpend = spend_cents != null` -> renders a neutral $ pill, no warn/danger classify(), and `src-tauri/src/usage/projection.rs` burn-rate engine keys ONLY off session_pct/weekly_pct -> cursor gets no projection at all.
+  - Unit ambiguity already flagged in code: `cursorDollarsToCents` comment (line ~823) admits field units are unverified.
+
+  ## Plan (mostly plugin-side, one tiny frontend tweak)
+  1. PROBE (evidence first): with the live keychain token (`security find-generic-password -s cursor-access-token -a cursor-user -w`), dump raw JSON of GetCurrentPeriodUsage (+ siblings) and run cursor-agent /usage side-by-side. Map which fields produce the % bars the TUI shows (plan %, maybe separate burst/session window). Decide pct formula: e.g. (limit-remaining)/limit*100 or includedSpend/limit*100 — and confirm whether limit/remaining are really dollars.
+  2. PLUGIN FIX (plugins/provider-cursor/src/plugin.ts): compute plan-progress pct in parseUsage; fill weekly_pct + weekly_resets_at_ms (= invoice periodEnd) for the billing/plan window; fill session_pct only if the probe reveals a shorter rate-limit window. Keep spend_* fields as secondary detail. Update tests (tests/plugin.test.ts fetchUsage/parseUsage block, lines ~600-634) with a real captured fixture. Rebuild plugin.js, npm run sync:versions + check:versions (system-plugin hash lockstep).
+  3. FRONTEND PRIORITY TWEAK (1 line): UsageBubble.tsx — prefer pct rendering when session_pct/weekly_pct present even if spend_cents is set: `isSpend = spend_cents != null && weekly_pct == null && session_pct == null`. Keep $ in UsageDetail as secondary row.
+  4. VERIFY: dev restart, open a cursor pane, bubble shows N% with classify colors; usage projection rows appear for provider=cursor.
+
+  ## Notes
+  - Fixable ~90% in the plugin; only the bubble priority line is core UI.
+  - Do NOT branch on provider id in core — the pct-preference tweak is capability/data-shaped, not provider-named.
+  - Out of scope of pl_5o7ukw (workspace split) — separate small lane.
+role_guidance: null
+executor_role: null
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+park_reason: null
+attachments: []
