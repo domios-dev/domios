@@ -175,6 +175,21 @@ pub(super) fn dispatch(
 
         "pane.get_output" => {
             let pane_id = get_string_param(params, "pane_id")?;
+            if let Some(src) = params
+                .as_ref()
+                .and_then(|p| p.get("source_pane"))
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            {
+                let (caller, target) = {
+                    let m = mux.write();
+                    (
+                        m.resolve_pane_id(src).unwrap_or_else(|| src.to_string()),
+                        m.resolve_pane_id(&pane_id).unwrap_or_else(|| pane_id.clone()),
+                    )
+                };
+                svc.as_ref().maybe_send_polling_nudge(&caller, &target);
+            }
             let max_bytes = params
                 .as_ref()
                 .and_then(|p| p.get("max_bytes"))

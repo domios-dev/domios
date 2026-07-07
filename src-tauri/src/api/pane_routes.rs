@@ -600,6 +600,8 @@ fn resolve_pty_id_with_fallback(
 pub(crate) struct GetTextQuery {
     #[serde(default)]
     formatted: bool,
+    #[serde(default)]
+    caller: Option<String>,
 }
 
 pub async fn get_pane_usage(
@@ -645,6 +647,10 @@ pub async fn get_pane_text(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
+    if let Some(caller) = query.caller.as_deref().filter(|s| !s.is_empty()) {
+        let caller = resolve_pane(&state, caller).unwrap_or_else(|_| caller.to_string());
+        state.svc.maybe_send_polling_nudge(&caller, &pane_id);
+    }
     let cmd = crate::dispatch::Command::GetText {
         pane_id: pane_id.clone(),
         formatted: query.formatted,

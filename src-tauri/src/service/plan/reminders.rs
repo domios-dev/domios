@@ -57,6 +57,13 @@ pub const IDLE_POKE_QUESTION_TEMPLATES: [&str; 3] = [
 const IDLE_POKE_BACKOFF_MAX_STEPS: u32 = 8;
 const SECONDS_PER_DAY: u64 = 86_400;
 
+// Consecutive coordinator polls of a worker pane before one anti-polling nudge fires.
+pub const POLL_NUDGE_THRESHOLD: u32 = 3;
+
+pub fn polling_nudge_text() -> String {
+    "Polling smell: worker reports auto-inject into this pane the moment they land — repeatedly reading a worker pane's output/text/chat just burns your turn. Wait for the report; don't poll.".to_string()
+}
+
 // Verbatim heartbeat/nudge contract — MUST appear in every open-work nudge.
 pub const CONTRACT: &str = "repeats until every open task is dispatched, parked with a reason, or sent to replanning; silence is not an option.";
 
@@ -99,6 +106,12 @@ pub fn idle_poke_text(pending_tasks: usize, active_lanes: usize, phrase_index: u
         .replace("{active_lanes}", &active_lanes.to_string())
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+struct PollState {
+    consecutive: u32,
+    nudged: bool,
+}
+
 #[derive(Debug, Default)]
 pub struct TurnCounter {
     panes: Mutex<HashMap<String, (u32, u32)>>,
@@ -106,6 +119,7 @@ pub struct TurnCounter {
     digest_rules: Mutex<HashMap<String, u64>>,
     idle: Mutex<HashMap<String, IdlePokeState>>,
     complete_wrapup: Mutex<HashSet<String>>,
+    polls: Mutex<HashMap<String, PollState>>,
 }
 
 impl TurnCounter {
@@ -150,6 +164,29 @@ impl TurnCounter {
             .lock()
             .retain(|key, _| !key.starts_with(pane_id));
         self.idle.lock().remove(pane_id);
+        self.polls.lock().remove(pane_id);
+    }
+
+    // Count one poll by `pane_id`; return true exactly once when it crosses the
+    // threshold, then stay silent until `reset_polls` clears the streak.
+    pub fn record_poll(&self, pane_id: &str) -> bool {
+        let mut polls = self.polls.lock();
+        let state = polls.entry(pane_id.to_string()).or_default();
+        state.consecutive = state.consecutive.saturating_add(1);
+        if state.consecutive >= POLL_NUDGE_THRESHOLD && !state.nudged {
+            state.nudged = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn reset_polls(&self, pane_id: &str) {
+        self.polls.lock().remove(pane_id);
+    }
+
+    pub fn poll_streak(&self, pane_id: &str) -> u32 {
+        self.polls.lock().get(pane_id).map_or(0, |s| s.consecutive)
     }
 
     pub fn digest_rule_due(
@@ -378,6 +415,55 @@ mod tests {
         counter.mark_idle_nudged("daily", 11);
 
         assert!(!counter.idle_poke_due("daily", 200, 2, 10));
+    }
+
+    #[test]
+    fn poll_nudge_fires_once_at_threshold_then_stays_silent() {
+        let counter = TurnCounter::new();
+        // First two polls below the threshold: silent.
+        assert!(!counter.record_poll("orch"));
+        assert!(!counter.record_poll("orch"));
+        // Third poll crosses POLL_NUDGE_THRESHOLD == 3: exactly one nudge.
+        assert!(counter.record_poll("orch"));
+        // Fourth and later polls do not re-nudge until a reset.
+        assert!(!counter.record_poll("orch"));
+        assert!(!counter.record_poll("orch"));
+        assert_eq!(counter.poll_streak("orch"), 5);
+    }
+
+    #[test]
+    fn poll_streak_is_per_pane() {
+        let counter = TurnCounter::new();
+        assert!(!counter.record_poll("a"));
+        assert!(!counter.record_poll("a"));
+        // A different caller pane keeps its own independent streak.
+        assert!(!counter.record_poll("b"));
+        assert!(counter.record_poll("a"));
+        assert_eq!(counter.poll_streak("b"), 1);
+    }
+
+    #[test]
+    fn reset_polls_rearms_the_nudge() {
+        let counter = TurnCounter::new();
+        assert!(!counter.record_poll("orch"));
+        assert!(!counter.record_poll("orch"));
+        assert!(counter.record_poll("orch"));
+        counter.reset_polls("orch");
+        assert_eq!(counter.poll_streak("orch"), 0);
+        // After reset the streak re-arms: three more polls fire one fresh nudge.
+        assert!(!counter.record_poll("orch"));
+        assert!(!counter.record_poll("orch"));
+        assert!(counter.record_poll("orch"));
+    }
+
+    #[test]
+    fn common_reset_clears_poll_streak() {
+        let counter = TurnCounter::new();
+        assert!(!counter.record_poll("orch"));
+        assert!(!counter.record_poll("orch"));
+        counter.reset("orch");
+        assert_eq!(counter.poll_streak("orch"), 0);
+        assert!(!counter.record_poll("orch"));
     }
 
     #[test]
