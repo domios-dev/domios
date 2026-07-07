@@ -81,6 +81,14 @@ After approval/execution starts, set heartbeat with:\n\
                 "✗ loop budget {count}/{budget} reached for loop '{loop_id}'; extend with codeterm plan loop set {loop_id} --budget N, or close the plan."
             ))
         }
+        "in_progress_requires_pane" => Some(format!(
+            "✗ in_progress requires an executor pane.\nfix: set status and pane in one command:\n  codeterm plan task update {plan_id} {} --status in_progress --pane <pane-id>\n(emergency override: CODETERM_STATE_INVARIANTS=off)",
+            task_id.unwrap_or("<task_id>")
+        )),
+        "blocked_requires_label" => Some(format!(
+            "✗ blocked is a claim, not a parking spot.\nfix: say what unblocks it, or open a decision gate:\n  codeterm plan task update {plan_id} {} --status blocked --status-label \"<what unblocks it>\"\n  codeterm plan decision ask {plan_id} \"<question>\"",
+            task_id.unwrap_or("<task_id>")
+        )),
         "park_requires_reason" => Some(format!(
             "✗ park requires a reason.\nfix: codeterm plan task update {plan_id} {} --status parked --note \"<reason>\"",
             task_id.unwrap_or("<task_id>")

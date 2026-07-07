@@ -61,9 +61,9 @@ pub fn resolve_plan_dir(
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&active) {
         for entry in entries.flatten() {
-            let plan_json = entry.path().join("plan.json");
-            if plan_json.is_file() {
-                candidates.push(plan_json);
+            let plan_yaml = entry.path().join("plan.yaml");
+            if plan_yaml.is_file() {
+                candidates.push(plan_yaml);
             }
         }
     }
@@ -75,7 +75,7 @@ pub fn resolve_plan_dir(
         1 => {
             let path = candidates.remove(0);
             let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-            let value: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+            let value: serde_json::Value = serde_yaml::from_str(&raw).map_err(|e| e.to_string())?;
             let id = plan_id_from(&value, &path)
                 .ok_or_else(|| "could not determine plan id".to_string())?;
             let dir = path.parent().unwrap().to_path_buf();
@@ -174,8 +174,8 @@ mod tests {
         let dir = plans.join(bucket).join(id);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
-            dir.join("plan.json"),
-            serde_json::json!({ "id": id }).to_string(),
+            dir.join("plan.yaml"),
+            serde_yaml::to_string(&serde_json::json!({ "id": id })).unwrap(),
         )
         .unwrap();
         dir
