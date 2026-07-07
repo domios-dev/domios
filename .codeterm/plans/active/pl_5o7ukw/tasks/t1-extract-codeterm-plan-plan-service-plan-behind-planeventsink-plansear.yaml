@@ -1,0 +1,105 @@
+id: task_6gd22n
+name: 't1: extract codeterm-plan (plan/** + service/plan/** behind PlanEventSink/PlanSearchPort/PlanSkillPort/PlanClock)'
+type: implement
+model: claude
+model_rationale: claude routing while codex quota >80%; largest coherent domain and the named success metric — needs a careful port-inversion hand
+personality: Noether
+acceptance_criteria:
+- cargo metadata proves codeterm-plan deps are a subset of {codeterm-types, codeterm-util, serde, serde_json, toml, uuid, existing time deps} — no tauri*, whitelist stated in report
+- All 5 port traits (PlanEventSink, PlanSearchPort, PlanSkillPort, PlanClock, PlanLaneStatePort-or-DTO) defined in codeterm-plan with app-side impls; grep 'crate::(api|service|mem|multiplexer|prompts)' inside crates/codeterm-plan/src = 0 hits
+- Test-count parity per moved module, before == crate + app-side remainder, numbers stated in report
+- 'Downstream untouched beyond import shims: no functional diff in api/socket/commands callers; .codeterm/plans sidecar format byte-compatible — codeterm plan doctor green against the real store'
+- 'Full workspace green: ./build.sh test + scripts/clippy-gate.sh + 3-platform CI at integration gate'
+test_plan: '1) scripts/test-capped.sh cargo test -p codeterm-plan — all moved tests pass; 2) ONE full CODETERM_API_PORT=7686 ./build.sh test in warm QA checkout — total matches stated baseline; 3) bash scripts/clippy-gate.sh — green; 4) cargo metadata --format-version 1 | jq dep-whitelist oracle — only whitelisted deps; 5) live smoke: codeterm plan state pl_5o7ukw + codeterm plan doctor pl_5o7ukw against the real sidecar — green; 6) bash scripts/check-file-sizes.sh — exit 0; 7) 3-platform CI green at integration gate'
+correctness: 'Move+rewire only — zero behavior/signature changes. Sidecar storage format and plan ids untouched. Prompt constant VALUES byte-identical (only location changes). Reflection/gates logic semantics unmoved. Two-commit discipline: commit 1 port inversion in place (green), commit 2 pure move.'
+status: in_progress
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783425138763
+updated_at: 1783427758128
+status_changed_at: 1783427638775
+handle: t1-extract-codeterm-plan-plan-service-plan-behind-planeventsink-plansear
+tags: []
+section_ids:
+- sec_uqsxn3
+- sec_wz9hht
+- sec_g5f5jp
+body: |
+  Extract `codeterm-plan` — domain crate 1 of 6 (phase-2 order: plan, mem, mesh, pty, bridge, plugin).
+
+  ## Scope (move + rewire only)
+  Move into `src-tauri/crates/codeterm-plan` (workspace member, precedent shape = codeterm-types/codeterm-util: pub-use re-exports at old paths, tests travel with modules):
+  - `plan/**` (top-level module — fresh rescan confirms ZERO outbound edges already)
+  - `service/plan/**` (the entire blocker surface lives here)
+  - `service/hierarchy/plan_reminder_nudge.rs`
+
+  ## Ports (traits DEFINED in codeterm-plan, IMPLEMENTED in app)
+  - `PlanEventSink` — replaces 1 ref to `api::events` emit
+  - `PlanSearchPort` — replaces 2 refs to `mem` search
+  - `PlanSkillPort` — provider skill file access
+  - `PlanClock` — time source
+  - `PlanLaneStatePort` (or DTO-move to codeterm-types if the data is plain) — replaces 3 `multiplexer` refs (lane liveness pane state) and 1 `usage` ref
+
+  ## Prompts blocker (audit missed this — 34 refs)
+  `service/plan -> crate::prompts` = 34 refs across ~15 constants (WORKER_*, QA_PIPELINE_DISCIPLINE, PLAN_SKILLS_*, TESTING_DISCIPLINE, ...). Move the plan-consumed prompt constants into a `prompts` module inside codeterm-plan; app `prompts.rs` re-exports them so app callers (e.g. runaway_sweeper) are untouched. Constant VALUES byte-identical — only location changes. Note: app `prompts.rs -> service/plan/reflection::ReflectionWindow` (2 refs) becomes app->plan, which is the legal direction.
+
+  ## Stays in app
+  Socket plan read/route adapters (`socket/server/plan.rs`, `plan_read.rs`), REST plan routes, dispatch wiring.
+
+  ## Lane discipline
+  Two commits minimum: commit 1 = port inversion in place (workspace green, no crate move); commit 2 = pure move + re-export shims + Cargo wiring. `config`/`agent`/`paths`/`process_util` refs resolve through existing codeterm-types/util/paths shims — just rewrite imports.
+role_guidance: null
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: 997a1d3b
+lane:
+  pane_id: 997a1d3b
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts:
+- id: attempt_vdm0bg
+  executor_pane_id: 997a1d3b
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: claude
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: null
+  report: null
+  assigned_at: 1783427638775
+  reported_at: null
+  reviewed_at: null
+  closed_at: null
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

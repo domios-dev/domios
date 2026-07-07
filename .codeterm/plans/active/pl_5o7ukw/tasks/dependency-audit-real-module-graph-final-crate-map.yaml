@@ -3,6 +3,7 @@ name: 'dependency audit: real module graph -> final crate map'
 type: research
 model: codex
 model_rationale: static analysis + graph reasoning over a large codebase; no code changes, strong at exhaustive enumeration
+personality: null
 acceptance_criteria:
 - 'A module->module dependency graph of src-tauri/src exists as an artifact (edge list committed under docs/spikes/), produced by tooling (rust-analyzer SCIP, cargo-modules, or rg over crate:: paths), not hand-waved'
 - Every draft crate from spec section 'Target crate graph' is either confirmed (module list enumerated) or amended; every cycle/cross-edge blocking a clean cut is listed with a concrete break strategy (trait inversion, type move, event indirection)
@@ -15,7 +16,7 @@ qa_state: null
 status_label: pane-gone
 priority: p2
 created_at: 1783414080708
-updated_at: 1783414795519
+updated_at: 1783427757158
 status_changed_at: 1783414795519
 handle: dependency-audit-real-module-graph-final-crate-map
 tags: []
@@ -36,7 +37,7 @@ lane:
   branch: null
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null

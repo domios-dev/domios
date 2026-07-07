@@ -1,0 +1,106 @@
+id: task_9hma3u
+name: 't2: extract codeterm-mem (mem/** behind MemEventSink/MemHostContext/MemSchedulerPort; depends on codeterm-mem-store)'
+type: implement
+model: claude
+model_rationale: claude routing while codex quota >80%; heavy test surface (store/search/graph/dreaming) rewards a methodical executor
+personality: Turing
+acceptance_criteria:
+- 'cargo metadata whitelist: {codeterm-types, codeterm-util, codeterm-mem-store, existing mem deps (rusqlite, serde*, ...)} — no tauri*; grep ''crate::(cron|service|api|pty|config|prompts)'' in crates/codeterm-mem/src = 0 hits'
+- 3 port traits (MemEventSink, MemHostContext, MemSchedulerPort) defined in-crate with app impls; dreaming schedule produces identical CronStore rows — existing dreaming schedule tests pass unchanged
+- Test-count parity per moved module (store/search/graph/dreaming/workers), numbers stated in report
+- Re-exports keep api/mem_routes + cli untouched beyond import shims; clean_terminal_output_sized moved to codeterm-util with pty shim
+- 'Full workspace green: ./build.sh test + clippy-gate + 3-platform CI'
+test_plan: '1) scripts/test-capped.sh cargo test -p codeterm-mem — all moved tests pass; 2) ONE full ./build.sh test in warm QA — matches baseline; 3) bash scripts/clippy-gate.sh — green; 4) cargo metadata jq dep-whitelist oracle; 5) live smoke on dev 7686: codeterm mem search ''<known item>'' + codeterm mem save --kind note (dev-testing skill) — result shape identical; 6) bash scripts/check-file-sizes.sh — exit 0; 7) 3-platform CI green'
+correctness: Move+rewire only. SQLite schema/migrations untouched. Embedding/rerank logic byte-identical. Worker/dreaming scheduling semantics preserved through MemSchedulerPort (same cadence, same store rows). No mem-store consolidation. Two-commit discipline.
+status: in_progress
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783425151372
+updated_at: 1783432230547
+status_changed_at: 1783432175617
+handle: t2-extract-codeterm-mem-mem-behind-memeventsink-memhostcontext-memschedu
+tags: []
+section_ids:
+- sec_uqsxn3
+- sec_wz9hht
+- sec_g5f5jp
+body: |
+  Extract `codeterm-mem` — domain crate 2 of 6.
+
+  ## Scope (move + rewire only)
+  Move `mem/**` into `src-tauri/crates/codeterm-mem`. Crate DEPENDS on existing repo-root `crates/mem-store` (`codeterm-mem-store`, already used by mem/dreaming and cli) — whitelist it; NO store consolidation (that would be a logic change violating move+rewire).
+
+  ## Ports (traits DEFINED in codeterm-mem, IMPLEMENTED in app)
+  - `MemEventSink` — replaces 1 ref `mem/workers -> api::events::emit_everywhere`
+  - `MemHostContext` — replaces 5 `service::ServiceContext` refs (auto_extract, workers)
+  - `MemSchedulerPort` — replaces 12 refs `mem/dreaming/schedule -> cron::store::CronStore`; dreaming schedule CRUD goes through the port, CronStore stays app-side. Behavior identical: same rows produced.
+
+  ## Config
+  7 `config::memory_config` refs — pass `MemConfig` values in via constructor/port (schema types already live in codeterm-types). No config file loading inside the crate.
+
+  ## Prompts
+  Move mem-owned prompt constants (`MEM_EXTRACTION` etc., 6 refs) into the crate; app `prompts.rs` re-exports.
+
+  ## Pre-move
+  `pty::ansi::clean_terminal_output_sized` (1 ref from mem/workers) -> `codeterm-util`, with a pty-side re-export shim. Tiny, first commit.
+
+  ## Already dissolved (import rewrites only)
+  `agent::models::canonicalize_short` (7 refs) -> codeterm-types shim; `process_util` (5) -> codeterm-util; `paths` (1) -> codeterm-paths.
+
+  ## Lane discipline
+  Two commits: commit 1 = port inversion + util pre-move in place, green; commit 2 = pure move + shims + Cargo wiring.
+role_guidance: null
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: 32a146df
+lane:
+  pane_id: 32a146df
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts:
+- id: attempt_nx85el
+  executor_pane_id: 32a146df
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: claude
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: null
+  report: null
+  assigned_at: 1783432175617
+  reported_at: null
+  reviewed_at: null
+  closed_at: null
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

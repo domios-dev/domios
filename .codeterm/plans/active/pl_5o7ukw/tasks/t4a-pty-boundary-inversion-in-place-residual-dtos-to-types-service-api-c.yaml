@@ -1,0 +1,97 @@
+id: task_ihbqbd
+name: 't4a: pty boundary inversion IN PLACE — residual DTOs to types + service/api call inversion (no crate move)'
+type: implement
+model: claude
+model_rationale: claude routing while codex quota >80%; lock-ordering-sensitive rewiring — the riskiest semantic half of the pty cut, isolated from the mechanical move
+personality: Hopper
+acceptance_criteria:
+- grep 'crate::(service|api)' across pty/ multiplexer/ session/ dispatch/ = 0 hits after inversion
+- Residual DTOs (PaneStatus from agent/status.rs, PendingPrompt, AgentRole, pane snapshot DTOs) live in codeterm-types with old-path re-exports; downstream diff is imports-only
+- PtyEventSink / MuxCommandPort traits defined group-side with app-side impls; command-execution adapters relocated to app
+- 'In-place parity: total workspace test count unchanged from baseline (no crate move in this lane)'
+- Workspace green incl. clippy-gate with await_holding_lock DENY passing on all touched lock paths
+test_plan: '1) narrow capped runs ONE AT A TIME: scripts/test-capped.sh cargo test multiplexer:: then dispatch:: then pty:: then session::; 2) ONE full ./build.sh test in warm QA — total unchanged vs baseline; 3) bash scripts/clippy-gate.sh — green (await_holding_lock DENY); 4) grep oracles from criteria pasted as report evidence; 5) live smoke on dev 7686: pane create/send/read via codeterm pane (exercises dispatch path), tab-switch with many panes open while tailing ~/.codeterm-dev/logs/codeterm.log for absence of new [SLOW-IPC]/[LOCK-HOLD] lines'
+correctness: 'THE lock-ordering task: 5-lock order (mux > output_buf > screen_state > agent_tracker > pty) provably unchanged — no new nested .lock(), grep for nested guards after rewire; no guard held across .await introduced by the event-sink rewire; lock_hold TimedMutex/TimedRwLock instrumentation preserved. Every commit green.'
+status: in_progress
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783425180793
+updated_at: 1783431736190
+status_changed_at: 1783431702468
+handle: t4a-pty-boundary-inversion-in-place-residual-dtos-to-types-service-api-c
+tags: []
+section_ids:
+- sec_uqsxn3
+- sec_wz9hht
+- sec_g5f5jp
+body: |
+  PTY boundary inversion — IN PLACE, NO crate move. Prepares the pty group (`pty/**`, `multiplexer/**`, `session/**`, `dispatch/**`, `resize_owner.rs`) for the T4b cut. The fattest, riskiest group is deliberately bisected: this lane does ALL semantic rewiring; T4b is then a mechanical move.
+
+  ## Part 1 — residual DTO moves to codeterm-types (+ re-export shims)
+  DTOs the phase-0 audit assigned to codeterm-types that the types lane did not move:
+  - `agent/status.rs` (`PaneStatus`) — verified pure: zero service/api/tauri refs
+  - `multiplexer/types` pane DTOs consumed cross-domain: `PendingPrompt`, `AgentRole`, pane/workspace snapshot DTOs per the audit's pty<->types row
+  - decide `native_prompt` input DTO placement: plain input structs -> types; prompt/screen-state LOGIC stays in pty group
+  This also dissolves `plugin -> multiplexer` (5 refs) and the `agent <-> multiplexer/pty` DTO edges ahead of T6.
+
+  ## Part 2 — invert app-directed calls
+  - `multiplexer -> service` (12 refs, `multiplexer/commands.rs`): command-execution adapters move to app; mux emits typed events/commands instead
+  - `dispatch -> service/api` (4 refs, incl. `api::agent_routes::list_agent_provider_values`): adapters move to app
+  - introduce `PtyEventSink` / `MuxCommandPort` traits defined group-side, implemented app-side
+
+  Every commit keeps the workspace green (single app crate + existing leaf crates throughout — no new crate here).
+role_guidance: null
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: 7e080840
+lane:
+  pane_id: 7e080840
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts:
+- id: attempt_26gz7d
+  executor_pane_id: 7e080840
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: claude
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: null
+  report: null
+  assigned_at: 1783431702468
+  reported_at: null
+  reviewed_at: null
+  closed_at: null
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

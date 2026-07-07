@@ -3,6 +3,7 @@ name: 'workspace scaffold: src-tauri becomes a cargo workspace (single member fi
 type: implement
 model: cursor
 model_rationale: mechanical build-plumbing change with a wide but shallow blast radius; needs careful verification across build scripts, good fit for a fast execution-focused worker
+personality: null
 acceptance_criteria:
 - 'src-tauri/Cargo.toml declares [workspace] with codeterm_lib as a member (layout: src-tauri/crates/ prepared); cargo check/test behave identically to pre-scaffold'
 - Tuned [profile] tables live at the workspace root and provably still apply (split-debuginfo unpacked, line-tables-only, dep debug off) — verify via cargo build --timings or config dump, not assumption
@@ -16,7 +17,7 @@ qa_state: null
 status_label: pane-gone
 priority: p2
 created_at: 1783414097298
-updated_at: 1783417085563
+updated_at: 1783417958345
 status_changed_at: 1783417085563
 handle: workspace-scaffold-src-tauri-becomes-a-cargo-workspace-single-member-fir
 tags: []
@@ -37,7 +38,7 @@ lane:
   branch: null
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null

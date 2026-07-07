@@ -1,0 +1,69 @@
+id: task_ghs4y5
+name: 't4b: extract codeterm-pty — pure cut of pty/multiplexer/session/dispatch/resize_owner (after t4a)'
+type: implement
+model: claude
+model_rationale: claude routing while codex quota >80%; mechanical move lane — all semantic risk already retired in t4a
+personality: Ritchie
+acceptance_criteria:
+- 'cargo metadata whitelist: {codeterm-types, codeterm-util, codeterm-paths, portable-pty, existing deps} — no tauri* in crates/codeterm-pty'
+- 'Pure-move proof: diff outside moved dirs + re-export shims + Cargo.toml is ~zero'
+- Test-count parity per moved module (pty group has a large test surface), numbers stated in report
+- app/socket/commands callers compile untouched via old-path re-exports
+- Workspace green + 3-platform CI with Windows (ConPTY) green MANDATORY before merge
+test_plan: '1) scripts/test-capped.sh cargo test -p codeterm-pty — all moved tests pass; 2) ONE full ./build.sh test in warm QA — matches baseline; 3) bash scripts/clippy-gate.sh — green; 4) cargo metadata jq dep-whitelist oracle; 5) live smoke on dev 7686: pane lifecycle (create/write/kill), resize, and session restore after ./build.sh kill + dev restart; 6) Windows CI green REQUIRED (ConPTY paths), plus macOS + Linux CI'
+correctness: Move+rewire only — this lane contains zero semantic changes by construction (t4a retired them). Lock ordering re-verified post-move via nested .lock() grep. Unix kill-process-group and Windows taskkill /T semantics untouched beyond import rewrites. Blocked on t4a merge.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783425193164
+updated_at: 1783426916087
+status_changed_at: 1783425193164
+handle: t4b-extract-codeterm-pty-pure-cut-of-pty-multiplexer-session-dispatch-re
+tags: []
+section_ids:
+- sec_uqsxn3
+- sec_wz9hht
+- sec_g5f5jp
+body: |
+  Extract `codeterm-pty` — pure cut, ONLY after the pty-boundary-inversion task is merged. All semantic rewiring already done there; this lane is mechanical.
+
+  ## Scope (pure move)
+  Move `pty/**` + `multiplexer/**` + `session/**` + `dispatch/**` + `resize_owner.rs` into `src-tauri/crates/codeterm-pty`:
+  - re-export shims at all old paths; app/socket/commands callers compile untouched
+  - `session <-> multiplexer` mutual refs become intra-crate (fine)
+  - `portable-pty` dependency moves into the crate
+  - Cargo workspace member wiring
+
+  Diff outside the moved directories + shims + Cargo.toml should be ~zero — that is the pure-move proof and a review criterion.
+
+  ## Platform note
+  This crate owns ConPTY (Windows) — Windows CI green is MANDATORY before merge, not optional. The unix kill-process-group and windows `taskkill /T` fixes live in these code paths; they must not be touched beyond import rewrites.
+role_guidance: null
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+park_reason: null
+attachments: []

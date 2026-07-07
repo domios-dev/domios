@@ -71,7 +71,7 @@ sections:
   title: Phase 2 — domain crates
   handle: phase-2-domain-crates
   tags: []
-  body: 'Extract domain crates one lane each, in the order the phase-0 map declares safe (least-coupled first). Candidate order: mem, plan, mesh, bridge, pty, plugin-host. Gate per lane: crate tests green + whole-workspace green on 3 platforms + no tauri dep outside app + test-count parity for moved modules.'
+  body: 'Extract domain crates one lane each, in the final order the phase-0 audit declares safe (docs/spikes/workspace-split-dep-graph.md): plan, mem, mesh, pty, bridge, plugin. The pty group is bisected into two lanes (in-place boundary inversion, then pure crate cut) because it mixes lock-ordering-sensitive rewiring with the largest mechanical move. Every lane follows two-commit discipline: commit 1 = port inversion in place (workspace green), commit 2 = pure move + re-export shims. Gate per lane: crate tests green + whole-workspace green on 3 platforms + no tauri dep outside app + test-count parity for moved modules + cargo-metadata dep-whitelist proof.'
   subsections: []
   canvas:
     x: null
@@ -98,10 +98,13 @@ owner:
 project_path: /Users/rollacode/Developer/codeterm
 canonical_project_path: /Users/rollacode/Developer/codeterm
 created_at: 1783413891138
-updated_at: 1783417085563
+updated_at: 1783433770085
 milestone_kinds:
 - key: status_update
   label: status_update
+  color: null
+- key: decision
+  label: decision
   color: null
 loops: []
 elements: []
@@ -152,16 +155,17 @@ primary_spec_id: sp_64l6cv
 lineage: []
 goal: null
 heartbeat:
-  current_focus: null
-  active_lanes: []
+  current_focus: '4 lanes ALL WORKING (verified via pane status): Noether(997a1d3b), Turing(32a146df), Shannon(2654cb1f,10 files edited), Hopper(7e080840,21m lock analysis). Reconcile ''pane_gone'' on Shannon+Hopper is a FALSE POSITIVE — ledger link missing but agents live. Do NOT reassign.'
+  active_lanes:
+  - codeterm-plan=Noether, codeterm-mem=Turing, codeterm-mesh=Shannon, pty-boundary=Hopper
   rules: []
   learnings: []
 canvas:
   viewport: null
 owner_history: []
 planner:
-  kind: waived
-  note: plan authored by orchestrator with the user directly in the loop; a Planner pane will be attached at phase-2 scale-up
+  kind: pane
+  pane_id: d11bc7f0
 planning_state: approved
 planning_log:
 - from: drafting
