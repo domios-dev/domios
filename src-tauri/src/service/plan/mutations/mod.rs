@@ -23,10 +23,14 @@ pub(super) fn plan_contains_id(plan: &Plan, id: &str) -> bool {
         || section_ids_contains(&plan.sections, id)
 }
 
+fn section_matches(section: &Section, selector: &str) -> bool {
+    section.id == selector || section.handle.as_deref() == Some(selector)
+}
+
 fn section_ids_contains(sections: &[Section], id: &str) -> bool {
     sections
         .iter()
-        .any(|s| s.id == id || section_ids_contains(&s.subsections, id))
+        .any(|s| section_matches(s, id) || section_ids_contains(&s.subsections, id))
 }
 
 pub(super) fn push_subsection(
@@ -35,7 +39,7 @@ pub(super) fn push_subsection(
     child: Section,
 ) -> Option<Section> {
     for s in sections.iter_mut() {
-        if s.id == parent_id {
+        if section_matches(s, parent_id) {
             s.subsections.push(child);
             return None;
         }
@@ -100,7 +104,7 @@ pub(super) fn update_section_tags(
 }
 
 pub(super) fn rm_section_tree(sections: &mut Vec<Section>, id: &str) -> bool {
-    if let Some(pos) = sections.iter().position(|s| s.id == id) {
+    if let Some(pos) = sections.iter().position(|s| section_matches(s, id)) {
         sections.remove(pos);
         return true;
     }
