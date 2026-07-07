@@ -84,6 +84,36 @@ impl ServiceContext {
         );
     }
 
+    // A coordinator repeatedly reading a worker/lane pane's output/text/chat is a
+    // polling smell — reports auto-inject, so it should wait, not poll.
+    pub(crate) fn maybe_send_polling_nudge(&self, caller_pane: &str, target_pane: &str) {
+        let caller = caller_pane.trim();
+        let target = target_pane.trim();
+        if caller.is_empty() || target.is_empty() || caller == target {
+            return;
+        }
+        if !crate::config::load_config().orchestration.plan_reminders {
+            return;
+        }
+        // Gate to coordinator callers polling worker/lane panes.
+        if self
+            .plan_store
+            .active_owned_plan_with_open_work_for_pane(caller)
+            .is_none()
+        {
+            return;
+        }
+        if self.plan_store.task_binding_for_pane(target).is_none() {
+            return;
+        }
+        if !self.plan_turn_counter.record_poll(caller) {
+            return;
+        }
+        let text = crate::service::plan::reminders::polling_nudge_text();
+        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
+        let _ = crate::service::messenger::Messenger::deliver(self, caller, envelope, &text);
+    }
+
     pub(crate) fn maybe_send_idle_plan_poke(&self, pane_id: &str) {
         let cfg = crate::config::load_config().orchestration;
         if !cfg.plan_reminders || !cfg.idle_poke.enabled {

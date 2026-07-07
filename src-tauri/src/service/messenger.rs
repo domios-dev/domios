@@ -201,6 +201,16 @@ impl Messenger {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
+        // A real inbound message/report landing here means the reader no longer
+        // needs to poll — clear its polling-nudge streak (skip system reminders).
+        if matches!(envelope.kind, MessageKind::Message | MessageKind::Report) {
+            let resolved = svc
+                .mux
+                .write()
+                .resolve_pane_id(to_pane)
+                .unwrap_or_else(|| to_pane.to_string());
+            svc.plan_turn_counter.reset_polls(&resolved);
+        }
         if svc.pane_chat_backing(to_pane).is_some() {
             svc.chatbackend_reopen_if_restored(to_pane)?;
             let (plugin_id, session_id) = svc
