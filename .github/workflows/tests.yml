@@ -7,7 +7,7 @@ name: tests
 on:
   pull_request:
   push:
-    branches: [develop, master, 'feat/**']
+    branches: [develop, master, 'feat/**', 'lane/**']
     paths-ignore:
       - '.codeterm/**'
       - 'docs/**'
