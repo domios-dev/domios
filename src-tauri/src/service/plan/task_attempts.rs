@@ -205,6 +205,10 @@ fn build_prompt(
         out.push_str(guidance.trim());
         out.push('\n');
     }
+    if let Some(strides) = super::stride_context::render_worker_strides(&task.milestones) {
+        out.push('\n');
+        out.push_str(&strides);
+    }
     out.push_str("\nOriginal task body:\n");
     if task.body.trim().is_empty() {
         out.push_str("(no body recorded)\n");
@@ -279,6 +283,10 @@ fn build_compete_prompt(
         out.push_str("\nJudge hint:\n");
         out.push_str(hint.trim());
         out.push('\n');
+    }
+    if let Some(strides) = super::stride_context::render_worker_strides(&task.milestones) {
+        out.push('\n');
+        out.push_str(&strides);
     }
     out.push_str("\nTask body:\n");
     if task.body.trim().is_empty() {
