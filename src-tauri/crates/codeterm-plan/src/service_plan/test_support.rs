@@ -9,7 +9,9 @@ pub struct TestSearchPort {
 
 impl TestSearchPort {
     pub fn new(root: &Path) -> Self {
-        Self { root: root.to_path_buf() }
+        Self {
+            root: root.to_path_buf(),
+        }
     }
 }
 

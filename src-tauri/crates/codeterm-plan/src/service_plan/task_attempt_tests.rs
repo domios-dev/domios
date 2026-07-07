@@ -1,6 +1,6 @@
 use super::*;
-use codeterm_types::agent::ReportStatus;
 use crate::plan::{AgentRef, OrchestratorRef, Plan, TaskLaneMetadata, TaskStatus};
+use codeterm_types::agent::ReportStatus;
 
 #[test]
 fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
