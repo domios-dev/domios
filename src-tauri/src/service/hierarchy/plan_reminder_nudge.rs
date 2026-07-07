@@ -187,19 +187,34 @@ impl ServiceContext {
             return;
         }
         let now = current_epoch_secs();
-        for timed in timed_plan_reminder_targets(&self.plan_store.list_full()) {
+        let targets = timed_plan_reminder_targets(&self.plan_store.list_full());
+        for timed in targets {
             if !self
                 .plan_turn_counter
                 .time_nudge_due(&timed.pane_id, now, cfg.nudge_interval_secs)
             {
                 continue;
             }
-            if self.deliver_plan_reminder_target(
+            let delivered = self.deliver_plan_reminder_target(
                 &timed.pane_id,
                 &timed.target,
                 timed.target.time_nudge_kind(),
-            ) {
+            );
+            // A reminder that silently fails to deliver is indistinguishable
+            // from the feature not existing — log both outcomes.
+            if delivered {
+                log::info!(
+                    "[plan-reminder] delivered {:?} nudge to pane {}",
+                    timed.target.time_nudge_kind(),
+                    timed.pane_id
+                );
                 self.plan_turn_counter.mark_time_nudged(&timed.pane_id, now);
+            } else {
+                log::warn!(
+                    "[plan-reminder] FAILED to deliver nudge to pane {} (target {:?})",
+                    timed.pane_id,
+                    timed.target
+                );
             }
         }
         self.send_due_complete_wrapup_reminders(now, cfg.nudge_interval_secs);
@@ -273,7 +288,13 @@ impl ServiceContext {
                 .prepend_worker_charter_for_pane(pane_id, &text),
         };
         let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
-        crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text).is_ok()
+        match crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text) {
+            Ok(_) => true,
+            Err(e) => {
+                log::warn!("[plan-reminder] deliver to {} failed: {}", pane_id, e);
+                false
+            }
+        }
     }
 
     // at concrete drift instead of a generic reminder. None when nothing is aged.
