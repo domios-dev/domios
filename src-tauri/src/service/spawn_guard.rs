@@ -71,10 +71,14 @@ fn norm(s: &str) -> PathBuf {
 }
 
 pub(crate) fn refusal_message(cwd: &str) -> String {
+    let repo = std::path::Path::new(cwd)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("project");
     format!(
         "Refusing to spawn a Worker into the canonical checkout '{cwd}'. \
-Workers get isolated worktrees in the sibling `codeterm-worktrees/` container (never nested inside the repo):\n  \
-git -C '{cwd}' worktree add ../codeterm-worktrees/<branch-slug> -b lane/<task-slug>\n\
+Workers get isolated worktrees in ONE sibling container `../{repo}-worktrees/` (never nested inside the repo):\n  \
+git -C '{cwd}' worktree add ../{repo}-worktrees/<branch-slug> -b lane/<task-slug>\n\
 then spawn with --cwd <that path>. Or pass --allow-shared-checkout to record an exception."
     )
 }

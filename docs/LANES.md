@@ -8,10 +8,11 @@ about lifecycle and evidence, not CodeTerm's own repository layout.
 1. Create one lane per task in a dedicated worktree from the current integration
    target. Use `lane/<task-shortid>-<slug>` unless the project has a stricter
    branch prefix. **All worktrees live in ONE sibling container next to the repo —
-   `../<repo>-worktrees/<branch-slug>` (for CodeTerm: `../codeterm-worktrees/`) —
-   never nested inside the repo** (a nested worktree gets recursed into by builds,
-   file-size checks, and scans) and never scattered loose in the parent dir. One
-   subdir per branch; the dir name mirrors the branch. Remove it on cleanup.
+   `../<repo>-worktrees/<branch-slug>`, where `<repo>` is the repo directory's own
+   name — never nested inside the repo** (a nested worktree gets recursed into by
+   builds, file-size checks, and scans) and never scattered as ad-hoc roots in the
+   parent dir. One subdir per branch; the dir name mirrors the branch. Remove it on
+   cleanup.
 2. Record the pane, branch, worktree, workspace, model, and target branch on the
    task when the worker starts. `in_progress` without a live owner is stale
    state, not work.
