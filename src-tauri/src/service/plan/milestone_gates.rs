@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 use crate::plan::{AgentRef, Milestone, Plan};
-use crate::prompts::REGRESSION_MILESTONE_KIND;
+use super::prompts_plan::REGRESSION_MILESTONE_KIND;
 
 use super::{PlanError, PlanStore};
 

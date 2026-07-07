@@ -25,6 +25,7 @@ pub mod next_actions;
 pub mod paths;
 pub mod peer_mandate;
 pub mod plan_skills;
+pub mod prompts_plan;
 pub mod qa;
 mod readback;
 mod reconcile_fixes;

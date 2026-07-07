@@ -68,7 +68,7 @@ pub fn render_plan_skills_registry_line(count: usize, slugs: &[String]) -> Strin
         }
         shown
     };
-    crate::prompts::PLAN_SKILLS_REGISTRY_LINE
+    super::prompts_plan::PLAN_SKILLS_REGISTRY_LINE
         .replace("{n}", &count.to_string())
         .replace("{slug1}, {slug2}, …", &list)
 }

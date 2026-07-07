@@ -108,7 +108,7 @@ fn render_competitive_attempts(plan: &Plan, out: &mut String) {
     if summaries.is_empty() {
         return;
     }
-    out.push_str(crate::prompts::HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE);
+    out.push_str(super::prompts_plan::HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE);
     out.push('\n');
     for summary in summaries {
         out.push_str(&summary);
@@ -150,11 +150,11 @@ fn render_regression_gates(plan: &Plan, out: &mut String) {
     if gates.is_empty() {
         return;
     }
-    out.push_str(crate::prompts::MILESTONE_GATE_HEARTBEAT_TITLE);
+    out.push_str(super::prompts_plan::MILESTONE_GATE_HEARTBEAT_TITLE);
     out.push('\n');
     for gate in gates {
         out.push_str("- ");
-        out.push_str(&crate::prompts::milestone_gate_suggestion(
+        out.push_str(&super::prompts_plan::milestone_gate_suggestion(
             &gate.key,
             &gate.label,
         ));
@@ -324,7 +324,7 @@ pub(super) fn reconciliation_prompt(plan_id: &str, pane_id: Option<&str>) -> Str
          - Bounce incomplete work with `codeterm send \"<next concrete instruction>\" --pane <worker_pane_id>` and record `codeterm plan record {plan_id} --task <task_id> --step decision:<text>`.\n\
          - Clean finished lane worktrees/branches/dev daemons, then record `codeterm plan task update {plan_id} <task_id> --cleanup-status done` or why cleanup is deferred.\n\
          - Keep the plan-owned heartbeat current with `codeterm orchestrator heartbeat set --plan {plan_id} --focus \"<now>\" --lane \"<active-lane>\"`.",
-        crate::prompts::QA_PIPELINE_DISCIPLINE.trim()
+        super::prompts_plan::QA_PIPELINE_DISCIPLINE.trim()
     )
 }
 

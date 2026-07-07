@@ -4,8 +4,8 @@ use crate::service::plan::heartbeat::is_plan_complete;
 pub fn complete_wrapup_message(plan_id: &str) -> String {
     format!(
         "{}\n\n{}",
-        crate::prompts::PLAN_ARCHIVE_SUGGESTION.replace("<plan>", plan_id),
-        crate::prompts::PLAN_RETROSPECTIVE_NUDGE.replace("<plan>", plan_id),
+        super::prompts_plan::PLAN_ARCHIVE_SUGGESTION.replace("<plan>", plan_id),
+        super::prompts_plan::PLAN_RETROSPECTIVE_NUDGE.replace("<plan>", plan_id),
     )
 }
 
@@ -17,7 +17,7 @@ pub fn needs_complete_wrapup(plan: &Plan) -> bool {
 mod tests {
     use super::*;
     use crate::plan::{OrchestratorRef, Plan, PlanMode};
-    use crate::prompts::PLAN_RETROSPECTIVE_NUDGE;
+    use crate::service::plan::prompts_plan::PLAN_RETROSPECTIVE_NUDGE;
 
     #[test]
     fn wrapup_message_includes_archive_and_retrospective_lines() {

@@ -32,7 +32,7 @@ pub fn planning_structure_nudge(
     if matches!(resolution, PeerResolution::Waived { .. }) {
         return None;
     }
-    Some(crate::prompts::orch_defer_structure_line(
+    Some(super::prompts_plan::orch_defer_structure_line(
         &planner_peer_label(resolution),
     ))
 }
@@ -52,7 +52,7 @@ pub fn planner_peer_intro_line(plan_id: &str, orchestrator_pane_id: Option<&str>
     let orch = orchestrator_pane_id.unwrap_or("unknown");
     format!(
         "You are the Planner specialist for plan {plan_id}; the Orchestrator owner is pane {orch}. {} A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans.",
-        crate::prompts::PEER_PLANNER_CHARTER_LINE
+        super::prompts_plan::PEER_PLANNER_CHARTER_LINE
     )
 }
 
@@ -64,7 +64,7 @@ pub fn planner_peer_intro_line(plan_id: &str, orchestrator_pane_id: Option<&str>
 pub fn planner_pairing_nudge_prefix(resolution: &PeerResolution) -> Option<&'static str> {
     match resolution {
         PeerResolution::Unbound | PeerResolution::OrchestratorFallback { .. } => {
-            Some(crate::prompts::PEER_WAIVER_HINT)
+            Some(super::prompts_plan::PEER_WAIVER_HINT)
         }
         PeerResolution::Planner { .. } | PeerResolution::Waived { .. } => None,
     }
@@ -114,7 +114,7 @@ mod tests {
         let line = planner_peer_intro_line("pl_123", Some("orch-1"));
         assert!(line.contains("pl_123"));
         assert!(line.contains("orch-1"));
-        assert!(line.contains(crate::prompts::PEER_PLANNER_CHARTER_LINE));
+        assert!(line.contains(super::prompts_plan::PEER_PLANNER_CHARTER_LINE));
         assert!(line.contains("Orchestrator owner"));
     }
 
