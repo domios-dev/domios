@@ -85,7 +85,7 @@ fn worktree_roots(project_root: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-fn canonicalize_path(path: &Path) -> PathBuf {
+pub(super) fn canonicalize_path(path: &Path) -> PathBuf {
     normalize_path(path.canonicalize().unwrap_or_else(|_| path.to_path_buf()))
 }
 
