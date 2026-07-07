@@ -201,8 +201,11 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                 }
             };
             let url = format!(
-                "{}/api/panes/{}/text?formatted={}",
-                api_url, pane_id, formatted
+                "{}/api/panes/{}/text?formatted={}{}",
+                api_url,
+                pane_id,
+                formatted,
+                caller_query_suffix()
             );
             match http.get(url).send() {
                 Ok(resp) => {
@@ -374,7 +377,13 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                     std::process::exit(1);
                 }
             };
-            let url = format!("{}/api/panes/{}/chat?since={}", api_url, pane_id, since);
+            let url = format!(
+                "{}/api/panes/{}/chat?since={}{}",
+                api_url,
+                pane_id,
+                since,
+                caller_query_suffix()
+            );
             match http.get(url).send() {
                 // Non-JSON / empty body (e.g. pane not bound yet) -> {} so the renderer prints an honest "(no chat ...)" instead of a decode error.
                 Ok(resp) => {
@@ -450,6 +459,16 @@ fn strip_origin_marker(s: &str) -> (Option<String>, String) {
         }
     }
     (None, s.to_string())
+}
+
+/// `&caller=<pane>` from CODETERM_PANE_ID so the server can detect a coordinator
+/// polling a worker pane; empty when not running inside a pane.
+fn caller_query_suffix() -> String {
+    std::env::var("CODETERM_PANE_ID")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(|p| format!("&caller={}", p))
+        .unwrap_or_default()
 }
 
 /// One-line, length-capped view of a message body so a single huge blob
