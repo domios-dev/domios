@@ -180,7 +180,7 @@ pub fn handle_plan(client: &mut SocketClient, json: bool, action: PlanAction) {
         Ok(None) => {}
         Ok(Some(val)) => print_plan_result(json, &val),
         Err(e) => {
-            println!("{}", e);
+            crate::cmd::plan_output::print_plan_error(json, &e);
             std::process::exit(1);
         }
     }
