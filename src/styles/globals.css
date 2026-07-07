@@ -1328,6 +1328,13 @@ button,
   padding-left: 10px;
 }
 
+/* Workers inside a group share the manager row's flat inset — no nested
+   hierarchy stripe; the group hairline is the only vertical guide. */
+.sidebar-group-container .sidebar-hierarchy-level {
+  margin-left: 0;
+  border-left: none;
+}
+
 /* Collapse chevron on the group head — right-aligned, last interactive element. */
 .sidebar-group-chevron {
   color: var(--ct-muted);

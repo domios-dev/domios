@@ -63,6 +63,7 @@ import {
   textArg,
   toolDisplayLabel,
 } from "./MessageBubble.helpers";
+import { CrossPaneMessageShell } from "./crossPaneBubble";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -289,6 +290,89 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       );
     })() : null;
 
+    const userBubbleInner = (
+      <>
+        {effectiveOrigin?.kind === "command" ? (
+          <CommandBody commands={effectiveOrigin.commands} body={message.content} />
+        ) : (
+          renderUserContent(message.content)
+        )}
+        {attachments && attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-2 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}>
+            {attachments.map((att) => (
+              <button
+                key={att.id}
+                data-testid="chat-image-attachment-button"
+                onClick={() => handleImageClick(att)}
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors hover:brightness-125"
+                style={{
+                  background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)",
+                  color: "var(--ct-muted-fg)",
+                }}
+                title={att.data ? "Click to preview" : "Image (not loaded)"}
+              >
+                <Image size={12} strokeWidth={2} />
+                {att.mimeType.replace("image/", "").toUpperCase()}
+              </button>
+            ))}
+          </div>
+        )}
+        {viewingImage && viewingImage.data && (
+          <div
+            data-testid="chat-image-preview"
+            className="mt-2 pt-2"
+            style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}
+          >
+            <img
+              src={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
+              alt="Attached image"
+              className="max-w-full max-h-[300px] object-contain rounded-lg"
+            />
+            <div className="flex items-center gap-2 mt-1.5">
+              <a
+                href={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
+                download={`image.${viewingImage.mimeType.replace("image/", "")}`}
+                className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
+                style={{ color: "var(--ct-muted-fg)", background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}
+              >
+                <Download size={11} strokeWidth={2} />
+                Save
+              </a>
+              <button
+                onClick={() => setViewingImage(null)}
+                className="text-[11px] px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
+                style={{ color: "var(--ct-muted-fg)" }}
+              >
+                Hide
+              </button>
+            </div>
+          </div>
+        )}
+      </>
+    );
+
+    const timestampFooter = (() => {
+      const ts = messageTimestamp(message.timestamp);
+      if (!ts) return null;
+      return (
+        <div
+          className={`mt-0.5 text-[10px] opacity-0 transition-opacity duration-150 group-hover:opacity-60 ${effectiveOrigin ? "text-left" : "text-right"}`}
+          style={{ color: "var(--ct-muted-fg)" }}
+          title={ts.full}
+        >
+          {ts.short}
+        </div>
+      );
+    })();
+
+    if (effectiveOrigin?.kind === "pane") {
+      return (
+        <CrossPaneMessageShell header={originHeader} textSize={userText} footer={timestampFooter}>
+          {userBubbleInner}
+        </CrossPaneMessageShell>
+      );
+    }
+
     return (
       <div className={`group flex mb-3 w-full max-w-4xl min-w-0 mx-auto ${effectiveOrigin ? "justify-start" : "justify-end"}`}>
         <div className="min-w-0 max-w-[75%] sm:max-w-[75%]">
@@ -296,7 +380,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           <div
             className={`min-w-0 rounded-2xl rounded-br-sm px-4 py-2 ${userText} select-text cursor-text border ${TEXT_WRAP_CLASS}`}
             style={{
-              // tint so it never blends with tool traces or assistant prose.
               background: effectiveOrigin
                 ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, var(--ct-surface, #161b22) 88%)"
                 : "color-mix(in srgb, var(--ct-accent, #58a6ff) 22%, var(--ct-bg, #0d1117) 78%)",
@@ -306,77 +389,9 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
               color: "var(--ct-fg)",
             }}
           >
-            {effectiveOrigin?.kind === "command" ? (
-              <CommandBody commands={effectiveOrigin.commands} body={message.content} />
-            ) : (
-              renderUserContent(message.content)
-            )}
-            {attachments && attachments.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-2 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}>
-                {attachments.map((att) => (
-                  <button
-                    key={att.id}
-                    data-testid="chat-image-attachment-button"
-                    onClick={() => handleImageClick(att)}
-                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors hover:brightness-125"
-                    style={{
-                      background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)",
-                      color: "var(--ct-muted-fg)",
-                    }}
-                    title={att.data ? "Click to preview" : "Image (not loaded)"}
-                  >
-                    <Image size={12} strokeWidth={2} />
-                    {att.mimeType.replace("image/", "").toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            )}
-            {/* Inline image preview */}
-            {viewingImage && viewingImage.data && (
-              <div
-                data-testid="chat-image-preview"
-                className="mt-2 pt-2"
-                style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}
-              >
-                <img
-                  src={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
-                  alt="Attached image"
-                  className="max-w-full max-h-[300px] object-contain rounded-lg"
-                />
-                <div className="flex items-center gap-2 mt-1.5">
-                  <a
-                    href={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
-                    download={`image.${viewingImage.mimeType.replace("image/", "")}`}
-                    className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
-                    style={{ color: "var(--ct-muted-fg)", background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}
-                  >
-                    <Download size={11} strokeWidth={2} />
-                    Save
-                  </a>
-                  <button
-                    onClick={() => setViewingImage(null)}
-                    className="text-[11px] px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
-                    style={{ color: "var(--ct-muted-fg)" }}
-                  >
-                    Hide
-                  </button>
-                </div>
-              </div>
-            )}
+            {userBubbleInner}
           </div>
-          {(() => {
-            const ts = messageTimestamp(message.timestamp);
-            if (!ts) return null;
-            return (
-              <div
-                className={`mt-0.5 text-[10px] opacity-0 transition-opacity duration-150 group-hover:opacity-60 ${effectiveOrigin ? "text-left" : "text-right"}`}
-                style={{ color: "var(--ct-muted-fg)" }}
-                title={ts.full}
-              >
-                {ts.short}
-              </div>
-            );
-          })()}
+          {timestampFooter}
         </div>
       </div>
     );

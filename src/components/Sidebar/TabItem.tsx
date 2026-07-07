@@ -93,7 +93,10 @@ function TabItemInner({
   const description = pane?.description ?? tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab, pane);
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
-  const isSubPane = pane?.role !== "Orchestrator" && (Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0);
+  const isOrchestrationChild =
+    pane?.role !== "Orchestrator" && (Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0);
+  const isSubPane = isOrchestrationChild;
+  const closeBlockedAsGroupChild = isOrchestrationChild && pane?.role !== "Manager";
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(canonicalTitle);
   const resolveChatView = (p: typeof pane): boolean => {
@@ -166,7 +169,7 @@ function TabItemInner({
       });
     }
     if (canClose && !pane?.protected) {
-      if (isSubPane) {
+      if (closeBlockedAsGroupChild) {
         items.push({
           label: "Close",
           icon: <X size={11} strokeWidth={2} />,
@@ -185,7 +188,7 @@ function TabItemInner({
       }
     }
     return items;
-  }, [canonicalTitle, pane, chatView, canClose, hasAgent, onClose, isSubPane]);
+  }, [canonicalTitle, pane, chatView, canClose, hasAgent, onClose, closeBlockedAsGroupChild]);
 
   const animClass = isClosing
     ? closePhase === 2

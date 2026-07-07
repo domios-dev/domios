@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Terminal/PaneSessionChat.watcher.test.tsx
 
-import React, { act } from "react";
+import { act } from "react";
 import { Window } from "happy-dom";
 import { createRoot, type Root } from "react-dom/client";
 import type { Pane } from "../../lib/types";
@@ -114,11 +114,12 @@ async function renderPaneSessionChat(paneId: string, ctx: MultiplexerContextType
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { PaneSessionChat } = await import("./PaneSessionChat");
 
-  __setInvokeForTest(async (cmd) => {
+  __setInvokeForTest((async (cmd: string) => {
     if (cmd === "chat_start") return { text: "", offset: 0, messages: [] };
     if (cmd === "delayed_send_list") return [];
     return {};
-  });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }) as any);
   __setListenForTest(async () => () => {});
 
   const host = document.createElement("div");

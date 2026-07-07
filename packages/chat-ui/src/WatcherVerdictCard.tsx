@@ -1,4 +1,4 @@
-import React from "react";
+import * as React from "react";
 import { parseWatcherVerdictContent } from "@codeterm/chat-core";
 import { Scale } from "lucide-react";
 
@@ -40,7 +40,7 @@ interface WatcherVerdictCardProps {
   content: string;
 }
 
-export function WatcherVerdictCard({ content }: WatcherVerdictCardProps) {
+function WatcherVerdictCardImpl({ content }: WatcherVerdictCardProps) {
   const verdict = parseWatcherVerdictContent(content);
   const tone = verdictTone(verdict.status);
   const chip = TONE_CHIP[tone];
@@ -98,3 +98,5 @@ export function WatcherVerdictCard({ content }: WatcherVerdictCardProps) {
     </div>
   );
 }
+
+export const WatcherVerdictCard = React.memo(WatcherVerdictCardImpl);

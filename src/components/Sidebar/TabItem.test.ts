@@ -69,6 +69,10 @@ assert(
   "TabItem memo must compare pane.title for rename re-renders",
 );
 assert(
+  source.includes('const closeBlockedAsGroupChild = isOrchestrationChild && pane?.role !== "Manager";'),
+  "TabItem should allow manager-section rows to close individually",
+);
+assert(
   source.includes('data-testid="tab-pane-icon"'),
   "TabItem exposes a left provider icon marker for child/manager rows",
 );
