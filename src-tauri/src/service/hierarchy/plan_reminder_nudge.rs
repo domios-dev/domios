@@ -219,6 +219,8 @@ impl ServiceContext {
         }
         let now = current_epoch_secs();
         let targets = timed_plan_reminder_targets(&self.plan_store.list_full());
+        let candidates = targets.len();
+        let mut due = 0usize;
         for timed in targets {
             if !self
                 .plan_turn_counter
@@ -226,6 +228,7 @@ impl ServiceContext {
             {
                 continue;
             }
+            due += 1;
             let delivered = self.deliver_plan_reminder_target(
                 &timed.pane_id,
                 &timed.target,
@@ -248,6 +251,7 @@ impl ServiceContext {
                 );
             }
         }
+        log::info!("[plan-reminder] tick: {candidates} candidate pane(s), {due} due");
         self.send_due_complete_wrapup_reminders(now, cfg.nudge_interval_secs);
     }
 
