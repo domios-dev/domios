@@ -1,116 +1,4 @@
-//! Response capture — polls agent output after sending a message.
-
-use crate::agent::status::PaneStatus;
-use crate::{AgentTrackerState, OutputBufferState};
-use std::time::{Duration, Instant};
-
-const RESPONSE_TIMEOUT: Duration = Duration::from_secs(120);
-const POLL_INTERVAL: Duration = Duration::from_millis(500);
-
-pub fn capture_response(
-    pty_id: &str,
-    output_buf: &OutputBufferState,
-    tracker: &AgentTrackerState,
-) -> Result<String, String> {
-    let offset = output_buf
-        .lock()
-        .get_full(pty_id)
-        .map(|b| b.len())
-        .unwrap_or(0);
-
-    let deadline = Instant::now() + RESPONSE_TIMEOUT;
-    let mut saw_working = false;
-
-    loop {
-        if Instant::now() > deadline {
-            if saw_working {
-                break;
-            }
-            return Err("Response timeout".to_string());
-        }
-        let status = tracker.lock().get_status(pty_id);
-        match status {
-            PaneStatus::Working => {
-                saw_working = true;
-            }
-            PaneStatus::Idle if saw_working => {
-                std::thread::sleep(Duration::from_millis(300));
-                break;
-            }
-            PaneStatus::Dead => return Err("Agent died".to_string()),
-            _ => {}
-        }
-        std::thread::sleep(POLL_INTERVAL);
-    }
-
-    let raw = output_buf
-        .lock()
-        .get_full(pty_id)
-        .map(|b| {
-            if offset < b.len() {
-                String::from_utf8_lossy(&b[offset..]).to_string()
-            } else {
-                String::new()
-            }
-        })
-        .unwrap_or_default();
-
-    if raw.is_empty() {
-        return Err("No response".to_string());
-    }
-    Ok(strip_ansi(&raw))
-}
-
-pub fn strip_ansi(input: &str) -> String {
-    let mut result = String::with_capacity(input.len());
-    let mut chars = input.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\x1b' {
-            match chars.peek() {
-                Some('[') => {
-                    chars.next();
-                    while let Some(&c) = chars.peek() {
-                        chars.next();
-                        if c.is_ascii_alphabetic() || c == '~' {
-                            break;
-                        }
-                    }
-                }
-                Some(']') => {
-                    chars.next();
-                    while let Some(&c) = chars.peek() {
-                        chars.next();
-                        if c == '\x07' {
-                            break;
-                        }
-                        if c == '\x1b' {
-                            chars.next();
-                            break;
-                        }
-                    }
-                }
-                _ => {
-                    chars.next();
-                }
-            }
-        } else if ch != '\r' {
-            result.push(ch);
-        }
-    }
-    result.trim().to_string()
-}
-
-/// Find the largest byte index <= `max_bytes` that lies on a char boundary.
-fn floor_char_boundary(s: &str, max_bytes: usize) -> usize {
-    if max_bytes >= s.len() {
-        return s.len();
-    }
-    let mut i = max_bytes;
-    while i > 0 && !s.is_char_boundary(i) {
-        i -= 1;
-    }
-    i
-}
+//! Telegram outbound message chunking and HTML-aware splitting.
 
 pub fn chunk_message(text: &str, max_len: usize) -> Vec<String> {
     if text.len() <= max_len {
@@ -222,6 +110,56 @@ pub fn chunk_message(text: &str, max_len: usize) -> Vec<String> {
     chunks
 }
 
+pub fn strip_ansi(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            match chars.peek() {
+                Some('[') => {
+                    chars.next();
+                    while let Some(&c) = chars.peek() {
+                        chars.next();
+                        if c.is_ascii_alphabetic() || c == '~' {
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    chars.next();
+                    while let Some(&c) = chars.peek() {
+                        chars.next();
+                        if c == '\x07' {
+                            break;
+                        }
+                        if c == '\x1b' {
+                            chars.next();
+                            break;
+                        }
+                    }
+                }
+                _ => {
+                    chars.next();
+                }
+            }
+        } else if ch != '\r' {
+            result.push(ch);
+        }
+    }
+    result.trim().to_string()
+}
+
+fn floor_char_boundary(s: &str, max_bytes: usize) -> usize {
+    if max_bytes >= s.len() {
+        return s.len();
+    }
+    let mut i = max_bytes;
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,23 +185,22 @@ mod tests {
 
     #[test]
     fn test_chunk_multibyte_utf8() {
-        let text = "Привет ".repeat(600); // ~4200 bytes
+        let text = "Привет ".repeat(600);
         let chunks = chunk_message(&text, 100);
         assert!(chunks.len() > 1);
         for chunk in &chunks {
             assert!(chunk.len() <= 100);
-            // Verify all chunks are valid UTF-8 (would panic if not)
             let _ = chunk.as_str();
         }
     }
 
     #[test]
     fn test_chunk_emoji() {
-        let text = "🔥".repeat(30); // 120 bytes
+        let text = "🔥".repeat(30);
         let chunks = chunk_message(&text, 10);
         assert!(chunks.len() > 1);
         for chunk in &chunks {
-            assert!(chunk.len() <= 12); // 4-byte emoji, so max overshoot is a single char boundary
+            assert!(chunk.len() <= 12);
         }
     }
 
@@ -272,11 +209,7 @@ mod tests {
         let inner = "x".repeat(200);
         let text = format!("<b>{}</b>", inner);
         let chunks = chunk_message(&text, 120);
-        assert!(
-            chunks.len() >= 2,
-            "expected multiple chunks, got: {:?}",
-            chunks
-        );
+        assert!(chunks.len() >= 2, "expected multiple chunks, got: {:?}", chunks);
         for c in &chunks {
             assert!(c.starts_with("<b>"), "chunk should reopen <b>: {}", c);
             assert!(c.ends_with("</b>"), "chunk should close </b>: {}", c);
@@ -312,8 +245,8 @@ mod tests {
 
     #[test]
     fn test_floor_char_boundary() {
-        let s = "Привет"; // П=2bytes, р=2, и=2, в=2, е=2, т=2 = 12 bytes
-        assert_eq!(floor_char_boundary(s, 3), 2); // lands between П and р
+        let s = "Привет";
+        assert_eq!(floor_char_boundary(s, 3), 2);
         assert_eq!(floor_char_boundary(s, 4), 4);
         assert_eq!(floor_char_boundary(s, 0), 0);
         assert_eq!(floor_char_boundary(s, 100), 12);

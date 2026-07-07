@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
-use crate::config::schema::TextHooksConfig;
+use codeterm_types::config::schema::TextHooksConfig;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PreForwardRequest {

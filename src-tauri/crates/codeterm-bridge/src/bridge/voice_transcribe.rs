@@ -15,7 +15,7 @@ pub async fn format_attachment_line(
     transcribers: &TranscribeRegistry,
     active_id: &str,
 ) -> String {
-    use crate::message_markers as mk;
+    use codeterm_types::message_markers as mk;
     if kind == "voice" && !path.is_empty() {
         return match crate::chatpipeline::run_voice_stage(
             transcribers,
