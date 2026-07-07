@@ -16,9 +16,8 @@ use super::traits::{
     ReplyContext,
 };
 use super::voice_transcribe;
-use crate::config::schema::{TextHooksConfig, VoiceTranscribeConfig};
-use crate::service::general_agent;
-use crate::service::ServiceContext;
+use crate::bridge::ports::BridgePanePort;
+use codeterm_types::config::schema::{TextHooksConfig, VoiceTranscribeConfig};
 
 /// Auto-edit window — if a new send arrives within this time, edit the previous message.
 const AUTO_EDIT_WINDOW_SECS: u64 = 60;
@@ -60,12 +59,12 @@ struct ChatState {
 }
 
 pub struct BridgeManager {
-    svc: ServiceContext,
+    pane: Arc<dyn BridgePanePort>,
 }
 
 impl BridgeManager {
-    pub fn new(svc: ServiceContext) -> Self {
-        Self { svc }
+    pub fn new(pane: Arc<dyn BridgePanePort>) -> Self {
+        Self { pane }
     }
 
     pub async fn start(
@@ -92,7 +91,10 @@ impl BridgeManager {
             });
         }
 
-        let token = super::telegram::read_token().unwrap_or_default();
+        let token = self
+            .pane
+            .telegram_token()
+            .unwrap_or_default();
         let api_base = super::telegram::telegram_api_base();
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
@@ -109,7 +111,7 @@ impl BridgeManager {
         log::info!("[bridge] manager v4 started (CLI + auto-edit + typing)");
 
         let fallback_clone = fallback_chat_id.clone();
-        let svc = self.svc.clone();
+        let pane = self.pane.clone();
 
         loop {
             tokio::select! {
@@ -158,10 +160,11 @@ impl BridgeManager {
                         reply_ctx: first.reply_ctx.clone(),
                     };
 
-                    let cfg = crate::config::load_config();
-                    let voice_cfg = cfg.integrations.voice_transcribe.clone();
-                    let text_hooks_cfg = cfg.integrations.text_hooks.clone();
-                    if let Err(e) = inject_message(&svc, &merged_msg, &voice_cfg, &text_hooks_cfg).await {
+                    let voice_cfg = pane.voice_transcribe_config();
+                    let text_hooks_cfg = pane.text_hooks_config();
+                    if let Err(e) =
+                        inject_message(&pane, &merged_msg, &voice_cfg, &text_hooks_cfg).await
+                    {
                         log::error!("[bridge] inject failed: {}", e);
                     }
                 }
@@ -587,13 +590,13 @@ enum HookOutcome {
 }
 
 async fn run_pre_forward_hook(
-    svc: &ServiceContext,
+    pane: &Arc<dyn BridgePanePort>,
     msg: &InboundMessage,
     pane_id: &str,
     body: &str,
     cfg: &TextHooksConfig,
 ) -> HookOutcome {
-    apply_hook(&svc.bridge_outbound, msg, pane_id, body, cfg).await
+    apply_hook(&pane.bridge_outbound(), msg, pane_id, body, cfg).await
 }
 
 async fn apply_hook(
@@ -684,23 +687,17 @@ async fn apply_hook(
 }
 
 async fn inject_message(
-    svc: &ServiceContext,
+    pane: &Arc<dyn BridgePanePort>,
     msg: &InboundMessage,
     voice_cfg: &VoiceTranscribeConfig,
     text_hooks_cfg: &TextHooksConfig,
 ) -> Result<(), String> {
-    let (pane_id, agent_type) = {
-        let mux = svc.mux.write();
-        let pid = mux
-            .resolve_pane_id(general_agent::GENERAL_ALIAS)
-            .ok_or("General Agent not found")?;
-        let at = mux.get_pane(&pid).and_then(|p| p.agent_type.clone());
-        (pid, at)
-    };
+    let pane_id = pane.resolve_general_pane()?;
+    let agent_type = pane.pane_agent_type(&pane_id);
 
-    let body = build_message_body(msg, &svc.transcribe_registry, &voice_cfg.active).await;
+    let body = build_message_body(msg, &pane.transcribe_registry(), &voice_cfg.active).await;
 
-    let body = match run_pre_forward_hook(svc, msg, &pane_id, &body, text_hooks_cfg).await {
+    let body = match run_pre_forward_hook(pane, msg, &pane_id, &body, text_hooks_cfg).await {
         HookOutcome::Forward => body,
         HookOutcome::Annotated(annotated) => annotated,
         HookOutcome::Replaced => return Ok(()),
@@ -718,39 +715,7 @@ async fn inject_message(
             .build(),
     };
 
-    if agent_type.is_none() {
-        let preview: String = prefixed.chars().take(120).collect();
-        log::info!(
-            "[bridge] queued inbound for pane={} (agent restarting): {}",
-            pane_id,
-            preview,
-        );
-        super::inbound_buffer::push(&pane_id, prefixed);
-        return Ok(());
-    }
-
-    // A chatBackend pane has no PTY — deliver the inbound message via the plugin.
-    if let Some((plugin_id, session_id)) = svc.pane_chat_backing(&pane_id) {
-        return svc.chatbackend_send(&plugin_id, &session_id, &prefixed);
-    }
-
-    let pty_id = svc.resolve_pty_id(&pane_id)?;
-    let paste = format!("\x1b[200~{}\x1b[201~", prefixed);
-    svc.pty
-        .lock()
-        .write(&pty_id, paste.as_bytes())
-        .map_err(|e| e.to_string())?;
-
-    let pty = svc.pty.clone();
-    let pty_id = pty_id.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        let _ = pty.lock().write(&pty_id, b"\r");
-        std::thread::sleep(std::time::Duration::from_millis(2000));
-        let _ = pty.lock().write(&pty_id, b"\r");
-    });
-
-    Ok(())
+    pane.deliver_inbound(&pane_id, &prefixed, agent_type.as_deref())
 }
 
 #[cfg(test)]

@@ -70,4 +70,4 @@ pub trait Transcriber: Send + Sync {
 
 /// Runtime registry of transcribers, keyed by id. Populated at startup with the
 /// built-in engine and at runtime by the `PluginManager`.
-pub type TranscribeRegistry = crate::plugin::capability::CapabilityRegistry<dyn Transcriber>;
+pub type TranscribeRegistry = crate::bridge::registry::CapabilityRegistry<dyn Transcriber>;

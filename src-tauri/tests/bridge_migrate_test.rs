@@ -12,7 +12,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 
-use crate::startup::start_telegram_bridge_for_test;
+use codeterm_lib::startup::start_telegram_bridge_for_test;
 
 #[derive(Clone)]
 struct MockState {
@@ -74,7 +74,7 @@ async fn spawn_mock_telegram() -> (String, MockState) {
 }
 
 async fn wait_for_first_poll(
-    sup: &Arc<crate::bridge::supervisor::BridgeSupervisor>,
+    sup: &Arc<codeterm_lib::bridge::supervisor::BridgeSupervisor>,
     deadline: Duration,
 ) -> bool {
     let start = std::time::Instant::now();

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tokio::sync::Notify;
 
 use super::supervisor::BridgeStatusSink;
+use super::ports::AttachmentStorePort;
 use super::traits::{InboundAttachment, InboundMessage, MessagingService, ReplyContext};
 
 pub const TELEGRAM_MAX_LEN: usize = 4096;
@@ -14,12 +15,12 @@ pub const TELEGRAM_MAX_LEN: usize = 4096;
 /// Max total size of bridge-downloads dir before eviction (100 MB).
 const DOWNLOADS_MAX_BYTES: u64 = 100 * 1024 * 1024;
 
-pub fn token_path() -> std::path::PathBuf {
-    crate::service::general_agent::secrets_dir().join("telegram.token")
+pub fn token_path(attachments: &dyn AttachmentStorePort) -> std::path::PathBuf {
+    attachments.secrets_dir().join("telegram.token")
 }
 
-pub fn read_token() -> Option<String> {
-    std::fs::read_to_string(token_path())
+pub fn read_token(attachments: &dyn AttachmentStorePort) -> Option<String> {
+    std::fs::read_to_string(token_path(attachments))
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
@@ -38,14 +39,15 @@ pub struct TelegramService {
     token: String,
     client: reqwest::Client,
     api_base: String,
+    attachments: Arc<dyn AttachmentStorePort>,
 }
 
 impl TelegramService {
-    pub fn new(token: String, _allowed_users: Vec<String>) -> Self {
-        Self::with_base(token, telegram_api_base())
+    pub fn new(token: String, _allowed_users: Vec<String>, attachments: Arc<dyn AttachmentStorePort>) -> Self {
+        Self::with_base(token, telegram_api_base(), attachments)
     }
 
-    pub fn with_base(token: String, api_base: String) -> Self {
+    pub fn with_base(token: String, api_base: String, attachments: Arc<dyn AttachmentStorePort>) -> Self {
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(40)) // > Telegram's 30s long poll
@@ -57,6 +59,7 @@ impl TelegramService {
             token,
             client,
             api_base,
+            attachments,
         }
     }
 
@@ -70,10 +73,7 @@ impl TelegramService {
     }
 
     fn is_user_allowed(&self, user_id: i64) -> bool {
-        // Always read fresh config — CLI/UI may change allowed_users at any time.
-        let allowed = &crate::config::load_config()
-            .integrations
-            .telegram_allowed_users;
+        let allowed = &self.attachments.telegram_allowed_users();
         user_allowed(allowed, user_id)
     }
 
@@ -155,7 +155,7 @@ impl TelegramService {
             local_path.display()
         );
 
-        evict_downloads(downloads_dir);
+        evict_downloads(downloads_dir, &*self.attachments);
 
         Some(local_path.to_string_lossy().to_string())
     }
@@ -281,7 +281,9 @@ impl TelegramService {
         let mut error_count: u32 = 0;
         let mut poll_count: u64 = 0;
 
-        let downloads_dir = crate::service::general_agent::secrets_dir()
+        let downloads_dir = self
+            .attachments
+            .secrets_dir()
             .parent()
             .unwrap_or(std::path::Path::new("."))
             .join("bridge-downloads");
@@ -513,12 +515,9 @@ async fn cancellable_sleep(cancel: &Notify, dur: std::time::Duration) -> bool {
     }
 }
 
-/// Evict oldest files from downloads dir — delegates to shared attachments module.
-fn evict_downloads(dir: &std::path::Path) {
-    crate::attachments::evict(
-        dir,
-        crate::attachments::EvictionPolicy::MaxBytes(DOWNLOADS_MAX_BYTES),
-    );
+/// Evict oldest files from downloads dir — delegates to the attachment port.
+fn evict_downloads(dir: &std::path::Path, attachments: &dyn AttachmentStorePort) {
+    attachments.evict_downloads(dir, DOWNLOADS_MAX_BYTES);
 }
 
 impl MessagingService for TelegramService {
