@@ -129,7 +129,7 @@ sections:
     y: null
     collapsed: false
   attachments: []
-status: active
+status: archived
 mode: complete
 owner:
   pane_id: a0481d40
@@ -138,7 +138,7 @@ owner:
 project_path: /Users/rollacode/Developer/codeterm
 canonical_project_path: /Users/rollacode/Developer/codeterm
 created_at: 1783373357907
-updated_at: 1783407897319
+updated_at: 1783408082898
 milestone_kinds:
 - key: status_update
   label: status_update
