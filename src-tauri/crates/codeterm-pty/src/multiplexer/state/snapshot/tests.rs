@@ -371,7 +371,7 @@ fn chatbackend_pane_stays_chat_backend_after_snapshot_resave() {
 
 #[test]
 fn snapshot_with_status_mirrors_tracked_pty_status_only() {
-    use crate::agent::status::{PaneStatus, PaneStatusTracker};
+    use codeterm_types::pty::{PaneStatus, PaneStatusTracker};
 
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
@@ -420,7 +420,7 @@ fn test_pending_prompt() -> crate::multiplexer::types::PendingPrompt {
 
 #[test]
 fn snapshot_with_status_derives_waiting_from_pending_prompt_over_working() {
-    use crate::agent::status::{PaneStatus, PaneStatusTracker};
+    use codeterm_types::pty::{PaneStatus, PaneStatusTracker};
 
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
@@ -445,7 +445,7 @@ fn snapshot_with_status_derives_waiting_from_pending_prompt_over_working() {
 
 #[test]
 fn snapshot_with_status_derives_waiting_from_pending_prompt_when_untracked() {
-    use crate::agent::status::{PaneStatus, PaneStatusTracker};
+    use codeterm_types::pty::{PaneStatus, PaneStatusTracker};
 
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
@@ -464,7 +464,7 @@ fn snapshot_with_status_derives_waiting_from_pending_prompt_when_untracked() {
 #[test]
 fn snapshot_with_status_keeps_dead_over_stale_pending_prompt() {
     // pending_prompt that never got cleared on exit — Dead is terminal.
-    use crate::agent::status::{PaneStatus, PaneStatusTracker};
+    use codeterm_types::pty::{PaneStatus, PaneStatusTracker};
 
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();

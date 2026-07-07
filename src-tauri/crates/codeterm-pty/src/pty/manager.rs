@@ -676,7 +676,7 @@ mod tests {
             "-Command",
             &script,
         ]);
-        crate::process_util::no_window_std(&mut cmd);
+        codeterm_util::process_util::no_window_std(&mut cmd);
         let Ok(output) = cmd.output() else {
             return Vec::new();
         };

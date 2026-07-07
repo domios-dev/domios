@@ -93,11 +93,11 @@ impl ScreenState {
     pub fn native_prompt_input(
         &self,
         pty_id: &str,
-    ) -> Option<crate::agent::native_prompt::NativePromptInput> {
+    ) -> Option<crate::native_prompt::NativePromptInput> {
         self.parsers.get(pty_id).map(|p| {
             let screen = p.screen();
-            crate::agent::native_prompt::NativePromptInput {
-                screen: crate::agent::attributed_screen::AttributedScreen::from_vt100(screen),
+            crate::native_prompt::NativePromptInput {
+                screen: crate::attributed_screen::AttributedScreen::from_vt100(screen),
                 cursor_hidden: screen.hide_cursor(),
                 alt_screen: screen.alternate_screen(),
             }
