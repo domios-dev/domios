@@ -417,6 +417,7 @@ impl PlanStore {
                                     milestones: vec![],
                                     execution_attempts: vec![],
                                     park_reason: None,
+                                    personality: None,
                                     attachments: vec![],
                                 };
                                 working.tasks.push(task);

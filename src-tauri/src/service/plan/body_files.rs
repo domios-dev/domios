@@ -173,6 +173,17 @@ pub fn persist_bodies(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
                 serde_json::Value::String(role.to_string()),
             );
         }
+        if let Some(name) = task
+            .personality
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            metadata.insert(
+                "personality".into(),
+                serde_json::Value::String(name.to_string()),
+            );
+        }
         write_markdown_atomic(
             &path,
             &body_with_frontmatter(metadata, &task.tags, &task.body),
