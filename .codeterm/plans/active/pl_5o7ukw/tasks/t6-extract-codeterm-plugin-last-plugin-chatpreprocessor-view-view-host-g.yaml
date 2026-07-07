@@ -1,0 +1,78 @@
+id: task_t1zt85
+name: 't6: extract codeterm-plugin LAST (plugin/chatpreprocessor/view/view_host/glance/bubble/agent_commands; provider traits move in; 5 host traits)'
+type: implement
+model: claude
+model_rationale: claude routing while codex quota >80%; most boundary-sensitive cut — provider/host seam is the project's load-bearing boundary, parity oracle must survive untouched
+personality: Dijkstra
+acceptance_criteria:
+- 'cargo metadata whitelist: {codeterm-types, codeterm-util, codeterm-paths, quickjs deps as-is} — no tauri*, NO codeterm-bridge dep; grep ''crate::(api|service|socket|mem|secrets|agent::provider)'' in crates/codeterm-plugin/src = 0 hits'
+- AgentProvider trait + CapabilityRegistry + capability descriptor (and ChatBackend/ChatPreprocessor/AgentCommand/Bubble/Glance/View provider traits) defined in codeterm-plugin; registries + impls stay app; 5 host traits (PluginEventSink, PluginServiceHost, SocketPathHost, MemComputeHost, SecretsHost) in-crate with app impls; host-fn sandbox audit table included in report
+- parity_test.rs passes with UNCHANGED fixtures and assertions (native-vs-JS agreement oracle)
+- Test-count parity incl. cross-domain hot_reload tests relocated to the app crate's single tests/main.rs binary, numbers stated in report
+- Full workspace green + 3-platform CI; npm run check:versions still green (core plugin channel lockstep untouched)
+test_plan: '1) scripts/test-capped.sh cargo test -p codeterm-plugin — must include parity_test, all pass; 2) scripts/test-capped.sh cargo test --test main — relocated integration tests pass; 3) ONE full ./build.sh test in warm QA — matches baseline; 4) bash scripts/clippy-gate.sh — green; 5) cargo metadata jq dep-whitelist oracle (assert absence of tauri* and codeterm-bridge); 6) live smoke on dev 7686: plugin list + spawn a JS drop-in provider pane + npm run check:versions; 7) 3-platform CI green'
+correctness: Move+rewire only. Capability-based branching only — introducing any provider-id string match is a review-reject. Parity fixtures byte-identical. Host API surface must NOT grow (no new confinement holes). SYSTEM_PLUGIN_HASHES / system-plugin versioning semantics unchanged. Two-commit discipline. Blocked on t5 merge (ChatPreprocessorPort re-point).
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783426880722
+updated_at: 1783426916515
+status_changed_at: 1783426880722
+handle: t6-extract-codeterm-plugin-last-plugin-chatpreprocessor-view-view-host-g
+tags: []
+section_ids:
+- sec_uqsxn3
+- sec_wz9hht
+- sec_g5f5jp
+body: |
+  Extract `codeterm-plugin` — domain crate 6 of 6, LAST (most boundary-sensitive cut; provider DTOs and app host traits are stable by now).
+
+  ## Scope (move + rewire only)
+  Move `plugin/**` + `chatpreprocessor/**` + `view.rs` + `view_host/**` + `glance/**` + `bubble/**` + `agent_commands/**` into `src-tauri/crates/codeterm-plugin`.
+
+  ## Load-bearing decision (orchestrator-confirmed)
+  `AgentProvider` trait + `CapabilityRegistry` + the capability descriptor move INTO codeterm-plugin — app->plugin is the legal dependency direction; the app agent runtime (watchers, live_state, registries) implements against it. This dissolves the `plugin -> agent` 115-ref wall (remaining agent refs are codeterm-types shims). Same treatment for `ChatBackendProvider`, `ChatPreprocessorProvider`, `AgentCommandProvider`, and the Bubble/Glance/View provider traits — trait ownership moves in, registries STAY app. T5's `ChatPreprocessorPort` app impl re-points to the moved module.
+
+  ## Host traits (DEFINED in codeterm-plugin, IMPLEMENTED in app)
+  - `PluginEventSink` (replaces 8 `api` refs)
+  - `PluginServiceHost` (11 `service` refs)
+  - `SocketPathHost` (1 `socket` ref)
+  - `MemComputeHost` (4 `mem` refs)
+  - `SecretsHost` (5 `secrets` refs)
+  Every host fn is a confinement hole — audit each against the FS/sqlite/env sandbox (plugin boundary discipline #4) and include the audit table in the report.
+
+  ## Tests
+  - `parity_test.rs` moves WITH the crate — fixtures and assertions byte-identical (the native-vs-JS agreement oracle, boundary discipline #2).
+  - Cross-domain plugin tests (`hot_reload` tests calling chatpipeline/transcribe/view_host, 12 refs) move to the app crate's SINGLE tests/main.rs integration binary. codeterm-plugin gets NO dependency on codeterm-bridge.
+
+  ## Lane discipline
+  Two commits: commit 1 = trait/host inversion in place, green; commit 2 = pure move + shims + Cargo wiring. Provider detection stays capability-based — introducing any provider-id string match during rewire is a review-reject.
+role_guidance: null
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+park_reason: null
+attachments: []
