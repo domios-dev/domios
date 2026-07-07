@@ -1,0 +1,173 @@
+id: pl_5o7ukw
+title: Workspace split — crate-per-domain
+sections:
+- id: sec_jrt2zp
+  title: 'Why: compile/link wall dominates iteration'
+  handle: why-compile-link-wall-dominates-iteration
+  tags: []
+  body: ''
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: sec_wz9hht
+  title: Target crate graph (dependency direction)
+  handle: target-crate-graph-dependency-direction
+  tags: []
+  body: ''
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: sec_g5f5jp
+  title: Hard rules during the split
+  handle: hard-rules-during-the-split
+  tags: []
+  body: ''
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: sec_g40nud
+  title: Build/CI/tooling parity
+  handle: build-ci-tooling-parity
+  tags: []
+  body: ''
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: sec_h1gy43
+  title: Phase 0 — dependency audit and final crate map
+  handle: phase-0-dependency-audit-and-final-crate-map
+  tags: []
+  body: 'Produce the REAL module dependency graph of src-tauri/src (SCIP index or cargo-modules + grep for crate:: paths), overlay the draft crate graph from the spec, list every cycle/cross-edge that blocks a clean cut, and emit the FINAL crate map (name -> module list -> allowed deps) as an amendment to the spec section ''Target crate graph''. No code moves in this phase.'
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: sec_2jgobq
+  title: Phase 1 — workspace scaffold + leaf crates
+  handle: phase-1-workspace-scaffold-leaf-crates
+  tags: []
+  body: 'Convert src-tauri to a cargo workspace (members under src-tauri/crates/), keeping codeterm_lib as the single member first (pure plumbing: profiles inherited, build.sh/test-capped/clippy-gate/CI/file-size all green). Then extract the leaf crates from the phase-0 map (types, util) with tests moving along. Each extraction = one lane, move+rewire only.'
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: sec_uqsxn3
+  title: Phase 2 — domain crates
+  handle: phase-2-domain-crates
+  tags: []
+  body: 'Extract domain crates one lane each, in the order the phase-0 map declares safe (least-coupled first). Candidate order: mem, plan, mesh, bridge, pty, plugin-host. Gate per lane: crate tests green + whole-workspace green on 3 platforms + no tauri dep outside app + test-count parity for moved modules.'
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: sec_6dlcu4
+  title: Phase 3 — thin app crate + enforcement
+  handle: phase-3-thin-app-crate-enforcement
+  tags: []
+  body: 'src-tauri app crate keeps only tauri commands, startup wiring, and cross-domain integration tests (single tests/main.rs). Add enforcement so the split cannot rot: CI check that only the app crate depends on tauri (cargo metadata assert), and mod.rs/file-size discipline notes updated in AGENTS.md + docs. Measure and record the before/after edit-compile-link timings in the retrospective.'
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+status: active
+mode: execution
+owner:
+  pane_id: c1a3fc71
+  session_id: null
+  title: null
+project_path: /Users/rollacode/Developer/codeterm
+canonical_project_path: /Users/rollacode/Developer/codeterm
+created_at: 1783413891138
+updated_at: 1783414795519
+milestone_kinds:
+- key: status_update
+  label: status_update
+  color: null
+loops: []
+elements: []
+tasks: []
+task_groups: []
+tag_facets: []
+links: []
+spec_refs:
+- sp_64l6cv
+spec_links:
+- spec_id: sp_64l6cv
+  spec_section_id: sec_o12yvg
+  plan_section_id: sec_jrt2zp
+- spec_id: sp_64l6cv
+  spec_section_id: sec_lgztym
+  plan_section_id: sec_wz9hht
+- spec_id: sp_64l6cv
+  spec_section_id: sec_1skgoy
+  plan_section_id: sec_g5f5jp
+- spec_id: sp_64l6cv
+  spec_section_id: sec_a2r32w
+  plan_section_id: sec_g40nud
+- spec_id: sp_64l6cv
+  spec_section_id: sec_lgztym
+  plan_section_id: sec_h1gy43
+- spec_id: sp_64l6cv
+  spec_section_id: sec_o12yvg
+  plan_section_id: sec_h1gy43
+- spec_id: sp_64l6cv
+  spec_section_id: sec_a2r32w
+  plan_section_id: sec_2jgobq
+- spec_id: sp_64l6cv
+  spec_section_id: sec_lgztym
+  plan_section_id: sec_2jgobq
+- spec_id: sp_64l6cv
+  spec_section_id: sec_1skgoy
+  plan_section_id: sec_uqsxn3
+- spec_id: sp_64l6cv
+  spec_section_id: sec_lgztym
+  plan_section_id: sec_uqsxn3
+- spec_id: sp_64l6cv
+  spec_section_id: sec_1skgoy
+  plan_section_id: sec_6dlcu4
+- spec_id: sp_64l6cv
+  spec_section_id: sec_a2r32w
+  plan_section_id: sec_6dlcu4
+primary_spec_id: sp_64l6cv
+lineage: []
+goal: null
+heartbeat:
+  current_focus: null
+  active_lanes: []
+  rules: []
+  learnings: []
+canvas:
+  viewport: null
+owner_history: []
+planner:
+  kind: waived
+  note: plan authored by orchestrator with the user directly in the loop; a Planner pane will be attached at phase-2 scale-up
+planning_state: approved
+planning_log:
+- from: drafting
+  to: approved
+  by:
+    kind: user
+  at: 1783414069681
+gates: []
+strides: []

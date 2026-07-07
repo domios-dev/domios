@@ -1,0 +1,104 @@
+id: task_zkm9re
+name: 'workspace scaffold: src-tauri becomes a cargo workspace (single member first)'
+type: implement
+model: cursor
+model_rationale: mechanical build-plumbing change with a wide but shallow blast radius; needs careful verification across build scripts, good fit for a fast execution-focused worker
+acceptance_criteria:
+- 'src-tauri/Cargo.toml declares [workspace] with codeterm_lib as a member (layout: src-tauri/crates/ prepared); cargo check/test behave identically to pre-scaffold'
+- Tuned [profile] tables live at the workspace root and provably still apply (split-debuginfo unpacked, line-tables-only, dep debug off) — verify via cargo build --timings or config dump, not assumption
+- build.sh dev/check/test, scripts/test-capped.sh, scripts/clippy-gate.sh, scripts/check-file-sizes.sh, pre-push hook, and tests.yml CI all pass unchanged against the workspace
+- npm run sync:versions + check:versions still pass (workspace.package version inheritance)
+test_plan: cargo check + narrow test-capped run locally; push branch -> all 3 CI platform jobs green; build.sh dev boots and /api/health responds
+correctness: 'Zero behavior change: no source file moves in this task, plumbing only; any diff outside Cargo.toml/build scripts is a scope violation'
+status: in_progress
+review_stage: review
+qa_state: null
+status_label: pane-gone
+priority: p2
+created_at: 1783414097298
+updated_at: 1783414287889
+status_changed_at: 1783414176384
+handle: workspace-scaffold-src-tauri-becomes-a-cargo-workspace-single-member-fir
+tags: []
+section_ids:
+- sec_2jgobq
+body: ''
+role_guidance: null
+executor_role: null
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: b117e576
+lane:
+  pane_id: b117e576
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts:
+- id: attempt_0cq4ep
+  executor_pane_id: 073db624
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: cursor
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: null
+  report: null
+  assigned_at: 1783414176384
+  reported_at: null
+  reviewed_at: null
+  closed_at: 1783414252320
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_nj15nu
+  executor_pane_id: b117e576
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: cursor
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: null
+  report: null
+  assigned_at: 1783414287889
+  reported_at: null
+  reviewed_at: null
+  closed_at: null
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []
