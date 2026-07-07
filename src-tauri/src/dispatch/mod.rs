@@ -47,8 +47,13 @@ pub enum Command {
         formatted: bool,
     },
 
-    /// Close a pane and kill its PTY.
-    PaneClose { pane_id: String },
+    /// Close a pane and kill its PTY. `caller_pane_id` is the pane making the
+    /// request (CODETERM_PANE_ID), used to refuse coordinator self-close.
+    PaneClose {
+        pane_id: String,
+        #[serde(default)]
+        caller_pane_id: Option<String>,
+    },
 
     /// Focus a pane (move keyboard focus).
     PaneFocus { pane_id: String },
@@ -78,8 +83,13 @@ pub enum Command {
     /// Rename an existing workspace.
     WorkspaceRename { workspace_id: String, name: String },
 
-    /// Close a workspace and kill all of its PTYs.
-    WorkspaceClose { workspace_id: String },
+    /// Close a workspace and kill all of its PTYs. `caller_pane_id` refuses a
+    /// coordinator closing the workspace it runs in.
+    WorkspaceClose {
+        workspace_id: String,
+        #[serde(default)]
+        caller_pane_id: Option<String>,
+    },
 
     /// List all workspaces with their metadata.
     WorkspaceList,
@@ -160,7 +170,10 @@ pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, St
             full,
         } => cmd_get_output(ctx, pane_id, *offset, *max_bytes, *strip_ansi, *full),
         Command::GetText { pane_id, formatted } => cmd_get_text(ctx, pane_id, *formatted),
-        Command::PaneClose { pane_id } => cmd_pane_close(ctx, pane_id),
+        Command::PaneClose {
+            pane_id,
+            caller_pane_id,
+        } => cmd_pane_close(ctx, pane_id, caller_pane_id.as_deref()),
         Command::PaneFocus { pane_id } => cmd_pane_focus(ctx, pane_id),
         Command::PaneRename { pane_id, title } => cmd_pane_rename(ctx, pane_id, title),
         Command::PaneDescribe {
@@ -176,7 +189,10 @@ pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, St
         Command::WorkspaceRename { workspace_id, name } => {
             cmd_workspace_rename(ctx, workspace_id, name)
         }
-        Command::WorkspaceClose { workspace_id } => cmd_workspace_close(ctx, workspace_id),
+        Command::WorkspaceClose {
+            workspace_id,
+            caller_pane_id,
+        } => cmd_workspace_close(ctx, workspace_id, caller_pane_id.as_deref()),
         Command::WorkspaceList => cmd_workspace_list(ctx),
         Command::WorkspaceRecentlyClosed { workspace_id } => {
             cmd_workspace_recently_closed(ctx, workspace_id)
@@ -321,8 +337,12 @@ fn cmd_get_text(
     Ok(CommandResult::Json(json))
 }
 
-fn cmd_pane_close(ctx: &ServiceContext, pane_id: &str) -> Result<CommandResult, String> {
-    ctx.close_pane(pane_id)?;
+fn cmd_pane_close(
+    ctx: &ServiceContext,
+    pane_id: &str,
+    caller_pane_id: Option<&str>,
+) -> Result<CommandResult, String> {
+    ctx.close_pane_guarded(caller_pane_id, pane_id)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
@@ -369,8 +389,12 @@ fn cmd_workspace_rename(
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
-fn cmd_workspace_close(ctx: &ServiceContext, workspace_id: &str) -> Result<CommandResult, String> {
-    ctx.close_workspace(workspace_id)?;
+fn cmd_workspace_close(
+    ctx: &ServiceContext,
+    workspace_id: &str,
+    caller_pane_id: Option<&str>,
+) -> Result<CommandResult, String> {
+    ctx.close_workspace_guarded(caller_pane_id, workspace_id)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
@@ -619,6 +643,7 @@ mod tests {
             },
             Command::PaneClose {
                 pane_id: "p".into(),
+                caller_pane_id: None,
             },
             Command::PaneFocus {
                 pane_id: "p".into(),
@@ -639,6 +664,7 @@ mod tests {
             },
             Command::WorkspaceClose {
                 workspace_id: "w".into(),
+                caller_pane_id: None,
             },
             Command::WorkspaceList,
             Command::PtyResize {

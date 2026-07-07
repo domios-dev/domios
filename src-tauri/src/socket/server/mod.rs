@@ -542,6 +542,15 @@ fn dispatch(
 }
 
 /// Extract a required string parameter from JSON-RPC params.
+pub(super) fn opt_string_param(params: &Option<serde_json::Value>, key: &str) -> Option<String> {
+    params
+        .as_ref()
+        .and_then(|p| p.get(key))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
 pub(super) fn get_string_param(
     params: &Option<serde_json::Value>,
     key: &str,
