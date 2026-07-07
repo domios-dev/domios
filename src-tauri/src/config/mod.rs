@@ -175,6 +175,7 @@ fn load_config_uncached() -> AppConfig {
             Ok(contents) => match toml::from_str::<AppConfig>(&contents) {
                 Ok(mut config) => {
                     resolve_theme(&mut config);
+                    normalize_runtime_defaults(&mut config);
                     // Mesh tab disabled → force offline. Tab is the on/off switch for the whole subsystem; flag is the runtime presence state.
                     if !config.ui.mesh_tab_enabled {
                         config.mesh.enabled = false;
@@ -219,6 +220,7 @@ fn load_config_uncached() -> AppConfig {
 }
 
 fn ensure_api_token(mut config: AppConfig, path: Option<&std::path::Path>) -> AppConfig {
+    normalize_runtime_defaults(&mut config);
     if config.api.token.as_ref().map_or(true, |t| t.is_empty()) {
         let token = uuid::Uuid::new_v4().to_string().replace("-", "");
         log::info!("[config] auto-generated API token (none was configured)");
@@ -229,6 +231,20 @@ fn ensure_api_token(mut config: AppConfig, path: Option<&std::path::Path>) -> Ap
         }
     }
     config
+}
+
+fn normalize_runtime_defaults(config: &mut AppConfig) {
+    if config.mesh.instance_name.trim().is_empty() {
+        config.mesh.instance_name = default_mesh_instance_name();
+    }
+}
+
+fn default_mesh_instance_name() -> String {
+    hostname::get()
+        .map(|h| h.to_string_lossy().trim_end_matches(".local").to_string())
+        .ok()
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "CodeTerm".to_string())
 }
 
 /// Resolve theme: if config has a named theme, load its colors as a base,
@@ -331,6 +347,21 @@ size = 16
         assert_eq!(config.terminal.scrollback, 10000);
         assert!(config.api.enabled);
         assert_eq!(config.keybindings.new_tab, "Ctrl+T");
+    }
+
+    #[test]
+    fn missing_mesh_instance_name_normalizes_to_hostname() {
+        let raw = r#"
+[mesh]
+enabled = true
+"#;
+        let mut config: AppConfig = toml::from_str(raw).expect("config should parse");
+        assert!(config.mesh.instance_name.is_empty());
+
+        normalize_runtime_defaults(&mut config);
+
+        assert_eq!(config.mesh.instance_name, default_mesh_instance_name());
+        assert!(!config.mesh.instance_name.is_empty());
     }
 
     #[test]
