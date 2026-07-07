@@ -16,7 +16,7 @@ use super::traits::{
     ReplyContext,
 };
 use super::voice_transcribe;
-use crate::bridge::ports::BridgePanePort;
+use crate::ports::BridgePanePort;
 use codeterm_types::config::schema::{TextHooksConfig, VoiceTranscribeConfig};
 
 /// Auto-edit window — if a new send arrives within this time, edit the previous message.
@@ -42,7 +42,7 @@ pub fn create_outbound_channel() -> (
     (Arc::new(Mutex::new(Some(tx))), rx)
 }
 
-pub(crate) fn ensure_supported_service(service: &str) -> Result<(), &'static str> {
+pub fn ensure_supported_service(service: &str) -> Result<(), &'static str> {
     if service == "telegram" {
         Ok(())
     } else {
@@ -645,7 +645,7 @@ async fn apply_hook(
         text_hooks::HookDecision::Forward => HookOutcome::Forward,
         text_hooks::HookDecision::ForwardWithMetadata { metadata } => {
             let json = serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".into());
-            let marker = crate::message_markers::hook(&json);
+            let marker = codeterm_types::message_markers::hook(&json);
             HookOutcome::Annotated(format!("{}\n\n{}", body, marker))
         }
         text_hooks::HookDecision::Replace { respond } => {
@@ -706,9 +706,9 @@ async fn inject_message(
     let msg_id = msg.message_id.map(|id| id.to_string());
     let prefixed = match msg.service.as_str() {
         "telegram" => {
-            crate::message_markers::telegram(&msg.user_id.to_string(), msg_id.as_deref(), &body)
+            codeterm_types::message_markers::telegram(&msg.user_id.to_string(), msg_id.as_deref(), &body)
         }
-        service => crate::message_markers::Marker::new(service)
+        service => codeterm_types::message_markers::Marker::new(service)
             .attr("user", &msg.user_id.to_string())
             .attr_opt("msg", msg_id.as_deref())
             .payload(&body)

@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
-use tauri::async_runtime::JoinHandle;
+use tokio::task::JoinHandle;
 use tokio::sync::Notify;
 
 /// Capability passed to messaging-service implementations so they can
@@ -163,7 +163,7 @@ mod tests {
         let observed = Arc::new(AtomicBool::new(false));
         let observed_in = observed.clone();
 
-        let handle = tauri::async_runtime::spawn(async move {
+        let handle = tokio::spawn(async move {
             cancel.notified().await;
             observed_in.store(true, Ordering::SeqCst);
         });
@@ -185,7 +185,7 @@ mod tests {
 
         let canary = Arc::new(());
         let canary_in = canary.clone();
-        let handle = tauri::async_runtime::spawn(async move {
+        let handle = tokio::spawn(async move {
             let _hold = canary_in;
             std::future::pending::<()>().await;
         });
@@ -210,7 +210,7 @@ mod tests {
         let sup = BridgeSupervisor::new();
         let cancel = sup.cancel_token();
 
-        let h1 = tauri::async_runtime::spawn(async move {
+        let h1 = tokio::spawn(async move {
             cancel.notified().await;
         });
         sup.set_task(h1, Utc::now());
@@ -219,7 +219,7 @@ mod tests {
         let cancel = sup.cancel_token();
         let killed = Arc::new(AtomicBool::new(false));
         let killed_in = killed.clone();
-        let h2 = tauri::async_runtime::spawn(async move {
+        let h2 = tokio::spawn(async move {
             cancel.notified().await;
             killed_in.store(true, Ordering::SeqCst);
         });

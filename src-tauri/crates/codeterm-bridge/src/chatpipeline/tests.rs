@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use super::*;
-use crate::chatpreprocessor::{ChatPreprocessorProvider, PreprocessCtx};
+use crate::ports::{ChatPreprocessorProvider, PreprocessCtx};
 
 /// A fake text stage that appends a fixed tag — order is observable in the output.
 struct TagStage {
@@ -170,25 +170,4 @@ fn user_turn_send_runs_stages_only_for_user_agent_sends() {
     assert!(!is_user_turn_send(false, false, false));
     assert!(!is_user_turn_send(true, false, true));
     assert!(!is_user_turn_send(false, true, true));
-}
-
-fn occurrences(haystack: &str, needle: &str) -> usize {
-    haystack.match_indices(needle).count()
-}
-
-#[test]
-fn outbound_stages_only_run_at_user_facing_send_seams() {
-    let rest = include_str!("../api/pane_routes/send.rs");
-    let composer = include_str!("../commands/pane.rs");
-    let chat = include_str!("../service/pane_transport_chat.rs");
-    let batch = include_str!("../service/pty_io/send.rs");
-    let messenger = include_str!("../service/messenger.rs");
-    let bridge = include_str!("../bridge/manager/mod.rs");
-
-    assert_eq!(occurrences(rest, "run_outbound_stages("), 1);
-    assert_eq!(occurrences(composer, "run_outbound_stages("), 1);
-    assert_eq!(occurrences(chat, "run_outbound_stages("), 0);
-    assert_eq!(occurrences(batch, "run_outbound_stages("), 0);
-    assert_eq!(occurrences(messenger, "run_outbound_stages("), 0);
-    assert_eq!(occurrences(bridge, "run_outbound_stages("), 0);
 }

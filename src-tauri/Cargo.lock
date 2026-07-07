@@ -1097,6 +1097,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "clipboard-win",
+ "codeterm-bridge",
  "codeterm-mem",
  "codeterm-mem-store",
  "codeterm-mesh",
@@ -1170,6 +1171,24 @@ dependencies = [
  "which",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "codeterm-bridge"
+version = "1.6.2"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "codeterm-types",
+ "codeterm-util",
+ "log",
+ "parking_lot",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

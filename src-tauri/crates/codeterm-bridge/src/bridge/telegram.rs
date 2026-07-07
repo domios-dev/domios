@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::Notify;
 
 use super::supervisor::BridgeStatusSink;
-use super::ports::AttachmentStorePort;
+use crate::ports::AttachmentStorePort;
 use super::traits::{InboundAttachment, InboundMessage, MessagingService, ReplyContext};
 
 pub const TELEGRAM_MAX_LEN: usize = 4096;
