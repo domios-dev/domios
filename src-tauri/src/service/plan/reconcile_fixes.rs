@@ -103,7 +103,10 @@ impl PlanStore {
             let mut changed = Vec::new();
             for demotion in demotions {
                 let mid = mint_id("ms", |candidate| plan_contains_id(plan, candidate));
-                let Some(task) = plan.tasks.iter_mut().find(|task| task.id == demotion.task_id)
+                let Some(task) = plan
+                    .tasks
+                    .iter_mut()
+                    .find(|task| task.id == demotion.task_id)
                 else {
                     continue;
                 };

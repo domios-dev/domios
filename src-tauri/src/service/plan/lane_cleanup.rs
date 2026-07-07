@@ -58,7 +58,10 @@ fn non_empty(value: Option<&str>) -> Option<&str> {
 }
 
 // Branch deletion is irreversible -> gated on the merge check; worktree removal never forced.
-pub fn decide_lane_cleanup<M>(input: &LaneCleanupInput<'_>, mut branch_merged: M) -> LaneCleanupDecision
+pub fn decide_lane_cleanup<M>(
+    input: &LaneCleanupInput<'_>,
+    mut branch_merged: M,
+) -> LaneCleanupDecision
 where
     M: FnMut(&str, &str) -> bool,
 {
@@ -186,7 +189,10 @@ fn plan_project_path(plan: &Plan) -> &str {
 }
 
 fn branch_is_merged(project_path: &str, branch: &str, target: &str) -> bool {
-    git_ok(project_path, &["merge-base", "--is-ancestor", branch, target])
+    git_ok(
+        project_path,
+        &["merge-base", "--is-ancestor", branch, target],
+    )
 }
 
 fn run_action(project_path: &str, action: &LaneCleanupAction) -> Result<(), String> {

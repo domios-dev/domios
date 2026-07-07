@@ -101,13 +101,21 @@ mod tests {
     fn respects_cap_and_drops_irrelevant() {
         let mut strides = vec![stride("s", "status_update", "noise", 1)];
         for i in 0..(WORKER_STRIDE_LIMIT + 3) {
-            strides.push(stride(&format!("m{i}"), "note", &format!("note {i}"), 100 + i as u64));
+            strides.push(stride(
+                &format!("m{i}"),
+                "note",
+                &format!("note {i}"),
+                100 + i as u64,
+            ));
         }
         let selected = select_worker_strides(&strides);
         assert_eq!(selected.len(), WORKER_STRIDE_LIMIT);
         assert!(selected.iter().all(|m| m.kind != "status_update"));
         // newest note first
-        assert_eq!(selected[0].text, format!("note {}", WORKER_STRIDE_LIMIT + 2));
+        assert_eq!(
+            selected[0].text,
+            format!("note {}", WORKER_STRIDE_LIMIT + 2)
+        );
     }
 
     #[test]

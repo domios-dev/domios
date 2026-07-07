@@ -55,12 +55,11 @@ impl ServiceContext {
         }
         for plan in self.plan_store.list_full() {
             let is_owner = plan.owner.pane_id.as_deref() == Some(pane_id);
-            let is_planner = match resolve_planner_ref(&plan.planner, &plan.owner, |p| {
-                self.pane_probe(p)
-            }) {
-                PeerResolution::Planner { pane_id: p } => p == pane_id,
-                _ => false,
-            };
+            let is_planner =
+                match resolve_planner_ref(&plan.planner, &plan.owner, |p| self.pane_probe(p)) {
+                    PeerResolution::Planner { pane_id: p } => p == pane_id,
+                    _ => false,
+                };
             if is_coordinator(None, is_owner, is_planner) {
                 return true;
             }

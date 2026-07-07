@@ -70,11 +70,12 @@ pub(super) fn dispatch(
         assign_task_with_profile(store, svc, &assign, assign.as_ref(), now)?;
         set_in_progress(store, &plan_id, &task_id, now)?;
         let brief = build_brief(&detail.task, &detail.sections);
-        svc.send_text(&pane_id, &brief, true).map_err(|e| JsonRpcError {
-            code: -32603,
-            message: format!("brief delivery failed: {e}"),
-            data: None,
-        })?;
+        svc.send_text(&pane_id, &brief, true)
+            .map_err(|e| JsonRpcError {
+                code: -32603,
+                message: format!("brief delivery failed: {e}"),
+                data: None,
+            })?;
         Ok(())
     })();
 
