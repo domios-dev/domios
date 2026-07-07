@@ -7,7 +7,7 @@ import {
   shouldShowSectionHeader,
   summarizeGroupCounts,
 } from "./orchestrationSections";
-import { RoleModelBadge } from "./RoleModelBadge";
+import { RoleBadge } from "./RoleBadge";
 import { presenceColor } from "../Canvas/presence/identity";
 
 type TestFn = () => void | Promise<void>;
@@ -76,7 +76,7 @@ function GroupBlock({ orchId, members }: { orchId: string; members: Member[] }) 
             {managers.map((m) => (
               <div key={m.id} data-row={m.id} className="sidebar-tab">
                 {m.id}
-                <RoleModelBadge role="PLANNER" model="fable" uiFontScale={1} />
+                <RoleBadge label="PLANNER" title="fable" />
               </div>
             ))}
           </OrchestrationGroupSection>
@@ -173,7 +173,7 @@ test("collapse hides children + headers and shows the count; expand restores", a
   await act(async () => root.unmount());
 });
 
-test("one-planner group = exactly 3 visual elements: head, hairline, planner row — no header, no box, no dot", async () => {
+test("one-planner group: head, hairline, MANAGERS header, planner row — headers render for any non-empty section", async () => {
   const { host, root } = await render(
     <GroupBlock
       orchId="planck"
@@ -186,8 +186,8 @@ test("one-planner group = exactly 3 visual elements: head, hairline, planner row
   assert(container, "element 2: containment hairline (container)");
   const rows = container.querySelectorAll("[data-row]");
   assert(rows.length === 1, `element 3: exactly one planner row (got ${rows.length})`);
-  assert(!group.querySelector('[data-testid="group-section-managers"]'), "no MANAGERS header");
-  assert(!group.querySelector('[data-testid="group-section-workers"]'), "no WORKERS header");
+  assert(group.querySelector('[data-testid="group-section-managers"]'), "MANAGERS header renders even for a lone manager");
+  assert(!group.querySelector('[data-testid="group-section-workers"]'), "empty WORKERS section renders no header");
   const boxed = Array.from(group.querySelectorAll("*")).find((el) => {
     const c = (el as HTMLElement).className;
     return typeof c === "string" && (/\bborder\b|\bborder-/.test(c) || /\bbg-/.test(c) || /\brounded\b|\brounded-/.test(c));

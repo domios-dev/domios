@@ -1,6 +1,5 @@
 import { useCallback, useState, type ReactNode } from "react";
 import { Plus } from "lucide-react";
-import { presenceColor } from "../Canvas/presence/identity";
 import type { Pane, PaneStatus, Tab, Workspace } from "../../lib/types";
 import type { RemoteWorkersByOrchestrator } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
@@ -160,11 +159,10 @@ export function SidebarWorkspaceTabs({
         ? countBySection(collectOrchestrationGroupMembers(firstPane.id, panes))
         : { managers: 0, workers: 0 };
 
-    // Group head is a collapse control: its chevron folds the whole contained
-    // group; a collapsed head carries the count of what it hides.
+    const groupChildCount = sectionCounts.managers + sectionCounts.workers;
     const groupCollapsed = isOrchestrator && firstPane ? collapsedGroups.has(firstPane.id) : false;
     const groupSummary =
-      isOrchestrator && firstPane
+      isOrchestrator && firstPane && groupChildCount > 0
         ? summarizeGroupCounts(sectionCounts)
         : null;
 
@@ -187,12 +185,13 @@ export function SidebarWorkspaceTabs({
           groupKey={groupKey}
           items={items}
           pinnedIds={pinnedIds}
-          collapsible={isOrchestrator}
+          groupCollapsible={isOrchestrator && groupChildCount > 0}
           collapsed={groupCollapsed}
           onToggleCollapse={
             isOrchestrator && firstPane ? () => toggleGroupCollapsed(firstPane.id) : undefined
           }
           collapsedSummary={groupSummary}
+          activeWork={activeWork}
           {...sharedRow}
         />
         {isOrchestrator && firstPane ? (
@@ -201,7 +200,6 @@ export function SidebarWorkspaceTabs({
               data-testid="group-container"
               data-group-container={firstPane.id}
               className="sidebar-group-container"
-              style={{ ["--ct-group-presence" as string]: presenceColor(firstPane.id) }}
             >
               <OrchestrationGroupSection
                 section="manager"
@@ -218,6 +216,7 @@ export function SidebarWorkspaceTabs({
                         pane={panes[managerTab.pane_id] ?? null}
                         paneIds={collectPaneIds(managerTab, panes)}
                         activity={resolvePaneTabActivity(planIndex, managerTab.pane_id, panes)}
+                        activeWork={activeWork}
                         isClosing={closingTabIds.has(managerTab.id)}
                         isAppearing={appearingTabIds.has(managerTab.id)}
                         group="child"
@@ -238,13 +237,29 @@ export function SidebarWorkspaceTabs({
                 <HierarchyTree
                   nodes={workerNodes}
                   depth={0}
-                  onJumpToPane={(paneId) => {
-                    const childTab = sortedTabs.find((t) => t.pane_id === paneId);
-                    if (childTab) onActivateTab(childTab.id);
+                  renderRow={(node) => {
+                    const childTab = sortedTabs.find((t) => t.pane_id === node.pane.id);
+                    if (!childTab) return null;
+                    return (
+                      <SidebarSingleTabRow
+                        key={childTab.id}
+                        tab={childTab}
+                        index={childTabs.indexOf(childTab)}
+                        pane={node.pane}
+                        paneIds={collectPaneIds(childTab, panes)}
+                        activity={resolvePaneTabActivity(planIndex, node.pane.id, panes)}
+                        activeWork={activeWork}
+                        reportCount={0}
+                        isClosing={closingTabIds.has(childTab.id)}
+                        isAppearing={appearingTabIds.has(childTab.id)}
+                        group="child"
+                        groupKey={firstPane.id}
+                        items={childIds}
+                        pinnedIds={[]}
+                        {...sharedRow}
+                      />
+                    );
                   }}
-                  reportCounts={{}}
-                  uiFontScale={uiFontScale}
-                  activeWork={activeWork}
                 />
               </OrchestrationGroupSection>
             </div>

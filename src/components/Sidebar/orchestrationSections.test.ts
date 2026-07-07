@@ -5,6 +5,7 @@ import {
   countBySection,
   partitionBySection,
   roleBadgeLabel,
+  roleShieldLabel,
   roleBadgeTestId,
   SECTION_LABEL,
   sectionForRole,
@@ -55,9 +56,11 @@ assert(
   roleBadgeLabel(pane({ role: "Manager", role_profile: "watcher" })) === "WATCHER",
   "watcher badge (future)",
 );
-assert(roleBadgeLabel(pane({ role: "Worker" })) === null, "plain worker has no role badge");
-assert(roleBadgeLabel(pane({ role: "Worker", role_profile: "reviewer" })) === null, "unknown worker → no badge");
-assert(roleBadgeLabel(null) === null, "null pane → no badge");
+assert(roleBadgeLabel(pane({ role: "Worker" })) === null, "plain worker has no leadership badge label");
+assert(roleShieldLabel(pane({ role: "Worker" })) === null, "workers have no role shield");
+assert(roleShieldLabel(pane({ role: "Orchestrator" })) === "ORCHESTRATOR", "orchestrator shield");
+assert(roleShieldLabel(pane({ role: "Manager", role_profile: "planner" })) === "PLANNER", "planner shield");
+assert(roleShieldLabel(null) === null, "null pane → no shield");
 assert(roleBadgeTestId("ORCHESTRATOR") === "role-badge-orchestrator", "orchestrator testid");
 assert(roleBadgeTestId("PLANNER") === "role-badge-planner", "planner testid");
 

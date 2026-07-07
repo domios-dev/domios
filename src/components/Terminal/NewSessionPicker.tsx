@@ -103,10 +103,10 @@ export function NewSessionPicker({
     runner: () => Promise<{ workspaceId: string; paneId: string } | null>,
   ) => {
     setBusy(true);
+    closeSessionPicker(workspaceId, tabId);
     try {
       const created = await runner();
       if (!created) return;
-      closeSessionPicker(workspaceId, tabId);
       await selectTabByPane(created.workspaceId, created.paneId);
     } catch (e) {
       addNotification({
