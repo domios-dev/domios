@@ -138,7 +138,7 @@ owner:
 project_path: /Users/rollacode/Developer/codeterm
 canonical_project_path: /Users/rollacode/Developer/codeterm
 created_at: 1783373357907
-updated_at: 1783407570143
+updated_at: 1783407624598
 milestone_kinds:
 - key: status_update
   label: status_update
@@ -376,6 +376,37 @@ strides:
   kind: skill
   text: skill lane-dispatch [keep] Capture manual dispatch recipe until T1 automates it
   ts: 1783375971415
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_wl1zti
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: retrospective
+  text: |-
+    Orchestration-ergonomics tail (from archived pl_x558i8) — SHIPPED, 100% complete, zero bounces across 15 lanes.
+
+    DELIVERED (13 features + 2 integration-gate fixes), merged into feat/canvas-updates:
+    - Dispatch: t1 atomic `plan task dispatch` RPC (spawn->assign->in_progress->brief, real rollback); t2 `plan lanes [--stale]` table (own-pane liveness, mesh->PeerOffline); t3 lane auto-cleanup (merged-only, safety-biased); t4 strides->worker prompt (3 paths, decision-pinned); t5 `task show` strides; t6 role/guidance UI; t7 lane panel.
+    - Reliability: t8 self-term guard (caller-id plumbed, no invented Planner variant); t9 lane watchdog (demote only PaneGone-past-grace, never ReportOverdue); t10 polling nudge (coordinator-gated, report-resets); t11 relink on transfer (service-layer, no lock across mux); t12 mem-pref auto-pull (new planner hook, in-process off hot path).
+    - Infra: t13 CLI test-hang (root cause = clap-tree at dev opt-level=0 ~10^4x; dev-only opt-level=1 — corrected the brief).
+    - Gate fixes: t14 split service/plan/mod.rs 1046->118 facade + 4 submodules; t15 fixed 8 CLI failures t13 unmasked (v2 fixtures + 2 renderer arms + zero-flag walk + bonus dead-in-v2 stray-scan bug).
+
+    INTEGRATION: committed Andrey's in-flight auto-execution + plan-reminder tick log-line first (nothing lost); write_atomic->pub(super) after mod split; regen cli-manifest.
+
+    GATE: src-tauri check/clippy 0; lib 2818 pass; cli 407 pass + clippy clean; fmt/file-size clean; manifest fresh. 3 residual fails (mem-vector x2 + windows spawn-audit) proven PRE-EXISTING (files byte-identical to base 8285461d). t1/t2 CLI smoke green on live dev; t6/t7 data confirmed in payload. Deferred: pixel-level Playwright t6/t7.
+
+    WHAT WORKED: Planner (Sagan) code-level pre-flight caught a real gap in EVERY lane before coding (t8 unimplementable-as-briefed, t9 would kill live lanes, t11 lock-ordering) -> zero bounces. Amend-before-dispatch beats bounce-after.
+
+    LEARNINGS: no-report != progressing (ENOSPC stalls swallow blocked-reports); N cold lane-targets exhaust disk (reclaim between waves); a 90s-cap 'hang' is usually cold recompile; a stale target/debug fallback binary causes false manifest-staleness.
+  ts: 1783407624598
   links: []
   loop_id: null
   iteration: null
