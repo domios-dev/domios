@@ -1,4 +1,4 @@
-use crate::config::schema::{DigestCondition, DigestRuleConfig, OrchestrationDigestsConfig};
+use codeterm_types::config::schema::{DigestCondition, DigestRuleConfig, OrchestrationDigestsConfig};
 use crate::plan::{Plan, TaskStatus};
 
 pub const DEFAULT_IN_REVIEW_THRESHOLD: u32 = 3;
@@ -77,7 +77,6 @@ fn render_digest_template(rule: &DigestRuleConfig, counters: &PlanDigestCounters
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::schema::OrchestrationDigestsConfig;
     use crate::plan::{
         OrchestratorRef, Plan, QaState, ReviewStage, Task, TaskLaneMetadata, TaskPriority,
         TaskStatus,

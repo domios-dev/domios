@@ -1,5 +1,5 @@
-use crate::config::schema::UsageConfig;
-use crate::usage::store::UsageSnapshotRow;
+use codeterm_types::config::schema::UsageConfig;
+use codeterm_types::usage::UsageSnapshotRow;
 
 pub const FRESHNESS_MS: i64 = 180_000;
 pub const HIGH_PCT_THRESHOLD: f32 = 80.0;

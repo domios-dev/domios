@@ -6,6 +6,7 @@ use rusqlite::params;
 
 use super::*;
 use crate::plan::{AgentRef, OrchestratorRef, PlanMode, PlannerRef, TaskStatus};
+use crate::service::plan::ports::PlanIndexQuery;
 use crate::service::plan::{task_queries::TaskListFilter, NewTask, PlanStore};
 
 fn store_and_root() -> (tempfile::TempDir, PlanStore) {
@@ -161,11 +162,10 @@ fn mirrors_plan_units_into_project_local_mem_db() {
     let hits = store
         .search_plan_index(
             root.path(),
-            &search::SearchQuery {
+            &PlanIndexQuery {
                 query: "plan button soft-lock".into(),
-                kind: Some("task".into()),
+                scope: None,
                 limit: Some(5),
-                ..Default::default()
             },
         )
         .unwrap();
@@ -696,11 +696,10 @@ fn linked_worktree_uses_main_project_for_listing_search_and_index_scope() {
     let hits = store
         .search_plan_index(
             &linked,
-            &search::SearchQuery {
+            &PlanIndexQuery {
                 query: "unique linked worktree recall phrase".into(),
-                kind: Some("task".into()),
+                scope: None,
                 limit: Some(5),
-                ..Default::default()
             },
         )
         .unwrap();
@@ -712,11 +711,10 @@ fn linked_worktree_uses_main_project_for_listing_search_and_index_scope() {
     let deleted_hits = store
         .search_plan_index(
             &linked,
-            &search::SearchQuery {
+            &PlanIndexQuery {
                 query: "unique linked worktree recall phrase".into(),
-                kind: Some("task".into()),
+                scope: None,
                 limit: Some(5),
-                ..Default::default()
             },
         )
         .unwrap();
@@ -756,11 +754,10 @@ fn reindex_removes_deleted_units_and_old_text() {
     assert!(!store
         .search_plan_index(
             root.path(),
-            &search::SearchQuery {
+            &PlanIndexQuery {
                 query: "vanishing phrase".into(),
-                kind: Some("task".into()),
+                scope: None,
                 limit: Some(5),
-                ..Default::default()
             },
         )
         .unwrap()
@@ -777,11 +774,10 @@ fn reindex_removes_deleted_units_and_old_text() {
     let hits = store
         .search_plan_index(
             root.path(),
-            &search::SearchQuery {
+            &PlanIndexQuery {
                 query: "vanishing phrase".into(),
-                kind: Some("task".into()),
+                scope: None,
                 limit: Some(5),
-                ..Default::default()
             },
         )
         .unwrap();
@@ -850,10 +846,10 @@ fn explicit_reindex_backfills_multiple_plans_for_project_search() {
     assert!(store
         .search_plan_index(
             root.path(),
-            &search::SearchQuery {
+            &PlanIndexQuery {
                 query: "plan button soft-lock".into(),
+                scope: None,
                 limit: Some(5),
-                ..Default::default()
             },
         )
         .unwrap()
@@ -865,10 +861,10 @@ fn explicit_reindex_backfills_multiple_plans_for_project_search() {
     let hits = store
         .search_plan_index(
             root.path(),
-            &search::SearchQuery {
+            &PlanIndexQuery {
                 query: "plan button soft-lock".into(),
+                scope: None,
                 limit: Some(5),
-                ..Default::default()
             },
         )
         .unwrap();
@@ -907,10 +903,10 @@ fn archived_plan_stays_searchable_only_when_history_is_requested() {
     assert!(!store
         .search_plan_index(
             root.path(),
-            &search::SearchQuery {
+            &PlanIndexQuery {
                 query: "archive phrase".into(),
+                scope: None,
                 limit: Some(5),
-                ..Default::default()
             },
         )
         .unwrap()
@@ -920,10 +916,10 @@ fn archived_plan_stays_searchable_only_when_history_is_requested() {
     assert!(store
         .search_plan_index(
             root.path(),
-            &search::SearchQuery {
+            &PlanIndexQuery {
                 query: "archive phrase".into(),
+                scope: None,
                 limit: Some(5),
-                ..Default::default()
             },
         )
         .unwrap()
@@ -931,10 +927,10 @@ fn archived_plan_stays_searchable_only_when_history_is_requested() {
     let archived_hits = store
         .search_plan_index_with_status(
             root.path(),
-            &search::SearchQuery {
+            &PlanIndexQuery {
                 query: "archive phrase".into(),
+                scope: None,
                 limit: Some(5),
-                ..Default::default()
             },
             PlanSearchStatus::Archived,
         )
@@ -945,10 +941,10 @@ fn archived_plan_stays_searchable_only_when_history_is_requested() {
     let all_hits = store
         .search_plan_index_with_status(
             root.path(),
-            &search::SearchQuery {
+            &PlanIndexQuery {
                 query: "archive phrase".into(),
+                scope: None,
                 limit: Some(5),
-                ..Default::default()
             },
             PlanSearchStatus::All,
         )

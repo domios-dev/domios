@@ -114,7 +114,7 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("project"))
                 .and_then(|v| v.as_str())
                 .unwrap_or(".");
-            let kind = params
+            let _kind = params
                 .as_ref()
                 .and_then(|x| x.get("kind"))
                 .and_then(|v| v.as_str())
@@ -147,11 +147,10 @@ pub(super) fn dispatch(
             let hits = store
                 .search_plan_index_with_status(
                     &project_root,
-                    &crate::mem::search::SearchQuery {
+                    &crate::service::plan::ports::PlanIndexQuery {
                         query,
-                        kind,
+                        scope: None,
                         limit,
-                        ..Default::default()
                     },
                     status,
                 )

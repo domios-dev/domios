@@ -1,3 +1,4 @@
+use super::ports::PlanEventSink;
 use super::PlanStore;
 use notify::RecursiveMode;
 use notify_debouncer_mini::{new_debouncer, Debouncer};
@@ -5,7 +6,6 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::AppHandle;
 
 pub struct PlanWatcher {
     _debouncer: Debouncer<notify::RecommendedWatcher>,
@@ -15,12 +15,12 @@ impl PlanWatcher {
     pub fn watch_project(
         project_path: &Path,
         store: Arc<PlanStore>,
-        app: AppHandle,
+        sink: Arc<dyn PlanEventSink>,
     ) -> Result<Self, notify::Error> {
         let project_root = super::paths::project_root(project_path);
         let plans_dir = super::paths::plans_dir(&project_root).map_err(notify::Error::io)?;
         let mut debouncer = new_debouncer(Duration::from_millis(200), move |events| {
-            handle_events(events, &project_root, &store, &app);
+            handle_events(events, &project_root, &store, &sink);
         })?;
         debouncer
             .watcher()
@@ -35,7 +35,7 @@ fn handle_events(
     events: notify_debouncer_mini::DebounceEventResult,
     project_root: &Path,
     store: &Arc<PlanStore>,
-    app: &AppHandle,
+    sink: &Arc<dyn PlanEventSink>,
 ) {
     let Ok(events) = events else {
         return;
@@ -55,7 +55,7 @@ fn handle_events(
             Ok(outcome) => {
                 if outcome.should_emit() {
                     log::info!("[plan] watcher reconciled {plan_id}: {outcome:?}");
-                    emit_plan_changed(app, &plan_id);
+                    sink.emit_plan_changed(&plan_id);
                 }
             }
             Err(e) => log::warn!("[plan] watcher reconcile failed for {plan_id}: {e}"),
@@ -66,14 +66,6 @@ fn handle_events(
 /// Collapse a debounced FS burst into the distinct set of affected plan ids.
 fn coalesce_plan_ids<'a>(paths: impl Iterator<Item = &'a Path>) -> BTreeSet<String> {
     paths.filter_map(plan_id_from_path).collect()
-}
-
-fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    crate::api::events::emit_everywhere(
-        app,
-        "plan-changed",
-        serde_json::json!({ "plan_id": plan_id }),
-    );
 }
 
 fn plan_id_from_path(path: &Path) -> Option<String> {

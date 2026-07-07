@@ -2,7 +2,7 @@
 //! planner and its live (in_progress) workers to the new owner pane so reports
 //! and nudges route correctly post-transfer.
 
-use crate::multiplexer::state::MultiplexerState;
+use super::ports::PlanLaneStatePort;
 use crate::plan::{Plan, PlannerRef, TaskStatus};
 
 /// Pane ids to relink for a plan: in_progress-lane workers + planner pane.
@@ -31,7 +31,7 @@ fn relink_targets(plan: &Plan) -> Vec<String> {
 /// Repoint planner + in_progress workers to `new_owner_pane`. Returns the number
 /// of panes whose parent edge was moved. Absent panes and a target equal to the
 /// new owner are graceful no-ops; idempotent.
-pub fn relink_to_owner(mux: &mut MultiplexerState, plan: &Plan, new_owner_pane: &str) -> usize {
+pub fn relink_to_owner(mux: &mut dyn PlanLaneStatePort, plan: &Plan, new_owner_pane: &str) -> usize {
     let new_owner_pane = new_owner_pane.trim();
     if new_owner_pane.is_empty() {
         return 0;
