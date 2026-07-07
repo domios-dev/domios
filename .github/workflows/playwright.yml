@@ -19,6 +19,12 @@ on:
         type: choice
         default: smoke
         options: [smoke, golden, full]
+  # Pre-release gate: runs on the release-candidate branch. workflow_dispatch
+  # only works once this file is on the default branch (post-merge). Runs the
+  # smoke project by default here; use workflow_dispatch for golden/full.
+  push:
+    branches: [feat/canvas-updates]
+    paths: ['.github/workflows/playwright.yml', 'tests/playwright/**']
 
 concurrency:
   group: playwright-${{ github.ref }}
@@ -41,8 +47,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Install Chromium
         run: pnpm exec playwright install chromium
-      - name: Run ${{ inputs.project }}
-        run: pnpm test:pw:${{ inputs.project }} -- --global-timeout=1800000
+      - name: Run ${{ inputs.project || 'smoke' }}
+        run: pnpm test:pw:${{ inputs.project || 'smoke' }} -- --global-timeout=1800000
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -66,8 +72,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
-      - name: Run ${{ inputs.project }}
-        run: pnpm test:pw:${{ inputs.project }} -- --global-timeout=1800000
+      - name: Run ${{ inputs.project || 'smoke' }}
+        run: pnpm test:pw:${{ inputs.project || 'smoke' }} -- --global-timeout=1800000
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -90,8 +96,8 @@ jobs:
       - name: Install deps
         run: pnpm install --frozen-lockfile
       # Windows drives the real WebView2 app over CDP (no Chromium download).
-      - name: Run ${{ inputs.project }}
-        run: pnpm test:pw:${{ inputs.project }} -- --global-timeout=1800000
+      - name: Run ${{ inputs.project || 'smoke' }}
+        run: pnpm test:pw:${{ inputs.project || 'smoke' }} -- --global-timeout=1800000
       - uses: actions/upload-artifact@v4
         if: always()
         with:
