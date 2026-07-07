@@ -233,6 +233,16 @@ export function PaneSessionChat({
     return (paneRef: string): string | undefined => byShort.get(paneRef.slice(0, 8));
   }, [muxState.workspaces, muxState.panes]);
 
+  const latestFailedToolCallId = useMemo(() => {
+    for (let i = enrichedMessages.length - 1; i >= 0; i -= 1) {
+      const msg = enrichedMessages[i]?.msg;
+      if (msg?.type === "tool_call" && msg.toolError === true) {
+        return msg.id;
+      }
+    }
+    return null;
+  }, [enrichedMessages]);
+
   const onOpenPlan = useCallback(
     (planId: string, taskId?: string) => {
       openPlanDeepLink(planId, taskId, {
@@ -402,6 +412,7 @@ export function PaneSessionChat({
             >
               <MessageBubble
                 message={msg}
+                isLatestFailedToolCall={msg.id === latestFailedToolCallId}
                 origin={origin}
                 resolvePaneName={resolvePaneName}
                 onOpenPlan={onOpenPlan}

@@ -72,6 +72,7 @@ export interface NormalizedChatMessage {
   toolInput?: Record<string, unknown>;
   toolId?: string;
   toolResult?: string;
+  toolError?: boolean;
   collapsed?: boolean;
   duration?: string;
   payload?: unknown;

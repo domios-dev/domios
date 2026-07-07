@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { IS_WEB } from "../../lib/webApi";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { AppConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer } from "../../store/multiplexer";
@@ -84,9 +86,29 @@ export function NewSessionPicker({
   }, [visibleProviders]);
 
   const handleStartCreateWorkspace = useCallback(() => {
-    setNewWorkspaceName("");
-    setCreatingWorkspace(true);
-  }, []);
+    if (IS_WEB) {
+      setNewWorkspaceName("");
+      setCreatingWorkspace(true);
+      return;
+    }
+    // Desktop: a workspace IS a folder — pick it natively, name = basename.
+    void (async () => {
+      let folder: string | null = null;
+      try {
+        folder = (await open({
+          directory: true,
+          multiple: false,
+          title: "Choose workspace folder",
+        })) as string | null;
+      } catch {
+        return;
+      }
+      if (!folder) return;
+      const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
+      const info = await createWorkspace(basename, folder);
+      if (info?.id) setSelectedWorkspaceId(info.id);
+    })();
+  }, [createWorkspace]);
   const handleCancelCreateWorkspace = useCallback(() => setCreatingWorkspace(false), []);
   const handleConfirmCreateWorkspace = useCallback(async () => {
     const name = newWorkspaceName.trim();
@@ -105,9 +127,9 @@ export function NewSessionPicker({
     setBusy(true);
     try {
       const created = await runner();
-      if (!created) return;
-      await selectTabByPane(created.workspaceId, created.paneId);
-      closeSessionPicker(workspaceId, tabId);
+      if (created) {
+        await selectTabByPane(created.workspaceId, created.paneId).catch(() => {});
+      }
     } catch (e) {
       addNotification({
         pane_id: null,
@@ -118,6 +140,10 @@ export function NewSessionPicker({
         sticky: true,
       });
     } finally {
+      // The picker never survives a Start click: success replaces it with the
+      // session, failure surfaces as a notification. A stuck picker is worse
+      // than either.
+      closeSessionPicker(workspaceId, tabId);
       setBusy(false);
     }
   }, [addNotification, closeSessionPicker, selectTabByPane, tabId, workspaceId]);
@@ -137,7 +163,7 @@ export function NewSessionPicker({
     );
   }, [choice, disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, selectedWorkspaceId, workspaceCwd]);
 
-  const runPairSpawn = useCallback(async () => {
+  const runPairSpawn = useCallback(() => {
     if (choice.mode !== "pair") return;
     if (
       disabledProviderIds.has(choice.orchestratorProviderId)
@@ -145,18 +171,29 @@ export function NewSessionPicker({
     ) {
       return;
     }
-    await finishSpawn(async () => {
-      const result = await createOrchestrationPair({
-        orchestratorAgent: choice.orchestratorProviderId,
-        orchestratorModel: choice.orchestratorModelId,
-        plannerAgent: choice.plannerProviderId,
-        plannerModel: choice.plannerModelId,
-        workspaceId: selectedWorkspaceId,
+    // Pair creation takes tens of seconds (two agent launches) — never hold
+    // the picker on it. Close now; select the orchestrator when it lands.
+    const wsId = selectedWorkspaceId;
+    closeSessionPicker(workspaceId, tabId);
+    void createOrchestrationPair({
+      orchestratorAgent: choice.orchestratorProviderId,
+      orchestratorModel: choice.orchestratorModelId,
+      plannerAgent: choice.plannerProviderId,
+      plannerModel: choice.plannerModelId,
+      workspaceId: wsId,
+    })
+      .then((result) => selectTabByPane(wsId, result.orchestrator_pane_id))
+      .catch((e) => {
+        addNotification({
+          pane_id: null,
+          workspace_id: wsId,
+          title: "Orchestration start failed",
+          body: e instanceof Error ? e.message : String(e),
+          level: "Error",
+          sticky: true,
+        });
       });
-      // Select the ORCHESTRATOR tab of the new pair group.
-      return { workspaceId: selectedWorkspaceId, paneId: result.orchestrator_pane_id };
-    });
-  }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, selectedWorkspaceId]);
+  }, [addNotification, choice, closeSessionPicker, createOrchestrationPair, disabledProviderIds, selectTabByPane, selectedWorkspaceId, tabId, workspaceId]);
 
   const handleStart = useCallback(() => {
     if (choice.mode === "pair") {
