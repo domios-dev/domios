@@ -432,6 +432,7 @@ pub fn build_plan_state_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plan::coverage::compute_coverage_report;
     use crate::plan::reconcile::DriftKind;
     use crate::plan::types::{LoopSpec, Milestone, Section, Task};
 

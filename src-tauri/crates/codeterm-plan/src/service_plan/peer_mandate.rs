@@ -73,6 +73,7 @@ pub fn planner_pairing_nudge_prefix(resolution: &PeerResolution) -> Option<&'sta
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service_plan::prompts_plan;
 
     #[test]
     fn nudge_prefix_fires_only_when_unpaired() {
@@ -114,7 +115,7 @@ mod tests {
         let line = planner_peer_intro_line("pl_123", Some("orch-1"));
         assert!(line.contains("pl_123"));
         assert!(line.contains("orch-1"));
-        assert!(line.contains(super::prompts_plan::PEER_PLANNER_CHARTER_LINE));
+        assert!(line.contains(prompts_plan::PEER_PLANNER_CHARTER_LINE));
         assert!(line.contains("Orchestrator owner"));
     }
 

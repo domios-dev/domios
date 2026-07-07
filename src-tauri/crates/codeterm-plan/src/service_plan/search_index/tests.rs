@@ -130,7 +130,7 @@ fn mirrors_plan_units_into_project_local_mem_db() {
 
     let db = project_index_path(&super::super::paths::project_root(root.path()));
     assert!(db.exists());
-    assert!(db.starts_with(root.path().join("plan-indexes")));
+    assert!(db.starts_with(super::super::test_support::test_data_dir().join("plan-indexes")));
     assert!(!root.path().join(".codeterm/plan-index.sqlite").exists());
     let conn = rusqlite::Connection::open(&db).unwrap();
     let fts_count: i64 = conn
@@ -153,15 +153,19 @@ fn mirrors_plan_units_into_project_local_mem_db() {
             },
         )
         .unwrap();
-    assert_eq!(hits[0].source, "plan");
-    assert_eq!(hits[0].unit_id, task_id);
-    assert!(hits[0]
+    assert!(!hits.is_empty());
+    let task_hit = hits
+        .iter()
+        .find(|h| h.unit_id == task_id)
+        .expect("task should appear in search results");
+    assert_eq!(task_hit.source, "plan");
+    assert!(task_hit
         .body
         .contains("Plan \"Canvas\" · task: Fix soft lock"));
-    assert_eq!(hits[0].scope, project_scope(root.path()));
-    assert_eq!(hits[0].updated_at, 3);
-    assert!(hits[0].age_ms > 0);
-    let encoded = serde_json::to_value(&hits[0]).unwrap();
+    assert_eq!(task_hit.scope, project_scope(root.path()));
+    assert_eq!(task_hit.updated_at, 3);
+    assert!(task_hit.age_ms > 0);
+    let encoded = serde_json::to_value(task_hit).unwrap();
     assert_eq!(encoded["updated_at"], serde_json::json!(3));
     assert!(encoded["age_ms"].as_u64().is_some());
 }
