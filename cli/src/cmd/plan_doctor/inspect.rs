@@ -22,10 +22,12 @@ pub(super) fn inspect_stray_sidecars(
     };
     let canonical_project = canonicalize_path(&canonical_project_path(project_root, plan));
     let canonical_plan = canonicalize_path(canonical_path);
+    let canonical_project_key = path_key(&canonical_project);
+    let canonical_plan_key = path_key(&canonical_plan);
     worktree_roots(project_root)
         .into_iter()
         .map(|root| canonicalize_path(&root))
-        .filter(|root| root != &canonical_project)
+        .filter(|root| path_key(root) != canonical_project_key)
         .flat_map(|root| {
             let plan_id = plan_id.clone();
             ["active", "archive"]
@@ -40,7 +42,7 @@ pub(super) fn inspect_stray_sidecars(
         })
         .filter(|path| path.is_file())
         .map(|path| canonicalize_path(&path))
-        .filter(|path| path != &canonical_plan)
+        .filter(|path| path_key(path) != canonical_plan_key)
         .map(|path| Finding {
             severity: "warning",
             kind: "stray_sidecar_copy",
@@ -84,7 +86,41 @@ fn worktree_roots(project_root: &Path) -> Vec<PathBuf> {
 }
 
 fn canonicalize_path(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    normalize_path(path.canonicalize().unwrap_or_else(|_| path.to_path_buf()))
+}
+
+#[cfg(windows)]
+fn normalize_path(path: PathBuf) -> PathBuf {
+    PathBuf::from(strip_windows_verbatim_prefix(&path.display().to_string()))
+}
+
+#[cfg(not(windows))]
+fn normalize_path(path: PathBuf) -> PathBuf {
+    path
+}
+
+#[cfg(windows)]
+fn strip_windows_verbatim_prefix(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = path.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        path.to_string()
+    }
+}
+
+#[cfg(windows)]
+fn path_key(path: &Path) -> String {
+    path.display()
+        .to_string()
+        .replace('/', r"\")
+        .to_ascii_lowercase()
+}
+
+#[cfg(not(windows))]
+fn path_key(path: &Path) -> PathBuf {
+    path.to_path_buf()
 }
 
 fn plan_stem(id: &str) -> &str {
@@ -460,5 +496,22 @@ fn structure_finding(
         task_id: Some(task_id.into()),
         detail,
         fix: fix.into(),
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::strip_windows_verbatim_prefix;
+
+    #[test]
+    fn strips_windows_verbatim_prefixes() {
+        assert_eq!(
+            strip_windows_verbatim_prefix(r"\\?\C:\tmp\repo"),
+            r"C:\tmp\repo"
+        );
+        assert_eq!(
+            strip_windows_verbatim_prefix(r"\\?\UNC\server\share\repo"),
+            r"\\server\share\repo"
+        );
     }
 }

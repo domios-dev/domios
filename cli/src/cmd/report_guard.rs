@@ -249,7 +249,7 @@ mod tests {
 
     fn repo() -> TempDir {
         let dir = tempfile::tempdir().unwrap();
-        run(dir.path(), &["init"]);
+        run(dir.path(), &["init", "--initial-branch", "main"]);
         run(
             dir.path(),
             &["config", "user.email", "test@example.invalid"],
