@@ -144,18 +144,20 @@ pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, Stri
         }
     }
     // would block the child on write() while we wait, deadlocking until timeout.
-    let out_reader = child.stdout.take().map(|mut s| {
+    let (out_tx, out_rx) = std::sync::mpsc::channel::<String>();
+    let (err_tx, err_rx) = std::sync::mpsc::channel::<String>();
+    let _out_thread = child.stdout.take().map(|mut s| {
         std::thread::spawn(move || {
             let mut buf = String::new();
             let _ = s.read_to_string(&mut buf);
-            buf
+            let _ = out_tx.send(buf);
         })
     });
-    let err_reader = child.stderr.take().map(|mut s| {
+    let _err_thread = child.stderr.take().map(|mut s| {
         std::thread::spawn(move || {
             let mut buf = String::new();
             let _ = s.read_to_string(&mut buf);
-            buf
+            let _ = err_tx.send(buf);
         })
     });
     let timeout = Duration::from_millis(opts.timeout_ms.unwrap_or(30_000).max(1));
@@ -175,12 +177,16 @@ pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, Stri
         }
         Err(e) => return err(&format!("wait {}: {e}", opts.bin)),
     };
-    let out = out_reader
-        .map(|h| h.join().unwrap_or_default())
-        .unwrap_or_default();
-    let errout = err_reader
-        .map(|h| h.join().unwrap_or_default())
-        .unwrap_or_default();
+    // After a timeout-kill, use a short drain deadline: orphaned grandchildren
+    // (not reached by taskkill /T on Windows) keep pipe write-ends open, which
+    // would block read_to_string indefinitely. Discard partial output instead.
+    let drain = if timeout_error.is_some() {
+        Duration::from_millis(500)
+    } else {
+        Duration::from_secs(60)
+    };
+    let out = out_rx.recv_timeout(drain).unwrap_or_default();
+    let errout = err_rx.recv_timeout(drain).unwrap_or_default();
     let mut value = serde_json::json!({
         "code": status_code,
         "stdout": out,
