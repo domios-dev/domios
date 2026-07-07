@@ -28,6 +28,7 @@ interface ForkSite {
 const INVENTORY: ForkSite[] = [
   { file: "src/App.tsx", line: 472, cls: "platform-adaptation", note: "web-only floating hamburger to open the sidebar overlay (titlebar has no sidebar toggle)" },
   { file: "src/components/MeshPanel/MeshPanel.tsx", line: 205, cls: "transport-shim", note: "spawn setup chat via webJson vs local fetch" },
+  { file: "src/components/Terminal/NewSessionPicker.tsx", line: 89, cls: "platform-adaptation", note: "new-workspace: native folder dialog on desktop vs name-input fallback on web" },
   { file: "src/components/Sidebar/Sidebar.tsx", line: 122, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog" },
   { file: "src/components/Sidebar/Sidebar.tsx", line: 210, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog (new workspace)" },
   { file: "src/components/StaleBuildBanner.tsx", line: 18, cls: "transport-shim", note: "build-check API base: window.location.origin vs local dev daemon" },

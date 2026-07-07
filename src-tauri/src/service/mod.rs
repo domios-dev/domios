@@ -57,6 +57,7 @@ pub mod sync_watcher;
 mod tests;
 pub mod tokens;
 pub mod transport;
+pub mod watcher;
 mod workspace;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -358,9 +359,10 @@ impl ServiceContext {
     pub(crate) fn parse_role(role_str: &str) -> Result<AgentRole, String> {
         match role_str {
             "Orchestrator" | "Conductor" => Ok(AgentRole::Orchestrator),
+            "Manager" => Ok(AgentRole::Manager),
             "Worker" => Ok(AgentRole::Worker),
             _ => Err(format!(
-                "Invalid role: {}. Use: Orchestrator, Worker",
+                "Invalid role: {}. Use: Orchestrator, Manager, Worker",
                 role_str
             )),
         }

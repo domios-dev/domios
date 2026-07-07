@@ -113,6 +113,9 @@ pub enum SplitNodeSnapshot {
         chatbackend_plugin_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         chatbackend_session_id: Option<String>,
+        /// Watcher-mode machine state for chatBackend panes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        watcher: Option<crate::multiplexer::types::WatcherSpec>,
     },
     Split {
         orientation: String,

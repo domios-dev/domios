@@ -13,6 +13,10 @@ fn test_parse_role() {
         ServiceContext::parse_role("Worker"),
         Ok(AgentRole::Worker)
     ));
+    assert!(matches!(
+        ServiceContext::parse_role("Manager"),
+        Ok(AgentRole::Manager)
+    ));
     // Lead / SubWorker are gone — the hierarchy is 2-level (Orchestrator + Worker).
     assert!(ServiceContext::parse_role("SubWorker").is_err());
     assert!(ServiceContext::parse_role("Lead").is_err());
@@ -69,7 +73,7 @@ fn test_spawn_agent_params_from_json() {
     let params = SpawnAgentParams::from_json(&json).unwrap();
     assert_eq!(params.agent.as_deref(), Some("claude"));
     assert_eq!(params.agent_name.as_deref(), Some("architect"));
-    assert_eq!(params.role.as_deref(), Some("Conductor"));
+    assert_eq!(params.role.as_deref(), Some("Orchestrator"));
     assert_eq!(params.can_spawn, Some(true));
     assert_eq!(params.task.as_deref(), Some("do something"));
     assert_eq!(params.args.as_ref().unwrap().len(), 1);
@@ -85,16 +89,78 @@ fn test_spawn_agent_params_from_json_minimal() {
 }
 
 #[test]
-fn spawn_agent_params_from_json_maps_planner_to_worker_profile() {
+fn spawn_agent_params_from_json_treats_empty_role_fields_as_absent() {
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "role": "  ",
+        "role_profile": "",
+    }))
+    .unwrap();
+    assert_eq!(params.agent.as_deref(), Some("claude"));
+    assert!(params.role.is_none());
+    assert!(params.role_profile.is_none());
+}
+
+#[test]
+fn spawn_agent_params_from_json_maps_planner_to_manager_profile() {
     let params = SpawnAgentParams::from_json(&serde_json::json!({
         "agent": "claude",
         "role": "Planner",
         "plan_id": "pl_test",
     }))
     .unwrap();
-    assert_eq!(params.role.as_deref(), Some("Worker"));
+    assert_eq!(params.role.as_deref(), Some("Manager"));
     assert_eq!(params.role_profile.as_deref(), Some("planner"));
     assert_eq!(params.plan_id.as_deref(), Some("pl_test"));
+}
+
+#[test]
+fn spawn_agent_params_from_json_maps_watcher_to_manager_profile() {
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "lmstudio",
+        "role": "Watcher",
+        "charter": "Observe.",
+        "tick_interval_secs": 90,
+        "nudge_cooldown_secs": 300,
+        "max_actions_per_tick": 2,
+    }))
+    .unwrap();
+    assert_eq!(params.role.as_deref(), Some("Manager"));
+    assert_eq!(params.role_profile.as_deref(), Some("watcher"));
+    assert_eq!(params.charter.as_deref(), Some("Observe."));
+    assert_eq!(params.tick_interval_secs, Some(90));
+    assert_eq!(params.nudge_cooldown_secs, Some(300));
+    assert_eq!(params.max_actions_per_tick, Some(2));
+}
+
+#[test]
+fn manager_requires_known_profile() {
+    let missing = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "role": "Manager",
+    }))
+    .unwrap_err();
+    assert!(missing.contains("Manager requires a known role_profile"));
+
+    let unknown = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "role": "Manager",
+        "role_profile": "reviewer",
+    }))
+    .unwrap_err();
+    assert!(unknown.contains("Manager requires a known role_profile"));
+}
+
+#[test]
+fn unknown_role_is_rejected() {
+    let err = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "role": "Lead",
+    }))
+    .unwrap_err();
+    assert!(err.contains("Invalid role: Lead"));
+    assert!(err.contains("Planner"));
+    assert!(err.contains("Watcher"));
 }
 
 #[test]

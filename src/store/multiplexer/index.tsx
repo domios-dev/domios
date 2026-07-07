@@ -360,10 +360,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshFromBackend, guardedInvoke]);
 
-  const createWorkspace = useCallback(async (name: string, cwd?: string) => {
+  const createWorkspace = useCallback(async (name: string, cwd?: string, opts?: { activate?: boolean }) => {
     try {
       // Reuse existing workspace for the same cwd; avoid duplicate tabs.
-      const info = await guardedInvoke<{ id: string; name: string }>("mux_create_workspace", { name, cwd: cwd ?? null, activate: true });
+      const info = await guardedInvoke<{ id: string; name: string }>("mux_create_workspace", { name, cwd: cwd ?? null, activate: opts?.activate ?? true });
       const s = await invoke<MultiplexerState>("mux_get_state");
       if (s && s.workspaces.length > 0) applyBackendState(s);
       return info;
@@ -461,7 +461,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     cwd?: string,
     model?: string,
   ): Promise<SpawnedPane | null> => {
-    const useRestSpawn = IS_WEB || (model != null && model.length > 0);
+    const useRestSpawn = IS_WEB;
     if (useRestSpawn) {
       try {
         const res = await guardedWebJson<{ pane_id: string }>("POST", "/api/agents/spawn", {
@@ -485,7 +485,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     try {
       // activate + focus, picking the transport (PTY vs chat) on the backend.
       const res = await guardedInvoke<AtomicSpawn>("mux_spawn_pane", {
-        params: { agentId, workspaceId, cwd, skipPermissions },
+        params: { agentId, workspaceId, cwd, skipPermissions, model },
       });
       applyBackendState(res.snapshot);
       if (res.launch_command) {

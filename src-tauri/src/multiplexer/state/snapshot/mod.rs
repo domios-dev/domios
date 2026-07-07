@@ -124,6 +124,7 @@ impl MultiplexerState {
                 agent_session_model: pane.and_then(|p| p.agent_session_model.clone()),
                 chatbackend_plugin_id,
                 chatbackend_session_id,
+                watcher: pane.and_then(|p| p.watcher.clone()),
             }
         }
 
@@ -219,6 +220,7 @@ impl MultiplexerState {
                 agent_session_model,
                 chatbackend_plugin_id,
                 chatbackend_session_id,
+                watcher,
             } = leaf
             else {
                 return None;
@@ -236,6 +238,7 @@ impl MultiplexerState {
                 "Orchestrator" | "Conductor" => {
                     Some(crate::multiplexer::types::AgentRole::Orchestrator)
                 }
+                "Manager" => Some(crate::multiplexer::types::AgentRole::Manager),
                 "Worker" => Some(crate::multiplexer::types::AgentRole::Worker),
                 _ => None,
             });
@@ -297,6 +300,7 @@ impl MultiplexerState {
                     shell_integration_nonce: None,
                     role: parsed_role,
                     role_profile: role_profile.clone(),
+                    watcher: watcher.clone(),
                     parent_pane_id: parent_pane_id.clone(),
                     can_spawn: *can_spawn,
                     depth: *depth,

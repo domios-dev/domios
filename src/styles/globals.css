@@ -380,6 +380,8 @@ button,
   align-items: center;
   justify-content: center;
   min-height: var(--ct-control-height-small);
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
   border-radius: var(--ct-radius-sm);
   transition: all var(--ct-duration-fast) var(--ct-ease-out-expo);
 }
@@ -1087,9 +1089,13 @@ button,
   transition: height 200ms ease-out, padding 200ms ease-out;
 }
 
-/* Unfocused pane dimming — muted text for inactive tabs */
+/* Unfocused pane dimming — muted chrome on inactive tabs; title stays full fg. */
 .sidebar-tab-dimmed {
   color: var(--ct-muted-fg, #8b949e);
+}
+
+.sidebar-tab [data-testid="tab-title"] {
+  color: var(--ct-fg, #c9d1d9);
 }
 
 .sidebar-tab-dimmed:hover {
@@ -1304,20 +1310,18 @@ button,
    group-head hover. Rhythm: 10px indent, 10px child inset, 8px inter-group gap. */
 .sidebar-orchestration-group {
   margin-bottom: 8px; /* inter-group gap so two groups never read as one */
+  background: color-mix(in srgb, var(--ct-fg) 4%, transparent);
 }
 
 .sidebar-group-container {
   position: relative;
-  margin-left: 10px; /* hairline sits just under the head glyph */
-  border-left: 1px solid
-    color-mix(in srgb, var(--ct-group-presence, var(--ct-accent)) 30%, transparent);
+  margin-left: 10px; /* level hairline sits just under the head glyph */
+  border-left: 1px solid color-mix(in srgb, var(--ct-border) 80%, transparent);
   transition: border-color 150ms ease;
 }
 
-/* Head hover brightens the whole group's hairline — the head is the group's
-   first child, the container its next sibling. */
 .sidebar-orchestration-group > *:first-child:hover ~ .sidebar-group-container {
-  border-left-color: color-mix(in srgb, var(--ct-group-presence, var(--ct-accent)) 48%, transparent);
+  border-left-color: var(--ct-border);
 }
 
 /* One 10px inset inside the hairline — managers (tab rows), workers (hierarchy
@@ -1328,9 +1332,37 @@ button,
   padding-left: 10px;
 }
 
-/* Collapse chevron on the group head — right-aligned, last interactive element. */
+/* Workers inside a group share the manager row's flat inset — no nested
+   hierarchy stripe; the group hairline is the only vertical guide. */
+.sidebar-group-container .sidebar-hierarchy-level {
+  margin-left: 0;
+  border-left: none;
+}
+
+/* Collapse chevron overlays the tab row's left padding gutter — zero extra width. */
 .sidebar-group-chevron {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  width: 1rem;
+  height: 1rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
   color: var(--ct-muted);
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: color 150ms ease;
+}
+.sidebar-group-chevron:hover {
+  color: var(--ct-muted-fg);
+}
+.sidebar-tab-touch .sidebar-group-chevron-touch {
+  left: 0.125rem;
 }
 
 /* Sidebar hierarchy — living subagent tree (HierarchyTree.tsx) */

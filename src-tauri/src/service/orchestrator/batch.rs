@@ -87,7 +87,7 @@ impl ServiceContext {
             role_profile: json_str(params, "role_profile"),
             ..Default::default()
         };
-        role_probe.normalize_role_profile();
+        role_probe.normalize_role_profile()?;
         let role = role_probe.role.unwrap_or_else(|| "Worker".into());
         let parent = json_str(params, "parent_pane_id");
         let can_spawn = params.get("can_spawn").and_then(|v| v.as_bool());

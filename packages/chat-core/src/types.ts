@@ -9,6 +9,8 @@ export type ChatMessageKind =
   | "local_command"
   | "image"
   | "shell_command"
+  | "context_request"
+  | "watcher_verdict"
   | "custom";
 
 /** Lifecycle status of a `shell_command` chat item (OSC 133/633 boundaries). */
@@ -70,6 +72,7 @@ export interface NormalizedChatMessage {
   toolInput?: Record<string, unknown>;
   toolId?: string;
   toolResult?: string;
+  toolError?: boolean;
   collapsed?: boolean;
   duration?: string;
   payload?: unknown;

@@ -18,10 +18,9 @@ pub(crate) struct SharedCheckoutException {
     pub cwd: String,
 }
 
-/// Only real Workers are guarded. Planners live beside the Orchestrator in the
-/// canonical checkout by design; Orchestrator/General spawns are never guarded.
-pub(crate) fn is_worker_spawn(role: Option<&str>, role_profile: Option<&str>) -> bool {
-    role == Some("Worker") && role_profile != Some("planner")
+/// Only real Workers are guarded. Managers and Orchestrators are not Worker lanes.
+pub(crate) fn is_worker_spawn(role: Option<&str>, _role_profile: Option<&str>) -> bool {
+    role == Some("Worker")
 }
 
 /// A canonical checkout is one a Worker must not share: it equals the
@@ -165,11 +164,9 @@ mod tests {
     use std::process::Command;
 
     fn git(dir: &Path, args: &[&str]) {
-        let status = Command::new("git")
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .expect("git runs");
+        let mut cmd = Command::new("git");
+        crate::process_util::no_window_std(&mut cmd);
+        let status = cmd.current_dir(dir).args(args).status().expect("git runs");
         assert!(status.success(), "git {:?} failed", args);
     }
 
@@ -190,7 +187,8 @@ mod tests {
     fn worker_role_matrix() {
         assert!(is_worker_spawn(Some("Worker"), None));
         assert!(is_worker_spawn(Some("Worker"), Some("something")));
-        assert!(!is_worker_spawn(Some("Worker"), Some("planner")));
+        assert!(is_worker_spawn(Some("Worker"), Some("planner")));
+        assert!(!is_worker_spawn(Some("Manager"), Some("planner")));
         assert!(!is_worker_spawn(Some("Orchestrator"), None));
         assert!(!is_worker_spawn(None, None));
     }

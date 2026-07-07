@@ -10,7 +10,15 @@ import type { ModelInfo } from "../../lib/types";
 import { getChatModelBubbleApi } from "./chatModelBubbleApi";
 import { ConfirmDialog } from "./ConfirmDialog";
 
-export function ChatModelBubble({ pluginId, sessionId }: { pluginId: string; sessionId: string }) {
+export function ChatModelBubble({
+  pluginId,
+  sessionId,
+  readOnly = false,
+}: {
+  pluginId: string;
+  sessionId: string;
+  readOnly?: boolean;
+}) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [currentModel, setCurrentModel] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -80,6 +88,25 @@ export function ChatModelBubble({ pluginId, sessionId }: { pluginId: string; ses
 
   // Generalized gate: only shells that publish switchable models get the bubble.
   if (models.length === 0) return null;
+
+  if (readOnly) {
+    return (
+      <span
+        data-testid="chat-model-bubble"
+        data-readonly="true"
+        className="ct-chat-model-bubble inline-flex h-7 items-center rounded-full border px-2 text-xs font-mono"
+        style={{
+          background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 8%, transparent)",
+          borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 22%, transparent)",
+          color: "var(--ct-muted-fg)",
+          opacity: 0.85,
+        }}
+        title="Model (read-only)"
+      >
+        <span>{label ?? "Model"}</span>
+      </span>
+    );
+  }
 
   return (
     <div

@@ -62,8 +62,7 @@ impl Serialize for ChatPreprocessorCap {
 
 /// `chatBackend` capability declaration. Authors write either a bare bool
 /// (`true` — the backend is registered but NOT user-spawnable, e.g. a
-/// host-/agent-driven NPC pane) or an object (`{ "spawnable": true }` — a
-/// user-openable "open shell" that appears in the new-session picker). Both
+/// host-/agent-driven NPC pane) or an object carrying capability flags. Both
 /// forms mean "enabled"; the object also carries whether a user may spawn it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatBackendCap {
@@ -72,6 +71,7 @@ pub struct ChatBackendCap {
     /// picker. Bare `chatBackend: true` ⇒ false (backend-only); the object form
     /// `{ spawnable: true }` opts in.
     pub spawnable: bool,
+    pub watcher: bool,
 }
 
 impl ChatBackendCap {
@@ -81,6 +81,10 @@ impl ChatBackendCap {
 
     pub fn spawnable(&self) -> bool {
         self.spawnable
+    }
+
+    pub fn watcher(&self) -> bool {
+        self.watcher
     }
 }
 
@@ -96,33 +100,42 @@ impl<'de> Deserialize<'de> for ChatBackendCap {
             Obj {
                 #[serde(default)]
                 spawnable: bool,
+                #[serde(default)]
+                watcher: bool,
             },
         }
         Ok(match Raw::deserialize(d)? {
             Raw::Flag(enabled) => Self {
                 enabled,
                 spawnable: false,
+                watcher: false,
             },
-            Raw::Obj { spawnable } => Self {
+            Raw::Obj { spawnable, watcher } => Self {
                 enabled: true,
                 spawnable,
+                watcher,
             },
         })
     }
 }
 
 impl Serialize for ChatBackendCap {
-    /// Symmetric with `Deserialize`: a spawnable backend ⇒ object, otherwise the
-    /// bare bool — so a disabled cap round-trips to `false`, never silently
-    /// re-enabling.
+    /// Symmetric with `Deserialize`: object flags stay objects, while disabled
+    /// and bare backend-only caps stay bools.
     fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        if self.enabled && self.spawnable {
+        if self.enabled && (self.spawnable || self.watcher) {
             use serde::ser::SerializeMap;
-            let mut m = s.serialize_map(Some(1))?;
-            m.serialize_entry("spawnable", &true)?;
+            let len = (if self.spawnable { 1 } else { 0 }) + (if self.watcher { 1 } else { 0 });
+            let mut m = s.serialize_map(Some(len))?;
+            if self.spawnable {
+                m.serialize_entry("spawnable", &true)?;
+            }
+            if self.watcher {
+                m.serialize_entry("watcher", &true)?;
+            }
             m.end()
         } else {
             s.serialize_bool(self.enabled)
@@ -171,5 +184,9 @@ impl Capabilities {
     /// `{ spawnable: true }` form). Bare `chatBackend: true` is backend-only.
     pub fn chat_backend_spawnable(&self) -> bool {
         self.chat_backend.spawnable()
+    }
+
+    pub fn chat_backend_watcher_capable(&self) -> bool {
+        self.chat_backend.watcher()
     }
 }

@@ -12,6 +12,12 @@ export type CuratedToolKind =
   | "mem_search"
   | "spawn_agent";
 
+export const INLINE_TOOL_KINDS = new Set<CuratedToolKind | "generic">([
+  "read_file",
+  "mem_search",
+  "generic",
+]);
+
 type StructuredInboundKind = NonNullable<ChatMessage["inboundKind"]>;
 
 export const INBOUND_KIND_LABELS: Record<StructuredInboundKind, string> = {
@@ -110,6 +116,40 @@ export function toolDisplayLabel(toolName: string): string {
     return "shell";
   }
   return toolName;
+}
+
+function normalizedToolName(toolName: string | undefined): string {
+  return (toolName ?? "").trim().toLowerCase();
+}
+
+export function isSearchLikeToolName(toolName: string | undefined): boolean {
+  const normalized = normalizedToolName(toolName);
+  return (
+    normalized.includes("grep")
+    || normalized.includes("glob")
+    || normalized.includes("search")
+    || normalized === "rg"
+    || normalized === "ripgrep"
+  );
+}
+
+export function shouldRenderInlineToolRow(
+  message: ChatMessage,
+  curatedKind: CuratedToolKind | null,
+  hasEdits: boolean,
+): boolean {
+  if (message.type !== "tool_call") return false;
+  if (hasEdits) return false;
+  if (curatedKind === "exec" || curatedKind === "write_file" || curatedKind === "spawn_agent" || curatedKind === "codeterm") {
+    return false;
+  }
+  if (curatedKind === "read_file" || curatedKind === "mem_search") {
+    return true;
+  }
+  if (isSearchLikeToolName(message.toolName)) {
+    return true;
+  }
+  return !message.toolResult;
 }
 
 function hasRenderableValue(value: unknown): boolean {

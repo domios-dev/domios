@@ -218,6 +218,7 @@ fn live_attempt_session(task: &Task) -> Option<String> {
 fn map_role(role: AgentRole) -> PaneRole {
     match role {
         AgentRole::Orchestrator => PaneRole::Orchestrator,
+        AgentRole::Manager => PaneRole::Worker,
         AgentRole::Worker => PaneRole::Worker,
     }
 }

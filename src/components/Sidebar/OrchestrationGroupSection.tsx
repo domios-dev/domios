@@ -29,7 +29,8 @@ export function OrchestrationGroupSection({
           data-group-section={section}
           className="sidebar-group-section-header pt-1.5 pb-1 text-[9px] font-medium uppercase tracking-wider text-[var(--ct-muted)]/70 select-none"
         >
-          {SECTION_LABEL[section]}
+          <span>{SECTION_LABEL[section]}</span>{" "}
+          <span className="ml-1 tabular-nums">{count}</span>
         </div>
       )}
       {children}

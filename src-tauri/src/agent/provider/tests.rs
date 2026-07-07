@@ -100,6 +100,7 @@ fn provider_descriptor_round_trip() {
             supports_stop: true,
             supports_chat_ui: true,
             supports_structured_prompts: true,
+            supports_watcher: false,
             trust: ProviderTrust::System,
             transport: ProviderTransport::ChatBackend,
             behavior_config: BehaviorConfig::PresetsAndSystemPrompt,

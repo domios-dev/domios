@@ -2,7 +2,7 @@
 //! linked from birth via a freshly-created plan. Builds entirely on the
 //! planner-attachment primitives already wired by the peer-foundation
 //! (`crate::plan::peer`) and Lane 1 (`crate::service::plan::peer_mandate`,
-//! `role_profile == "planner"` binding in `Self::spawn_agent`) — this module
+//! Manager + planner binding in `Self::spawn_agent`) - this module
 //! only sequences the two spawns + the plan create through one call.
 
 use serde::{Deserialize, Serialize};
@@ -165,20 +165,28 @@ impl ServiceContext {
             return Err("planner_agent is required".into());
         }
 
-        // Workers are leaf nodes and cannot create orchestration pairs.
-        // Mirrors the worker->worker refusal in multiplexer::state::role.
+        // Leaf roles cannot create orchestration pairs.
+        // Mirrors the child-spawn refusal in multiplexer::state::role.
         if let Some(ref spawner_id) = params.spawned_by_pane_id {
             if !spawner_id.is_empty() {
-                let is_worker = {
+                let is_leaf = {
                     let mux = self.mux.write();
                     mux.get_pane(spawner_id)
-                        .map(|p| p.role == Some(crate::multiplexer::types::AgentRole::Worker))
+                        .map(|p| {
+                            matches!(
+                                p.role,
+                                Some(crate::multiplexer::types::AgentRole::Manager)
+                                    | Some(crate::multiplexer::types::AgentRole::Worker)
+                            )
+                        })
                         .unwrap_or(false)
                 };
-                if is_worker {
-                    return Err("Worker panes cannot create orchestration pairs; \
-                         workers are hierarchy leaf nodes and cannot spawn orchestrators"
-                        .into());
+                if is_leaf {
+                    return Err(
+                        "Manager and Worker panes cannot create orchestration pairs; \
+                         leaf roles cannot spawn orchestrators"
+                            .into(),
+                    );
                 }
             }
         }
@@ -285,7 +293,7 @@ impl ServiceContext {
             agent: Some(params.planner_agent.clone()),
             model: planner_model.clone(),
             title: Some(planner_name),
-            role: Some("Worker".into()),
+            role: Some("Manager".into()),
             role_profile: Some("planner".into()),
             parent_pane_id: Some(orch_pane_id.clone()),
             plan_id: Some(plan_id.clone()),
@@ -320,6 +328,21 @@ impl ServiceContext {
                         "[orchestration-pair] failed to notify orchestrator {orch_pane_id} of live Planner specialist: {e}"
                     );
                 }
+                // Activate server-side: the client continuation may be gone by
+                // the time the pair lands (page reload); the daemon owns focus.
+                {
+                    let mut mux = self.mux.write();
+                    let orch_tab = mux
+                        .get_workspace(&workspace_id)
+                        .and_then(|ws| ws.tabs.iter().find(|t| t.pane_id == orch_pane_id))
+                        .map(|t| t.id.clone());
+                    let _ = mux.set_active_workspace(&workspace_id);
+                    if let Some(tab_id) = orch_tab {
+                        let _ = mux.set_active_tab(&workspace_id, &tab_id);
+                    }
+                }
+                let _ = self.focus_pane(&orch_pane_id);
+                self.emit_state_changed();
                 // final count is the authoritative one for the nudge.
                 let budget_notice = self.workspace_pane_budget_notice(&workspace_id);
                 Ok(OrchestrationPairResult {
