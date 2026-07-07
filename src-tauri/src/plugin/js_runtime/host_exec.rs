@@ -6,7 +6,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -155,7 +155,7 @@ pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, Stri
     let (status_code, timeout_error) = match child.wait_timeout(timeout) {
         Ok(Some(status)) => (status.code().unwrap_or(-1), None),
         Ok(None) => {
-            let _ = child.kill();
+            terminate_child(&mut child);
             let status = child.wait().ok();
             (
                 status.and_then(|s| s.code()).unwrap_or(-1),
@@ -183,6 +183,28 @@ pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, Stri
         value["error"] = serde_json::json!(e);
     }
     value.to_string()
+}
+
+#[cfg(windows)]
+fn terminate_child(child: &mut Child) {
+    let mut command = Command::new("taskkill");
+    crate::process_util::no_window_std(&mut command);
+    let killed_tree = command
+        .args(["/PID", &child.id().to_string(), "/T", "/F"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if !killed_tree {
+        let _ = child.kill();
+    }
+}
+
+#[cfg(not(windows))]
+fn terminate_child(child: &mut Child) {
+    let _ = child.kill();
 }
 
 /// Extract the binary name from an exec-opts JSON blob, for the permission check.
@@ -544,7 +566,11 @@ mod tests {
         #[cfg(windows)]
         let opts = serde_json::json!({
             "bin": "powershell",
-            "args": ["-NoProfile", "-Command", "Start-Sleep -Seconds 2"],
+            "args": [
+                "-NoProfile",
+                "-Command",
+                r#"$p = Start-Process -FilePath powershell -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 2') -NoNewWindow -PassThru; Wait-Process -Id $p.Id"#
+            ],
             "timeoutMs": 50,
         });
         #[cfg(not(windows))]
@@ -554,7 +580,13 @@ mod tests {
             "timeoutMs": 50,
         });
 
+        let started = Instant::now();
         let out: serde_json::Value = serde_json::from_str(&run(&opts.to_string())).unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "timeout waited for descendant pipe handles to close: {:?}",
+            started.elapsed()
+        );
         assert!(out
             .get("error")
             .and_then(|v| v.as_str())
