@@ -19,7 +19,7 @@ use std::path::PathBuf;
 
 /// Data dir where shell integration scripts live.
 fn integration_dir() -> PathBuf {
-    crate::paths::data_dir().join("shell-integration")
+    codeterm_paths::data_dir().join("shell-integration")
 }
 
 const ZSH_HOOKS: &str = include_zsh_hooks();

@@ -27,7 +27,7 @@ struct CastHeader {
 }
 
 pub fn repo_root() -> PathBuf {
-    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
+    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.."))
 }
 
 /// Resolve a cast path to an absolute file under `testbench/replays/`.

@@ -1,26 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// Agent role in the orchestration hierarchy.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum AgentRole {
-    /// Top-level orchestrator (depth 1). Can spawn Managers and Workers.
-    Orchestrator,
-    /// Manager (depth 2). Specialized by role_profile. Cannot spawn in v1.
-    Manager,
-    /// Worker (depth 2). Executes tasks, reports back. Cannot spawn.
-    Worker,
-}
-
-impl AgentRole {
-    pub fn from_str_compat(s: &str) -> Option<Self> {
-        match s {
-            "Orchestrator" | "Conductor" => Some(Self::Orchestrator),
-            "Manager" => Some(Self::Manager),
-            "Worker" => Some(Self::Worker),
-            _ => None,
-        }
-    }
-}
+pub use crate::agent::AgentRole;
 
 /// An interactive prompt option (e.g. permission request).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

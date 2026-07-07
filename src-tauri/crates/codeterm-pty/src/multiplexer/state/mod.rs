@@ -8,7 +8,7 @@ use super::types::{AgentRole, Pane, PaneBacking, PaneType, Tab, TitleLevel, Work
 
 mod alias;
 mod closed;
-pub(crate) mod names;
+pub mod names;
 mod pane;
 mod reorder;
 mod role;
@@ -92,7 +92,7 @@ pub struct MultiplexerSnapshot {
     /// [`MultiplexerState::snapshot_with_status`] — plain `snapshot()` leaves it
     /// empty since most internal callers don't need it.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub pane_statuses: HashMap<String, crate::agent::status::PaneStatus>,
+    pub pane_statuses: HashMap<String, codeterm_types::pty::PaneStatus>,
 }
 
 impl MultiplexerState {

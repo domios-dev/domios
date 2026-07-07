@@ -8,7 +8,11 @@ impl ServiceContext {
         };
         let relinked = {
             let mut mux = self.mux.write();
-            relink_to_owner(&mut *mux, &plan, new_owner_pane)
+            relink_to_owner(
+                &mut crate::service::plan::lane_port_impl::LaneStatePort(&mut *mux),
+                &plan,
+                new_owner_pane,
+            )
         };
         if relinked > 0 {
             self.emit_state_changed();

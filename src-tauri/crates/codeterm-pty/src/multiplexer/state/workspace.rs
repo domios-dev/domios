@@ -44,11 +44,11 @@ impl MultiplexerState {
     /// Uses `paths::normalize_cwd` on both sides so trailing slashes, case
     /// differences on Windows, and symlink variants all collapse to a match.
     pub fn find_workspace_by_cwd(&self, query: &str) -> Option<&Workspace> {
-        let normalized = crate::paths::normalize_cwd(query);
+        let normalized = codeterm_paths::normalize_cwd(query);
         self.workspaces.iter().find(|w| {
             w.cwd
                 .as_deref()
-                .map(crate::paths::normalize_cwd)
+                .map(codeterm_paths::normalize_cwd)
                 .map(|stored| stored == normalized)
                 .unwrap_or(false)
         })
