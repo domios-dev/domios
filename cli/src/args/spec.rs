@@ -86,15 +86,21 @@ pub enum SpecSectionAction {
 
 #[derive(Subcommand)]
 pub enum SpecLinkAction {
-    /// Link a spec section to a plan section (M:N coverage edge)
+    /// Link spec section(s) to plan section(s) (M:N coverage edges)
     Add {
         plan_id: String,
         #[arg(long)]
         spec: String,
-        #[arg(long)]
-        spec_section: String,
-        #[arg(long)]
-        plan_section: String,
+        #[arg(long, requires = "plan_section")]
+        spec_section: Option<String>,
+        #[arg(long, requires = "spec_section")]
+        plan_section: Option<String>,
+        #[arg(
+            long = "edge",
+            value_name = "SPEC_SECTION:PLAN_SECTION",
+            help = "Repeatable coverage edge; combine many in one call"
+        )]
+        edges: Vec<String>,
     },
     /// Remove spec-to-plan link(s); narrow with --spec-section / --plan-section
     Rm {
