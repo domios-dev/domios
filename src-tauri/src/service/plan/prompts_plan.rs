@@ -1,7 +1,7 @@
-pub const WORKER_SUFFIX: &str = include_str!("../../../../prompts/worker_suffix.md");
-pub const TESTING_DISCIPLINE: &str = include_str!("../../../../prompts/testing_discipline.md");
+pub const WORKER_SUFFIX: &str = include_str!("../../../prompts/worker_suffix.md");
+pub const TESTING_DISCIPLINE: &str = include_str!("../../../prompts/testing_discipline.md");
 pub const QA_PIPELINE_DISCIPLINE: &str =
-    include_str!("../../../../prompts/qa_pipeline_discipline.md");
+    include_str!("../../../prompts/qa_pipeline_discipline.md");
 
 pub const WORKER_LOOP_CONTEXT_TITLE: &str = "Loop context:";
 pub const WORKER_LOOP_EVIDENCE_RULE: &str =
