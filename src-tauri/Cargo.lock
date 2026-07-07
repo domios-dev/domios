@@ -1104,6 +1104,7 @@ dependencies = [
  "codeterm-paths",
  "codeterm-plan",
  "codeterm-plugins",
+ "codeterm-pty",
  "codeterm-types",
  "codeterm-util",
  "conpty",
@@ -1299,6 +1300,29 @@ dependencies = [
  "serde_yaml",
  "sha2",
  "uuid",
+]
+
+[[package]]
+name = "codeterm-pty"
+version = "1.6.2"
+dependencies = [
+ "base64 0.22.1",
+ "codeterm-paths",
+ "codeterm-types",
+ "codeterm-util",
+ "log",
+ "parking_lot",
+ "portable-pty",
+ "rand 0.8.5",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "ulid",
+ "uuid",
+ "vt100",
 ]
 
 [[package]]

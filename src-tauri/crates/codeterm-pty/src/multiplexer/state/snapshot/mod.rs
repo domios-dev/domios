@@ -63,9 +63,9 @@ impl MultiplexerState {
     /// a dead pane can't meaningfully be "waiting".
     pub fn snapshot_with_status(
         &self,
-        agent_tracker: &crate::agent::status::PaneStatusTracker,
+        agent_tracker: &codeterm_types::pty::PaneStatusTracker,
     ) -> MultiplexerSnapshot {
-        use crate::agent::status::PaneStatus;
+        use codeterm_types::pty::PaneStatus;
 
         let mut snap = self.snapshot();
         snap.pane_statuses = self
