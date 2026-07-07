@@ -1,5 +1,8 @@
 //! App-side implementations of [`crate::mem::ports`] traits.
 
+#[cfg(test)]
+mod dreaming_cron_tests;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -10,28 +13,26 @@ use crate::mem::ports::{
 use crate::mem::workers::{self, GraphWorkerInfo, WorkerStatus};
 use crate::service::ServiceContext;
 
-pub struct CronSchedulerPort<'a>(pub &'a mut CronStore);
-
-impl MemCronJob {
-    fn from_cron(job: &store::CronJob) -> Self {
-        Self {
-            id: job.id.clone(),
-            name: job.name.clone(),
-            agent: job.agent.clone(),
-            schedule: job.schedule.clone(),
-            enabled: job.enabled,
-            oneshot: job.oneshot,
-            next_run: job.next_run,
-            jitter_max_ms: job.jitter_max_ms,
-            tz: job.tz.clone(),
-            protected: job.protected,
-        }
+fn cron_to_mem(job: &store::CronJob) -> MemCronJob {
+    MemCronJob {
+        id: job.id.clone(),
+        name: job.name.clone(),
+        agent: job.agent.clone(),
+        schedule: job.schedule.clone(),
+        enabled: job.enabled,
+        oneshot: job.oneshot,
+        next_run: job.next_run,
+        jitter_max_ms: job.jitter_max_ms,
+        tz: job.tz.clone(),
+        protected: job.protected,
     }
 }
 
+pub struct CronSchedulerPort<'a>(pub &'a mut CronStore);
+
 impl MemSchedulerPort for CronSchedulerPort<'_> {
     fn list_jobs(&self) -> Vec<MemCronJob> {
-        self.0.list().iter().map(MemCronJob::from_cron).collect()
+        self.0.list().iter().map(cron_to_mem).collect()
     }
 
     fn find_job_by_name(&self, name: &str) -> Option<MemCronJob> {
@@ -39,7 +40,7 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
             .list()
             .iter()
             .find(|j| j.name == name)
-            .map(MemCronJob::from_cron)
+            .map(cron_to_mem)
     }
 
     fn update_job(
@@ -51,7 +52,7 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
             .0
             .get_mut(id)
             .ok_or_else(|| format!("cron job not found: {id}"))?;
-        let mut view = MemCronJob::from_cron(job);
+        let mut view = cron_to_mem(job);
         update(&mut view);
         job.agent = view.agent;
         job.schedule = view.schedule;
@@ -319,4 +320,157 @@ pub fn spawn_headless_worker(
     });
 
     Ok(worker_id)
+}
+
+pub fn spawn_headless(
+    svc: &Arc<ServiceContext>,
+    intent: String,
+    task_prompt: String,
+    spawned_by: String,
+    agent_provider: String,
+    model: String,
+) -> Result<String, String> {
+    spawn_headless_worker(
+        svc.clone(),
+        workers::MemWorkerSpawnParams {
+            intent,
+            task_prompt,
+            spawned_by,
+            agent_provider,
+            model,
+        },
+    )
+}
+
+pub fn spawn_extraction_worker(
+    svc: &Arc<ServiceContext>,
+    mem_cfg: &codeterm_types::config::MemoryConfig,
+    default_agent: &str,
+    mem_item_id: String,
+    title: String,
+    body: String,
+    kind: codeterm_mem::store::MemKind,
+) -> Option<String> {
+    if !codeterm_mem::auto_extract::should_extract_public(kind) {
+        return None;
+    }
+    let prompt = codeterm_mem::auto_extract::build_extraction_prompt(
+        svc.as_ref(),
+        mem_cfg,
+        &mem_item_id,
+        &title,
+        &body,
+    );
+    let agent_provider = if mem_cfg.extraction_agent.is_empty() {
+        default_agent.to_string()
+    } else {
+        mem_cfg.extraction_agent.clone()
+    };
+    let raw_model = if mem_cfg.extraction_model.is_empty() {
+        mem_cfg.worker_model.clone()
+    } else {
+        mem_cfg.extraction_model.clone()
+    };
+    let model = codeterm_types::agent::models::canonicalize_short(&raw_model).to_string();
+    let intent = format!("extract:{mem_item_id}");
+    match spawn_headless(
+        svc,
+        intent,
+        prompt,
+        "auto:save".into(),
+        agent_provider,
+        model,
+    ) {
+        Ok(worker_id) => {
+            log::info!(
+                "[auto-extract] headless worker {} for {}",
+                worker_id,
+                mem_item_id
+            );
+            Some(worker_id)
+        }
+        Err(e) => {
+            log::warn!("[auto-extract] spawn failed for {}: {}", mem_item_id, e);
+            None
+        }
+    }
+}
+
+pub fn run_extract_pending(svc: Arc<ServiceContext>, limit: usize) -> usize {
+    let mem_cfg = crate::config::memory_config();
+    let default_agent = crate::config::default_agent_provider();
+    let pending = match codeterm_mem::auto_extract::find_pending_items(&svc.mem, limit) {
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("[auto-extract] find_pending_items failed: {}", e);
+            return 0;
+        }
+    };
+    let count = pending.len();
+    log::info!(
+        "[auto-extract] queued {} pending items for extraction",
+        count
+    );
+    let mem = svc.mem.clone();
+    let fut = async move {
+        let _permit = mem.acquire_heavy_permit().await;
+        for (id, title, body, kind) in pending {
+            spawn_extraction_worker(&svc, &mem_cfg, &default_agent, id, title, body, kind);
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+    };
+    match tokio::runtime::Handle::try_current() {
+        Ok(h) => {
+            h.spawn(fut);
+        }
+        Err(_) => {
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("build extract runtime");
+                rt.block_on(fut);
+            });
+        }
+    }
+    count
+}
+
+pub fn spawn_rem_worker(
+    svc: &Arc<ServiceContext>,
+    mem_cfg: &codeterm_types::config::MemoryConfig,
+    default_agent: &str,
+) {
+    use codeterm_mem::dreaming::{DREAMING_TELEGRAM_STEP_DISABLED, DREAMING_TELEGRAM_STEP_ENABLED};
+    use codeterm_mem::workers::DREAMING_INTENT_PREFIX;
+
+    let agent = if mem_cfg.dreaming_agent.is_empty() {
+        default_agent.to_string()
+    } else {
+        mem_cfg.dreaming_agent.clone()
+    };
+    let raw_model = if mem_cfg.dreaming_model.is_empty() {
+        mem_cfg.worker_model.clone()
+    } else {
+        mem_cfg.dreaming_model.clone()
+    };
+    let model = codeterm_types::agent::models::canonicalize_short(&raw_model).to_string();
+    let telegram_step = if mem_cfg.dreaming_telegram_notify {
+        DREAMING_TELEGRAM_STEP_ENABLED
+    } else {
+        DREAMING_TELEGRAM_STEP_DISABLED
+    };
+    let prompt =
+        codeterm_mem::prompt_text::DREAMING_REM.replace("{telegram_notify_step}", telegram_step);
+    match spawn_headless(
+        svc,
+        format!("{DREAMING_INTENT_PREFIX}rem"),
+        prompt,
+        "system:dreaming".into(),
+        agent,
+        model,
+    ) {
+        Ok(wid) => log::info!("[dreaming] REM worker spawned: {}", wid),
+        Err(e) => log::error!("[dreaming] REM worker spawn failed: {}", e),
+    }
 }

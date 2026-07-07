@@ -1097,6 +1097,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "clipboard-win",
+ "codeterm-mem",
  "codeterm-mem-store",
  "codeterm-paths",
  "codeterm-plugins",
@@ -1167,6 +1168,36 @@ dependencies = [
  "which",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "codeterm-mem"
+version = "1.6.2"
+dependencies = [
+ "annembed",
+ "async-trait",
+ "chrono",
+ "codeterm-mem-store",
+ "codeterm-paths",
+ "codeterm-types",
+ "codeterm-util",
+ "fastembed",
+ "hnsw_rs",
+ "log",
+ "ndarray",
+ "parking_lot",
+ "rand 0.8.5",
+ "regex",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlite-vec",
+ "tempfile",
+ "tokio",
+ "ulid",
+ "uuid",
 ]
 
 [[package]]
