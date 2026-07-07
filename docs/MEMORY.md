@@ -1,6 +1,6 @@
 # CodeTerm Memory System
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->
 
 Persistent memory for agents. Survives restarts, provider switches
 (Claude ↔ Codex), and CodeTerm upgrades. Agent-agnostic.
@@ -35,10 +35,10 @@ Mem is curated and indexed; sessions are raw and provider-owned. The two never s
 ### Schema (`src-tauri/src/mem/store.rs`)
 
 **`mem_items`** — every memorable thing
-- `id` — slug-derived (`fact_pgbouncer_config`, `skill_deploy_rekap`)
+- `id` — slug-derived (`fact_pgbouncer_config`, `skill_deploy_staging`)
 - `kind` — `fact` | `learning` | `note` | `conversation` | `skill` | `rule` | `preference` | `peer` | `daily` | `summary`
 - `scope` — `global` | `workspace:<id>`
-- `area` — project/topic tag (`rekap`, `soundcalm`, `auth`, `home`, `_dreams`)
+- `area` — project/topic tag (`auth`, `billing`, `deploy`, `home`, `_dreams`)
 - `tags_json` — free-form tags
 - `body_inline` (<2KB) / `body_blob_path` (larger → disk blob)
 - `importance` — 1-5 float, primary L1 score term

@@ -118,14 +118,19 @@ Spawn a new agent; roleless unless --role is provided
 - `--args` — Extra args for the agent
 - `--bound_task` — Bound task id for the shared-checkout exception stride
 - `--can_spawn` — Override whether an explicit Orchestrator may spawn children
+- `--charter` — Watcher charter text
+- `--charter_file` — Read watcher charter text from a file
 - `--cwd` — Working directory
 - `--description` — Short pane description (max 200 chars)
+- `--interval` — Watcher tick interval, e.g. 90s, 5m, 1h
+- `--max_actions` — Max watcher actions per tick
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
+- `--nudge_cooldown` — Watcher nudge cooldown, e.g. 10m
 - `--parent` — Parent pane ID (for Workers)
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
 - `--report_to` — Where this worker's `agent report` should land. A pane id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own pane
-- `--role` — Role: Worker, Orchestrator, or Planner profile sugar
+- `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
 - `--system_prompt` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts
 - `--task_file` — Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task
@@ -147,7 +152,7 @@ Send a message to an external service (Telegram, etc.)
 Migrate active bridge poller from this node to another mesh peer
 
 - `--announce` — Send a one-shot "now serving from <host>" message to the sentinel chat
-- `--announce_chat_id` — Sentinel chat id for --announce. Defaults to the maintainer's chat
+- `--announce_chat_id` — Sentinel chat id for --announce. Defaults to the target's first allow-listed bridge user
 - `--claim_timeout_ms` — How long target may take to claim the Telegram lock before the migration is considered failed (ms)
 - `--force` — Skip preflight target-state check (for force migrations)
 - `--no_rollback` — Skip auto-rollback if target claim fails (leave source disabled)

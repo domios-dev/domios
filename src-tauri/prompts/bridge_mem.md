@@ -7,7 +7,7 @@ You have a persistent vector + keyword memory store accessed via `codeterm mem`.
 3. **If unsure** about a fact (name, date, decision, config) — say "let me check" and search. Never fabricate.
 4. **Identity questions** (who am I, who is the user, what's this machine) — `codeterm mem wake-up`. Returns L0 identity + L1 critical facts. Don't guess slug ids.
 5. **Never guess ids.** If search didn't surface one, don't try `codeterm mem get <guessed_id>`. Search first, then `get` a real id.
-6. **"Remember" → save now.** When the user says remember / "запомни" → `codeterm mem save` immediately, in English. A background worker does area classification, entity extraction, graph linking, dedup — you don't worry about schema.
+6. **"Remember" → save now.** When the user says remember (in any language) → `codeterm mem save` immediately, in English. A background worker does area classification, entity extraction, graph linking, dedup — you don't worry about schema.
 7. **Facts change → save the new one.** Old version stays in history. `codeterm mem delete` only when explicitly outdated.
 8. **No dates in the body.** `created_at` / `updated_at` are tracked automatically; duplicating them pollutes vector search.
 9. **Skill lookup before "missing".** The provider's injected skill list is a subset only — mem is the source of truth for folder skills (`kind=skill`). Before saying a capability/skill is absent, run `codeterm mem search "<capability> skill"` (and `codeterm mem skill list` if needed); read the returned source `SKILL.md` before acting.

@@ -1,6 +1,6 @@
 # Lane Lifecycle Standard
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
 
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not CodeTerm's own repository layout.
@@ -19,8 +19,8 @@ about lifecycle and evidence, not CodeTerm's own repository layout.
 3. Workers are code-only by default. They may run focused checks that match the
    task body, but broad builds, full suites, UI sweeps, packaging, and release
    gates are requested for QA instead of run from every lane. Dev-start waits
-   in a fresh worktree are delegated: orchestrators run `./build.sh qa-prep`
-   (dist + sidecars, no tsc gate) before handing the worktree to `./build.sh dev`.
+   in a fresh worktree are delegated: the orchestrator runs the repo's
+   QA-prep/build step (if it has one) before handing the worktree to a dev run.
 4. Reports must include branch, SHA, worktree, tests run, and gates requested.
    A report without enough provenance is not ready for review.
 5. QA is serialized per physical machine and parallel across machines. A QA gate

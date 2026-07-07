@@ -103,20 +103,20 @@ Connected panes show service icons in the sidebar (`connected_services` field).
 Telegram (and any future single-poller bridge) holds an exclusive long-poll lock against the upstream API — only one poller per bot token at a time. `bridge migrate` moves that poller to a paired mesh peer without restarting either daemon. **Run on the source machine**; `--mesh PEER bridge migrate` exits `6`.
 
 ```bash
-# Move the active Telegram bridge from this host to the paired peer "mac-mini"
-codeterm bridge migrate --to mac-mini
+# Move the active Telegram bridge from this host to the paired peer "office-mac"
+codeterm bridge migrate --to office-mac
 
-# Same, but also post a sentinel "now serving from mac-mini" to the maintainer's chat
-codeterm bridge migrate --to mac-mini --announce
+# Same, but also post a sentinel "now serving from office-mac" to the bridge owner's chat
+codeterm bridge migrate --to office-mac --announce
 
 # Tighten the upstream-lock claim window (default 10000 ms)
-codeterm bridge migrate --to mac-mini --claim-timeout-ms 5000
+codeterm bridge migrate --to office-mac --claim-timeout-ms 5000
 
 # Skip the target preflight (no token + no vault entry → still try)
-codeterm bridge migrate --to mac-mini --force
+codeterm bridge migrate --to office-mac --force
 
 # Don't auto-rollback if the target claim fails (leave source disabled)
-codeterm bridge migrate --to mac-mini --no-rollback
+codeterm bridge migrate --to office-mac --no-rollback
 ```
 
 | Flag | Default | Description |
@@ -124,7 +124,7 @@ codeterm bridge migrate --to mac-mini --no-rollback
 | `--to` | *(required)* | Target peer `instance_name` or `instance_id` from `codeterm mesh peers`. |
 | `--service` | `telegram` | Which bridge to migrate. Only `telegram` today. |
 | `--announce` | `false` | Post a one-shot `[CodeTerm] Telegram bridge migrated to <to> from <from>` sentinel after success. |
-| `--announce-chat-id` | `186809246` | Telegram chat id for `--announce`. |
+| `--announce-chat-id` | *(first allow-listed user)* | Telegram chat id for `--announce`. Defaults to the target's first allow-listed bridge user. |
 | `--no-rollback` | `false` | Skip source-recovery on failure (leaves source disabled). |
 | `--force` | `false` | Skip the target preflight that requires `token_present` or `has_secret_in_vault`. |
 | `--claim-timeout-ms` | `10000` | How long the target has to claim the upstream lock before the migration is failed. |
@@ -142,7 +142,7 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 
 ## Agent Integration
 
-External agents (Rollo, a gateway, CI/CD) can connect via REST API:
+External agents (personal assistants, gateways, CI/CD) can connect via REST API:
 
 ```bash
 # Create workspace for agent
@@ -252,4 +252,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`). `codeterm sessions resume` opens the pane in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 34 -->
+<!-- revision: 35 -->

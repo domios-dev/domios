@@ -411,7 +411,7 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level â€
   "last_poll_ok": "2026-05-06T12:01:30Z",
   "last_poll_error": null,
   "error_count": 0,
-  "instance_name": "BLACKSTAR"
+  "instance_name": "workstation"
 }
 ```
 
@@ -1269,4 +1269,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 72 -->
+<!-- revision: 73 -->
