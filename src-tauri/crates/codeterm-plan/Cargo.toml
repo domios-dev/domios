@@ -16,8 +16,14 @@ sha2 = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
 log = "0.4"
 serde_yaml = "0.9"
+tempfile = { version = "3", optional = true }
+
+[features]
+# Exposes PlanStore::new_for_test + TestSearchPort to downstream test builds
+# (the app crate enables this via a dev-dependency). Off in normal builds.
+test-support = ["dep:tempfile"]
 
 [dev-dependencies]
-tempfile = "3"
+codeterm-plan = { path = ".", features = ["test-support"] }
 uuid = { version = "1", features = ["v4"] }
 filetime = "0.2"

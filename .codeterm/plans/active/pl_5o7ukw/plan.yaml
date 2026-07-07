@@ -98,7 +98,7 @@ owner:
 project_path: /Users/rollacode/Developer/codeterm
 canonical_project_path: /Users/rollacode/Developer/codeterm
 created_at: 1783413891138
-updated_at: 1783433770085
+updated_at: 1783438953954
 milestone_kinds:
 - key: status_update
   label: status_update
@@ -155,9 +155,9 @@ primary_spec_id: sp_64l6cv
 lineage: []
 goal: null
 heartbeat:
-  current_focus: '4 lanes ALL WORKING (verified via pane status): Noether(997a1d3b), Turing(32a146df), Shannon(2654cb1f,10 files edited), Hopper(7e080840,21m lock analysis). Reconcile ''pane_gone'' on Shannon+Hopper is a FALSE POSITIVE — ledger link missing but agents live. Do NOT reassign.'
+  current_focus: 4/6 merged. Fixed E0308 (unstaged AgentRole dedup) in 2b0eb179, gate 28879013192 re-running. T4b Ritchie(58f221b9)+T5 Bell(a53288fb) told to pull fix. Local gate now includes cargo test --lib --no-run.
   active_lanes:
-  - codeterm-plan=Noether, codeterm-mem=Turing, codeterm-mesh=Shannon, pty-boundary=Hopper
+  - codeterm-pty=Ritchie(58f221b9), codeterm-bridge=Bell(a53288fb)
   rules: []
   learnings: []
 canvas:

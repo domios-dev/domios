@@ -78,7 +78,7 @@ mod reminder_tests;
 mod subtask_close_tests;
 #[cfg(test)]
 mod task_attempt_tests;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 #[cfg(test)]
 mod tests;
@@ -120,12 +120,10 @@ impl PlanStore {
         Self::default()
     }
 
-    pub fn new_for_test(_root: &Path) -> Self {
-        #[cfg(test)]
-        {
-            paths::mark_test_project_root(_root);
-            search_index::init_search_port(std::sync::Arc::new(test_support::TestSearchPort));
-        }
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn new_for_test(root: &Path) -> Self {
+        paths::mark_test_project_root(root);
+        search_index::init_search_port(std::sync::Arc::new(test_support::TestSearchPort));
         Self::default()
     }
 }
