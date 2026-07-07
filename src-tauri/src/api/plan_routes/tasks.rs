@@ -90,6 +90,8 @@ pub(crate) struct TaskAddBody {
     #[serde(default)]
     executor_role: Option<String>,
     #[serde(default)]
+    personality: Option<String>,
+    #[serde(default)]
     competition: Option<TaskCompetitionMetadata>,
     #[serde(default)]
     intent: Option<String>,
@@ -176,6 +178,7 @@ pub async fn task_add(
                 body: body.body.unwrap_or_default(),
                 role_guidance: body.role_guidance,
                 executor_role: body.executor_role,
+                personality: body.personality,
                 competition: body.competition,
                 intent: body.intent,
                 parent_task_id: body.parent,
@@ -273,6 +276,18 @@ pub async fn task_update(
                 &id,
                 &tid,
                 optional_string_field(&body, "role_guidance"),
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+    }
+    if body.get("personality").is_some() {
+        state
+            .svc
+            .plan_store
+            .update_task_personality(
+                &id,
+                &tid,
+                optional_string_field(&body, "personality"),
                 epoch_ms(),
             )
             .map_err(plan_err)?;

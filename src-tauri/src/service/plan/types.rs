@@ -242,6 +242,7 @@ pub struct NewTask {
     pub section_ids: Vec<String>,
     pub model: Option<String>,
     pub model_rationale: Option<String>,
+    pub personality: Option<String>,
     pub acceptance_criteria: Vec<String>,
     pub test_plan: Option<String>,
     pub correctness: Option<String>,

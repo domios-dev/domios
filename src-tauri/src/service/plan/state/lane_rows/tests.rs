@@ -45,6 +45,7 @@ fn lane_task(id: &str, status: TaskStatus, lane: TaskLaneMetadata, changed: u64)
         milestones: vec![],
         execution_attempts: vec![],
         park_reason: None,
+        personality: None,
         attachments: vec![],
     }
 }
