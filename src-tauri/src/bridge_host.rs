@@ -1,18 +1,16 @@
-//! App-side implementations of [`crate::bridge::ports`] traits.
+//! App-side implementations of [`codeterm_bridge::ports`] traits.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use codeterm_bridge::ports::{
+    AttachmentStorePort, BridgePanePort, ChatPreprocessorPort, ChatPreprocessorProvider,
+};
+use codeterm_bridge::transcribe::TranscribeRegistry;
 use codeterm_types::config::schema::{TextHooksConfig, VoiceTranscribeConfig};
 
-use crate::bridge::manager::OutboundSender;
-use crate::bridge::ports::{
-    AttachmentStorePort, BridgePanePort, ChatPreprocessorPort, ChatPreprocessorProvider,
-    PreprocessCtx,
-};
 use crate::service::general_agent;
 use crate::service::ServiceContext;
-use crate::transcribe::TranscribeRegistry;
 
 pub struct AppAttachmentStorePort;
 
@@ -63,7 +61,7 @@ impl BridgePanePort for ServiceBridgePanePort {
         self.0.transcribe_registry.clone()
     }
 
-    fn bridge_outbound(&self) -> OutboundSender {
+    fn bridge_outbound(&self) -> codeterm_bridge::bridge::manager::OutboundSender {
         self.0.bridge_outbound.clone()
     }
 
@@ -88,7 +86,7 @@ impl BridgePanePort for ServiceBridgePanePort {
                 pane_id,
                 preview,
             );
-            crate::bridge::inbound_buffer::push(pane_id, prefixed.to_string());
+            codeterm_bridge::bridge::inbound_buffer::push(pane_id, prefixed.to_string());
             return Ok(());
         }
 
@@ -119,15 +117,15 @@ impl BridgePanePort for ServiceBridgePanePort {
     }
 
     fn queue_inbound(&self, pane_id: &str, prefixed: String) {
-        crate::bridge::inbound_buffer::push(pane_id, prefixed);
+        codeterm_bridge::bridge::inbound_buffer::push(pane_id, prefixed);
     }
 
     fn telegram_token(&self) -> Option<String> {
-        crate::bridge::telegram::read_token(&AppAttachmentStorePort)
+        codeterm_bridge::bridge::telegram::read_token(&AppAttachmentStorePort)
     }
 
     fn telegram_token_path(&self) -> PathBuf {
-        crate::bridge::telegram::token_path(&AppAttachmentStorePort)
+        codeterm_bridge::bridge::telegram::token_path(&AppAttachmentStorePort)
     }
 }
 
@@ -140,25 +138,5 @@ impl ChatPreprocessorPort for ServiceChatPreprocessorPort {
 
     fn active_preprocessors(&self) -> Vec<Arc<dyn ChatPreprocessorProvider>> {
         self.0.chat_preprocessor_registry.active()
-    }
-}
-
-impl ChatPreprocessorPort for crate::chatpreprocessor::ChatPreprocessorRegistry {
-    fn preprocessor_ids(&self) -> Vec<String> {
-        self.ids()
-    }
-
-    fn active_preprocessors(&self) -> Vec<Arc<dyn ChatPreprocessorProvider>> {
-        self.active()
-    }
-}
-
-impl ChatPreprocessorPort for Arc<crate::chatpreprocessor::ChatPreprocessorRegistry> {
-    fn preprocessor_ids(&self) -> Vec<String> {
-        self.ids()
-    }
-
-    fn active_preprocessors(&self) -> Vec<Arc<dyn ChatPreprocessorProvider>> {
-        self.active()
     }
 }

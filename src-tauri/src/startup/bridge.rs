@@ -47,13 +47,13 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
         cfg.integrations.telegram_allowed_users.clone(),
         attachments,
     );
-    let pane: std::sync::Arc<dyn bridge::ports::BridgePanePort> =
+    let pane: std::sync::Arc<dyn codeterm_bridge::ports::BridgePanePort> =
         std::sync::Arc::new(ServiceBridgePanePort((**svc).clone()));
     let manager = bridge::BridgeManager::new(pane);
     let cancel = svc.bridge_supervisor.cancel_token();
     let status = svc.bridge_supervisor.as_status_sink();
 
-    let handle = tauri::async_runtime::spawn(async move {
+    let handle = tokio::spawn(async move {
         log::info!("[bridge] manager spawned");
         manager
             .start(vec![Box::new(telegram)], rx, cancel, status)
@@ -104,10 +104,10 @@ pub fn spawn_telegram_bridge(svc: ServiceState) {
 pub async fn start_telegram_bridge_for_test(
     token: String,
     api_base: String,
-) -> std::sync::Arc<bridge::supervisor::BridgeSupervisor> {
+) -> std::sync::Arc<codeterm_bridge::bridge::supervisor::BridgeSupervisor> {
     use std::sync::Arc;
 
-    let supervisor = Arc::new(bridge::supervisor::BridgeSupervisor::new());
+    let supervisor = Arc::new(codeterm_bridge::bridge::supervisor::BridgeSupervisor::new());
     let cancel = supervisor.cancel_token();
     let status = supervisor.as_status_sink();
 
@@ -118,7 +118,7 @@ pub async fn start_telegram_bridge_for_test(
 
     use crate::bridge::traits::MessagingService;
     let svc_box: Box<dyn MessagingService> = Box::new(svc);
-    let handle = tauri::async_runtime::spawn(async move {
+    let handle = tokio::spawn(async move {
         svc_box.start(tx, cancel, status).await;
     });
     supervisor.set_task(handle, Utc::now());

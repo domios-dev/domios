@@ -10,9 +10,33 @@ use axum::{
     routing::post,
     Json, Router,
 };
+use chrono::Utc;
+use codeterm_bridge::bridge::supervisor::BridgeSupervisor;
+use codeterm_bridge::bridge::telegram::TelegramService;
+use codeterm_bridge::bridge::traits::MessagingService;
+use codeterm_lib::bridge_host::attachment_store;
 use serde_json::{json, Value};
 
-use codeterm_lib::startup::start_telegram_bridge_for_test;
+async fn start_telegram_bridge_for_test(
+    token: String,
+    api_base: String,
+) -> Arc<BridgeSupervisor> {
+    let supervisor = Arc::new(BridgeSupervisor::new());
+    let cancel = supervisor.cancel_token();
+    let status = supervisor.as_status_sink();
+
+    let attachments = attachment_store();
+    let svc = TelegramService::with_base(token, api_base, attachments);
+    let (tx, mut rx_inbound) = tokio::sync::mpsc::channel(8);
+    tokio::spawn(async move { while rx_inbound.recv().await.is_some() {} });
+
+    let svc_box: Box<dyn MessagingService> = Box::new(svc);
+    let handle = tokio::spawn(async move {
+        svc_box.start(tx, cancel, status).await;
+    });
+    supervisor.set_task(handle, Utc::now());
+    supervisor
+}
 
 #[derive(Clone)]
 struct MockState {
@@ -74,7 +98,7 @@ async fn spawn_mock_telegram() -> (String, MockState) {
 }
 
 async fn wait_for_first_poll(
-    sup: &Arc<codeterm_lib::bridge::supervisor::BridgeSupervisor>,
+    sup: &Arc<BridgeSupervisor>,
     deadline: Duration,
 ) -> bool {
     let start = std::time::Instant::now();

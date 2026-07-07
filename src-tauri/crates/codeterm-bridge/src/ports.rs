@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use codeterm_types::config::schema::{TextHooksConfig, VoiceTranscribeConfig};
 
-use super::manager::OutboundSender;
+use crate::bridge::manager::OutboundSender;
 use crate::transcribe::TranscribeRegistry;
 
 /// Send-time text stage context (mirrors SDK `chatPreprocess(ctx)`).
@@ -51,4 +51,24 @@ pub trait BridgePanePort: Send + Sync {
     fn queue_inbound(&self, pane_id: &str, prefixed: String);
     fn telegram_token(&self) -> Option<String>;
     fn telegram_token_path(&self) -> PathBuf;
+}
+
+impl ChatPreprocessorPort for crate::registry::CapabilityRegistry<dyn ChatPreprocessorProvider> {
+    fn preprocessor_ids(&self) -> Vec<String> {
+        self.ids()
+    }
+
+    fn active_preprocessors(&self) -> Vec<Arc<dyn ChatPreprocessorProvider>> {
+        self.active()
+    }
+}
+
+impl ChatPreprocessorPort for Arc<crate::registry::CapabilityRegistry<dyn ChatPreprocessorProvider>> {
+    fn preprocessor_ids(&self) -> Vec<String> {
+        self.ids()
+    }
+
+    fn active_preprocessors(&self) -> Vec<Arc<dyn ChatPreprocessorProvider>> {
+        self.active()
+    }
 }
