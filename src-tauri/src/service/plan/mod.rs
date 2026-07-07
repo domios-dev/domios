@@ -14,6 +14,7 @@ pub mod handoff;
 pub mod heartbeat;
 pub mod hints;
 pub mod ingest;
+pub mod lane_cleanup;
 mod lane_metadata;
 pub mod lifecycle;
 pub mod locate;
