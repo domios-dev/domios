@@ -7,14 +7,14 @@ acceptance_criteria:
 - 3 consecutive get-output/get-text/chat from the same pane with no intervening report -> one nudge; a 4th does not re-nudge until reset; report arrival resets
 test_plan: Unit-test the counter/threshold/reset logic with stubbed calls; assert exactly one nudge emitted. ./build.sh test
 correctness: Counter per-pane; nudge rate-limited (no spam); polling of non-worker panes does not false-trigger
-status: in_review
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783375647050
-updated_at: 1783402312580
-status_changed_at: 1783402312275
+updated_at: 1783407567299
+status_changed_at: 1783407567299
 handle: t10-polling
 tags: []
 section_ids:
@@ -27,16 +27,16 @@ executor_role: backend-dev
 competition: null
 intent: null
 parent_task_id: null
-assigned_pane_id: 4ff9c09d
+assigned_pane_id: null
 lane:
-  pane_id: 4ff9c09d
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: /Users/rollacode/Developer/ct-lanes/t10-polling
   branch: lane/t10-polling
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -134,7 +134,7 @@ execution_attempts:
   assigned_at: 1783400572273
   reported_at: 1783402272970
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783407567299
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

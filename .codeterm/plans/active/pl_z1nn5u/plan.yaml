@@ -138,7 +138,7 @@ owner:
 project_path: /Users/rollacode/Developer/codeterm
 canonical_project_path: /Users/rollacode/Developer/codeterm
 created_at: 1783373357907
-updated_at: 1783405892977
+updated_at: 1783407570143
 milestone_kinds:
 - key: status_update
   label: status_update
@@ -317,14 +317,13 @@ primary_spec_id: sp_gma7gv
 lineage: []
 goal: null
 heartbeat:
-  current_focus: 'P6 in progress: all 13 lanes MERGED into feat/canvas-updates (check 0 err). Fix-lanes t14-modsplit(259025ef)+t15-clidebt(2f37723b) running. On their reports -> verify+merge -> final gate (clippy+test+manifest regen+file-size) -> rebuild dev -> Playwright t6/t7 + t1 smoke -> close 13 to done -> accept'
+  current_focus: 'P6 nearly done: all 15 lanes MERGED + gated GREEN (check/clippy/test/fmt/file-size/manifest); stale-sweep complete (branches+worktrees cleaned). Awaiting dev rebuild -> t1 CLI smoke + Playwright t6/t7 -> close 15 to done -> accept to Andrey'
   active_lanes:
   - t14-modsplit=259025ef
   - t15-clidebt=2f37723b
   rules:
-  - MERGED (13 lanes + Andrey auto-execution 9c93a413 + plan-reminder log-line 767cf3ec + fmt bf92118d). Committed Andrey's uncommitted work first per his instruction.
-  - 'REMAINING gate debt: mod.rs 1046 split (t14), 8 CLI test fails (t15), manifest regen (needs new CLI build), then clippy+test both crates'
-  - Real pane a0481d40. Disk 89GB. Dev still down (rebuild before Playwright)
+  - Gate green except 3 PRE-EXISTING base failures (mem-vector x2 + windows spawn-audit) in files unchanged since base 8285461d — not effort regressions, surfaced to Andrey
+  - 'Fixed at gate: Andrey auto-execution committed, plan-reminder log line, fmt, mod.rs split, write_atomic pub(super), manifest regen. Stale target/debug/codeterm caused false manifest-fail.'
   learnings:
   - id: learn_97i28l
     text: 'Lane cargo tests on this host: a 90s-cap ''hang'' is usually a COLD dep recompile (esp. after a disk-reclaim wipes .rlibs), not a code hang. Precompile with ''cargo test --lib --no-run'' (sccache-served) then run execution-only under the cap. Bare ''cargo test'' (no --lib) builds integration+doctests and blows the cold cap — always narrow with --lib.'

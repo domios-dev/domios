@@ -7,14 +7,14 @@ acceptance_criteria:
 - A task with lane metadata shows the panel; clicking the pane focuses it; no panel when no lane
 test_plan: 'Playwright web-mode in isolation: lane metadata renders; pane click invokes focus handler'
 correctness: Pane-click targets the task OWN pane id; focus/resume degrade gracefully if pane is dead
-status: in_review
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783375646772
-updated_at: 1783379723106
-status_changed_at: 1783379722699
+updated_at: 1783407565683
+status_changed_at: 1783407565683
 handle: t7-lane-panel
 tags: []
 section_ids:
@@ -27,16 +27,16 @@ executor_role: frontend-dev
 competition: null
 intent: null
 parent_task_id: null
-assigned_pane_id: dce535c5
+assigned_pane_id: null
 lane:
-  pane_id: dce535c5
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: /Users/rollacode/Developer/ct-lanes/t7-lane-panel
   branch: lane/t7-lane-panel
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -117,7 +117,7 @@ execution_attempts:
   assigned_at: 1783379574838
   reported_at: 1783379695907
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783407565683
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

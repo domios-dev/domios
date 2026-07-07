@@ -11,14 +11,14 @@ acceptance_criteria:
 - caller_pane_id plumbed CLI->RPC->handler->service for pane.close and workspace.close per existing convention; absent caller id fails safe (refuse coordinator self-close, do not break worker/other closes)
 test_plan: 'Unit-test guard with stubbed roles + plan.owner/planner bindings: (a) Orchestrator self-close refused, other-close allowed; (b) Planner (via plan.planner) self-close refused; (c) Worker self-close allowed; (d) coordinator own-workspace close refused, other allowed; (e) absent caller_pane_id -> coordinator target refused, worker/other allowed. ./build.sh test'
 correctness: Guard keys off caller_pane_id vs target and plan-derived coordinator identity (never display name); no deadlock (lock ordering, no nested pane lock); fail-safe on missing caller id; must not regress worker self-close or ordinary pane/workspace close
-status: in_review
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783375646869
-updated_at: 1783380506185
-status_changed_at: 1783380506045
+updated_at: 1783407566146
+status_changed_at: 1783407566146
 handle: t8-selfterm
 tags: []
 section_ids:
@@ -48,16 +48,16 @@ executor_role: backend-dev
 competition: null
 intent: null
 parent_task_id: null
-assigned_pane_id: 0a940e5f
+assigned_pane_id: null
 lane:
-  pane_id: 0a940e5f
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: /Users/rollacode/Developer/ct-lanes/t8-selfterm
   branch: lane/t8-selfterm
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -195,7 +195,7 @@ execution_attempts:
   assigned_at: 1783375883012
   reported_at: 1783380493193
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783407566146
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

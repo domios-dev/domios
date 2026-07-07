@@ -8,14 +8,14 @@ acceptance_criteria:
 - --stale narrows to dead/overdue/uncleaned lanes; no new live daemon calls beyond snapshot/liveness
 test_plan: Unit-test row builder over a fixture plan (alive/dead/uncleaned) asserts columns + --stale filter; CLI smoke renders table
 correctness: Liveness keys off the pane OWN session (never latest-for-cwd); unknown -> honest unknown, not a guess
-status: in_review
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783375612408
-updated_at: 1783403621311
-status_changed_at: 1783403620772
+updated_at: 1783407563298
+status_changed_at: 1783407563298
 handle: t2-lanes
 tags: []
 section_ids:
@@ -28,16 +28,16 @@ executor_role: backend-dev
 competition: null
 intent: null
 parent_task_id: null
-assigned_pane_id: c9b693f3
+assigned_pane_id: null
 lane:
-  pane_id: c9b693f3
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: /Users/rollacode/Developer/ct-lanes/t2-lanes
   branch: lane/t2-lanes
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -135,7 +135,7 @@ execution_attempts:
   assigned_at: 1783400566715
   reported_at: 1783403578151
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783407563298
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

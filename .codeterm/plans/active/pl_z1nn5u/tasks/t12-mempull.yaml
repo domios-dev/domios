@@ -11,14 +11,14 @@ acceptance_criteria:
 - The mem query runs off the hot path and does not stall onboarding delivery
 test_plan: 'Integration/unit with seeded area=orchestration preference: (a) orchestrator onboarding injects it; (b) planner start injects it (new hook exercised); (c) no prefs -> nothing injected; (d) assert query goes through in-process mem API not a subprocess. Dev-instance: promote orchestrator + spawn planner, confirm preference text appears. ./build.sh test where unit-testable'
 correctness: Query scoped kind=preference area=orchestration (no unrelated prefs); in-process mem search only (no CLI fork); off-hot-path (spawn_blocking) so async runtime not starved; empty->no-op; bounded English injection; planner hook must actually fire
-status: in_review
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783375647235
-updated_at: 1783380327688
-status_changed_at: 1783380327509
+updated_at: 1783407568384
+status_changed_at: 1783407568384
 handle: t12-mempull
 tags: []
 section_ids:
@@ -40,16 +40,16 @@ executor_role: backend-dev
 competition: null
 intent: null
 parent_task_id: null
-assigned_pane_id: 01b0fecd
+assigned_pane_id: null
 lane:
-  pane_id: 01b0fecd
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: /Users/rollacode/Developer/ct-lanes/t12-mempull
   branch: lane/t12-mempull
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -130,7 +130,7 @@ execution_attempts:
   assigned_at: 1783379097115
   reported_at: 1783380297748
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783407568384
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

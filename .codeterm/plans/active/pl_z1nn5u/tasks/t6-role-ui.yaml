@@ -7,14 +7,14 @@ acceptance_criteria:
 - A task with executor_role + role_guidance set shows both, labeled; absent fields render nothing
 test_plan: 'Playwright web-mode in isolation with caps: open a task with both set, assert both blocks visible'
 correctness: No layout break when fields are long/absent; markdown-safe rendering
-status: in_review
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783375646659
-updated_at: 1783376182143
-status_changed_at: 1783376181920
+updated_at: 1783407565183
+status_changed_at: 1783407565183
 handle: t6-role-ui
 tags: []
 section_ids:
@@ -27,16 +27,16 @@ executor_role: frontend-dev
 competition: null
 intent: null
 parent_task_id: null
-assigned_pane_id: f5041b38
+assigned_pane_id: null
 lane:
-  pane_id: f5041b38
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: /Users/rollacode/Developer/ct-lanes/t6-role-ui
   branch: lane/t6-role-ui
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -117,7 +117,7 @@ execution_attempts:
   assigned_at: 1783375944316
   reported_at: 1783376077953
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783407565183
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

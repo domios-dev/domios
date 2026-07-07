@@ -8,14 +8,14 @@ acceptance_criteria:
 - render_plan_error covers blocked_requires_label + in_progress_requires_pane; plan_skill zero-flag walk reads plan.yaml
 test_plan: cd cli && cargo test cmd::plan_prune cmd::plan_skill cmd::plan_doctor plan::tests::all_backend_plan_error_types_have_cli_renderers (via test-capped)
 correctness: STALE fixtures updated to real v2 layout (not deleted assertions); renderer arms match backend error messages; walk fix doesn't break json-era callers
-status: in_review
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783404766691
-updated_at: 1783405892977
-status_changed_at: 1783405892835
+updated_at: 1783407570143
+status_changed_at: 1783407570143
 handle: cli-test-debt-unmasked-by-t13-stale-fixtures-renderer-arms
 tags: []
 section_ids: []
@@ -25,16 +25,16 @@ executor_role: backend-dev
 competition: null
 intent: null
 parent_task_id: null
-assigned_pane_id: 2f37723b
+assigned_pane_id: null
 lane:
-  pane_id: 2f37723b
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: /Users/rollacode/Developer/ct-lanes/t15-clidebt
   branch: lane/t15-clidebt
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -115,7 +115,7 @@ execution_attempts:
   assigned_at: 1783404920331
   reported_at: 1783405839932
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783407570143
   competition_group_id: null
   competition_lane: null
   judge_verdict: null
