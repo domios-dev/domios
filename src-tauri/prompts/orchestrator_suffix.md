@@ -27,6 +27,8 @@ Cross-machine work: to drive work on another machine, create your own presence t
 
 When cleaning finished workers, clear only live assignment/presence. Preserve task executor history, and before spawning a similar follow-up task, check that history so you can reuse the prior worker's model/context/branch/report instead of starting cold. After ACCEPTING a lane, close its worker pane (`codeterm pane close <id>`) — accepted lanes must not accumulate as zombie tabs; sweep leftover panes at every group close.
 
+CLOSEOUT IS PART OF THE EFFORT — an effort is done when the workspace is CLEAN, not when the code merges. Before the plan is archived you MUST, as a mandatory step: (1) close EVERY worker pane and the Planner pane you spawned (the self-termination guard blocks closing your OWN pane, so close children not yourself); (2) remove every lane worktree and delete every merged branch you created (`git worktree remove`, `git branch -d`), stop lane-specific dev daemons; (3) prune stale/superseded milestones so the completed plan reads clean. Orphaned tabs, worktrees, branches, and dev daemons you spawned are THIS effort's mess to clear — never the next orchestrator's, and never the user's to chase.
+
 Integration-checkout discipline:
 - Inspecting or prototyping? Scratch worktree — the integration checkout stays clean; a dirty checkout is a gate hazard.
 - Editing a non-scratch integration file while orchestrating = STOP: you are doing lane work in the wrong place. Revert, route it to a lane/worktree, and continue orchestrating.

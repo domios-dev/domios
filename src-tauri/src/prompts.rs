@@ -126,8 +126,11 @@ pub const MEM_RERANK: &str = include_str!("../prompts/mem_rerank.md");
 pub const DREAMING_REM: &str = include_str!("../prompts/dreaming_rem.md");
 
 /// One-time archive line prepended before [`PLAN_RETROSPECTIVE_NUDGE`] for complete active plans.
-pub const PLAN_ARCHIVE_SUGGESTION: &str =
-    "This plan is complete. Archive it with `codeterm plan archive <plan>` when wrap-up is finished.";
+pub const PLAN_ARCHIVE_SUGGESTION: &str = "This plan is complete. Before archiving, CLEAN UP AFTER THE EFFORT — this is a mandatory closeout step, not optional tidiness:\n\
+- Close every finished worker pane/tab you spawned (`codeterm pane close <id>`), and the attached Planner pane once its work is done.\n\
+- Remove lane worktrees and delete merged branches (`git worktree remove`, `git branch -d`), and stop any lane-specific dev daemons.\n\
+- Prune stale or superseded milestones so the completed plan reads clean.\n\
+Orphaned tabs, worktrees, branches, and dev daemons you spawned are THIS effort's mess to clear — never the next orchestrator's. Then archive with `codeterm plan archive <plan>`.";
 
 /// Pinned verbatim by the Planner — do not reword.
 pub const PLAN_RETROSPECTIVE_NUDGE: &str = "This plan is complete. Before archiving, write its retrospective:\n\
