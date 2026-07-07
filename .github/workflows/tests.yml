@@ -44,7 +44,7 @@ jobs:
           cargo fmt --manifest-path cli/Cargo.toml --check
 
       - name: File-size discipline
-        run: bash scripts/check-file-sizes.sh
+        run: bash scripts/check-file-sizes.sh --fail
 
       - name: clippy (repo gate)
         run: bash scripts/clippy-gate.sh

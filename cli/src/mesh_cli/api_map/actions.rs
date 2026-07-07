@@ -3,7 +3,7 @@ use crate::{
         delayed::parse_schedule,
         send_text::{actions_to_json, parse_actions_spec, resolve_send_text_input},
     },
-    MemAction, MemGraphAction,
+    MemAction, MemGraphAction, ServiceAction,
 };
 use serde_json::json;
 
@@ -495,6 +495,145 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
                 None => "/api/mem/pinned".into(),
             };
             ("GET".into(), path, None)
+        }
+    }
+}
+
+pub(crate) fn service_to_api(action: &ServiceAction) -> (String, String, Option<String>) {
+    match action {
+        ServiceAction::List { kind, enabled } => {
+            let mut path = String::from("/api/services");
+            let mut sep = '?';
+            if let Some(k) = kind {
+                path.push(sep);
+                sep = '&';
+                path.push_str(&format!("kind={}", urlencoding::encode(k)));
+            }
+            if let Some(e) = enabled {
+                path.push(sep);
+                let _ = sep;
+                path.push_str(&format!("enabled={}", e));
+            }
+            ("GET".into(), path, None)
+        }
+        ServiceAction::Add {
+            name,
+            kind,
+            health_mode,
+            url,
+            host,
+            port,
+            process_label,
+            script_path,
+            health_path,
+            health_json_field,
+            health_ok_values,
+            health_degraded_values,
+            health_interval,
+            description,
+            push,
+        } => {
+            let mut body = json!({
+                "name": name,
+                "kind": kind,
+                "health_mode": health_mode,
+                "health_interval": health_interval,
+                "push_enabled": push,
+            });
+            if let Some(v) = url {
+                body["url"] = json!(v);
+            }
+            if let Some(v) = host {
+                body["host"] = json!(v);
+            }
+            if let Some(v) = port {
+                body["port"] = json!(v);
+            }
+            if let Some(v) = process_label {
+                body["process_label"] = json!(v);
+            }
+            if let Some(v) = script_path {
+                body["script_path"] = json!(v);
+            }
+            if let Some(v) = health_path {
+                body["health_path"] = json!(v);
+            }
+            if let Some(v) = health_json_field {
+                body["health_json_field"] = json!(v);
+            }
+            if let Some(v) = health_ok_values {
+                body["health_ok_values"] = json!(v);
+            }
+            if let Some(v) = health_degraded_values {
+                body["health_degraded_values"] = json!(v);
+            }
+            if let Some(v) = description {
+                body["description"] = json!(v);
+            }
+            ("POST".into(), "/api/services".into(), Some(body.to_string()))
+        }
+        ServiceAction::Show { id } => (
+            "GET".into(),
+            format!("/api/services/{}", urlencoding::encode(id)),
+            None,
+        ),
+        ServiceAction::Edit {
+            id,
+            name,
+            url,
+            health_path,
+            health_json_field,
+            health_ok_values,
+            health_degraded_values,
+            enabled,
+        } => {
+            let mut body = json!({});
+            if let Some(v) = name {
+                body["name"] = json!(v);
+            }
+            if let Some(v) = url {
+                body["url"] = json!(v);
+            }
+            if let Some(v) = health_path {
+                body["health_path"] = json!(v);
+            }
+            if let Some(v) = health_json_field {
+                body["health_json_field"] = json!(v);
+            }
+            if let Some(v) = health_ok_values {
+                body["health_ok_values"] = json!(v);
+            }
+            if let Some(v) = health_degraded_values {
+                body["health_degraded_values"] = json!(v);
+            }
+            if let Some(v) = enabled {
+                body["enabled"] = json!(v);
+            }
+            (
+                "PUT".into(),
+                format!("/api/services/{}", urlencoding::encode(id)),
+                Some(body.to_string()),
+            )
+        }
+        ServiceAction::Delete { id } => (
+            "DELETE".into(),
+            format!("/api/services/{}", urlencoding::encode(id)),
+            None,
+        ),
+        ServiceAction::Token { id, rotate } => {
+            if *rotate {
+                (
+                    "POST".into(),
+                    format!("/api/services/{}/regenerate-token", urlencoding::encode(id)),
+                    None,
+                )
+            } else {
+                (
+                    "GET".into(),
+                    format!("/api/services/{}", urlencoding::encode(id)),
+                    None,
+                )
+            }
         }
     }
 }
