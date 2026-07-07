@@ -16,7 +16,7 @@ export interface SpawnedPane {
 
 export interface MultiplexerContextType {
   state: ExtendedState;
-  createWorkspace: (name: string, cwd?: string) => Promise<{ id: string; name: string } | undefined>;
+  createWorkspace: (name: string, cwd?: string, opts?: { activate?: boolean }) => Promise<{ id: string; name: string } | undefined>;
   setActiveWorkspace: (id: string) => void;
   closeWorkspace: (id: string) => void;
   renameWorkspace: (id: string, name: string) => void;
