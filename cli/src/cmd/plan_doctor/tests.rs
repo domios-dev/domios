@@ -19,6 +19,40 @@ fn run_git(cwd: &Path, args: &[&str]) {
     );
 }
 
+// Materialize a plan Value into the on-disk storage-v2 layout: plan.yaml +
+// goal.yaml + one tasks/<id>.yaml per task, matching what the daemon writes.
+fn write_v2_plan(plan_dir: &Path, plan: &Value) {
+    std::fs::create_dir_all(plan_dir).unwrap();
+    let mut plan = plan.clone();
+    let obj = plan.as_object_mut().unwrap();
+    if let Some(goal) = obj.remove("goal") {
+        std::fs::write(
+            plan_dir.join("goal.yaml"),
+            serde_yaml::to_string(&goal).unwrap(),
+        )
+        .unwrap();
+    }
+    if let Some(Value::Array(tasks)) = obj.remove("tasks") {
+        if !tasks.is_empty() {
+            let tasks_dir = plan_dir.join("tasks");
+            std::fs::create_dir_all(&tasks_dir).unwrap();
+            for task in &tasks {
+                let id = task.get("id").and_then(Value::as_str).unwrap_or("task");
+                std::fs::write(
+                    tasks_dir.join(format!("{id}.yaml")),
+                    serde_yaml::to_string(task).unwrap(),
+                )
+                .unwrap();
+            }
+        }
+    }
+    std::fs::write(
+        plan_dir.join("plan.yaml"),
+        serde_yaml::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+}
+
 #[test]
 fn detects_missing_milestone_from() {
     let plan = json!({
@@ -132,14 +166,14 @@ fn detects_malformed_json() {
     let dir = tempfile::tempdir().unwrap();
     let plan_dir = dir.path().join(".codeterm/plans/active/pl_bad");
     std::fs::create_dir_all(&plan_dir).unwrap();
-    std::fs::write(plan_dir.join("plan.json"), "{not json").unwrap();
+    std::fs::write(plan_dir.join("plan.yaml"), "{not yaml").unwrap();
     let report = doctor_report(None, Some(dir.path().display().to_string()), "all").unwrap();
     assert!(!report["ok"].as_bool().unwrap());
     assert!(report["findings"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|f| f["kind"] == "malformed_json"));
+        .any(|f| f["kind"] == "malformed_plan"));
 }
 
 #[test]
@@ -178,11 +212,8 @@ fn storage_warns_about_stray_linked_worktree_sidecar_copy() {
     });
     let canonical_dir = main.join(".codeterm/plans/active/pl_1");
     let stray_dir = linked.join(".codeterm/plans/active/pl_1");
-    std::fs::create_dir_all(&canonical_dir).unwrap();
-    std::fs::create_dir_all(&stray_dir).unwrap();
-    let raw = serde_json::to_string_pretty(&plan).unwrap();
-    std::fs::write(canonical_dir.join("plan.json"), &raw).unwrap();
-    std::fs::write(stray_dir.join("plan.json"), raw).unwrap();
+    write_v2_plan(&canonical_dir, &plan);
+    write_v2_plan(&stray_dir, &plan);
 
     let report = doctor_report(None, Some(linked.display().to_string()), "storage").unwrap();
     let findings = report["findings"].as_array().unwrap();
@@ -740,13 +771,8 @@ fn planner_unpaired_warns_when_orchestrator_bound_without_planner() {
 fn planner_unpaired_escalates_to_error_at_approval() {
     let dir = tempfile::tempdir().unwrap();
     let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
-    std::fs::create_dir_all(&plan_dir).unwrap();
     let plan = planner_pairing_base_plan(None);
-    std::fs::write(
-        plan_dir.join("plan.json"),
-        serde_json::to_string_pretty(&plan).unwrap(),
-    )
-    .unwrap();
+    write_v2_plan(&plan_dir, &plan);
 
     let report = doctor_report(
         Some("pl_1".into()),
@@ -864,7 +890,6 @@ fn quality_exempts_planning_kind_from_vague_test_plan() {
 fn quality_seeded_plan_flags_exactly_one_vague_test_plan() {
     let dir = tempfile::tempdir().unwrap();
     let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
-    std::fs::create_dir_all(&plan_dir).unwrap();
     let plan = json!({
         "id": "pl_1",
         "title": "Plan",
@@ -900,11 +925,7 @@ fn quality_seeded_plan_flags_exactly_one_vague_test_plan() {
             }
         ]
     });
-    std::fs::write(
-        plan_dir.join("plan.json"),
-        serde_json::to_string_pretty(&plan).unwrap(),
-    )
-    .unwrap();
+    write_v2_plan(&plan_dir, &plan);
 
     let report = doctor_report(
         Some("pl_1".into()),

@@ -35,7 +35,7 @@ pub(super) fn inspect_stray_sidecars(
                         .join("plans")
                         .join(bucket)
                         .join(plan_stem(&plan_id))
-                        .join("plan.json")
+                        .join("plan.yaml")
                 })
         })
         .filter(|path| path.is_file())
