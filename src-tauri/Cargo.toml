@@ -5,7 +5,7 @@ edition = "2021"
 default-run = "codeterm"
 
 [workspace]
-members = [".", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty"]
+members = [".", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin"]
 exclude = ["pty-fork"]
 resolver = "2"
 
@@ -35,6 +35,7 @@ codeterm-mem = { path = "crates/codeterm-mem", features = ["embeddings"] }
 codeterm-plan = { path = "crates/codeterm-plan" }
 codeterm-bridge = { path = "crates/codeterm-bridge" }
 codeterm-pty = { path = "crates/codeterm-pty" }
+codeterm-plugin = { path = "crates/codeterm-plugin" }
 log = "0.4"
 fern = "0.7"
 parking_lot = "0.12"
