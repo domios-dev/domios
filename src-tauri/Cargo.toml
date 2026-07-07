@@ -4,6 +4,11 @@ version = "1.6.2"
 edition = "2021"
 default-run = "codeterm"
 
+[workspace]
+members = ["."]
+exclude = ["pty-fork"]
+resolver = "2"
+
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "test"] }
 # Embedded JavaScript runtime for plugin code (provider TS bundles run
