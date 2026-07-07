@@ -843,6 +843,9 @@ fn parse_frontmatter_tags(text: &str) -> (Vec<String>, String) {
 mod write_if_changed_tests {
     use super::write_markdown_atomic;
 
+    // Unix-only: the read-only-parent oracle needs mode bits; on Windows a
+    // read-only directory does not block file creation at all.
+    #[cfg(unix)]
     #[test]
     fn identical_content_skips_the_write_entirely() {
         let dir = tempfile::tempdir().unwrap();
