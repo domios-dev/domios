@@ -8,7 +8,7 @@ fn test_create_outbound_channel() {
 }
 
 use super::text_hooks;
-use crate::config::schema::TextHooksConfig;
+use codeterm_types::config::schema::TextHooksConfig;
 use axum::{
     routing::{get, post},
     Json, Router,
@@ -543,8 +543,8 @@ use std::sync::Arc;
 
 #[test]
 fn telegram_marker_carries_reply_route() {
-    let marked = crate::message_markers::telegram("100000001", Some("12345"), "hello");
-    let parsed = crate::message_markers::parse(&marked).expect("telegram marker parses");
+    let marked = codeterm_types::message_markers::telegram("100000001", Some("12345"), "hello");
+    let parsed = codeterm_types::message_markers::parse(&marked).expect("telegram marker parses");
 
     assert_eq!(parsed.kind, "telegram");
     assert_eq!(parsed.attr("user"), Some("100000001"));

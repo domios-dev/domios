@@ -5,7 +5,7 @@ edition = "2021"
 default-run = "codeterm"
 
 [workspace]
-members = [".", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan"]
+members = [".", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge"]
 exclude = ["pty-fork"]
 resolver = "2"
 
@@ -33,6 +33,7 @@ codeterm-util = { path = "crates/codeterm-util" }
 codeterm-mesh = { path = "crates/codeterm-mesh" }
 codeterm-mem = { path = "crates/codeterm-mem", features = ["embeddings"] }
 codeterm-plan = { path = "crates/codeterm-plan" }
+codeterm-bridge = { path = "crates/codeterm-bridge" }
 log = "0.4"
 fern = "0.7"
 parking_lot = "0.12"
@@ -135,6 +136,10 @@ sha2 = "0.10"
 [lib]
 name = "codeterm_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[test]]
+name = "main"
+path = "tests/main.rs"
 
 # Deterministic mem-recall bench runner. Reuses the `mem` module from the
 # lib crate directly (no tokio background tasks, no LLM, no embeddings

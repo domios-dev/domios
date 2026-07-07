@@ -4,6 +4,8 @@ mod api;
 pub mod attachments;
 mod autostart;
 pub mod bridge;
+pub mod bridge_host;
+pub mod transcribe_adapter;
 pub mod bubble;
 pub mod chatbackend;
 pub mod chatpipeline;
