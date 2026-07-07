@@ -53,7 +53,7 @@ jobs:
       - name: Install Chromium
         run: pnpm exec playwright install chromium
       - name: Run ${{ inputs.project || 'smoke' }}
-        run: pnpm test:pw:${{ inputs.project || 'smoke' }} -- --global-timeout=1800000
+        run: pnpm test:pw:${{ inputs.project || 'smoke' }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -83,7 +83,7 @@ jobs:
       - name: Install Chromium
         run: pnpm exec playwright install chromium
       - name: Run ${{ inputs.project || 'smoke' }}
-        run: pnpm test:pw:${{ inputs.project || 'smoke' }} -- --global-timeout=1800000
+        run: pnpm test:pw:${{ inputs.project || 'smoke' }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -115,7 +115,7 @@ jobs:
           node scripts/prepare-embed-stub.js
       # Windows drives the real WebView2 app over CDP (no Chromium download).
       - name: Run ${{ inputs.project || 'smoke' }}
-        run: pnpm test:pw:${{ inputs.project || 'smoke' }} -- --global-timeout=1800000
+        run: pnpm test:pw:${{ inputs.project || 'smoke' }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
