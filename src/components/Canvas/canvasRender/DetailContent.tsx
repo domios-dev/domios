@@ -150,6 +150,27 @@ function TaskSectionLinks({
   );
 }
 
+interface TabIdentity {
+  paneId: string;
+  title: string | null;
+  provider: string | null;
+  model: string | null;
+  alive: boolean;
+}
+
+function resolveTab(paneId: string | null | undefined, panes: Record<string, Pane>): TabIdentity | null {
+  const id = paneId?.trim();
+  if (!id) return null;
+  const pane = panes[id];
+  return {
+    paneId: id,
+    title: pane?.title?.trim() || pane?.agent_session_name?.trim() || null,
+    provider: pane?.agent_type?.trim() || null,
+    model: pane?.agent_session_model?.trim() || null,
+    alive: Boolean(pane),
+  };
+}
+
 function laneRows(lane: TaskLaneMetadata): { label: string; value: string }[] {
   const rows: { label: string; value: string }[] = [];
   const branch = lane.branch?.trim();
@@ -166,27 +187,30 @@ function LanePanel({ lane, panes, onOpenPane }: { lane?: TaskLaneMetadata; panes
   const paneId = lane.pane_id?.trim() || null;
   const rows = laneRows(lane);
   if (!paneId && rows.length === 0) return null;
-  const paneAlive = Boolean(paneId && panes[paneId]);
-  const canFocus = Boolean(paneAlive && onOpenPane && paneId);
+  const tab = resolveTab(paneId, panes);
+  const canFocus = Boolean(tab?.alive && onOpenPane && paneId);
   const monoValue: CSSProperties = { fontFamily: "var(--ct-font-mono)", fontSize: 12, wordBreak: "break-all", color: "var(--ct-fg)" };
+  const tabLabel = tab?.title ?? tab?.paneId ?? "";
   return (
     <Block label="Lane" testId="task-lane-panel">
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {paneId && (
+        {tab && paneId && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ ...labelStyle, fontSize: 10 }}>pane</span>
+            <span style={{ ...labelStyle, fontSize: 10 }}>tab</span>
             <button
               type="button"
               data-testid="task-lane-pane"
+              data-pane-id={tab.paneId}
               disabled={!canFocus}
-              title={paneAlive ? "Focus lane pane" : "Lane pane is no longer running"}
+              title={tab.alive ? `Focus tab (${tab.paneId})` : `Tab ${tab.paneId} is closed`}
               onClick={() => canFocus && onOpenPane!(paneId)}
-              style={{ ...monoValue, display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 9px", borderRadius: 999, border: "1px solid var(--ct-border-subtle)", background: canFocus ? "color-mix(in srgb, var(--ct-accent) 9%, transparent)" : "color-mix(in srgb, var(--ct-fg) 5%, transparent)", color: canFocus ? "var(--ct-accent)" : "var(--ct-fg)", fontWeight: 600, cursor: canFocus ? "pointer" : "default" }}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 9px", borderRadius: 999, border: "1px solid var(--ct-border-subtle)", background: canFocus ? "color-mix(in srgb, var(--ct-accent) 9%, transparent)" : "color-mix(in srgb, var(--ct-fg) 5%, transparent)", color: canFocus ? "var(--ct-accent)" : "var(--ct-fg)", fontSize: 12, fontWeight: 600, cursor: canFocus ? "pointer" : "default" }}
             >
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: paneAlive ? GLYPH_ACCENT.progress : "color-mix(in srgb, var(--ct-fg) 35%, transparent)" }} />
-              {paneId}
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: tab.alive ? GLYPH_ACCENT.progress : "color-mix(in srgb, var(--ct-fg) 35%, transparent)" }} />
+              <span data-testid="task-lane-tab-title">{tabLabel}</span>
             </button>
-            {!paneAlive && <span data-testid="task-lane-pane-dead" style={{ fontSize: 11, fontStyle: "italic", color: "color-mix(in srgb, var(--ct-fg) 50%, transparent)" }}>dead</span>}
+            {tab.title && <span data-testid="task-lane-pane-id" title="Pane id" style={{ ...monoValue, fontSize: 11, color: "color-mix(in srgb, var(--ct-fg) 45%, transparent)" }}>{tab.paneId}</span>}
+            {!tab.alive && <span data-testid="task-lane-pane-dead" style={{ fontSize: 11, fontStyle: "italic", color: "color-mix(in srgb, var(--ct-fg) 50%, transparent)" }}>closed</span>}
           </div>
         )}
         {rows.map((row) => (
@@ -195,6 +219,32 @@ function LanePanel({ lane, panes, onOpenPane }: { lane?: TaskLaneMetadata; panes
             <span data-testid={`task-lane-${row.label}`} style={monoValue}>{row.value}</span>
           </div>
         ))}
+      </div>
+    </Block>
+  );
+}
+
+function PersonaChip({ persona }: { persona: string }) {
+  return (
+    <span
+      data-testid="task-personality"
+      title="Executing persona"
+      style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 11px", borderRadius: 999, border: "1px solid color-mix(in srgb, var(--ct-accent) 40%, transparent)", background: "color-mix(in srgb, var(--ct-accent) 14%, transparent)", color: "var(--ct-accent)", fontSize: 12.5, fontWeight: 700 }}
+    >
+      {persona}
+    </span>
+  );
+}
+
+function AgentIdentity({ tab, persona }: { tab: TabIdentity | null; persona: string | null }) {
+  const name = persona ?? tab?.title ?? (tab && !tab.alive ? `${tab.paneId} (closed)` : null);
+  if (!name && !tab?.provider && !tab?.model) return null;
+  return (
+    <Block label="Agent" testId="task-agent-identity">
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        {name && <Chip label="tab" value={name} testId="task-agent-name" />}
+        {tab?.provider && <Chip label="provider" value={tab.provider} testId="task-agent-provider" />}
+        {tab?.model && <Chip label="model" value={tab.model} testId="task-agent-model" />}
       </div>
     </Block>
   );
@@ -221,12 +271,15 @@ function TaskDetail({
 }) {
   const body = task.body?.trim();
   const paneId = task.assigned_pane_id?.trim() || null;
+  const agentTab = resolveTab(paneId, panes);
+  const persona = task.personality?.trim() || agentTab?.title || null;
   const attachmentThumbnails = renderTaskAttachmentThumbnails?.(task);
   const statusLabel = canonicalTaskStatusLabel(task);
   return (
     <div style={wrap} data-testid="canvas-detail-content">
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
         <Chip label="status" value={statusLabel} color={TASK_STATUS_COLORS[task.status]} testId="status-chip" />
+        {persona && <PersonaChip persona={persona} />}
         {task.priority && <Chip label="priority" value={task.priority.toUpperCase()} />}
         {task.type && <Chip label="type" value={task.type} />}
         {task.executor_role?.trim() && <Chip label="role" value={task.executor_role} testId="task-executor-role" />}
@@ -237,10 +290,11 @@ function TaskDetail({
             onClick={() => onOpenPane(paneId)}
             style={{ marginLeft: "auto", padding: "4px 10px", borderRadius: "var(--ct-radius-sm)", border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg)", color: "var(--ct-accent)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
           >
-            Show agent
+            Open tab
           </button>
         )}
       </div>
+      <AgentIdentity tab={agentTab} persona={persona} />
       <LanePanel lane={task.lane} panes={panes} onOpenPane={onOpenPane} />
       <TaskSectionLinks task={task} plan={plan} planId={planId} onSection={onSection} />
       {attachmentThumbnails && (
