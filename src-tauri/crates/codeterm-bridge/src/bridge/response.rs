@@ -209,7 +209,11 @@ mod tests {
         let inner = "x".repeat(200);
         let text = format!("<b>{}</b>", inner);
         let chunks = chunk_message(&text, 120);
-        assert!(chunks.len() >= 2, "expected multiple chunks, got: {:?}", chunks);
+        assert!(
+            chunks.len() >= 2,
+            "expected multiple chunks, got: {:?}",
+            chunks
+        );
         for c in &chunks {
             assert!(c.starts_with("<b>"), "chunk should reopen <b>: {}", c);
             assert!(c.ends_with("</b>"), "chunk should close </b>: {}", c);

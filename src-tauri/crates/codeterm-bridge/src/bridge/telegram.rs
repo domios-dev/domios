@@ -7,8 +7,8 @@ use std::sync::Arc;
 use tokio::sync::Notify;
 
 use super::supervisor::BridgeStatusSink;
-use crate::ports::AttachmentStorePort;
 use super::traits::{InboundAttachment, InboundMessage, MessagingService, ReplyContext};
+use crate::ports::AttachmentStorePort;
 
 pub const TELEGRAM_MAX_LEN: usize = 4096;
 
@@ -43,11 +43,19 @@ pub struct TelegramService {
 }
 
 impl TelegramService {
-    pub fn new(token: String, _allowed_users: Vec<String>, attachments: Arc<dyn AttachmentStorePort>) -> Self {
+    pub fn new(
+        token: String,
+        _allowed_users: Vec<String>,
+        attachments: Arc<dyn AttachmentStorePort>,
+    ) -> Self {
         Self::with_base(token, telegram_api_base(), attachments)
     }
 
-    pub fn with_base(token: String, api_base: String, attachments: Arc<dyn AttachmentStorePort>) -> Self {
+    pub fn with_base(
+        token: String,
+        api_base: String,
+        attachments: Arc<dyn AttachmentStorePort>,
+    ) -> Self {
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(40)) // > Telegram's 30s long poll

@@ -91,10 +91,7 @@ impl BridgeManager {
             });
         }
 
-        let token = self
-            .pane
-            .telegram_token()
-            .unwrap_or_default();
+        let token = self.pane.telegram_token().unwrap_or_default();
         let api_base = super::telegram::telegram_api_base();
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
@@ -705,9 +702,11 @@ async fn inject_message(
 
     let msg_id = msg.message_id.map(|id| id.to_string());
     let prefixed = match msg.service.as_str() {
-        "telegram" => {
-            codeterm_types::message_markers::telegram(&msg.user_id.to_string(), msg_id.as_deref(), &body)
-        }
+        "telegram" => codeterm_types::message_markers::telegram(
+            &msg.user_id.to_string(),
+            msg_id.as_deref(),
+            &body,
+        ),
         service => codeterm_types::message_markers::Marker::new(service)
             .attr("user", &msg.user_id.to_string())
             .attr_opt("msg", msg_id.as_deref())

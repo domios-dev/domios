@@ -24,10 +24,7 @@ impl AttachmentStorePort for AppAttachmentStorePort {
     }
 
     fn evict_downloads(&self, dir: &Path, max_bytes: u64) {
-        crate::attachments::evict(
-            dir,
-            crate::attachments::EvictionPolicy::MaxBytes(max_bytes),
-        );
+        crate::attachments::evict(dir, crate::attachments::EvictionPolicy::MaxBytes(max_bytes));
     }
 
     fn telegram_allowed_users(&self) -> Vec<String> {
@@ -66,7 +63,10 @@ impl BridgePanePort for ServiceBridgePanePort {
     }
 
     fn voice_transcribe_config(&self) -> VoiceTranscribeConfig {
-        crate::config::load_config().integrations.voice_transcribe.clone()
+        crate::config::load_config()
+            .integrations
+            .voice_transcribe
+            .clone()
     }
 
     fn text_hooks_config(&self) -> TextHooksConfig {
@@ -91,9 +91,7 @@ impl BridgePanePort for ServiceBridgePanePort {
         }
 
         if let Some((plugin_id, session_id)) = self.0.pane_chat_backing(pane_id) {
-            return self
-                .0
-                .chatbackend_send(&plugin_id, &session_id, prefixed);
+            return self.0.chatbackend_send(&plugin_id, &session_id, prefixed);
         }
 
         let pty_id = self.0.resolve_pty_id(pane_id)?;

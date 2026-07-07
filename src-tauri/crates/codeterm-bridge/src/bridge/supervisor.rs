@@ -3,8 +3,8 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
-use tokio::task::JoinHandle;
 use tokio::sync::Notify;
+use tokio::task::JoinHandle;
 
 /// Capability passed to messaging-service implementations so they can
 /// report poll outcomes without owning the supervisor's internal state.

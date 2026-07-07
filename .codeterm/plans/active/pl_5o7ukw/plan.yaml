@@ -98,7 +98,7 @@ owner:
 project_path: /Users/rollacode/Developer/codeterm
 canonical_project_path: /Users/rollacode/Developer/codeterm
 created_at: 1783413891138
-updated_at: 1783440824219
+updated_at: 1783441869892
 milestone_kinds:
 - key: status_update
   label: status_update
@@ -155,9 +155,9 @@ primary_spec_id: sp_64l6cv
 lineage: []
 goal: null
 heartbeat:
-  current_focus: '4-crate integration: macOS+Windows+ts GREEN (search-port fix worked). Fixed last Linux failure = file-size allowlist path stale after mem move (cb7ecf4b). Gate re-running. T4b Ritchie+T5 Bell in flight.'
+  current_focus: 5/6 crates merged (mesh,mem,pty-boundary,plan,bridge). Allowlist removed (1200 hard limit). T4b Ritchie(58f221b9) working pty pure-cut ~48min. T6 plugin held until T4b merges (last task).
   active_lanes:
-  - codeterm-pty=Ritchie(58f221b9), codeterm-bridge=Bell(a53288fb)
+  - codeterm-pty=Ritchie(58f221b9)-working
   rules: []
   learnings: []
 canvas:

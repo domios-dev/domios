@@ -18,7 +18,7 @@ qa_state: null
 status_label: null
 priority: p2
 created_at: 1783426880722
-updated_at: 1783426916515
+updated_at: 1783441869772
 status_changed_at: 1783426880722
 handle: t6-extract-codeterm-plugin-last-plugin-chatpreprocessor-view-view-host-g
 tags: []
@@ -72,7 +72,41 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_bfzc7c
+  from:
+    pane_id: c1a3fc71
+    session_id: null
+    title: null
+  kind: decision
+  text: blocked-on-T5 — T6 (codeterm-plugin) dispatches only after bridge merges (provider traits move into plugin; needs bridge's ChatPreprocessorPort landed). Not idle drift; real dependency.
+  ts: 1783441512029
+  links:
+  - key:4f62a67f7cee3d72
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_8ty1m3
+  from:
+    pane_id: c1a3fc71
+    session_id: null
+    title: null
+  kind: decision
+  text: 'hold T6 until T4b (pty pure cut) merges — plan sequences pty→plugin. T5 constraint satisfied, but T6 (riskiest: provider traits move into plugin crate) should branch from a post-pty base to avoid rebase churn against T4b''s pty/multiplexer/dispatch moves.'
+  ts: 1783441869772
+  links:
+  - key:ecd6bb7a7684104d
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 park_reason: null
 attachments: []

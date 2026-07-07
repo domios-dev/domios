@@ -17,10 +17,7 @@ use codeterm_bridge::bridge::traits::MessagingService;
 use codeterm_lib::bridge_host::attachment_store;
 use serde_json::{json, Value};
 
-async fn start_telegram_bridge_for_test(
-    token: String,
-    api_base: String,
-) -> Arc<BridgeSupervisor> {
+async fn start_telegram_bridge_for_test(token: String, api_base: String) -> Arc<BridgeSupervisor> {
     let supervisor = Arc::new(BridgeSupervisor::new());
     let cancel = supervisor.cancel_token();
     let status = supervisor.as_status_sink();
@@ -97,10 +94,7 @@ async fn spawn_mock_telegram() -> (String, MockState) {
     (format!("http://{}", addr), state)
 }
 
-async fn wait_for_first_poll(
-    sup: &Arc<BridgeSupervisor>,
-    deadline: Duration,
-) -> bool {
+async fn wait_for_first_poll(sup: &Arc<BridgeSupervisor>, deadline: Duration) -> bool {
     let start = std::time::Instant::now();
     while start.elapsed() < deadline {
         if sup.snapshot().last_poll_ok.is_some() {
