@@ -19,7 +19,9 @@ use super::{load_one, JsProvider};
 type PluginsDir = PathBuf;
 
 fn workspace_plugins_root() -> PathBuf {
-    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).join("plugins")
+    // CARGO_MANIFEST_DIR is <repo>/src-tauri/crates/codeterm-plugin; the plugins/
+    // dir lives at the repo root — three levels up (crate -> crates -> src-tauri).
+    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../..")).join("plugins")
 }
 
 fn require_plugins() -> Option<PluginsDir> {
