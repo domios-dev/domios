@@ -26,6 +26,7 @@ pub mod plan_files;
 pub mod plan_handoff;
 pub mod plan_heartbeat;
 pub mod plan_in_progress;
+pub mod plan_lanes;
 pub mod plan_linking;
 pub mod plan_local;
 pub mod plan_markdown;
