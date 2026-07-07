@@ -2038,6 +2038,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--model`
 - `--name`
 - `--parent`
+- `--personality` — Executor persona name (e.g. Hopper)
 - `<plan_id>`
 - `--primary`
 - `--priority`
@@ -2098,6 +2099,7 @@ Close a task (records a result; rejects if subtasks are open)
 
 Spawn a worker, assign the task, and deliver its brief in one atomic call
 
+- `--agent` — Agent provider to spawn (e.g. claude, codex, opencode)
 - `--cwd`
 - `--model`
 - `--parent` — Parent pane override (defaults to the caller pane)
@@ -2196,6 +2198,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--name`
 - `--pane`
 - `--parent`
+- `--personality` — Executor persona name (e.g. Hopper)
 - `<plan_id>`
 - `--primary`
 - `--priority`
@@ -2494,8 +2497,9 @@ Spec-to-plan links
 
 #### `codeterm spec link add`
 
-Link a spec section to a plan section (M:N coverage edge)
+Link spec section(s) to plan section(s) (M:N coverage edges)
 
+- `--edges` — Repeatable coverage edge; combine many in one call
 - `<plan_id>`
 - `--plan_section`
 - `--spec`

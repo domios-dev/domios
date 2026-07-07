@@ -7710,6 +7710,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "personality",
+                  "positional": false,
+                  "value_name": "PERSONALITY",
+                  "default": null,
+                  "help": "Executor persona name (e.g. Hopper)",
+                  "aliases": []
+                },
+                {
                   "name": "plan_id",
                   "positional": true,
                   "value_name": "PLAN_ID",
@@ -7997,6 +8005,14 @@
               "about": "Spawn a worker, assign the task, and deliver its brief in one atomic call",
               "aliases": [],
               "args": [
+                {
+                  "name": "agent",
+                  "positional": false,
+                  "value_name": "AGENT",
+                  "default": null,
+                  "help": "Agent provider to spawn (e.g. claude, codex, opencode)",
+                  "aliases": []
+                },
                 {
                   "name": "cwd",
                   "positional": false,
@@ -8491,6 +8507,14 @@
                   "value_name": "PARENT",
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "personality",
+                  "positional": false,
+                  "value_name": "PERSONALITY",
+                  "default": null,
+                  "help": "Executor persona name (e.g. Hopper)",
                   "aliases": []
                 },
                 {
@@ -9745,9 +9769,17 @@
           "subcommands": [
             {
               "name": "add",
-              "about": "Link a spec section to a plan section (M:N coverage edge)",
+              "about": "Link spec section(s) to plan section(s) (M:N coverage edges)",
               "aliases": [],
               "args": [
+                {
+                  "name": "edges",
+                  "positional": false,
+                  "value_name": "SPEC_SECTION:PLAN_SECTION",
+                  "default": null,
+                  "help": "Repeatable coverage edge; combine many in one call",
+                  "aliases": []
+                },
                 {
                   "name": "plan_id",
                   "positional": true,
