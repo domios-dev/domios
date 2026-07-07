@@ -70,6 +70,7 @@ List available agent providers (claude, codex, ...) with their display names, de
 
 Send a report to your parent in the hierarchy
 
+- `--acknowledge_dirty` — Acknowledge unrelated dirty files in the worktree and proceed with the readiness report. Stride is recorded acknowledging the override
 - `--attachments` — File to attach to the report milestone; repeat for multiple files
 - `--branch` — Git branch the work landed on
 - `--changed_files` — Changed files (comma-separated or repeat the flag)
@@ -113,7 +114,9 @@ Mark a pane as orchestrator (top-level, can spawn workers)
 Spawn a new agent; roleless unless --role is provided
 
 - `<agent>` — Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude
+- `--allow_shared_checkout` — Allow a Worker to spawn into a shared/canonical checkout instead of an isolated worktree. Records a visible exception stride on the bound task
 - `--args` — Extra args for the agent
+- `--bound_task` — Bound task id for the shared-checkout exception stride
 - `--can_spawn` — Override whether an explicit Orchestrator may spawn children
 - `--cwd` — Working directory
 - `--description` — Short pane description (max 200 chars)
@@ -309,16 +312,6 @@ List cron jobs
 Manually trigger a cron job now
 
 - `<id>` — Cron job ID
-
-#### `codeterm debug`
-
-Internal diagnostics — verify crash reporter, etc. Dev-only; hidden from --help because the matching daemon endpoint is gated to debug builds. Calling against a prod daemon returns Method-not-found
-
-#### `codeterm debug crash`
-
-Trigger a synthetic crash to verify the crash-reporter writes files. Daemon dies (segv/abort) or just records a panic report (panic). Only available in dev builds
-
-- `--kind` — Kind of crash to trigger
 
 #### `codeterm delayed`
 
@@ -1199,6 +1192,13 @@ Append a persistent learning to this orchestrator's heartbeat
 - `--tag`
 - `<text>`
 
+#### `codeterm orchestrator refresh`
+
+Run the daemon-side refresh cycle (handoff → compact → re-orient → verify resumption)
+
+- `--pane`
+- `--plan`
+
 #### `codeterm orchestrator status`
 
 Show orchestration status as reports, live lanes, drift, and next actions
@@ -1620,6 +1620,13 @@ Set the declared milestone kind columns (CSV)
 - `--kinds`
 - `<plan_id>`
 
+#### `codeterm plan lanes`
+
+Lane hygiene table: one row per open lane (task/status/pane/branch/worktree/cleanup)
+
+- `<plan_id>`
+- `--stale` — Only show stale lanes (dead pane / report-overdue / uncleaned)
+
 #### `codeterm plan layout`
 
 Canvas layout overrides
@@ -1651,6 +1658,15 @@ List plans
 - `--project`
 - `--unowned`
 - `--workspace`
+
+#### `codeterm plan locate`
+
+File + line range of a body block, for in-place edits with file tools
+
+- `<plan_id>`
+- `--section` — Plan section id or handle
+- `--spec_section` — Spec section id or handle (of the plan's spec)
+- `--task` — Task id or handle
 
 #### `codeterm plan loop`
 
@@ -2073,6 +2089,17 @@ Close a task (records a result; rejects if subtasks are open)
 - `--result_file`
 - `<task_id>`
 
+#### `codeterm plan task dispatch`
+
+Spawn a worker, assign the task, and deliver its brief in one atomic call
+
+- `--cwd`
+- `--model`
+- `--parent` — Parent pane override (defaults to the caller pane)
+- `<plan_id>`
+- `<task_id>`
+- `--workspace`
+
 #### `codeterm plan task link`
 
 Link a task to one or more plan sections (CSV)
@@ -2316,6 +2343,7 @@ Update bundled system provider plugins from the official plugin channel
 
 Report worker progress to the owning orchestrator or plan
 
+- `--acknowledge_dirty` — Acknowledge unrelated dirty files in the worktree and proceed with the readiness report. Stride is recorded acknowledging the override
 - `--attachments` — File to attach to the report milestone; repeat for multiple files
 - `--branch` — Git branch the work landed on
 - `--changed_files` — Changed files (comma-separated or repeat the flag)
@@ -2448,11 +2476,12 @@ Create a new spec
 - `--project`
 - `--title`
 
-#### `codeterm spec files`
+#### `codeterm spec delete`
 
-List generated section body files
+Delete a spec (scrubs plan references, removes the yaml)
 
 - `<spec_id>`
+- `--yes` — Confirm permanent deletion
 
 #### `codeterm spec link`
 
@@ -2603,6 +2632,8 @@ List tasks across active plans
 
 Show one task with plan and section context
 
+- `--all` — With --siblings, include done/cancelled tasks
+- `--siblings` — List sibling tasks (open-only unless --all)
 - `<task_id>`
 
 #### `codeterm task take`
