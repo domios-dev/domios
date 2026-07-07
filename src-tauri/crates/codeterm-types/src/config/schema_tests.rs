@@ -66,10 +66,7 @@ fn orchestration_plan_reminder_defaults() {
     assert_eq!(cfg.idle_poke.live_lane_cap, 3);
     assert_eq!(cfg.idle_poke.max_per_day, 4);
     assert_eq!(cfg.idle_poke.backoff_base_secs, 90);
-    assert_eq!(
-        cfg.reflect.every_gates,
-        crate::service::plan::reflection::DEFAULT_REFLECT_EVERY_GATES
-    );
+    assert_eq!(cfg.reflect.every_gates, 5);
     assert!(cfg.digests.enabled);
     assert_eq!(cfg.digests.rules.len(), 2);
 }
