@@ -208,7 +208,13 @@ fn handle_seed(tags: &[String], title: &str) -> String {
 }
 
 fn unique_handle(seed: String, used: &mut HashSet<String>) -> String {
-    let seed = if seed.is_empty() { "item".into() } else { seed };
+    // Re-slug even stored handles: legacy pre-cap handles blow past OS path
+    // limits (Windows MAX_PATH) every time the task file is rewritten.
+    let seed = if seed.is_empty() {
+        "item".into()
+    } else {
+        slug(&seed)
+    };
     if used.insert(seed.clone()) {
         return seed;
     }
@@ -303,9 +309,32 @@ mod tests {
     }
 
     #[test]
-    fn generated_handles_use_primary_facet_and_topic() {
+    fn normalize_caps_legacy_stored_handles() {
         let mut plan = Plan::new("P".into(), "/repo".into(), OrchestratorRef::default());
         plan.tasks.push(crate::plan::Task {
+            id: "task_1".into(),
+            handle: Some("legacy-uncapped-handle-".repeat(10)),
+            ..task_fixture()
+        });
+        normalize_plan(&mut plan);
+        let handle = plan.tasks[0].handle.as_deref().unwrap();
+        assert!(
+            handle.len() <= 72,
+            "stored handle must be re-capped, got {}",
+            handle.len()
+        );
+    }
+
+    #[test]
+    fn generated_handles_use_primary_facet_and_topic() {
+        let mut plan = Plan::new("P".into(), "/repo".into(), OrchestratorRef::default());
+        plan.tasks.push(task_fixture());
+        normalize_plan(&mut plan);
+        assert_eq!(plan.tasks[0].handle.as_deref(), Some("nav-pan-zoom"));
+    }
+
+    fn task_fixture() -> crate::plan::Task {
+        crate::plan::Task {
             id: "task_1".into(),
             name: "Pan Zoom".into(),
             kind: "implement".into(),
@@ -341,8 +370,6 @@ mod tests {
             execution_attempts: vec![],
             park_reason: None,
             attachments: vec![],
-        });
-        normalize_plan(&mut plan);
-        assert_eq!(plan.tasks[0].handle.as_deref(), Some("nav-pan-zoom"));
+        }
     }
 }
