@@ -65,8 +65,6 @@ var plugin = {
     }
     return true;
   },
-  // Cheap incremental gate: a selector glyph, a keyboard footer, or a
-  // trust/approval keyword means a prompt frame might be on screen → let the
   hasEventMarkers(chunk) {
     return chunkHasPromptSignal(String(chunk || ""));
   },
@@ -74,13 +72,9 @@ var plugin = {
   detectEvents(text) {
     return parseCursorPrompt(String(text || "")) ? ["permission_request"] : [];
   },
-  // Read cursor's alt-screen menu (permission / workspace-trust / model picker)
-  // into {question, options}. Returns null on non-menu output so normal chat
   parsePrompt(text) {
     return parseCursorPrompt(String(text || ""));
   },
-  // Cursor menus are vertical lists navigated with ↑/↓ + Enter. The highlight is
-  // NOT the top row — the /model picker lands the → selector on the CURRENT model —
   buildPromptResponse(optionIndex, screen) {
     const DOWN = "G1tC";
     const UP = "G1tB";
@@ -99,7 +93,6 @@ var plugin = {
   discoverModels() {
     return discoverCursorModels() || manifestModels();
   },
-  // Pre-write cursor's workspace-trust marker to bypass its one-time trust prompt,
   // but only under skip-permissions — that's the user's intentional "trust everything" flow.
   buildLaunchCommand(params) {
     const p = params || {};
@@ -135,7 +128,6 @@ var plugin = {
     const ms = meta.createdAtMs;
     return typeof ms === "number" ? ms : null;
   },
-  // Re-attach a restarted cursor pane to its session. Identity-bound, never
   // "newest-for-cwd" (capability rule #3): with 2+ viable candidates, refuse rather than hand over a sibling's session.
   detectSessionId(cwd, exclude, maxAgeMs) {
     const dir = cursorChatsDir(cwd);
@@ -271,9 +263,6 @@ var plugin = {
     }
     return out;
   },
-  // Cursor has no /usage TUI screen — usage lives in the dashboard API. Fetch it
-  // directly (keychain token → api2.cursor.sh) and return the raw JSON; the host
-  // routes that to parseUsage, skipping any hidden-pane probe.
   fetchUsage(nowMs) {
     const token = readCursorToken();
     if (!token) return null;
@@ -314,7 +303,6 @@ var plugin = {
       fetchedAtMs: nowMs
     });
   },
-  // Parse the fetchUsage payload into a spend-based UsageSnapshot. Cursor's plan
   // is billed by spend, not a session/weekly %, so only the spend_* fields fill.
   parseUsage(rawText, nowMs) {
     const data = safeJson(String(rawText || ""));
