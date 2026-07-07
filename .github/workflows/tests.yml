@@ -120,6 +120,17 @@ jobs:
           $hit | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           Write-Host "Prepended Rust bin to PATH: $hit"
 
+      # The runner service session (NETWORK SERVICE) lacks Windows PowerShell on
+      # PATH; host_exec tests spawn `powershell` by name and fail with
+      # "program not found" without this.
+      - name: Ensure Windows PowerShell on PATH
+        shell: pwsh
+        run: |
+          $psDir = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0'
+          if (-not (Test-Path (Join-Path $psDir 'powershell.exe'))) { Write-Error "powershell.exe not found at $psDir"; exit 1 }
+          $psDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "Prepended $psDir"
+
       - name: Prepare compile stubs
         shell: pwsh
         run: |
