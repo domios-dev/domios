@@ -15,6 +15,8 @@ use crate::service::ServiceContext;
 
 use super::next_actions::{compute_next_actions, NextAction};
 
+pub mod lane_rows;
+
 const RECENT_STRIDE_LIMIT: usize = 10;
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
@@ -126,6 +128,7 @@ pub struct PlanStateSnapshot {
     pub loops: Vec<LoopSnapshot>,
     pub heartbeat: HeartbeatSnapshot,
     pub open_lanes: Vec<OpenLane>,
+    pub lanes: Vec<lane_rows::LaneRow>,
     pub blocked_lanes: Vec<OpenLane>,
     pub live_agents: Vec<LiveAgent>,
     pub recent_strides: Vec<StrideSnapshot>,
@@ -290,6 +293,7 @@ pub fn build_plan_state_snapshot(
     coverage: CoverageReport,
     drift: Vec<DriftItem>,
     cleanup_debt: Vec<CleanupDebtTask>,
+    lanes: Vec<lane_rows::LaneRow>,
     live_agent_panes: &HashSet<String>,
     now_ms: u64,
 ) -> PlanStateSnapshot {
@@ -417,6 +421,7 @@ pub fn build_plan_state_snapshot(
             qa_running_age_ms: qa_running.map(|task| now_ms.saturating_sub(task.status_changed_at)),
         },
         open_lanes,
+        lanes,
         blocked_lanes,
         live_agents,
         recent_strides: recent_strides(plan),
@@ -457,11 +462,14 @@ impl ServiceContext {
             }
         }
 
+        let lanes = lane_rows::build_lane_rows(&plan, |p| self.pane_probe(p), now_ms);
+
         Ok(build_plan_state_snapshot(
             &plan,
             coverage,
             drift,
             cleanup_debt,
+            lanes,
             &live_panes,
             now_ms,
         ))
@@ -591,7 +599,7 @@ mod tests {
         }];
         let live: HashSet<String> = ["pane_live".to_string()].into_iter().collect();
 
-        let snap = build_plan_state_snapshot(&plan, coverage, drift, vec![], &live, 1);
+        let snap = build_plan_state_snapshot(&plan, coverage, drift, vec![], vec![], &live, 1);
 
         assert_eq!(snap.task_counts.total, 5);
         assert_eq!(snap.task_counts.done, 1);
@@ -639,7 +647,8 @@ mod tests {
             .map(|i| milestone(&format!("k{i}"), i as u64))
             .collect();
         let coverage = compute_coverage_report(&plan);
-        let snap = build_plan_state_snapshot(&plan, coverage, vec![], vec![], &HashSet::new(), 1);
+        let snap =
+            build_plan_state_snapshot(&plan, coverage, vec![], vec![], vec![], &HashSet::new(), 1);
         assert_eq!(snap.recent_strides.len(), RECENT_STRIDE_LIMIT);
         assert_eq!(snap.recent_strides[0].id, "k14");
         assert_eq!(snap.recent_strides[9].id, "k5");
@@ -654,7 +663,8 @@ mod tests {
         plan.tasks[0].milestones = vec![milestone("task_ms", 100)];
         plan.strides = vec![milestone("plan_ms", 200)];
         let coverage = compute_coverage_report(&plan);
-        let snap = build_plan_state_snapshot(&plan, coverage, vec![], vec![], &HashSet::new(), 1);
+        let snap =
+            build_plan_state_snapshot(&plan, coverage, vec![], vec![], vec![], &HashSet::new(), 1);
         let plan_level: Vec<_> = snap
             .recent_strides
             .iter()
@@ -676,7 +686,8 @@ mod tests {
         let plan = fixture();
         let before = plan.clone();
         let coverage = compute_coverage_report(&plan);
-        let _ = build_plan_state_snapshot(&plan, coverage, vec![], vec![], &HashSet::new(), 1);
+        let _ =
+            build_plan_state_snapshot(&plan, coverage, vec![], vec![], vec![], &HashSet::new(), 1);
         assert_eq!(plan, before);
     }
 }
