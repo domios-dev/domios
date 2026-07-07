@@ -125,6 +125,8 @@ mockito = "1"
 filetime = "0.2.29"
 tower = "0.5"
 vt100 = "0.16"
+# Enables PlanStore::new_for_test + TestSearchPort in the app's test build only.
+codeterm-plan = { path = "crates/codeterm-plan", features = ["test-support"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

@@ -12,14 +12,14 @@ acceptance_criteria:
 - Workspace green + 3-platform CI with Windows (ConPTY) green MANDATORY before merge
 test_plan: '1) scripts/test-capped.sh cargo test -p codeterm-pty — all moved tests pass; 2) ONE full ./build.sh test in warm QA — matches baseline; 3) bash scripts/clippy-gate.sh — green; 4) cargo metadata jq dep-whitelist oracle; 5) live smoke on dev 7686: pane lifecycle (create/write/kill), resize, and session restore after ./build.sh kill + dev restart; 6) Windows CI green REQUIRED (ConPTY paths), plus macOS + Linux CI'
 correctness: Move+rewire only — this lane contains zero semantic changes by construction (t4a retired them). Lock ordering re-verified post-move via nested .lock() grep. Unix kill-process-group and Windows taskkill /T semantics untouched beyond import rewrites. Blocked on t4a merge.
-status: pending
+status: in_progress
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783425193164
-updated_at: 1783426916087
-status_changed_at: 1783425193164
+updated_at: 1783438637302
+status_changed_at: 1783438576455
 handle: t4b-extract-codeterm-pty-pure-cut-of-pty-multiplexer-session-dispatch-re
 tags: []
 section_ids:
@@ -45,9 +45,9 @@ executor_role: rust-backend-dev
 competition: null
 intent: null
 parent_task_id: null
-assigned_pane_id: null
+assigned_pane_id: 58f221b9
 lane:
-  pane_id: null
+  pane_id: 58f221b9
   workspace_id: null
   workspace_name: null
   worktree_path: null
@@ -64,6 +64,32 @@ canvas:
   y: null
   collapsed: false
 milestones: []
-execution_attempts: []
+execution_attempts:
+- id: attempt_93cht8
+  executor_pane_id: 58f221b9
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: claude
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: null
+  report: null
+  assigned_at: 1783438576455
+  reported_at: null
+  reviewed_at: null
+  closed_at: null
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
 park_reason: null
 attachments: []

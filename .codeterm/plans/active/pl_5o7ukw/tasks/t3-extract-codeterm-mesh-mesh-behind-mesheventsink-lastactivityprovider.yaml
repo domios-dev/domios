@@ -12,14 +12,14 @@ acceptance_criteria:
 - 'Full workspace green: ./build.sh test + clippy-gate + 3-platform CI'
 test_plan: '1) scripts/test-capped.sh cargo test -p codeterm-mesh — all moved tests pass; 2) ONE full ./build.sh test in warm QA — matches baseline; 3) bash scripts/clippy-gate.sh — green; 4) cargo metadata jq dep-whitelist oracle; 5) live smoke on dev 7686: mesh status/peers READ-ONLY (NEVER flush routes or mutate peer state); 6) 3-platform CI green'
 correctness: 'Move+rewire only. Wire protocol/pairing/gossip bytes untouched. broadcast_announce call sites unchanged. Two-commit discipline: port inversion in place, then pure move.'
-status: in_review
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783425162898
-updated_at: 1783433770085
-status_changed_at: 1783433769145
+updated_at: 1783434502060
+status_changed_at: 1783434491394
 handle: t3-extract-codeterm-mesh-mesh-behind-mesheventsink-lastactivityprovider
 tags: []
 section_ids:
@@ -49,16 +49,16 @@ executor_role: rust-backend-dev
 competition: null
 intent: null
 parent_task_id: null
-assigned_pane_id: 2654cb1f
+assigned_pane_id: null
 lane:
-  pane_id: 2654cb1f
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: null
   branch: lane/codeterm-mesh
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -148,7 +148,7 @@ execution_attempts:
   assigned_at: 1783432199065
   reported_at: 1783433769690
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783434491394
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

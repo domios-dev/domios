@@ -4,7 +4,7 @@ use std::process::Command;
 use codeterm_util::process_util;
 
 pub fn project_root(cwd: &Path) -> PathBuf {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     if test_project_root_marker(cwd).is_some() {
         return cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
     }
@@ -36,17 +36,17 @@ fn worktree_top(cwd: &Path) -> Option<PathBuf> {
     Some(top.canonicalize().unwrap_or(top))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 const TEST_PROJECT_ROOT_MARKER: &str = ".codeterm-test-project-root";
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn mark_test_project_root(root: &Path) {
     if root.is_dir() {
         let _ = std::fs::write(root.join(TEST_PROJECT_ROOT_MARKER), "");
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn test_project_root_marker(cwd: &Path) -> Option<PathBuf> {
     let mut current = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
     loop {
