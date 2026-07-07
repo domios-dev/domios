@@ -45,6 +45,11 @@ jobs:
           run_install: false
       - name: Install deps
         run: pnpm install --frozen-lockfile
+      - name: Prepare compile stubs
+        run: |
+          mkdir -p dist src-tauri/bundled-cli
+          [ -n "$(ls -A src-tauri/bundled-cli)" ] || touch src-tauri/bundled-cli/codeterm
+          node scripts/prepare-embed-stub.js
       - name: Install Chromium
         run: pnpm exec playwright install chromium
       - name: Run ${{ inputs.project || 'smoke' }}
@@ -70,8 +75,13 @@ jobs:
           run_install: false
       - name: Install deps
         run: pnpm install --frozen-lockfile
+      - name: Prepare compile stubs
+        run: |
+          mkdir -p dist src-tauri/bundled-cli
+          [ -n "$(ls -A src-tauri/bundled-cli)" ] || touch src-tauri/bundled-cli/codeterm
+          node scripts/prepare-embed-stub.js
       - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install chromium
       - name: Run ${{ inputs.project || 'smoke' }}
         run: pnpm test:pw:${{ inputs.project || 'smoke' }} -- --global-timeout=1800000
       - uses: actions/upload-artifact@v4
@@ -95,6 +105,14 @@ jobs:
           run_install: false
       - name: Install deps
         run: pnpm install --frozen-lockfile
+      - name: Prepare compile stubs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist, src-tauri\bundled-cli | Out-Null
+          if (-not (Get-ChildItem src-tauri\bundled-cli -ErrorAction SilentlyContinue)) {
+            New-Item -ItemType File -Path src-tauri\bundled-cli\codeterm.exe | Out-Null
+          }
+          node scripts/prepare-embed-stub.js
       # Windows drives the real WebView2 app over CDP (no Chromium download).
       - name: Run ${{ inputs.project || 'smoke' }}
         run: pnpm test:pw:${{ inputs.project || 'smoke' }} -- --global-timeout=1800000
