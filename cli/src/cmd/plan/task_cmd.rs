@@ -458,6 +458,40 @@ pub(super) fn run_task(
             }
             call(client, "plan.task.assign", params).map(Some)
         }
+        PlanTaskAction::Dispatch {
+            plan_id,
+            task_id,
+            model,
+            parent,
+            workspace,
+            cwd,
+        } => {
+            let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
+            let mut params = json!({ "task_id": task_ref });
+            if let Some(pid) = plan_ref {
+                params["plan_id"] = json!(pid);
+            }
+            if let Some(model) = model {
+                params["model"] = json!(model);
+            }
+            if let Some(parent) = parent {
+                params["parent_pane_id"] = json!(parent);
+            }
+            if let Some(workspace) = workspace {
+                params["workspace_id"] = json!(workspace);
+            }
+            if let Some(cwd) = cwd {
+                params["cwd"] = json!(cwd);
+            }
+            maybe_inject_caller_pane(&mut params);
+            let val = call(client, "plan.task.dispatch", params)?;
+            if json {
+                return Ok(Some(val));
+            }
+            let pane = val.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
+            println!("Dispatched worker pane {pane}");
+            Ok(None)
+        }
         PlanTaskAction::Attempts { plan_id, task_id } => {
             let val = call(
                 client,
