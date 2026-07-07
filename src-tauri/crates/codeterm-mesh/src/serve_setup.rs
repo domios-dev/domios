@@ -152,7 +152,7 @@ fn localapi_via_disclaimed_helper(path: &str) -> Option<serde_json::Value> {
          port=${{rest%%-*}}; proof=${{rest#*-}}; \
          exec curl -s -u \":$proof\" \"http://127.0.0.1:$port{path}\""
     );
-    let out = crate::process_util::disclaimed_capture("/bin/sh", &["-c", &script])?;
+    let out = codeterm_util::process_util::disclaimed_capture("/bin/sh", &["-c", &script])?;
     let start = out.find('{')?;
     let end = out.rfind('}')?;
     serde_json::from_str(out.get(start..=end)?).ok()
@@ -478,7 +478,7 @@ fn run_serve_https(bin: &str, https_port: u16, proxy: &str) -> bool {
 fn run_serve_cmd(bin: &str, args: &[&str]) -> bool {
     let mut c = std::process::Command::new(bin);
     c.args(args);
-    crate::process_util::no_window_std(&mut c);
+    codeterm_util::process_util::no_window_std(&mut c);
     matches!(run_with_timeout(&mut c, SERVE_TIMEOUT), Some((true, _)))
 }
 

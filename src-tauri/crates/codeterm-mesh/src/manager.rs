@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use mdns_sd::ServiceDaemon;
 
+use super::ports::{default_last_activity, LastActivityProvider};
 use super::types::{
     self, DiscoveredPeer, MeshPeersResponse, MeshStatus, PairedPeer, PairingRequest, RevocationList,
 };
@@ -23,6 +24,7 @@ pub struct MeshManager {
     pub local_ip: Option<String>,
     pub local_https_url: Option<String>,
     pub api_port: u16,
+    pub build_hash: String,
     pub pairing_targets: HashMap<String, (String, u16, String)>,
     pub mdns_daemon: Option<ServiceDaemon>,
     pub mdns_service_fullname: Option<String>,
@@ -31,7 +33,7 @@ pub struct MeshManager {
     pub disk_persist: bool,
     pub seen_nonces: HashMap<String, u64>,
     pub peer_services: peer_services::PeerServicesCache,
-    pub user_last_activity: Arc<crate::user_last_activity::UserLastActivity>,
+    pub last_activity: Arc<dyn LastActivityProvider>,
 }
 
 impl MeshManager {
@@ -62,6 +64,7 @@ impl MeshManager {
             local_ip: None,
             local_https_url: None,
             api_port,
+            build_hash: String::new(),
             pairing_targets: HashMap::new(),
             mdns_daemon: None,
             mdns_service_fullname: None,
@@ -70,8 +73,18 @@ impl MeshManager {
             disk_persist: true,
             seen_nonces: HashMap::new(),
             peer_services: peer_services::PeerServicesCache::default(),
-            user_last_activity: crate::user_last_activity::UserLastActivity::new(),
+            last_activity: default_last_activity(),
         }
+    }
+
+    pub fn with_last_activity(
+        instance_name: String,
+        api_port: u16,
+        last_activity: Arc<dyn LastActivityProvider>,
+    ) -> Self {
+        let mut mgr = Self::new(instance_name, api_port);
+        mgr.last_activity = last_activity;
+        mgr
     }
 
     // ── Forwarding methods (minimize caller changes) ────────────────
@@ -123,7 +136,7 @@ impl MeshManager {
             enabled: true,
             instance_id: self.ident.identity.instance_id.clone(),
             instance_name: self.ident.instance_name.clone(),
-            build: env!("BUILD_HASH").to_string(),
+            build: self.build_hash.clone(),
             discovery_active: self.discovery_active,
             broadcast_active: self.broadcast_active,
             broadcast_expires_at: self.broadcast_expires_at,
@@ -154,8 +167,8 @@ impl MeshManager {
                 })
                 .cloned()
                 .collect(),
-            local_last_active_ms: self.user_last_activity.read_for_gossip(),
-            local_dev: crate::paths::is_dev_instance(),
+            local_last_active_ms: self.last_activity.read_for_gossip(),
+            local_dev: codeterm_paths::is_dev_instance(),
         }
     }
 
@@ -306,8 +319,8 @@ impl MeshManager {
     }
 
     pub fn build_sync_payload(&self) -> types::MeshSyncPayload {
-        let is_dev = crate::paths::is_dev_instance();
-        let self_last = self.user_last_activity.read_for_gossip();
+        let is_dev = codeterm_paths::is_dev_instance();
+        let self_last = self.last_activity.read_for_gossip();
         let mut peers: Vec<types::GossipPeerInfo> = self
             .paired_peers
             .values()
@@ -520,8 +533,9 @@ mod liveness_tests {
 
     #[test]
     fn build_sync_payload_includes_self_last_active() {
-        let mesh = MeshManager::new("local".into(), 7685);
-        mesh.user_last_activity.mark();
+        let activity = crate::ports::RecordingLastActivity::new(cfg!(debug_assertions));
+        let mesh = MeshManager::with_last_activity("local".into(), 7685, activity.clone());
+        activity.mark();
         let payload = mesh.build_sync_payload();
         let self_entry = payload
             .peers
@@ -637,19 +651,19 @@ mod liveness_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mesh::types::{PairedPeer, PairingRequest, PeerAddress, PeerAnnounce};
+    use crate::types::{PairedPeer, PairingRequest, PeerAddress, PeerAnnounce};
 
     #[test]
     fn check_and_record_nonce_rejects_replay() {
         let mut mgr = MeshManager::new("test-node".to_string(), 7777);
         mgr.disk_persist = false;
 
-        let (priv_key, pub_key) = crate::mesh::crown::generate_peer_keypair();
+        let (priv_key, pub_key) = crate::crown::generate_peer_keypair();
         mgr.ident.identity.private_key = Some(priv_key.clone());
         mgr.ident.identity.public_key = Some(pub_key.clone());
         let instance_id = mgr.ident.identity.instance_id.clone();
 
-        let token = crate::mesh::crown::sign_request(&priv_key, &instance_id).unwrap();
+        let token = crate::crown::sign_request(&priv_key, &instance_id).unwrap();
 
         assert!(
             mgr.check_and_record_nonce(&token).is_ok(),
