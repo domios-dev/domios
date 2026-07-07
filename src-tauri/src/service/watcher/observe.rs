@@ -217,7 +217,11 @@ pub fn build_observation(
                     role: role_label(pane.role),
                     role_profile: pane.role_profile.clone(),
                     status: pane_status_label(snapshot, &pane.id),
-                    last_activity_ms: sources.last_activity_ms.get(&pane.id).copied().filter(|ms| *ms > 0),
+                    last_activity_ms: sources
+                        .last_activity_ms
+                        .get(&pane.id)
+                        .copied()
+                        .filter(|ms| *ms > 0),
                     chat_tail,
                 }
             })
