@@ -153,6 +153,27 @@ impl PlanStore {
         })
     }
 
+    pub fn update_task_personality(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        personality: Option<Option<&str>>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |p| {
+            let task = p
+                .tasks
+                .iter_mut()
+                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            if let Some(name) = personality {
+                task.personality = name.map(str::to_string);
+            }
+            task.updated_at = now_ms;
+            Ok(())
+        })
+    }
+
     /// Recording discipline: at report / status-to-active time, capture lane
     /// truth from the caller's live context — but only into EMPTY fields, never
     /// overwriting an explicit prior value. This is the fix for tasks going

@@ -43,6 +43,26 @@ pub(super) fn update_role_guidance_if_present(
     Ok(())
 }
 
+pub(super) fn update_personality_if_present(
+    store: &PlanStore,
+    plan_id: &str,
+    task_id: &str,
+    params: Option<&Value>,
+    now: u64,
+) -> Result<(), JsonRpcError> {
+    if params.and_then(|x| x.get("personality")).is_some() {
+        store
+            .update_task_personality(
+                plan_id,
+                task_id,
+                optional_string_field(params, "personality"),
+                now,
+            )
+            .map_err(plan_rpc_err)?;
+    }
+    Ok(())
+}
+
 pub(super) fn assign_task_with_profile(
     store: &PlanStore,
     svc: &ServiceState,

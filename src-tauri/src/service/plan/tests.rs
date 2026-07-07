@@ -316,6 +316,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         milestones: vec![],
         execution_attempts: vec![],
         park_reason: None,
+        personality: None,
         attachments: vec![],
     });
     let json_path = paths::plan_json_path(&project, &plan.status, &plan.id).unwrap();

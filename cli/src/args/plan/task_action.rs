@@ -42,6 +42,12 @@ pub enum PlanTaskAction {
         role_guidance_file: Option<String>,
         #[arg(long = "executor-role", allow_hyphen_values = true)]
         executor_role: Option<String>,
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Executor persona name (e.g. Hopper)"
+        )]
+        personality: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -112,6 +118,12 @@ pub enum PlanTaskAction {
         role_guidance_file: Option<String>,
         #[arg(long = "executor-role", allow_hyphen_values = true)]
         executor_role: Option<String>,
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Executor persona name (e.g. Hopper)"
+        )]
+        personality: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -200,6 +212,8 @@ pub enum PlanTaskAction {
     Dispatch {
         plan_id: String,
         task_id: Option<String>,
+        #[arg(long, help = "Agent provider to spawn (e.g. claude, codex, opencode)")]
+        agent: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
         #[arg(long, help = "Parent pane override (defaults to the caller pane)")]

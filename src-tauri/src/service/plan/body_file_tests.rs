@@ -114,6 +114,41 @@ fn executor_role_persists_across_json_frontmatter_and_reload() {
 }
 
 #[test]
+fn personality_persists_across_yaml_sidecar_and_reload() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Persona".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Implement".into(),
+                kind: "implement".into(),
+                personality: Some("Hopper".into()),
+                competition: None,
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+
+    let plan_state = plan_dir(&store, &plan.id);
+    let task_path = store_v2::task_yaml_path(&plan_state, &store.get(&plan.id).unwrap().tasks[0]);
+    let task_doc: Task =
+        serde_yaml::from_str(&std::fs::read_to_string(&task_path).unwrap()).unwrap();
+    assert_eq!(task_doc.personality.as_deref(), Some("Hopper"));
+
+    let loaded = reload_cleared(&store, &plan.id);
+    let task = loaded.tasks.iter().find(|t| t.id == task_id).unwrap();
+    assert_eq!(task.personality.as_deref(), Some("Hopper"));
+}
+
+#[test]
 fn corrupt_markdown_sidecar_keeps_plan_indexed_with_json_body() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
@@ -168,6 +203,7 @@ fn corrupt_markdown_sidecar_keeps_plan_indexed_with_json_body() {
         milestones: vec![],
         execution_attempts: vec![],
         park_reason: None,
+        personality: None,
         attachments: vec![],
     });
     let json_path = paths::plan_json_path(&project, &plan.status, &plan.id).unwrap();
@@ -634,6 +670,7 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
         }],
         execution_attempts: vec![],
         park_reason: None,
+        personality: None,
     });
     plan.elements.push(CanvasElement {
         id: "el_discussion".into(),
@@ -734,6 +771,7 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
         }],
         execution_attempts: vec![],
         park_reason: None,
+        personality: None,
     });
     let json_path = paths::plan_json_path(&project, &plan.status, &plan.id).unwrap();
     std::fs::write(&json_path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();
