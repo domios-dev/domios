@@ -105,7 +105,9 @@ export function NewSessionPicker({
       }
       if (!folder) return;
       const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
-      const info = await createWorkspace(basename, folder);
+      // Stay on the picker: the new workspace becomes the spawn DESTINATION;
+      // the UI only navigates there when Start creates the session.
+      const info = await createWorkspace(basename, folder, { activate: false });
       if (info?.id) setSelectedWorkspaceId(info.id);
     })();
   }, [createWorkspace]);
@@ -113,7 +115,7 @@ export function NewSessionPicker({
   const handleConfirmCreateWorkspace = useCallback(async () => {
     const name = newWorkspaceName.trim();
     if (!name) return;
-    const info = await createWorkspace(name);
+    const info = await createWorkspace(name, undefined, { activate: false });
     setCreatingWorkspace(false);
     if (info?.id) setSelectedWorkspaceId(info.id);
   }, [newWorkspaceName, createWorkspace]);

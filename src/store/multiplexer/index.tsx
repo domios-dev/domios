@@ -360,10 +360,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshFromBackend, guardedInvoke]);
 
-  const createWorkspace = useCallback(async (name: string, cwd?: string) => {
+  const createWorkspace = useCallback(async (name: string, cwd?: string, opts?: { activate?: boolean }) => {
     try {
       // Reuse existing workspace for the same cwd; avoid duplicate tabs.
-      const info = await guardedInvoke<{ id: string; name: string }>("mux_create_workspace", { name, cwd: cwd ?? null, activate: true });
+      const info = await guardedInvoke<{ id: string; name: string }>("mux_create_workspace", { name, cwd: cwd ?? null, activate: opts?.activate ?? true });
       const s = await invoke<MultiplexerState>("mux_get_state");
       if (s && s.workspaces.length > 0) applyBackendState(s);
       return info;
