@@ -57,4 +57,23 @@ function toolCall(id: string, patch: Partial<NormalizedChatMessage> = {}): Norma
   eq(messages[1].toolName, "exec_command", "real tool row stays renderable");
 }
 
+{
+  const messages = attachToolResults([
+    toolCall("exec-err", {
+      toolName: "exec_command",
+      toolInput: { cmd: "false" },
+      toolId: "call-err",
+    }),
+    {
+      id: "result-err",
+      type: "tool_result",
+      content: "command failed",
+      provider: "codex",
+      toolId: "call-err",
+      toolError: true,
+    },
+  ]);
+  eq(messages[0].toolError, true, "tool error propagates to attached tool_call");
+}
+
 console.log("ok - toolResults ghost-row filtering");

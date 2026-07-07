@@ -45,6 +45,7 @@ impl ChatBackendProvider for FakeBackend {
                 ..Default::default()
             }],
             cursor: None,
+            done: None,
         })
     }
     fn close_session(&self, _session_id: &str) -> Result<(), ChatBackendError> {

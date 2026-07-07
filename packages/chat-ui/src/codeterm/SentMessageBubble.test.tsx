@@ -5,6 +5,8 @@ import { createRoot } from "react-dom/client";
 import { recognize } from "./recognize";
 import { SentMessageBubble } from "./SentMessageBubble";
 import { CodetermCard } from "./CodetermCard";
+import { crossPaneBubbleClassName, CROSS_PANE_SHELL_TESTID } from "../crossPaneBubble";
+import { MessageBubble } from "../MessageBubble";
 
 const windowInstance = new Window({ url: "http://localhost/sent-message-test" });
 const windowAny = windowInstance as unknown as Window & typeof globalThis;
@@ -54,9 +56,45 @@ await (async () => {
     />,
   );
   const text = host.textContent ?? "";
-  assert(host.querySelector('[data-testid="chat-sent-message"]') != null, "renders sent-message bubble");
+  const shell = host.querySelector(`[data-testid="${CROSS_PANE_SHELL_TESTID}"]`) as HTMLElement | null;
+  const bubble = host.querySelector('[data-testid="chat-sent-message"]') as HTMLElement | null;
+  assert(shell != null, "renders left-aligned cross-pane shell");
+  assert(shell!.className.includes("justify-start"), "outbound cross-pane is left aligned");
+  assert(bubble != null, "renders sent-message body");
+  assert(host.querySelector('[data-testid="chat-sent-header"]') != null, "renders sent-message header");
+  assert(bubble!.className === crossPaneBubbleClassName("text-base"), "outbound uses shared cross-pane bubble class");
+  assert(!bubble!.className.includes("border"), "shared bubble has no accent border frame");
   assert(text.includes("Puccini"), "renders resolved recipient name");
   assert(text.includes("Update") && text.includes("done"), "renders markdown body content");
+})();
+
+// outbound bubble class matches inbound cross-pane bubble
+await (async () => {
+  const outboundHost = await render(
+    <SentMessageBubble inv={inv(`codeterm send --pane bda "hello outbound"`)} />,
+  );
+  const inboundHost = await render(
+    <MessageBubble
+      message={{
+        id: "inbound-1",
+        provider: "lmstudio",
+        type: "user",
+        content: "hello inbound",
+        fromLabel: "Watcher",
+        fromPane: "abc12345",
+        fromModel: "fable",
+        inboundKind: "pane",
+      }}
+    />,
+  );
+  const outboundBubble = outboundHost.querySelector('[data-testid="chat-sent-message"]') as HTMLElement;
+  const inboundBubble = inboundHost.querySelector('[data-testid="chat-cross-pane-bubble"]') as HTMLElement;
+  assert(outboundBubble.className === inboundBubble.className, "outbound and inbound share bubble wrapper class");
+  assert(
+    outboundHost.querySelector(`[data-testid="${CROSS_PANE_SHELL_TESTID}"]`)!.className
+      === inboundHost.querySelector(`[data-testid="${CROSS_PANE_SHELL_TESTID}"]`)!.className,
+    "outbound and inbound share left-aligned shell class",
+  );
 })();
 
 // pane-name fallback when unresolvable

@@ -2,9 +2,17 @@
 // Run: npx tsx src/components/shared/Button.test.tsx
 
 import React, { act } from "react";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { Button } from "./Button";
+
+const globalsCss = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "../../styles/globals.css"),
+  "utf8",
+);
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -36,6 +44,13 @@ test("Button primary has ct-btn-primary class", async () => {
   const { host } = await render(<Button variant="primary">Save</Button>);
   const btn = host.querySelector("button")!;
   assert(btn.className.includes("ct-btn-primary"), `expected ct-btn-primary in ${btn.className}`);
+});
+
+test("Button md size inherits horizontal padding from ct-btn base", () => {
+  assert(
+    /\.ct-btn\s*\{[^}]*padding-left:\s*0\.75rem/s.test(globalsCss),
+    "ct-btn base must define horizontal padding for default/md buttons",
+  );
 });
 
 test("Button ghost has ct-btn-ghost class", async () => {

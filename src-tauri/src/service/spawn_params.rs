@@ -1,6 +1,7 @@
 use super::orchestrator::SpawnAgentParams;
 use super::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
 use super::ServiceContext;
+use crate::multiplexer::types::{WatcherPolicy, WatcherSpec};
 
 impl SpawnPaneSpec {
     pub fn from_agent_params(params: SpawnAgentParams) -> Self {
@@ -19,16 +20,27 @@ impl SpawnPaneSpec {
                 .map(|b| b.spawnable())
                 .unwrap_or(false);
         if spawnable {
+            let watcher = watcher_spec_from_params(&params);
+            let role = params.role.clone();
+            let role_profile = params.role_profile.clone();
+            let can_spawn = params.can_spawn;
             let config = chatbackend_spawn_config(
                 params.system_prompt.as_deref(),
                 params.preset.as_deref(),
                 params.model.as_deref(),
+                params.role_profile.as_deref(),
+                params.charter.as_deref(),
+                params.tick_interval_secs,
             );
             return Self::from_agent_params_command(
                 params,
                 Some(PaneCommand::ChatBackend {
                     plugin_id: provider,
                     config,
+                    role,
+                    role_profile,
+                    can_spawn,
+                    watcher,
                 }),
             );
         }
@@ -109,6 +121,10 @@ impl SpawnPaneSpec {
             system_prompt: None,
             preset: None,
             resume_session_id: agent.resume_session_id.clone(),
+            charter: None,
+            tick_interval_secs: None,
+            nudge_cooldown_secs: None,
+            max_actions_per_tick: None,
             activate: agent.activate,
             structured_prompt_server: None,
         })
@@ -119,6 +135,9 @@ pub(crate) fn chatbackend_spawn_config(
     system_prompt: Option<&str>,
     preset: Option<&str>,
     model: Option<&str>,
+    role_profile: Option<&str>,
+    charter: Option<&str>,
+    tick_interval_secs: Option<u64>,
 ) -> serde_json::Value {
     let mut config = serde_json::Map::new();
     if let Some(value) = system_prompt.filter(|v| !v.trim().is_empty()) {
@@ -130,7 +149,47 @@ pub(crate) fn chatbackend_spawn_config(
     if let Some(value) = model.filter(|v| !v.trim().is_empty()) {
         config.insert("model".into(), serde_json::json!(value));
     }
+    if role_profile == Some("watcher") {
+        let charter = charter.unwrap_or_default().trim();
+        config.insert("mode".into(), serde_json::json!("watcher"));
+        if !charter.is_empty() {
+            let mut engine = serde_json::Map::new();
+            engine.insert("kind".into(), serde_json::json!("machine"));
+            engine.insert("charter".into(), serde_json::json!(charter));
+            if let Some(value) = tick_interval_secs {
+                engine.insert("tickIntervalSecs".into(), serde_json::json!(value));
+            }
+            config.insert("engine".into(), serde_json::Value::Object(engine));
+        }
+    }
     serde_json::Value::Object(config)
+}
+
+pub(crate) fn reject_direct_watcher_chatbackend_config(
+    config: &serde_json::Value,
+) -> Result<(), String> {
+    if config.get("mode").and_then(|v| v.as_str()) == Some("watcher") {
+        Err("watcher panes spawn via codeterm agent spawn --role Watcher".into())
+    } else {
+        Ok(())
+    }
+}
+
+fn watcher_spec_from_params(params: &SpawnAgentParams) -> Option<WatcherSpec> {
+    (params.role_profile.as_deref() == Some("watcher")).then(|| WatcherSpec {
+        charter: params
+            .charter
+            .clone()
+            .unwrap_or_default()
+            .trim()
+            .to_string(),
+        policy: WatcherPolicy::clamped(
+            params.tick_interval_secs,
+            params.nudge_cooldown_secs,
+            params.max_actions_per_tick,
+        ),
+        ..Default::default()
+    })
 }
 
 impl ServiceContext {
@@ -160,26 +219,104 @@ impl ServiceContext {
     /// the ChatBackend pane path (a spawnable shell), `Ok(false)` for an ordinary
     /// agent provider, and a clean `Err` for a registered-but-not-spawnable
     /// chatBackend (e.g. the NPC backend) or an unknown id.
-    pub(crate) fn classify_spawn_target(&self, agent_cmd: &str) -> Result<bool, String> {
+    pub(crate) fn classify_spawn_target_for_params(
+        &self,
+        agent_cmd: &str,
+        params: &SpawnAgentParams,
+    ) -> Result<bool, String> {
+        validate_watcher_spawn_target(
+            &self.provider_registry,
+            &self.chatbackend_registry,
+            agent_cmd,
+            params,
+        )?;
+        let watcher = params.role_profile.as_deref() == Some("watcher");
         match self.provider_registry.transport_of(agent_cmd) {
             Some(crate::agent::provider::ProviderTransport::ChatBackend) => {
-                if self.provider_registry.is_spawnable_chat_backend(agent_cmd) {
-                    Ok(true)
-                } else {
-                    Err(format!(
+                if !self.provider_registry.is_spawnable_chat_backend(agent_cmd) {
+                    return Err(format!(
                         "'{}' is a chat backend that is not user-spawnable",
                         agent_cmd
-                    ))
+                    ));
                 }
+                if watcher
+                    && !self
+                        .chatbackend_registry
+                        .get(agent_cmd)
+                        .map(|b| b.watcher_capable())
+                        .unwrap_or(false)
+                {
+                    return Err(format!(
+                        "watcher spawn requires a watcher-capable chatBackend provider; '{}' is not watcher-capable",
+                        agent_cmd
+                    ));
+                }
+                Ok(true)
             }
             Some(crate::agent::provider::ProviderTransport::Pty) => {
+                if watcher {
+                    return Err(format!(
+                        "watcher spawn requires a watcher-capable chatBackend provider; '{}' is a PTY provider",
+                        agent_cmd
+                    ));
+                }
                 self.require_agent_provider_ready(agent_cmd)?;
                 Ok(false)
             }
             None => {
+                if watcher {
+                    return Err(format!(
+                        "watcher spawn requires a watcher-capable chatBackend provider; '{}' is not a chatBackend provider",
+                        agent_cmd
+                    ));
+                }
                 self.require_agent_provider_ready(agent_cmd)?;
                 Ok(false)
             }
         }
+    }
+}
+
+pub(crate) fn validate_watcher_spawn_target(
+    providers: &crate::provider::ProviderRegistry,
+    chatbackends: &crate::chatbackend::ChatBackendRegistry,
+    agent_cmd: &str,
+    params: &SpawnAgentParams,
+) -> Result<(), String> {
+    if params.role_profile.as_deref() != Some("watcher") {
+        return Ok(());
+    }
+    if params
+        .charter
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_none()
+    {
+        return Err("watcher spawn requires --charter or --charter-file".into());
+    }
+    match providers.transport_of(agent_cmd) {
+        Some(crate::agent::provider::ProviderTransport::ChatBackend) => {
+            if chatbackends
+                .get(agent_cmd)
+                .map(|b| b.watcher_capable())
+                .unwrap_or(false)
+            {
+                Ok(())
+            } else {
+                Err(format!(
+                    "watcher spawn requires a watcher-capable chatBackend provider; '{}' is not watcher-capable",
+                    agent_cmd
+                ))
+            }
+        }
+        Some(crate::agent::provider::ProviderTransport::Pty) => Err(format!(
+            "watcher spawn requires a watcher-capable chatBackend provider; '{}' is a PTY provider",
+            agent_cmd
+        )),
+        None => Err(format!(
+            "watcher spawn requires a watcher-capable chatBackend provider; '{}' is not a chatBackend provider",
+            agent_cmd
+        )),
     }
 }

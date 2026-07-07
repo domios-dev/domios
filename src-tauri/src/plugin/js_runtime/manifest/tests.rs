@@ -147,6 +147,10 @@ fn parse_chat_backend_bool_is_enabled_not_spawnable() {
         !m.capabilities.chat_backend_spawnable(),
         "bool form is backend-only, never user-spawnable"
     );
+    assert!(
+        !m.capabilities.chat_backend_watcher_capable(),
+        "bool form does not imply watcher capability"
+    );
 }
 
 #[test]
@@ -167,6 +171,23 @@ fn parse_chat_backend_object_spawnable() {
 }
 
 #[test]
+fn parse_chat_backend_object_watcher_without_spawnable() {
+    let json = r#"{
+            "id": "lmstudio-watcher",
+            "version": "0.1.0",
+            "displayName": "LM Studio Watcher",
+            "capabilities": { "chatBackend": { "watcher": true } }
+        }"#;
+    let m: PluginManifest = serde_json::from_str(json).expect("parse watcher object form");
+    assert!(m.capabilities.chat_backend.enabled());
+    assert!(
+        !m.capabilities.chat_backend_spawnable(),
+        "watcher-capable does not imply user-spawnable"
+    );
+    assert!(m.capabilities.chat_backend_watcher_capable());
+}
+
+#[test]
 fn chat_backend_round_trips_symmetrically() {
     // object (never silently dropping the flag).
     let disabled = Capabilities::default();
@@ -176,11 +197,22 @@ fn chat_backend_round_trips_symmetrically() {
     let spawnable = ChatBackendCap {
         enabled: true,
         spawnable: true,
+        watcher: false,
     };
     let v = serde_json::to_value(&spawnable).unwrap();
     assert_eq!(v, serde_json::json!({ "spawnable": true }));
     let back: ChatBackendCap = serde_json::from_value(v).unwrap();
-    assert!(back.enabled() && back.spawnable());
+    assert!(back.enabled() && back.spawnable() && !back.watcher());
+
+    let watcher = ChatBackendCap {
+        enabled: true,
+        spawnable: false,
+        watcher: true,
+    };
+    let v = serde_json::to_value(&watcher).unwrap();
+    assert_eq!(v, serde_json::json!({ "watcher": true }));
+    let back: ChatBackendCap = serde_json::from_value(v).unwrap();
+    assert!(back.enabled() && !back.spawnable() && back.watcher());
 }
 
 #[test]

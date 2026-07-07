@@ -61,7 +61,7 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<SpawnResult, String> {
         params.title = spawn_title::normalize_agent_title(params.title.take());
-        params.normalize_role_profile();
+        params.normalize_role_profile()?;
         let checkout_exception = self.worker_checkout_guard(&params)?;
         let role = params.role.clone();
         let role_profile = params.role_profile.clone();
@@ -76,7 +76,7 @@ impl ServiceContext {
             .or_else(|| params.agent_name.clone())
             .unwrap_or_else(|| agent.clone());
         let model = params.model.clone();
-        self.classify_spawn_target(&agent)?;
+        self.classify_spawn_target_for_params(&agent, &params)?;
         let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params_with_chatbackends(
             self.chatbackend_registry.as_ref(),
             params,
@@ -107,7 +107,7 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<SpawnResult, String> {
         params.title = spawn_title::normalize_agent_title(params.title.take());
-        params.normalize_role_profile();
+        params.normalize_role_profile()?;
         let checkout_exception = self.worker_checkout_guard(&params)?;
         // Orchestrators must be pinned to an explicit workspace.
         // Active-workspace fallback can silently land them in the wrong plan context.
@@ -134,7 +134,7 @@ impl ServiceContext {
             .agent
             .clone()
             .unwrap_or_else(|| default_provider.clone());
-        let is_shell = self.classify_spawn_target(&agent_cmd)?;
+        let is_shell = self.classify_spawn_target_for_params(&agent_cmd, &params)?;
         if is_shell {
             let role = params.role.clone();
             let role_profile = params.role_profile.clone();
@@ -293,7 +293,7 @@ impl ServiceContext {
                     params.parent_pane_id.as_deref(),
                     params.can_spawn,
                 )?;
-                if role_str == "Worker" {
+                if role_str == "Worker" || role_str == "Manager" {
                     if let Some(ref parent) = params.parent_pane_id {
                         self.expect_spawn_parent_link(&pane_id, parent)?;
                     }

@@ -488,7 +488,7 @@ test.describe("new-session picker", () => {
     }
   });
 
-  test("@golden GROUP CLOSE: children have no individual close; head close confirms and takes the whole group", async ({ api, ui }) => {
+  test("@golden GROUP CLOSE: manager row closes individually; head close confirms when group has members", async ({ api, ui }) => {
     test.setTimeout(180_000);
     const page = ui.page;
     await page.locator('[data-testid="picker-mode-orchestration"]').click();
@@ -505,29 +505,26 @@ test.describe("new-session picker", () => {
     const wsNow = state.workspaces.find((w) => w.id === ws.id)!;
     const plannerTab = wsNow.tabs.find((t) => t.id !== orchTab.id)!;
 
-    // Planner (child) row: open its menu, no enabled close action.
     const plannerRow = page.locator(`[data-tab-id="${plannerTab.id}"]`);
     await plannerRow.hover();
     await plannerRow.locator('button[title="Tab actions"]').click();
-    await expect(page.locator('[data-testid="tab-menu-close"]')).toHaveCount(0);
-    await page.keyboard.press("Escape");
-    await page.mouse.click(2, 2);
-    await expect(page.locator('[data-testid="tab-menu-close"]')).toHaveCount(0);
+    const plannerClose = page.locator('[data-testid="tab-menu-close"]');
+    await expect(plannerClose).toBeVisible({ timeout: 5_000 });
+    await plannerClose.click();
 
-    // Head (orchestrator) row: close asks for confirmation listing the group.
+    await expect
+      .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0, {
+        timeout: 60_000,
+      })
+      .toBe(1);
+
     const headRow = page.locator(`[data-tab-id="${orchTab.id}"]`);
     await expect(headRow).toBeVisible({ timeout: 15_000 });
     await headRow.hover();
     await headRow.locator('button[title="Tab actions"]').click();
-    const closeItem = page.locator('[data-testid="tab-menu-close"]');
-    await expect(closeItem).toBeVisible({ timeout: 5_000 });
-    await closeItem.click();
-
-    const dialog = page.locator('[data-testid="group-close-confirm"]');
-    await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText("Orchestrator");
-
-    await page.locator('[data-testid="group-close-confirm-button"]').click();
+    const headClose = page.locator('[data-testid="tab-menu-close"]');
+    await expect(headClose).toBeVisible({ timeout: 5_000 });
+    await headClose.click();
 
     await expect
       .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0, {

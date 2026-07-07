@@ -74,7 +74,7 @@ fn summarize_tool_input(input: Option<&serde_json::Value>) -> String {
 /// A tool_result block's `content` is a string, an array of `{text}` blocks,
 /// or an arbitrary object — normalize all three to plain text.
 fn extract_tool_result_text(content: Option<&serde_json::Value>) -> String {
-    match content {
+    let text = match content {
         Some(serde_json::Value::String(s)) => s.clone(),
         Some(serde_json::Value::Array(arr)) => arr
             .iter()
@@ -83,7 +83,8 @@ fn extract_tool_result_text(content: Option<&serde_json::Value>) -> String {
             .join("\n"),
         Some(v) => v.to_string(),
         None => String::new(),
-    }
+    };
+    strip_ansi(&text)
 }
 
 /// Detect a single wrapping local-command XML tag, mirroring the desktop
@@ -295,6 +296,7 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                 "tool_result" => {
                     // tool_result block in the user turn after the tool_use.
                     emitted_tool_result = true;
+                    let is_error = b.data.get("is_error").and_then(|v| v.as_bool());
                     out.push(ChatMsg {
                         id: format!(
                             "result-{}",
@@ -310,6 +312,7 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                             .and_then(|v| v.as_str())
                             .map(String::from),
                         tool_result: Some(extract_tool_result_text(b.data.get("content"))),
+                        tool_error: is_error,
                         collapsed: true,
                         timestamp: ts.clone(),
                         ..Default::default()
@@ -462,18 +465,22 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                     ..Default::default()
                 }
             }
-            "tool_result" => ChatMsg {
-                id,
-                kind: "tool_result".into(),
-                tool_id: b
-                    .data
-                    .get("tool_use_id")
-                    .and_then(|v| v.as_str())
-                    .map(String::from),
-                tool_result: Some(extract_tool_result_text(b.data.get("content"))),
-                collapsed: true,
-                ..Default::default()
-            },
+            "tool_result" => {
+                let is_error = b.data.get("is_error").and_then(|v| v.as_bool());
+                ChatMsg {
+                    id,
+                    kind: "tool_result".into(),
+                    tool_id: b
+                        .data
+                        .get("tool_use_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    tool_result: Some(extract_tool_result_text(b.data.get("content"))),
+                    tool_error: is_error,
+                    collapsed: true,
+                    ..Default::default()
+                }
+            }
             "image" => {
                 let source = b.data.get("source");
                 ChatMsg {
@@ -675,6 +682,7 @@ mod chat_snapshot_tests {
             Ok(crate::agent::chat_types::StructuredChat {
                 messages: self.messages.clone(),
                 cursor: None,
+                done: None,
             })
         }
         fn close_session(&self, _session_id: &str) -> Result<(), ChatBackendError> {
@@ -840,6 +848,47 @@ mod chat_snapshot_tests {
             msgs[1].tool_input.as_ref().unwrap()["command"],
             "codeterm pane list"
         );
+    }
+
+    #[test]
+    fn tool_result_propagates_is_error_and_strips_ansi() {
+        let rich = RichMessage {
+            role: "assistant".into(),
+            blocks: vec![MessageBlock {
+                kind: "tool_result".into(),
+                data: json!({
+                    "tool_use_id": "tool-1",
+                    "is_error": true,
+                    "content": "\u{1b}[31mfailed\u{1b}[0m"
+                }),
+            }],
+            ..Default::default()
+        };
+        let msgs = rich_to_chat_msgs(&rich, 0);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].kind, "tool_result");
+        assert_eq!(msgs[0].tool_error, Some(true));
+        assert_eq!(msgs[0].tool_result.as_deref(), Some("failed"));
+    }
+
+    #[test]
+    fn user_turn_tool_result_propagates_is_error() {
+        let rich = RichMessage {
+            role: "user".into(),
+            blocks: vec![MessageBlock {
+                kind: "tool_result".into(),
+                data: json!({
+                    "tool_use_id": "tool-user-1",
+                    "is_error": true,
+                    "content": "boom"
+                }),
+            }],
+            ..Default::default()
+        };
+        let msgs = rich_to_chat_msgs(&rich, 3);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].tool_id.as_deref(), Some("tool-user-1"));
+        assert_eq!(msgs[0].tool_error, Some(true));
     }
 
     #[test]

@@ -69,6 +69,9 @@ pub async fn create_shell_pane(
                 body.system_prompt.as_deref(),
                 body.preset.as_deref(),
                 body.model.as_deref(),
+                None,
+                None,
+                None,
             );
             if let (Some(base), Some(extra)) = (config.as_object_mut(), overrides.as_object()) {
                 for (key, value) in extra {
@@ -77,7 +80,16 @@ pub async fn create_shell_pane(
             } else if !overrides.as_object().map(|o| o.is_empty()).unwrap_or(true) {
                 config = overrides;
             }
-            PaneCommand::ChatBackend { plugin_id, config }
+            crate::service::spawn::reject_direct_watcher_chatbackend_config(&config)
+                .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+            PaneCommand::ChatBackend {
+                plugin_id,
+                config,
+                role: None,
+                role_profile: None,
+                can_spawn: None,
+                watcher: None,
+            }
         }
         None => PaneCommand::Shell,
     };

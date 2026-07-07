@@ -5,6 +5,8 @@ import { MessageBubble } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
 import { useMultiplexer } from "../../store/multiplexer";
+import { usePaneProvider, useShellSessionModel } from "../../lib/usePaneProvider";
+import { formatModelBadge } from "../../lib/formatModelBadge";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { openPlanDeepLink } from "../Canvas/workspacePlanEntry";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -17,6 +19,7 @@ import { useAttachments } from "./useAttachments";
 import { useChatSession } from "./useChatSession";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
+import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
 
 interface Props {
   paneId: string;
@@ -91,11 +94,17 @@ export function PaneSessionChat({
   const { index: planIndex } = usePlanIndexOptional();
   const pane = muxState.panes[paneId];
   const paneProvider = pane?.agent_type ?? null;
+  const provider = usePaneProvider(pane);
+  const shellSessionModel = useShellSessionModel(pane);
+  const tabModel = pane?.agent_session_model ?? shellSessionModel;
+  const workingModelBadge = tabModel ? formatModelBadge(tabModel) : null;
   const agentSessionId = pane?.agent_session_id ?? null;
   const currentPtyId = pane?.pty_id ?? null;
   const backendState = pane?.agent_state ?? null;
   const chatBacking = pane?.backing?.kind === "chat_backend" ? pane.backing : null;
   const effectiveChatBackend = chatBackend || chatBacking !== null;
+  const watcherSpec = pane?.watcher ?? null;
+  const isWatcherPane = watcherSpec != null;
   const pendingPrompt: PendingPrompt | null = pane?.pending_prompt ?? null;
   const isActive = isVisible;
 
@@ -223,6 +232,16 @@ export function PaneSessionChat({
     }
     return (paneRef: string): string | undefined => byShort.get(paneRef.slice(0, 8));
   }, [muxState.workspaces, muxState.panes]);
+
+  const latestFailedToolCallId = useMemo(() => {
+    for (let i = enrichedMessages.length - 1; i >= 0; i -= 1) {
+      const msg = enrichedMessages[i]?.msg;
+      if (msg?.type === "tool_call" && msg.toolError === true) {
+        return msg.id;
+      }
+    }
+    return null;
+  }, [enrichedMessages]);
 
   const onOpenPlan = useCallback(
     (planId: string, taskId?: string) => {
@@ -393,6 +412,7 @@ export function PaneSessionChat({
             >
               <MessageBubble
                 message={msg}
+                isLatestFailedToolCall={msg.id === latestFailedToolCallId}
                 origin={origin}
                 resolvePaneName={resolvePaneName}
                 onOpenPlan={onOpenPlan}
@@ -416,6 +436,8 @@ export function PaneSessionChat({
           <div className="w-full max-w-4xl min-w-0 mx-auto">
             <AgentStateIndicator
               state={liveAgentState}
+              providerName={provider?.displayName ?? null}
+              model={workingModelBadge}
               onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
               onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
               onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
@@ -437,6 +459,17 @@ export function PaneSessionChat({
         </button>
       )}
       </div>
+      {isWatcherPane && watcherSpec ? (
+        <WatcherReadOnlyBar
+          watcher={watcherSpec}
+          modelBubble={effectiveChatBackend && chatBacking ? (
+            <>
+              <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} readOnly />
+              <ChatPresetBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} readOnly />
+            </>
+          ) : undefined}
+        />
+      ) : (
       <ChatComposer
         paneId={paneId}
         paneProvider={paneProvider}
@@ -460,6 +493,7 @@ export function PaneSessionChat({
           </>
         ) : undefined}
       />
+      )}
     </div>
   );
 }

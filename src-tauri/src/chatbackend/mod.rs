@@ -121,6 +121,21 @@ pub trait ChatBackendProvider: Send + Sync {
         ))
     }
 
+    fn watcher_capable(&self) -> bool {
+        false
+    }
+
+    fn watcher_tick(
+        &self,
+        session_id: &str,
+        input: serde_json::Value,
+    ) -> Result<(), ChatBackendError> {
+        let _ = (session_id, input);
+        Err(ChatBackendError::Call(
+            "this chatBackend does not support watcher mode".into(),
+        ))
+    }
+
     /// Build the unified wire descriptor for this chat backend. Transport is
     /// always `ChatBackend`. Keep this pure/cheap: provider descriptors are
     /// requested from UI hot paths, while live chatBackend getters enter the
@@ -148,6 +163,7 @@ pub trait ChatBackendProvider: Send + Sync {
             supports_stop: false,
             supports_chat_ui: true,
             supports_structured_prompts: false,
+            supports_watcher: self.watcher_capable(),
             trust: ProviderTrust::Unknown,
             transport: ProviderTransport::ChatBackend,
             behavior_config: BehaviorConfig::PresetsAndSystemPrompt,

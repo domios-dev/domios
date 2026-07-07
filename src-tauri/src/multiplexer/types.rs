@@ -107,11 +107,64 @@ pub enum Orientation {
     Vertical,
 }
 
+/// Tunable watcher limits set by the spawner; host clamps to safe bounds.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct WatcherPolicy {
+    pub tick_interval_secs: u64,
+    pub nudge_cooldown_secs: u64,
+    pub max_actions_per_tick: u32,
+}
+
+impl WatcherPolicy {
+    const DEFAULT_INTERVAL_SECS: u64 = 120;
+    const MIN_INTERVAL_SECS: u64 = 30;
+    const MAX_INTERVAL_SECS: u64 = 3600;
+    const DEFAULT_COOLDOWN_SECS: u64 = 600;
+    const MIN_COOLDOWN_SECS: u64 = 60;
+    const DEFAULT_MAX_ACTIONS: u32 = 3;
+    const MAX_MAX_ACTIONS: u32 = 5;
+
+    pub fn clamped(interval: Option<u64>, cooldown: Option<u64>, max_actions: Option<u32>) -> Self {
+        Self {
+            tick_interval_secs: interval
+                .unwrap_or(Self::DEFAULT_INTERVAL_SECS)
+                .clamp(Self::MIN_INTERVAL_SECS, Self::MAX_INTERVAL_SECS),
+            nudge_cooldown_secs: cooldown
+                .unwrap_or(Self::DEFAULT_COOLDOWN_SECS)
+                .max(Self::MIN_COOLDOWN_SECS),
+            max_actions_per_tick: max_actions
+                .unwrap_or(Self::DEFAULT_MAX_ACTIONS)
+                .min(Self::MAX_MAX_ACTIONS),
+        }
+    }
+}
+
+/// Persisted watcher session state on a chatBackend pane.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct WatcherSpec {
+    pub charter: String,
+    pub policy: WatcherPolicy,
+    #[serde(default)]
+    pub observations: serde_json::Value,
+    #[serde(default)]
+    pub state: serde_json::Value,
+    #[serde(default)]
+    pub tick: u64,
+    #[serde(default)]
+    pub last_tick_ms: Option<u64>,
+    #[serde(default)]
+    pub last_status: Option<String>,
+    #[serde(default)]
+    pub tick_inflight_since_ms: Option<u64>,
+}
+
 /// Agent role in the orchestration hierarchy.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum AgentRole {
-    /// Top-level orchestrator (depth 1). Can spawn Workers.
+    /// Top-level orchestrator (depth 1). Can spawn Managers and Workers.
     Orchestrator,
+    /// Manager (depth 2). Specialized by role_profile. Cannot spawn in v1.
+    Manager,
     /// Worker (depth 2). Executes tasks, reports back. Cannot spawn.
     Worker,
 }
@@ -120,6 +173,7 @@ impl AgentRole {
     pub fn from_str_compat(s: &str) -> Option<Self> {
         match s {
             "Orchestrator" | "Conductor" => Some(Self::Orchestrator),
+            "Manager" => Some(Self::Manager),
             "Worker" => Some(Self::Worker),
             _ => None,
         }
@@ -239,6 +293,9 @@ pub struct Pane {
     /// Behavioral profile layered on top of the structural role.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role_profile: Option<String>,
+    /// Watcher-mode machine state (charter, policy, tick counters).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub watcher: Option<WatcherSpec>,
     /// Parent pane ID in the orchestration hierarchy.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub parent_pane_id: Option<String>,
@@ -388,6 +445,7 @@ mod tests {
             shell_integration_nonce: None,
             role: None,
             role_profile: None,
+            watcher: None,
             parent_pane_id: None,
             can_spawn: false,
             depth: 0,
@@ -478,6 +536,50 @@ mod tests {
         assert_eq!(v["kind"], "chat_backend");
         let back: PaneBacking = serde_json::from_value(v).unwrap();
         assert_eq!(back, backing);
+    }
+
+    #[test]
+    fn watcher_policy_clamped_applies_defaults_and_bounds() {
+        let all_none = WatcherPolicy::clamped(None, None, None);
+        assert_eq!(all_none.tick_interval_secs, 120);
+        assert_eq!(all_none.nudge_cooldown_secs, 600);
+        assert_eq!(all_none.max_actions_per_tick, 3);
+
+        let low = WatcherPolicy::clamped(Some(5), Some(0), Some(99));
+        assert_eq!(low.tick_interval_secs, 30);
+        assert_eq!(low.nudge_cooldown_secs, 60);
+        assert_eq!(low.max_actions_per_tick, 5);
+    }
+
+    #[test]
+    fn pane_with_watcher_round_trips_through_serde() {
+        let spec = WatcherSpec {
+            charter: "Observe the group.".into(),
+            policy: WatcherPolicy::clamped(Some(90), Some(120), Some(2)),
+            observations: serde_json::json!({"orchestration": true, "chatTail": 2}),
+            state: serde_json::json!({"seen": 1}),
+            tick: 3,
+            last_tick_ms: Some(1_700_000_000_000),
+            last_status: Some("ok".into()),
+            tick_inflight_since_ms: None,
+        };
+        let mut p = pane_with("w1", PaneBacking::Pty);
+        p.watcher = Some(spec.clone());
+
+        let v = serde_json::to_value(&p).unwrap();
+        assert!(v.get("watcher").is_some());
+        let back: Pane = serde_json::from_value(v).unwrap();
+        assert_eq!(back.watcher, Some(spec));
+
+        let mut bare = pane_with("w2", PaneBacking::Pty);
+        let v = serde_json::to_value(&bare).unwrap();
+        assert!(v.get("watcher").is_none());
+        bare.watcher = Some(WatcherSpec {
+            charter: "x".into(),
+            ..Default::default()
+        });
+        let back: Pane = serde_json::from_value(serde_json::to_value(&bare).unwrap()).unwrap();
+        assert_eq!(back.watcher.as_ref().map(|w| w.charter.as_str()), Some("x"));
     }
 
     #[test]

@@ -3,6 +3,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import { MessageBubble } from "./MessageBubble";
+import { CROSS_PANE_BUBBLE_TESTID, CROSS_PANE_SHELL_TESTID, crossPaneBubbleClassName } from "./crossPaneBubble";
 import { attachToolResults } from "@codeterm/chat-core";
 import {
   providerTranscriptFixtures,
@@ -454,15 +455,48 @@ test("chatBackend curated tool cards hide internal lifecycle phase badges", asyn
   ]);
   try {
     const cards = Array.from(host.querySelectorAll('[data-testid^="chatbackend-tool-"]'));
-    assert(cards.length === 3, `expected three curated cards, got ${cards.length}`);
+    assert(cards.length === 2, `expected two curated cards, got ${cards.length}`);
     for (const card of cards) {
       const label = card.getAttribute("data-testid") ?? "card";
       const text = card.textContent ?? "";
       assert(!/\b(pending|running|result)\b/i.test(text), `${label} should not expose lifecycle phase badge`);
     }
     assertIncludes(host, "sleep 1", "pending exec still shows command");
+    assert(host.querySelector('[data-testid="chat-tool-inline"]'), "read_file should render as inline row");
     assertIncludes(host, "src/status.ts", "running read still shows path");
     assertIncludes(host, "written", "result write still shows attached output");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("failed tool card uses dashed neutral border and muted glyph", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "failed-exec",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "exec",
+      toolId: "failed-call",
+      toolInput: { cmd: "false" },
+      toolArgs: JSON.stringify({ cmd: "false" }),
+      toolResult: "error: command failed",
+      toolError: true,
+    },
+  ]);
+  try {
+    const card = host.querySelector('[data-testid="chatbackend-tool-exec"]') as HTMLButtonElement | null;
+    assert(card, "expected failed exec card");
+    const style = card!.getAttribute("style") ?? "";
+    assert(style.includes("border-style: dashed"), "failed card should be dashed");
+    assert(!style.includes("ct-red"), "failed card border should not use red token");
+    const failedGlyph = Array.from(card!.querySelectorAll("span")).find((node) => (node.textContent ?? "").includes("✕"));
+    assert(failedGlyph, "expected failed glyph");
+    const glyphStyle = failedGlyph!.getAttribute("style") ?? "";
+    assert(glyphStyle.includes("var(--ct-muted-fg)"), "failed glyph should use muted color");
+    assert(!glyphStyle.includes("ct-red"), "failed glyph should not use red token");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -661,11 +695,34 @@ test("chatBackend read_file and write_file render file cards", async () => {
     },
   ]);
   try {
-    assert(host.querySelector('[data-testid="chatbackend-tool-read_file"]'), "expected read_file card");
+    assert(host.querySelector('[data-testid="chat-tool-inline"]'), "expected read_file inline row");
     assert(host.querySelector('[data-testid="chatbackend-tool-write_file"]'), "expected write_file card");
     assertIncludes(host, "src/main.ts", "read_file path");
     assertIncludes(host, "src/out.ts", "write_file path");
     assertIncludes(host, "export const ready = true;", "write_file preview");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("read_file renders inline row with pending muted spinner", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "inline-read",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "read_file",
+      toolId: "read-inline-1",
+      toolInput: { path: "/tmp/example.ts" },
+      toolArgs: JSON.stringify({ path: "/tmp/example.ts" }),
+    },
+  ]);
+  try {
+    const inline = host.querySelector('[data-testid="chat-tool-inline"]');
+    assert(inline, "read_file should render inline tool row");
+    assertIncludes(host, "◜", "pending spinner glyph");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -713,6 +770,13 @@ test("chatBackend structured inbound renders sender header and kind badge", asyn
     const badge = host.querySelector('[data-testid="chat-inbound-kind-badge"]');
     assert(badge, "expected inbound kind badge");
     assert((badge.textContent ?? "").includes("pane"), "expected pane badge");
+    const shell = host.querySelector(`[data-testid="${CROSS_PANE_SHELL_TESTID}"]`) as HTMLElement | null;
+    assert(shell, "inbound cross-pane uses shared shell");
+    assert(shell!.className.includes("justify-start"), "inbound cross-pane is left aligned");
+    const bubble = host.querySelector(`[data-testid="${CROSS_PANE_BUBBLE_TESTID}"]`) as HTMLElement | null;
+    assert(bubble, "inbound cross-pane uses shared bubble");
+    assert(bubble!.className === crossPaneBubbleClassName("text-base"), "inbound uses shared cross-pane bubble class");
+    assert(!bubble!.className.includes("border"), "inbound cross-pane bubble has no accent border");
   } finally {
     await act(async () => root.unmount());
     host.remove();

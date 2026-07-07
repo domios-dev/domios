@@ -57,7 +57,7 @@ export interface Tab {
   sort_order?: number;
 }
 
-export type AgentRole = "Orchestrator" | "Worker";
+export type AgentRole = "Orchestrator" | "Manager" | "Worker";
 
 export interface PromptOption {
   label: string;
@@ -84,6 +84,25 @@ export interface PendingPrompt {
 export type PaneBacking =
   | { kind: "pty" }
   | { kind: "chat_backend"; plugin_id: string; session_id: string };
+
+/** Tunable watcher limits set by the spawner; host clamps to safe bounds. */
+export interface WatcherPolicy {
+  tick_interval_secs: number;
+  nudge_cooldown_secs: number;
+  max_actions_per_tick: number;
+}
+
+/** Persisted watcher session state on a chatBackend pane. Mirrors Rust `WatcherSpec`. */
+export interface WatcherSpec {
+  charter: string;
+  policy: WatcherPolicy;
+  observations?: unknown;
+  state?: unknown;
+  tick?: number;
+  last_tick_ms?: number | null;
+  last_status?: string | null;
+  tick_inflight_since_ms?: number | null;
+}
 
 /** Backend-computed live agent state. Mirrors the Rust `AgentLiveState` serde
  *  shape; `subtype` only carries meaning when `state === "question"`. */
@@ -168,6 +187,8 @@ export interface Pane {
    *  present in a session snapshot — it exists purely so the picker can render
    *  as a tab until the user confirms and a real pane is materialized. */
   virtual?: boolean;
+  /** Machine+watcher chatBackend session — read-only pane with tick-driven inputs. */
+  watcher?: WatcherSpec | null;
 }
 
 export interface MultiplexerState {

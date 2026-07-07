@@ -32,6 +32,11 @@ fn local_and_orchestrator_roles_keep_local_assignment() {
         None,
         Some("Mac-Air")
     ));
+    assert!(!skip_local_worker_role(
+        &AgentRole::Manager,
+        Some("parent-pane"),
+        Some("Mac-Air")
+    ));
 }
 
 #[test]
@@ -53,12 +58,18 @@ fn worker_onboarding_requires_a_task_body() {
 
 #[test]
 fn planner_profile_uses_planner_suffix() {
-    let task = role_onboarding_task(Some("plan it"), Some("Worker"), Some("planner")).unwrap();
+    let task = role_onboarding_task(Some("plan it"), Some("Manager"), Some("planner")).unwrap();
     assert!(task.contains(&crate::prompts::planner_suffix()));
     assert!(task.contains(crate::prompts::PLANNER_TESTING_ORACLE_FIRST));
     assert!(task.contains(crate::prompts::PLAN_SKILLS_PRINCIPLES));
     assert!(!task.contains("{planner_testing_methodology}"));
     assert!(!task.contains(crate::prompts::WORKER_SUFFIX));
+}
+
+#[test]
+fn manager_watcher_does_not_get_worker_suffix() {
+    let task = role_onboarding_task(Some("watch it"), Some("Manager"), Some("watcher")).unwrap();
+    assert_eq!(task, "watch it");
 }
 
 #[test]
@@ -110,6 +121,10 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         system_prompt: None,
         preset: None,
         resume_session_id: None,
+        charter: None,
+        tick_interval_secs: None,
+        nudge_cooldown_secs: None,
+        max_actions_per_tick: None,
         activate: None,
         structured_prompt_server: None,
     }

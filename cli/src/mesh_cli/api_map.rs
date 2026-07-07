@@ -416,6 +416,11 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 model,
                 system_prompt,
                 preset,
+                charter,
+                charter_file,
+                interval,
+                nudge_cooldown,
+                max_actions,
                 allow_shared_checkout,
                 bound_task,
             } => {
@@ -426,6 +431,16 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ) {
                     Ok(t) => t,
                     Err(e) => return unsupported(&format!("agent spawn task input error: {}", e)),
+                };
+                let charter = match crate::cmd::agent::resolve_spawn_charter(
+                    charter.clone(),
+                    charter_file.clone(),
+                    &mut std::io::stdin(),
+                ) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        return unsupported(&format!("agent spawn charter input error: {}", e))
+                    }
                 };
                 let agent_name = agent.as_str();
                 let mut body = serde_json::json!({
@@ -442,6 +457,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(r) = role {
                     body["role"] = serde_json::json!(r.as_str());
+                    if let Some(profile) = r.role_profile() {
+                        body["role_profile"] = serde_json::json!(profile);
+                    }
                 }
                 if let Some(p) = parent {
                     body["parent_pane_id"] = serde_json::json!(p);
@@ -479,6 +497,30 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(preset) = preset {
                     body["preset"] = serde_json::json!(preset);
+                }
+                if let Some(charter) = charter {
+                    body["charter"] = serde_json::json!(charter);
+                }
+                if let Some(interval) = interval {
+                    let secs = match crate::cmd::agent::parse_duration_secs(interval, "--interval")
+                    {
+                        Ok(v) => v,
+                        Err(e) => return unsupported(&e),
+                    };
+                    body["tick_interval_secs"] = serde_json::json!(secs);
+                }
+                if let Some(nudge_cooldown) = nudge_cooldown {
+                    let secs = match crate::cmd::agent::parse_duration_secs(
+                        nudge_cooldown,
+                        "--nudge-cooldown",
+                    ) {
+                        Ok(v) => v,
+                        Err(e) => return unsupported(&e),
+                    };
+                    body["nudge_cooldown_secs"] = serde_json::json!(secs);
+                }
+                if let Some(max_actions) = max_actions {
+                    body["max_actions_per_tick"] = serde_json::json!(max_actions);
                 }
                 if *allow_shared_checkout {
                     body["allow_shared_checkout"] = serde_json::json!(true);

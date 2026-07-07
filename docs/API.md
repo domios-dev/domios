@@ -141,7 +141,7 @@ Closed panes and workspaces are recorded in a persistent ring. Every close actio
 | POST | `/api/panes/{id}/prompt/clear` | — | Clear a pending permission prompt |
 | GET | `/api/agents/providers` | — | List registered agent providers **and open agent shells**. Each entry carries `id`, `display_name`, `available_models`, `default_model`, `settings_schema`, etc. plus a **`kind`** field: `"agent"` (PTY providers — claude/codex/opencode) or `"shell"` (installed `chatBackend` plugins, e.g. lmstudio). Shell entries also carry `presets` and `supports_chat_ui: true`. Single source of truth for "what agents and shells does this CodeTerm instance know about" — frontend dropdowns, CLI `agent providers/models`, and cron/mem job dialogs all read from here. |
 | GET | `/api/providers` | — | Public provider list alias for agent/provider selectors |
-| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?, model?, system_prompt? (alias `system`), preset?, report_to?, origin_peer?}` | One-call agent spawn (see below). `description` follows the same trim/empty-clear/200-char validation as pane describe. Routing is **by capability, not identity**: if `agent` matches a `chatBackend` shell id, the request opens an open agent shell (threading `system_prompt`/`preset`/`model` into the shell's `openSession` ctx); otherwise the PTY agent path. An unknown id errors with the available agent **and** shell ids. `report_to` sets where the worker's `agent report` lands (pane id or `main`/`general` alias). `origin_peer` is **never client-supplied** — the mesh relay stamps it from the authenticated sender so a worker spawned via `agent spawn --mesh PEER` reports back across the mesh; see *Remote mesh workers*. |
+| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, role_profile?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?, model?, system_prompt? (alias `system`), preset?, charter?, tick_interval_secs?, nudge_cooldown_secs?, max_actions_per_tick?, report_to?, origin_peer?}` | One-call agent spawn (see below). `description` follows the same trim/empty-clear/200-char validation as pane describe. Routing is **by capability, not identity**: if `agent` matches a `chatBackend` shell id, the request opens an open agent shell (threading `system_prompt`/`preset`/`model` and watcher `mode`/`engine` fields into the shell's `openSession` ctx); otherwise the PTY agent path. `role` accepts `Orchestrator`, `Manager`, `Worker`, plus `Planner`/`Watcher` sugar that maps to `Manager` with `role_profile`. Watcher spawns require a watcher-capable `chatBackend` shell and `charter`; policy fields are clamped by the host. An unknown id errors with the available agent **and** shell ids. `report_to` sets where the worker's `agent report` lands (pane id or `main`/`general` alias). `origin_peer` is **never client-supplied** — the mesh relay stamps it from the authenticated sender so a worker spawned via `agent spawn --mesh PEER` reports back across the mesh; see *Remote mesh workers*. |
 | GET | `/api/remote-workers` | `?pane=<id>` | Orchestrator-side view of remote (cross-mesh) workers, populated from inbound mesh reports. With `?pane=` returns that orchestrator's workers; otherwise the full `{ pane_id: RemoteWorker[] }` map. `RemoteWorker = {peer, remote_pane, title, model, status, last_message, last_seen_ms}`. Live updates via the `remote-workers-changed` event. |
 
 #### Interactive chat prompts (#162)
@@ -1225,6 +1225,13 @@ surfaces as agents:
   (or `POST /api/agents/spawn`) routes by capability to the shell. `--system`
   overrides the preset's system prompt for that session, `--preset` picks a preset,
   no flag → the plugin's `defaultPreset`.
+- **Watcher spawn:** `codeterm agent spawn <shell-id> --role Watcher --parent <orchestrator-pane> --charter <TEXT|charter:id> [--interval 30s] [--nudge-cooldown 10m] [--max-actions 3]`.
+  `--charter-file PATH` may be used instead of `--charter`. The REST body fields
+  are `charter`, `tick_interval_secs`, `nudge_cooldown_secs`, and
+  `max_actions_per_tick`. The host opens the shell with `mode: "watcher"` and
+  `engine: { kind: "machine", charter, tickIntervalSecs }`, rejects direct sends
+  into the watcher pane, schedules `watcherTick`, parses `watcher_verdict`
+  messages, and executes only host-allowlisted verdict actions.
 - **Open directly:** `POST /api/panes {chat_backend, system_prompt?, preset?, model?}`.
 - **Observe:** the shell emits a `system_prompt` marker message rendered as a
   collapsible "System prompt" card; tool-call / tool-result messages render via the
@@ -1262,4 +1269,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 71 -->
+<!-- revision: 72 -->

@@ -35,6 +35,75 @@ pub fn resolve_spawn_task<R: Read>(
     }
 }
 
+pub fn resolve_spawn_charter<R: Read>(
+    charter: Option<String>,
+    charter_file: Option<String>,
+    stdin: &mut R,
+) -> Result<Option<String>, String> {
+    match (charter, charter_file) {
+        (Some(_), Some(_)) => Err("pass either --charter or --charter-file, not both".into()),
+        (Some(t), None) => Ok(Some(t)),
+        (None, Some(path)) => {
+            if path == "-" {
+                let mut buf = String::new();
+                stdin
+                    .read_to_string(&mut buf)
+                    .map_err(|e| format!("failed to read --charter-file from stdin: {}", e))?;
+                Ok(Some(buf))
+            } else {
+                std::fs::read_to_string(&path)
+                    .map(Some)
+                    .map_err(|e| format!("failed to read --charter-file {}: {}", path, e))
+            }
+        }
+        (None, None) => Ok(None),
+    }
+}
+
+pub(crate) fn parse_duration_secs(value: &str, flag: &str) -> Result<u64, String> {
+    let s = value.trim().to_ascii_lowercase();
+    if s.is_empty() {
+        return Err(format!("{flag} is empty"));
+    }
+    if s.chars().all(|c| c.is_ascii_digit()) {
+        return s
+            .parse::<u64>()
+            .map(|minutes| minutes.saturating_mul(60))
+            .map_err(|e| e.to_string());
+    }
+    let chars: Vec<char> = s.chars().filter(|c| !c.is_whitespace()).collect();
+    let mut i = 0usize;
+    let mut total = 0u64;
+    while i < chars.len() {
+        if !chars[i].is_ascii_digit() {
+            return Err(format!("invalid {flag} value: {value}"));
+        }
+        let start = i;
+        while i < chars.len() && chars[i].is_ascii_digit() {
+            i += 1;
+        }
+        let amount: u64 = chars[start..i]
+            .iter()
+            .collect::<String>()
+            .parse()
+            .map_err(|e: std::num::ParseIntError| e.to_string())?;
+        if i >= chars.len() {
+            return Err(format!("missing unit in {flag} value: {value}"));
+        }
+        let unit = chars[i];
+        i += 1;
+        let factor = match unit {
+            's' => 1,
+            'm' => 60,
+            'h' => 3_600,
+            'd' => 86_400,
+            _ => return Err(format!("unsupported {flag} unit: {unit}")),
+        };
+        total = total.saturating_add(amount.saturating_mul(factor));
+    }
+    Ok(total)
+}
+
 pub(crate) const MAX_PANE_DESCRIPTION_CHARS: usize = 200;
 
 fn refusal_next_commands() -> Vec<&'static str> {
@@ -596,6 +665,11 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             model,
             system_prompt,
             preset,
+            charter,
+            charter_file,
+            interval,
+            nudge_cooldown,
+            max_actions,
             allow_shared_checkout,
             bound_task,
         } => {
@@ -608,6 +682,36 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             let task = match resolve_spawn_task(task, task_file, &mut std::io::stdin()) {
                 Ok(t) => t,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            let charter = match resolve_spawn_charter(charter, charter_file, &mut std::io::stdin())
+            {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            let interval = match interval
+                .as_deref()
+                .map(|v| parse_duration_secs(v, "--interval"))
+                .transpose()
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            let nudge_cooldown = match nudge_cooldown
+                .as_deref()
+                .map(|v| parse_duration_secs(v, "--nudge-cooldown"))
+                .transpose()
+            {
+                Ok(v) => v,
                 Err(e) => {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
@@ -674,6 +778,18 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(preset) = preset {
                 body["preset"] = serde_json::json!(preset);
+            }
+            if let Some(charter) = charter {
+                body["charter"] = serde_json::json!(charter);
+            }
+            if let Some(interval) = interval {
+                body["tick_interval_secs"] = serde_json::json!(interval);
+            }
+            if let Some(nudge_cooldown) = nudge_cooldown {
+                body["nudge_cooldown_secs"] = serde_json::json!(nudge_cooldown);
+            }
+            if let Some(max_actions) = max_actions {
+                body["max_actions_per_tick"] = serde_json::json!(max_actions);
             }
             if allow_shared_checkout {
                 body["allow_shared_checkout"] = serde_json::json!(true);

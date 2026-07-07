@@ -69,6 +69,7 @@ fn pane_role(state: &AppState, pane_id: &str) -> Option<&'static str> {
         .and_then(|pane| pane.role)
         .map(|role| match role {
             AgentRole::Orchestrator => "orchestrator",
+            AgentRole::Manager => "manager",
             AgentRole::Worker => "worker",
         })
 }
