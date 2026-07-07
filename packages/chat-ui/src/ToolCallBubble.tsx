@@ -1,4 +1,3 @@
-import React from "react";
 import type { NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
 import {
   Bot,
