@@ -126,7 +126,7 @@ fn build_anthropic(config: &RerankConfig) -> Option<Box<dyn Reranker>> {
     let raw = config.model.clone().unwrap_or_else(|| "haiku".into());
     Some(Box::new(AnthropicReranker {
         api_key: key,
-        model: crate::agent::models::resolve_model_id(&raw).to_string(),
+        model: codeterm_types::agent::models::resolve_model_id(&raw).to_string(),
     }))
 }
 
@@ -144,7 +144,7 @@ fn build_claude_cli(config: &RerankConfig) -> Option<Box<dyn Reranker>> {
     let raw = config.model.clone().unwrap_or_else(|| "haiku".into());
     Some(Box::new(ClaudeCliReranker {
         binary: bin,
-        model: crate::agent::models::canonicalize_short(&raw).to_string(),
+        model: codeterm_types::agent::models::canonicalize_short(&raw).to_string(),
     }))
 }
 
@@ -259,7 +259,7 @@ fn build_rerank_prompt(query: &str, hits: &[SearchHit]) -> String {
             h.item.id, h.item.kind, h.item.title, summary, snip
         ));
     }
-    crate::prompts::MEM_RERANK
+    crate::mem::prompts::MEM_RERANK
         .replace("{query}", query)
         .replace("{items}", items.trim_end())
 }

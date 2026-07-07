@@ -10,6 +10,10 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 
+use codeterm_types::agent::models::canonicalize_short;
+use codeterm_types::config::MemoryConfig;
+
+use crate::mem::ports::MemHostContext;
 use crate::mem::store::MemKind;
 use crate::mem::workers;
 use crate::service::ServiceContext;
@@ -19,7 +23,8 @@ fn should_extract(kind: MemKind) -> bool {
 }
 
 fn build_extraction_prompt(
-    svc: &ServiceContext,
+    host: &dyn MemHostContext,
+    mem_cfg: &MemoryConfig,
     mem_item_id: &str,
     title: &str,
     body: &str,
@@ -33,10 +38,10 @@ fn build_extraction_prompt(
     } else {
         body
     };
-    let areas_block = format_existing_areas(svc);
-    let graph_types_block = format_existing_graph_types(svc);
-    let dedup_threshold = crate::config::memory_config().dedup_threshold;
-    crate::prompts::MEM_EXTRACTION
+    let areas_block = format_existing_areas(host);
+    let graph_types_block = format_existing_graph_types(host);
+    let dedup_threshold = mem_cfg.dedup_threshold;
+    crate::mem::prompts::MEM_EXTRACTION
         .replace("{id}", mem_item_id)
         .replace("{title}", title)
         .replace("{body}", truncated)
@@ -47,8 +52,8 @@ fn build_extraction_prompt(
 
 // Feed existing taxonomy into prompts so workers pick known mem areas by usage order.
 // Prompt only suggests existing areas; only main agent can create new ones.
-fn format_existing_areas(svc: &ServiceContext) -> String {
-    let tax = match svc.mem.get_taxonomy(None) {
+fn format_existing_areas(host: &dyn MemHostContext) -> String {
+    let tax = match host.get_taxonomy(None) {
         Ok(t) => t,
         Err(_) => return "(none yet — use \"\" if unsure)".to_string(),
     };
@@ -71,26 +76,8 @@ fn format_existing_areas(svc: &ServiceContext) -> String {
         .join("\n")
 }
 
-fn format_existing_graph_types(svc: &ServiceContext) -> String {
-    let entity_types: Vec<(String, u64)> = {
-        let conn = svc.mem.conn().lock();
-        conn.prepare("SELECT entity_type, COUNT(*) FROM entities GROUP BY entity_type ORDER BY COUNT(*) DESC LIMIT 20")
-            .and_then(|mut stmt| {
-                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))
-                    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
-            })
-            .unwrap_or_default()
-    };
-
-    let relation_types: Vec<(String, u64)> = {
-        let conn = svc.mem.conn().lock();
-        conn.prepare("SELECT relation_type, COUNT(*) FROM relations GROUP BY relation_type ORDER BY COUNT(*) DESC LIMIT 30")
-            .and_then(|mut stmt| {
-                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))
-                    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
-            })
-            .unwrap_or_default()
-    };
+fn format_existing_graph_types(host: &dyn MemHostContext) -> String {
+    let (entity_types, relation_types) = host.query_graph_type_counts();
 
     let mut out = String::new();
 
@@ -117,6 +104,8 @@ fn format_existing_graph_types(svc: &ServiceContext) -> String {
 
 pub fn spawn_extraction_worker(
     svc: &Arc<ServiceContext>,
+    mem_cfg: &MemoryConfig,
+    default_agent: &str,
     mem_item_id: String,
     title: String,
     body: String,
@@ -126,11 +115,10 @@ pub fn spawn_extraction_worker(
         return None;
     }
 
-    let prompt = build_extraction_prompt(svc, &mem_item_id, &title, &body);
+    let prompt = build_extraction_prompt(svc.as_ref(), mem_cfg, &mem_item_id, &title, &body);
 
-    let mem_cfg = crate::config::memory_config();
     let agent_provider = if mem_cfg.extraction_agent.is_empty() {
-        crate::config::default_agent_provider()
+        default_agent.to_string()
     } else {
         mem_cfg.extraction_agent.clone()
     };
@@ -140,7 +128,7 @@ pub fn spawn_extraction_worker(
     } else {
         mem_cfg.extraction_model.clone()
     };
-    let model = crate::agent::models::canonicalize_short(&raw_model).to_string();
+    let model = canonicalize_short(&raw_model).to_string();
 
     let intent = format!("extract:{}", mem_item_id);
     match workers::spawn_headless(
@@ -223,6 +211,8 @@ pub fn find_pending_items(
 /// immediately. The background task holds a `heavy_ops` permit for its full
 /// duration so extraction batches can't saturate mem alongside dreaming.
 pub fn run_extract_pending(svc: Arc<ServiceContext>, limit: usize) -> usize {
+    let mem_cfg = crate::config::memory_config();
+    let default_agent = crate::config::default_agent_provider();
     let pending = match find_pending_items(&svc, limit) {
         Ok(p) => p,
         Err(e) => {
@@ -241,7 +231,15 @@ pub fn run_extract_pending(svc: Arc<ServiceContext>, limit: usize) -> usize {
     let fut = async move {
         let _permit = mem.acquire_heavy_permit().await;
         for (id, title, body, kind) in pending {
-            spawn_extraction_worker(&svc, id, title, body, kind);
+            spawn_extraction_worker(
+                &svc,
+                &mem_cfg,
+                &default_agent,
+                id,
+                title,
+                body,
+                kind,
+            );
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
     };

@@ -3,6 +3,9 @@
 
 use rusqlite::params;
 
+use codeterm_types::agent::models::canonicalize_short;
+use codeterm_types::config::MemoryConfig;
+
 use crate::mem::MemManager;
 
 /// Prepare data for the REM agent — returns a text summary of candidates.
@@ -254,10 +257,13 @@ pub(crate) const DREAMING_TELEGRAM_STEP_DISABLED: &str = "Telegram notification 
 
 /// Spawn a headless dreaming worker for REM phase (dedup, classify, insights, diary).
 /// Called after the supervisor runs the SQL phases.
-pub fn spawn_rem_worker(svc: &std::sync::Arc<crate::service::ServiceContext>) {
-    let mem_cfg = crate::config::memory_config();
+pub fn spawn_rem_worker(
+    svc: &std::sync::Arc<crate::service::ServiceContext>,
+    mem_cfg: &MemoryConfig,
+    default_agent: &str,
+) {
     let agent = if mem_cfg.dreaming_agent.is_empty() {
-        crate::config::default_agent_provider()
+        default_agent.to_string()
     } else {
         mem_cfg.dreaming_agent.clone()
     };
@@ -267,7 +273,7 @@ pub fn spawn_rem_worker(svc: &std::sync::Arc<crate::service::ServiceContext>) {
     } else {
         mem_cfg.dreaming_model.clone()
     };
-    let model = crate::agent::models::canonicalize_short(&raw_model).to_string();
+    let model = canonicalize_short(&raw_model).to_string();
 
     // Telegram notification is optional: enabled builds send a one-line insight, but mem diary remains the durable record either way.
     let telegram_step = if mem_cfg.dreaming_telegram_notify {
@@ -275,7 +281,7 @@ pub fn spawn_rem_worker(svc: &std::sync::Arc<crate::service::ServiceContext>) {
     } else {
         DREAMING_TELEGRAM_STEP_DISABLED
     };
-    let prompt = crate::prompts::DREAMING_REM.replace("{telegram_notify_step}", telegram_step);
+    let prompt = crate::mem::prompts::DREAMING_REM.replace("{telegram_notify_step}", telegram_step);
 
     match crate::mem::workers::spawn_headless(
         svc,

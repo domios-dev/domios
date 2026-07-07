@@ -1218,6 +1218,7 @@ dependencies = [
  "log",
  "parking_lot",
  "tempfile",
+ "vt100",
 ]
 
 [[package]]

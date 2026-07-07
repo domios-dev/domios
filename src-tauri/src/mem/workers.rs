@@ -6,10 +6,19 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn build_worker_task(intent: &str, worker_id: &str, task: &str) -> String {
-    crate::prompts::WORKER_TASK_PREAMBLE
+    crate::mem::prompts::WORKER_TASK_PREAMBLE
         .replace("{intent}", intent)
         .replace("{worker_id}", worker_id)
         .replace("{task}", task)
+}
+
+#[derive(Clone, Debug)]
+pub struct MemWorkerSpawnParams {
+    pub intent: String,
+    pub task_prompt: String,
+    pub spawned_by: String,
+    pub agent_provider: String,
+    pub model: String,
 }
 
 const COLOR_PALETTE: [&str; 12] = [
@@ -322,11 +331,11 @@ impl GraphWorkerRegistry {
 
 /// Save worker PTY output to a log file. Returns the path on success.
 pub fn save_worker_log(worker_id: &str, output: &str) -> Result<PathBuf, String> {
-    let dir = crate::paths::data_dir().join("mem").join("workers");
+    let dir = codeterm_paths::data_dir().join("mem").join("workers");
     std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {}", dir.display(), e))?;
     let path = dir.join(format!("{}.log", worker_id));
     // Use worker PTY dimensions for VT100 parsing so UI lines render at correct width.
-    let clean = crate::pty::ansi::clean_terminal_output_sized(output, 500, 120);
+    let clean = codeterm_util::terminal::clean_terminal_output_sized(output, 500, 120);
     std::fs::write(&path, clean).map_err(|e| format!("write {}: {}", path.display(), e))?;
     Ok(path)
 }
@@ -375,151 +384,16 @@ pub fn spawn_headless(
     agent_provider: String,
     model: String,
 ) -> Result<String, String> {
-    if let Some(existing) = svc.workers.active_by_intent(&intent) {
-        log::info!(
-            "[worker] skip spawn for intent '{}': {} already running",
+    crate::mem_host::spawn_headless_worker(
+        svc.clone(),
+        MemWorkerSpawnParams {
             intent,
-            existing
-        );
-        return Ok(existing);
-    }
-
-    let worker_id = new_worker_id();
-    let color = svc.workers.pick_color();
-    let mut info = make_info(
-        worker_id.clone(),
-        String::new(),
-        intent.clone(),
-        spawned_by.clone(),
-        color,
-    );
-    info.status = WorkerStatus::Queued;
-    info.agent_provider = Some(agent_provider.clone());
-    if !model.is_empty() {
-        info.model = Some(model.clone());
-    }
-    svc.workers.register(info.clone());
-    crate::api::events::emit_everywhere(&svc.app_handle, "graph-worker-spawned", &info);
-
-    let svc_task = svc.clone();
-    let worker_id_task = worker_id.clone();
-    tauri::async_runtime::spawn(async move {
-        let permit = svc_task.worker_pool.acquire(&agent_provider).await;
-        if svc_task
-            .workers
-            .get(&worker_id_task)
-            .map(|w| w.status.is_terminal())
-            .unwrap_or(true)
-        {
-            drop(permit);
-            return;
-        }
-        let _ = svc_task
-            .workers
-            .update_status(&worker_id_task, WorkerStatus::Starting);
-
-        let task = build_worker_task(&intent, &worker_id_task, &task_prompt);
-        let svc_blocking = svc_task.clone();
-        let worker_id_blocking = worker_id_task.clone();
-        let agent_for_spawn = agent_provider.clone();
-        let model_for_spawn = model.clone();
-        let spawned_by_for_spawn = spawned_by.clone();
-        let intent_for_spawn = intent.clone();
-        let intent_title = intent_for_spawn.clone();
-        let spawn_result = tokio::task::spawn_blocking(move || {
-            use crate::service::spawn::{
-                AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec,
-            };
-            let spec = SpawnPaneSpec {
-                visibility: PaneVisibility::Hidden,
-                // Tag reports with worker intent in title so reports are identifiable (`mem:dreaming:rem`, etc.).
-                title: Some(format!("mem:{}", intent_title)),
-                description: None,
-                command: PaneCommand::Agent(AgentSpawnSpec {
-                    provider: agent_for_spawn,
-                    model: if model_for_spawn.is_empty() {
-                        None
-                    } else {
-                        Some(model_for_spawn)
-                    },
-                    task: Some(task),
-                    worker_id: Some(worker_id_blocking.clone()),
-                    auto_approve: true,
-                    spawned_by: Some(spawned_by_for_spawn),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            };
-            svc_blocking.spawn_pane(spec)
-        })
-        .await;
-
-        let handle = match spawn_result {
-            Ok(Ok(h)) => h,
-            Ok(Err(e)) => {
-                log::error!(
-                    "[worker] {}/{} spawn_pane failed: {}",
-                    intent_for_spawn,
-                    worker_id_task,
-                    e
-                );
-                let _ = svc_task
-                    .workers
-                    .update_status(&worker_id_task, WorkerStatus::Error);
-                drop(permit);
-                return;
-            }
-            Err(e) => {
-                log::error!(
-                    "[worker] {}/{} spawn_blocking panicked: {}",
-                    intent_for_spawn,
-                    worker_id_task,
-                    e
-                );
-                let _ = svc_task
-                    .workers
-                    .update_status(&worker_id_task, WorkerStatus::Error);
-                drop(permit);
-                return;
-            }
-        };
-
-        svc_task
-            .workers
-            .set_pane_id(&worker_id_task, handle.pane_id.clone());
-        log::info!(
-            "[worker] headless {} pane={} pty={}",
-            worker_id_task,
-            handle.pane_id,
-            handle.pty_id.as_deref().unwrap_or("?")
-        );
-
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30 * 60);
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-            let Some(current) = svc_task.workers.get(&worker_id_task) else {
-                break;
-            };
-            if current.status.is_terminal() {
-                break;
-            }
-            if tokio::time::Instant::now() > deadline {
-                log::warn!(
-                    "[worker] {}/{} exceeded 30min watchdog, forcing Orphaned + closing pane",
-                    intent_for_spawn,
-                    worker_id_task
-                );
-                let _ = svc_task
-                    .workers
-                    .update_status(&worker_id_task, WorkerStatus::Orphaned);
-                let _ = svc_task.close_pane(&handle.pane_id);
-                break;
-            }
-        }
-        drop(permit);
-    });
-
-    Ok(worker_id)
+            task_prompt,
+            spawned_by,
+            agent_provider,
+            model,
+        },
+    )
 }
 
 #[cfg(test)]
