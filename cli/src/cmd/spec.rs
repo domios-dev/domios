@@ -60,7 +60,7 @@ pub fn handle_spec(client: &mut SocketClient, json_output: bool, action: SpecAct
             print_hints(&hints);
         }
         Err(e) => {
-            println!("{e}");
+            crate::cmd::plan_output::print_plan_error(json_output, &e);
             std::process::exit(1);
         }
     }
@@ -219,16 +219,36 @@ fn run_spec(
                 spec,
                 spec_section,
                 plan_section,
-            } => call(
-                client,
-                "spec.link.add",
-                json!({
-                    "plan_id": plan_id,
-                    "spec_id": spec,
-                    "spec_section_id": spec_section,
-                    "plan_section_id": plan_section,
-                }),
-            ),
+                edges,
+            } => {
+                let mut edge_list: Vec<Value> = Vec::new();
+                if let (Some(ss), Some(ps)) = (spec_section, plan_section) {
+                    edge_list.push(json!({ "spec_section_id": ss, "plan_section_id": ps }));
+                }
+                for edge in &edges {
+                    let (ss, ps) = edge.split_once(':').ok_or_else(|| {
+                        format!("invalid --edge '{edge}': expected SPEC_SECTION:PLAN_SECTION")
+                    })?;
+                    let (ss, ps) = (ss.trim(), ps.trim());
+                    if ss.is_empty() || ps.is_empty() {
+                        return Err(format!(
+                            "invalid --edge '{edge}': both sides must be non-empty"
+                        ));
+                    }
+                    edge_list.push(json!({ "spec_section_id": ss, "plan_section_id": ps }));
+                }
+                if edge_list.is_empty() {
+                    return Err(
+                        "spec link add needs --spec-section/--plan-section or at least one --edge"
+                            .into(),
+                    );
+                }
+                call(
+                    client,
+                    "spec.link.add",
+                    json!({ "plan_id": plan_id, "spec_id": spec, "edges": edge_list }),
+                )
+            }
             SpecLinkAction::Rm {
                 plan_id,
                 spec,
