@@ -33,6 +33,7 @@ mod plan_qa;
 mod plan_read;
 mod plan_refs;
 mod plan_role_helpers;
+mod plan_task_dispatch;
 mod plan_task_rpc;
 mod plan_time;
 mod services;
@@ -433,6 +434,7 @@ fn dispatch(
                 "plan.task.attach",
                 "plan.task.close",
                 "plan.task.assign",
+                "plan.task.dispatch",
                 "plan.task.attempts",
                 "plan.task.attempt.show",
                 "plan.task.respawn",
