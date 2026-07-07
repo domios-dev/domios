@@ -231,8 +231,8 @@ mod tests {
             "tasks": [],
             "sections": []
         });
-        let path = plan_dir.join("plan.json");
-        fs::write(&path, plan.to_string()).unwrap();
+        let path = plan_dir.join("plan.yaml");
+        fs::write(&path, serde_yaml::to_string(&plan).unwrap()).unwrap();
         let report = prune_report(Some(dir.path().display().to_string()), false).unwrap();
         assert_eq!(report["candidate_count"], 1);
         assert!(report["dry_run"].as_bool().unwrap());
@@ -251,8 +251,8 @@ mod tests {
             "tasks": [],
             "sections": []
         });
-        let path = plan_dir.join("plan.json");
-        fs::write(&path, plan.to_string()).unwrap();
+        let path = plan_dir.join("plan.yaml");
+        fs::write(&path, serde_yaml::to_string(&plan).unwrap()).unwrap();
         let report = prune_report(Some(dir.path().display().to_string()), true).unwrap();
         assert_eq!(report["deleted"].as_array().unwrap().len(), 1);
         assert!(!path.exists());
