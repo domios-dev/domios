@@ -34,7 +34,8 @@ jobs:
 
       - name: Prepare compile stubs
         run: |
-          mkdir -p dist
+          mkdir -p dist src-tauri/bundled-cli
+          [ -n "$(ls -A src-tauri/bundled-cli)" ] || touch src-tauri/bundled-cli/codeterm
           node scripts/prepare-embed-stub.js
 
       - name: fmt
@@ -57,6 +58,12 @@ jobs:
       - name: CLI tests
         run: cargo test --manifest-path cli/Cargo.toml
 
+      # The _work checkout is shared with release jobs on this runner — never
+      # leave 0-byte stubs where the release resource glob would ship them.
+      - name: Clean 0-byte stubs
+        if: always()
+        run: find src-tauri/bundled-cli src-tauri/bundled-embed -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
+
   rust-macos:
     name: rust (macos)
     runs-on: [self-hosted, codeterm-builder]
@@ -71,7 +78,8 @@ jobs:
 
       - name: Prepare compile stubs
         run: |
-          mkdir -p dist
+          mkdir -p dist src-tauri/bundled-cli
+          [ -n "$(ls -A src-tauri/bundled-cli)" ] || touch src-tauri/bundled-cli/codeterm
           node scripts/prepare-embed-stub.js
 
       - name: Rust lib tests
@@ -79,6 +87,10 @@ jobs:
 
       - name: CLI tests
         run: cargo test --manifest-path cli/Cargo.toml
+
+      - name: Clean 0-byte stubs
+        if: always()
+        run: find src-tauri/bundled-cli src-tauri/bundled-embed -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
 
   rust-windows:
     name: rust (windows)
@@ -114,7 +126,10 @@ jobs:
       - name: Prepare compile stubs
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          New-Item -ItemType Directory -Force -Path dist, src-tauri\bundled-cli | Out-Null
+          if (-not (Get-ChildItem src-tauri\bundled-cli -ErrorAction SilentlyContinue)) {
+            New-Item -ItemType File -Path src-tauri\bundled-cli\codeterm.exe | Out-Null
+          }
           node scripts/prepare-embed-stub.js
 
       - name: Rust lib tests
@@ -124,6 +139,14 @@ jobs:
       - name: CLI tests
         shell: pwsh
         run: cargo test --manifest-path cli/Cargo.toml
+
+      - name: Clean 0-byte stubs
+        if: always()
+        shell: pwsh
+        run: |
+          foreach ($dir in @('src-tauri\bundled-cli', 'src-tauri\bundled-embed')) {
+            Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Where-Object Length -eq 0 | Remove-Item -Force
+          }
 
   ts:
     name: ts unit + plugins
