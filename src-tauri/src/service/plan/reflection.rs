@@ -183,10 +183,10 @@ pub fn render_reflection(plan: &Plan, every_gates: u32, out: &mut String) {
     let Some(first) = pending.first() else {
         return;
     };
-    out.push_str(crate::prompts::REFLECTION_HEARTBEAT_TITLE);
+    out.push_str(super::prompts_plan::REFLECTION_HEARTBEAT_TITLE);
     out.push('\n');
     out.push_str("- ");
-    out.push_str(&crate::prompts::reflection_block(
+    out.push_str(&super::prompts_plan::reflection_block(
         &first.trigger.label(),
         &first.window,
     ));
