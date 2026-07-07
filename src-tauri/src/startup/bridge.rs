@@ -5,6 +5,7 @@ use std::time::Duration;
 use chrono::Utc;
 
 use crate::bridge;
+use crate::bridge_host::{attachment_store, ServiceBridgePanePort};
 use crate::config;
 use crate::service::{self, ServiceState};
 
@@ -13,7 +14,8 @@ use crate::service::{self, ServiceState};
 /// Caller MUST hold `bridge_supervisor.op_guard()` to serialize against
 /// concurrent /api/bridge/{start,stop} — this fn does not lock.
 pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
-    let token = bridge::telegram::read_token()
+    let attachments = attachment_store();
+    let token = bridge::telegram::read_token(attachments.as_ref())
         .ok_or_else(|| "telegram: no token at secrets_dir/telegram.token".to_string())?;
 
     if svc.bridge_supervisor.is_active() {
@@ -43,8 +45,11 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
     let telegram = bridge::telegram::TelegramService::new(
         token,
         cfg.integrations.telegram_allowed_users.clone(),
+        attachments,
     );
-    let manager = bridge::BridgeManager::new((**svc).clone());
+    let pane: std::sync::Arc<dyn bridge::ports::BridgePanePort> =
+        std::sync::Arc::new(ServiceBridgePanePort((**svc).clone()));
+    let manager = bridge::BridgeManager::new(pane);
     let cancel = svc.bridge_supervisor.cancel_token();
     let status = svc.bridge_supervisor.as_status_sink();
 
@@ -106,7 +111,8 @@ pub async fn start_telegram_bridge_for_test(
     let cancel = supervisor.cancel_token();
     let status = supervisor.as_status_sink();
 
-    let svc = bridge::telegram::TelegramService::with_base(token, api_base);
+    let attachments = attachment_store();
+    let svc = bridge::telegram::TelegramService::with_base(token, api_base, attachments);
     let (tx, mut rx_inbound) = tokio::sync::mpsc::channel(8);
     tokio::spawn(async move { while rx_inbound.recv().await.is_some() {} });
 

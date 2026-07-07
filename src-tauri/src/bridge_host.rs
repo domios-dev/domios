@@ -1,0 +1,164 @@
+//! App-side implementations of [`crate::bridge::ports`] traits.
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use codeterm_types::config::schema::{TextHooksConfig, VoiceTranscribeConfig};
+
+use crate::bridge::manager::OutboundSender;
+use crate::bridge::ports::{
+    AttachmentStorePort, BridgePanePort, ChatPreprocessorPort, ChatPreprocessorProvider,
+    PreprocessCtx,
+};
+use crate::service::general_agent;
+use crate::service::ServiceContext;
+use crate::transcribe::TranscribeRegistry;
+
+pub struct AppAttachmentStorePort;
+
+pub fn attachment_store() -> Arc<dyn AttachmentStorePort> {
+    Arc::new(AppAttachmentStorePort)
+}
+
+impl AttachmentStorePort for AppAttachmentStorePort {
+    fn secrets_dir(&self) -> PathBuf {
+        general_agent::secrets_dir()
+    }
+
+    fn evict_downloads(&self, dir: &Path, max_bytes: u64) {
+        crate::attachments::evict(
+            dir,
+            crate::attachments::EvictionPolicy::MaxBytes(max_bytes),
+        );
+    }
+
+    fn telegram_allowed_users(&self) -> Vec<String> {
+        crate::config::load_config()
+            .integrations
+            .telegram_allowed_users
+            .clone()
+    }
+}
+
+pub struct ServiceBridgePanePort(pub ServiceContext);
+
+impl BridgePanePort for ServiceBridgePanePort {
+    fn resolve_general_pane(&self) -> Result<String, String> {
+        self.0
+            .mux
+            .write()
+            .resolve_pane_id(general_agent::GENERAL_ALIAS)
+            .ok_or_else(|| "General Agent not found".to_string())
+    }
+
+    fn pane_agent_type(&self, pane_id: &str) -> Option<String> {
+        self.0
+            .mux
+            .write()
+            .get_pane(pane_id)
+            .and_then(|p| p.agent_type.clone())
+    }
+
+    fn transcribe_registry(&self) -> Arc<TranscribeRegistry> {
+        self.0.transcribe_registry.clone()
+    }
+
+    fn bridge_outbound(&self) -> OutboundSender {
+        self.0.bridge_outbound.clone()
+    }
+
+    fn voice_transcribe_config(&self) -> VoiceTranscribeConfig {
+        crate::config::load_config().integrations.voice_transcribe.clone()
+    }
+
+    fn text_hooks_config(&self) -> TextHooksConfig {
+        crate::config::load_config().integrations.text_hooks.clone()
+    }
+
+    fn deliver_inbound(
+        &self,
+        pane_id: &str,
+        prefixed: &str,
+        agent_type: Option<&str>,
+    ) -> Result<(), String> {
+        if agent_type.is_none() {
+            let preview: String = prefixed.chars().take(120).collect();
+            log::info!(
+                "[bridge] queued inbound for pane={} (agent restarting): {}",
+                pane_id,
+                preview,
+            );
+            crate::bridge::inbound_buffer::push(pane_id, prefixed.to_string());
+            return Ok(());
+        }
+
+        if let Some((plugin_id, session_id)) = self.0.pane_chat_backing(pane_id) {
+            return self
+                .0
+                .chatbackend_send(&plugin_id, &session_id, prefixed);
+        }
+
+        let pty_id = self.0.resolve_pty_id(pane_id)?;
+        let paste = format!("\x1b[200~{}\x1b[201~", prefixed);
+        self.0
+            .pty
+            .lock()
+            .write(&pty_id, paste.as_bytes())
+            .map_err(|e| e.to_string())?;
+
+        let pty = self.0.pty.clone();
+        let pty_id = pty_id.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let _ = pty.lock().write(&pty_id, b"\r");
+            std::thread::sleep(std::time::Duration::from_millis(2000));
+            let _ = pty.lock().write(&pty_id, b"\r");
+        });
+
+        Ok(())
+    }
+
+    fn queue_inbound(&self, pane_id: &str, prefixed: String) {
+        crate::bridge::inbound_buffer::push(pane_id, prefixed);
+    }
+
+    fn telegram_token(&self) -> Option<String> {
+        crate::bridge::telegram::read_token(&AppAttachmentStorePort)
+    }
+
+    fn telegram_token_path(&self) -> PathBuf {
+        crate::bridge::telegram::token_path(&AppAttachmentStorePort)
+    }
+}
+
+pub struct ServiceChatPreprocessorPort(pub ServiceContext);
+
+impl ChatPreprocessorPort for ServiceChatPreprocessorPort {
+    fn preprocessor_ids(&self) -> Vec<String> {
+        self.0.chat_preprocessor_registry.ids()
+    }
+
+    fn active_preprocessors(&self) -> Vec<Arc<dyn ChatPreprocessorProvider>> {
+        self.0.chat_preprocessor_registry.active()
+    }
+}
+
+impl ChatPreprocessorPort for crate::chatpreprocessor::ChatPreprocessorRegistry {
+    fn preprocessor_ids(&self) -> Vec<String> {
+        self.ids()
+    }
+
+    fn active_preprocessors(&self) -> Vec<Arc<dyn ChatPreprocessorProvider>> {
+        self.active()
+    }
+}
+
+impl ChatPreprocessorPort for Arc<crate::chatpreprocessor::ChatPreprocessorRegistry> {
+    fn preprocessor_ids(&self) -> Vec<String> {
+        self.ids()
+    }
+
+    fn active_preprocessors(&self) -> Vec<Arc<dyn ChatPreprocessorProvider>> {
+        self.active()
+    }
+}

@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use crate::bridge::ports::ChatPreprocessorPort;
 use crate::chatpreprocessor::{ChatPreprocessorProvider, PreprocessCtx};
 
 /// The slot a stage grabs in the outbound pipeline. Part of the conflict guard:
@@ -59,10 +60,10 @@ where
 /// Run [`detect_conflicts`] over the live registries and `log::warn!` each overlap (warn-and-allow; never blocks).
 pub fn warn_stage_conflicts(
     transcribers: &crate::transcribe::TranscribeRegistry,
-    preprocessors: &crate::chatpreprocessor::ChatPreprocessorRegistry,
+    preprocessors: &dyn ChatPreprocessorPort,
 ) {
     let voice = transcribers.ids();
-    let text = preprocessors.ids();
+    let text = preprocessors.preprocessor_ids();
     let inventory: Vec<(&str, StageMatch)> = voice
         .iter()
         .map(|id| (id.as_str(), StageMatch::Voice))

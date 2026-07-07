@@ -134,6 +134,10 @@ sha2 = "0.10"
 name = "codeterm_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[[test]]
+name = "main"
+path = "tests/main.rs"
+
 # Deterministic mem-recall bench runner. Reuses the `mem` module from the
 # lib crate directly (no tokio background tasks, no LLM, no embeddings
 # required) so evals compile fast and run offline.

@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 
 use crate::api::routes::{check_auth, AppState};
 use crate::bridge;
+use crate::bridge_host::AppAttachmentStorePort;
 
 const TELEGRAM_SECRET_NAME: &str = "telegram_bot_token";
 
@@ -37,7 +38,7 @@ pub async fn bridge_state(
     ensure_telegram(&q.service)?;
 
     let snap = state.svc.bridge_supervisor.snapshot();
-    let token_present = bridge::telegram::token_path().exists();
+    let token_present = bridge::telegram::token_path(&AppAttachmentStorePort).exists();
 
     let has_secret_in_vault = state
         .svc
@@ -155,7 +156,7 @@ pub async fn bridge_start(
 
     let _op = state.svc.bridge_supervisor.op_guard().await;
 
-    if body.ensure_token && !bridge::telegram::token_path().exists() {
+    if body.ensure_token && !bridge::telegram::token_path(&AppAttachmentStorePort).exists() {
         let store = state.svc.secrets.read().await;
         match store.get(TELEGRAM_SECRET_NAME).await {
             Ok(value) => {
@@ -233,7 +234,7 @@ pub async fn bridge_start(
 }
 
 fn persist_token_file(token: &str) -> Result<(), String> {
-    let path = bridge::telegram::token_path();
+    let path = bridge::telegram::token_path(&AppAttachmentStorePort);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("create secrets dir: {}", e))?;
     }
