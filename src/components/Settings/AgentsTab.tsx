@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { invoke } from "../../lib/bridge";
-import { Bell, Bot, ChevronRight, FolderTree, Puzzle, Server, Eye, Timer } from "lucide-react";
+import { Bell, Bot, ChevronRight, FolderTree, Server, Eye, Timer } from "lucide-react";
 import type { AppConfig, OrchestrationConfig, ProviderConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
@@ -14,13 +14,11 @@ export function AgentsOverview({
   config,
   onUpdate,
   onOpenProvider,
-  onOpenPlugins,
   onUpdateFullConfig,
 }: {
   config: AppConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
   onOpenProvider: (providerId: string) => void;
-  onOpenPlugins: () => void;
   onUpdateFullConfig: (next: AppConfig) => void;
 }) {
   const { providers, loading, error } = useAgentProviders();
@@ -107,21 +105,7 @@ export function AgentsOverview({
       <SettingsCard
         icon={<Server size={16} />}
         title="Providers"
-        headerRight={
-          <Button
-            variant="accent"
-            size="compact"
-            type="button"
-            data-testid="settings-open-provider-plugins"
-            onClick={onOpenPlugins}
-            className="gap-1 text-[10px]"
-            title="Providers are installed and managed as plugins"
-          >
-            <Puzzle size={11} strokeWidth={2.2} />
-            managed by plugins
-            <ChevronRight size={11} className="opacity-70" />
-          </Button>
-        }
+        description="Providers are installed and managed as plugins — see the Extensions panel in the titlebar."
       >
         {error && (
           <div className="text-[10px] text-[var(--ct-red)]">

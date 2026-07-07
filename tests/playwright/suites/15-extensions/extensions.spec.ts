@@ -43,7 +43,7 @@ function fileUrl(p: string): string {
   return `file://${p.replace(/\\/g, "/")}`;
 }
 
-function writePlugin(): void {
+function writePlugin(version = "0.1.0"): void {
   const dir = path.join(WORKTREE, "plugins", PLUGIN_ID);
   mkdirSync(path.join(dir, "ui"), { recursive: true });
   writeFileSync(
@@ -51,7 +51,7 @@ function writePlugin(): void {
     JSON.stringify(
       {
         id: PLUGIN_ID,
-        version: "0.1.0",
+        version,
         minCodeterm: "1.0.0",
         hostApi: 2,
         displayName: "PW Track C View",
@@ -86,11 +86,7 @@ function writePlugin(): void {
   writeFileSync(path.join(dir, "ui", "index.html"), "<!doctype html><title>PW Track C View</title>\n");
 }
 
-function setupChannel(): string {
-  rmSync(CHANNEL_ROOT, { recursive: true, force: true });
-  mkdirSync(CHANNEL_ROOT, { recursive: true });
-  bash(`git init --bare ${shQuote(BARE)} >/dev/null`);
-  bash(`git clone ${shQuote(BARE)} ${shQuote(WORKTREE)} >/dev/null 2>&1`);
+function writeChannelManifest(version: string): void {
   const pluginsDir = path.join(WORKTREE, "plugins");
   mkdirSync(pluginsDir, { recursive: true });
   writeFileSync(
@@ -99,13 +95,21 @@ function setupChannel(): string {
       {
         schemaVersion: 1,
         name: CHANNEL_NAME,
-        plugins: [{ id: PLUGIN_ID, path: PLUGIN_ID, version: "0.1.0" }],
+        plugins: [{ id: PLUGIN_ID, path: PLUGIN_ID, version }],
       },
       null,
       2,
     ) + "\n",
   );
-  writePlugin();
+  writePlugin(version);
+}
+
+function setupChannel(): string {
+  rmSync(CHANNEL_ROOT, { recursive: true, force: true });
+  mkdirSync(CHANNEL_ROOT, { recursive: true });
+  bash(`git init --bare ${shQuote(BARE)} >/dev/null`);
+  bash(`git clone ${shQuote(BARE)} ${shQuote(WORKTREE)} >/dev/null 2>&1`);
+  writeChannelManifest("0.1.0");
   bash(
     [
       `git -C ${shQuote(WORKTREE)} checkout -b main >/dev/null 2>&1`,
@@ -115,6 +119,22 @@ function setupChannel(): string {
     ].join(" && "),
   );
   return `${fileUrl(WORKTREE)}#main:plugins`;
+}
+
+function bumpChannel(version: string): void {
+  writeChannelManifest(version);
+  bash(
+    [
+      `git -C ${shQuote(WORKTREE)} add plugins`,
+      `git -C ${shQuote(WORKTREE)} -c user.name=CodeTerm -c user.email=tests@codeterm.local commit -m ${shQuote(`bump ${PLUGIN_ID} to ${version}`)} >/dev/null`,
+      `git -C ${shQuote(WORKTREE)} push origin main >/dev/null`,
+    ].join(" && "),
+  );
+}
+
+function cli(args: string): string {
+  const bin = path.join(devDataDir(), "bin", process.platform === "win32" ? "codeterm.exe" : "codeterm");
+  return bash(`${shQuote(bin)} ${args}`);
 }
 
 async function openExtensions(ui: ManagedUiSession): Promise<void> {
@@ -258,4 +278,68 @@ test("@smoke uninstall confirmation includes remove-data checkbox", async ({ api
     const snapshot = await api.get<PluginSnapshot>("/plugins/snapshot");
     return snapshot.plugins.some((plugin) => plugin.id === PLUGIN_ID);
   }).toBe(false);
+});
+
+test("@golden channel bump renders update badge; update installs the new version", async ({ api, ui }) => {
+  await openExtensions(ui);
+  await addChannel(ui.page, `${fileUrl(WORKTREE)}#main:plugins`);
+  await installPlugin(ui.page, api);
+  const row = pluginRow(ui.page);
+  await expect(row).toHaveAttribute("data-plugin-version", "0.1.0", { timeout: 30_000 });
+  await expect(row).toHaveAttribute("data-plugin-channel", CHANNEL_NAME);
+  await expect(row).toHaveAttribute("data-plugin-update-available", "false");
+
+  bumpChannel("0.1.1");
+  // Channel diff refreshes on a background thread; nudge extensions-refresh until the flag lands.
+  await expect
+    .poll(
+      async () => {
+        if ((await row.getAttribute("data-plugin-update-available")) === "true") return true;
+        await ui.page.locator('[data-testid="extensions-refresh"]').click().catch(() => {});
+        return false;
+      },
+      { timeout: 30_000, intervals: [1_000] },
+    )
+    .toBe(true);
+
+  await selectPlugin(ui.page);
+  await ui.page.locator(`[data-testid="extensions-plugin-update"][data-plugin-id="${PLUGIN_ID}"]`).click();
+  await expect(row).toHaveAttribute("data-plugin-version", "0.1.1", { timeout: 30_000 });
+  await expect(row).toHaveAttribute("data-plugin-update-available", "false", { timeout: 30_000 });
+});
+
+test("@golden system channel update renders bundled providers as verified", async ({ ui }) => {
+  cli("plugin update-system --json");
+  await openExtensions(ui);
+  const section = ui.page.locator(
+    '[data-testid="extensions-section"][data-extension-section="channel:codeterm-core"]',
+  );
+  await expect
+    .poll(
+      async () => {
+        if (await section.isVisible().catch(() => false)) return true;
+        await ui.page.locator('[data-testid="extensions-refresh"]').click().catch(() => {});
+        return false;
+      },
+      { timeout: 30_000, intervals: [1_000] },
+    )
+    .toBe(true);
+  for (const id of ["claude", "codex", "opencode"]) {
+    const row = ui.page.locator(`[data-testid="extensions-plugin-row"][data-plugin-id="${id}"]`);
+    await expect(row).toHaveAttribute("data-plugin-installed", "true", { timeout: 30_000 });
+    await expect(row).toHaveAttribute("data-plugin-channel", "codeterm-core");
+    await expect(row).toHaveAttribute("data-plugin-verified", "true");
+  }
+});
+
+test("@smoke broken channel add surfaces the error banner", async ({ ui }) => {
+  await openExtensions(ui);
+  await ui.page.locator('[data-testid="extensions-filter"][data-extension-filter="channels"]').click();
+  await ui.page.locator('[data-testid="extensions-channel-add-open"]').click();
+  await ui.page
+    .locator('[data-testid="extensions-channel-url-input"]')
+    .fill(`${fileUrl(CHANNEL_ROOT)}/missing#main:plugins`);
+  await ui.page.locator('[data-testid="extensions-channel-name-input"]').fill(`broken-${Date.now()}`);
+  await ui.page.locator('[data-testid="extensions-channel-add-submit"]').click();
+  await expect(ui.page.locator('[data-testid="extensions-error"]')).toBeVisible({ timeout: 30_000 });
 });
