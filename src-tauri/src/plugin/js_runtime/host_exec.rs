@@ -177,16 +177,23 @@ pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, Stri
         }
         Err(e) => return err(&format!("wait {}: {e}", opts.bin)),
     };
-    // After a timeout-kill, use a short drain deadline: orphaned grandchildren
-    // (not reached by taskkill /T on Windows) keep pipe write-ends open, which
-    // would block read_to_string indefinitely. Discard partial output instead.
+    // After a timeout-kill, use a short SHARED drain deadline: orphaned
+    // grandchildren (not reached by taskkill /T on Windows) keep pipe write-ends
+    // open, which would block read_to_string indefinitely. One deadline across
+    // both channels — sequential per-channel timeouts would otherwise add up
+    // (2x500ms) and blow the caller's latency budget. Discard partial output.
     let drain = if timeout_error.is_some() {
-        Duration::from_millis(500)
+        Duration::from_millis(400)
     } else {
         Duration::from_secs(60)
     };
-    let out = out_rx.recv_timeout(drain).unwrap_or_default();
-    let errout = err_rx.recv_timeout(drain).unwrap_or_default();
+    let deadline = std::time::Instant::now() + drain;
+    let recv_until = |rx: &std::sync::mpsc::Receiver<String>| {
+        let budget = deadline.saturating_duration_since(std::time::Instant::now());
+        rx.recv_timeout(budget).unwrap_or_default()
+    };
+    let out = recv_until(&out_rx);
+    let errout = recv_until(&err_rx);
     let mut value = serde_json::json!({
         "code": status_code,
         "stdout": out,
