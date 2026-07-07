@@ -983,7 +983,7 @@ fn watcher_spawn_without_charter_uses_plugin_default() {
         ..spawn_params("local-shell")
     };
 
-    let err = validate_watcher_spawn_target(&providers, &backends, "local-shell", &params)
+    validate_watcher_spawn_target(&providers, &backends, "local-shell", &params)
         .expect("bare watcher spawn is valid: the plugin falls back to its shipped charter");
 }
 
