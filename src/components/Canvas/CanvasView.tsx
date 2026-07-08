@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { X } from "lucide-react";
 import { listen } from "../../lib/bridge";
 import type { ApiConfig, Pane, Workspace } from "../../lib/types";
-import { useMultiplexer } from "../../store/multiplexer";
+import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { resolveCanvasFocusNodeIds, type CanvasFocusPayload } from "./canvasFocusPayload";
 import { CanvasEmptyActions } from "./CanvasEmptyActions";
 import { CanvasToolbar } from "./CanvasToolbar";
@@ -864,7 +864,8 @@ export interface CanvasViewProps {
 }
 
 export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api, onClose }: CanvasViewProps) {
-  const { state, setFocusedPane, setActiveTab } = useMultiplexer();
+  const { setFocusedPane, setActiveTab } = useMultiplexer();
+  const state = useMuxState();
   const onOpenPane = useCallback(
     (paneId: string) => {
       revealAssignedAgentPane(

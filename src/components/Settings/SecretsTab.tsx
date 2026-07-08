@@ -3,7 +3,7 @@ import { invoke } from "../../lib/bridge";
 import { KeyRound, LogIn, FlaskConical, Settings2, Clock, RefreshCw } from "lucide-react";
 import { BusySpinner } from "../shared/BusyState";
 import type { AppConfig, SecretsConfig } from "../../lib/types";
-import { useMultiplexer } from "../../store/multiplexer";
+import { useMuxState } from "../../store/multiplexer";
 import { setPendingCommand } from "../../lib/pendingCommands";
 import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { SettingsCard, SettingsPill } from "./shared";
@@ -55,7 +55,7 @@ export function SecretsTab({
     : {};
   const jsonHeaders: HeadersInit = { "Content-Type": "application/json", ...apiHeaders };
 
-  const { state: muxState } = useMultiplexer();
+  const muxState = useMuxState();
   const installBitwardenCli = useCallback(async () => {
     const platform = navigator.platform.toLowerCase();
     const cmd = platform.includes("mac")
