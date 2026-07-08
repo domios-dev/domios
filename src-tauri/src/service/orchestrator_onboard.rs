@@ -97,6 +97,7 @@ pub fn orchestrator_onboarding_body(pane_id: &str) -> String {
     let mandate = crate::prompts::peer_pairing_mandate_full(&spawn_cmd);
     format!(
         "You are now the Orchestrator for this pane (role=Orchestrator, can_spawn=true).\n\
+Do not rename your own tab/pane — CodeTerm manages pane labels.\n\
 \n\
 First load the orchestration rules:\n\
   codeterm docs ORCHESTRATION\n\

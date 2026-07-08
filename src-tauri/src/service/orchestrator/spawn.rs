@@ -382,9 +382,9 @@ impl ServiceContext {
                         ));
                     }
                     // Onboarding rides the pending_greeting above — auto-delivered
-                    // by CodeTerm as the Planner's own first message, not a task
-                    // attributed to the spawning Orchestrator ("FROM <orch>").
-                    bg_task
+                    // by CodeTerm as the Planner's own first message. Drop bg_task so
+                    // the intro is NOT re-sent as a FROM-<orchestrator> relay.
+                    None
                 }
                 None => bg_task,
             }
