@@ -15,6 +15,27 @@ pub use codeterm_types::usage::UsageSnapshotRow;
 // Storage is small (~80B per row).
 const MAX_ROWS_PER_PROVIDER: i64 = 10_000;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UsageFailureKind {
+    Timeout,
+    ParseError,
+    Skip,
+    NoParser,
+    DbInsert,
+}
+
+impl UsageFailureKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Timeout => "TIMEOUT",
+            Self::ParseError => "PARSE_ERROR",
+            Self::Skip => "SKIP",
+            Self::NoParser => "NO_PARSER",
+            Self::DbInsert => "DB_INSERT",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DailyRollup {
     pub day: String,
@@ -93,14 +114,34 @@ impl UsageStore {
         error: &str,
         probe_command: Option<&str>,
     ) -> Result<i64, String> {
+        self.insert_failure_kind(
+            provider,
+            account_id,
+            _raw_text,
+            UsageFailureKind::ParseError,
+            error,
+            probe_command,
+        )
+    }
+
+    pub fn insert_failure_kind(
+        &self,
+        provider: &str,
+        account_id: Option<&str>,
+        _raw_text: Option<&str>,
+        kind: UsageFailureKind,
+        detail: &str,
+        probe_command: Option<&str>,
+    ) -> Result<i64, String> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction().map_err(|e| format!("begin tx: {}", e))?;
         let now_ms = chrono::Utc::now().timestamp_millis();
+        let reason = format!("{}: {}", kind.as_str(), detail);
         tx.execute(
             r#"INSERT INTO usage_snapshots
                (provider, account_id, captured_at, parsed_ok, failure_reason, probe_command)
                VALUES (?1, ?2, ?3, 0, ?4, ?5)"#,
-            params![provider, account_id, now_ms, error, probe_command],
+            params![provider, account_id, now_ms, reason, probe_command],
         )
         .map_err(|e| format!("insert failure: {}", e))?;
         let id = tx.last_insert_rowid();
@@ -434,8 +475,40 @@ mod tests {
         assert_eq!(latest.session_pct, Some(42.0));
         let hist = store.get_history("claude", 0, 10, None).unwrap();
         assert_eq!(hist.len(), 2, "history still contains the failure row");
-        assert_eq!(hist[0].failure_reason.as_deref(), Some("regex panic"));
+        assert_eq!(
+            hist[0].failure_reason.as_deref(),
+            Some("PARSE_ERROR: regex panic")
+        );
         assert_eq!(hist[0].probe_command.as_deref(), Some("/usage"));
+    }
+
+    #[test]
+    fn failure_taxonomy_is_persisted_in_reason_prefix() {
+        let store = UsageStore::open_in_memory().unwrap();
+        for (kind, detail) in [
+            (UsageFailureKind::Timeout, "agent not ready"),
+            (UsageFailureKind::ParseError, "bad frame"),
+            (UsageFailureKind::Skip, "empty usage frame"),
+        ] {
+            store
+                .insert_failure_kind("cursor", None, Some("raw"), kind, detail, Some("/usage"))
+                .unwrap();
+        }
+
+        let hist = store.get_history("cursor", 0, 10, None).unwrap();
+        let mut reasons: Vec<_> = hist
+            .iter()
+            .filter_map(|row| row.failure_reason.as_deref())
+            .collect();
+        reasons.sort_unstable();
+        assert_eq!(
+            reasons,
+            vec![
+                "PARSE_ERROR: bad frame",
+                "SKIP: empty usage frame",
+                "TIMEOUT: agent not ready"
+            ]
+        );
     }
 
     #[test]
