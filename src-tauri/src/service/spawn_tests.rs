@@ -1,8 +1,6 @@
 use super::*;
-use crate::agent::registry::AgentRegistry;
 use crate::service::{ServiceContext, SpawnAgentParams};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 #[test]
