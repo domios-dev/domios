@@ -311,7 +311,10 @@ fn enter_phase(
     match next {
         RefreshPhase::Compact => send_compact(svc, req, ctx),
         RefreshPhase::Reorient => {
-            let body = template::render(REORIENT, &req.plan_id);
+            let body = svc.plan_store.prepend_heartbeat_for_plan(
+                &req.plan_id,
+                &template::render(REORIENT, &req.plan_id),
+            );
             svc.inject(&ctx.pane_id, &body, true);
             *reorient_needle = body;
         }
