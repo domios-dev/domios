@@ -456,7 +456,7 @@ fn heartbeat_resolution_rank(plan: &Plan) -> (u8, u64) {
         (PlanMode::Approved, true) => 3,
         (PlanMode::Planning, true) => 2,
         (PlanMode::Approved | PlanMode::Planning, false) => 1,
-        (PlanMode::Complete, _) => 0,
+        (PlanMode::Paused | PlanMode::Complete, _) => 0,
     };
     (rank, plan.updated_at)
 }
