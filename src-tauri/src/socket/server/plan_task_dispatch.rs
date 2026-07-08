@@ -216,16 +216,31 @@ fn set_in_progress(
 /// strides (milestones — T4 enriches later), and the mandatory report command.
 pub(super) fn build_brief(task: &Task, sections: &[TaskSection]) -> String {
     let mut out = String::new();
-    if let Some(persona) = task
+    let persona = task
         .personality
         .as_deref()
         .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        out.push_str(&format!(
-            "You are {persona} — executor for: {}\n\n",
-            task.name
-        ));
+        .filter(|s| !s.is_empty());
+    let role_guidance = task
+        .role_guidance
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    match (persona, role_guidance) {
+        (Some(persona), Some(guidance)) => {
+            out.push_str(&format!("You are {persona}. {guidance}\n\n"));
+        }
+        (None, Some(guidance)) => {
+            out.push_str(guidance);
+            out.push_str("\n\n");
+        }
+        (Some(persona), None) => {
+            out.push_str(&format!(
+                "You are {persona} — executor for: {}\n\n",
+                task.name
+            ));
+        }
+        (None, None) => {}
     }
     out.push_str(&format!("# {}\n\n", task.name));
 
