@@ -276,8 +276,9 @@ mod tests {
         assert!(msg.contains("codeterm docs ORCHESTRATION"));
         assert!(msg.contains("codeterm orchestrator status --plan PLAN_ID"));
         assert!(msg.contains("codeterm orchestrator heartbeat set"));
-        assert!(msg.contains("codeterm plan task add PLAN_ID"));
-        assert!(msg.contains("codeterm plan task assign PLAN_ID TASK_ID"));
+        // The Planner cuts tasks; the Orchestrator dispatches them.
+        assert!(msg.contains("Your Planner cuts the structure and the tasks"));
+        assert!(msg.contains("codeterm plan task dispatch PLAN_ID TASK_ID"));
         assert!(msg.contains("codeterm agent spawn --parent pane-abc --role Worker"));
     }
 

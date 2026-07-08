@@ -1,6 +1,5 @@
 use super::launch::{
-    build_agent_command, launch_agent_in_background, planner_profile_task, role_onboarding_task,
-    skip_local_worker_role,
+    build_agent_command, launch_agent_in_background, role_onboarding_task, skip_local_worker_role,
 };
 use super::types::{SpawnAgentParams, SpawnResult};
 use crate::service::{spawn_title, ServiceContext};
@@ -382,11 +381,10 @@ impl ServiceContext {
                             orch_pane.as_deref().unwrap_or("unknown"),
                         ));
                     }
-                    let intro = crate::service::plan::peer_mandate::planner_peer_intro_line(
-                        plan_id,
-                        orch_pane.as_deref(),
-                    );
-                    Some(planner_profile_task(intro, bg_task))
+                    // Onboarding rides the pending_greeting above — auto-delivered
+                    // by CodeTerm as the Planner's own first message, not a task
+                    // attributed to the spawning Orchestrator ("FROM <orch>").
+                    bg_task
                 }
                 None => bg_task,
             }
