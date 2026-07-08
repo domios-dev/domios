@@ -434,13 +434,9 @@ fn has_open_work(plan: &Plan) -> bool {
         .any(|task| task.status.counts_as_open_work())
 }
 
-/// A plan is complete when explicitly marked Complete OR when it is in Execution
-/// mode and every task has finished (no task counts as open work). This is the
-/// single source of truth used to gate ALL orchestrator nudge families: a complete
-/// plan must produce zero reconciliation/reminder injections.
+/// A plan is complete only when every recorded task is terminal.
 pub fn is_plan_complete(plan: &Plan) -> bool {
-    plan.mode == PlanMode::Complete
-        || (plan.mode == PlanMode::Execution && !plan.tasks.is_empty() && !has_open_work(plan))
+    !plan.tasks.is_empty() && plan.tasks.iter().all(|task| task.status.is_terminal())
 }
 
 fn owner_matches(plan: &Plan, pane_id: Option<&str>, session_id: Option<&str>) -> bool {

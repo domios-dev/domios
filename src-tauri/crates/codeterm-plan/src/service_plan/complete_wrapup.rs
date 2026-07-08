@@ -16,8 +16,9 @@ pub fn needs_complete_wrapup(plan: &Plan) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plan::{OrchestratorRef, Plan, PlanMode};
+    use crate::plan::{AgentRef, OrchestratorRef, PlanMode};
     use crate::service_plan::prompts_plan::PLAN_RETROSPECTIVE_NUDGE;
+    use crate::service_plan::{NewTask, PlanStore};
 
     #[test]
     fn wrapup_message_includes_archive_and_retrospective_lines() {
@@ -34,8 +35,79 @@ mod tests {
 
     #[test]
     fn needs_wrapup_for_active_complete_execution_plan() {
-        let mut plan = Plan::new("P".into(), "/tmp".into(), OrchestratorRef::from_pane("o"));
-        plan.mode = PlanMode::Complete;
+        let dir = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(dir.path());
+        let plan = store
+            .create_plan(
+                "P".into(),
+                dir.path().display().to_string(),
+                OrchestratorRef::from_pane("o"),
+                vec![],
+                1,
+            )
+            .unwrap();
+        let task_id = store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "done".into(),
+                    kind: "impl".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        store
+            .close_task(&plan.id, &task_id, None, AgentRef::from_pane("o"), 3)
+            .unwrap();
+        store.set_mode(&plan.id, PlanMode::Complete, 4).unwrap();
+        let plan = store.get(&plan.id).unwrap();
         assert!(needs_complete_wrapup(&plan));
+    }
+
+    #[test]
+    fn wrapup_gate_is_silent_for_parked_only_execution_plan() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(dir.path());
+        let plan = store
+            .create_plan(
+                "Paused".into(),
+                dir.path().display().to_string(),
+                OrchestratorRef::from_pane("orch"),
+                vec![],
+                1,
+            )
+            .unwrap();
+        store.set_mode(&plan.id, PlanMode::Execution, 2).unwrap();
+        let task_id = store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "wait".into(),
+                    kind: "impl".into(),
+                    ..Default::default()
+                },
+                3,
+            )
+            .unwrap();
+        store
+            .park_task(
+                &plan.id,
+                &task_id,
+                "provider quota exhausted",
+                OrchestratorRef::from_pane("orch"),
+                4,
+            )
+            .unwrap();
+
+        let plan = store.get(&plan.id).unwrap();
+        assert!(!plan
+            .tasks
+            .iter()
+            .any(|task| task.status.counts_as_open_work()));
+        assert!(
+            !needs_complete_wrapup(&plan),
+            "parked-only plans have no actionable work, but are not closeout-ready"
+        );
     }
 }
