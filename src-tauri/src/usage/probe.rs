@@ -445,9 +445,14 @@ fn parser_accepts(
     parser: Option<&dyn crate::agent::usage_parser::UsageParser>,
     text: &str,
 ) -> bool {
+    use crate::agent::usage_parser::UsageParseOutcome;
+
     parser
-        .and_then(|up| up.parse(text).ok())
-        .is_some_and(|s| s.has_any_field())
+        .and_then(|up| up.parse_outcome(text).ok())
+        .is_some_and(|outcome| match outcome {
+            UsageParseOutcome::Parsed(s) => s.has_any_field(),
+            UsageParseOutcome::Skip(_) => false,
+        })
 }
 
 fn only_loading_state(text: &str) -> bool {
@@ -467,7 +472,9 @@ fn render_tall(bytes: &[u8], rows: u16, cols: u16) -> String {
 #[cfg(test)]
 mod tests {
     use super::{parser_accepts, select_epoch_text};
-    use crate::agent::usage_parser::{UsageParseError, UsageParser, UsageSnapshot};
+    use crate::agent::usage_parser::{
+        UsageParseError, UsageParseOutcome, UsageParser, UsageSnapshot,
+    };
 
     #[test]
     fn parser_accepts_none_is_not_ready() {
@@ -494,6 +501,12 @@ mod tests {
             "Current session 50% used"
         ));
         assert!(!parser_accepts(Some(&StubParser), "Loading usage data…"));
+    }
+
+    #[test]
+    fn nothing_found_is_a_skip_outcome() {
+        let outcome = StubParser.parse_outcome("Loading usage data…").unwrap();
+        assert!(matches!(outcome, UsageParseOutcome::Skip(_)));
     }
 
     #[test]

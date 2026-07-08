@@ -39,8 +39,24 @@ impl std::fmt::Display for UsageParseError {
 
 impl std::error::Error for UsageParseError {}
 
+#[derive(Debug, Clone)]
+pub enum UsageParseOutcome {
+    Parsed(UsageSnapshot),
+    Skip(String),
+}
+
 pub trait UsageParser: Send + Sync {
     fn parse(&self, raw_text: &str) -> Result<UsageSnapshot, UsageParseError>;
+
+    fn parse_outcome(&self, raw_text: &str) -> Result<UsageParseOutcome, UsageParseError> {
+        match self.parse(raw_text) {
+            Ok(snapshot) => Ok(UsageParseOutcome::Parsed(snapshot)),
+            Err(UsageParseError::NothingFound) => Ok(UsageParseOutcome::Skip(
+                "nothing recognizable found in input".to_string(),
+            )),
+            Err(e) => Err(e),
+        }
+    }
 }
 
 impl UsageSnapshot {
