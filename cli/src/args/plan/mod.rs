@@ -48,6 +48,7 @@ pub enum PlanAction {
         all: bool,
     },
     /// Render the whole plan as markdown (goal + sections + tasks); --sections for the tree only
+    #[command(visible_alias = "show")]
     Get {
         plan_id: Option<String>,
         #[arg(long)]

@@ -269,19 +269,27 @@ fn planning_readiness(plan: &Plan) -> PlanningReadiness {
 
 /// Readiness gate for advancing planning_state to approved. Empty = ready.
 /// The approval doctor and the planner's advance both consult this.
-pub fn planning_approval_blockers(readiness: &PlanningReadiness) -> Vec<String> {
+pub fn planning_approval_blockers(readiness: &PlanningReadiness, plan_id: &str) -> Vec<String> {
     let mut blockers = Vec::new();
     if !readiness.has_goal {
-        blockers.push("no GOAL vector set".into());
+        blockers.push(format!(
+            "no GOAL vector set — fix: codeterm plan goal set {plan_id} --vector \"<how success is proven>\""
+        ));
     }
     if !readiness.has_plan_sections {
-        blockers.push("plan has no sections (HOW/execution phases)".into());
+        blockers.push(format!(
+            "plan has no sections (HOW/execution phases) — fix: codeterm plan section add {plan_id} --title \"<phase>\" --body \"<how>\""
+        ));
     }
     if !readiness.has_spec_source {
-        blockers.push("no spec source linked (WHAT/WHY)".into());
+        blockers.push(format!(
+            "no spec source linked (WHAT/WHY) — fix: codeterm spec create --title \"<what>\" then codeterm spec link add --spec <spec_id> --spec-section <sec> --plan-section {plan_id}:<sec> (prose in `plan update --spec-file` does NOT count — a spec entity + coverage edge is required)"
+        ));
     }
     if !readiness.has_verification_hint {
-        blockers.push("no verification/test-plan hint in plan sections".into());
+        blockers.push(format!(
+            "no verification/test-plan hint in plan sections — fix: name a test surface in a section body (build.sh / cargo test / playwright): codeterm plan section add {plan_id} --title Verification --body \"<test commands>\""
+        ));
     }
     blockers
 }
@@ -304,7 +312,7 @@ pub fn build_plan_state_snapshot(
     let counts = task_counts(plan);
     let pct = percent_done(&counts);
     let readiness = planning_readiness(plan);
-    let approval_blockers = planning_approval_blockers(&readiness);
+    let approval_blockers = planning_approval_blockers(&readiness, &plan.id);
 
     let open_lanes = plan
         .tasks

@@ -11,7 +11,6 @@ use rquickjs::Object;
 use super::host_api::PluginSandbox;
 use super::vm::VmError;
 use crate::activity::{PluginActivity, PluginActivityRegistry};
-use crate::host_traits::PluginHostCtx;
 
 const TURN_WATCHDOG_SECS: u64 = 30 * 60;
 
