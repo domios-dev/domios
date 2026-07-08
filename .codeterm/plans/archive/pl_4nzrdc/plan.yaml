@@ -67,7 +67,7 @@ sections:
     y: null
     collapsed: false
   attachments: []
-status: active
+status: archived
 mode: approved
 owner:
   pane_id: d11bc7f0
@@ -76,7 +76,7 @@ owner:
 project_path: /Users/rollacode/Developer/codeterm
 canonical_project_path: /Users/rollacode/Developer/codeterm
 created_at: 1783442445601
-updated_at: 1783442541409
+updated_at: 1783500598217
 milestone_kinds: []
 loops: []
 elements: []
@@ -99,6 +99,18 @@ spec_links:
 - spec_id: sp_7d0k3i
   spec_section_id: sec_fzlu35
   plan_section_id: sec_dty1y2
+- spec_id: sp_7d0k3i
+  spec_section_id: sec_kys80t
+  plan_section_id: sec_wcir26
+- spec_id: sp_7d0k3i
+  spec_section_id: sec_1omjzv
+  plan_section_id: sec_wcir26
+- spec_id: sp_7d0k3i
+  spec_section_id: sec_1omjzv
+  plan_section_id: sec_g7cf2a
+- spec_id: sp_7d0k3i
+  spec_section_id: sec_fzlu35
+  plan_section_id: sec_g7cf2a
 primary_spec_id: sp_7d0k3i
 lineage: []
 goal: null
