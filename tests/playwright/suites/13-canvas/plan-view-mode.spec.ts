@@ -12,9 +12,9 @@ import {
   isEmpty,
   MISSION_CONTROL_LIVE_SEL,
   MISSION_CONTROL_PLAN_SURFACE_SEL,
-  seedPerfFixtureAndOpenInlineCanvas,
   CANVAS_ART_DIR,
 } from "../../helpers/canvas-inspect";
+import { seedWorldStateAndOpenInlineCanvas, worldStates } from "../../fixtures/world-states";
 import type { ApiClient } from "../../helpers/api-client";
 
 
@@ -33,7 +33,11 @@ test(
   "@golden @plan-view-mode plan surface exposes board list canvas switch",
   async ({ api, webBrowser }) => {
     test.setTimeout(120_000);
-    const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
+    const canvas = await seedWorldStateAndOpenInlineCanvas(
+      webBrowser,
+      api as unknown as ApiClient,
+      worldStates.planWithKnownTasks,
+    );
     try {
       const { page } = canvas;
       if (await isEmpty(page)) {
@@ -88,7 +92,11 @@ test(
   "@golden @plan-view-mode plan view mode persists across close and reopen",
   async ({ api, webBrowser }) => {
     test.setTimeout(180_000);
-    const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
+    const canvas = await seedWorldStateAndOpenInlineCanvas(
+      webBrowser,
+      api as unknown as ApiClient,
+      worldStates.planWithKnownTasks,
+    );
     try {
       const { page } = canvas;
       if (await isEmpty(page)) {
