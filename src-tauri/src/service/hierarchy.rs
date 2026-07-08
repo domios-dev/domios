@@ -389,7 +389,7 @@ impl ServiceContext {
             Some(owner),
             &text,
         );
-        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "plan");
+        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("plan");
         let _ = crate::service::messenger::Messenger::deliver(self, owner, envelope, &text);
     }
 
@@ -430,7 +430,7 @@ impl ServiceContext {
             Some(&pane_id),
             &text,
         );
-        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "plan");
+        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("plan");
         let _ = crate::service::messenger::Messenger::deliver(self, &pane_id, envelope, &text);
         Some(pane_id)
     }
@@ -467,7 +467,7 @@ impl ServiceContext {
             Some(asker),
             &text,
         );
-        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "plan");
+        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("plan");
         let _ = crate::service::messenger::Messenger::deliver(self, asker, envelope, &text);
     }
 

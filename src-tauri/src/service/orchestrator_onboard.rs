@@ -139,7 +139,7 @@ impl ServiceContext {
         self.emit_state_changed();
         // Deliver as a message FROM CodeTerm (same marker the Planner gets), not a
         // reminder — the onboarding should read as CodeTerm introducing the role.
-        let envelope = MessageEnvelope::pane("CodeTerm", "system");
+        let envelope = MessageEnvelope::from_codeterm();
         if let Err(e) = Messenger::deliver(self, pane_id, envelope, &body) {
             log::warn!("[orchestrator-onboard] deliver to {pane_id} failed: {e}");
         }
@@ -163,7 +163,7 @@ impl ServiceContext {
             let Some(body) = format_orchestration_preferences(&hits) else {
                 return;
             };
-            let envelope = MessageEnvelope::reminder("CodeTerm", "orchestration-prefs");
+            let envelope = MessageEnvelope::codeterm_reminder("orchestration-prefs");
             if let Err(e) = Messenger::deliver(&svc, &pane_id, envelope, &body) {
                 log::warn!("[orchestration-prefs] deliver to {pane_id} failed: {e}");
             }

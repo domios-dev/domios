@@ -373,8 +373,7 @@ impl ServiceContext {
         // BOTH roles get an emergent "FROM CodeTerm" message on any path to a role.
         let is_orch_onboarding = params.role.as_deref() == Some("Orchestrator")
             && params.skip_orchestrator_onboarding == Some(true);
-        let codeterm_pfx =
-            crate::service::messenger::Messenger::message("CodeTerm", "system").build();
+        let codeterm_pfx = crate::service::messenger::Messenger::codeterm_prefix();
         let bg_task = if is_planner {
             match params.plan_id.as_deref() {
                 Some(plan_id) => {

@@ -69,6 +69,20 @@ impl MessageKind {
 }
 
 impl MessageEnvelope {
+    /// CodeTerm's own sender identity — single source so no path hardcodes it.
+    pub const CODETERM: &'static str = "CodeTerm";
+    pub const CODETERM_PANE: &'static str = "system";
+
+    /// A message FROM CodeTerm (renders "from CodeTerm") — role onboarding, etc.
+    pub fn from_codeterm() -> Self {
+        Self::pane(Self::CODETERM, Self::CODETERM_PANE)
+    }
+
+    /// A reminder FROM CodeTerm tagged with a context (nudges, prefs, qa, ...).
+    pub fn codeterm_reminder(context: impl Into<String>) -> Self {
+        Self::reminder(Self::CODETERM, context)
+    }
+
     pub fn pane(from_label: impl Into<String>, from_pane: impl Into<String>) -> Self {
         Self {
             kind: MessageKind::Message,
@@ -148,6 +162,12 @@ impl From<MessageEnvelope> for Messenger {
 impl Messenger {
     pub fn message(from_name: impl Into<String>, from_pane: impl Into<String>) -> Self {
         MessageEnvelope::pane(from_name, from_pane).into()
+    }
+
+    /// Launch-task prefix marking input as coming FROM CodeTerm — prepended to a
+    /// fresh spawn's bg_task (role onboarding), the single source for that marker.
+    pub fn codeterm_prefix() -> String {
+        Self::message(MessageEnvelope::CODETERM, MessageEnvelope::CODETERM_PANE).build()
     }
 
     pub fn report(from_name: impl Into<String>, from_pane: impl Into<String>) -> Self {
