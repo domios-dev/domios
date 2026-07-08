@@ -43,7 +43,7 @@ pub fn handle_spec(client: &mut SocketClient, json_output: bool, action: SpecAct
     match run_spec(client, json_output, action) {
         Ok(None) => {}
         Ok(Some(val)) if json_output => {
-            println!("{}", serde_json::to_string_pretty(&val).unwrap());
+            crate::cmd::print::print_json(&val);
         }
         Ok(Some(val)) => {
             crate::cmd::print::print_object(&val);

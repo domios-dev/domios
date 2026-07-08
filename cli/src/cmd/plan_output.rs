@@ -71,7 +71,7 @@ fn print_plan_body(val: &Value) {
 
 pub(crate) fn print_plan_result(json: bool, val: &Value) {
     if json {
-        println!("{}", serde_json::to_string_pretty(val).unwrap());
+        crate::cmd::print::print_json(val);
         return;
     }
 
@@ -98,7 +98,7 @@ pub(crate) fn print_plan_error(json: bool, message: &str) {
 
 pub(crate) fn print_mutation_tail(json: bool, val: &Value) {
     if json {
-        println!("{}", serde_json::to_string_pretty(val).unwrap());
+        crate::cmd::print::print_json(val);
         return;
     }
     let hints = extract_hints_from_value(val);
