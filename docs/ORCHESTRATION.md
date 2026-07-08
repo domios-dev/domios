@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 30 -->
+<!-- revision: 31 -->
 
 Full reference for the `codeterm plan` CLI and orchestration discipline. The *why* (when to spawn, model routing, role contracts) lives here and in your role prompt — this doc is the authority; machine-specific deltas live in mem preferences (kind=preference, area=orchestration).
 
@@ -211,6 +211,11 @@ explicitly abandoned. Never keep a finished worker visually assigned just to
 remember who did the work; executor history and lane metadata are the memory,
 live assignment is only current work.
 
+Blocked worker lanes use `blocked` plus `--status-label`, not a separate schema.
+Use `human-decision` for an escalated choice outside agent authority. Use
+`human-verify` for an external leg the agent cannot physically drive, such as
+OAuth, real email/payment, or a production side effect.
+
 ### Milestone gates — three-tier testing ladder
 
 Regression cost scales with scope, so testing is tiered, not uniform.
@@ -218,7 +223,9 @@ Regression cost scales with scope, so testing is tiered, not uniform.
 Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit + playwright golden, serialized in the warm checkout); per-release = the farm matrix across every platform.
 
 - **Per-task:** each lane runs the narrowest focused filter that proves its
-  change — never the whole suite. This is already the worker discipline.
+  change — never the whole suite. Assert the true end state of the user journey,
+  not only an API/status response: `POST 200` is not a pass unless the DOM,
+  recipient thread, or persisted visible result is correct and stable.
 - **Per-group (milestone):** task groups are milestones. When the last task of a
   group closes, next-actions and the heartbeat emit one regression-gate
   suggestion. Run the full gate ONCE for the whole milestone, then record it as a
