@@ -368,6 +368,13 @@ impl ServiceContext {
         // plus its FULL onboarding as real launch input attributed to CodeTerm —
         // never a FROM-<orchestrator> relay, mirroring the Orchestrator's onboarding.
         let is_planner = params.role_profile.as_deref() == Some("planner");
+        // A pair-spawned Orchestrator carries its onboarding in the launch task and
+        // skips the separate deliver — attribute that onboarding to CodeTerm too, so
+        // BOTH roles get an emergent "FROM CodeTerm" message on any path to a role.
+        let is_orch_onboarding = params.role.as_deref() == Some("Orchestrator")
+            && params.skip_orchestrator_onboarding == Some(true);
+        let codeterm_pfx =
+            crate::service::messenger::Messenger::message("CodeTerm", "system").build();
         let bg_task = if is_planner {
             match params.plan_id.as_deref() {
                 Some(plan_id) => {
@@ -384,12 +391,12 @@ impl ServiceContext {
                     }
                     let onboard =
                         crate::prompts::planner_onboarding_task(&orch_label, orch_tab, plan_id);
-                    let codeterm_pfx =
-                        crate::service::messenger::Messenger::message("CodeTerm", "system").build();
                     Some(format!("{codeterm_pfx}{onboard}"))
                 }
                 None => bg_task,
             }
+        } else if is_orch_onboarding {
+            bg_task.map(|t| format!("{codeterm_pfx}{t}"))
         } else {
             bg_task
         };
@@ -398,8 +405,8 @@ impl ServiceContext {
             self.deliver_orchestration_preferences(&pane_id);
         }
         // Tag with the spawner's origin prefix (FROM-<spawner>) for every provider —
-        // but the Planner's onboarding is already CodeTerm-attributed, so skip it there.
-        let bg_task = if is_planner {
+        // but role onboarding is already CodeTerm-attributed, so skip it there.
+        let bg_task = if is_planner || is_orch_onboarding {
             bg_task
         } else {
             bg_task.map(|t| match self.spawn_task_prefix(&pane_id) {
