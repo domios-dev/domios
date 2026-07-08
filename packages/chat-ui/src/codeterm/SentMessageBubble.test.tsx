@@ -46,6 +46,7 @@ function inv(cmd: string) {
 
 const PLAN = "pl_" + "a".repeat(32);
 const TASK = "task_" + "b".repeat(32);
+const SECTION = "sec_vecy77";
 
 // basic bubble + pane-name resolution
 await (async () => {
@@ -66,6 +67,33 @@ await (async () => {
   assert(!bubble!.className.includes("border"), "shared bubble has no accent border frame");
   assert(text.includes("Puccini"), "renders resolved recipient name");
   assert(text.includes("Update") && text.includes("done"), "renders markdown body content");
+})();
+
+// section-id mention in normal chat renders a deep-link card with section focus
+await (async () => {
+  let opened: [string, string | undefined, string | undefined] | null = null;
+  const host = await render(
+    <MessageBubble
+      message={{
+        id: "assistant-plan-ref",
+        provider: "codex",
+        type: "assistant",
+        content: `See ${SECTION} in ${PLAN}`,
+      }}
+      onOpenPlan={(p, focus, kind) => {
+        opened = [p, focus, kind];
+      }}
+    />,
+  );
+  const card = host.querySelector('[data-testid="chat-plan-ref-card"][data-ref-kind="section"]') as HTMLButtonElement | null;
+  assert(card != null, "assistant section ref renders rich card");
+  await act(async () => {
+    card!.click();
+  });
+  assert(
+    opened != null && opened![0] === PLAN && opened![1] === SECTION && opened![2] === "section",
+    "clicking section ref opens plan+section",
+  );
 })();
 
 // outbound bubble class matches inbound cross-pane bubble
