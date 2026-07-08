@@ -48,6 +48,7 @@ pub mod session_persist;
 pub mod smart_add;
 pub mod spawn;
 mod spawn_chatbackend;
+mod spawn_plan_task;
 mod spawn_cli;
 mod spawn_guard;
 mod spawn_params;

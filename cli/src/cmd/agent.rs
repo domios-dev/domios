@@ -672,6 +672,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             max_actions,
             allow_shared_checkout,
             bound_task,
+            plan_task,
         } => {
             if matches!(role, Some(crate::args::agent::SpawnRole::Orchestrator))
                 && workspace.is_none()
@@ -796,6 +797,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(tid) = bound_task {
                 body["task_id"] = serde_json::json!(tid);
+            }
+            if let Some(pt) = plan_task {
+                body["plan_task"] = serde_json::json!(pt);
             }
             // Record the spawner's pane for report-routing fallback.
             if let Ok(spawner) = std::env::var("CODETERM_PANE_ID") {
