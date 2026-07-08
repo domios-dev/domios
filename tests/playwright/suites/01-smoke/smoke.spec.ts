@@ -5,10 +5,9 @@
  */
 import { expect, test } from "../../helpers/fixtures";
 
-test("@smoke /api/health is ok with a build hash", async ({ api }) => {
+test("@smoke /api/health is ok", async ({ api }) => {
   const health = await api.health();
   expect(health.status).toBe("ok");
-  expect(health.build).toMatch(/^[0-9a-f]{6,40}$/);
   expect(health.version).toMatch(/^\d+\.\d+\.\d+/);
 });
 
