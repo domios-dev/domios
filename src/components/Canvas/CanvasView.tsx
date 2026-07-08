@@ -39,7 +39,7 @@ import { CanvasWorldCanvas, type CanvasRenderApi } from "./canvasRender/CanvasWo
 import type { GroupGlyph } from "./canvasRender/drawScene";
 import { CanvasSwarmCluster } from "./CanvasSwarmCluster";
 import { buildCanvasScene } from "./scene";
-import { perfFixtureCount, perfFixtureProfile, buildPerfFixturePlans, buildDoneHeavyPerfFixturePlans, buildCardMetadataFixturePlans, buildCardMetadataFixturePanes, buildPerfFixturePanes, realFixtureEnabled, realFixturePlans, fixtureSpecSectionsByPlan } from "./perfFixture";
+import { perfFixtureCount, perfFixtureProfile, buildPerfFixturePlans, buildDoneHeavyPerfFixturePlans, buildCardMetadataFixturePlans, buildCardMetadataFixturePanes, buildPerfFixturePanes, realFixtureEnabled, realFixturePlans, fixtureSpecSectionsByPlan, buildPlanWithKnownTasksFixturePlans, buildPaneTreeWithStatusesFixturePlans, buildPaneTreeWithStatusesFixturePanes, buildMidStreamChatTranscriptFixturePlans, buildMidStreamChatTranscriptFixturePanes } from "./perfFixture";
 import { flattenSections } from "./sectionRows";
 import { buildTaskPresenceFingerprint, useCanvasLookups } from "./canvasView/useCanvasLookups";
 import { useCanvasFlyTo } from "./canvasView/useCanvasFlyTo";
@@ -894,6 +894,12 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
         ? realFixturePlans()
         : perfProfile === "card-metadata"
           ? buildCardMetadataFixturePlans()
+          : perfProfile === "plan-with-known-tasks"
+            ? buildPlanWithKnownTasksFixturePlans()
+            : perfProfile === "pane-tree-with-statuses"
+              ? buildPaneTreeWithStatusesFixturePlans()
+              : perfProfile === "mid-stream-chat-transcript"
+                ? buildMidStreamChatTranscriptFixturePlans()
           : perfProfile === "done-heavy"
             ? buildDoneHeavyPerfFixturePlans()
             : perfN > 0
@@ -905,7 +911,13 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
   const panes = useMemo(() => {
     if (perfN <= 0 || useReal) return state.panes;
     const fixturePanes =
-      perfProfile === "card-metadata" ? buildCardMetadataFixturePanes() : buildPerfFixturePanes(plans);
+      perfProfile === "card-metadata"
+        ? buildCardMetadataFixturePanes()
+        : perfProfile === "pane-tree-with-statuses"
+          ? buildPaneTreeWithStatusesFixturePanes()
+          : perfProfile === "mid-stream-chat-transcript"
+            ? buildMidStreamChatTranscriptFixturePanes()
+            : buildPerfFixturePanes(plans);
     return { ...state.panes, ...fixturePanes };
   }, [perfN, useReal, perfProfile, plans, state.panes]);
   return (

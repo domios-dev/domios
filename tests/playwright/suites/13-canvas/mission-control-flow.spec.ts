@@ -11,15 +11,19 @@ import {
   isEmpty,
   MISSION_CONTROL_LIVE_SEL,
   MISSION_CONTROL_PLAN_SURFACE_SEL,
-  seedPerfFixtureAndOpenInlineCanvas,
+  openInlineWorkspaceCanvas,
   CANVAS_ART_DIR,
 } from "../../helpers/canvas-inspect";
+import { seedWorldStateAndOpenInlineCanvas, worldStates } from "../../fixtures/world-states";
 import type { ApiClient } from "../../helpers/api-client";
 import type { Page } from "@playwright/test";
 
-async function toCanvasMode(page: Page): Promise<void> {
+async function toCanvasMode(page: Page, workspaceId: string): Promise<void> {
   await page.evaluate(() => window.localStorage.setItem("codeterm.planViewMode", "canvas"));
   await page.reload({ waitUntil: "domcontentloaded" });
+  if (!(await page.locator('[data-testid="plan-view-shell"]').first().isVisible().catch(() => false))) {
+    await openInlineWorkspaceCanvas(page, workspaceId);
+  }
   await page.waitForSelector('[data-testid="plan-view-shell"]', { state: "visible", timeout: 30_000 });
   const shell = page.locator('[data-testid="plan-view-shell"]');
   await expect(shell).toHaveAttribute("data-plan-view-mode", "canvas");
@@ -28,14 +32,18 @@ async function toCanvasMode(page: Page): Promise<void> {
 
 test("@golden @mission-control-flow flow river + group milestone + all-plans toggle", async ({ api, webBrowser }) => {
   test.setTimeout(180_000);
-  const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
+  const canvas = await seedWorldStateAndOpenInlineCanvas(
+    webBrowser,
+    api as unknown as ApiClient,
+    worldStates.paneTreeWithStatuses,
+  );
   try {
     const { page } = canvas;
     if (await isEmpty(page)) {
       test.skip(true, "canvas empty — perf fixture did not inject");
       return;
     }
-    await toCanvasMode(page);
+    await toCanvasMode(page, canvas.workspaceId);
 
     await expect(page.locator(MISSION_CONTROL_PLAN_SURFACE_SEL)).toBeVisible();
 
@@ -75,14 +83,18 @@ test("@golden @mission-control-flow flow river + group milestone + all-plans tog
 
 test("@golden @mission-control-flow 60fps pan probe — transform layer, no reflow", async ({ api, webBrowser }) => {
   test.setTimeout(180_000);
-  const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
+  const canvas = await seedWorldStateAndOpenInlineCanvas(
+    webBrowser,
+    api as unknown as ApiClient,
+    worldStates.paneTreeWithStatuses,
+  );
   try {
     const { page } = canvas;
     if (await isEmpty(page)) {
       test.skip(true, "canvas empty — perf fixture did not inject");
       return;
     }
-    await toCanvasMode(page);
+    await toCanvasMode(page, canvas.workspaceId);
 
     const viewport = page.locator(`${MISSION_CONTROL_LIVE_SEL} .mc-live-viewport`).first();
     await expect(viewport).toBeVisible();

@@ -9,6 +9,7 @@ import {
   seedPerfFixtureAndOpenInlineCanvas,
   CANVAS_ART_DIR,
 } from "../../helpers/canvas-inspect";
+import { seedWorldStateAndOpenInlineCanvas, worldStates } from "../../fixtures/world-states";
 import type { ApiClient } from "../../helpers/api-client";
 
 async function screenshot(page: import("@playwright/test").Page, name: string): Promise<string> {
@@ -22,7 +23,11 @@ test(
   "@golden @plan-detail-overlay board task card opens detail overlay and Esc closes it",
   async ({ api, webBrowser }) => {
     test.setTimeout(120_000);
-    const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
+    const canvas = await seedWorldStateAndOpenInlineCanvas(
+      webBrowser,
+      api as unknown as ApiClient,
+      worldStates.planWithKnownTasks,
+    );
     try {
       const { page } = canvas;
       if (await isEmpty(page)) {
