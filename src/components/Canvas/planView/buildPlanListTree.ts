@@ -29,6 +29,7 @@ export interface PlanListRow {
   paneLabel?: string;
   historicalExecutorSummary?: string;
   focus?: string;
+  parkReason?: string;
   milestoneKind?: string;
   milestoneAuthor?: string;
   activityTs?: number;
@@ -98,6 +99,7 @@ function buildTaskRow(
     paneLabel: presence?.label ?? undefined,
     historicalExecutorSummary: historical?.summary,
     focus: presence?.focus ?? undefined,
+    parkReason: task.park_reason?.trim() || undefined,
     milestoneKind: presence?.latest?.kindLabel ?? latest?.kind.replace(/[_-]+/g, " "),
     milestoneAuthor: presence?.latest?.authorLabel,
     activityTs: latest?.ts ?? task.status_changed_at ?? task.updated_at ?? task.created_at,
