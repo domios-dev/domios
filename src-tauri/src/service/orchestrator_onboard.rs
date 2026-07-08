@@ -97,7 +97,7 @@ pub fn orchestrator_onboarding_body(pane_id: &str) -> String {
     let mandate = crate::prompts::peer_pairing_mandate_full(&spawn_cmd);
     format!(
         "You are now the Orchestrator for this pane (role=Orchestrator, can_spawn=true).\n\
-Do not rename your own tab/pane — CodeTerm manages pane labels.\n\
+Do not rename your own tab — CodeTerm manages tab labels.\n\
 \n\
 First load the orchestration rules:\n\
   codeterm docs ORCHESTRATION\n\
@@ -131,8 +131,10 @@ Spawn workers (2-level hierarchy — Workers report back here):\n\
 impl ServiceContext {
     pub fn deliver_orchestrator_onboarding(&self, pane_id: &str) {
         let body = orchestrator_onboarding_body(pane_id);
+        // Display greeting is a short user-facing hint (no commands); the full
+        // onboarding rides the real delivery below, attributed to CodeTerm.
         if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
-            pane.pending_greeting = Some(body.clone());
+            pane.pending_greeting = Some(crate::prompts::orchestrator_display_hint());
         }
         self.emit_state_changed();
         let envelope = MessageEnvelope::reminder("CodeTerm", "orchestrator-onboard");

@@ -364,27 +364,29 @@ impl ServiceContext {
             params.role.as_deref(),
             params.role_profile.as_deref(),
         );
-        // this pane and tells the Planner who its Orchestrator peer is.
-        let bg_task = if params.role_profile.as_deref() == Some("planner") {
+        // Planner gets a short display hint (pending_greeting, user-facing only)
+        // plus its FULL onboarding as real launch input attributed to CodeTerm —
+        // never a FROM-<orchestrator> relay, mirroring the Orchestrator's onboarding.
+        let is_planner = params.role_profile.as_deref() == Some("planner");
+        let bg_task = if is_planner {
             match params.plan_id.as_deref() {
                 Some(plan_id) => {
                     self.bind_planner_spawn(Some(plan_id), Some("planner"), &pane_id);
                     let orch_pane = self.plan_store.owner_of(plan_id).and_then(|o| o.pane_id);
-                    // assistant message so a bound Planner never boots silent.
                     let orch_label = orch_pane
                         .as_deref()
                         .map(|p| self.mux.read().display_label_for_pane(p))
                         .unwrap_or_else(|| "your Orchestrator".to_string());
+                    let orch_tab = orch_pane.as_deref().unwrap_or("unknown");
                     if let Some(pane) = self.mux.write().get_pane_mut(&pane_id) {
-                        pane.pending_greeting = Some(crate::prompts::peer_planner_greeting(
-                            &orch_label,
-                            orch_pane.as_deref().unwrap_or("unknown"),
-                        ));
+                        pane.pending_greeting =
+                            Some(crate::prompts::peer_planner_greeting(&orch_label, orch_tab));
                     }
-                    // Onboarding rides the pending_greeting above — auto-delivered
-                    // by CodeTerm as the Planner's own first message. Drop bg_task so
-                    // the intro is NOT re-sent as a FROM-<orchestrator> relay.
-                    None
+                    let onboard =
+                        crate::prompts::planner_onboarding_task(&orch_label, orch_tab, plan_id);
+                    let codeterm_pfx =
+                        crate::service::messenger::Messenger::message("CodeTerm", "system").build();
+                    Some(format!("{codeterm_pfx}{onboard}"))
                 }
                 None => bg_task,
             }
@@ -392,14 +394,19 @@ impl ServiceContext {
             bg_task
         };
         // Planner-start injection point: pull machine-local orchestration preferences off the hot path.
-        if params.role_profile.as_deref() == Some("planner") {
+        if is_planner {
             self.deliver_orchestration_preferences(&pane_id);
         }
-        // Tag with the spawner's origin prefix uniformly for every provider; delivery handles the marker per provider (TUI-typed for PtyInput, positional after `--` for inline-flag).
-        let bg_task = bg_task.map(|t| match self.spawn_task_prefix(&pane_id) {
-            Some(pfx) => format!("{}{}", pfx, t),
-            None => t,
-        });
+        // Tag with the spawner's origin prefix (FROM-<spawner>) for every provider —
+        // but the Planner's onboarding is already CodeTerm-attributed, so skip it there.
+        let bg_task = if is_planner {
+            bg_task
+        } else {
+            bg_task.map(|t| match self.spawn_task_prefix(&pane_id) {
+                Some(pfx) => format!("{}{}", pfx, t),
+                None => t,
+            })
+        };
         let launch_cmd = build_agent_command(
             &agent_cmd,
             &params,
