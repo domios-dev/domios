@@ -20,7 +20,9 @@ export const CARD_METADATA_TASK_IDS = {
   paneGone: "meta_pane_gone",
   branchMissing: "meta_branch_miss",
   blocked: "meta_blocked",
+  parked: "meta_parked",
   done: "meta_done",
+  doneRustExecutor: "meta_done_rust_executor",
   longBranch: "meta_long_branch",
 } as const;
 
@@ -98,6 +100,13 @@ export function buildCardMetadataFixturePlans(): Plan[] {
       lane: { branch: "lane/blocked-meta" },
       status_changed_at: NOW - 3_600_000,
     }),
+    task(CARD_METADATA_TASK_IDS.parked, [SEC], {
+      name: "Parked deferred work",
+      status: TaskStatus.Parked,
+      handle: "parked-meta",
+      park_reason: "Waiting on upstream merge",
+      status_changed_at: NOW - 180_000,
+    }),
     task(CARD_METADATA_TASK_IDS.done, [SEC], {
       name: "Done historical executor",
       status: TaskStatus.Done,
@@ -106,6 +115,25 @@ export function buildCardMetadataFixturePlans(): Plan[] {
       lane: { branch: "lane/merged-meta" },
       status_changed_at: NOW - 86_400_000,
       milestones: [doneMilestone],
+    }),
+    task(CARD_METADATA_TASK_IDS.doneRustExecutor, [SEC], {
+      name: "Done with rust executor fields",
+      status: TaskStatus.Done,
+      assigned_pane_id: null,
+      taken_by_role: "worker",
+      lane: {},
+      status_changed_at: NOW - 120_000,
+      execution_attempts: [
+        {
+          id: "att-rust",
+          executor_pane_id: CARD_METADATA_LOCAL_PANE_ID,
+          executor_title: "Verdi",
+          role: "worker",
+          model: "gpt-5.5",
+          closed_at: NOW - 120_000,
+          report: { status: "done" },
+        },
+      ],
     }),
   ];
 
