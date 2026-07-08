@@ -5,7 +5,7 @@ use super::readback::pending_after_readback;
 use super::{PlanError, PlanStore};
 use crate::plan::{
     HeartbeatLearning, LoopSpec, LoopStatus, OrchestratorHeartbeat, Plan, PlanMode, PlanStatus,
-    QaState, ReviewStage, TaskStatus,
+    PlannerRef, QaState, ReviewStage, TaskStatus,
 };
 
 pub const STATE_RECONCILIATION_PROMPT: &str = "STATE-RECONCILIATION";
@@ -197,6 +197,32 @@ fn render_open_gates(plan: &Plan, now_ms: u64, out: &mut String) {
     }
 }
 
+fn role_identity_line(plan: &Plan, pane_id: Option<&str>) -> String {
+    let owner = plan.owner.pane_id.as_deref();
+    let planner = match &plan.planner {
+        Some(PlannerRef::Pane { pane_id, .. }) => Some(pane_id.as_str()),
+        _ => None,
+    };
+    let role = match pane_id {
+        Some(pane) if owner == Some(pane) => "Orchestrator",
+        Some(pane) if planner == Some(pane) => "Planner",
+        _ => "Orchestrator",
+    };
+    let peer_role = if role == "Planner" {
+        "Orchestrator"
+    } else {
+        "Planner"
+    };
+    let peer = if role == "Planner" { owner } else { planner };
+    let peer_text = peer
+        .map(|pane| format!("; peer tab {peer_role} is pane {pane}"))
+        .unwrap_or_else(|| format!("; peer tab {peer_role} is unbound"));
+    format!(
+        "<codeterm-role-identity plan=\"{}\">\nYou are the {role} for plan {}{peer_text}.\n</codeterm-role-identity>",
+        plan.id, plan.id
+    )
+}
+
 fn render_heartbeat(
     plan: &Plan,
     heartbeat: &OrchestratorHeartbeat,
@@ -345,14 +371,15 @@ fn prepend_heartbeat(
         ..Plan::new(String::new(), String::new(), Default::default())
     };
     let block = render_heartbeat(&plan, heartbeat, loops, &[]);
+    let identity = role_identity_line(&plan, pane_id);
     let prompt = reconciliation_prompt(plan_id, pane_id);
     let reconciliation = format!(
         "<codeterm-state-reconciliation plan=\"{plan_id}\">\n{prompt}\n</codeterm-state-reconciliation>"
     );
     let prelude = if block.is_empty() {
-        reconciliation
+        format!("{identity}\n\n{reconciliation}")
     } else {
-        format!("{reconciliation}\n\n{block}")
+        format!("{identity}\n\n{reconciliation}\n\n{block}")
     };
     if text.trim().is_empty() {
         prelude
@@ -374,15 +401,16 @@ pub(super) fn prepend_plan_heartbeat_with_digests(
         return text.to_string();
     }
     let block = render_heartbeat(plan, &plan.heartbeat, &plan.loops, digest_lines);
+    let identity = role_identity_line(plan, plan.owner.pane_id.as_deref());
     let prompt = reconciliation_prompt(&plan.id, plan.owner.pane_id.as_deref());
     let reconciliation = format!(
         "<codeterm-state-reconciliation plan=\"{}\">\n{prompt}\n</codeterm-state-reconciliation>",
         plan.id
     );
     let prelude = if block.is_empty() {
-        reconciliation
+        format!("{identity}\n\n{reconciliation}")
     } else {
-        format!("{reconciliation}\n\n{block}")
+        format!("{identity}\n\n{reconciliation}\n\n{block}")
     };
     if text.trim().is_empty() {
         prelude

@@ -1,5 +1,5 @@
 use super::{NewTask, PlanStore};
-use crate::plan::{AgentRef, OrchestratorRef, PlanMode};
+use crate::plan::{AgentRef, OrchestratorRef, PlanMode, PlannerRef};
 
 fn store_with_plan(owner: &str) -> (tempfile::TempDir, PlanStore, String) {
     let dir = tempfile::tempdir().unwrap();
@@ -248,6 +248,8 @@ fn heartbeat_resolution_prefers_execution_plan_with_open_work() {
 fn heartbeat_resolves_for_owner_pane_at_send_time() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
     let before = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
+    assert!(before.starts_with("<codeterm-role-identity"));
+    assert!(before.contains(&format!("You are the Orchestrator for plan {plan_id}")));
     assert!(before.contains("STATE-RECONCILIATION"));
     assert!(before.contains("First run `codeterm agent reports --pane orch-a`"));
     assert!(before.contains("codeterm orchestrator status --plan"));
@@ -326,6 +328,7 @@ fn notifier_delivery_uses_same_state_reconciliation_prelude() {
     );
 
     assert!(text.contains("<codeterm-state-reconciliation"));
+    assert!(text.contains("<codeterm-role-identity"));
     assert!(text.contains("STATE-RECONCILIATION"));
     assert!(text.contains("execution-mode plan with unfinished work"));
     assert!(text.contains("codeterm docs ORCHESTRATION"));
@@ -351,7 +354,8 @@ fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
         &super::reminders::nudge_text(super::reminders::NudgeKind::Orchestrator),
     );
 
-    assert!(text.starts_with("<codeterm-state-reconciliation"));
+    assert!(text.starts_with("<codeterm-role-identity"));
+    assert!(text.contains(&format!("You are the Orchestrator for plan {plan_id}")));
     assert!(text.contains("codeterm agent reports --pane orch-a"));
     assert!(text.contains(&format!(
         "codeterm orchestrator status --plan {plan_id} --pane orch-a --json"
@@ -365,6 +369,27 @@ fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
     assert!(text.contains("<codeterm-orchestrator-heartbeat"));
     assert!(text.contains("Current focus: Review open lanes"));
     assert!(text.contains("Plan reminder: this tab owns unfinished execution-plan work."));
+}
+
+#[test]
+fn role_identity_names_planner_peer_across_reinjection() {
+    let (_dir, store, plan_id) = store_with_plan("orch-a");
+    store
+        .with_plan(&plan_id, 20, |plan| {
+            plan.planner = Some(PlannerRef::Pane {
+                pane_id: "planner-a".into(),
+                session_id: None,
+                title: Some("Planner".into()),
+            });
+            Ok(())
+        })
+        .unwrap();
+
+    let text = store.prepend_heartbeat_for_plan(&plan_id, "resume");
+
+    assert!(text.contains(&format!("You are the Orchestrator for plan {plan_id}")));
+    assert!(text.contains("peer tab Planner is pane planner-a"));
+    assert!(text.contains("<codeterm-state-reconciliation"));
 }
 
 #[test]
