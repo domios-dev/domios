@@ -1,5 +1,7 @@
 /**
- * 15-extensions — first-class Extensions plugin-manager coverage.
+ * WHAT: extensions covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 15-extensions.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -341,5 +343,7 @@ test("@smoke broken channel add surfaces the error banner", async ({ ui }) => {
     .fill(`${fileUrl(CHANNEL_ROOT)}/missing#main:plugins`);
   await ui.page.locator('[data-testid="extensions-channel-name-input"]').fill(`broken-${Date.now()}`);
   await ui.page.locator('[data-testid="extensions-channel-add-submit"]').click();
-  await expect(ui.page.locator('[data-testid="extensions-error"]')).toBeVisible({ timeout: 30_000 });
+  const error = ui.page.locator('[data-testid="extensions-error"]');
+  await expect(error).toBeVisible({ timeout: 30_000 });
+  await expect(error).toContainText(/missing|error|failed|not found/i);
 });

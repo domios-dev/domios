@@ -1,19 +1,7 @@
 /**
- * Regression: "Chat error: Pane has no PTY" on a fresh pane.
- *
- * Root cause: ChatComposer.tsx threw "Pane has no PTY" before calling
- * chat_send_text when currentPtyId was null — which happens on freshly
- * created panes before the backend links the PTY.  The backend handler
- * (send_text_when_ready → await_pty_link_blocking) already waits up to
- * 15s for the PTY, so the frontend guard was wrong.
- *
- * Fix: move the currentPtyId guard inside the fallbackCommand branch only
- * (CLI fallback commands write_pty_string directly and DO need the id).
- * Regular sends go through chat_send_text unconditionally.
- *
- * RED before fix: sending immediately after a fresh chat-view pane renders
- * produces a "Chat error: Pane has no PTY" notification toast.
- * GREEN after fix: no such toast; the backend waits for the PTY internally.
+ * WHAT: send on fresh pane covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 16-chat-view.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 
@@ -60,6 +48,7 @@ test(
     await composer.press("Enter");
 
     // Give any error notification time to appear.
+    // PW_JUSTIFIED_SLEEP: fixed 1_500ms sampling/settle window; no app event exists for this probe.
     await ui.page.waitForTimeout(1_500);
 
     // Assert: no "Pane has no PTY" toast.

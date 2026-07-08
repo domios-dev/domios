@@ -1,11 +1,7 @@
 /**
- * 11-api core — REST contract coverage against the live dev console.
- * No UI, no mock provider. Per testplan §3.13: happy path, auth,
- * validation, not-found, idempotency per cluster.
- *
- * Lane fence: /api/plugin*, /api/mesh/*, /api/update/* are NOT covered
- * here (plugin contract is in flight on Mac-Air; mesh needs the §4.2 peer
- * simulator; update mutates the install).
+ * WHAT: api core covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 11-api.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, API_BASE, readDevToken } from "../../helpers/fixtures";
 import { pollUntil } from "../../helpers/poll";

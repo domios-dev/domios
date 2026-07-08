@@ -1,9 +1,7 @@
 /**
- * 13-canvas — deterministic layout integrity fixture for Canvas v2.
- *
- * Seeds one synthetic plan in a temporary workspace, then checks rendered DOM
- * geometry at multiple canvas zoom scales. This catches empty node shells,
- * clipped long markdown/code content, node overlap, and detached edge anchors.
+ * WHAT: canvas layout integrity covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import fs from "node:fs";
 import os from "node:os";

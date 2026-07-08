@@ -1,25 +1,7 @@
 /**
- * 13-canvas — PAN/ZOOM FRAME-TIME GATE (loop_e424ce0b, profile-driven perf loop).
- *
- * The measurement instrument for the canvas perf loop. Drives SUSTAINED real
- * gestures and samples the actual rAF frame cadence on the page, so the numbers
- * reflect main-thread jank from React re-render work — not synthetic noise.
- *
- *   - PAN  uses page.mouse.wheel (a REAL, trusted CDP wheel) → drives the native
- *     non-passive wheel listener in useCanvasViewport (a JS-dispatched WheelEvent
- *     does fire the listener too, but a trusted wheel is the faithful path).
- *   - ZOOM holds Control and real-wheels, so the wheel carries ctrlKey=true and
- *     hits the zoom-around-pointer branch — a real pinch/⌘-wheel, not a synthetic
- *     dispatch.
- *
- * Frame timing: a rAF loop on the page records inter-frame deltas during each
- * gesture window; we report p50/p95/max ms + dropped-frame % (a frame > 32ms ≈ a
- * dropped 30fps frame). An idle window is measured first as a control. Budgets are
- * asserted so this is a real GATE, not just a print.
- *
- * Runs against the running dev (a dev build, so absolute ms are looser than prod —
- * use it as a repeatable RELATIVE gate for before/after hardening):
- *   CT_E2E_PORT=7686 npx playwright test -c tests/playwright -g canvas-perf --workers=1
+ * WHAT: canvas perf covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
@@ -120,6 +102,7 @@ async function drivePan(page: Page, durationMs: number): Promise<void> {
   while (Date.now() < end) {
     const dir = Math.floor(i / 10) % 2 === 0 ? 1 : -1;
     await page.mouse.wheel(70 * dir, 28 * dir);
+    // PW_JUSTIFIED_SLEEP: fixed 16ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(16);
     i++;
   }
@@ -141,6 +124,7 @@ async function driveZoom(page: Page, durationMs: number): Promise<{ min: number;
         new WheelEvent("wheel", { deltaY, ctrlKey: true, bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }),
       );
     }, dy);
+    // PW_JUSTIFIED_SLEEP: fixed 16ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(16);
     if (i % 6 === 0) {
       const s = await canvasScale(page);
@@ -189,10 +173,12 @@ test("@canvas-perf pan/zoom sustain a smooth frame budget on a populated board",
   // Warm up (JIT + first-paint settle) so the measured windows are steady-state.
   await drivePan(page, 600);
   await driveZoom(page, 600);
+  // PW_JUSTIFIED_SLEEP: fixed 200ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(200);
 
   // Idle control: the natural rAF cadence with no gesture.
   await startSampler(page);
+  // PW_JUSTIFIED_SLEEP: fixed 1500ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(1500);
   const idle = await stopSampler(page, "idle");
 

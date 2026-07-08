@@ -1,3 +1,8 @@
+/**
+ * WHAT: Open-shell LM Studio flow exposes chatBackend setup and launch surfaces.
+ * WHY: Local chat backends are non-PTY providers and need coverage separate from terminal agents.
+ * ORACLE: Plugin/provider setup, browser UI state, and spawned pane metadata match the LM Studio path.
+ */
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import {
@@ -252,6 +257,7 @@ test("@smoke lmstudio mocked tool result renders", async ({ api, webBrowser, pan
       .locator('[data-testid="chat-message"][data-message-role="tool_result"]')
       .filter({ hasText: "local search returned 3 rows" });
     await expect(result).toBeVisible();
+    await expect(result).toContainText("local search returned 3 rows");
   } finally {
     await page.context().close();
   }
