@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
 const postMortemArtifacts = {
-  trace: "retain-on-failure-and-retries" as const,
+  trace: "retain-on-failure" as const,
   video: "retain-on-failure" as const,
   screenshot: "only-on-failure" as const,
 };
@@ -25,13 +25,15 @@ export default defineConfig({
   use: postMortemArtifacts,
   globalSetup: "./helpers/global-setup",
   projects: [
-    { name: "smoke", grep: /@smoke/, retries: 0 },
+    { name: "smoke", grep: /@smoke/, grepInvert: /@quarantine/, retries: 0 },
     {
       name: "golden",
       grep: /@golden/,
-      retries: 1,
+      grepInvert: /@quarantine/,
+      retries: 0,
       timeout: 300_000,
     },
-    { name: "full", grepInvert: /@quarantine/, retries: 1 },
+    { name: "full", grepInvert: /@quarantine/, retries: 0 },
+    { name: "quarantine", grep: /@quarantine/, retries: 0 },
   ],
 });
