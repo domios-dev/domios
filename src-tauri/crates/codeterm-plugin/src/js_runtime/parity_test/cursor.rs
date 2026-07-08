@@ -196,3 +196,17 @@ fn cursor_stays_on_native_prompt_detector() {
     }
     assert!(!cursor().supports_structured_prompts());
 }
+
+#[test]
+fn cursor_tui_usage_screen_is_skip_not_error() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = cursor();
+    let parser = provider.usage_parser().expect("cursor provides parseUsage");
+    let outcome = parser.parse_outcome("any tui screen text").unwrap();
+    assert!(matches!(
+        outcome,
+        crate::usage_parser::UsageParseOutcome::Skip(_)
+    ));
+}
