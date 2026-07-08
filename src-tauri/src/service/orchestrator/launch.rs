@@ -37,13 +37,6 @@ pub(crate) fn role_onboarding_task(
     }
 }
 
-pub(crate) fn planner_profile_task(intro: String, task: Option<String>) -> String {
-    match task {
-        Some(t) if !t.trim().is_empty() => format!("{intro}\n\n{t}"),
-        _ => intro,
-    }
-}
-
 pub(crate) use crate::agent::provider::{AgentLaunchParams, ReadinessStrategy, TaskDelivery};
 pub(crate) use crate::agent::registry::AgentRegistry;
 

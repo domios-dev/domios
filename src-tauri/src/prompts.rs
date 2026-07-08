@@ -96,7 +96,7 @@ pub fn peer_orch_greeting(planner: &str) -> String {
 /// subordination prose is reused from the shared charter/deference constants.
 pub fn peer_planner_greeting(orchestrator_label: &str, orchestrator_pane_id: &str) -> String {
     format!(
-        "Planner specialist reporting for this plan — I work under Orchestrator {orchestrator_label} (pane {orchestrator_pane_id}). {}\n{}",
+        "Planner specialist reporting for this plan — I work under Orchestrator {orchestrator_label} (pane {orchestrator_pane_id}). {}\n{}\nI will read `codeterm docs PLANNER` for my role, the planning toolset (codeterm spec/plan/section, `codeterm plan task add`, `plan doctor`), and that I cut the tasks — filling the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`) on each. The full CLI is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). A fresh pairing starts empty: if no goal or planning request has been delegated yet, I am ready and will WAIT — I will not explore the project or read other plans.",
         PEER_PLANNER_CHARTER_LINE, PEER_ORCH_DEFERENCE_LINE,
     )
 }
