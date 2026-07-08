@@ -600,6 +600,16 @@ fn run_plan(
             json!({ "plan_id": plan_id, "mode": set }),
         ),
 
+        PlanAction::Pause { plan_id, reason } => call(
+            client,
+            "plan.pause",
+            json!({ "plan_id": plan_id, "reason": reason, "from": owner_from_env() }),
+        ),
+
+        PlanAction::Resume { plan_id } => {
+            call(client, "plan.resume", json!({ "plan_id": plan_id }))
+        }
+
         PlanAction::Archive { plan_id } => {
             call(client, "plan.archive", json!({ "plan_id": plan_id }))
         }
