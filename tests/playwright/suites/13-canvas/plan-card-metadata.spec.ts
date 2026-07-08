@@ -1,4 +1,8 @@
-// 13-canvas — @plan-card-metadata screenshot album (task_73ea1b9d).
+/**
+ * WHAT: plan card metadata covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
+ */
 import fs from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "../../helpers/fixtures";
@@ -95,6 +99,7 @@ test(
 
       await switchPlanMode(page, "list");
       await expect(page.locator('[data-testid="plan-list-view"]:visible')).toBeVisible();
+      await expect(page.locator('[data-testid="plan-list-row"]').first()).toBeVisible();
       await shot(page, "plan-card-metadata-list-desktop");
     } finally {
       await opened.canvas.close();

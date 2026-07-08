@@ -1,13 +1,7 @@
 /**
- * 12-web / voice-indicator — a voice note shows an immediate "transcribing…"
- * bubble that morphs into the transcript, and an honest error bubble when
- * transcription fails — instead of a blank gap while the (possibly cold)
- * Whisper daemon works. See issue #158.
- *
- * MediaRecorder + getUserMedia are stubbed (deterministic >MIN_VOICE_BYTES blob,
- * no real mic), and /api/upload + /api/transcribe-voice are mocked so we control
- * the transcription latency and the success/failure outcome. Both phases run in
- * ONE spawned chat pane so there is exactly one composer in the DOM.
+ * WHAT: voice indicator covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 12-web.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 

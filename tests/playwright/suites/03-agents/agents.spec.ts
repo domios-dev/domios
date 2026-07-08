@@ -1,17 +1,7 @@
 /**
- * 03-agents — agent lifecycle against the live dev console.
- *
- * Strategy (Andrey's Q2 ruling): NO mocks, NO HTTP intercept — real LLM,
- * real-system fidelity. Consequences baked in here:
- * - @smoke tier is LLM-free: spawn validation + the report-IPC primitive
- *   exercised with plain shell panes wired via /role (parent/child).
- * - @golden tier makes exactly ONE real LLM call (sonnet, trivial task)
- *   and asserts STRUCTURALLY: spawn shape, pane agent_type, report
- *   arrival containing a unique marker — never exact response text.
- * - Generous-but-bounded timeouts for real model latency.
- *
- * Auth: the spawned agent uses the host's provider CLI login (claude CLI
- * on this machine) — no API key env needed for the claude provider.
+ * WHAT: agents covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 03-agents.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type SpawnAgent } from "../../helpers/fixtures";
 import { pollUntil } from "../../helpers/poll";

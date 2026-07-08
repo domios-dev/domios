@@ -1,14 +1,7 @@
 /**
- * 13-canvas — SPEC ⊥ PLAN link (one calm connector, never a dot fan).
- *
- * SPEC (what) and PLAN (how) are distinct documents; their only relationship is
- * the 1→N spec_links reference, shown INLINE as "From spec" chips inside plan
- * sections. The canvas must draw EXACTLY ONE quiet spec→plan connector between the
- * two nodes — not one dotted diagonal per section (the old `spec-row` fan that read
- * as noise pointing nowhere). Verified on the perf fixture (has a primary_spec_id).
- *
- *   npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=golden -g @canvas-spec-plan-link --retries=0 --workers=1
+ * WHAT: canvas spec plan link covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
@@ -52,9 +45,11 @@ test("@golden @canvas-spec-plan-link one calm spec→plan link, no per-section d
 
   // between them) fully in frame. The spec sits triptych-left of the plan.
   await setCanvasScale(page, 0.28);
+  // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(300);
   await shot(page, "spec-plan-wide");
   await setCanvasScale(page, 0.5);
+  // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(300);
   await shot(page, "spec-plan-W1");
 
@@ -73,6 +68,7 @@ test("@golden @canvas-spec-plan-link one calm spec→plan link, no per-section d
     let band = await page.getAttribute(PLAN_SEL, "data-world").catch(() => null);
     for (const s of scales) {
       await setCanvasScaleOn(page, PLAN_SEL, s);
+      // PW_JUSTIFIED_SLEEP: fixed 220ms sampling/settle window; no app event exists for this probe.
       await page.waitForTimeout(220);
       band = await page.getAttribute(PLAN_SEL, "data-world").catch(() => null);
       if (band === target) break;

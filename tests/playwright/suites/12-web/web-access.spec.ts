@@ -1,13 +1,7 @@
 /**
- * 12-web / web-access — the Web UI modal picks the right primary URL per the
- * Tailscale-Serve auto-detect priority chain, and surfaces the curriculum hint
- * only when it falls back to an IP+port form.
- *
- * /api/network is mocked per scenario (route fulfill) so we can exercise every
- * shape — serve HTTPS on 443, serve HTTPS on a non-443 port, tailscale IP with
- * no serve, LAN-only — against a single live dev console. The asserted link IS
- * the string the QR is generated from (QRCode.toDataURL(link)), so checking the
- * link field verifies what the QR encodes.
+ * WHAT: web access covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 12-web.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type Browser, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 

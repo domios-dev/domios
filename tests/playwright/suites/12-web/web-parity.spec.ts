@@ -1,3 +1,8 @@
+/**
+ * WHAT: Browser-mode web UI matches desktop surfaces for core navigation, chrome, and actions.
+ * WHY: The mirror shares React logic with desktop but runs through a different browser entrypoint and auth path.
+ * ORACLE: Stable data-testid surfaces, settings state, titlebar controls, and workspace state agree with backend snapshots.
+ */
 import { expect, test, type Browser, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 import { pollUntil } from "../../helpers/poll";
 
@@ -306,6 +311,7 @@ test.describe("@golden web-native parity", () => {
         await burger.click();
       }
       await expect(page.locator('[data-testid="workspace-item"]').first()).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator('[data-testid="workspace-item"]')).not.toHaveCount(0);
     } finally {
       await page.context().close();
     }

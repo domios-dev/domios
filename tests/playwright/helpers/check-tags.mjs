@@ -125,6 +125,14 @@ function checkFile(file) {
     violations.push(location(source, file, node) + " " + reason);
   }
 
+  function hasJustifiedSleepComment(node) {
+    const start = node.getFullStart();
+    const lineStart = text.lastIndexOf("\n", start) + 1;
+    const previousLineStart = text.lastIndexOf("\n", Math.max(0, lineStart - 2)) + 1;
+    const prefix = text.slice(previousLineStart, node.getStart(source));
+    return /PW_JUSTIFIED_SLEEP:\s+\S/.test(prefix);
+  }
+
   function visit(node) {
     if (isTestCall(node)) {
       const title = titleFromArg(node.arguments[0]);
@@ -139,7 +147,9 @@ function checkFile(file) {
 
     if (strictEnabled) {
       if (ts.isPropertyAccessExpression(node) && node.name.text === "waitForTimeout") {
-        add(node, "waitForTimeout is banned; use web-first assertions or pollUntil.");
+        if (!hasJustifiedSleepComment(node)) {
+          add(node, "waitForTimeout is banned; use web-first assertions or pollUntil.");
+        }
       }
 
       if (

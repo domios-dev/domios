@@ -1,9 +1,7 @@
 /**
- * 13-canvas - tag legend facet filter: click legend value -> matching tasks
- * highlight, non-matching dim. Tile tag payload covered by TaskCard unit tests.
- *
- *   npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=golden --grep @canvas-tag-filter
+ * WHAT: canvas tag filter covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import fs from "node:fs";
 import os from "node:os";

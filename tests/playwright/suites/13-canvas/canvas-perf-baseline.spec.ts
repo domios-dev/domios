@@ -1,3 +1,8 @@
+/**
+ * WHAT: Canvas perf baseline records deterministic frame and threshold evidence for fixture worlds.
+ * WHY: Perf regressions need comparable artifacts instead of ad hoc subjective measurements.
+ * ORACLE: The baseline table and threshold table are generated from the installed perf fixture.
+ */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

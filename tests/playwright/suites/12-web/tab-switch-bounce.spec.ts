@@ -1,8 +1,12 @@
+/**
+ * WHAT: Web tab switching stays on the user-selected tab after split backend focus updates.
+ * WHY: A stale mux refresh once reverted optimistic tab focus to the previously active tab.
+ * ORACLE: The UI and backend converge on the newly selected tab after the delayed workspace-focus response lands.
+ */
 import { test, expect } from "../../helpers/fixtures";
 
-// Regression oracle for the applyBackendState tab-bounce: web setActiveTab splits
-// into two POSTs; POST#1 (workspace focus) emits a snapshot while active_tab is
-// still the previous tab, and a stale refresh would revert the optimistic switch.
+// Regression oracle for applyBackendState tab-bounce: POST#1 can emit stale
+// active_tab before POST#2, reverting the optimistic switch.
 test("@golden web tab-switch does not bounce to previous tab", async ({ ui, api }) => {
   const page = ui.page;
 
@@ -26,8 +30,7 @@ test("@golden web tab-switch does not bounce to previous tab", async ({ ui, api 
     )
     .toBe(true);
 
-  // Delay POST#2 (tab focus) so POST#1's stale workspace-focus refresh lands
-  // first — deterministically forces the bounce window the guard must survive.
+  // Delay POST#2 so POST#1's stale workspace-focus refresh lands first.
   await page.route("**/tabs/*/focus", async (r) => {
     await new Promise((res) => setTimeout(res, 150));
     await r.continue();
@@ -46,6 +49,7 @@ test("@golden web tab-switch does not bounce to previous tab", async ({ ui, api 
     sample();
   });
   await page.locator(`[data-tab-id="${tabB}"]`).click({ force: true });
+  // PW_JUSTIFIED_SLEEP: fixed 700ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(700);
   await page.evaluate(() => (window as any).__obsStop());
 

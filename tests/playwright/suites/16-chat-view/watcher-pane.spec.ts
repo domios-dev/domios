@@ -1,10 +1,7 @@
 /**
- * Watcher pane read-only composer — chatBackend machine+watcher UI contract.
- *
- * Run (orchestrator / QA only, against healthy dev):
- *   curl -s http://127.0.0.1:7686/api/health
- *   npx playwright test tests/playwright/suites/16-chat-view/watcher-pane.spec.ts \
- *     -g "watcher pane is read-only" --timeout=30000 --reporter=line --global-timeout=600000
+ * WHAT: watcher pane covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 16-chat-view.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 
@@ -20,11 +17,8 @@ async function lmStudioWatcherCapable(api: import("../../helpers/api-client").Ap
   }
 }
 
-// FIXME(web-mode): the /web/ client renders only the General workspace — panes
-// spawned into API-created workspaces never appear, so this spec cannot mount
-// the watcher pane UI. Unblock by teaching web-mode to list/switch workspaces
-// (or by pinning the fixture into the General workspace). UI contract is
-// covered by component tests (PaneSessionChat.watcher, MessageBubble.watcher).
+// FIXME(web-mode): /web/ renders only General, so API-workspace panes never mount.
+// Component tests cover this until web-mode can list/switch workspaces.
 test.fixme("@golden watcher pane is read-only", async ({ api, ui, spawnAgent, paneCleanup }) => {
   const watcherReady = await lmStudioWatcherCapable(api);
   test.skip(!watcherReady, "lmstudio plugin is not watcher-capable in this dev instance");

@@ -1,17 +1,7 @@
 /**
- * Cross-pane chat send — two live agent panes in chat UI exchange a message.
- *
- * This guards the full cross-pane pipeline the user relies on:
- *   sender pane → POST /send {source_pane} → server builds the
- *   `-=-codeterm:pane label=… pane=…-=-` prefix → injects into the
- *   recipient agent's PTY → the CLI logs the user turn to its JSONL →
- *   the chat UI tails it, parses the marker, and renders an origin header
- *   ("from <sender>") instead of the raw wire marker.
- *
- * Strategy (matches 03-agents): NO mocks. Real claude agents, real PTYs.
- * The ASSERTIONS key off the deterministic injected user turn (our exact
- * marker), never model output — so the only LLM dependency is that the
- * agents boot and accept input, not that they say anything in particular.
+ * WHAT: cross pane chat covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 03-agents.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type SpawnAgent } from "../../helpers/fixtures";
 import { type ApiClient } from "../../helpers/api-client";
