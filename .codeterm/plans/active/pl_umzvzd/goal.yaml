@@ -1,0 +1,4 @@
+vector: Fresh Planner spawns self-oriented (reads codeterm docs PLANNER, knows it cuts tasks + fills persona/role fields, onboarding auto-injected by CodeTerm not relayed); zero dead leftover files in extracted-crate shim dirs (cargo check --workspace green)
+vision: Fix the Planner/Orchestrator prompt+CLI system so a spawned Planner arrives fully self-oriented, and purge the dead code left behind by the crate extractions
+constraints: []
+postulates: []

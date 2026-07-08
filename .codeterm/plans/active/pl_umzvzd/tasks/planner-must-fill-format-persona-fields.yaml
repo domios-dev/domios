@@ -1,0 +1,48 @@
+id: task_o67zt3
+name: Planner must fill+format persona fields
+type: implement
+model: null
+model_rationale: role-guidance must be 2nd-person you-are-X/do-Y/red-line, not principles; CLI already has fields
+personality: null
+acceptance_criteria: []
+test_plan: null
+correctness: null
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783490928413
+updated_at: 1783491132441
+status_changed_at: 1783491132441
+handle: planner-must-fill-format-persona-fields
+tags: []
+section_ids: []
+body: ''
+role_guidance: null
+executor_role: null
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+park_reason: null
+attachments: []

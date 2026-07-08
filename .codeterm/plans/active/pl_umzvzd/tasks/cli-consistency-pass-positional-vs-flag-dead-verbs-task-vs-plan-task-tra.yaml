@@ -1,0 +1,49 @@
+id: task_b6a5v4
+name: 'CLI consistency pass: positional vs flag, dead verbs, task vs plan task trap'
+type: implement
+model: null
+model_rationale: 'Pascal A3 + Verdi B5: plan groups set needs --groups (not positional); plan task update is positional but task add is flag-driven; plan task close needs --result; dead verbs plan show / plan goal <id>; two overlapping command trees (codeterm task vs codeterm plan task) with different capabilities — an agent in the wrong tree concludes a feature doesn''t exist; --personality help is just ''e.g. Hopper''.'
+personality: null
+acceptance_criteria:
+- positional/flag args uniform across plan task subcommands; dead verbs give a redirect hint; task vs plan task disambiguated in help; --personality/--role-guidance help carries a real example
+test_plan: null
+correctness: null
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783492312275
+updated_at: 1783492312275
+status_changed_at: 1783492312275
+handle: cli-consistency-pass-positional-vs-flag-dead-verbs-task-vs-plan-task-tra
+tags: []
+section_ids: []
+body: ''
+role_guidance: null
+executor_role: null
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+park_reason: null
+attachments: []

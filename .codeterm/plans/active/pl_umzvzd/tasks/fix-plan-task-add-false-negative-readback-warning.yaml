@@ -1,0 +1,50 @@
+id: task_1krhag
+name: Fix plan task add false-negative readback warning
+type: implement
+model: null
+model_rationale: 'Both Pascal (Planner) and Verdi (Orchestrator) flagged this as the single most confusing thing in the toolset: ''did not read back the requested state'' prints on FULL SUCCESS (every field stuck), reads like a failure, invites a harmful blind retry.'
+personality: null
+acceptance_criteria:
+- plan task add with all quality fields (criteria/sections/test-plan/correctness/persona) never emits readback_mismatch when the write actually succeeded
+- root-cause the false positive in verify_task_added (readback.rs) — stale committed snapshot vs strict field compare
+test_plan: 'add a regression test: add_task with full field set then verify no PlanError::TaskReadback; cli/src/cmd/plan/tests.rs'
+correctness: null
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783492309744
+updated_at: 1783492309744
+status_changed_at: 1783492309744
+handle: fix-plan-task-add-false-negative-readback-warning
+tags: []
+section_ids: []
+body: ''
+role_guidance: null
+executor_role: null
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+park_reason: null
+attachments: []

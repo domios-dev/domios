@@ -1,0 +1,49 @@
+id: task_pcc1m4
+name: 'Orchestrator first-run: read docs ORCHESTRATION + EFFORT model'
+type: implement
+model: null
+model_rationale: 'Verdi (Orchestrator) B1: never ran codeterm docs ORCHESTRATION — operated off injected prompt + trial-and-error on dead subcommands. Role prompt should embed EFFORT model (GOAL->Spec _|_ Plan->Tasks->Strides) + minimal command map + a first-run ''read this doc'' pointer.'
+personality: null
+acceptance_criteria:
+- orchestrator_onboard first message points to codeterm docs ORCHESTRATION and summarizes the EFFORT model
+test_plan: null
+correctness: null
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783492310841
+updated_at: 1783492310841
+status_changed_at: 1783492310841
+handle: orchestrator-first-run-read-docs-orchestration-effort-model
+tags: []
+section_ids: []
+body: ''
+role_guidance: null
+executor_role: null
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+park_reason: null
+attachments: []

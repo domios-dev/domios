@@ -1,0 +1,48 @@
+id: task_rq9q9y
+name: 'Planner onboarding parity: docs PLANNER + skill + toolset pointer'
+type: implement
+model: null
+model_rationale: Planner spawn gave 1 charter line; created docs/PLANNER.md, enriched peer_mandate intro
+personality: null
+acceptance_criteria: []
+test_plan: null
+correctness: null
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783490927885
+updated_at: 1783491131833
+status_changed_at: 1783491131833
+handle: planner-onboarding-parity-docs-planner-skill-toolset-pointer
+tags: []
+section_ids: []
+body: ''
+role_guidance: null
+executor_role: null
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+park_reason: null
+attachments: []

@@ -1,0 +1,49 @@
+id: task_rdewoy
+name: Promote plan-scoped skills + bundle gap-analysis verify-before-claim skill
+type: implement
+model: null
+model_rationale: 'Pascal A6/A7: codeterm plan skill unknown until user mentioned it. The external gap-analysis skill (verify-before-claim pre-execution audit) caught 3 CRITICAL plan-vs-codebase flaws that plan doctor structurally cannot (doctor checks structure, not codebase truth). Promote plan skills in briefings; bundle gap-analysis as a default plan skill / candidate built-in stage between structure_ready and approved.'
+personality: null
+acceptance_criteria:
+- role briefings mention codeterm plan skill; gap-analysis skill seeded as bundled plan-scoped skill (SKILL.md on Desktop is the seed)
+test_plan: null
+correctness: 'verify-before-claim: any codebase claim in the skill must be grep-verifiable'
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783492311928
+updated_at: 1783492311928
+status_changed_at: 1783492311928
+handle: promote-plan-scoped-skills-bundle-gap-analysis-verify-before-claim-skill
+tags: []
+section_ids: []
+body: ''
+role_guidance: null
+executor_role: null
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+park_reason: null
+attachments: []
