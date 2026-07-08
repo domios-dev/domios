@@ -90,14 +90,33 @@ pub fn peer_orch_greeting(planner: &str) -> String {
     PEER_ORCH_GREETING.replace("{planner}", planner)
 }
 
+/// Short user-facing hint shown in the tab for a freshly-promoted Orchestrator
+/// (display only — the detailed onboarding is delivered separately as real input).
+pub fn orchestrator_display_hint() -> String {
+    "Orchestrator for this tab — I own the plan's execution: I dispatch tasks to workers and accept or bounce their results. Tell me the goal; until then, we hold.".to_string()
+}
+
 /// Planner's opening greeting — the mirror of [`PEER_ORCH_GREETING`] for the
 /// subordinate side, rendered verbatim as the Planner pane's first assistant
 /// message so it never boots into silence. Identity framing only; the
 /// subordination prose is reused from the shared charter/deference constants.
-pub fn peer_planner_greeting(orchestrator_label: &str, orchestrator_pane_id: &str) -> String {
+pub fn peer_planner_greeting(orchestrator_label: &str, _orchestrator_pane_id: &str) -> String {
     format!(
-        "Planner specialist reporting for this plan — I work under Orchestrator {orchestrator_label} (pane {orchestrator_pane_id}). {}\n{}\nI will read `codeterm docs PLANNER` for my role, the planning toolset (codeterm spec/plan/section, `codeterm plan task add`, `plan doctor`), and that I cut the tasks — filling the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`) on each. The full CLI is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). A fresh pairing starts empty: if no goal or planning request has been delegated yet, I am ready and will WAIT — I will not explore the project or read other plans.",
-        PEER_PLANNER_CHARTER_LINE, PEER_ORCH_DEFERENCE_LINE,
+        "Planner specialist for this plan — I draft the GOAL, spec, and plan structure and cut the tasks, working under Orchestrator {orchestrator_label}. Ready; I will wait for the goal before doing anything."
+    )
+}
+
+/// The Planner's detailed onboarding, delivered as its own real launch input by
+/// CodeTerm (never relayed by the Orchestrator). Second-person; carries the
+/// role, toolset, docs pointer, persona-field mandate, and the wait-if-empty rule.
+pub fn planner_onboarding_task(
+    orchestrator_label: &str,
+    orchestrator_tab_id: &str,
+    plan_id: &str,
+) -> String {
+    format!(
+        "You are the Planner specialist for plan {plan_id}, working under Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
+First read `codeterm docs PLANNER` for your role and the full planning toolset (codeterm spec/plan/section, `codeterm plan task add`, `plan doctor`). YOU cut the tasks — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. The full CLI reference is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
     )
 }
 
@@ -262,25 +281,26 @@ mod tests {
     }
 
     #[test]
-    fn peer_planner_greeting_names_orchestrator_and_reuses_subordination_constants() {
+    fn peer_planner_greeting_is_a_short_user_hint() {
         let g = peer_planner_greeting("Opus Orchestrator", "pane_orch_9");
-        assert!(g.contains("pane_orch_9"), "names the orchestrator pane id");
-        assert!(
-            g.contains("Opus Orchestrator"),
-            "names the orchestrator label"
-        );
-        assert!(
-            g.contains("work under Orchestrator"),
-            "planner is subordinate"
-        );
-        assert!(
-            g.contains(PEER_PLANNER_CHARTER_LINE),
-            "reuses the charter constant"
-        );
-        assert!(
-            g.contains(PEER_ORCH_DEFERENCE_LINE),
-            "reuses the deference constant"
-        );
+        assert!(g.contains("Opus Orchestrator"), "names the orchestrator");
+        assert!(g.contains("Planner"), "identifies the role");
+        assert!(g.contains("wait for the goal"), "conveys the hold state");
+        // Display hint only — no CLI commands, no docs/toolset detail.
+        assert!(!g.contains("codeterm "), "greeting carries no commands");
+        assert!(!g.contains("--personality"), "greeting carries no flags");
+    }
+
+    #[test]
+    fn planner_onboarding_task_carries_role_and_toolset_from_codeterm() {
+        let t = planner_onboarding_task("Opus Orchestrator", "tab_orch_9", "pl_abc");
+        assert!(t.contains("pl_abc"), "names the plan");
+        assert!(t.contains("Opus Orchestrator"), "names the orchestrator");
+        assert!(t.contains("You are the Planner"), "second-person onboarding");
+        assert!(t.contains("codeterm docs PLANNER"), "points at the doc");
+        assert!(t.contains("--personality"), "mandates persona fields");
+        assert!(t.contains(PEER_PLANNER_CHARTER_LINE), "reuses the charter");
+        assert!(t.contains(PEER_ORCH_DEFERENCE_LINE), "reuses the deference");
     }
 
     #[test]
