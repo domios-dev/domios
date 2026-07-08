@@ -18,6 +18,7 @@ pub enum PlanMode {
     Planning,
     Approved,
     Execution,
+    Paused,
     Complete,
 }
 
@@ -588,6 +589,8 @@ pub struct Plan {
     pub status: PlanStatus,
     #[serde(default)]
     pub mode: PlanMode,
+    #[serde(default)]
+    pub paused_from_mode: Option<PlanMode>,
     pub owner: OrchestratorRef,
     pub project_path: String,
     #[serde(default)]
@@ -646,6 +649,7 @@ impl Plan {
             sections: vec![],
             status: PlanStatus::Active,
             mode: PlanMode::Planning,
+            paused_from_mode: None,
             owner,
             project_path: project_path.clone(),
             canonical_project_path: project_path,
@@ -678,7 +682,7 @@ impl Plan {
     /// created. planning_state is authoritative going forward; an Approved/Execution
     /// lifecycle mode bridges plans predating planning_state. Complete never unlocks.
     pub fn execution_tasks_unlocked(&self) -> bool {
-        self.mode != PlanMode::Complete
+        !matches!(self.mode, PlanMode::Complete | PlanMode::Paused)
             && (self.planning_state.allows_execution_tasks()
                 || matches!(self.mode, PlanMode::Approved | PlanMode::Execution))
     }

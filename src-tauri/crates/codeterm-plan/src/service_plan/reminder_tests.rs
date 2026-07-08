@@ -104,6 +104,24 @@ fn owner_planning_plan_with_open_work_is_not_nudge_eligible() {
 }
 
 #[test]
+fn paused_execution_plan_with_open_work_is_not_nudge_eligible() {
+    let (_dir, store, plan_id, _task_id) = store_with_task("orch-pane");
+    store
+        .pause_plan(
+            &plan_id,
+            "provider quota exhausted",
+            AgentRef::from_pane("orch-pane"),
+            30,
+        )
+        .unwrap();
+
+    assert_eq!(
+        store.active_owned_plan_with_open_work_for_pane("orch-pane"),
+        None
+    );
+}
+
+#[test]
 fn worker_planning_plan_binding_does_not_start_report_nudges() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
