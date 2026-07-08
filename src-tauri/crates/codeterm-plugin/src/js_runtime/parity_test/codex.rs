@@ -207,12 +207,11 @@ fn parse_usage_uses_family_labels_for_codex_142_4_status() {
 }
 
 #[test]
-fn detect_session_id_and_active_session_are_null() {
+fn detect_active_session_is_null() {
     if require_plugins().is_none() {
         return;
     }
     let j = codex();
-    assert_eq!(j.detect_session_id("/work/proj", &[], None), None);
     assert_eq!(j.detect_active_session("/work/proj", "current-sid"), None);
 }
 
@@ -241,6 +240,12 @@ fn session_fs_capabilities_over_rollout_tree() {
 
     let _env = EnvGuard::new(&[("CODETERM_CODEX_SESSIONS_ROOT", dir.path().to_str().unwrap())]);
     let j = codex();
+
+    assert_eq!(
+        j.detect_session_id("/work/proj", &[], None).as_deref(),
+        Some(CODEX_UUID)
+    );
+    assert_eq!(j.detect_session_id("/other/proj", &[], None), None);
 
     // sessionFilePath / sessionJsonlPath resolve the rollout by its trailing uuid.
     let fp = j
