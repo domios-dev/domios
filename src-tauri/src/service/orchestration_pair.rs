@@ -322,7 +322,7 @@ impl ServiceContext {
                     ));
                 }
                 let followup = orchestrator_pair_followup_ready(&plan_id, &planner_pane_id);
-                let envelope = MessageEnvelope::reminder("CodeTerm", "orchestration-pair");
+                let envelope = MessageEnvelope::codeterm_reminder("orchestration-pair");
                 if let Err(e) = Messenger::deliver(self, &orch_pane_id, envelope, &followup) {
                     log::warn!(
                         "[orchestration-pair] failed to notify orchestrator {orch_pane_id} of live Planner specialist: {e}"
@@ -363,7 +363,7 @@ impl ServiceContext {
                     planner_model.as_deref(),
                 );
                 let followup = orchestrator_pair_followup_degraded(&fix_command, &e);
-                let envelope = MessageEnvelope::reminder("CodeTerm", "orchestration-pair");
+                let envelope = MessageEnvelope::codeterm_reminder("orchestration-pair");
                 if let Err(notify_err) =
                     Messenger::deliver(self, &orch_pane_id, envelope, &followup)
                 {

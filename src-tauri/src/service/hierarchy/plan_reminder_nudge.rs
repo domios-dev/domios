@@ -111,7 +111,7 @@ impl ServiceContext {
             return;
         }
         let text = crate::service::plan::reminders::polling_nudge_text();
-        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
+        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
         let _ = crate::service::messenger::Messenger::deliver(self, caller, envelope, &text);
     }
 
@@ -156,7 +156,7 @@ impl ServiceContext {
             Some(pane_id),
             &text,
         );
-        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
+        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
         let success =
             crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text).is_ok();
 
@@ -267,8 +267,7 @@ impl ServiceContext {
                 continue;
             }
             let text = crate::service::plan::complete_wrapup::complete_wrapup_message(&plan_id);
-            let envelope =
-                crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
+            let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
             if crate::service::messenger::Messenger::deliver(self, &pane_id, envelope, &text)
                 .is_ok()
             {
@@ -322,7 +321,7 @@ impl ServiceContext {
                 .plan_store
                 .prepend_worker_charter_for_pane(pane_id, &text),
         };
-        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
+        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
         match crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text) {
             Ok(_) => true,
             Err(e) => {
