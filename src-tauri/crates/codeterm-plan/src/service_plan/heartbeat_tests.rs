@@ -364,7 +364,7 @@ fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
     assert!(text.contains("codeterm docs ORCHESTRATION"));
     assert!(text.contains("<codeterm-orchestrator-heartbeat"));
     assert!(text.contains("Current focus: Review open lanes"));
-    assert!(text.contains("Plan reminder: this pane owns unfinished execution-plan work."));
+    assert!(text.contains("Plan reminder: this tab owns unfinished execution-plan work."));
 }
 
 #[test]

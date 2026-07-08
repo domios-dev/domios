@@ -41,7 +41,7 @@ pub fn nudge_text(kind: NudgeKind) -> String {
                 .to_string()
         }
         NudgeKind::Orchestrator => format!(
-            "Plan reminder: this pane owns unfinished execution-plan work. This nudge {CONTRACT} Give every open task one of five exits: {EXITS}. Read `codeterm docs ORCHESTRATION` if the orchestration loop is unclear, then process reports, reconcile, review, close, or bounce tasks."
+            "Plan reminder: this tab owns unfinished execution-plan work. This nudge {CONTRACT} Give every open task one of five exits: {EXITS}. Read `codeterm docs ORCHESTRATION` if the orchestration loop is unclear, then process reports, reconcile, review, close, or bounce tasks."
         ),
         NudgeKind::Escalated => format!(
             "ESCALATED plan reminder: open tasks are aging unattended. This nudge {CONTRACT} Give every open task one of five exits: {EXITS}. Workers: an UNREPORTED task leaves your parent blind until you report."
@@ -62,7 +62,7 @@ const SECONDS_PER_DAY: u64 = 86_400;
 pub const POLL_NUDGE_THRESHOLD: u32 = 3;
 
 pub fn polling_nudge_text() -> String {
-    "Polling smell: worker reports auto-inject into this pane the moment they land — repeatedly reading a worker pane's output/text/chat just burns your turn. Wait for the report; don't poll.".to_string()
+    "Polling smell: worker reports auto-inject into this tab the moment they land — repeatedly reading a worker tab's output/text/chat just burns your turn. Wait for the report; don't poll.".to_string()
 }
 
 // Verbatim heartbeat/nudge contract — MUST appear in every open-work nudge.
