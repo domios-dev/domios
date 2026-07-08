@@ -28,6 +28,7 @@ const DOCS: &[(&str, &str)] = &[
         include_str!("../../../docs/PLAN-EDITING.md"),
     ),
     ("LANES", include_str!("../../../docs/LANES.md")),
+    ("PLANNER", include_str!("../../../docs/PLANNER.md")),
 ];
 
 const CODETERM_PANE_PREVIEW_LINES: usize = 120;

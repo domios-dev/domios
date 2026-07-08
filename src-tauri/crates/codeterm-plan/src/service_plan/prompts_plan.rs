@@ -47,8 +47,10 @@ pub const PLAN_RETROSPECTIVE_NUDGE: &str = "This plan is complete. Before archiv
 Graduate the proven ones: a durable know-how skill or helper script earned in this effort belongs in machine mem (`codeterm mem skill`) and, when it is repo-shaped, in `.agents/skills/` or `scripts/` — landed through a reviewed lane, never edited straight into the integration checkout.";
 
 pub const PEER_PLANNER_CHARTER_LINE: &str = "Planner is the attached planning specialist: \
-     draft GOAL, Spec, Plan structure, task briefs, and decision options when the \
-     Orchestrator delegates planning work.";
+     draft GOAL, Spec, and Plan structure, CUT the tasks (`codeterm plan task add` — with \
+     briefs, acceptance criteria, test plan, correctness), and surface decision options when \
+     the Orchestrator delegates planning. The Orchestrator dispatches and accepts — it does \
+     not create the tasks.";
 
 pub const PEER_WAIVER_HINT: &str = "No Planner specialist is bound. \
      Bind one with `codeterm plan update --planner <PANE_ID>` or waive with \
