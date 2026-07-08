@@ -29,6 +29,10 @@ const DOCS: &[(&str, &str)] = &[
     ),
     ("LANES", include_str!("../../../docs/LANES.md")),
     ("PLANNER", include_str!("../../../docs/PLANNER.md")),
+    (
+        "TEST-AUTHORING",
+        include_str!("../../../docs/contributing/test-authoring.md"),
+    ),
 ];
 
 const CODETERM_PANE_PREVIEW_LINES: usize = 120;
@@ -197,5 +201,14 @@ mod tests {
 
         assert!(rendered.contains("# Lane Lifecycle Standard"));
         assert!(rendered.contains("Do not cherry-pick"));
+    }
+
+    #[test]
+    fn test_authoring_doc_is_registered() {
+        let rendered =
+            render_doc("test-authoring", true, None, false).expect("TEST-AUTHORING doc exists");
+
+        assert!(rendered.contains("# Authoring automated tests"));
+        assert!(rendered.contains("codeterm docs TEST-AUTHORING"));
     }
 }

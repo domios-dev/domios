@@ -128,6 +128,7 @@ Spawn a new agent; roleless unless --role is provided
 - `--nudge_cooldown` — Watcher nudge cooldown, e.g. 10m
 - `--parent` — Parent pane ID (for Workers)
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
+- `--plan_task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
 - `--report_to` — Where this worker's `agent report` should land. A pane id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own pane
 - `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
@@ -370,7 +371,7 @@ Read one embedded CodeTerm document in full
 
 #### `codeterm docs`
 
-Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm panes; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING)
+Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm panes; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING, TEST-AUTHORING)
 
 - `--full` — Print the complete document even inside a CodeTerm pane
 - `--head` — Print at most N lines
@@ -1795,6 +1796,13 @@ Update a free-form canvas note
 - `--text`
 - `--text_file`
 
+#### `codeterm plan pause`
+
+Pause the whole effort without changing task state or executor bindings
+
+- `<plan_id>`
+- `--reason`
+
 #### `codeterm plan planning-state`
 
 Advance planner-owned planning state: drafting | structure_ready | approved
@@ -1882,6 +1890,12 @@ Show structural neighbors for a plan/spec/task/section unit
 
 - `--depth`
 - `--id`
+
+#### `codeterm plan resume`
+
+Resume a paused effort, restoring its previous mode
+
+- `<plan_id>`
 
 #### `codeterm plan retrospective`
 

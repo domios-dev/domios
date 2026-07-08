@@ -113,8 +113,21 @@ skips read as coverage that does not exist.
   test-authoring.md is your charter — read it before writing"), and the
   dispatch brief carries it. The role never depends on the agent
   remembering to look.
+- **Interim dispatch rule**: until task dispatch is the only worker launch
+  path in a deployment, the Planner pastes the canonical role_guidance
+  template into any manual spawn brief for a test-author task.
 - **Acceptance shape**: every test-author task's criteria include the
   red-green demo and the isolation-first run of each new test. A test-author
   report without a red-green demo bounces.
+
+## Embedded docs decision
+
+Ship this charter as `codeterm docs TEST-AUTHORING`, not only as a repo doc.
+Rationale: it is tier-3 product-general operating knowledge for agents who
+write tests in any project, and it passes the stranger's-repo check because
+the rules name no CodeTerm-only internals beyond the CLI smoke-run examples.
+Keeping the repo path in the role_guidance still matters for local contributors;
+the embedded copy gives spawned agents a stable recovery path when they are
+outside this checkout.
 
 <!-- revision: 1 -->
