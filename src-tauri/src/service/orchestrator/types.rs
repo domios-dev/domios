@@ -51,6 +51,8 @@ pub struct SpawnAgentParams {
     /// Bound task id (CODETERM_TASK_ID) — the shared-checkout exception stride
     /// lands here when `--allow-shared-checkout` is used.
     pub task_id: Option<String>,
+    /// Named plan task to bind when spawning `--role Worker` (`--plan-task`).
+    pub plan_task: Option<String>,
     /// Opt out of the Worker canonical-checkout guard, recording a visible
     /// exception stride on the bound task.
     pub allow_shared_checkout: Option<bool>,

@@ -423,6 +423,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 max_actions,
                 allow_shared_checkout,
                 bound_task,
+                plan_task,
             } => {
                 let task = match crate::cmd::agent::resolve_spawn_task(
                     task.clone(),
@@ -527,6 +528,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(tid) = bound_task {
                     body["task_id"] = serde_json::json!(tid);
+                }
+                if let Some(pt) = plan_task {
+                    body["plan_task"] = serde_json::json!(pt);
                 }
                 (
                     "POST".into(),
