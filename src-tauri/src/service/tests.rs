@@ -134,6 +134,20 @@ fn spawn_agent_params_from_json_maps_watcher_to_manager_profile() {
 }
 
 #[test]
+fn spawn_agent_params_from_json_maps_plan_task() {
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "role": "Worker",
+        "plan_id": "pl_test",
+        "plan_task": "my-task",
+    }))
+    .unwrap();
+    assert_eq!(params.role.as_deref(), Some("Worker"));
+    assert_eq!(params.plan_id.as_deref(), Some("pl_test"));
+    assert_eq!(params.plan_task.as_deref(), Some("my-task"));
+}
+
+#[test]
 fn manager_requires_known_profile() {
     let missing = SpawnAgentParams::from_json(&serde_json::json!({
         "agent": "claude",

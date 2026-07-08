@@ -304,6 +304,9 @@ pub enum AgentAction {
         /// Bound task id for the shared-checkout exception stride.
         #[arg(long = "task-id", env = "CODETERM_TASK_ID")]
         bound_task: Option<String>,
+        /// Plan task to bind when spawning `--role Worker` (handle, id, or prefix).
+        #[arg(long = "plan-task")]
+        plan_task: Option<String>,
     },
 }
 
@@ -498,6 +501,38 @@ mod tests {
                 let role = role.expect("role set");
                 assert_eq!(role.as_str(), "Manager");
                 assert_eq!(role.role_profile(), Some("watcher"));
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn spawn_worker_plan_task_parses() {
+        let cli = Cli::try_parse_from([
+            "codeterm",
+            "agent",
+            "spawn",
+            "claude",
+            "--role",
+            "Worker",
+            "--plan",
+            "pl_test",
+            "--plan-task",
+            "my-task",
+        ])
+        .expect("spawn with plan-task parses");
+        match cli.command {
+            crate::Commands::Agent {
+                action: AgentAction::Spawn {
+                    role,
+                    plan,
+                    plan_task,
+                    ..
+                },
+            } => {
+                assert!(matches!(role, Some(SpawnRole::Worker)));
+                assert_eq!(plan.as_deref(), Some("pl_test"));
+                assert_eq!(plan_task.as_deref(), Some("my-task"));
             }
             _ => panic!("expected agent spawn"),
         }
