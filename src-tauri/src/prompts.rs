@@ -116,7 +116,7 @@ pub fn planner_onboarding_task(
 ) -> String {
     format!(
         "You are the Planner specialist for plan {plan_id}, working under Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
-First read `codeterm docs PLANNER` for your role and the full planning toolset (codeterm spec/plan/section, `codeterm plan task add`, `plan doctor`). YOU cut the tasks — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. The full CLI reference is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
+First read `codeterm docs PLANNER` for your role. Planner can EXECUTE: `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. YOU cut the tasks — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. The full CLI reference is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
     )
 }
 
@@ -301,6 +301,11 @@ mod tests {
             "second-person onboarding"
         );
         assert!(t.contains("codeterm docs PLANNER"), "points at the doc");
+        assert!(
+            t.contains("Planner can EXECUTE:"),
+            "lists concrete executable actions"
+        );
+        assert!(t.contains("codeterm plan task add"), "names concrete planner action");
         assert!(t.contains("--personality"), "mandates persona fields");
         assert!(t.contains(PEER_PLANNER_CHARTER_LINE), "reuses the charter");
         assert!(t.contains(PEER_ORCH_DEFERENCE_LINE), "reuses the deference");
