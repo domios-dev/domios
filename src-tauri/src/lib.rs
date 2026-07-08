@@ -364,7 +364,9 @@ pub fn run() {
                 Arc::new(crate::agent_commands::AgentCommandRegistry::new());
             // One bundle of registry handles, shared by the startup loop and the hot-reload watcher (same register_plugin path, no drift).
             let cap_registries = plugin::js_runtime::CapabilityRegistries {
-                secret: secret_registry.clone(),
+                secret: Some(std::sync::Arc::new(
+                    crate::secrets::js_backend::AppSecretBackendRegistrar::new(secret_registry.clone())
+                )),
                 transcribe: transcribe_registry.clone(),
                 glance: glance_registry.clone(),
                 bubble: bubble_registry.clone(),
@@ -376,8 +378,8 @@ pub fn run() {
             // VMs collected as they load, so the `ServiceContext` can be late-bound into each sandbox once it's built below.
             let mut plugin_vms: Vec<Arc<plugin::js_runtime::PluginVm>> = Vec::new();
             let mut plugin_manager = plugin::PluginManager::new();
-            plugin_manager.set_agent_registry(agent_registry.clone());
-            plugin_manager.set_event_broadcaster(states.event_broadcaster.clone());
+            plugin_manager.set_registrar(agent_registry.clone());
+            plugin_manager.set_event_sink(states.event_broadcaster.clone());
 
             // Bridge ContributionsChanged → frontend event + mem bridge rule refresh.
             {
@@ -425,7 +427,7 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     loop {
                         match sub.recv().await {
-                            Ok(ev) => pm.dispatch_event(&ev.event),
+                            Ok(ev) => pm.dispatch_event_type(ev.event.type_name()),
                             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                             Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                         }
@@ -533,7 +535,7 @@ pub fn run() {
                         }
                     } else {
                         // JS takes authority; the displaced native impl is preserved as a fallback for unexported methods.
-                        p.set_registry(agent_registry.clone());
+                        p.set_registrar(agent_registry.clone());
                         log::info!(
                             "[js-plugin] {id} registered as authoritative \
                             (set CODETERM_NATIVE_PROVIDERS={id} to rollback)"
@@ -733,11 +735,13 @@ pub fn run() {
                 }
             }
             // Late-bind the ServiceContext into every loaded plugin's sandbox. Weak so VMs never keep the service alive past teardown.
-            for vm in &plugin_vms {
-                vm.set_service(Arc::downgrade(&service_state));
+            {
+                let host: Arc<dyn codeterm_plugin::PluginHostCtx> = service_state.clone();
+                for vm in &plugin_vms {
+                    vm.set_service(Arc::downgrade(&host));
+                }
+                plugin::js_runtime::set_watcher_service(Arc::downgrade(&host));
             }
-            // Same late-bind for the hot-reload watcher, so plugins reloaded after startup get the service too.
-            plugin::js_runtime::set_watcher_service(Arc::downgrade(&service_state));
             app.manage(service_state.clone());
             crate::delayed_send::start_scheduler(service_state.clone());
             crate::service::start_plan_reminder_scheduler(service_state.clone());

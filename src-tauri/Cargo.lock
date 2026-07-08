@@ -1182,6 +1182,7 @@ dependencies = [
  "async-trait",
  "axum",
  "chrono",
+ "codeterm-plugin",
  "codeterm-types",
  "codeterm-util",
  "log",

@@ -11,6 +11,7 @@
 
 pub mod api;
 pub mod factory;
+pub mod js_backend;
 pub mod local;
 pub mod mock;
 pub mod secret_file;
@@ -326,7 +327,7 @@ pub type SecretStoreState = std::sync::Arc<RwLock<std::sync::Arc<dyn SecretStore
 /// Runtime registry of plugin-contributed secret backends, keyed by id. A
 /// plugin (e.g. Bitwarden) registers a ready instance here on activate;
 /// `build_active_store` prefers it over the built-in factory.
-pub type SecretRegistry = crate::plugin::capability::CapabilityRegistry<dyn SecretStore>;
+pub type SecretRegistry = codeterm_plugin::capability::CapabilityRegistry<dyn SecretStore>;
 
 /// Build the active backend from a full config snapshot. Prefers a plugin
 /// instance registered under `cfg.backend`; otherwise builds a built-in via the
