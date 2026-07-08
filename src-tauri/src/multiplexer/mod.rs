@@ -1,4 +1,3 @@
-pub use codeterm_pty::multiplexer::*;
 pub mod commands {
     pub use codeterm_pty::multiplexer::commands::*;
 }
