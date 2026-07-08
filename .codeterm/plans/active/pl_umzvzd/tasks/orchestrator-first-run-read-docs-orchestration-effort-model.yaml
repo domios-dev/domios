@@ -8,14 +8,14 @@ acceptance_criteria:
 - orchestrator_onboard first message points to codeterm docs ORCHESTRATION and summarizes the EFFORT model
 test_plan: null
 correctness: null
-status: pending
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783492310841
-updated_at: 1783492310841
-status_changed_at: 1783492310841
+updated_at: 1783501777527
+status_changed_at: 1783501777527
 handle: orchestrator-first-run-read-docs-orchestration-effort-model
 tags: []
 section_ids: []
@@ -43,7 +43,23 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_m5sopx
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: DONE (d37af561). orchestrator_onboard planning-rule now names the EFFORT model (GOAL -> Spec _|_ Plan -> Tasks -> Strides), milestone+regression boundaries, and retrospective/loop rhythm. docs ORCHESTRATION + docs PLANNER pointers were already first in the onboarding.
+  ts: 1783501777527
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 park_reason: null
 attachments: []

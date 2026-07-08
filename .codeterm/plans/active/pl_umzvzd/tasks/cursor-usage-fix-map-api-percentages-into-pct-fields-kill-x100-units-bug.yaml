@@ -12,14 +12,14 @@ acceptance_criteria:
 - No provider-id branching in core; UsageBubble change is the single pct-preference predicate at line ~65
 test_plan: '1) npm run test:plugins asserts from fixture: weekly_pct=96.6974, session_pct=84.8444, spend_cents=18856 verbatim (NOT 1885600), resetsAtMs=1784473493000; 2) plugin.js rebuilt, npm run sync:versions && check:versions exit 0; 3) live: build.sh dev on 7686, open cursor pane -> bubble two pct glyphs, weekly is-danger, NOT $ pill; 4) UsageDetail spend $188.56/included $20.00; 5) usage projection provider=cursor non-empty rows'
 correctness: Plugin-side + 1-line UsageBubble pct-preference. Units verbatim cents. Do not invent 'remaining' semantics (field absent in real API). parseUsage TUI-text path stays null-returning. No Rust schema changes.
-status: pending
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783500561151
-updated_at: 1783500561151
-status_changed_at: 1783500561151
+updated_at: 1783502399047
+status_changed_at: 1783502399047
 handle: cursor-usage-fix-map-api-percentages-into-pct-fields-kill-x100-units-bug
 tags: []
 section_ids: []
@@ -82,7 +82,23 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_6c42fc
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: 'DONE + verified (6356ddc5 by worker Ada). Cursor usage now maps real API percentages verbatim: weekly_pct=totalPercentUsed, session_pct=apiPercentUsed; x100 cursorDollarsToCents helper + dead planUsage.remaining read removed; fetchUsage collapsed to single GetCurrentPeriodUsage. UsageBubble pct-preference (data-shaped, no provider-id branching). Independently re-ran plugin.test.ts: 147 passed asserting spend_cents=18856 (not 1885600), weekly_pct=96.6974, session_pct=84.8444. check:versions + check:plugin-bundles exit 0. spend_remaining_cents=max(0,limit-includedSpend). MANUAL: live UI gate (open cursor pane, see two pct glyphs) needs running dev + real token.'
+  ts: 1783502399047
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 park_reason: null
 attachments: []

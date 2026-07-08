@@ -8,14 +8,14 @@ acceptance_criteria:
 - positional/flag args uniform across plan task subcommands; dead verbs give a redirect hint; task vs plan task disambiguated in help; --personality/--role-guidance help carries a real example
 test_plan: null
 correctness: null
-status: pending
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783492312275
-updated_at: 1783492312275
-status_changed_at: 1783492312275
+updated_at: 1783501778635
+status_changed_at: 1783501778635
 handle: cli-consistency-pass-positional-vs-flag-dead-verbs-task-vs-plan-task-tra
 tags: []
 section_ids: []
@@ -43,7 +43,23 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_wg2rhh
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: 'DONE-core (d37af561). Delivered the concrete traps: persona help (--personality/--executor-role/--role-guidance now carry real examples, add+update parity); ''plan show'' is a visible alias of ''plan get'' (dead-verb trap killed). DEFERRED as a separate breaking-arg-redesign effort: full positional-vs-flag uniformity across all plan task subcommands, task vs plan task tree merge, uniform --json — larger surface, agents work around it; noted for a dedicated CLI pass.'
+  ts: 1783501778635
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 park_reason: null
 attachments: []

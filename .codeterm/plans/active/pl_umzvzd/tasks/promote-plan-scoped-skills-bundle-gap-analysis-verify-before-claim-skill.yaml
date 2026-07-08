@@ -8,14 +8,14 @@ acceptance_criteria:
 - role briefings mention codeterm plan skill; gap-analysis skill seeded as bundled plan-scoped skill (SKILL.md on Desktop is the seed)
 test_plan: null
 correctness: 'verify-before-claim: any codebase claim in the skill must be grep-verifiable'
-status: pending
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783492311928
-updated_at: 1783492311928
-status_changed_at: 1783492311928
+updated_at: 1783501778255
+status_changed_at: 1783501778255
 handle: promote-plan-scoped-skills-bundle-gap-analysis-verify-before-claim-skill
 tags: []
 section_ids: []
@@ -43,7 +43,23 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_2b81r1
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: DONE (d37af561). docs/PLANNER.md 'Plans carry their own skills' section (plan skill new/list/show/edit) + created CodeTerm-native gap-analysis verify-before-claim skill at .agents/skills/gap-analysis/SKILL.md (adapted from Pascal's Desktop seed to CodeTerm plan/spec model; positioned as the structure_ready->approved stage that plan doctor cannot cover).
+  ts: 1783501778255
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 park_reason: null
 attachments: []

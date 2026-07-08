@@ -8,14 +8,14 @@ acceptance_criteria:
 - docs PLANNER covers milestone grouping + regression-at-boundary; planner/orchestrator onboarding mentions it
 test_plan: null
 correctness: null
-status: pending
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783492311197
-updated_at: 1783492311197
-status_changed_at: 1783492311197
+updated_at: 1783501777725
+status_changed_at: 1783501777725
 handle: document-milestones-milestone-boundary-full-regression
 tags: []
 section_ids: []
@@ -43,7 +43,23 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_8fqtex
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: 'DONE (d37af561). docs/PLANNER.md new ''Milestones & regression boundaries'' section: plan kinds set, plan milestone add, full regression at each boundary in one warm checkout. Also surfaced in orchestrator onboarding.'
+  ts: 1783501777725
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 park_reason: null
 attachments: []
