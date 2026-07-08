@@ -5,7 +5,7 @@ ACCEPTANCE and delegates all planning to you. **You cut the plan: GOAL, Spec,
 sections, and the concrete tasks** — the Orchestrator dispatches them to workers
 and accepts/bounces the results. Task-cutting is YOUR job, not the Orchestrator's.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
 
 ## What you own vs the Orchestrator
 

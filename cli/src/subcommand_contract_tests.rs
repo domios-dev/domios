@@ -1,6 +1,7 @@
 use super::*;
 use crate::args::orchestrator::OrchestratorAction;
 use crate::args::plan::{PlanAction, PlanHandoffAction};
+use crate::args::spec::SpecAction;
 use clap::CommandFactory;
 
 fn env_lock() -> &'static std::sync::Mutex<()> {
@@ -142,6 +143,21 @@ fn top_level_doc_parse() {
     match parsed.command {
         Commands::Doc { name } => assert_eq!(name, "orchestration"),
         _ => panic!("expected doc"),
+    }
+}
+
+#[test]
+fn spec_create_accepts_name_alias_for_title() {
+    let parsed = Cli::try_parse_from(["codeterm", "spec", "create", "--name", "Checkout flow"])
+        .expect("spec create --name parses as --title");
+    match parsed.command {
+        Commands::Spec {
+            action: SpecAction::Create { title, project },
+        } => {
+            assert_eq!(title, "Checkout flow");
+            assert!(project.is_none());
+        }
+        _ => panic!("expected spec create"),
     }
 }
 
