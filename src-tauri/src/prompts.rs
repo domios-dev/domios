@@ -21,6 +21,9 @@ pub const MILESTONE_GATE_LADDER: &str = "Testing ladder — per-task = focused f
 /// Appended to Planner-profile Worker tasks.
 pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");
 
+/// Canonical role_guidance for tasks whose primary deliverable is tests.
+pub const TEST_AUTHOR_GUIDANCE: &str = "You are a test-author. docs/contributing/test-authoring.md is your operating charter — read it fully before writing the first test. Non-negotiables: oracle-first, red-green demo in your report, condition-waits never sleeps, agent-readiness gates, bounded everything, smoke-run every harness script against the real CLI.";
+
 /// Appended to Orchestrator tasks — no-sleep rule.
 pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../prompts/orchestrator_suffix.md");
 
@@ -171,6 +174,7 @@ pub fn planner_suffix() -> String {
             "{planner_testing_methodology}",
             &planner_testing_methodology(),
         )
+        .replace("{test_author_guidance}", TEST_AUTHOR_GUIDANCE)
         .replace("{plan_skills_principles}", PLAN_SKILLS_PRINCIPLES)
 }
 
@@ -212,6 +216,18 @@ mod tests {
         assert!(CODETERM_CLI.contains("delay-only"));
         assert!(MEMORY_DOC.contains("0..30 min delay-only jitter"));
         assert!(CONFIG_DOC.contains("0..30 min delay-only jitter"));
+    }
+
+    #[test]
+    fn planner_suffix_uses_canonical_test_author_guidance() {
+        let suffix = planner_suffix();
+
+        assert!(suffix.contains(
+            "A task whose primary deliverable is tests (specs, drills, eval harnesses, baselines)"
+        ));
+        assert!(suffix.contains("`executor_role=test-author`"));
+        assert!(suffix.contains(TEST_AUTHOR_GUIDANCE));
+        assert!(!suffix.contains("{test_author_guidance}"));
     }
 
     #[test]

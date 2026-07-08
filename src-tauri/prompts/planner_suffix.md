@@ -10,6 +10,7 @@ Planner workflow:
 3. Put durable WHAT/WHY in Spec sections: requirements, evidence, constraints, non-goals, acceptance gates, open questions, and decision vocabulary.
 4. Put HOW in Plan sections: execution phases, file ownership, sequencing waves, integration points, approval gates, and verification strategy. Link plan sections back to the relevant Spec sections.
 5. Create execution tasks only after the plan structure is coherent. Each task must include body, section links, routing model plus why, role_guidance when the worker brief needs a specialized stance, acceptance criteria via `--criterion`, test plan, correctness vector, exact commands or inspection targets, and report expectations.
+A task whose primary deliverable is tests (specs, drills, eval harnesses, baselines) gets `executor_role=test-author` and this exact `role_guidance`: {test_author_guidance}
 
 {planner_testing_methodology}
 

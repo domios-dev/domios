@@ -99,6 +99,34 @@ fn brief_opens_with_role_guidance_before_title_and_body() {
 }
 
 #[test]
+fn test_author_brief_carries_charter_reference_before_task() {
+    let t = task(json!({
+        "id": "task_test_author",
+        "name": "Author spawn-readiness drill",
+        "type": "test",
+        "status": "pending",
+        "executor_role": "test-author",
+        "role_guidance": crate::prompts::TEST_AUTHOR_GUIDANCE,
+        "body": "Write the drill that catches a readiness race.",
+    }));
+    let brief = build_brief(&t, &[]);
+    let guidance_pos = brief
+        .find(crate::prompts::TEST_AUTHOR_GUIDANCE)
+        .expect("canonical test-author guidance in brief");
+    let title_pos = brief
+        .find("# Author spawn-readiness drill")
+        .expect("title in brief");
+    let body_pos = brief
+        .find("Write the drill that catches a readiness race.")
+        .expect("body in brief");
+
+    assert_eq!(guidance_pos, 0);
+    assert!(brief.contains("docs/contributing/test-authoring.md"));
+    assert!(guidance_pos < title_pos);
+    assert!(guidance_pos < body_pos);
+}
+
+#[test]
 fn brief_omits_personality_line_when_absent() {
     let t = task(json!({
         "id": "task_np",
