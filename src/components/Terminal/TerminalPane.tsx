@@ -1,8 +1,9 @@
-import { memo, useEffect, useRef, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SquareTerminal, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { IS_WEB, listen } from "../../lib/bridge";
-import { useMultiplexer } from "../../store/multiplexer";
+import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import { paneFieldsEqual, selectPane } from "../../store/multiplexer/selectors";
 import {
   useXterm,
   useTerminalResize,
@@ -39,7 +40,7 @@ import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from
 import { claimResizeOwner, getResizeClientId } from "../../lib/resizeOwner";
 import { shouldShowDropOverlay } from "./dropOverlay";
 import { BusyState } from "../shared/BusyState";
-import { terminalOwnsLivePty } from "./terminalOwnership";
+import { terminalOwnsLivePty, terminalRenderEnabled } from "./terminalOwnership";
 
 interface TerminalPaneProps {
   paneId: string;
@@ -73,8 +74,9 @@ export const TerminalPane = memo(function TerminalPane({
   const fallbackShellRef = useRef<HTMLDivElement>(null);
   const connectedPtyRef = useRef<string | null>(null);
 
-  const { state, updatePaneStatus } = useMultiplexer();
-  const pane = state.panes[paneId];
+  const { updatePaneStatus } = useMultiplexer();
+  const paneSelector = useCallback((s: Parameters<typeof selectPane>[0]) => selectPane(s, paneId), [paneId]);
+  const pane = useMuxSelector(paneSelector, paneFieldsEqual);
   const agentType = pane?.agent_type;
   // panes and binds the session when the mux reports its id.
   const agentDescriptor = useAgentDescriptor(agentType);
@@ -98,11 +100,6 @@ export const TerminalPane = memo(function TerminalPane({
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
   }, []);
-  const { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady } = useXterm({
-    containerRef, theme, fontConfig, terminalConfig,
-    priority: isVisible || isFocused,
-  });
-
   const userModeOverrideRef = useRef<PaneUiMode | null>(null);
   const computeMode = useCallback((): PaneUiMode => {
     if (userModeOverrideRef.current) {
@@ -125,6 +122,15 @@ export const TerminalPane = memo(function TerminalPane({
     terminalVisible,
     paneVisible: isVisible,
     ptyId,
+  });
+  const renderTerminal = terminalRenderEnabled({
+    terminalVisible,
+    paneVisible: isVisible,
+  });
+  const { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady } = useXterm({
+    containerRef, theme, fontConfig, terminalConfig,
+    priority: isVisible || isFocused,
+    renderEnabled: renderTerminal,
   });
   const resizeClientId = useMemo(() => getResizeClientId(), []);
   const claimTerminalOwnership = useCallback((force = false) => {
@@ -172,6 +178,7 @@ export const TerminalPane = memo(function TerminalPane({
     jiggleResize,
     localFitEnabled: terminalVisible,
     ioEnabled: ownsLivePty,
+    renderEnabled: renderTerminal,
     resizeClientId,
   });
 

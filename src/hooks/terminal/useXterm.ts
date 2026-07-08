@@ -27,6 +27,7 @@ export interface UseXtermOptions {
   terminalConfig?: TerminalConfigSettings;
   // Visible/focused panes init ahead of backgrounded ones in the stagger queue.
   priority?: boolean;
+  renderEnabled?: boolean;
 }
 
 export interface UseXtermReturn {
@@ -43,10 +44,12 @@ export function useXterm({
   fontConfig,
   terminalConfig,
   priority = false,
+  renderEnabled = true,
 }: UseXtermOptions): UseXtermReturn {
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
+  const webglRef = useRef<WebglAddon | null>(null);
   const initialized = useRef(false);
 
   const [bellFlash, setBellFlash] = useState(false);
@@ -109,24 +112,8 @@ export function useXterm({
 
       term.open(containerRef.current);
 
-      // Use WebGL for Opencode/Codex after term.open(), fall back to DOM.
-      // Report webgl status so runtime metrics can track renderer choice.
       if (E2E_TEST_MODE) {
-        // E2E mode reads accessibility DOM text; skip WebGL to avoid conflicts.
         invoke("report_webgl_status", { state: "skipped_test_mode", detail: null }).catch(() => {});
-      } else
-      try {
-        const webgl = new WebglAddon();
-        webgl.onContextLoss(() => {
-          webgl.dispose();
-          invoke("report_webgl_status", { state: "context_lost", detail: null }).catch(() => {});
-        });
-        term.loadAddon(webgl);
-        invoke("report_webgl_status", { state: "loaded", detail: null }).catch(() => {});
-      } catch (e) {
-        const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-        console.warn("[useXterm] WebGL renderer unavailable, falling back to DOM:", e);
-        invoke("report_webgl_status", { state: "failed", detail }).catch(() => {});
       }
 
       // Copy-on-select is disabled to avoid overwriting the clipboard on highlight.
@@ -147,6 +134,8 @@ export function useXterm({
 
     return () => {
       cancel();
+      webglRef.current?.dispose();
+      webglRef.current = null;
       created?.dispose();
       termRef.current = null;
       fitAddonRef.current = null;
@@ -155,6 +144,38 @@ export function useXterm({
       setTermReady(false);
     };
   }, []);
+
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term || !termReady || E2E_TEST_MODE) return;
+
+    if (!renderEnabled) {
+      if (webglRef.current) {
+        webglRef.current.dispose();
+        webglRef.current = null;
+        invoke("report_webgl_status", { state: "disposed_hidden", detail: null }).catch(() => {});
+      }
+      return;
+    }
+
+    if (webglRef.current) return;
+
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => {
+        webgl.dispose();
+        webglRef.current = null;
+        invoke("report_webgl_status", { state: "context_lost", detail: null }).catch(() => {});
+      });
+      term.loadAddon(webgl);
+      webglRef.current = webgl;
+      invoke("report_webgl_status", { state: "loaded", detail: null }).catch(() => {});
+    } catch (e) {
+      const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      console.warn("[useXterm] WebGL renderer unavailable, falling back to DOM:", e);
+      invoke("report_webgl_status", { state: "failed", detail }).catch(() => {});
+    }
+  }, [renderEnabled, termReady]);
 
   useEffect(() => {
     const term = termRef.current;

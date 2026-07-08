@@ -4,7 +4,8 @@ import { act } from "react";
 import { Window } from "happy-dom";
 import { createRoot, type Root } from "react-dom/client";
 import type { Pane } from "../../lib/types";
-import { MultiplexerContext, type MultiplexerContextType } from "../../store/multiplexer/context";
+import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
+import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 
 type TestFn = () => void | Promise<void>;
@@ -56,23 +57,10 @@ function paneBase(id: string, overrides: Partial<Pane> = {}): Pane {
   } as Pane;
 }
 
-function muxContextFor(panes: Record<string, Pane>): MultiplexerContextType {
-  const state: ExtendedState = {
-    workspaces: [],
-    panes,
-    active_workspace_id: null,
-    focused_pane_id: Object.keys(panes)[0] ?? null,
-    notifications: [],
-    paneStatuses: {},
-    toasts: [],
-    activeTabIds: {},
-    generation: 1,
-    virtualTabs: {},
-  };
+function muxActions(): MultiplexerActionsContextType {
   const noop = () => {};
   const noopAsync = async () => undefined;
   return {
-    state,
     createWorkspace: noopAsync,
     setActiveWorkspace: noop,
     closeWorkspace: noop,
@@ -110,7 +98,22 @@ function muxContextFor(panes: Record<string, Pane>): MultiplexerContextType {
   };
 }
 
-async function renderPaneSessionChat(paneId: string, ctx: MultiplexerContextType): Promise<{ host: HTMLDivElement; root: Root }> {
+function muxStateFor(panes: Record<string, Pane>): ExtendedState {
+  return {
+    workspaces: [],
+    panes,
+    active_workspace_id: null,
+    focused_pane_id: Object.keys(panes)[0] ?? null,
+    notifications: [],
+    paneStatuses: {},
+    toasts: [],
+    activeTabIds: {},
+    generation: 1,
+    virtualTabs: {},
+  };
+}
+
+async function renderPaneSessionChat(paneId: string, state: ExtendedState): Promise<{ host: HTMLDivElement; root: Root }> {
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { PaneSessionChat } = await import("./PaneSessionChat");
 
@@ -125,11 +128,14 @@ async function renderPaneSessionChat(paneId: string, ctx: MultiplexerContextType
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
+  const store = createMuxStateStore(() => state);
   await act(async () => {
     root.render(
-      <MultiplexerContext.Provider value={ctx}>
-        <PaneSessionChat paneId={paneId} chatBackend isVisible />
-      </MultiplexerContext.Provider>,
+      <MuxStateStoreContext.Provider value={store}>
+        <MultiplexerActionsContext.Provider value={muxActions()}>
+          <PaneSessionChat paneId={paneId} chatBackend isVisible />
+        </MultiplexerActionsContext.Provider>
+      </MuxStateStoreContext.Provider>,
     );
   });
   await act(async () => {
@@ -142,7 +148,7 @@ setupDom();
 
 test("watcher pane mounts read-only bar and no composer input", async () => {
   const paneId = "watcher-pane";
-  const ctx = muxContextFor({
+  const state = muxStateFor({
     [paneId]: paneBase(paneId, {
       watcher: {
         charter: "Observe health.",
@@ -150,7 +156,7 @@ test("watcher pane mounts read-only bar and no composer input", async () => {
       },
     }),
   });
-  const { host, root } = await renderPaneSessionChat(paneId, ctx);
+  const { host, root } = await renderPaneSessionChat(paneId, state);
   assert(host.querySelector('[data-testid="watcher-readonly-bar"]'), "read-only bar mounted");
   assert(!host.querySelector('[data-testid="chat-composer"]'), "composer absent");
   assert(!host.querySelector('[data-testid="chat-composer-shell"]'), "composer shell absent");
@@ -160,10 +166,10 @@ test("watcher pane mounts read-only bar and no composer input", async () => {
 
 test("normal chat_backend pane keeps composer and hides read-only bar", async () => {
   const paneId = "chat-pane";
-  const ctx = muxContextFor({
+  const state = muxStateFor({
     [paneId]: paneBase(paneId),
   });
-  const { host, root } = await renderPaneSessionChat(paneId, ctx);
+  const { host, root } = await renderPaneSessionChat(paneId, state);
   assert(host.querySelector('[data-testid="chat-composer"]'), "composer present");
   assert(!host.querySelector('[data-testid="watcher-readonly-bar"]'), "read-only bar absent");
   await act(async () => root.unmount());
