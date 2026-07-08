@@ -220,6 +220,7 @@ pub async fn resume_session_api(
         can_spawn: None,
         task: None,
         task_id: None,
+        plan_task: None,
         allow_shared_checkout: None,
         workspace_id: Some(ws_id.clone()),
         force_tab: None,

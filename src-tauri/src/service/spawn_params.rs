@@ -106,6 +106,7 @@ impl SpawnPaneSpec {
             can_spawn: agent.can_spawn,
             task: agent.task.clone(),
             task_id: None,
+            plan_task: None,
             allow_shared_checkout: None,
             workspace_id: self.workspace_id.clone(),
             force_tab: None,

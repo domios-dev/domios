@@ -61,6 +61,7 @@ impl ServiceContext {
     ) -> Result<SpawnResult, String> {
         params.title = spawn_title::normalize_agent_title(params.title.take());
         params.normalize_role_profile()?;
+        crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         let checkout_exception = self.worker_checkout_guard(&params)?;
         let role = params.role.clone();
         let role_profile = params.role_profile.clone();
@@ -76,11 +77,19 @@ impl ServiceContext {
             .unwrap_or_else(|| agent.clone());
         let model = params.model.clone();
         self.classify_spawn_target_for_params(&agent, &params)?;
+        let bind_params = params.clone();
         let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params_with_chatbackends(
             self.chatbackend_registry.as_ref(),
             params,
         );
         let handle = self.spawn_pane_with_ready(spec, ready_tx)?;
+        match self.bind_worker_plan_task_at_spawn(&bind_params, &handle.pane_id) {
+            Ok(_) => {}
+            Err(e) => {
+                let _ = self.close_pane(&handle.pane_id);
+                return Err(e);
+            }
+        }
         if let Some(exc) = checkout_exception {
             self.record_shared_checkout_exception(&exc, &handle.pane_id);
         }
@@ -107,6 +116,7 @@ impl ServiceContext {
     ) -> Result<SpawnResult, String> {
         params.title = spawn_title::normalize_agent_title(params.title.take());
         params.normalize_role_profile()?;
+        crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         let checkout_exception = self.worker_checkout_guard(&params)?;
         // Orchestrators must be pinned to an explicit workspace.
         // Active-workspace fallback can silently land them in the wrong plan context.
@@ -143,11 +153,16 @@ impl ServiceContext {
                 .clone()
                 .or_else(|| params.agent_name.clone())
                 .unwrap_or_else(|| agent_cmd.clone());
+            let bind_params = params.clone();
             let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params_with_chatbackends(
                 self.chatbackend_registry.as_ref(),
                 params,
             );
             let handle = self.spawn_pane_with_ready(spec, ready_tx)?;
+            if let Err(e) = self.bind_worker_plan_task_at_spawn(&bind_params, &handle.pane_id) {
+                let _ = self.close_pane(&handle.pane_id);
+                return Err(e);
+            }
             return Ok(SpawnResult {
                 pane_id: handle.pane_id,
                 tab_id: handle.tab_id,
@@ -413,6 +428,10 @@ impl ServiceContext {
                 None => t,
             })
         };
+        if let Err(e) = self.bind_worker_plan_task_at_spawn(&params, &pane_id) {
+            let _ = self.close_pane(&pane_id);
+            return Err(e);
+        }
         let launch_cmd = build_agent_command(
             &agent_cmd,
             &params,

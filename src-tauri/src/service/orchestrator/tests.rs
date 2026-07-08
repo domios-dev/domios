@@ -85,6 +85,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         agent: Some(agent.to_string()),
         task: task.map(|t| t.to_string()),
         task_id: None,
+        plan_task: None,
         allow_shared_checkout: None,
         agent_name: None,
         args: None,
