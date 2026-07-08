@@ -16,6 +16,7 @@
     "test:pw": "playwright test -c tests/playwright",
     "test:pw:smoke": "playwright test -c tests/playwright --project=smoke",
     "test:pw:golden": "playwright test -c tests/playwright --project=golden",
+    "test:pw:visual:regen": "bash scripts/regenerate-visual-goldens.sh",
     "test:pw:full": "playwright test -c tests/playwright --project=full",
     "test:pw:lint": "node scripts/check-playwright-spec-headers.mjs && node tests/playwright/helpers/check-tags.mjs",
     "test:pw:report": "playwright show-report tests/playwright/artifacts/html-report",
