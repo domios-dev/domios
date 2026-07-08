@@ -9,6 +9,16 @@ fn plan_mode_commands_parse() {
         ["codeterm", "plan", "approve", "pl_1"].as_slice(),
         ["codeterm", "plan", "unapprove", "pl_1"].as_slice(),
         ["codeterm", "plan", "mode", "pl_1", "--set", "execution"].as_slice(),
+        [
+            "codeterm",
+            "plan",
+            "pause",
+            "pl_1",
+            "--reason",
+            "provider quota exhausted",
+        ]
+        .as_slice(),
+        ["codeterm", "plan", "resume", "pl_1"].as_slice(),
     ] {
         Cli::try_parse_from(args).expect("plan mode command parses");
     }

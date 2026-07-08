@@ -110,9 +110,76 @@ impl PlanStore {
 
     pub fn set_mode(&self, plan_id: &str, mode: PlanMode, now_ms: u64) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
+            if mode != PlanMode::Paused {
+                p.paused_from_mode = None;
+            }
             p.mode = mode;
             Ok(())
         })
+    }
+
+    pub fn pause_plan(
+        &self,
+        plan_id: &str,
+        reason: &str,
+        from: OrchestratorRef,
+        now_ms: u64,
+    ) -> Result<String, PlanError> {
+        let reason = reason.trim();
+        if reason.is_empty() {
+            return Err(PlanError::PauseRequiresReason);
+        }
+        let mut stride_id = String::new();
+        self.with_plan(plan_id, now_ms, |p| {
+            if p.mode == PlanMode::Complete {
+                return Err(PlanError::BadMode);
+            }
+            let previous = if p.mode == PlanMode::Paused {
+                p.paused_from_mode.clone().unwrap_or(PlanMode::Execution)
+            } else {
+                p.mode.clone()
+            };
+            p.mode = PlanMode::Paused;
+            p.paused_from_mode = Some(previous);
+            stride_id = crate::plan::ids::mint_id("ms", |c| {
+                p.strides.iter().any(|stride| stride.id == c)
+                    || p.tasks
+                        .iter()
+                        .any(|task| task.milestones.iter().any(|m| m.id == c))
+            });
+            p.strides.push(Milestone {
+                id: stride_id.clone(),
+                from,
+                kind: "decision".into(),
+                text: format!("paused: {reason}"),
+                ts: now_ms,
+                links: vec![],
+                loop_id: None,
+                iteration: None,
+                canvas: Default::default(),
+                attachments: vec![],
+            });
+            Ok(())
+        })?;
+        Ok(stride_id)
+    }
+
+    pub fn resume_plan(&self, plan_id: &str, now_ms: u64) -> Result<PlanMode, PlanError> {
+        let mut restored = PlanMode::Execution;
+        self.with_plan(plan_id, now_ms, |p| {
+            if p.mode != PlanMode::Paused {
+                return Err(PlanError::BadMode);
+            }
+            restored = p
+                .paused_from_mode
+                .clone()
+                .filter(|mode| !matches!(mode, PlanMode::Paused | PlanMode::Complete))
+                .unwrap_or(PlanMode::Execution);
+            p.mode = restored.clone();
+            p.paused_from_mode = None;
+            Ok(())
+        })?;
+        Ok(restored)
     }
 
     /// Advance the planner-owned planning_state, recording author + working point.
@@ -706,6 +773,66 @@ mod planning_state_tests {
         assert_eq!(plan.mode, PlanMode::Approved);
         assert_eq!(plan.planning_log.len(), 1);
         assert!(add(&s, &pid, "implement").is_ok());
+    }
+
+    #[test]
+    fn pause_resume_preserves_in_progress_task_and_executor_binding() {
+        let (_d, s, pid) = store();
+        s.set_planning_state(&pid, PlanningState::Approved, PlanningAuthor::User, None, 3)
+            .unwrap();
+        let task_id = add(&s, &pid, "implement").unwrap();
+        s.assign_task(&pid, &task_id, "worker-pane", None, 4)
+            .unwrap();
+        s.update_task(
+            &pid,
+            &task_id,
+            None,
+            None,
+            None,
+            None,
+            Some("in_progress"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            5,
+        )
+        .unwrap();
+
+        let stride_id = s
+            .pause_plan(
+                &pid,
+                "end of day",
+                OrchestratorRef::from_pane("orch"),
+                6,
+            )
+            .unwrap();
+        let paused = s.get(&pid).unwrap();
+        assert_eq!(paused.mode, PlanMode::Paused);
+        assert_eq!(paused.paused_from_mode, Some(PlanMode::Execution));
+        assert_eq!(paused.strides[0].id, stride_id);
+        assert_eq!(paused.strides[0].text, "paused: end of day");
+        let task = paused.tasks.iter().find(|task| task.id == task_id).unwrap();
+        assert_eq!(task.status, crate::plan::TaskStatus::InProgress);
+        assert_eq!(task.assigned_pane_id.as_deref(), Some("worker-pane"));
+        assert_eq!(task.lane.pane_id.as_deref(), Some("worker-pane"));
+
+        let restored = s.resume_plan(&pid, 7).unwrap();
+        let resumed = s.get(&pid).unwrap();
+        assert_eq!(restored, PlanMode::Execution);
+        assert_eq!(resumed.mode, PlanMode::Execution);
+        assert_eq!(resumed.paused_from_mode, None);
+        let task = resumed.tasks.iter().find(|task| task.id == task_id).unwrap();
+        assert_eq!(task.status, crate::plan::TaskStatus::InProgress);
+        assert_eq!(task.assigned_pane_id.as_deref(), Some("worker-pane"));
+        assert_eq!(task.lane.pane_id.as_deref(), Some("worker-pane"));
     }
 
     #[test]
