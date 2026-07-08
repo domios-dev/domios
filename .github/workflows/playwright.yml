@@ -82,8 +82,12 @@ jobs:
           node scripts/prepare-embed-stub.js
       - name: Install Chromium
         run: pnpm exec playwright install chromium
+      # The WSL runner is headless; build.sh dev launches the real Tauri (GTK)
+      # window, so run under a virtual display.
+      - name: Ensure xvfb
+        run: command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y xvfb)
       - name: Run ${{ inputs.project || 'smoke' }}
-        run: pnpm test:pw:${{ inputs.project || 'smoke' }}
+        run: xvfb-run -a pnpm test:pw:${{ inputs.project || 'smoke' }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
