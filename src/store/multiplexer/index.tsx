@@ -35,6 +35,7 @@ import {
   type ExtendedState,
 } from "./tree";
 import { reducer } from "./reducer";
+import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
 import { MultiplexerContext, type MultiplexerContextType, type SpawnedPane } from "./context";
 
 export { useMultiplexer } from "./context";
@@ -94,10 +95,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   // authoritative reconcile lands; native boots never lock (no cache path).
   const writeGateRef = useRef<WriteGate>(createWriteGate(webBootHasSyncCache()));
   const reconciledRef = useRef(false);
+  // In-flight user tab selections; masks a stale backend snapshot until the
+  // backend confirms the switch or the guard's deadline passes.
+  const pendingTabSwitchRef = useRef<TabGuards>({});
 
   const applyBackendState = useCallback((s: MultiplexerState) => {
     // here silently dropped the closed-history on every reload.
-    dispatch({ type: "SET_STATE", state: s });
+    const guarded = applyPendingTabGuard(s, pendingTabSwitchRef.current, Date.now());
+    dispatch({ type: "SET_STATE", state: guarded });
     if (IS_WEB) saveStateSnapshot(s);
   }, []);
 
@@ -560,6 +565,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   );
 
   const setActiveTab = useCallback((workspaceId: string, tabId: string) => {
+    pendingTabSwitchRef.current[workspaceId] = { tabId, deadline: Date.now() + 1000 };
     guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId, tabId }).catch(() => {});
     dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
     dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
