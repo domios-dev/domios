@@ -810,7 +810,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             match client.call("agent.spawn", Some(body)) {
                 Ok(val) => {
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        crate::cmd::print::print_json(&val);
                         return;
                     }
                     let pid = val.get("pane_id").and_then(|v| v.as_str());
