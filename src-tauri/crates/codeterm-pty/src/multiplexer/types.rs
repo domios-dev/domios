@@ -246,6 +246,10 @@ pub struct Pane {
     /// Parent pane ID in the orchestration hierarchy.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub parent_pane_id: Option<String>,
+    /// Planner pane spawned as this Orchestrator's fresh pair before a plan
+    /// exists. Consumed by the first plan create/goal path and never persisted.
+    #[serde(skip, default)]
+    pub pending_paired_planner_pane_id: Option<String>,
     /// Whether this pane can spawn child agents.
     #[serde(default)]
     pub can_spawn: bool,
@@ -394,6 +398,7 @@ mod tests {
             role_profile: None,
             watcher: None,
             parent_pane_id: None,
+            pending_paired_planner_pane_id: None,
             can_spawn: false,
             depth: 0,
             report_target_pane_id: None,
