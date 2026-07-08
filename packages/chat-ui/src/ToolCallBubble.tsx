@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { recognize } from "./codeterm/recognize";
 import { CodetermCard } from "./codeterm/CodetermCard";
+import type { OpenPlan } from "./codeterm/LinkedText";
 import type { PaneNameResolver } from "./codeterm/templates";
 import { CodeBlock, ChevronIcon, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
 import {
@@ -41,7 +42,7 @@ interface ToolCallBubbleProps {
   expanded: boolean;
   onToggle: (next: boolean) => void;
   resolvePaneName?: PaneNameResolver;
-  onOpenPlan?: (planId: string, taskId?: string) => void;
+  onOpenPlan?: OpenPlan;
   fontScale?: number;
 }
 

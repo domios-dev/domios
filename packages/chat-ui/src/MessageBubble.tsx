@@ -38,6 +38,8 @@ import { ToolOutputContent } from "./ToolOutputContent";
 import { isImageOnlyToolOutput } from "./toolImageOutput";
 import { ContextRequestCard } from "./ContextRequestCard";
 import { WatcherVerdictCard } from "./WatcherVerdictCard";
+import { LinkedText, PlanRefCards } from "./codeterm/LinkedText";
+import { hasPlanRefs } from "./codeterm/planRefs";
 import {
   INBOUND_KIND_LABELS,
   hasMeaningfulToolResult,
@@ -62,8 +64,8 @@ interface MessageBubbleProps {
   onOriginClick?: () => void;
   /** Resolve a pane id/short-id to a tab name for CodeTerm cards (e.g. "Sent to <name>"). */
   resolvePaneName?: PaneNameResolver;
-  /** Open the plan view for a plan (optionally focused on a task) from chat cards/links. */
-  onOpenPlan?: (planId: string, taskId?: string) => void;
+  /** Open the plan view for a plan, optionally focused on a task/section node. */
+  onOpenPlan?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => void;
   fontScale?: number;
   /** `shell_command` decoration — re-run the command in the pane's PTY. */
   onRerunShellCommand?: (command: string) => void;
@@ -88,10 +90,15 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
 
   const renderedContent = useMemo(() => {
     if (message.type === "assistant") {
-      return <RichMarkdown text={message.content} fontScale={fontScale} />;
+      return (
+        <>
+          <RichMarkdown text={message.content} fontScale={fontScale} />
+          <PlanRefCards text={message.content} onOpenPlan={onOpenPlan} />
+        </>
+      );
     }
     return null;
-  }, [message.type, message.content, fontScale]);
+  }, [message.type, message.content, fontScale, onOpenPlan]);
 
   const handleImageClick = useCallback((att: ImageAttachment) => {
     setViewingImage(att);
@@ -298,6 +305,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
       <>
         {effectiveOrigin?.kind === "command" ? (
           <CommandBody commands={effectiveOrigin.commands} body={message.content} />
+        ) : hasPlanRefs(message.content) ? (
+          <LinkedText text={message.content} onOpenPlan={onOpenPlan} />
         ) : (
           renderUserContent(message.content)
         )}
