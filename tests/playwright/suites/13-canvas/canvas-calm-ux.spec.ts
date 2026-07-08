@@ -1,6 +1,7 @@
 /**
- * 13-canvas — calm UX gates (L4): progressive presence disclosure, compact swarm,
- * no dead pane-plan overlay, workspace plan row as action.
+ * WHAT: canvas calm ux covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import {
@@ -30,16 +31,19 @@ test("@golden @canvas-calm-ux calm canvas surfaces and progressive presence", as
     await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
 
     await setCanvasScale(page, 0.45);
+    // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(300);
     await assertCalmPresenceAtFarZoom(page);
 
     const firstPin = visibleCanvasScope(page).locator('[data-testid="canvas-presence-overlay"]').first();
     await firstPin.hover({ force: true, timeout: 10_000 });
+    // PW_JUSTIFIED_SLEEP: fixed 120ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(120);
     const linksHover = await visibleCanvasScope(page).locator('[data-testid="canvas-presence-link"]').count();
     expect(linksHover, "hover reveals connector").toBeGreaterThan(0);
 
     await setCanvasScale(page, 2.2);
+    // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(300);
     const w2Pins = await visibleCanvasScope(page)
       .locator('[data-testid="canvas-presence-overlay"][data-presence-world="W2"], [data-testid="canvas-presence-overlay"][data-presence-world="W3"]')

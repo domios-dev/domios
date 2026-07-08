@@ -1,3 +1,8 @@
+/**
+ * WHAT: Chat view renders empty, user, assistant, code, and image message shapes.
+ * WHY: Provider transcript parsing must remain readable across structured chat UI changes.
+ * ORACLE: Seeded transcript records render as the expected message blocks and attachment previews.
+ */
 import { expect, test, type PaneCleanup } from "../../helpers/fixtures";
 import { type ApiClient } from "../../helpers/api-client";
 

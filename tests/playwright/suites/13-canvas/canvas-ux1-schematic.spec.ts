@@ -1,12 +1,7 @@
 /**
- * 13-canvas — UX-1 SCHEMATIC TASK CARDS: screenshot + verify the minimal map face
- * across camera scales (W0 glance → W3 read).
- *
- * Asserts, at the MAP bands, that the task card is schematic (no full body on the
- * face), the title fits inside the card (never clipped past the box), and captures a
- * board screenshot at each band for the orchestrator's visual gate.
- *
- *   CT_E2E_PORT=7686 npx playwright test -c tests/playwright -g canvas-ux1 --workers=1
+ * WHAT: canvas ux1 schematic covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
@@ -67,10 +62,12 @@ test("@canvas-ux1 schematic task face across scales — title fits, body cut, sc
   };
 
   await setCanvasScale(page, 0.4); // GLANCE — whole board incl. plan/spec/task/subtask
+  // PW_JUSTIFIED_SLEEP: fixed 200ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(200);
   await checkBand("glance");
 
   await panToMountTaskCards(page, 1.6); // READING — cards framed in the cloud
+  // PW_JUSTIFIED_SLEEP: fixed 200ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(200);
   await checkBand("reading");
 
