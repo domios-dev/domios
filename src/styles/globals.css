@@ -2787,6 +2787,10 @@ button.plan-peer-chip:focus-visible {
 .plan-list-row-done {
   opacity: 0.55;
 }
+.plan-list-row-parked {
+  color: color-mix(in srgb, var(--ct-fg) 78%, var(--ct-muted-fg));
+  background: color-mix(in srgb, var(--ct-muted-fg) 5%, transparent);
+}
 .plan-list-dot {
   width: 7px;
   height: 7px;
@@ -2806,6 +2810,18 @@ button.plan-peer-chip:focus-visible {
   white-space: nowrap;
   font-size: 0.78rem;
   line-height: 1.3;
+}
+.plan-list-parked-chip {
+  flex-shrink: 0;
+  padding: 0.04rem 0.34rem;
+  border: 1px solid color-mix(in srgb, var(--ct-muted-fg) 36%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-muted-fg) 12%, transparent);
+  font-size: 0.58rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--ct-muted-fg);
+  text-transform: uppercase;
 }
 .plan-list-belonging-chip {
   flex-shrink: 0;
@@ -2960,6 +2976,10 @@ button.plan-peer-chip:focus-visible {
   padding: 0.42rem 0.48rem;
   background: var(--ct-bg-elev, var(--ct-surface));
 }
+.plan-board-task-card-parked {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--ct-bg-elev, var(--ct-surface)) 92%, var(--ct-muted-fg));
+}
 .plan-board-task-card-interactive {
   cursor: pointer;
   transition: border-color 120ms ease, background 120ms ease;
@@ -2980,6 +3000,10 @@ button.plan-peer-chip:focus-visible {
   text-transform: capitalize;
   color: var(--ct-bg, #0d1117);
   white-space: nowrap;
+}
+.plan-board-task-status-parked {
+  color: var(--ct-fg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-muted-fg) 35%, transparent);
 }
 .task-execution-badges {
   display: inline-flex;
