@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::plan::Goal;
+use crate::plan::{Goal, OrchestratorRef};
 use crate::service::plan::PlanError;
 use crate::service::ServiceState;
 
@@ -38,12 +38,12 @@ pub(super) fn dispatch(
     let store = &svc.plan_store;
     match method {
         "plan.goal.set" => {
-            let id = super::plan_refs::resolve_plan(store, params)?;
             let body = p.ok_or(JsonRpcError {
                 code: -32602,
                 message: "params required".to_string(),
                 data: None,
             })?;
+            let caller_pane = body.get("caller_pane_id").and_then(|v| v.as_str());
             let goal = Goal {
                 vector: get_string_param(params, "vector")?.replace('\n', " "),
                 vision: body
@@ -60,11 +60,41 @@ pub(super) fn dispatch(
                     .and_then(|v| serde_json::from_value(v.clone()).ok())
                     .unwrap_or_default(),
             };
+            let id = match super::plan_refs::resolve_plan(store, params) {
+                Ok(id) => id,
+                Err(_err)
+                    if caller_pane
+                        .map(|pane| svc.pane_has_pending_paired_planner(pane))
+                        .unwrap_or(false) =>
+                {
+                    let title = body
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.trim().is_empty())
+                        .map(str::to_string)
+                        .unwrap_or_else(|| goal.vector.clone());
+                    let project = body
+                        .get("project_path")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                        .unwrap_or_else(|| {
+                            std::env::current_dir()
+                                .map(|d| d.display().to_string())
+                                .unwrap_or_default()
+                        });
+                    let owner = OrchestratorRef::from_pane(caller_pane.unwrap_or("unknown"));
+                    let plan = store
+                        .create_plan(title, project, owner, Vec::new(), epoch_ms())
+                        .map_err(plan_rpc_err)?;
+                    let _ = svc.bind_pending_paired_planner(&plan.id, &plan.owner, epoch_ms());
+                    plan.id
+                }
+                Err(err) => return Err(err),
+            };
             store
                 .set_goal(&id, goal, epoch_ms())
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            let caller_pane = body.get("caller_pane_id").and_then(|v| v.as_str());
             let mut resp = json!({ "ok": true });
             if let Some(nudge) = store.get(&id).as_ref().and_then(|plan| {
                 crate::service::plan::hints::planner_ownership_nudge(plan, caller_pane)
