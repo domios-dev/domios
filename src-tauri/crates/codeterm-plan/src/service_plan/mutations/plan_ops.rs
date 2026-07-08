@@ -807,12 +807,7 @@ mod planning_state_tests {
         .unwrap();
 
         let stride_id = s
-            .pause_plan(
-                &pid,
-                "end of day",
-                OrchestratorRef::from_pane("orch"),
-                6,
-            )
+            .pause_plan(&pid, "end of day", OrchestratorRef::from_pane("orch"), 6)
             .unwrap();
         let paused = s.get(&pid).unwrap();
         assert_eq!(paused.mode, PlanMode::Paused);
@@ -829,7 +824,11 @@ mod planning_state_tests {
         assert_eq!(restored, PlanMode::Execution);
         assert_eq!(resumed.mode, PlanMode::Execution);
         assert_eq!(resumed.paused_from_mode, None);
-        let task = resumed.tasks.iter().find(|task| task.id == task_id).unwrap();
+        let task = resumed
+            .tasks
+            .iter()
+            .find(|task| task.id == task_id)
+            .unwrap();
         assert_eq!(task.status, crate::plan::TaskStatus::InProgress);
         assert_eq!(task.assigned_pane_id.as_deref(), Some("worker-pane"));
         assert_eq!(task.lane.pane_id.as_deref(), Some("worker-pane"));
