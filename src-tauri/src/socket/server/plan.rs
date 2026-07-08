@@ -134,6 +134,7 @@ pub(super) fn dispatch(
                     .map_err(plan_rpc_err)?
             };
             let plan_id = plan.id.clone();
+            let _ = svc.bind_pending_paired_planner(&plan_id, &plan.owner, now);
             let empty_sections = plan.sections.is_empty();
             let mut response = json!({
                 "plan_id": plan_id.clone(),

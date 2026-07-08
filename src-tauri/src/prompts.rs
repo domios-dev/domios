@@ -102,7 +102,7 @@ pub fn orchestrator_display_hint() -> String {
 /// subordination prose is reused from the shared charter/deference constants.
 pub fn peer_planner_greeting(orchestrator_label: &str, _orchestrator_pane_id: &str) -> String {
     format!(
-        "Planner specialist for this plan — I draft the GOAL, spec, and plan structure and cut the tasks, working under Orchestrator {orchestrator_label}. Ready; I will wait for the goal before doing anything."
+        "Planner specialist paired with Orchestrator {orchestrator_label} — I draft the GOAL, spec, and plan structure and cut the tasks when a plan exists. Ready; I will wait for the goal before doing anything."
     )
 }
 
@@ -117,6 +117,18 @@ pub fn planner_onboarding_task(
     format!(
         "You are the Planner specialist for plan {plan_id}, working under Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
 First read `codeterm docs PLANNER` for your role. Planner can EXECUTE: `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. YOU cut the tasks — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. The full CLI reference is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
+    )
+}
+
+/// Pair-spawn Planner onboarding before any plan exists. The first
+/// Orchestrator goal/plan create binds this pane to the resulting plan.
+pub fn planner_onboarding_task_no_plan(
+    orchestrator_label: &str,
+    orchestrator_tab_id: &str,
+) -> String {
+    format!(
+        "You are the Planner specialist paired with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). No plan exists yet; the Orchestrator's first goal/plan create will bind you to that plan. {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
+First read `codeterm docs PLANNER` for your role. Planner can EXECUTE after a plan exists: `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. YOU cut the tasks after the Orchestrator delegates the goal — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
     )
 }
 
@@ -312,6 +324,15 @@ mod tests {
         assert!(t.contains("--personality"), "mandates persona fields");
         assert!(t.contains(PEER_PLANNER_CHARTER_LINE), "reuses the charter");
         assert!(t.contains(PEER_ORCH_DEFERENCE_LINE), "reuses the deference");
+    }
+
+    #[test]
+    fn planner_onboarding_task_no_plan_carries_pair_hold_state_without_plan_id() {
+        let t = planner_onboarding_task_no_plan("Opus Orchestrator", "tab_orch_9");
+        assert!(t.contains("No plan exists yet"));
+        assert!(t.contains("first goal/plan create"));
+        assert!(t.contains("Opus Orchestrator"));
+        assert!(!t.contains("pl_"));
     }
 
     #[test]

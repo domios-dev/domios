@@ -25,6 +25,7 @@ impl MultiplexerState {
             role_profile: None,
             watcher: None,
             parent_pane_id: None,
+            pending_paired_planner_pane_id: None,
             can_spawn: false,
             depth: 0,
             report_target_pane_id: None,
