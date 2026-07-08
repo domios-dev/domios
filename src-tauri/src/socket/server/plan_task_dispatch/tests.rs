@@ -76,6 +76,29 @@ fn brief_opens_with_personality_line_when_set() {
 }
 
 #[test]
+fn brief_opens_with_role_guidance_before_title_and_body() {
+    let t = task(json!({
+        "id": "task_rg",
+        "name": "Stabilize flicker",
+        "type": "code",
+        "status": "pending",
+        "personality": "Shannon",
+        "role_guidance": "You are a React/TypeScript perf engineer. RED LINE: assert the DOM end state.",
+        "body": "Fix the bounce in the thread view.",
+    }));
+    let brief = build_brief(&t, &[]);
+    let guidance = "You are Shannon. You are a React/TypeScript perf engineer. RED LINE: assert the DOM end state.";
+    let guidance_pos = brief.find(guidance).expect("role guidance in brief");
+    let title_pos = brief.find("# Stabilize flicker").expect("title in brief");
+    let body_pos = brief
+        .find("Fix the bounce in the thread view.")
+        .expect("body in brief");
+    assert_eq!(guidance_pos, 0);
+    assert!(guidance_pos < title_pos);
+    assert!(guidance_pos < body_pos);
+}
+
+#[test]
 fn brief_omits_personality_line_when_absent() {
     let t = task(json!({
         "id": "task_np",
