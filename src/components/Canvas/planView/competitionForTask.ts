@@ -1,5 +1,6 @@
 import type { Pane } from "../../../lib/types";
 import type { Task, TaskExecutionAttempt } from "../types";
+import { attemptPaneId, attemptPaneTitle } from "../taskExecutorHistory";
 
 export interface CompetitionForTaskResult {
   count: number;
@@ -31,8 +32,8 @@ export function liveCompetitionAttemptCount(task: Task): number {
 }
 
 function attemptLabel(attempt: TaskExecutionAttempt, panes: Record<string, Pane>): string {
-  const paneId = clean(attempt.pane_id);
-  return clean(attempt.pane_title) ?? (paneId ? clean(panes[paneId]?.title) ?? paneId.slice(0, 8) : "unknown");
+  const paneId = attemptPaneId(attempt);
+  return attemptPaneTitle(attempt) ?? (paneId ? clean(panes[paneId]?.title) ?? paneId.slice(0, 8) : "unknown");
 }
 
 export function competitionForTask(

@@ -104,7 +104,7 @@ test("renders board columns with context header and task cards", async () => {
   assert(host.querySelector('[data-testid="plan-board-spec-title"]'), "spec trigger");
   assert(host.querySelector('[data-testid="plan-board-plan-goal"]')?.textContent?.includes("Deliver auth"), "goal");
   const columns = host.querySelectorAll('[data-testid="plan-board-column"]');
-  assert(columns.length === 5, `column count=${columns.length}`);
+  assert(columns.length === 6, `column count=${columns.length}`);
   const inProgress = host.querySelector('[data-testid="plan-board-column"][data-column="in_progress"]');
   const card = inProgress?.querySelector('[data-testid="plan-board-task-card"]');
   assert(card, "in-progress card");
@@ -222,6 +222,24 @@ test("done column collapses to recent N with show-all toggle", async () => {
   });
   const expandedCards = doneCol?.querySelectorAll('[data-testid="plan-board-task-card"]');
   assert(expandedCards?.length === doneTasks.length, `expanded cards=${expandedCards?.length}`);
+});
+
+test("parked tasks render in parked column with count", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      task({ id: "task-parked", status: TaskStatus.Parked, name: "Deferred lane" }),
+      task({ id: "task-pending", status: TaskStatus.Pending, name: "Queue next" }),
+    ],
+  };
+  const { host } = await render(<PlanBoardView mode="focus" planId={plan.id} plans={[plan]} panes={PANES} />);
+  const parkedCol = host.querySelector('[data-testid="plan-board-column"][data-column="parked"]');
+  assert(parkedCol, "parked column");
+  assert(parkedCol?.querySelector('[data-testid="plan-board-column-count"]')?.textContent === "1", "parked count");
+  assert(
+    parkedCol?.querySelector('[data-testid="plan-board-task-card"]')?.getAttribute("data-task-id") === "task-parked",
+    "parked card",
+  );
 });
 
 test("done task card shows historical executor without active executor row", async () => {

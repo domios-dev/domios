@@ -25,6 +25,7 @@ export const BOARD_COLUMN_DEFS = [
   { key: "in_progress", label: "In progress", statuses: [TaskStatus.InProgress] as TaskStatusType[] },
   { key: "in_review", label: "In review", statuses: [TaskStatus.InReview] as TaskStatusType[] },
   { key: "blocked", label: "Blocked", statuses: [TaskStatus.Blocked] as TaskStatusType[] },
+  { key: "parked", label: "Parked", statuses: [TaskStatus.Parked] as TaskStatusType[] },
   { key: "done", label: "Done", statuses: [TaskStatus.Done] as TaskStatusType[] },
 ] as const;
 
