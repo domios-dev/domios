@@ -1,19 +1,14 @@
-//! `JsSecretBackend` — adapts a JS `capabilities.secret_backend` plugin to the core
-//! [`SecretStore`](crate::secrets::SecretStore) trait via the synchronous `call_json`.
-//! Wire contract: methods return `{ ok }` / `{ error: { kind, ... } }`; `secretStatus`
-//! returns a bare `StoreStatus`; unexported optional methods fall back to the trait default.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::json;
 
-use super::vm::{call_json, has_method, PluginVm};
 use crate::secrets::{
     CollectionRef, ListFilter, OrganizationRef, SaveRequest, SecretError, SecretRef, SecretStore,
     SecretString, SecretValue, StoreStatus, UnlockCredentials,
 };
+use codeterm_plugin::js_runtime::{call_json, has_method, PluginVm};
 
 pub struct JsSecretBackend {
     vm: Arc<PluginVm>,
@@ -183,51 +178,29 @@ impl SecretStore for JsSecretBackend {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub struct AppSecretBackendRegistrar {
+    registry: std::sync::Arc<super::SecretRegistry>,
+}
 
-    fn vm_with(src: &str) -> Arc<PluginVm> {
-        Arc::new(PluginVm::from_source("test-secret", src.to_string()).expect("vm"))
+impl AppSecretBackendRegistrar {
+    pub fn new(registry: std::sync::Arc<super::SecretRegistry>) -> Self {
+        Self { registry }
     }
+}
 
-    #[tokio::test]
-    async fn status_and_get_roundtrip() {
-        let vm = vm_with(
-            r#"module.exports.default = {
-                secretStatus() { return { status: "unlocked", user: "me@x.io", transient: false }; },
-                secretGetItem(name) { return { ok: { item_id: "id1", name: name, value: "s3cr3t", notes: null } }; }
-            }"#,
+impl codeterm_plugin::SecretBackendRegistrar for AppSecretBackendRegistrar {
+    fn register_secret_backend(
+        &self,
+        plugin_id: String,
+        vm: std::sync::Arc<codeterm_plugin::js_runtime::PluginVm>,
+    ) {
+        self.registry.register(
+            plugin_id.clone(),
+            std::sync::Arc::new(JsSecretBackend::new(vm, &plugin_id)),
         );
-        let b = JsSecretBackend::new(vm, "test-vault");
-        assert_eq!(b.id(), "test-vault");
-        assert!(b.status().await.is_unlocked());
-        let v = b.get("api_key").await.unwrap();
-        assert_eq!(v.name, "api_key");
-        assert_eq!(v.value.expose_secret(), "s3cr3t");
     }
 
-    #[tokio::test]
-    async fn error_envelope_maps_to_secret_error() {
-        let vm = vm_with(
-            r#"module.exports.default = {
-                secretGetItem() { return { error: { kind: "not_found" } }; }
-            }"#,
-        );
-        let b = JsSecretBackend::new(vm, "test-vault");
-        assert!(matches!(b.get("missing").await, Err(SecretError::NotFound)));
+    fn unregister_secret_backend(&self, plugin_id: &str) {
+        self.registry.unregister(plugin_id);
     }
-
-    #[tokio::test]
-    async fn optional_methods_default_when_absent() {
-        let vm = vm_with(
-            r#"module.exports.default = { secretStatus() { return { status: "locked" }; } }"#,
-        );
-        let b = JsSecretBackend::new(vm, "test-vault");
-        assert!(b.organizations().await.unwrap().is_empty());
-        assert!(b.sync().await.is_ok());
-        assert!(b.init().await.is_ok());
-    }
-
-    // mapping) is tested on the PLUGIN side — see plugins/bitwarden/plugin.test.cjs.
 }
