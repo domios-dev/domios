@@ -4,7 +4,17 @@ import { invoke } from "../../lib/bridge";
 import { MessageBubble } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
-import { useMultiplexer } from "../../store/multiplexer";
+import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import {
+  paneAgentTypesEqual,
+  paneFieldsEqual,
+  paneTitleMapEqual,
+  planNavContextEqual,
+  selectPane,
+  selectPaneAgentTypes,
+  selectPaneTitleMap,
+  selectPlanNavContext,
+} from "../../store/multiplexer/selectors";
 import { usePaneProvider, useShellSessionModel } from "../../lib/usePaneProvider";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
@@ -16,7 +26,7 @@ import { PendingPromptCard } from "./PendingPromptCard";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import type { AgentState } from "./AgentStateIndicator";
 import { useAttachments } from "./useAttachments";
-import { useChatSession } from "./useChatSession";
+import { useChatSession, isCodeTermFrontendTestMode } from "./useChatSession";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
@@ -73,6 +83,11 @@ export function PaneSessionChat({
   isVisible = true,
   chatBackend = false,
 }: Props) {
+  if (isCodeTermFrontendTestMode()) {
+    const counts = (window.__renderCounts ??= {});
+    counts[paneId] = (counts[paneId] ?? 0) + 1;
+  }
+
   const touchMode = useTouchOptimizedUi();
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
@@ -90,9 +105,13 @@ export function PaneSessionChat({
     setShowScrollDown(false);
   }, []);
 
-  const { state: muxState, setFocusedPane, addNotification, setActiveWorkspace, upsertToast } = useMultiplexer();
+  const { setFocusedPane, addNotification, setActiveWorkspace, upsertToast } = useMultiplexer();
+  const paneSelector = useCallback((s: Parameters<typeof selectPane>[0]) => selectPane(s, paneId), [paneId]);
+  const pane = useMuxSelector(paneSelector, paneFieldsEqual);
+  const paneTitleMap = useMuxSelector(selectPaneTitleMap, paneTitleMapEqual);
+  const planNav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
+  const paneAgentTypes = useMuxSelector(selectPaneAgentTypes, paneAgentTypesEqual);
   const { index: planIndex } = usePlanIndexOptional();
-  const pane = muxState.panes[paneId];
   const paneProvider = pane?.agent_type ?? null;
   const provider = usePaneProvider(pane);
   const shellSessionModel = useShellSessionModel(pane);
@@ -220,18 +239,10 @@ export function PaneSessionChat({
     onError: showComposerError,
   });
 
-  const resolvePaneName = useMemo(() => {
-    const byShort = new Map<string, string>();
-    for (const ws of muxState.workspaces) {
-      for (const tab of ws.tabs) {
-        const pane = muxState.panes[tab.pane_id];
-        const rawName = pane?.title;
-        const name = rawName?.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "").trim();
-        if (name && tab.pane_id) byShort.set(tab.pane_id.slice(0, 8), name);
-      }
-    }
-    return (paneRef: string): string | undefined => byShort.get(paneRef.slice(0, 8));
-  }, [muxState.workspaces, muxState.panes]);
+  const resolvePaneName = useCallback(
+    (paneRef: string): string | undefined => paneTitleMap.get(paneRef.slice(0, 8)),
+    [paneTitleMap],
+  );
 
   const latestFailedToolCallId = useMemo(() => {
     for (let i = enrichedMessages.length - 1; i >= 0; i -= 1) {
@@ -247,22 +258,22 @@ export function PaneSessionChat({
     (planId: string, taskId?: string) => {
       openPlanDeepLink(planId, taskId, {
         index: planIndex,
-        workspaces: muxState.workspaces,
-        activeWorkspaceId: muxState.active_workspace_id,
+        workspaces: planNav.workspaces,
+        activeWorkspaceId: planNav.activeWorkspaceId,
         setActiveWorkspace,
         onMissing: () =>
           upsertToast({
             id: `plan-missing-${planId}`,
             key: `plan-missing-${planId}`,
             pane_id: paneId,
-            workspace_id: muxState.active_workspace_id,
+            workspace_id: planNav.activeWorkspaceId,
             title: "Plan unavailable",
             body: "That plan was not found — it may have been deleted.",
             level: "Warning",
           }),
       });
     },
-    [planIndex, muxState.workspaces, muxState.active_workspace_id, setActiveWorkspace, upsertToast, paneId],
+    [planIndex, planNav.workspaces, planNav.activeWorkspaceId, setActiveWorkspace, upsertToast, paneId],
   );
 
   useEffect(() => {
@@ -398,10 +409,10 @@ export function PaneSessionChat({
           let originProviderId: string | null | undefined;
           if (origin?.kind === "pane") {
             const idShort = origin.paneIdShort;
-            const fullId = Object.keys(muxState.panes).find((id) => id.startsWith(idShort));
+            const fullId = Object.keys(paneAgentTypes).find((id) => id.startsWith(idShort));
             if (fullId) {
               onOriginClick = () => setFocusedPane(fullId);
-              originProviderId = muxState.panes[fullId]?.agent_type;
+              originProviderId = paneAgentTypes[fullId];
             }
           }
           return (

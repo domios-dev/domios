@@ -101,6 +101,9 @@ importers:
       sigma:
         specifier: ^3.0.0
         version: 3.0.2(graphology-types@0.24.8)
+      use-sync-external-store:
+        specifier: ^1.6.0
+        version: 1.6.0(react@19.2.4)
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.4.16

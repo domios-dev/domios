@@ -36,9 +36,13 @@ import {
 } from "./tree";
 import { reducer } from "./reducer";
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
-import { MultiplexerContext, type MultiplexerContextType, type SpawnedPane } from "./context";
+import { mountMuxPerfTestHook } from "./muxPerfTestHook";
+import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSession";
+import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType, type SpawnedPane } from "./context";
+import { createMuxStateStore } from "./selectorStore";
 
 export { useMultiplexer } from "./context";
+export { useMuxState, useMuxSelector } from "./selectorStore";
 export { highestTitleLevel } from "./tree";
 
 const HYDRATED_GENERATION = 0.5;
@@ -90,6 +94,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, null, buildInitialState);
   const stateRef = useRef(state);
   stateRef.current = state;
+  const muxStateStoreRef = useRef(createMuxStateStore(() => stateRef.current));
   // so one click = exactly one tab (no duplicate on double-fire).
   const spawnInFlight = useRef<Set<string>>(new Set());
   // authoritative reconcile lands; native boots never lock (no cache path).
@@ -711,9 +716,17 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "UPDATE_PANE_STATUS", paneId, status });
   }, []);
 
-  const value = useMemo<MultiplexerContextType>(
+  useEffect(() => {
+    muxStateStoreRef.current.notify();
+  }, [state]);
+
+  useEffect(
+    () => mountMuxPerfTestHook(isCodeTermFrontendTestMode(), () => stateRef.current, dispatch),
+    [],
+  );
+
+  const actions = useMemo<MultiplexerActionsContextType>(
     () => ({
-      state,
       createWorkspace,
       setActiveWorkspace,
       closeWorkspace,
@@ -748,7 +761,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       createOrchestrationPair,
     }),
     [
-      state,
       createWorkspace,
       setActiveWorkspace,
       closeWorkspace,
@@ -785,8 +797,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <MultiplexerContext.Provider value={value}>
-      {children}
-    </MultiplexerContext.Provider>
+    <MuxStateStoreContext.Provider value={muxStateStoreRef.current}>
+      <MultiplexerActionsContext.Provider value={actions}>
+        {children}
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider>
   );
 }

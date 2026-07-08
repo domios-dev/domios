@@ -32,6 +32,7 @@ import { usePluginActivity } from "./lib/usePluginActivity";
 import {
   MultiplexerProvider,
   useMultiplexer,
+  useMuxState,
 } from "./store/multiplexer";
 import { matchesBinding } from "./lib/keybindings";
 import { terminalFallbackData } from "./lib/terminalFallbackInput";
@@ -172,7 +173,6 @@ function AppInner() {
   const chatDefaultPrompted = config.ui?.chat_ui_default_prompted === true;
 
   const {
-    state,
     createWorkspace,
     createTab,
     closeTab,
@@ -183,6 +183,7 @@ function AppInner() {
     dismissToast,
     spawnClaudeTab,
   } = useMultiplexer();
+  const state = useMuxState();
 
   const lastFocusedRef = useRef(state.focused_pane_id);
   useEffect(() => {
