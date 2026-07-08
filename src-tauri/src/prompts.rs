@@ -305,7 +305,10 @@ mod tests {
             t.contains("Planner can EXECUTE:"),
             "lists concrete executable actions"
         );
-        assert!(t.contains("codeterm plan task add"), "names concrete planner action");
+        assert!(
+            t.contains("codeterm plan task add"),
+            "names concrete planner action"
+        );
         assert!(t.contains("--personality"), "mandates persona fields");
         assert!(t.contains(PEER_PLANNER_CHARTER_LINE), "reuses the charter");
         assert!(t.contains(PEER_ORCH_DEFERENCE_LINE), "reuses the deference");
