@@ -1,4 +1,3 @@
-pub use codeterm_pty::pty::*;
 pub mod ansi {
     pub use codeterm_pty::pty::ansi::*;
 }

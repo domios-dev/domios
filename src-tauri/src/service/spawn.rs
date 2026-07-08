@@ -16,9 +16,10 @@ pub(crate) use super::spawn_params::{
 
 #[path = "spawn_model.rs"]
 mod spawn_model;
+#[cfg(test)]
+pub(crate) use spawn_model::ModelFallbackNotice;
 pub(crate) use spawn_model::{
-    model_fallback_notice_title, non_empty_model, resolve_fresh_agent_model,
-    resolve_fresh_agent_model_with_notice, FreshAgentModelResolution, ModelFallbackNotice,
+    model_fallback_notice_title, resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice,
 };
 
 #[path = "spawn_hidden_delivery.rs"]
