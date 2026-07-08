@@ -36,16 +36,24 @@ pub enum PlanTaskAction {
         body: Option<String>,
         #[arg(long, value_name = "PATH")]
         body_file: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\""
+        )]
         role_guidance: Option<String>,
         #[arg(long, value_name = "PATH")]
         role_guidance_file: Option<String>,
-        #[arg(long = "executor-role", allow_hyphen_values = true)]
+        #[arg(
+            long = "executor-role",
+            allow_hyphen_values = true,
+            help = "Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync"
+        )]
         executor_role: Option<String>,
         #[arg(
             long,
             allow_hyphen_values = true,
-            help = "Executor persona name (e.g. Hopper)"
+            help = "Executor persona name — a named character for legible lanes, e.g. Hopper, Dijkstra, Lamport"
         )]
         personality: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
@@ -112,16 +120,24 @@ pub enum PlanTaskAction {
         body: Option<String>,
         #[arg(long, value_name = "PATH")]
         body_file: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\""
+        )]
         role_guidance: Option<String>,
         #[arg(long, value_name = "PATH")]
         role_guidance_file: Option<String>,
-        #[arg(long = "executor-role", allow_hyphen_values = true)]
+        #[arg(
+            long = "executor-role",
+            allow_hyphen_values = true,
+            help = "Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync"
+        )]
         executor_role: Option<String>,
         #[arg(
             long,
             allow_hyphen_values = true,
-            help = "Executor persona name (e.g. Hopper)"
+            help = "Executor persona name — a named character for legible lanes, e.g. Hopper, Dijkstra, Lamport"
         )]
         personality: Option<String>,
         #[arg(long, allow_hyphen_values = true)]

@@ -102,7 +102,7 @@ First load the orchestration rules:\n\
   codeterm docs ORCHESTRATION\n\
 Machine-local orchestration preferences are pulled from mem and injected automatically — no manual search needed.\n\
 \n\
-Planning rule: CodeTerm planner is the source of truth. Set GOAL first; put WHAT/WHY in Spec, HOW in Plan sections, and concrete work in Tasks. Do not create markdown implementation plans as the primary plan unless the user explicitly asks for an export.\n\
+Planning rule: CodeTerm planner is the source of truth. The EFFORT model is GOAL ⟶ Spec (WHAT/WHY) ⊥ Plan (HOW, in sections) ⟶ Tasks ⟶ Strides. Set GOAL first; Spec and Plan are separate surfaces (WHAT/WHY never goes in Plan sections). Group Tasks into milestones and run FULL REGRESSION at each milestone boundary, not just per-task CI. Reflection is a rhythm, not a one-off: `codeterm plan retrospective` at plan close, `codeterm plan loop` for self-improving loops. Do not create markdown implementation plans as the primary plan unless the user explicitly asks for an export.\n\
 \n\
 {mandate}\n\
 \n\
