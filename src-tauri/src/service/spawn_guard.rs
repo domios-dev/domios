@@ -115,10 +115,7 @@ impl ServiceContext {
         }
         Ok(Some(SharedCheckoutException {
             plan_id: params.plan_id.clone(),
-            task_id: params
-                .plan_task
-                .clone()
-                .or_else(|| params.task_id.clone()),
+            task_id: params.plan_task.clone().or_else(|| params.task_id.clone()),
             cwd: effective,
         }))
     }

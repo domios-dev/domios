@@ -146,8 +146,7 @@ mod tests {
     fn bind_sets_executor_and_in_progress() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, task_id) = store_with_task(dir.path());
-        bind_worker_task_to_pane(&store, Some(&plan_id), "spawn-bind", "pane-worker", 10)
-            .unwrap();
+        bind_worker_task_to_pane(&store, Some(&plan_id), "spawn-bind", "pane-worker", 10).unwrap();
         let plan = store.get(&plan_id).unwrap();
         let task = plan.tasks.iter().find(|t| t.id == task_id).unwrap();
         assert_eq!(task.status, TaskStatus::InProgress);

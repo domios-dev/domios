@@ -523,12 +523,13 @@ mod tests {
         .expect("spawn with plan-task parses");
         match cli.command {
             crate::Commands::Agent {
-                action: AgentAction::Spawn {
-                    role,
-                    plan,
-                    plan_task,
-                    ..
-                },
+                action:
+                    AgentAction::Spawn {
+                        role,
+                        plan,
+                        plan_task,
+                        ..
+                    },
             } => {
                 assert!(matches!(role, Some(SpawnRole::Worker)));
                 assert_eq!(plan.as_deref(), Some("pl_test"));
