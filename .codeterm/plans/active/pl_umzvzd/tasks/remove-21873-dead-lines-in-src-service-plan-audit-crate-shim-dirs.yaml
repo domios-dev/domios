@@ -7,14 +7,14 @@ personality: null
 acceptance_criteria: []
 test_plan: null
 correctness: null
-status: pending
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783490927361
-updated_at: 1783490927361
-status_changed_at: 1783490927361
+updated_at: 1783500619749
+status_changed_at: 1783500619749
 handle: remove-21873-dead-lines-in-src-service-plan-audit-crate-shim-dirs
 tags: []
 section_ids: []
@@ -42,7 +42,23 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_s0w26u
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: 'DONE + integrated (cherry-picked Edison''s 77a27d67 onto feat). 96 orphan .rs files deleted (-26926 lines), pure deletion. These were leftovers from crate extraction: src/plan/*, src/service/plan/*, etc. — NOT compiled (mod.rs files are shims: pub use codeterm_plan::*). Verified on feat: cargo check --workspace 0 errors; clippy both crates clean; file-sizes 0 over 1200. App routes through the extracted crates via shims.'
+  ts: 1783500619749
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 park_reason: null
 attachments: []

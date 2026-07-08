@@ -1,30 +1,28 @@
-id: task_evut0b
+id: task_g6o7ni
 name: 'cursor usage fix: map API percentages into pct fields, kill x100 units bug, pct-first bubble'
 type: implement
 model: claude
-model_rationale: small single-lane fix, ~95% in the JS plugin + 1 line React; claude routing while codex quota >80%
+model_rationale: small single-lane fix, ~95% in the JS plugin + 1 line React
 personality: Ada
 acceptance_criteria:
 - Cursor bubble shows pct progress (session=apiPercentUsed 84.8 warn, weekly=totalPercentUsed 96.7 danger from fixture) with classify colors — not a neutral $ pill
 - 'Units fixed: spend_cents == totalSpend verbatim (cents), cursorDollarsToCents x100 removed; dead planUsage.remaining read removed'
 - fetchUsage collapsed to single GetCurrentPeriodUsage call; resets = billingCycleEnd
-- Plugin tests rewritten against the attached REAL fixture and green; npm run sync:versions && check:versions green after plugin.js rebuild
+- Plugin tests rewritten against the REAL fixture and green; npm run sync:versions && check:versions green after plugin.js rebuild
 - No provider-id branching in core; UsageBubble change is the single pct-preference predicate at line ~65
-test_plan: '1) plugin tests: provider-cursor test suite green with fixture-driven asserts (weekly_pct=96.7, session_pct=84.84, spend_cents=18856 NOT x100); 2) live: ./build.sh kill && dev restart on 7686, open cursor pane -> bubble shows two pct glyphs warn(85%)/danger(97%), aria-label ''usage session 85% weekly 97%''; 3) UsageDetail shows $188.56 total / $20.00 included as secondary; 4) usage projection endpoint returns rows for provider=cursor; 5) npm run check:versions green'
+test_plan: '1) npm run test:plugins asserts from fixture: weekly_pct=96.6974, session_pct=84.8444, spend_cents=18856 verbatim (NOT 1885600), resetsAtMs=1784473493000; 2) plugin.js rebuilt, npm run sync:versions && check:versions exit 0; 3) live: build.sh dev on 7686, open cursor pane -> bubble two pct glyphs, weekly is-danger, NOT $ pill; 4) UsageDetail spend $188.56/included $20.00; 5) usage projection provider=cursor non-empty rows'
 correctness: Plugin-side + 1-line UsageBubble pct-preference. Units verbatim cents. Do not invent 'remaining' semantics (field absent in real API). parseUsage TUI-text path stays null-returning. No Rust schema changes.
 status: pending
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
-created_at: 1783442535798
-updated_at: 1783442541409
-status_changed_at: 1783442535798
+created_at: 1783500561151
+updated_at: 1783500561151
+status_changed_at: 1783500561151
 handle: cursor-usage-fix-map-api-percentages-into-pct-fields-kill-x100-units-bug
 tags: []
-section_ids:
-- sec_wcir26
-- sec_g7cf2a
+section_ids: []
 body: |
   Cursor provider usage shows garbage dollars instead of plan-limit progress. User wants "how much limit is left" — the % progress cursor itself reports. Probe DONE (live token, 2026-07-07): evidence below is from the real API, fixture attached to this task.
 
@@ -57,7 +55,11 @@ body: |
   - ~95% plugin-side; only the bubble priority line touches core UI. No Rust changes.
   - No provider-id branching in core (pct-preference is data-shaped).
   - Out of scope of pl_5o7ukw — separate small lane.
-role_guidance: null
+
+
+  ## Note (moved from pl_4nzrdc)
+  Original task carried a live GetCurrentPeriodUsage fixture attachment; all its values are inlined in the Verified-evidence block above, so this move is lossless for execution. Original id: task_evut0b.
+role_guidance: 'You are Ada, a frontend/plugin engineer who trusts the wire, not assumptions. The Cursor API already returns ready percentages — map them verbatim, never re-derive. Red line: shipping any x100 unit math or inventing a ''remaining'' field the real response does not contain.'
 executor_role: frontend-dev
 competition: null
 intent: null
@@ -83,10 +85,4 @@ canvas:
 milestones: []
 execution_attempts: []
 park_reason: null
-attachments:
-- id: att_p47s02
-  name: GetCurrentPeriodUsage.fixture.json
-  path: attachments/tasks/task_evut0b/att_p47s02-GetCurrentPeriodUsage.fixture.json
-  media_type: application/octet-stream
-  size_bytes: 1097
-  created_at: 1783442541409
+attachments: []
