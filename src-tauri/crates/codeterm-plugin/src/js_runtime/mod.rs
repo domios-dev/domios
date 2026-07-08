@@ -41,4 +41,4 @@ pub use manifest::{
     SerdeSessionIdInjection, SerdeTaskDelivery, SerdeVerifySubmit, SessionsConfig, SkillsConfig,
     SpawnConfig, UsageConfig,
 };
-pub use vm::{call_json, PluginVm, VmError};
+pub use vm::{call_json, has_method, PluginVm, VmError};

@@ -38,6 +38,7 @@ pub mod pane_transport;
 pub mod pane_transport_chat;
 pub mod plan;
 mod plan_reconcile;
+pub mod plugin_host;
 pub mod pty_io;
 pub mod pty_lifecycle;
 pub mod push;
