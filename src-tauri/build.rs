@@ -1,5 +1,5 @@
 // Reuse the runtime hash function — single source of truth, no risk of build-time vs runtime drift.
-#[path = "src/plugin/bundle_hash.rs"]
+#[path = "crates/codeterm-plugin/src/bundle_hash.rs"]
 mod bundle_hash;
 
 fn main() {
