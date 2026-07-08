@@ -302,6 +302,7 @@ impl MultiplexerState {
                     role_profile: role_profile.clone(),
                     watcher: watcher.clone(),
                     parent_pane_id: parent_pane_id.clone(),
+                    pending_paired_planner_pane_id: None,
                     can_spawn: *can_spawn,
                     depth: *depth,
                     // spawner / report target instead of hardcoding None.
