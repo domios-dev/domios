@@ -513,7 +513,92 @@ fn is_plan_complete_predicate_covers_execution_all_done_and_explicit_complete() 
     let complete_plan = store.get(&plan.id).unwrap();
     assert!(
         is_plan_complete(&complete_plan),
-        "Complete mode is always complete"
+        "Complete mode with terminal tasks is complete"
+    );
+}
+
+#[test]
+fn is_plan_complete_rejects_parked_and_blocked_tasks() {
+    use super::heartbeat::is_plan_complete;
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let plan = store
+        .create_plan(
+            "Deferred".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane("orch"),
+            vec![],
+            1,
+        )
+        .unwrap();
+    store.set_mode(&plan.id, PlanMode::Execution, 2).unwrap();
+    let parked_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "parked".into(),
+                kind: "impl".into(),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    store
+        .park_task(
+            &plan.id,
+            &parked_id,
+            "waiting for quota reset",
+            AgentRef::from_pane("orch"),
+            4,
+        )
+        .unwrap();
+
+    let parked_plan = store.get(&plan.id).unwrap();
+    assert!(
+        !is_plan_complete(&parked_plan),
+        "parked work is deferred, not complete"
+    );
+
+    let blocked_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "blocked".into(),
+                kind: "impl".into(),
+                ..Default::default()
+            },
+            5,
+        )
+        .unwrap();
+    store
+        .update_task(
+            &plan.id,
+            &blocked_id,
+            None,
+            None,
+            None,
+            None,
+            Some("blocked"),
+            Some(Some("waiting on external input")),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            6,
+        )
+        .unwrap();
+
+    let blocked_plan = store.get(&plan.id).unwrap();
+    assert!(
+        !is_plan_complete(&blocked_plan),
+        "blocked work is waiting, not complete"
     );
 }
 
