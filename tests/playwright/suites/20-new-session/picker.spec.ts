@@ -1,12 +1,7 @@
 /**
- * 20-new-session — the new-session picker (task_234c14f0), the orchestration-pair
- * spawn + sidebar group it drives (task_e0ddee08), and round-18: the picker is a
- * VIRTUAL tab (no backend pane/PTY until confirm) whose provider/model/workspace
- * controls use the shared DropdownMenu (no native <select>).
- *
- * Real dev console, web-mode (@golden). Each scenario opens its own fresh
- * picker via beforeEach; scenarios that actually spawn agents clean up their
- * panes/workspaces in afterEach so a failed run never leaks live processes.
+ * WHAT: picker covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 20-new-session.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -76,9 +71,7 @@ async function expandWorkspace(page: Page, wsId: string): Promise<void> {
   if (await expand.isVisible().catch(() => false)) await expand.click();
 }
 
-/** Clicks "New session" in the given workspace and waits for the VIRTUAL picker
- *  to render. There is deliberately no backend tab to diff — the picker adds no
- *  pane/PTY until confirm (round-18). */
+/** Opens the VIRTUAL picker; no backend pane/PTY exists until confirm. */
 async function openPicker(page: Page, wsId: string): Promise<void> {
   await expandWorkspace(page, wsId);
   await workspaceGroup(page, wsId).getByText("New session", { exact: true }).click();
@@ -197,9 +190,8 @@ test.describe("new-session picker", () => {
   test.describe.configure({ timeout: 30_000 });
 
   let ws: { id: string; name: string };
-  // Id-diff registry (NOT title-keyed): a plan that regresses to the bare
-  // "Orchestration"/"04:56" title is still swept. Closing a workspace does not
-  // cascade to its plans, so spawn scenarios would otherwise leak them.
+  // Id-diff registry catches bare "Orchestration"/timestamp title regressions.
+  // Closing a workspace does not cascade to plans, so spawn scenarios need this.
   const plans = new PlanRegistry();
 
   test.beforeAll(async () => {

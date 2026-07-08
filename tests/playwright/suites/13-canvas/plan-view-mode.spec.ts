@@ -1,10 +1,7 @@
 /**
- * 13-canvas — plan view mode shell: Board | List | Canvas top switch.
- *
- * Covers:
- *  - Board is the default view (localStorage cleared)
- *  - Switch order: Board → List → Canvas
- *  - Persistence: mode survives close/reopen of the canvas session
+ * WHAT: plan view mode covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";

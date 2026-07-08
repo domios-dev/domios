@@ -1,13 +1,7 @@
 /**
- * 13-canvas — done-heavy fixture assertions.
- *
- * Uses localStorage key `canvas.perfFixtureProfile=done-heavy` (210 tasks,
- * majority done) to verify:
- *  - Board: done column is collapsed by default with "Show all N" toggle visible
- *  - List: done-only section rows show rollup elements (plan-list-done-rollup)
- *  - Canvas: LOD done-stack marker visible in the minimap when fixture loaded
- *
- * Screenshots saved under tests/playwright/artifacts/canvas/.
+ * WHAT: plan done heavy covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import path from "node:path";
 import fs from "node:fs";

@@ -1,20 +1,7 @@
 /**
- * Regression: background composer steals focus after async send completes.
- *
- * Root cause: ChatComposer.refocusComposer() had no guard for whether its
- * pane was the active/focused one. The async send() calls refocusComposer()
- * in a finally block — if the user switches to pane B while the send is
- * in-flight, A's finally block fires rAF+setTimeout(0) callbacks that call
- * textarea.focus(), stealing focus from B's composer.
- *
- * Fix: refocusComposer is a no-op when isActive=false (pane not focused).
- * isActive is derived from muxState.focused_pane_id === paneId in
- * PaneSessionChat and stored in a ref so rAF/setTimeout closures see the
- * current value.
- *
- * RED before fix: keyboard text typed into B's composer after switching
- * lands in A's composer instead (focus was stolen).
- * GREEN after fix: focus stays on B; typed text is in B's composer.
+ * WHAT: composer focus steal covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 16-chat-view.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 
@@ -108,6 +95,7 @@ test(
     await ui.page.keyboard.type(marker);
 
     // Wait well past the 300ms delay + rAF + setTimeout(0) window.
+    // PW_JUSTIFIED_SLEEP: fixed 600ms sampling/settle window; no app event exists for this probe.
     await ui.page.waitForTimeout(600);
 
     // Assert: B's composer contains the typed text (focus was NOT stolen).

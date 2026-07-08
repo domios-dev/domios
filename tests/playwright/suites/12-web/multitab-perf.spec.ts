@@ -1,11 +1,7 @@
 /**
- * Stage-1 oracle: hidden mounted chat panes must not re-render on unrelated pane
- * agent_state churn (~20 SET_STATE/sec). Pre-fix baseline ~60 renders / 3s.
- *
- * Run isolated (dev on 7686, VITE_CODETERM_TEST build):
- *   curl -s http://127.0.0.1:7686/api/health
- *   npx playwright test tests/playwright/suites/12-web/multitab-perf.spec.ts \
- *     -g "hidden panes" --timeout=30000 --global-timeout=600000 --reporter=line
+ * WHAT: multitab perf covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 12-web.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 

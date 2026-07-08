@@ -1,6 +1,7 @@
 /**
- * 13-canvas — PlanDetailOverlay: opens from Board task card, List row, Canvas card.
- * Esc restores prior view state (board, list scroll).
+ * WHAT: plan detail overlay covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";

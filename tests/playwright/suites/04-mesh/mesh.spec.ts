@@ -1,13 +1,7 @@
 /**
- * 04-mesh — peer lifecycle against the live dev daemon using the §4.2
- * peer simulator. Locks in the T3 liveness model end-to-end:
- * pair → online → wedged peer (TCP-accepts, never answers, the #130
- * scenario) flips offline only after the 2-miss hysteresis → recovers to
- * online when the peer answers again.
- *
- * Asserted in BOTH the API and the rendered Mesh-tab UI (data-testid
- * selectors): peer dot online state, and the T3 #119 behavior — an
- * unreachable peer's services stay listed with the 'cached' badge.
+ * WHAT: mesh covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 04-mesh.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import { MeshStub } from "../../helpers/mesh-stub";

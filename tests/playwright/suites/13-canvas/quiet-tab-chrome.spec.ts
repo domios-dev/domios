@@ -1,5 +1,7 @@
 /**
- * Quiet tab chrome — stable hooks proving tabs carry no task/focus bubble UI.
+ * WHAT: quiet tab chrome covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 

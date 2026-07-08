@@ -1,5 +1,7 @@
 /**
- * 13-canvas — WORKERS AS USERS (live presence).
+ * WHAT: canvas presence covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
@@ -29,6 +31,7 @@ test("@golden @canvas-presence live workers render with progressive presence dis
     await expect(page.locator(CANVAS_BOARD_SEL).first()).toBeVisible({ timeout: 30_000 });
 
     await setCanvasScale(page, 0.55);
+    // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(300);
     await shot(page, "presence2-W1");
 
@@ -43,6 +46,7 @@ test("@golden @canvas-presence live workers render with progressive presence dis
     expect(await first.getAttribute("data-task-id"), "worker pin is bound to a task").toBeTruthy();
 
     await board.locator('[data-testid="canvas-presence-overlay"]').first().hover();
+    // PW_JUSTIFIED_SLEEP: fixed 150ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(150);
     const flagsHover = await board.locator('[data-testid="canvas-presence-flag"]').count();
     expect(flagsHover, "hover reveals presence label").toBeGreaterThan(0);
@@ -50,6 +54,7 @@ test("@golden @canvas-presence live workers render with progressive presence dis
     expect(linksHover, "hover keeps or reveals connector").toBeGreaterThanOrEqual(linksBeforeHover);
 
     await setCanvasScale(page, 2.0);
+    // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(300);
     await shot(page, "presence2-W2");
     const w2Worlds = await board
