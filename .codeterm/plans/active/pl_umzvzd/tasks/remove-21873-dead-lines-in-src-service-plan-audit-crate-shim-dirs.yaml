@@ -1,0 +1,48 @@
+id: task_fc3ji8
+name: Remove ~21873 dead lines in src/service/plan + audit crate shim dirs
+type: implement
+model: null
+model_rationale: T1 extraction shimmed mod.rs but left ~70 old files on disk (not compiled); audit mesh/mem/bridge/pty/multiplexer/dispatch/session too
+personality: null
+acceptance_criteria: []
+test_plan: null
+correctness: null
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783490927361
+updated_at: 1783490927361
+status_changed_at: 1783490927361
+handle: remove-21873-dead-lines-in-src-service-plan-audit-crate-shim-dirs
+tags: []
+section_ids: []
+body: ''
+role_guidance: null
+executor_role: null
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+park_reason: null
+attachments: []
