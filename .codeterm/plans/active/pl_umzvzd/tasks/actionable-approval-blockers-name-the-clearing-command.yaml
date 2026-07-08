@@ -8,14 +8,14 @@ acceptance_criteria:
 - each approval blocker string includes the clearing command (spec create+spec link add --edge for spec-source; plan section add for sections; --test-plan hint for verification)
 test_plan: null
 correctness: null
-status: pending
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783492310496
-updated_at: 1783492310496
-status_changed_at: 1783492310496
+updated_at: 1783501777129
+status_changed_at: 1783501777129
 handle: actionable-approval-blockers-name-the-clearing-command
 tags: []
 section_ids: []
@@ -43,7 +43,23 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_61a217
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: 'DONE (d37af561). planning_approval_blockers now name the exact clearing command per blocker: goal set --vector; section add; spec create + spec link add (with note that plan update --spec-file prose does NOT count); verification hint via section body naming build.sh/cargo test/playwright. plan_id interpolated. 9 next_actions tests green.'
+  ts: 1783501777129
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 park_reason: null
 attachments: []
