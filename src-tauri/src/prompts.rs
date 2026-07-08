@@ -296,7 +296,10 @@ mod tests {
         let t = planner_onboarding_task("Opus Orchestrator", "tab_orch_9", "pl_abc");
         assert!(t.contains("pl_abc"), "names the plan");
         assert!(t.contains("Opus Orchestrator"), "names the orchestrator");
-        assert!(t.contains("You are the Planner"), "second-person onboarding");
+        assert!(
+            t.contains("You are the Planner"),
+            "second-person onboarding"
+        );
         assert!(t.contains("codeterm docs PLANNER"), "points at the doc");
         assert!(t.contains("--personality"), "mandates persona fields");
         assert!(t.contains(PEER_PLANNER_CHARTER_LINE), "reuses the charter");
