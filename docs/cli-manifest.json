@@ -5589,7 +5589,9 @@
         {
           "name": "get",
           "about": "Render the whole plan as markdown (goal + sections + tasks); --sections for the tree only",
-          "aliases": [],
+          "aliases": [
+            "show"
+          ],
           "args": [
             {
               "name": "plan_id",
@@ -7626,7 +7628,7 @@
                   "positional": false,
                   "value_name": "EXECUTOR_ROLE",
                   "default": null,
-                  "help": null,
+                  "help": "Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync",
                   "aliases": []
                 },
                 {
@@ -7714,7 +7716,7 @@
                   "positional": false,
                   "value_name": "PERSONALITY",
                   "default": null,
-                  "help": "Executor persona name (e.g. Hopper)",
+                  "help": "Executor persona name — a named character for legible lanes, e.g. Hopper, Dijkstra, Lamport",
                   "aliases": []
                 },
                 {
@@ -7746,7 +7748,7 @@
                   "positional": false,
                   "value_name": "ROLE_GUIDANCE",
                   "default": null,
-                  "help": null,
+                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
                   "aliases": []
                 },
                 {
@@ -8434,7 +8436,7 @@
                   "positional": false,
                   "value_name": "EXECUTOR_ROLE",
                   "default": null,
-                  "help": null,
+                  "help": "Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync",
                   "aliases": []
                 },
                 {
@@ -8514,7 +8516,7 @@
                   "positional": false,
                   "value_name": "PERSONALITY",
                   "default": null,
-                  "help": "Executor persona name (e.g. Hopper)",
+                  "help": "Executor persona name — a named character for legible lanes, e.g. Hopper, Dijkstra, Lamport",
                   "aliases": []
                 },
                 {
@@ -8546,7 +8548,7 @@
                   "positional": false,
                   "value_name": "ROLE_GUIDANCE",
                   "default": null,
-                  "help": null,
+                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
                   "aliases": []
                 },
                 {
