@@ -116,9 +116,11 @@ After you own a plan — status, lanes, drift, next actions:\n\
 Keep heartbeat current (auto-reinjected on nudges):\n\
   codeterm orchestrator heartbeat set --plan PLAN_ID --focus \"...\"\n\
 \n\
-Add and assign work:\n\
-  codeterm plan task add PLAN_ID --name \"...\" --why \"...\"\n\
-  codeterm plan task assign PLAN_ID TASK_ID --pane WORKER_PANE\n\
+Your Planner cuts the structure and the tasks — delegate that, then review\n\
+(see codeterm docs PLANNER). You OWN execution: dispatch each task to a lane\n\
+and accept or bounce the report:\n\
+  codeterm plan task dispatch PLAN_ID TASK_ID --agent claude --cwd <lane-worktree>\n\
+(Solo/waived-planner only: you may cut tasks yourself with codeterm plan task add.)\n\
 \n\
 Spawn workers (2-level hierarchy — Workers report back here):\n\
   codeterm agent spawn --parent {pane_id} --role Worker --title \"...\" --task \"...\""
