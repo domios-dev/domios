@@ -79,6 +79,8 @@ const baseHost = (over: Record<string, unknown>) => ({
   manifestJson: () => JSON.stringify(manifestSeed),
   homeDir: () => "/tmp/home",
   platform: () => "linux",
+  unixNowMs: () => 1_000_000,
+  path: { equal: (a: string, b: string) => a === b },
   expandHome: (v: string) => v.replace(/^~/, "/tmp/home"),
   envGet: () => null,
   log: () => {},
@@ -89,6 +91,7 @@ const baseHost = (over: Record<string, unknown>) => ({
     readJson: () => null,
     writeJson: () => true,
     writeFile: () => true,
+    walkDir: () => [],
   },
   ...over,
 });
@@ -120,6 +123,50 @@ assert(!plugin.detect({ bytes: "claude code", title: "claude" }), "claude title 
 
 console.log("\n--- statusOf ---\n");
 eq(plugin.statusOf({ kind: "anything" }), null, "statusOf always returns null (PTY-driven status)");
+
+console.log("\n--- sessions ---\n");
+{
+  const files = [
+    {
+      isFile: true,
+      name: "rollout-2026-05-01T10-00-00-11111111-1111-1111-1111-111111111111.jsonl",
+      path: "/sessions/old.jsonl",
+      modifiedMs: 990000,
+    },
+    {
+      isFile: true,
+      name: "rollout-2026-05-01T10-05-00-22222222-2222-2222-2222-222222222222.jsonl",
+      path: "/sessions/new.jsonl",
+      modifiedMs: 999000,
+    },
+  ];
+  const host = baseHost({
+    fs: {
+      fileExists: (p: string) => p === "/sessions",
+      readFile: (p: string) => {
+        if (p === "/sessions/old.jsonl") {
+          return '{"type":"session_meta","payload":{"id":"11111111-1111-1111-1111-111111111111","cwd":"/work/proj"}}\n';
+        }
+        if (p === "/sessions/new.jsonl") {
+          return '{"type":"session_meta","payload":{"id":"22222222-2222-2222-2222-222222222222","cwd":"/work/proj"}}\n';
+        }
+        return null;
+      },
+      readJson: () => null,
+      writeJson: () => true,
+      writeFile: () => true,
+      walkDir: () => files,
+    },
+    envGet: (k: string) => k === "CODETERM_CODEX_SESSIONS_ROOT" ? "/sessions" : null,
+  });
+  const p = loadCodexWithHost(host);
+  eq(
+    p.detectSessionId("/work/proj", ["11111111-1111-1111-1111-111111111111"], 300000),
+    "22222222-2222-2222-2222-222222222222",
+    "detectSessionId returns newest matching unclaimed rollout",
+  );
+  eq(p.detectSessionId("/other/proj", [], 300000), null, "detectSessionId filters cwd");
+}
 
 console.log("\n--- parseUsage (/status screen) ---\n");
 {

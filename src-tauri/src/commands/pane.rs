@@ -386,11 +386,26 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     }
 
     let path_started = std::time::Instant::now();
-    let path = svc
+    let Some(path) = svc
         .agent_registry
         .with_provider(&provider_id, |p| p.session_jsonl_path(&cwd, &session_id))
         .flatten()
-        .ok_or("provider has no JSONL")?;
+    else {
+        log::warn!(
+            "[chat_start] pane={} provider={} session={} has no JSONL yet",
+            pane_id,
+            provider_id,
+            session_id
+        );
+        return Ok(ChatStartResult {
+            text: String::new(),
+            start_offset: 0,
+            offset: 0,
+            pending: true,
+            messages: None,
+            cursor: None,
+        });
+    };
     let total = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     let path_ms = path_started.elapsed().as_millis();
 
