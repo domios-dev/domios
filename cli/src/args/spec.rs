@@ -4,7 +4,7 @@ use clap::Subcommand;
 pub enum SpecAction {
     /// Create a new spec
     Create {
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(long, alias = "name", allow_hyphen_values = true)]
         title: String,
         #[arg(long)]
         project: Option<String>,
