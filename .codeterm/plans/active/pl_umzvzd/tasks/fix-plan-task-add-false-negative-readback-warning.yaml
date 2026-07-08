@@ -9,14 +9,14 @@ acceptance_criteria:
 - root-cause the false positive in verify_task_added (readback.rs) — stale committed snapshot vs strict field compare
 test_plan: 'add a regression test: add_task with full field set then verify no PlanError::TaskReadback; cli/src/cmd/plan/tests.rs'
 correctness: null
-status: pending
+status: done
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783492309744
-updated_at: 1783492309744
-status_changed_at: 1783492309744
+updated_at: 1783494434842
+status_changed_at: 1783494434842
 handle: fix-plan-task-add-false-negative-readback-warning
 tags: []
 section_ids: []
@@ -44,7 +44,23 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_izz8er
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: 'ROOT CAUSE found + FIXED (cdee7682 crate + monolith mirror). verify_task_added compared the RAW --handle vs the server-slugged committed handle (T1->t1) -> deterministic false ReadbackMismatch on any uppercase/space/special-char handle; write always succeeded. Verdi''s exact T1/T2 repro + un-interpolated <task_id> clue confirmed it (NOT a concurrency race). Handle is server-derived -> dropped from readback verification + regression test (add_task --handle T1 succeeds, committed==t1). Applied to both codeterm-plan crate and live monolith src/service/plan. Residual: un-interpolated <task_id> on GENUINE readback mismatch is now a rare-real-error cosmetic only.'
+  ts: 1783494434842
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 park_reason: null
 attachments: []
