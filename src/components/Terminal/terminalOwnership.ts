@@ -9,3 +9,10 @@ export function terminalOwnsLivePty(args: {
   const isWeb = args.isWeb ?? IS_WEB;
   return (!isWeb || args.terminalVisible) && (args.paneVisible || !!args.ptyId);
 }
+
+export function terminalRenderEnabled(args: {
+  terminalVisible: boolean;
+  paneVisible: boolean;
+}): boolean {
+  return args.paneVisible && args.terminalVisible;
+}

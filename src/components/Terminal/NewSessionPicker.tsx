@@ -3,7 +3,7 @@ import { IS_WEB } from "../../lib/webApi";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { AppConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
-import { useMultiplexer } from "../../store/multiplexer";
+import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { setProviderSettings } from "../../lib/clientSettings";
 import {
   defaultNewSessionChoice,
@@ -34,7 +34,8 @@ export function NewSessionPicker({
   agentsConfig?: AppConfig["agents"];
 }) {
   const { providers } = useAgentProviders();
-  const { spawnAgentTab, createOrchestrationPair, closeSessionPicker, selectTabByPane, addNotification, state, createWorkspace } = useMultiplexer();
+  const { spawnAgentTab, createOrchestrationPair, closeSessionPicker, selectTabByPane, addNotification, createWorkspace } = useMultiplexer();
+  const state = useMuxState();
   const visibleProviders = useMemo(
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
     [providers, agentsConfig],

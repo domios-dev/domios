@@ -3,7 +3,7 @@ import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
 import { invoke, IS_WEB, isPtyDeadError, resetWebPtyTail, takePtyTruncation } from "../../lib/bridge";
 import { subscribePaneOutput, webOutputStreamActive, type PaneOutputSink } from "../../lib/outputStream";
-import { useMultiplexer } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
 
@@ -20,6 +20,7 @@ export interface UsePtyConnectionOptions {
   jiggleResize: (ptyId: string) => void;
   localFitEnabled?: boolean;
   ioEnabled?: boolean;
+  renderEnabled?: boolean;
   resizeClientId?: string;
 }
 
@@ -40,10 +41,16 @@ export function usePtyConnection({
   jiggleResize,
   localFitEnabled = true,
   ioEnabled = true,
+  renderEnabled = true,
   resizeClientId,
 }: UsePtyConnectionOptions): UsePtyConnectionReturn {
-  const { state } = useMultiplexer();
+  const paneCwd = useMuxSelector(
+    (s) => s.panes[paneId]?.cwd ?? null,
+    (a, b) => a === b,
+  );
   const localFitEnabledRef = useRef(localFitEnabled);
+  const renderEnabledRef = useRef(renderEnabled);
+  const hiddenPendingRef = useRef<Uint8Array[]>([]);
   // Web resets the tail cursor once per mount; toggles resume it.
   const webReplayedPtysRef = useRef<Set<string>>(new Set());
   // xterm instance is keep-alive (never destroyed on tab switch); replay scrollback only once per pane lifetime.
@@ -52,6 +59,17 @@ export function usePtyConnection({
   useEffect(() => {
     localFitEnabledRef.current = localFitEnabled;
   }, [localFitEnabled]);
+
+  useEffect(() => {
+    renderEnabledRef.current = renderEnabled;
+    if (!renderEnabled || hiddenPendingRef.current.length === 0) return;
+    const term = termRef.current;
+    if (!term) return;
+    for (const chunk of hiddenPendingRef.current) {
+      term.write(chunk);
+    }
+    hiddenPendingRef.current = [];
+  }, [renderEnabled, termRef]);
 
   const writePty = useCallback((data: string) => {
     const id = connectedPtyRef.current;
@@ -174,18 +192,24 @@ export function usePtyConnection({
           }
         });
 
-        const tail = payload.length > 200 ? payload.slice(payload.length - 200) : payload;
-        try {
-          const text = new TextDecoder().decode(tail);
-          onOutputChunk(text);
-        } catch { /* ignore decode errors */ }
-
         if (firstData) {
           firstData = false;
         }
       };
 
       const enqueueTermWrite = (chunk: Uint8Array) => {
+        const tail = chunk.length > 200 ? chunk.slice(chunk.length - 200) : chunk;
+        try {
+          const text = new TextDecoder().decode(tail);
+          onOutputChunk(text);
+        } catch { /* ignore decode errors */ }
+
+        if (!renderEnabledRef.current) {
+          hiddenPendingRef.current.push(chunk);
+          if (firstData) firstData = false;
+          return;
+        }
+
         pendingWriteChunks.push(chunk);
         pendingWriteLength += chunk.length;
         if (writeFrame == null) {
@@ -204,7 +228,7 @@ export function usePtyConnection({
         try {
           const cols = Math.max(term.cols, 80);
           const rows = Math.max(term.rows, 24);
-          const paneData = state.panes[paneId];
+          const paneData = paneCwd != null ? { cwd: paneCwd } : undefined;
           const cwd = consumePendingCwd(paneId) || paneData?.cwd || undefined;
           const spawnedId = await invoke<string>("spawn_pty", { cols, rows, cwd, paneId });
           if (!disposed) {
@@ -270,8 +294,7 @@ export function usePtyConnection({
       if (!ptyId) {
         const cols = Math.max(term.cols, 80);
         const rows = Math.max(term.rows, 24);
-        const paneData = state.panes[paneId];
-        const cwd = consumePendingCwd(paneId) || paneData?.cwd || undefined;
+        const cwd = consumePendingCwd(paneId) || paneCwd || undefined;
         const spawnedId = await invoke<string>("spawn_pty", {
           cols, rows, predictedId, cwd, paneId,
         });
@@ -281,7 +304,7 @@ export function usePtyConnection({
         }
         onPtySpawned?.(paneId, spawnedId);
 
-        if (!paneData?.cwd) {
+        if (!cwd) {
           const defaultCwd = await invoke<string>("get_default_cwd").catch(() => null);
           if (defaultCwd) {
             invoke("mux_update_pane_cwd", { paneId, cwd: defaultCwd }).catch(() => {});
@@ -347,7 +370,7 @@ export function usePtyConnection({
       for (const fn of cleanupFns) fn();
       connectedPtyRef.current = null;
     };
-  }, [ptyId, paneId, termReady, ioEnabled, resizeClientId, onPtySpawned]);
+  }, [ptyId, paneId, paneCwd, termReady, ioEnabled, renderEnabled, resizeClientId, onPtySpawned]);
 
   return { writePty };
 }
