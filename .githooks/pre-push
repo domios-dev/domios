@@ -49,6 +49,7 @@ fi
 echo "Pre-push: running shell guards..."
 bash scripts/check-mux-write.sh
 bash scripts/check-blocking-in-async.sh
+bash scripts/check-visual-golden-edits.sh
 
 # File-size discipline — pure line-count scan, no compile, runs on every push
 # (lane + integration) so oversized files never reach the farm.
