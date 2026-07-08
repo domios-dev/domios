@@ -47,6 +47,7 @@ pub(in crate::service::plan) struct TaskAddExpectation {
     lane: TaskLaneMetadata,
     group: Option<String>,
     priority: TaskPriority,
+    handle: Option<String>,
     section_ids: Option<Vec<String>>,
 }
 
@@ -92,6 +93,7 @@ impl PlanStore {
             lane: task.lane.clone(),
             group: task.group.clone(),
             priority: task.priority.clone(),
+            handle: task.handle.clone(),
             section_ids: verify_sections.then(|| task.section_ids.clone()),
         }
     }
@@ -244,8 +246,9 @@ impl PlanStore {
         if task.priority != expected.priority {
             return Err(fail("priority"));
         }
-        // Handle is server-normalized (slugged, collision-suffixed); comparing the
-        // raw requested handle against the committed one is a false-positive source.
+        if expected.handle.is_some() && task.handle != expected.handle {
+            return Err(fail("handle"));
+        }
         if expected
             .section_ids
             .as_ref()
