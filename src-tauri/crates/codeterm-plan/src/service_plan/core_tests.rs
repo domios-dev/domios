@@ -322,6 +322,53 @@ fn approved_plan_flips_to_execution_on_first_in_progress_task() {
 }
 
 #[test]
+fn take_binds_pane_and_atomically_starts_task() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Take".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("abc"),
+    );
+    p.mode = crate::plan::PlanMode::Approved;
+    store.save(&mut p, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &p.id,
+            NewTask {
+                name: "lane".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+
+    let fresh = store.get(&p.id).unwrap();
+    let task = fresh.tasks.iter().find(|x| x.id == task_id).unwrap();
+    assert_eq!(task.status, TaskStatus::Pending);
+    assert!(task.assigned_pane_id.is_none());
+
+    // Taking a task binds the pane AND starts it in one step — no separate flip.
+    store
+        .set_task_assignment(&task_id, Some("worker-pane"), Some("worker"), 3)
+        .unwrap();
+
+    let taken = store.get(&p.id).unwrap();
+    let task = taken.tasks.iter().find(|x| x.id == task_id).unwrap();
+    assert_eq!(
+        task.status,
+        TaskStatus::InProgress,
+        "take must flip pending -> in_progress atomically"
+    );
+    assert_eq!(task.assigned_pane_id.as_deref(), Some("worker-pane"));
+    assert_eq!(
+        taken.mode,
+        crate::plan::PlanMode::Execution,
+        "auto-start flips approved -> execution"
+    );
+}
+
+#[test]
 fn archive_moves_plan_folder_between_buckets() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());

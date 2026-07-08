@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->
 
 Full reference for the `codeterm plan` CLI and orchestration discipline. The *why* (when to spawn, model routing, role contracts) lives here and in your role prompt — this doc is the authority; machine-specific deltas live in mem preferences (kind=preference, area=orchestration).
 
@@ -410,6 +410,34 @@ it, (4) send it to replanning, (5) escalate to a smarter model.
   or an `in_review` task that stays **unjudged over 2h**, is recorded as drift
   and named explicitly in the escalated nudge so stalled work cannot hide. Doctor
   warns on aged unstaffed open tasks (`aged_unstaffed_task`).
+
+### Task-status state machine — transitions, preconditions, ownership
+
+Statuses: `pending → in_progress → in_review → done`, with `blocked`, `parked`
+(non-terminal deferrals) and `cancelled` (terminal) off to the side. Two rules
+keep the board honest about what is actually running:
+
+- **`in_progress` requires a bound executor pane.** A task cannot be "in
+  progress" with nobody on it — the transition is rejected (`in_progress
+  requires an executor pane`) unless a pane is assigned.
+- **Taking a task IS starting it.** `codeterm task take <task>` binds the
+  caller's pane as executor **and atomically flips `pending → in_progress`** in
+  one step — the pane binding is the precondition, so there is no separate
+  "record --status in_progress". Dispatching a worker to a task (which binds the
+  pane) advances it the same way. The execution layer (a worker really coding in
+  a lane) and the tracking layer (the task row) can no longer diverge, so the
+  board never shows `pending` while a worker is live. Only `pending` auto-advances
+  on bind; other states are left untouched.
+
+Who owns each flip:
+
+- **Worker owns `pending → in_progress`** — it holds the pane, so `task take`
+  (or being dispatched) is what starts the task. The worker does not need the
+  orchestrator to flip its status.
+- **Worker owns `in_progress → in_review`** — it moves the task to review when
+  its work is ready and reports back.
+- **Orchestrator owns the `in_review` gate** — it judges an `in_review` task to
+  `done` or bounces it back; it owns `blocked`/`parked`/replanning decisions.
 
 ### Event-driven orchestration: no manual wait loops
 
