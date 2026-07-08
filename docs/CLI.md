@@ -1525,6 +1525,8 @@ Show sections with zero tasks
 
 Render the whole plan as markdown (goal + sections + tasks); --sections for the tree only
 
+Aliases: show
+
 - `<plan_id>`
 - `--sections`
 
@@ -2027,7 +2029,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--correctness`
 - `--criterion`
 - `--destination`
-- `--executor_role`
+- `--executor_role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
 - `--force`
 - `--group`
 - `--handle`
@@ -2038,11 +2040,11 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--model`
 - `--name`
 - `--parent`
-- `--personality` — Executor persona name (e.g. Hopper)
+- `--personality` — Executor persona name — a named character for legible lanes, e.g. Hopper, Dijkstra, Lamport
 - `<plan_id>`
 - `--primary`
 - `--priority`
-- `--role_guidance`
+- `--role_guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof."
 - `--role_guidance_file`
 - `--sections`
 - `--tags`
@@ -2188,7 +2190,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--correctness`
 - `--criterion`
 - `--destination`
-- `--executor_role`
+- `--executor_role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
 - `--group`
 - `--handle`
 - `--intent`
@@ -2198,11 +2200,11 @@ Update task metadata, status, quality fields, or lane assignment
 - `--name`
 - `--pane`
 - `--parent`
-- `--personality` — Executor persona name (e.g. Hopper)
+- `--personality` — Executor persona name — a named character for legible lanes, e.g. Hopper, Dijkstra, Lamport
 - `<plan_id>`
 - `--primary`
 - `--priority`
-- `--role_guidance`
+- `--role_guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof."
 - `--role_guidance_file`
 - `--sections`
 - `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
