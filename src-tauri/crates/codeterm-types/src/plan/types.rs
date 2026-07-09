@@ -481,6 +481,8 @@ pub struct Task {
     pub intent: Option<String>,
     #[serde(default)]
     pub parent_task_id: Option<String>,
+    #[serde(default, alias = "dependency_task_ids")]
+    pub depends_on: Vec<String>,
     pub assigned_pane_id: Option<String>,
     #[serde(default)]
     pub lane: TaskLaneMetadata,
@@ -776,6 +778,7 @@ mod tests {
         assert_eq!(p.tasks[0].taken_by_role, None);
         assert_eq!(p.tasks[0].executor_role, None);
         assert_eq!(p.tasks[0].parent_task_id, None);
+        assert!(p.tasks[0].depends_on.is_empty());
     }
 
     #[test]

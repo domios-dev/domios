@@ -66,6 +66,59 @@ fn push_hints(value: &mut Value, hints: Vec<String>) {
     value["_hints"] = serde_json::json!(hints);
 }
 
+fn optional_string_vec_field(
+    body: &Value,
+    key: &str,
+    alias: &str,
+) -> Result<Option<Vec<String>>, String> {
+    let field = body.get(key).or_else(|| body.get(alias));
+    let Some(field) = field else {
+        return Ok(None);
+    };
+    if field.is_null() {
+        return Ok(Some(Vec::new()));
+    }
+    serde_json::from_value(field.clone())
+        .map(Some)
+        .map_err(|e| format!("invalid {key}: {e}"))
+}
+
+#[cfg(test)]
+mod dependency_field_tests {
+    use super::optional_string_vec_field;
+    use serde_json::json;
+
+    #[test]
+    fn omitted_dependency_field_is_none() {
+        assert_eq!(
+            optional_string_vec_field(&json!({}), "depends_on", "dependency_task_ids").unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn dependency_field_empty_or_null_clears() {
+        assert_eq!(
+            optional_string_vec_field(
+                &json!({ "depends_on": [] }),
+                "depends_on",
+                "dependency_task_ids"
+            )
+            .unwrap(),
+            Some(Vec::new())
+        );
+        assert_eq!(
+            optional_string_vec_field(
+                &json!({ "depends_on": null }),
+                "depends_on",
+                "dependency_task_ids"
+            )
+            .unwrap(),
+            Some(Vec::new())
+        );
+    }
+}
+
 #[derive(Deserialize, Default)]
 pub(crate) struct TaskAddBody {
     name: String,
@@ -97,6 +150,8 @@ pub(crate) struct TaskAddBody {
     intent: Option<String>,
     #[serde(default)]
     parent: Option<String>,
+    #[serde(default, alias = "dependency_task_ids")]
+    depends_on: Vec<String>,
     #[serde(default)]
     assign_pane: Option<String>,
     #[serde(default)]
@@ -182,6 +237,7 @@ pub async fn task_add(
                 competition: body.competition,
                 intent: body.intent,
                 parent_task_id: body.parent,
+                depends_on: body.depends_on,
                 assigned_pane_id: body.assign_pane,
                 lane: body.lane,
                 group: body.group,
@@ -243,6 +299,8 @@ pub async fn task_update(
         .unwrap_or_default();
     let lane = lane_update_field(&body)
         .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
+    let depends_on = optional_string_vec_field(&body, "depends_on", "dependency_task_ids")
+        .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
     state
         .svc
         .plan_store
@@ -268,6 +326,13 @@ pub async fn task_update(
             epoch_ms(),
         )
         .map_err(plan_err)?;
+    if let Some(depends_on) = depends_on {
+        state
+            .svc
+            .plan_store
+            .update_task_dependencies(&id, &tid, depends_on, epoch_ms())
+            .map_err(plan_err)?;
+    }
     if body.get("role_guidance").is_some() {
         state
             .svc
