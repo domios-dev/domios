@@ -1,4 +1,6 @@
 use super::*;
+use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
+use crate::service::plan::{NewTask, PlanStore};
 
 fn apply_enter(text: &str, enter: bool) -> String {
     if enter && !text.ends_with('\r') && !text.ends_with('\n') {
@@ -229,4 +231,103 @@ fn no_prompt_empty_screen() {
 fn no_false_positive_mid_line_dollar() {
     let screen = "echo $HOME is /home/user\nprocessing...";
     assert!(!screen_has_shell_prompt(screen));
+}
+
+fn store_with_bound_task() -> (tempfile::TempDir, PlanStore, String, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Lane base".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "bound".into(),
+                kind: "implement".into(),
+                lane: TaskLaneMetadata {
+                    base: Some("lane-base".into()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .assign_task(&plan.id, &task_id, "pane-a", None, 3)
+        .unwrap();
+    (dir, store, plan.id, task_id)
+}
+
+#[test]
+fn active_pane_lane_base_prefers_live_attempt_base() {
+    let (_dir, store, plan_id, task_id) = store_with_bound_task();
+    store
+        .with_plan(&plan_id, 4, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            task.execution_attempts[0].base = Some("attempt-base".into());
+            Ok(())
+        })
+        .unwrap();
+
+    assert_eq!(
+        active_pane_lane_base(&store, "pane-a").as_deref(),
+        Some("attempt-base")
+    );
+}
+
+#[test]
+fn active_pane_lane_base_falls_back_to_lane_base_when_attempt_missing() {
+    let (_dir, store, _plan_id, _task_id) = store_with_bound_task();
+
+    assert_eq!(
+        active_pane_lane_base(&store, "pane-a").as_deref(),
+        Some("lane-base")
+    );
+}
+
+#[test]
+fn active_pane_lane_base_ignores_closed_and_other_pane_attempts() {
+    let (_dir, store, plan_id, task_id) = store_with_bound_task();
+    store
+        .with_plan(&plan_id, 4, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            task.execution_attempts[0].base = Some("closed-base".into());
+            task.execution_attempts[0].closed_at = Some(4);
+            task.execution_attempts
+                .push(crate::plan::TaskExecutionAttempt {
+                    id: "attempt_other".into(),
+                    executor_pane_id: "pane-b".into(),
+                    base: Some("other-base".into()),
+                    assigned_at: Some(4),
+                    ..Default::default()
+                });
+            Ok(())
+        })
+        .unwrap();
+
+    assert_eq!(
+        active_pane_lane_base(&store, "pane-a").as_deref(),
+        Some("lane-base")
+    );
+    assert_eq!(active_pane_lane_base(&store, "pane-b"), None);
+}
+
+#[test]
+fn active_pane_lane_base_none_without_binding() {
+    let (_dir, store, _plan_id, _task_id) = store_with_bound_task();
+
+    assert_eq!(active_pane_lane_base(&store, "unbound-pane"), None);
 }
