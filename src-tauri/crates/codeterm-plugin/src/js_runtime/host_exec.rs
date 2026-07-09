@@ -693,7 +693,7 @@ mod tests {
         let _guard = TEST_LOCK.lock();
         RESOLVED_BINS.lock().clear();
         #[cfg(windows)]
-        let name = "cmd";
+        let name = "cmd.exe";
         #[cfg(not(windows))]
         let name = "sh";
         let expected = which::which(name).expect("bin must be on PATH for this test");
