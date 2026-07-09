@@ -624,12 +624,8 @@ pub async fn plugin_snapshot(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    // never on the async runtime (mirrors the Tauri command's spawn_blocking wrap).
-    let svc = state.svc.clone();
-    tokio::task::spawn_blocking(move || {
-        crate::commands::plugins::snapshot(Some(svc.chatbackend_registry.as_ref()))
-    })
-    .await
+    crate::commands::plugins::action::plugin_manager_snapshot_for_service(state.svc.clone())
+        .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .map(Json)
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
@@ -644,11 +640,13 @@ pub async fn plugin_action(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     // keep it off the async runtime (mirrors the Tauri command's spawn_blocking wrap).
     let svc = state.svc.clone();
-    tokio::task::spawn_blocking(move || crate::commands::plugins::run_action(action, svc.as_ref()))
+    let result =
+        tokio::task::spawn_blocking(move || crate::commands::plugins::run_action(action, svc.as_ref()))
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    crate::commands::plugins::action::invalidate_plugin_snapshot();
+    Ok(Json(result))
 }
 
 #[derive(serde::Deserialize)]

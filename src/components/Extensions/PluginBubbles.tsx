@@ -6,11 +6,12 @@
  * A pill with an `action` (e.g. Git → `openPanel:git`) opens that host view on
  * click; without one, it opens the plugin's glance popover.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { GlancePopover, type GlanceAnchor } from "./GlancePopover";
 import { SELECT_EXTENSION_EVENT } from "../Titlebar/extensionsTrayLogic";
 import type { Tone } from "./ViewNodeRenderer";
+import { ensurePluginSnapshot, usePluginSnapshotStore } from "../../lib/pluginSnapshotStore";
 
 interface BubbleData {
   label: string;
@@ -52,29 +53,21 @@ function openPanel(action: string, cwd: string | null) {
 }
 
 export function PluginBubbles({ cwd, paneId }: { cwd: string | null; paneId: string }) {
-  const [plugins, setPlugins] = useState<BubblePlugin[]>([]);
+  const snapshotState = usePluginSnapshotStore();
   const [pills, setPills] = useState<Record<string, BubbleData | null>>({});
   const [open, setOpen] = useState<{ id: string; name: string; configHelp?: string; anchor: GlanceAnchor } | null>(null);
+  const plugins = useMemo(
+    () =>
+      (snapshotState.snapshot.plugins as SnapPlugin[])
+        .filter((p) => p.capabilities?.status_bubble)
+        .map((p) => ({ id: p.id, display_name: p.display_name, config_help: p.config_help })),
+    [snapshotState.snapshot.plugins],
+  );
 
-  // Discover statusBubble plugins once.
   useEffect(() => {
-    let alive = true;
-    invoke<{ plugins?: SnapPlugin[] }>("plugin_manager_snapshot")
-      .then((s) => {
-        if (!alive) return;
-        setPlugins(
-          (s?.plugins ?? [])
-            .filter((p) => p.capabilities?.status_bubble)
-            .map((p) => ({ id: p.id, display_name: p.display_name, config_help: p.config_help })),
-        );
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
+    void ensurePluginSnapshot({ background: snapshotState.lastSuccessfulSnapshot !== null }).catch(() => {});
+  }, [snapshotState.lastSuccessfulSnapshot]);
 
-  // Poll each plugin's pill for this pane's context.
   useEffect(() => {
     if (plugins.length === 0) return;
     let alive = true;
@@ -107,7 +100,6 @@ export function PluginBubbles({ cwd, paneId }: { cwd: string | null; paneId: str
       id: p.id,
       name: p.display_name || p.id,
       configHelp: p.config_help ?? undefined,
-      // Pane pills live at the top of the pane → open the popover downward.
       anchor: { right: window.innerWidth - r.right, top: r.bottom + 6 },
     });
   }, [pills, cwd]);
