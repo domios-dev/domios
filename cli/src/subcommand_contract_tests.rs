@@ -1,7 +1,71 @@
 use super::*;
+use crate::args::agent::AgentAction;
+use crate::args::delayed::DelayedAction;
+use crate::args::mem::MemAction;
+use crate::args::misc::PaneAction;
 use crate::args::orchestrator::OrchestratorAction;
-use crate::args::plan::{PlanAction, PlanHandoffAction};
-use clap::CommandFactory;
+use crate::args::task::TaskAction;
+use clap::{CommandFactory, Parser};
+
+#[derive(Parser)]
+struct MemOnly {
+    #[command(subcommand)]
+    action: MemAction,
+}
+
+#[derive(Parser)]
+struct TaskOnly {
+    #[command(subcommand)]
+    action: TaskAction,
+}
+
+#[derive(Parser)]
+struct OrchestratorOnly {
+    #[command(subcommand)]
+    action: OrchestratorAction,
+}
+
+#[derive(Parser)]
+struct PaneOnly {
+    #[command(subcommand)]
+    action: PaneAction,
+}
+
+#[derive(Parser)]
+struct AgentOnly {
+    #[command(subcommand)]
+    action: AgentAction,
+}
+
+#[derive(Parser)]
+struct DelayedOnly {
+    #[command(subcommand)]
+    action: DelayedAction,
+}
+
+#[derive(Parser)]
+enum DocsOnly {
+    Docs,
+    Doc { name: String },
+}
+
+#[derive(Parser)]
+struct SendOnly {
+    #[arg(allow_hyphen_values = true)]
+    text: Option<String>,
+    #[arg(long, alias = "id")]
+    pane: Option<String>,
+    #[arg(long, value_name = "PATH")]
+    from_file: Option<String>,
+    #[arg(long, visible_alias = "from-stdin", conflicts_with = "text")]
+    stdin: bool,
+    #[arg(long, conflicts_with_all = ["delay", "at"])]
+    actions: Option<String>,
+    #[arg(long, conflicts_with = "at")]
+    delay: Option<String>,
+    #[arg(long, conflicts_with = "delay")]
+    at: Option<String>,
+}
 
 fn env_lock() -> &'static std::sync::Mutex<()> {
     crate::test_env_lock()
@@ -15,10 +79,7 @@ fn restore_env(key: &str, value: Option<String>) {
 }
 
 fn mem_subcommand() -> clap::Command {
-    Cli::command()
-        .find_subcommand("mem")
-        .expect("Cli must expose `mem` subcommand")
-        .clone()
+    MemOnly::command()
 }
 
 #[test]
@@ -58,14 +119,7 @@ fn mem_run_worker_accepts_all_kinds() {
         "dreaming-normalize",
         "librarian-once",
     ] {
-        let res = Cli::try_parse_from([
-            "codeterm",
-            "mem",
-            "run-worker",
-            kind,
-            "--db-path",
-            "/tmp/x.db",
-        ]);
+        let res = MemOnly::try_parse_from(["mem", "run-worker", kind, "--db-path", "/tmp/x.db"]);
         assert!(
                 res.is_ok(),
                 "`mem run-worker {}` MUST parse cleanly — supervisor.rs sends this exact arg list ({:?})",
@@ -111,16 +165,13 @@ fn data_root_uses_named_dev_instance() {
 
 #[test]
 fn task_show_parses_siblings_flags() {
-    let parsed = Cli::try_parse_from(["codeterm", "task", "show", "task_1", "--siblings", "--all"])
+    let parsed = TaskOnly::try_parse_from(["task", "show", "task_1", "--siblings", "--all"])
         .expect("task show --siblings --all parses");
-    match parsed.command {
-        Commands::Task {
-            action:
-                crate::args::task::TaskAction::Show {
-                    task_id,
-                    siblings,
-                    all,
-                },
+    match parsed.action {
+        TaskAction::Show {
+            task_id,
+            siblings,
+            all,
         } => {
             assert_eq!(task_id, "task_1");
             assert!(siblings);
@@ -132,603 +183,25 @@ fn task_show_parses_siblings_flags() {
 
 #[test]
 fn top_level_docs_parse() {
-    let parsed = Cli::try_parse_from(["codeterm", "docs"]).expect("docs parses");
-    assert!(matches!(parsed.command, Commands::Docs { .. }));
+    let parsed = DocsOnly::try_parse_from(["codeterm", "docs"]).expect("docs parses");
+    assert!(matches!(parsed, DocsOnly::Docs));
 }
 
 #[test]
 fn top_level_doc_parse() {
-    let parsed = Cli::try_parse_from(["codeterm", "doc", "orchestration"]).expect("doc parses");
-    match parsed.command {
-        Commands::Doc { name } => assert_eq!(name, "orchestration"),
+    let parsed =
+        DocsOnly::try_parse_from(["codeterm", "doc", "orchestration"]).expect("doc parses");
+    match parsed {
+        DocsOnly::Doc { name } => assert_eq!(name, "orchestration"),
         _ => panic!("expected doc"),
     }
 }
 
-#[test]
-fn plan_record_parses_batch_sugar() {
-    let parsed = Cli::try_parse_from([
-        "codeterm",
-        "plan",
-        "record",
-        "pl_1",
-        "--upsert-task",
-        "handoff-cli",
-        "--name",
-        "Handoff CLI",
-        "--sections",
-        "cli,backend",
-        "--status",
-        "in_progress",
-        "--body-file",
-        "body.md",
-        "--step",
-        "decision:ship batch first",
-        "--link",
-        "docs/spec.md",
-        "--key",
-        "stable-key",
-    ])
-    .expect("plan record parses");
-    match parsed.command {
-        Commands::Plan {
-            action:
-                PlanAction::Record {
-                    plan_id,
-                    upsert_task,
-                    name,
-                    sections,
-                    status,
-                    body_file,
-                    steps,
-                    links,
-                    key,
-                    ..
-                },
-        } => {
-            assert_eq!(plan_id.as_deref(), Some("pl_1"));
-            assert_eq!(upsert_task.as_deref(), Some("handoff-cli"));
-            assert_eq!(name.as_deref(), Some("Handoff CLI"));
-            assert_eq!(sections.as_deref(), Some("cli,backend"));
-            assert_eq!(status.as_deref(), Some("in_progress"));
-            assert_eq!(body_file.as_deref(), Some("body.md"));
-            assert_eq!(steps, vec!["decision:ship batch first"]);
-            assert_eq!(links, vec!["docs/spec.md"]);
-            assert_eq!(key.as_deref(), Some("stable-key"));
-        }
-        _ => panic!("expected plan record"),
-    }
-}
-
-#[test]
-fn plan_delete_confirmation_flags_parse() {
-    #[derive(clap::Parser)]
-    struct PlanOnly {
-        #[command(subcommand)]
-        action: PlanAction,
-    }
-
-    let parsed = PlanOnly::try_parse_from(["plan", "delete", "pl_1", "--yes"])
-        .expect("plan delete --yes parses");
-    match parsed.action {
-        PlanAction::Delete { plan_id, yes } => {
-            assert_eq!(plan_id, "pl_1");
-            assert!(yes);
-        }
-        _ => panic!("expected plan delete"),
-    }
-
-    let parsed = PlanOnly::try_parse_from(["plan", "delete", "pl_1", "--confirm"])
-        .expect("plan delete --confirm parses");
-    match parsed.action {
-        PlanAction::Delete { plan_id, yes } => {
-            assert_eq!(plan_id, "pl_1");
-            assert!(yes);
-        }
-        _ => panic!("expected plan delete"),
-    }
-}
-
-#[test]
-fn plan_park_alias_parses_as_pause() {
-    #[derive(clap::Parser)]
-    struct PlanOnly {
-        #[command(subcommand)]
-        action: PlanAction,
-    }
-
-    let parsed =
-        PlanOnly::try_parse_from(["plan", "park", "pl_1", "--reason", "waiting for quota"])
-            .expect("plan park alias parses");
-    match parsed.action {
-        PlanAction::Pause { plan_id, reason } => {
-            assert_eq!(plan_id, "pl_1");
-            assert_eq!(reason, "waiting for quota");
-        }
-        _ => panic!("expected plan pause"),
-    }
-}
-
-#[test]
-fn plan_task_update_parses_sections() {
-    let parsed = Cli::try_parse_from([
-        "codeterm",
-        "plan",
-        "task",
-        "update",
-        "pl_1",
-        "task_1",
-        "--sections",
-        "sec_a,sec_b",
-    ])
-    .expect("plan task update parses sections");
-    match parsed.command {
-        Commands::Plan {
-            action:
-                PlanAction::Task {
-                    action: crate::args::plan::PlanTaskAction::Update { sections, .. },
-                },
-        } => assert_eq!(sections.as_deref(), Some("sec_a,sec_b")),
-        _ => panic!("expected plan task update"),
-    }
-}
-
-#[test]
-fn plan_task_update_parses_quality_fields() {
-    let parsed = Cli::try_parse_from([
-        "codeterm",
-        "plan",
-        "task",
-        "update",
-        "pl_1",
-        "task_1",
-        "--criterion",
-        "no separate task button",
-        "--test-plan",
-        "focused CLI update smoke",
-        "--correctness",
-        "one Plan action focuses optional task target",
-    ])
-    .expect("plan task update parses quality fields");
-    match parsed.command {
-        Commands::Plan {
-            action:
-                PlanAction::Task {
-                    action:
-                        crate::args::plan::PlanTaskAction::Update {
-                            criterion,
-                            test_plan,
-                            correctness,
-                            ..
-                        },
-                },
-        } => {
-            assert_eq!(criterion, vec!["no separate task button"]);
-            assert_eq!(test_plan.as_deref(), Some("focused CLI update smoke"));
-            assert_eq!(
-                correctness.as_deref(),
-                Some("one Plan action focuses optional task target")
-            );
-        }
-        _ => panic!("expected plan task update"),
-    }
-}
-
-#[test]
-fn plan_task_link_and_relink_parse() {
-    let parsed = Cli::try_parse_from([
-        "codeterm",
-        "plan",
-        "task",
-        "link",
-        "pl_1",
-        "task_1",
-        "--sections",
-        "backend",
-    ])
-    .expect("plan task link parses");
-    match parsed.command {
-        Commands::Plan {
-            action:
-                PlanAction::Task {
-                    action: crate::args::plan::PlanTaskAction::Link { sections, .. },
-                },
-        } => assert_eq!(sections, "backend"),
-        _ => panic!("expected plan task link"),
-    }
-
-    let parsed = Cli::try_parse_from(["codeterm", "plan", "task", "relink", "pl_1", "--apply"])
-        .expect("plan task relink parses");
-    match parsed.command {
-        Commands::Plan {
-            action:
-                PlanAction::Task {
-                    action: crate::args::plan::PlanTaskAction::Relink { apply, .. },
-                },
-        } => assert!(apply),
-        _ => panic!("expected plan task relink"),
-    }
-
-    // The top-level `plan relink` alias was removed in favour of `plan task relink`.
-    assert!(Cli::try_parse_from(["codeterm", "plan", "relink", "pl_1", "--apply"]).is_err());
-}
-
-#[test]
-fn plan_task_list_parses_plan_and_status() {
-    let parsed = Cli::try_parse_from([
-        "codeterm", "plan", "task", "list", "pl_1", "--status", "blocked",
-    ])
-    .expect("plan task list parses");
-    match parsed.command {
-        Commands::Plan {
-            action:
-                PlanAction::Task {
-                    action: crate::args::plan::PlanTaskAction::List { plan_id, status },
-                },
-        } => {
-            assert_eq!(plan_id.as_deref(), Some("pl_1"));
-            assert_eq!(status.as_deref(), Some("blocked"));
-        }
-        _ => panic!("expected plan task list"),
-    }
-}
-
-#[test]
-fn plan_in_progress_parses_plan_all_and_json() {
-    let parsed = Cli::try_parse_from(["codeterm", "plan", "in-progress", "pl_1"])
-        .expect("plan in-progress parses");
-    match parsed.command {
-        Commands::Plan {
-            action: PlanAction::InProgress { plan_id, all },
-        } => {
-            assert_eq!(plan_id.as_deref(), Some("pl_1"));
-            assert!(!all);
-        }
-        _ => panic!("expected plan in-progress"),
-    }
-
-    let parsed = Cli::try_parse_from(["codeterm", "--json", "plan", "in-progress", "--all"])
-        .expect("plan in-progress --all parses");
-    assert!(parsed.json);
-    match parsed.command {
-        Commands::Plan {
-            action: PlanAction::InProgress { plan_id, all },
-        } => {
-            assert_eq!(plan_id.as_deref(), None);
-            assert!(all);
-        }
-        _ => panic!("expected plan in-progress --all"),
-    }
-
-    let err = Cli::try_parse_from(["codeterm", "plan", "in-progress", "pl_1", "--all"]);
-    assert!(err.is_err(), "plan id and --all are mutually exclusive");
-}
-
-#[test]
-fn plan_task_add_parses_quality_fields() {
-    let parsed = Cli::try_parse_from([
-        "codeterm",
-        "plan",
-        "task",
-        "add",
-        "pl_1",
-        "--name",
-        "Quality lane",
-        "--criterion",
-        "criteria persist",
-        "--criterion",
-        "task show surfaces them",
-        "--test-plan",
-        "cargo test service::plan::tests::task_quality_fields_persist_and_reload",
-        "--correctness",
-        "round-trip unchanged",
-    ])
-    .expect("plan task add parses quality fields");
-    match parsed.command {
-        Commands::Plan {
-            action:
-                PlanAction::Task {
-                    action:
-                        crate::args::plan::PlanTaskAction::Add {
-                            criterion,
-                            test_plan,
-                            correctness,
-                            ..
-                        },
-                },
-        } => {
-            assert_eq!(
-                criterion,
-                vec!["criteria persist", "task show surfaces them"]
-            );
-            assert_eq!(
-                test_plan.as_deref(),
-                Some("cargo test service::plan::tests::task_quality_fields_persist_and_reload")
-            );
-            assert_eq!(correctness.as_deref(), Some("round-trip unchanged"));
-        }
-        _ => panic!("expected plan task add"),
-    }
-}
-
-#[test]
-fn plan_get_parses_sections_lookup() {
-    let parsed = Cli::try_parse_from(["codeterm", "plan", "get", "pl_1", "--sections"])
-        .expect("plan get --sections parses");
-    match parsed.command {
-        Commands::Plan {
-            action: PlanAction::Get { plan_id, sections },
-        } => {
-            assert_eq!(plan_id.as_deref(), Some("pl_1"));
-            assert!(sections);
-        }
-        _ => panic!("expected plan get"),
-    }
-}
-
-#[test]
-fn orchestrator_heartbeat_commands_parse() {
-    let parsed = Cli::try_parse_from([
-        "codeterm",
-        "orchestrator",
-        "learn",
-        "resolve heartbeat at send time",
-        "--plan",
-        "pl_1",
-        "--tag",
-        "heartbeat",
-    ])
-    .expect("orchestrator learn parses");
-    match parsed.command {
-        Commands::Orchestrator {
-            action: crate::args::orchestrator::OrchestratorAction::Learn { text, plan, tag },
-        } => {
-            assert_eq!(text, "resolve heartbeat at send time");
-            assert_eq!(plan.as_deref(), Some("pl_1"));
-            assert_eq!(tag.as_deref(), Some("heartbeat"));
-        }
-        _ => panic!("expected orchestrator learn"),
-    }
-
-    let parsed = Cli::try_parse_from([
-        "codeterm",
-        "orchestrator",
-        "heartbeat",
-        "show",
-        "--plan",
-        "pl_1",
-    ])
-    .expect("orchestrator heartbeat show parses");
-    match parsed.command {
-        Commands::Orchestrator {
-            action:
-                crate::args::orchestrator::OrchestratorAction::Heartbeat {
-                    action: crate::args::orchestrator::OrchestratorHeartbeatAction::Show { plan },
-                },
-        } => assert_eq!(plan.as_deref(), Some("pl_1")),
-        _ => panic!("expected orchestrator heartbeat show"),
-    }
-}
-
-#[test]
-fn plan_goal_subcommands_parse() {
-    let parsed = Cli::try_parse_from([
-        "codeterm",
-        "plan",
-        "goal",
-        "set",
-        "pl_1",
-        "--vector",
-        "Ship foundation",
-        "--vision-file",
-        "goal.md",
-        "--constraint",
-        "backend only",
-        "--postulate",
-        "reread plan",
-    ])
-    .expect("plan goal set parses");
-    match parsed.command {
-        Commands::Plan {
-            action:
-                PlanAction::Goal {
-                    action:
-                        crate::args::plan::PlanGoalAction::Set {
-                            plan_id,
-                            vector,
-                            vision_file,
-                            constraint,
-                            postulate,
-                            ..
-                        },
-                },
-        } => {
-            assert_eq!(plan_id, "pl_1");
-            assert_eq!(vector, "Ship foundation");
-            assert_eq!(vision_file.as_deref(), Some("goal.md"));
-            assert_eq!(constraint, vec!["backend only"]);
-            assert_eq!(postulate, vec!["reread plan"]);
-        }
-        _ => panic!("expected plan goal set"),
-    }
-
-    let parsed =
-        Cli::try_parse_from(["codeterm", "plan", "goal", "show", "pl_1"]).expect("show parses");
-    assert!(matches!(
-        parsed.command,
-        Commands::Plan {
-            action:
-                PlanAction::Goal {
-                    action: crate::args::plan::PlanGoalAction::Show { plan_id },
-                },
-        } if plan_id == "pl_1"
-    ));
-
-    let parsed =
-        Cli::try_parse_from(["codeterm", "plan", "goal", "get", "pl_1"]).expect("get parses");
-    assert!(matches!(
-        parsed.command,
-        Commands::Plan {
-            action:
-                PlanAction::Goal {
-                    action: crate::args::plan::PlanGoalAction::Get { plan_id },
-                },
-        } if plan_id == "pl_1"
-    ));
-}
-
-#[test]
-fn plan_facets_set_parses() {
-    let parsed = Cli::try_parse_from([
-        "codeterm",
-        "plan",
-        "facets",
-        "set",
-        "pl_1",
-        "--facets",
-        r#"[{"key":"area","color_lane":true,"values":[{"v":"api"}]}]"#,
-    ])
-    .expect("plan facets set parses");
-    match parsed.command {
-        Commands::Plan {
-            action:
-                PlanAction::Facets {
-                    action: crate::args::plan::PlanFacetsAction::Set { plan_id, facets },
-                },
-        } => {
-            assert_eq!(plan_id, "pl_1");
-            assert!(facets.contains(r#""key":"area""#));
-        }
-        _ => panic!("expected plan facets set"),
-    }
-}
-
-#[test]
-fn plan_handoff_subcommands_parse() {
-    let parsed = Cli::try_parse_from([
-        "codeterm",
-        "plan",
-        "handoff",
-        "create",
-        "pl_1",
-        "--mode",
-        "new",
-        "--task",
-        "backend",
-        "--goal",
-        "Resume backend handoff",
-        "--next",
-        "run handoff show",
-        "--rule",
-        "never reseed parent",
-        "--decision",
-        "choose ack source",
-        "--from-file",
-        "handoff.md",
-    ])
-    .expect("plan handoff create parses");
-    match parsed.command {
-        Commands::Plan {
-            action:
-                PlanAction::Handoff {
-                    action:
-                        PlanHandoffAction::Create {
-                            plan_id,
-                            mode,
-                            task,
-                            goal,
-                            next_actions,
-                            foundational_rules,
-                            open_decisions,
-                            from_file,
-                            stdin,
-                        },
-                },
-        } => {
-            assert_eq!(plan_id, "pl_1");
-            assert_eq!(mode, "new");
-            assert_eq!(task.as_deref(), Some("backend"));
-            assert_eq!(goal.as_deref(), Some("Resume backend handoff"));
-            assert_eq!(next_actions, vec!["run handoff show"]);
-            assert_eq!(foundational_rules, vec!["never reseed parent"]);
-            assert_eq!(open_decisions, vec!["choose ack source"]);
-            assert_eq!(from_file.as_deref(), Some("handoff.md"));
-            assert!(!stdin);
-        }
-        _ => panic!("expected plan handoff create"),
-    }
-
-    let parsed = Cli::try_parse_from([
-        "codeterm",
-        "plan",
-        "handoff",
-        "show",
-        "pl_1",
-        "--seq",
-        "3",
-        "--markdown",
-    ])
-    .expect("plan handoff show parses with seq");
-    assert!(matches!(
-        parsed.command,
-        Commands::Plan {
-            action:
-                PlanAction::Handoff {
-                    action:
-                        PlanHandoffAction::Show {
-                            plan_id,
-                            seq,
-                            markdown: true,
-                            ..
-                        },
-                },
-        } if plan_id == "pl_1" && seq.as_deref() == Some("3")
-    ));
-
-    let parsed = Cli::try_parse_from([
-        "codeterm",
-        "plan",
-        "handoff",
-        "show",
-        "pl_1",
-        "--latest",
-        "--markdown",
-    ])
-    .expect("plan handoff show parses");
-    assert!(matches!(
-        parsed.command,
-        Commands::Plan {
-            action:
-                PlanAction::Handoff {
-                    action:
-                        PlanHandoffAction::Show {
-                            plan_id,
-                            latest: true,
-                            markdown: true,
-                            seq: None,
-                            ..
-                        },
-                },
-        } if plan_id == "pl_1"
-    ));
-
-    let parsed = Cli::try_parse_from(["codeterm", "plan", "handoff", "list", "pl_1"])
-        .expect("plan handoff list parses");
-    assert!(matches!(
-        parsed.command,
-        Commands::Plan {
-            action:
-                PlanAction::Handoff {
-                    action: PlanHandoffAction::List { plan_id },
-                },
-        } if plan_id == "pl_1"
-    ));
-}
+mod plan;
 
 #[test]
 fn orchestrator_handoff_reseed_dry_run_parses() {
-    let parsed = Cli::try_parse_from([
-        "codeterm",
+    let parsed = OrchestratorOnly::try_parse_from([
         "orchestrator",
         "handoff",
         "--plan",
@@ -745,19 +218,16 @@ fn orchestrator_handoff_reseed_dry_run_parses() {
         "resume from latest handoff",
     ])
     .expect("orchestrator handoff parses");
-    match parsed.command {
-        Commands::Orchestrator {
-            action:
-                OrchestratorAction::Handoff {
-                    plan,
-                    task,
-                    pane,
-                    reseed,
-                    dry_run,
-                    mode,
-                    next_actions,
-                    ..
-                },
+    match parsed.action {
+        OrchestratorAction::Handoff {
+            plan,
+            task,
+            pane,
+            reseed,
+            dry_run,
+            mode,
+            next_actions,
+            ..
         } => {
             assert_eq!(plan.as_deref(), Some("pl_1"));
             assert_eq!(task.as_deref(), Some("task_1"));
@@ -774,8 +244,7 @@ fn orchestrator_handoff_reseed_dry_run_parses() {
 #[test]
 fn pane_new_chat_backend_parses() {
     // entry point that opens a plugin-driven chat pane.
-    let parsed = Cli::try_parse_from([
-        "codeterm",
+    let parsed = PaneOnly::try_parse_from([
         "pane",
         "new",
         "--chat-backend",
@@ -784,14 +253,11 @@ fn pane_new_chat_backend_parses() {
         r#"{"model":"llama"}"#,
     ])
     .expect("pane new --chat-backend parses");
-    match parsed.command {
-        Commands::Pane {
-            action:
-                PaneAction::New {
-                    chat_backend,
-                    config,
-                    ..
-                },
+    match parsed.action {
+        PaneAction::New {
+            chat_backend,
+            config,
+            ..
         } => {
             assert_eq!(chat_backend.as_deref(), Some("local-shell"));
             assert_eq!(config.as_deref(), Some(r#"{"model":"llama"}"#));
@@ -802,48 +268,32 @@ fn pane_new_chat_backend_parses() {
 
 #[test]
 fn pane_new_without_chat_backend_defaults_to_none() {
-    let parsed = Cli::try_parse_from(["codeterm", "pane", "new"]).expect("plain pane new parses");
-    match parsed.command {
-        Commands::Pane {
-            action: PaneAction::New { chat_backend, .. },
-        } => assert!(chat_backend.is_none()),
+    let parsed = PaneOnly::try_parse_from(["pane", "new"]).expect("plain pane new parses");
+    match parsed.action {
+        PaneAction::New { chat_backend, .. } => assert!(chat_backend.is_none()),
         _ => panic!("expected pane new"),
     }
 }
 
 #[test]
 fn send_stdin_without_positional_parses() {
-    let parsed = Cli::try_parse_from(["codeterm", "send", "--stdin", "--pane", "abc123"])
+    let parsed = SendOnly::try_parse_from(["send", "--stdin", "--pane", "abc123"])
         .expect("send --stdin parses");
-    assert!(matches!(
-        parsed.command,
-        Commands::SendText {
-            text: None,
-            stdin: true,
-            ..
-        }
-    ));
+    assert!(parsed.text.is_none());
+    assert!(parsed.stdin);
 }
 
 #[test]
 fn send_actions_without_text_parses() {
-    let parsed =
-        Cli::try_parse_from(["codeterm", "send", "--actions", "enter", "--pane", "abc123"])
-            .expect("send --actions parses");
-    assert!(matches!(
-        parsed.command,
-        Commands::SendText {
-            text: None,
-            actions: Some(ref v),
-            ..
-        } if v == "enter"
-    ));
+    let parsed = SendOnly::try_parse_from(["send", "--actions", "enter", "--pane", "abc123"])
+        .expect("send --actions parses");
+    assert!(parsed.text.is_none());
+    assert_eq!(parsed.actions.as_deref(), Some("enter"));
 }
 
 #[test]
 fn send_actions_conflicts_with_delay() {
-    let parsed = Cli::try_parse_from([
-        "codeterm",
+    let parsed = SendOnly::try_parse_from([
         "send",
         "--actions",
         "enter",
@@ -857,51 +307,36 @@ fn send_actions_conflicts_with_delay() {
 
 #[test]
 fn agent_message_parses_immediate_targeted_message() {
-    let parsed = Cli::try_parse_from([
-        "codeterm",
-        "agent",
-        "message",
-        "check status",
-        "--pane",
-        "abc123",
-    ])
-    .expect("agent message parses");
+    let parsed =
+        AgentOnly::try_parse_from(["agent", "message", "check status", "--pane", "abc123"])
+            .expect("agent message parses");
     assert!(matches!(
-        parsed.command,
-        Commands::Agent {
-            action: AgentAction::Message {
-                text: Some(ref text),
-                ref pane,
-                from_file: None,
-                stdin: false,
-            },
+        parsed.action,
+        AgentAction::Message {
+            text: Some(ref text),
+            ref pane,
+            from_file: None,
+            stdin: false,
         } if text == "check status" && pane == "abc123"
     ));
 }
 
 #[test]
 fn agent_message_requires_target_pane() {
-    let parsed = Cli::try_parse_from(["codeterm", "agent", "message", "check status"]);
+    let parsed = AgentOnly::try_parse_from(["agent", "message", "check status"]);
     assert!(parsed.is_err());
 }
 
 #[test]
 fn send_delay_parses() {
-    let parsed = Cli::try_parse_from(["codeterm", "send", "--delay", "10m", "hello"])
-        .expect("send --delay parses");
-    assert!(matches!(
-        parsed.command,
-        Commands::SendText {
-            delay: Some(ref v),
-            ..
-        } if v == "10m"
-    ));
+    let parsed =
+        SendOnly::try_parse_from(["send", "--delay", "10m", "hello"]).expect("send --delay parses");
+    assert_eq!(parsed.delay.as_deref(), Some("10m"));
 }
 
 #[test]
 fn send_delay_conflicts_with_at() {
-    match Cli::try_parse_from([
-        "codeterm",
+    match SendOnly::try_parse_from([
         "send",
         "--delay",
         "10m",
@@ -916,22 +351,20 @@ fn send_delay_conflicts_with_at() {
 
 #[test]
 fn delayed_create_parses() {
-    let parsed = Cli::try_parse_from(["codeterm", "delayed", "create", "--delay", "5m", "hello"])
+    let parsed = DelayedOnly::try_parse_from(["delayed", "create", "--delay", "5m", "hello"])
         .expect("delayed create parses");
     assert!(matches!(
-        parsed.command,
-        Commands::Delayed {
-            action: DelayedAction::Create {
-                delay: Some(ref v),
-                ..
-            }
+        parsed.action,
+        DelayedAction::Create {
+            delay: Some(ref v),
+            ..
         } if v == "5m"
     ));
 }
 
 #[test]
 fn send_stdin_conflicts_with_positional_text() {
-    match Cli::try_parse_from(["codeterm", "send", "--stdin", "hello"]) {
+    match SendOnly::try_parse_from(["send", "--stdin", "hello"]) {
         Ok(_) => panic!("--stdin and positional text must conflict"),
         Err(err) => assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict),
     }
