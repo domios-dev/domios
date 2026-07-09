@@ -1,35 +1,7 @@
 /**
- * Gate: opencode db-fallback detects session and shows ASSISTANT replies without any hook.
- *
- * Bug being fixed:
- *   agent_session_id stayed null for opencode panes when the session-binding hook didn't
- *   fire. `maybe_detect_agent_session` was gated by `!p.has_hooks()` which excluded opencode
- *   (has_hooks=true), so disk/db detection never ran → structured chat never started →
- *   user messages appeared (optimistic) but assistant replies never rendered.
- *
- * Fix:
- *   Gate is now `!p.has_hooks() || p.uses_structured_chat()`. Opencode satisfies the
- *   second clause (sqlite-backed structured chat), so detection runs as a fallback even
- *   when hooks are present. Claude/codex are NOT affected: they have hooks AND
- *   uses_structured_chat()=false → gate stays false → unchanged behaviour.
- *
- * RED (without fix): needs=false for opencode → session stays null → test times out at
- *   the agent_session_id polling step.
- * GREEN (after fix): needs=true → detectSessionId queries opencode.db → finds fresh session
- *   → binds → structured chat starts → assistant replies visible.
- *
- * Scenario:
- *   1. Pre-insert a FRESH session (time_created = now) into opencode.db so it is within
- *      the detection max_age window (~30s for a freshly spawned pane).
- *   2. Spawn opencode with `--session <new-id>`. The hook does NOT fire (test never calls
- *      the hook endpoint). agent_session_id starts null.
- *   3. TUI output arrives as opencode starts. maybe_detect_agent_session runs, calls
- *      detectSessionId → finds the fresh session → sets agent_session_id.
- *   4. Enable chat-view and assert the pre-inserted assistant reply renders.
- *
- * macOS web-mode (no opencode needed for basic CI, skips when DB absent):
- *   npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=golden -g "opencode"
+ * WHAT: opencode assistant replies covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 16-chat-view.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { execSync, spawnSync } from "child_process";
 import { existsSync } from "fs";
@@ -98,6 +70,7 @@ test(
     try {
       let boundSessionId: string | null = null;
       for (let i = 0; i < 30; i++) {
+        // PW_JUSTIFIED_SLEEP: fixed 1_000ms sampling/settle window; no app event exists for this probe.
         await ui.page.waitForTimeout(1_000);
         const panes = await api.get<{ id: string; agent_session_id?: string }[]>("/panes");
         const pane = panes.find((p) => p.id === paneId);

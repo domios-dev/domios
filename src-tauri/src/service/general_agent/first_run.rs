@@ -332,4 +332,102 @@ mod tests {
             "real pane must survive purge"
         );
     }
+
+    // ── Tests moved from multiplexer::state::snapshot::tests ─────────────
+
+    #[test]
+    fn ghost_repro_restore_from_old_snapshot_drops_picker_pane() {
+        use crate::session::store::{
+            SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
+        };
+
+        let old_snapshot = SessionSnapshot {
+            version: "test".into(),
+            timestamp: 0,
+            active_workspace_id: Some("ws".into()),
+            workspaces: vec![WorkspaceSnapshot {
+                id: "ws".into(),
+                name: "Welcome".into(),
+                active_tab_id: Some("tab-picker".into()),
+                cwd: None,
+                protected: false,
+                sort_order: 0,
+                tabs: vec![TabSnapshot {
+                    id: "tab-picker".into(),
+                    title: "Get started".into(),
+                    description: Some(FIRST_RUN_PANE_MARKER.into()),
+                    split_tree: SplitNodeSnapshot::Leaf {
+                        pane_id: "pane-picker".into(),
+                        cwd: None,
+                        title: Some("Get started".into()),
+                        description: Some(FIRST_RUN_PANE_MARKER.into()),
+                        title_level: Some("User".into()),
+                        agent_type: None,
+                        agent_type_locked: false,
+                        claude_session_id: None,
+                        role: None,
+                        role_profile: None,
+                        parent_pane_id: None,
+                        spawned_by_pane_id: None,
+                        report_target_pane_id: None,
+                        report_target_mesh_peer: None,
+                        can_spawn: false,
+                        depth: 0,
+                        chat_view: Some(false),
+                        auto_approve: false,
+                        agent_session_model: None,
+                        chatbackend_plugin_id: None,
+                        chatbackend_session_id: None,
+                        watcher: None,
+                    },
+                    sort_order: 0,
+                }],
+            }],
+        };
+
+        let mut restored = MultiplexerState::from_session_snapshot(&old_snapshot);
+        assert!(
+            restored.get_pane("pane-picker").is_some(),
+            "pre-purge: picker pane must be present in restored state"
+        );
+        assert_eq!(
+            restored.get_workspace("ws").map(|w| w.tabs.len()),
+            Some(1),
+            "pre-purge: workspace must have the ghost tab"
+        );
+
+        let dropped = purge_snapshot_ghosts(&mut restored);
+        assert_eq!(dropped, 1, "purge must drop exactly one ghost tab");
+
+        assert!(
+            restored.get_pane("pane-picker").is_none(),
+            "post-purge: picker pane must be absent"
+        );
+        assert_eq!(
+            restored.get_workspace("ws").map(|w| w.tabs.len()),
+            Some(0),
+            "post-purge: workspace must have no tabs"
+        );
+        let closed = restored.list_recently_closed("ws");
+        assert!(
+            !closed.is_empty(),
+            "dropped ghost tab must appear in Recently Closed"
+        );
+    }
+
+    #[test]
+    fn ghost_repro_first_run_picker_excluded_from_snapshot() {
+        let mut state = MultiplexerState::empty();
+        ensure_first_run_tab(&mut state);
+
+        assert!(!state.list_workspaces().is_empty());
+        assert!(!state.list_workspaces()[0].pane_ids.is_empty());
+
+        let snap = state.to_session_snapshot();
+        assert_eq!(
+            snap.workspaces[0].tabs.len(),
+            0,
+            "first-run picker pane must be excluded from the session snapshot"
+        );
+    }
 }

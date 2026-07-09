@@ -27,6 +27,7 @@ export { matchedOptimisticEchoes, type OptimisticEcho } from "./dedupe";
 export { mergeTimelineMessages } from "./timeline";
 export { mergeById } from "./merge";
 export { attachToolResults, isRenderableChatMessage } from "./toolResults";
+export { buildToolPreview, type ToolPreview } from "./toolPreview";
 export { lastSessionResetIndex, trimAfterSessionReset } from "./sessionReset";
 export {
   MARKER_OPEN,
@@ -43,5 +44,13 @@ export {
   markReport,
   markHook,
   markSystemPrompt,
+  markContextRequest,
+  markWatcherVerdict,
   type ParsedMarker,
 } from "./markers";
+export {
+  parseWatcherVerdictContent,
+  type ParsedWatcherVerdict,
+  type WatcherVerdictAction,
+  type WatcherVerdictStatus,
+} from "./watcherVerdict";

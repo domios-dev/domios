@@ -1,9 +1,0 @@
----
-plan_id: pl_dd93d764e1b94293b5e943af71dfdb5b
-kind: milestone
-id: ms_72facebc8a90462988b7255425ba9acd
-handle: branch-lane-lifecycle-standard-canonical-doc-naming-enforcement-stale-sw-ms_72facebc8a90462988b7255425ba9acd
-title: decision
----
-
-QA-FIXER MODE (round-88, Andrey via Orchestrator — companion to 'fix-loop lives where the repro lives'): a QA lane that has ALREADY ISOLATED the cause may switch modes from reporter to fixer when the fix is local to its own failing gate — amend the lane branch, push, rerun its OWN gate, report the final verdict — instead of bouncing a diagnosed one-liner back through the orchestrator. This is a MODE SWITCH on the same machine, not a new lane: the QA pane operates as a real CodeTerm worker with visible lane/task binding (never ad-hoc chat). CONSTRAINTS, unchanged and explicit: one heavy gate per physical machine (QA-fixer reruns the gate it already owns — nothing new spawns); no cherry-picks (amend/commit on the lane branch, merge-only flow); branch/task binding visible (its fixes are lane commits, attributable); orchestrator retains final accept/merge — QA-fixer's green is evidence, not acceptance. SCOPE BOUNDARY (keeps the mode honest): QA may fix what its gate DIAGNOSED (fixture drift, missing manifest regeneration, fmt, a test asserting stale copy, an isolated one-line defect its trace pinpoints); anything requiring design judgment or touching code beyond the diagnosed failure goes back through the normal bounce — QA-fixer is a shortcut for MECHANICAL closure of an isolated diagnosis, not a second implementation lane. The lifecycle doc gets both rules as one subsection: 'Where fixes happen: the fix-loop lives where the repro lives; a QA gate that isolated the cause may close it in place.'

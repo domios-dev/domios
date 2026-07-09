@@ -119,6 +119,8 @@ export function TabContent({
           usageProvider={usageProvider}
           usageVisible={usageVisible}
           api={api}
+          isWatcherPane={pane.watcher != null}
+          watcherLastStatus={pane.watcher?.last_status ?? null}
         />
         <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>
           {body}

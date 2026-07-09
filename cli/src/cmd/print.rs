@@ -1,8 +1,58 @@
+const ENTITY_ID_FIELDS: &[&str] = &[
+    "id",
+    "task_id",
+    "plan_id",
+    "spec_id",
+    "section_id",
+    "spec_section_id",
+    "plan_section_id",
+    "element_id",
+    "milestone_id",
+    "stride_id",
+    "loop_id",
+    "pane_id",
+    "workspace_id",
+    "service_id",
+    "run_id",
+    "attachment_id",
+];
+
+pub fn uniform_id_value(value: &serde_json::Value) -> serde_json::Value {
+    let mut out = value.clone();
+    add_uniform_id_alias(&mut out);
+    out
+}
+
+pub fn print_json(value: &serde_json::Value) {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&uniform_id_value(value)).unwrap()
+    );
+}
+
+fn add_uniform_id_alias(value: &mut serde_json::Value) {
+    let Some(obj) = value.as_object_mut() else {
+        return;
+    };
+    if obj.get("id").and_then(|v| v.as_str()).is_some() {
+        return;
+    }
+    let Some(id) = ENTITY_ID_FIELDS.iter().find_map(|field| {
+        obj.get(*field)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    }) else {
+        return;
+    };
+    obj.insert("id".into(), serde_json::Value::String(id));
+}
+
 pub fn handle_result(json: bool, result: Result<serde_json::Value, String>) {
     match result {
         Ok(value) => {
             if json {
-                println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                print_json(&value);
             } else {
                 print_human(&value);
             }
@@ -166,5 +216,36 @@ pub fn print_taxonomy(value: &serde_json::Value) {
                 println!("  {:<13} {}", k, n);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn uniform_id_alias_preserves_existing_id() {
+        let out = uniform_id_value(&json!({ "id": "canonical", "task_id": "task_1" }));
+        assert_eq!(out.get("id").and_then(|v| v.as_str()), Some("canonical"));
+    }
+
+    #[test]
+    fn uniform_id_alias_adds_top_level_id_for_plan_create() {
+        let out = uniform_id_value(&json!({ "plan_id": "plan_1", "title": "Plan" }));
+        assert_eq!(out.get("id").and_then(|v| v.as_str()), Some("plan_1"));
+        assert_eq!(out.get("plan_id").and_then(|v| v.as_str()), Some("plan_1"));
+    }
+
+    #[test]
+    fn uniform_id_alias_adds_top_level_id_for_task_add() {
+        let out = uniform_id_value(&json!({ "plan_id": "plan_1", "task_id": "task_1" }));
+        assert_eq!(out.get("id").and_then(|v| v.as_str()), Some("task_1"));
+    }
+
+    #[test]
+    fn uniform_id_alias_adds_top_level_id_for_agent_spawn() {
+        let out = uniform_id_value(&json!({ "pane_id": "pane_1", "agent": "codex" }));
+        assert_eq!(out.get("id").and_then(|v| v.as_str()), Some("pane_1"));
     }
 }

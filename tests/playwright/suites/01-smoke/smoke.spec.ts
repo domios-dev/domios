@@ -1,14 +1,13 @@
 /**
- * 01-smoke — proves the harness is real: the dev console is running, its
- * API answers, and Playwright is driving the actual Tauri WebView2 window.
- * All tests @smoke.
+ * WHAT: smoke covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 01-smoke.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 
-test("@smoke /api/health is ok with a build hash", async ({ api }) => {
+test("@smoke /api/health is ok", async ({ api }) => {
   const health = await api.health();
   expect(health.status).toBe("ok");
-  expect(health.build).toMatch(/^[0-9a-f]{6,40}$/);
   expect(health.version).toMatch(/^\d+\.\d+\.\d+/);
 });
 

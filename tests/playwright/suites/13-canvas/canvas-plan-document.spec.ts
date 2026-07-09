@@ -1,14 +1,7 @@
 /**
- * 13-canvas — PLAN-AS-DOCUMENT (north-star #1).
- *
- * A plan SectionNode must read like a real document: at W2/W3 each section's full
- * markdown body is visible in a node-internal scroll column (nothing clipped), and
- * each section shows spec-reference bubbles naming the spec section(s) it derives
- * from — clicking one flies to that spec section. Far bands (W0/W1) stay the big
- * glance. Verified against the synthetic multi-section rich-body fixture.
- *
- *   npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=golden -g @canvas-plan-document --retries=0 --workers=1
+ * WHAT: canvas plan document covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
@@ -42,6 +35,7 @@ async function reachPlanWorld(page: Page, target: string, scales: number[]): Pro
   let band = await planWorld(page);
   for (const s of scales) {
     await setCanvasScaleOn(page, PLAN_SEL, s);
+    // PW_JUSTIFIED_SLEEP: fixed 220ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(220);
     band = await planWorld(page);
     if (band === target) break;
@@ -73,10 +67,12 @@ test("@golden @canvas-plan-document plan section reads as a document with spec b
   await expect(page.locator(PLAN_SEL).first()).toBeVisible({ timeout: 30_000 });
 
   await setCanvasScale(page, 0.12);
+  // PW_JUSTIFIED_SLEEP: fixed 250ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(250);
   const w0 = await planWorld(page);
   const farFile = await shot(page, "plan-doc-W0");
   await setCanvasScale(page, 0.5);
+  // PW_JUSTIFIED_SLEEP: fixed 250ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(250);
   const w1 = await planWorld(page);
   await shot(page, "plan-doc-W1");
@@ -115,6 +111,7 @@ test("@golden @canvas-plan-document plan section reads as a document with spec b
   expect(overflows, `zero overflow on plan/task cards: ${JSON.stringify(overflows)}`).toEqual([]);
 
   await firstBubble.evaluate((el) => (el as HTMLElement).click());
+  // PW_JUSTIFIED_SLEEP: fixed 2200ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(2200);
   await shot(page, "plan-doc-spec-arrival");
   const specCount = await page.locator('[data-testid="canvas-spec-node"]').count();
@@ -147,6 +144,7 @@ test("@golden @canvas-plan-document 20k-task perf: smooth zoom, overlay budget b
   const sweep = async () => {
     for (const s of [0.4, 1.0, 2.2, 4.0, 1.0]) {
       await setCanvasScaleOn(page, PLAN_SEL, s);
+      // PW_JUSTIFIED_SLEEP: fixed 120ms sampling/settle window; no app event exists for this probe.
       await page.waitForTimeout(120);
     }
   };

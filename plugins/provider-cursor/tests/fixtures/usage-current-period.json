@@ -1,9 +1,15 @@
 {
   "planUsage": {
-    "includedSpend": 1250.5,
+    "totalSpend": 18856,
+    "includedSpend": 2000,
+    "bonusSpend": 16856,
     "limit": 2000,
-    "remaining": 749.5,
-    "totalSpend": 1250.5
+    "remainingBonus": false,
+    "autoPercentUsed": 100,
+    "apiPercentUsed": 84.8444,
+    "totalPercentUsed": 96.6974
   },
-  "billingCycleStart": "1780272000000"
+  "billingCycleStart": "1781881493000",
+  "billingCycleEnd": "1784473493000",
+  "displayMessage": "You've hit your usage limit"
 }

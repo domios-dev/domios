@@ -1,0 +1,130 @@
+/**
+ * WHAT: visual-regression protects the key plan surfaces with screenshot goldens.
+ * WHY: These baselines replace manual visual review for the board/list/canvas/sidebar/detail surfaces.
+ * ORACLE: Seeded fixtures, fixed viewport, web-mode Chromium, and tight screenshot diffs catch layout drift.
+ */
+import type { Locator } from "@playwright/test";
+import { expect, test, type Page } from "../../helpers/fixtures";
+import type { ApiClient } from "../../helpers/api-client";
+import { openSidebarIfNeeded, setCanvasScale, waitForVisiblePlanCanvas } from "../../helpers/canvas-inspect";
+import { seedWorldStateAndOpenInlineCanvas, worldStates, type SeededCanvasWorld } from "../../fixtures/world-states";
+
+const VIEWPORT = { width: 1280, height: 800 };
+const DIFF = { maxDiffPixels: 180 };
+
+async function prepareWorld(api: ApiClient, webBrowser: Parameters<typeof seedWorldStateAndOpenInlineCanvas>[0]) {
+  const canvas = await seedWorldStateAndOpenInlineCanvas(webBrowser, api, worldStates.planWithKnownTasks);
+  await canvas.page.setViewportSize(VIEWPORT);
+  await stabilize(canvas.page);
+  return canvas;
+}
+
+async function stabilize(page: Page): Promise<void> {
+  await page.addStyleTag({
+    content: `
+      *, *::before, *::after {
+        animation-duration: 0s !important;
+        animation-delay: 0s !important;
+        transition-duration: 0s !important;
+        transition-delay: 0s !important;
+        caret-color: transparent !important;
+      }
+    `,
+  });
+  await page.evaluate(() => document.fonts?.ready).catch(() => {});
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+}
+
+async function expectGolden(locator: Locator, name: string): Promise<void> {
+  await expect(locator).toHaveScreenshot(`${name}.png`, {
+    ...DIFF,
+    animations: "disabled",
+  });
+}
+
+async function switchMode(page: Page, mode: "board" | "list" | "canvas"): Promise<void> {
+  const shell = page.locator('[data-testid="plan-view-shell"]').first();
+  await expect(shell).toBeVisible({ timeout: 30_000 });
+  await shell.locator('[data-testid="plan-view-mode-switch"]').getByRole("tab", { name: new RegExp(mode, "i") }).click();
+  await expect(shell).toHaveAttribute("data-plan-view-mode", mode);
+  await stabilize(page);
+}
+
+async function close(canvas: SeededCanvasWorld): Promise<void> {
+  await canvas.close().catch(() => {});
+}
+
+test("@golden @visual-regression board seeded plan matches golden", async ({ api, webBrowser }) => {
+  test.setTimeout(120_000);
+  const canvas = await prepareWorld(api as ApiClient, webBrowser);
+  try {
+    const { page } = canvas;
+    await switchMode(page, "board");
+    await expect(page.locator('[data-testid="plan-board-task-card"]').first()).toBeVisible({ timeout: 20_000 });
+    await expectGolden(page.locator('[data-testid="plan-view-shell"]').first(), "plan-board-seeded");
+  } finally {
+    await close(canvas);
+  }
+});
+
+test("@golden @visual-regression list seeded plan matches golden", async ({ api, webBrowser }) => {
+  test.setTimeout(120_000);
+  const canvas = await prepareWorld(api as ApiClient, webBrowser);
+  try {
+    const { page } = canvas;
+    await switchMode(page, "list");
+    await expect(page.locator('[data-testid="plan-list-task"]').first()).toBeVisible({ timeout: 20_000 });
+    await expectGolden(page.locator('[data-testid="plan-list-view"]').first(), "plan-list-seeded");
+  } finally {
+    await close(canvas);
+  }
+});
+
+test("@golden @visual-regression canvas fit zoom matches golden", async ({ api, webBrowser }) => {
+  test.setTimeout(120_000);
+  const canvas = await prepareWorld(api as ApiClient, webBrowser);
+  try {
+    const { page } = canvas;
+    await switchMode(page, "canvas");
+    await waitForVisiblePlanCanvas(page);
+    await expect(page.locator('[data-testid="mission-control-live"]').first()).toBeVisible({ timeout: 20_000 });
+    await setCanvasScale(page, 0.78);
+    await stabilize(page);
+    await expectGolden(page.locator('[data-testid="mission-control-live"]').first(), "plan-canvas-fit-zoom");
+  } finally {
+    await close(canvas);
+  }
+});
+
+test("@golden @visual-regression sidebar seeded pair tree matches golden", async ({ api, webBrowser }) => {
+  test.setTimeout(120_000);
+  const canvas = await seedWorldStateAndOpenInlineCanvas(webBrowser, api as ApiClient, worldStates.paneTreeWithStatuses);
+  try {
+    const { page } = canvas;
+    await page.setViewportSize(VIEWPORT);
+    await stabilize(page);
+    await openSidebarIfNeeded(page);
+    await expect(page.locator('[data-testid="workspace-item"]').first()).toBeVisible({ timeout: 20_000 });
+    await expectGolden(page.locator('[data-testid="sidebar"], aside, nav').first(), "sidebar-seeded-pair-tree");
+  } finally {
+    await close(canvas);
+  }
+});
+
+test("@golden @visual-regression task detail matches golden", async ({ api, webBrowser }) => {
+  test.setTimeout(120_000);
+  const canvas = await prepareWorld(api as ApiClient, webBrowser);
+  try {
+    const { page } = canvas;
+    await switchMode(page, "board");
+    const firstCard = page.locator('[data-testid="plan-board-task-card"]').first();
+    await expect(firstCard).toBeVisible({ timeout: 20_000 });
+    await firstCard.click();
+    const panel = page.locator('[data-testid="plan-detail-panel"]').first();
+    await expect(panel).toBeVisible({ timeout: 10_000 });
+    await stabilize(page);
+    await expectGolden(panel, "task-detail-seeded");
+  } finally {
+    await close(canvas);
+  }
+});

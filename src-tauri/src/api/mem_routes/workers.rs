@@ -239,7 +239,7 @@ pub async fn workers_log(
                 .lock()
                 .get_full_text(&pty_id)
                 .unwrap_or_default();
-            let clean = crate::pty::ansi::clean_terminal_output_sized(&output, 500, 120);
+            let clean = codeterm_util::terminal::clean_terminal_output_sized(&output, 500, 120);
             return Ok((
                 StatusCode::OK,
                 [(

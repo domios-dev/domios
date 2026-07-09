@@ -92,7 +92,7 @@ test("seeded group (orch + planner + 2 workers) renders both section headers, pl
     <Group
       panes={[
         pane({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
-        pane({ id: "planner", title: "Planner", role: "Worker", role_profile: "planner" }),
+        pane({ id: "planner", title: "Planner", role: "Manager", role_profile: "planner" }),
         pane({ id: "w1", title: "Worker A", role: "Worker" }),
         pane({ id: "w2", title: "Worker B", role: "Worker" }),
       ]}
@@ -118,23 +118,23 @@ test("seeded group (orch + planner + 2 workers) renders both section headers, pl
   await act(async () => root.unmount());
 });
 
-test("one-planner group drops the MANAGERS header (single section, one member) but keeps the row", async () => {
+test("one-planner group keeps the MANAGERS header (non-empty section always labeled)", async () => {
   const { host, root } = await render(
     <Group
       panes={[
         pane({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
-        pane({ id: "planner", title: "Kepler", role: "Worker", role_profile: "planner" }),
+        pane({ id: "planner", title: "Kepler", role: "Manager", role_profile: "planner" }),
       ]}
     />,
   );
-  assert(!host.querySelector('[data-testid="group-section-managers"]'), "no MANAGERS header for a lone planner");
+  assert(host.querySelector('[data-testid="group-section-managers"]'), "MANAGERS header for a lone planner");
   assert(!host.querySelector('[data-testid="group-section-workers"]'), "no Workers header when no workers");
   // The planner row itself still renders, bare, inside the manager wrap.
   assert(host.querySelector('[data-group-section-wrap="manager"] [data-row="planner"]'), "planner row still present");
   await act(async () => root.unmount());
 });
 
-test("lone worker (no planner) drops the WORKERS header but keeps the row", async () => {
+test("lone worker (no planner) keeps the WORKERS header (non-empty section always labeled)", async () => {
   const { host, root } = await render(
     <Group
       panes={[
@@ -144,7 +144,7 @@ test("lone worker (no planner) drops the WORKERS header but keeps the row", asyn
     />,
   );
   assert(!host.querySelector('[data-testid="group-section-managers"]'), "no Managers header when no managers");
-  assert(!host.querySelector('[data-testid="group-section-workers"]'), "no WORKERS header for a lone worker");
+  assert(host.querySelector('[data-testid="group-section-workers"]'), "WORKERS header for a lone worker");
   assert(host.querySelector('[data-group-section-wrap="worker"] [data-row="w1"]'), "worker row still present");
   await act(async () => root.unmount());
 });
@@ -168,7 +168,7 @@ test("headers RETURN when a section disambiguates: >1 worker, or both sections p
     <Group
       panes={[
         pane({ id: "orch", title: "Orchestrator", role: "Orchestrator" }),
-        pane({ id: "planner", title: "Kepler", role: "Worker", role_profile: "planner" }),
+        pane({ id: "planner", title: "Kepler", role: "Manager", role_profile: "planner" }),
         pane({ id: "w1", title: "Worker A", role: "Worker" }),
       ]}
     />,

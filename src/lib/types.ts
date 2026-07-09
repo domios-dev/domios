@@ -57,7 +57,7 @@ export interface Tab {
   sort_order?: number;
 }
 
-export type AgentRole = "Orchestrator" | "Worker";
+export type AgentRole = "Orchestrator" | "Manager" | "Worker";
 
 export interface PromptOption {
   label: string;
@@ -84,6 +84,25 @@ export interface PendingPrompt {
 export type PaneBacking =
   | { kind: "pty" }
   | { kind: "chat_backend"; plugin_id: string; session_id: string };
+
+/** Tunable watcher limits set by the spawner; host clamps to safe bounds. */
+export interface WatcherPolicy {
+  tick_interval_secs: number;
+  nudge_cooldown_secs: number;
+  max_actions_per_tick: number;
+}
+
+/** Persisted watcher session state on a chatBackend pane. Mirrors Rust `WatcherSpec`. */
+export interface WatcherSpec {
+  charter: string;
+  policy: WatcherPolicy;
+  observations?: unknown;
+  state?: unknown;
+  tick?: number;
+  last_tick_ms?: number | null;
+  last_status?: string | null;
+  tick_inflight_since_ms?: number | null;
+}
 
 /** Backend-computed live agent state. Mirrors the Rust `AgentLiveState` serde
  *  shape; `subtype` only carries meaning when `state === "question"`. */
@@ -168,6 +187,8 @@ export interface Pane {
    *  present in a session snapshot — it exists purely so the picker can render
    *  as a tab until the user confirms and a real pane is materialized. */
   virtual?: boolean;
+  /** Machine+watcher chatBackend session — read-only pane with tick-driven inputs. */
+  watcher?: WatcherSpec | null;
 }
 
 export interface MultiplexerState {
@@ -466,6 +487,22 @@ export interface MeshConfig {
   broadcast_duration_secs: number;
 }
 
+// Mirrors `src-tauri/src/config/schema/mod.rs` OrchestrationConfig / IdlePokeConfig.
+export interface IdlePokeConfig {
+  enabled: boolean;
+  idle_threshold_secs: number;
+  live_lane_cap: number;
+  max_per_day: number;
+  backoff_base_secs: number;
+}
+
+export interface OrchestrationConfig {
+  plan_reminders: boolean;
+  nudge_after_turns: number;
+  nudge_interval_secs: number;
+  idle_poke: IdlePokeConfig;
+}
+
 export interface MeshStatus {
   enabled: boolean;
   instance_id: string;
@@ -584,6 +621,7 @@ export interface AppConfig {
   memory: MemoryConfig;
   integrations: IntegrationsConfig;
   mesh: MeshConfig;
+  orchestration: OrchestrationConfig;
   ui?: UiConfig;
 }
 
@@ -718,6 +756,9 @@ export interface ProviderDescriptor {
   /// with the selected ModelInfo id. Missing means the provider does not
   /// support arg-based live model switching.
   model_switch_format?: string | null;
+  /// Provider-declared in-agent context-compaction command. Consumed
+  /// capability-keyed by the orchestrator refresh cycle. Missing = no compact.
+  compact_command?: string | null;
 }
 
 /** Input for `createOrchestrationPair` — camelCase for ergonomic call sites;

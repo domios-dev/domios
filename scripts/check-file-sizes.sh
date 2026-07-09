@@ -1,19 +1,13 @@
 #!/usr/bin/env bash
 # Source-file size discipline check.
 #
-# Walks the tree and flags files >1000 lines among .rs / .ts / .tsx / .py / .swift.
-# Existing oversized files are listed in scripts/file-size-allowlist.txt and
-# treated as graceful-deprecation: must shrink, not grow. New files always
-# fail unless they're under the limit.
+# Walks the tree and flags files >1200 lines among .rs / .ts / .tsx / .py / .swift.
+# There is NO allowlist: a file over the limit is a bug to fix by splitting, not
+# to baseline away. Every code file stays under the limit, no exceptions.
 #
 # Modes:
-#   --warn  (default)  Print violations, exit 0. Used while we drain the
-#                      backlog so CI doesn't break on legacy files.
-#   --fail             Exit 1 on:
-#                        * any file NOT in allowlist that exceeds the limit
-#                        * any file IN allowlist that grew past its baseline
-#                          (the allowlist locks each file's max line count;
-#                          additions push the count up only via removals).
+#   --warn  (default)  Print violations, exit 0.
+#   --fail             Exit 1 if any file exceeds the limit.
 #
 # Usage:
 #   scripts/check-file-sizes.sh
@@ -21,10 +15,9 @@
 
 set -euo pipefail
 
-LIMIT=1000
+LIMIT=1200
 MOD_RS_LIMIT=800                                                 # mod.rs target — facade + light glue, heavy logic moves out
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ALLOWLIST="$ROOT/scripts/file-size-allowlist.txt"
 MODE="${1:-warn}"
 case "$MODE" in
     --warn|warn) MODE=warn ;;
@@ -34,55 +27,24 @@ esac
 
 # Include-list: only these extensions count as "source files" for the discipline.
 # Data, configs, lockfiles, generated bindings are explicitly out of scope.
-# Listed here for documentation; the actual filter uses POSIX-portable
-# `-name` alternation in the find call below so BSD find (macOS) and GNU
-# find (Linux/CI) both work — `-regextype` is GNU-only and silently scans
-# zero files on macOS.
+# The filter uses POSIX-portable `-name` alternation in the find call below so
+# BSD find (macOS) and GNU find (Linux/CI) both work — `-regextype` is GNU-only
+# and silently scans zero files on macOS.
 
-# Path-based exclusions for build artifacts, vendored sources, generated code.
-EXCLUDE_PATHS='(/target/|/node_modules/|/dist/|/build/|/gen/|/references/|/vendor/|/pty-fork/|/\.git/)'
+# Build artifacts, vendored sources, generated code are pruned by dir name in
+# the find below (see the traversal at the end of the loop).
 
-# Read the allowlist into parallel arrays: path -> baseline line count.
-# Lines starting with # are comments; blank lines ignored. Strip trailing \r
-# so CRLF-checked-out allowlists on Windows still parse to integers
-# (otherwise `[ "$lines" -gt "$baseline" ]` aborts with
-#  `integer expression expected` because baseline carries a \r).
-ALLOW_PATHS=()
-ALLOW_BASELINES=()
-allow_count=0
-if [ -f "$ALLOWLIST" ]; then
-    while IFS=$'\t' read -r path baseline; do
-        path="${path%$'\r'}"
-        baseline="${baseline%$'\r'}"
-        [ -z "${path:-}" ] && continue
-        case "$path" in '#'*) continue ;; esac
-        ALLOW_PATHS+=("$path")
-        ALLOW_BASELINES+=("$baseline")
-        allow_count=$((allow_count + 1))
-    done < "$ALLOWLIST"
-fi
-
-allowlist_baseline() {
-    lookup="$1"
-    i=0
-    while [ "$i" -lt "${#ALLOW_PATHS[@]}" ]; do
-        if [ "${ALLOW_PATHS[$i]}" = "$lookup" ]; then
-            printf '%s\n' "${ALLOW_BASELINES[$i]}"
-            return 0
-        fi
-        i=$((i + 1))
-    done
-    return 1
-}
-
-new_violations=()       # files NOT in allowlist that exceed LIMIT
-regressions=()          # files IN allowlist that grew past their baseline
+violations=()           # files exceeding LIMIT
 mod_rs_violations=()    # mod.rs files over MOD_RS_LIMIT (advisory, always warn)
 
-while IFS= read -r file; do
+# Count all files in ONE batched `wc -l` pass — per-file wc+tr subprocess spawns
+# over 1000+ source files dominated the runtime. `wc -l <many>` prints
+# "<count> <path>" per line plus a trailing "total"; read count+path directly.
+while read -r lines file; do
+    [ "$file" = "total" ] && continue
+    [ -z "${file:-}" ] && continue
     rel="${file#$ROOT/}"
     rel="${rel#./}"
-    lines="$(wc -l < "$file" | tr -d ' ')"
 
     # mod.rs has a tighter target — flag separately, doesn't fail in either mode
     case "$rel" in *'/mod.rs'|'mod.rs')
@@ -91,51 +53,34 @@ while IFS= read -r file; do
         fi
     esac
 
-    if [ "$lines" -le "$LIMIT" ]; then
-        # Allowlist entries that are now under LIMIT should be removed from the
-        # allowlist — flag for cleanup (warning only, never fails).
-        if allowlist_baseline "$rel" >/dev/null; then
-            echo "info: $rel ($lines lines) is now under $LIMIT — remove from allowlist"
-        fi
-        continue
-    fi
-
-    if baseline="$(allowlist_baseline "$rel")"; then
-        if [ "$lines" -gt "$baseline" ]; then
-            regressions+=("${rel}|${lines}|${baseline}")
-        fi
-    else
-        new_violations+=("${rel}|${lines}")
+    if [ "$lines" -gt "$LIMIT" ]; then
+        violations+=("${rel}|${lines}")
     fi
 done < <(
-    find "$ROOT" -type f \( \
+    # Prune excluded dirs by name DURING traversal (don't walk target/ — it can
+    # be tens of GB), then a single batched wc -l over the survivors.
+    find "$ROOT" \( -type d \( \
+        -name target -o -name node_modules -o -name dist -o -name build -o \
+        -name gen -o -name references -o -name vendor -o -name pty-fork -o \
+        -name .git -o -name .claude \
+    \) -prune \) -o \( -type f \( \
         -name '*.rs' -o \
         -name '*.ts' -o \
         -name '*.tsx' -o \
         -name '*.py' -o \
         -name '*.swift' \
-    \) | grep -Ev "$EXCLUDE_PATHS"
+    \) -print0 \) | xargs -0 wc -l 2>/dev/null
 )
 
 # Reporting
 exit_code=0
 
-if [ ${#new_violations[@]} -gt 0 ]; then
+if [ ${#violations[@]} -gt 0 ]; then
     echo
-    echo "❌ NEW or non-allowlisted files exceeding $LIMIT lines:"
-    for entry in "${new_violations[@]}"; do
+    echo "❌ files exceeding $LIMIT lines — split them, do not baseline:"
+    for entry in "${violations[@]}"; do
         IFS='|' read -r p l <<< "$entry"
         printf '  %5d  %s\n' "$l" "$p"
-    done
-    [ "$MODE" = fail ] && exit_code=1
-fi
-
-if [ ${#regressions[@]} -gt 0 ]; then
-    echo
-    echo "❌ Allowlisted files that GREW past their baseline (must shrink, not grow):"
-    for entry in "${regressions[@]}"; do
-        IFS='|' read -r p l b <<< "$entry"
-        printf '  %5d  %s  (baseline %d, +%d)\n' "$l" "$p" "$b" "$((l-b))"
     done
     [ "$MODE" = fail ] && exit_code=1
 fi
@@ -149,8 +94,8 @@ if [ ${#mod_rs_violations[@]} -gt 0 ]; then
     done
 fi
 
-if [ ${#new_violations[@]} -eq 0 ] && [ ${#regressions[@]} -eq 0 ]; then
-    echo "✅ file-size discipline: ${allow_count} allowlisted, no new violations, no regressions"
+if [ ${#violations[@]} -eq 0 ]; then
+    echo "✅ file-size discipline: no files over $LIMIT lines"
 fi
 
 exit $exit_code

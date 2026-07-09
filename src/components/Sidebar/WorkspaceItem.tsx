@@ -9,7 +9,6 @@ import { FolderIcon, ShieldCheckIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import type { PaneStatus, Workspace } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
-import { TabStatusRail } from "./TabStatusRail";
 
 interface WorkspaceItemProps {
   workspace: Workspace;
@@ -39,7 +38,7 @@ function WorkspaceItemInner({
   onNewTerminal,
   onNewAgent,
   canClose: _canClose,
-  status,
+  status: _status,
   hasWaiting,
   touchMode = false,
   uiFontScale,
@@ -122,7 +121,6 @@ function WorkspaceItemInner({
         ${hasWaiting ? "bg-[var(--ct-yellow)]/10" : ""}
       `}
     >
-      <TabStatusRail status={status} attention={hasWaiting || status === "Waiting"} />
       <div className={`flex items-center min-w-0 ${touchMode ? "gap-2" : "gap-1"}`}>
         {/* Chevron toggle — rotates on expand/collapse */}
         <button

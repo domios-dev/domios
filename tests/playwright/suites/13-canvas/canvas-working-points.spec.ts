@@ -1,16 +1,7 @@
 /**
- * 13-canvas — WORKING POINTS deep-read (north-star #2).
- *
- * Strides (working points) inside a task must be (1) DISTINGUISHABLE at W1/W2 —
- * each bead is kind-colored and NAMED by its kind, not an indistinct dot; (2) a
- * DEEP-READ at W3 — beads bloom into full stride cards carrying the stride text +
- * provenance (author/time/iteration/loop) in a node-internal scroll; and (3) free
- * of CALLOUT OVERLAP at any bead density (column-parity zigzag keeps same-side
- * neighbours 2·pitch apart, wider than the 1.7·pitch callout). Verified live on
- * the perf fixture.
- *
- *   npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=golden -g @canvas-working-points --retries=0 --workers=1
+ * WHAT: canvas working points covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
@@ -54,6 +45,7 @@ async function reachTaskWorld(page: Page, id: string, target: string, scales: nu
   let band = await taskWorld(page, id);
   for (const s of scales) {
     await setCanvasScaleOnTask(page, id, s);
+    // PW_JUSTIFIED_SLEEP: fixed 200ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(200);
     band = await taskWorld(page, id);
     if (band === target) break;

@@ -23,6 +23,16 @@ fn build_orchestrator_with_worker(worker_title: &str) -> (MultiplexerState, Stri
     (mux, orch, worker)
 }
 
+fn build_orchestrator_with_manager(manager_title: &str) -> (MultiplexerState, String, String) {
+    let (mut mux, orch) = MultiplexerState::new();
+    let manager = mux.create_pane();
+    mux.set_pane_role(&manager, AgentRole::Manager, Some(&orch))
+        .expect("attach manager to orchestrator");
+    mux.rename_pane(&manager, manager_title)
+        .expect("rename manager pane");
+    (mux, orch, manager)
+}
+
 #[test]
 fn worker_report_is_listed_by_orchestrator() {
     let (mux, orch, worker) = build_orchestrator_with_worker("Worker-1");
@@ -451,6 +461,20 @@ fn dead_worker_without_report_routes_synthetic_to_parent() {
 }
 
 #[test]
+fn dead_manager_without_report_uses_manager_label() {
+    let (mux, orch, manager) = build_orchestrator_with_manager("Manager-Dead");
+    let store = ReportStore::new(100);
+
+    let (target, msg) = worker_death_report(&mux, &store, &manager)
+        .expect("dead unreported manager must synthesize a report");
+    assert_eq!(target, orch, "synthetic dead-report routes to the parent");
+    assert_eq!(
+        msg,
+        format!("MANAGER {} EXITED without reporting (dead)", manager)
+    );
+}
+
+#[test]
 fn dead_worker_that_already_reported_gets_no_synthetic() {
     let (mux, orch, worker) = build_orchestrator_with_worker("Worker-Reported");
     let mut store = ReportStore::new(100);
@@ -487,9 +511,13 @@ fn dead_worker_routes_via_spawned_by_when_no_parent() {
     }
     let store = ReportStore::new(100);
 
-    let (target, _msg) =
+    let (target, msg) =
         worker_death_report(&mux, &store, &worker).expect("spawned_by gives a target");
     assert_eq!(target, spawner);
+    assert_eq!(
+        msg,
+        format!("WORKER {} EXITED without reporting (dead)", worker)
+    );
 }
 
 // ── Report message format ── submit_report builds the notify body without a trailing CR — Enter is sent as a separate delayed raw write by send_text's bracket-paste path.

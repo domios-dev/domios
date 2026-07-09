@@ -4,6 +4,11 @@ version = "1.6.2"
 edition = "2021"
 default-run = "codeterm"
 
+[workspace]
+members = [".", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin"]
+exclude = ["pty-fork"]
+resolver = "2"
+
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "test"] }
 # Embedded JavaScript runtime for plugin code (provider TS bundles run
@@ -23,6 +28,14 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 uuid = { version = "1", features = ["v4", "serde"] }
+codeterm-types = { path = "crates/codeterm-types" }
+codeterm-util = { path = "crates/codeterm-util" }
+codeterm-mesh = { path = "crates/codeterm-mesh" }
+codeterm-mem = { path = "crates/codeterm-mem", features = ["embeddings"] }
+codeterm-plan = { path = "crates/codeterm-plan" }
+codeterm-bridge = { path = "crates/codeterm-bridge" }
+codeterm-pty = { path = "crates/codeterm-pty" }
+codeterm-plugin = { path = "crates/codeterm-plugin" }
 log = "0.4"
 fern = "0.7"
 parking_lot = "0.12"
@@ -115,6 +128,8 @@ mockito = "1"
 filetime = "0.2.29"
 tower = "0.5"
 vt100 = "0.16"
+# Enables PlanStore::new_for_test + TestSearchPort in the app's test build only.
+codeterm-plan = { path = "crates/codeterm-plan", features = ["test-support"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -123,6 +138,10 @@ sha2 = "0.10"
 [lib]
 name = "codeterm_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[test]]
+name = "main"
+path = "tests/main.rs"
 
 # Deterministic mem-recall bench runner. Reuses the `mem` module from the
 # lib crate directly (no tokio background tasks, no LLM, no embeddings
@@ -153,3 +172,9 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
+
+# One-off legacy plan.json → store_v2 yaml migration (T7). Deep-compare gate;
+# never deletes on mismatch. Rehearse on a project copy with --dry-run first.
+[[bin]]
+name = "convert-plan-storage"
+path = "../scripts/convert-plan-storage.rs"

@@ -1,6 +1,7 @@
 import { invoke } from "../../lib/bridge";
 import type { Pane, PaneStatus, Tab } from "../../lib/types";
 import type { Plan } from "../Canvas/types";
+import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import type { PaneTabActivity } from "../Canvas/paneTabActivity";
 import { resolvePlanPeerPair } from "../shared/PairAffordance";
 import { SortableRow, TAB_PREFIX } from "./sortable";
@@ -36,6 +37,8 @@ export interface SidebarTabItemRowProps {
   pane: Pane | null;
   paneIds: string[];
   activity: PaneTabActivity | null;
+  activeWork?: ActiveWorkSnapshot | null;
+  reportCount?: number;
   isClosing: boolean;
   isAppearing: boolean;
   workspaceId: string;
@@ -47,7 +50,7 @@ export interface SidebarTabItemRowProps {
   orchestrators: Pane[];
   touchMode: boolean;
   uiFontScale?: number;
-  collapsible?: boolean;
+  groupCollapsible?: boolean;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   collapsedSummary?: string | null;
@@ -62,6 +65,8 @@ function SidebarTabItemRow({
   pane,
   paneIds,
   activity,
+  activeWork = null,
+  reportCount = 0,
   isClosing,
   isAppearing,
   workspaceId,
@@ -73,7 +78,7 @@ function SidebarTabItemRow({
   orchestrators,
   touchMode,
   uiFontScale,
-  collapsible,
+  groupCollapsible,
   collapsed,
   onToggleCollapse,
   collapsedSummary,
@@ -106,7 +111,9 @@ function SidebarTabItemRow({
       touchMode={touchMode}
       uiFontScale={uiFontScale}
       activity={activity}
-      collapsible={collapsible}
+      activeWork={activeWork}
+      reportCount={reportCount}
+      groupCollapsible={groupCollapsible}
       collapsed={collapsed}
       onToggleCollapse={onToggleCollapse}
       collapsedSummary={collapsedSummary}

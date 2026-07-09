@@ -356,6 +356,9 @@ function PluginRow({
       data-plugin-id={entry.id}
       data-plugin-installed={entry.installed ? "true" : "false"}
       data-plugin-update-available={entry.updateAvailable ? "true" : "false"}
+      data-plugin-version={entry.version ?? ""}
+      data-plugin-channel={entry.channel ?? ""}
+      data-plugin-verified={entry.verified ? "true" : "false"}
       tabIndex={0}
       onClick={onSelect}
       onKeyDown={(e) => {

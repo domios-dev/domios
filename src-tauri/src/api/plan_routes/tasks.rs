@@ -16,12 +16,11 @@ use super::{
 };
 
 fn planner_role_for_pane(state: &AppState, pane_id: &str) -> Option<&'static str> {
-    state
-        .svc
-        .mux
-        .read()
-        .get_pane(pane_id)
-        .and_then(|pane| (pane.role_profile.as_deref() == Some("planner")).then_some("planner"))
+    state.svc.mux.read().get_pane(pane_id).and_then(|pane| {
+        (pane.role == Some(crate::multiplexer::types::AgentRole::Manager)
+            && pane.role_profile.as_deref() == Some("planner"))
+        .then_some("planner")
+    })
 }
 
 fn lane_update_field(body: &Value) -> Result<Option<TaskLaneUpdate>, String> {
@@ -90,6 +89,8 @@ pub(crate) struct TaskAddBody {
     role_guidance: Option<String>,
     #[serde(default)]
     executor_role: Option<String>,
+    #[serde(default)]
+    personality: Option<String>,
     #[serde(default)]
     competition: Option<TaskCompetitionMetadata>,
     #[serde(default)]
@@ -177,6 +178,7 @@ pub async fn task_add(
                 body: body.body.unwrap_or_default(),
                 role_guidance: body.role_guidance,
                 executor_role: body.executor_role,
+                personality: body.personality,
                 competition: body.competition,
                 intent: body.intent,
                 parent_task_id: body.parent,
@@ -274,6 +276,18 @@ pub async fn task_update(
                 &id,
                 &tid,
                 optional_string_field(&body, "role_guidance"),
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+    }
+    if body.get("personality").is_some() {
+        state
+            .svc
+            .plan_store
+            .update_task_personality(
+                &id,
+                &tid,
+                optional_string_field(&body, "personality"),
                 epoch_ms(),
             )
             .map_err(plan_err)?;

@@ -12,6 +12,7 @@ mod completions;
 mod cron;
 mod delayed_send;
 mod hooks;
+pub mod mux_commands;
 mod pane;
 pub(crate) mod plugins;
 mod pty;

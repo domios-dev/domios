@@ -5,7 +5,8 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 
 use super::probe::UsageProbe;
-use super::store::UsageStoreHandle;
+use super::store::{UsageFailureKind, UsageStoreHandle};
+use crate::agent::usage_parser::UsageParseOutcome;
 use crate::service::ServiceContext;
 
 const TICK_INTERVAL: Duration = Duration::from_secs(30);
@@ -315,11 +316,12 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
                 .svc
                 .agent_registry
                 .with_provider(&key.provider, |p| {
-                    p.usage_parser().map(|parser| parser.parse(&o.raw_text))
+                    p.usage_parser()
+                        .map(|parser| parser.parse_outcome(&o.raw_text))
                 })
                 .flatten();
             match parsed {
-                Some(Ok(mut snap)) => {
+                Some(Ok(UsageParseOutcome::Parsed(mut snap))) => {
                     snap.account_id = key.account_id.clone();
                     snap.provider = key.provider.clone();
                     match inner.store.insert_snapshot(&snap) {
@@ -334,38 +336,60 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
                         Err(e) => {
                             log::warn!("[usage.poller] db insert: {}", e);
                             on_failure(&inner, &key, "db_insert");
-                            let _ = inner.store.insert_failure(
+                            let _ = inner.store.insert_failure_kind(
                                 &key.provider,
                                 key.account_id.as_deref(),
                                 Some(&o.raw_text),
+                                UsageFailureKind::DbInsert,
                                 &format!("db: {}", e),
                                 probe_command.as_deref(),
                             );
                         }
                     }
                 }
-                Some(Err(e)) => {
-                    let msg = e.to_string();
-                    let _ = inner.store.insert_failure(
+                Some(Ok(UsageParseOutcome::Skip(reason))) => {
+                    let _ = inner.store.insert_failure_kind(
                         &key.provider,
                         key.account_id.as_deref(),
                         Some(&o.raw_text),
+                        UsageFailureKind::Skip,
+                        &reason,
+                        probe_command.as_deref(),
+                    );
+                    on_success(&inner, &key);
+                }
+                Some(Err(e)) => {
+                    let msg = e.to_string();
+                    let _ = inner.store.insert_failure_kind(
+                        &key.provider,
+                        key.account_id.as_deref(),
+                        Some(&o.raw_text),
+                        UsageFailureKind::ParseError,
                         &msg,
                         probe_command.as_deref(),
                     );
                     on_failure(&inner, &key, &msg);
                 }
                 None => {
+                    let _ = inner.store.insert_failure_kind(
+                        &key.provider,
+                        key.account_id.as_deref(),
+                        Some(&o.raw_text),
+                        UsageFailureKind::NoParser,
+                        "provider has no usage parser",
+                        probe_command.as_deref(),
+                    );
                     on_failure(&inner, &key, "no_parser");
                 }
             }
         }
         Err(e) => {
             let msg = e.to_string();
-            let _ = inner.store.insert_failure(
+            let _ = inner.store.insert_failure_kind(
                 &key.provider,
                 key.account_id.as_deref(),
                 None,
+                UsageFailureKind::Timeout,
                 &msg,
                 probe_command.as_deref(),
             );

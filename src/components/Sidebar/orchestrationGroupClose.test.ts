@@ -1,5 +1,7 @@
 // Run: npx tsx src/components/Sidebar/orchestrationGroupClose.test.ts
 
+import { countBySection } from "./orchestrationSections";
+import { buildHierarchySubtree } from "./HierarchyTree";
 import { collectOrchestrationGroupMembers } from "./orchestrationGroupClose";
 import type { Pane } from "../../lib/types";
 
@@ -21,7 +23,7 @@ function pane(id: string, overrides: Partial<Pane> = {}): Pane {
 test("collects the planner and workers under an orchestrator, but not siblings", () => {
   const panes: Record<string, Pane> = {
     orch: pane("orch", { role: "Orchestrator" }),
-    planner: pane("planner", { parent_pane_id: "orch", role: "Worker" }),
+    planner: pane("planner", { parent_pane_id: "orch", role: "Manager" }),
     worker1: pane("worker1", { parent_pane_id: "orch", role: "Worker" }),
     unrelated: pane("unrelated"),
   };
@@ -30,15 +32,35 @@ test("collects the planner and workers under an orchestrator, but not siblings",
   assertEqual(ids, ["planner", "worker1"], "only orch's own children");
 });
 
-test("recurses into grandchildren so nothing is left orphaned", () => {
+test("collects a valid manager and worker tree", () => {
   const panes: Record<string, Pane> = {
     orch: pane("orch", { role: "Orchestrator" }),
-    planner: pane("planner", { parent_pane_id: "orch", role: "Worker" }),
-    subworker: pane("subworker", { parent_pane_id: "planner", role: "Worker" }),
+    planner: pane("planner", { parent_pane_id: "orch", role: "Manager" }),
+    worker1: pane("worker1", { parent_pane_id: "orch", role: "Worker" }),
+    worker2: pane("worker2", { parent_pane_id: "orch", role: "Worker" }),
   };
   const members = collectOrchestrationGroupMembers("orch", panes);
   const ids = members.map((m) => m.paneId).sort();
-  assertEqual(ids, ["planner", "subworker"], "descendants at any depth are included");
+  assertEqual(ids, ["planner", "worker1", "worker2"], "valid direct children are included");
+});
+
+test("section counts match visible worker rows for a valid tree", () => {
+  const panes: Record<string, Pane> = {
+    orch: pane("orch", { role: "Orchestrator" }),
+    planner: pane("planner", { parent_pane_id: "orch", role: "Manager" }),
+    worker1: pane("worker1", { parent_pane_id: "orch", role: "Worker" }),
+    worker2: pane("worker2", { parent_pane_id: "orch", role: "Worker" }),
+  };
+  const managerPaneIds = new Set(
+    Object.values(panes)
+      .filter((p) => p.parent_pane_id === "orch" && p.role === "Manager")
+      .map((p) => p.id),
+  );
+  const workerRows = buildHierarchySubtree("orch", panes, {}, managerPaneIds);
+  const counts = countBySection(collectOrchestrationGroupMembers("orch", panes));
+  assertEqual(counts, { managers: 1, workers: 2 }, "section counts");
+  assertEqual(workerRows.map((n) => n.pane.id).sort(), ["worker1", "worker2"], "visible worker rows");
+  assertEqual(counts.workers, workerRows.length, "worker count matches rendered rows");
 });
 
 test("an orchestrator with no live children returns an empty list", () => {

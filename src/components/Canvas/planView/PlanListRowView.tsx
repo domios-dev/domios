@@ -8,6 +8,7 @@ import { DONE_COLUMN_COLLAPSED_LIMIT } from "./boardModel";
 import { usePlanTaskActivate } from "./planTaskInteraction";
 import { TaskExecutionBadges } from "./TaskExecutionBadges";
 import { WorkingOnRow } from "./WorkingOnRowView";
+import { TaskStatus } from "../types";
 
 const TASK_KINDS = new Set<PlanListRowKind>(["task", "subtask"]);
 const TASK_INDENT_STEP = 16;
@@ -98,6 +99,7 @@ export function PlanListRowView({
 
   const isTask = TASK_KINDS.has(row.kind);
   const isDoneTask = isTask && row.status === "done";
+  const isParkedTask = isTask && row.status === TaskStatus.Parked;
   const dotColor = row.status ? TASK_STATUS_COLORS[row.status] ?? "var(--ct-muted-fg)" : "var(--ct-muted-fg)";
   const executor = row.paneLabel ?? row.historicalExecutorSummary ?? "";
   const age = formatRelativeAge(row.activityTs, now ?? 0);
@@ -105,6 +107,9 @@ export function PlanListRowView({
   const chipTitle = onOpenBelonging
     ? `Open plan document for ${row.sectionTitle ?? "Unsectioned"}`
     : `Belongs to ${row.sectionTitle ?? "Unsectioned"}`;
+  const rowTitle = isParkedTask && row.parkReason
+    ? `Parked: ${row.parkReason}`
+    : row.focus || row.title;
 
   const activate = () => onOpenRow?.(row);
   const openBelonging = () => onOpenBelonging?.(row);
@@ -129,12 +134,12 @@ export function PlanListRowView({
       data-row-kind={row.kind}
       data-plan-id={row.planId}
       data-task-id={row.taskId}
-      className={`plan-list-row plan-task-selectable${isDoneTask ? " plan-list-row-done" : ""}`}
+      className={`plan-list-row plan-task-selectable${isDoneTask ? " plan-list-row-done" : ""}${isParkedTask ? " plan-list-row-parked" : ""}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onClick={onClick}
       onKeyDown={handleKeyDown}
-      title={row.focus || row.title}
+      title={rowTitle}
     >
       <span
         data-testid="plan-list-status-dot"
@@ -147,6 +152,15 @@ export function PlanListRowView({
           {row.title}
         </span>
         <TaskExecutionBadges loop={row.loopBadge} competition={row.competeBadge} />
+        {isParkedTask && (
+          <span
+            data-testid="plan-list-parked-chip"
+            className="plan-list-parked-chip"
+            title={rowTitle}
+          >
+            parked
+          </span>
+        )}
         <button
           type="button"
           data-testid="plan-list-belonging-chip"
