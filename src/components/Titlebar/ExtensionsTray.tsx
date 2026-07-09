@@ -5,11 +5,9 @@ import { PluginIcon } from "../Extensions/PluginIcon";
 import { GlancePopover, type GlanceAnchor } from "../Extensions/GlancePopover";
 import { derivePinned, selectExtension, type TrayPluginData } from "./extensionsTrayLogic";
 import { UI_TRAY_BTN, UI_TRAY_DIVIDER } from "../shared/design";
+import { ensurePluginSnapshot, usePluginSnapshotStore } from "../../lib/pluginSnapshotStore";
 
 type TrayPlugin = TrayPluginData;
-interface Snapshot {
-  plugins?: TrayPlugin[];
-}
 interface ConfigShape {
   plugins?: Record<string, { pinned?: boolean } | undefined>;
 }
@@ -19,27 +17,22 @@ interface OpenGlance {
   anchor: GlanceAnchor;
 }
 
-/**
- * Browser-style extensions tray: pinned plugins show as a row of their own icons
- * in a rounded capsule, with the puzzle button (open Extensions) at the end.
- * Clicking a pinned icon opens its glance popover (a quick peek); plugins without
- * a glance deep-link straight to their detail. The puzzle opens Extensions.
- */
 export function ExtensionsTray({ onOpen }: { onOpen: () => void }) {
+  const snapshotState = usePluginSnapshotStore();
   const [pinned, setPinned] = useState<TrayPlugin[]>([]);
   const [glance, setGlance] = useState<OpenGlance | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       const [snap, cfg] = await Promise.all([
-        invoke<Snapshot>("plugin_manager_snapshot"),
+        ensurePluginSnapshot({ background: snapshotState.lastSuccessfulSnapshot !== null }),
         invoke<ConfigShape>("get_config"),
       ]);
       setPinned(derivePinned(snap?.plugins ?? [], cfg?.plugins ?? {}));
     } catch {
       /* daemon not ready — leave tray empty */
     }
-  }, []);
+  }, [snapshotState.lastSuccessfulSnapshot]);
 
   useEffect(() => {
     void refresh();
@@ -50,9 +43,15 @@ export function ExtensionsTray({ onOpen }: { onOpen: () => void }) {
     return () => unlisten?.();
   }, [refresh]);
 
+  useEffect(() => {
+    const plugins = snapshotState.snapshot.plugins as TrayPlugin[];
+    invoke<ConfigShape>("get_config")
+      .then((cfg) => setPinned(derivePinned(plugins ?? [], cfg?.plugins ?? {})))
+      .catch(() => {});
+  }, [snapshotState.snapshot.plugins]);
+
   const open = useCallback((id: string | null) => selectExtension(id, onOpen), [onOpen]);
 
-  // Pinned icon → glance popover (if the plugin has one), else open its detail.
   const onPinnedClick = useCallback(
     (p: TrayPlugin, e: React.MouseEvent) => {
       if (!p.capabilities?.glance_view) {

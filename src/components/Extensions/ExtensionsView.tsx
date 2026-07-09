@@ -3,7 +3,7 @@
  * on the right). Catalog merge/filter logic lives in `pluginCatalog.ts` (pure, tested);
  * this owns state + side effects over `plugin_manager_snapshot` / `plugin_manager_action`.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { invoke } from "../../lib/bridge";
 import {
   buildCatalog,
@@ -15,23 +15,17 @@ import {
 import { PluginList } from "./PluginList";
 import { PluginDetailPanel, type ActionKind, type ActionOptions } from "./PluginDetailPanel";
 import { type AppConfigShape } from "./shared";
-import type { ChannelRecord, PluginSnapshot } from "./types";
+import type { ChannelRecord } from "./types";
 import type { AppConfig, PluginActivity } from "../../lib/types";
 import type { PluginActivityDisplayMap } from "../../lib/usePluginActivity";
 import { SELECT_EXTENSION_EVENT } from "../Titlebar/extensionsTrayLogic";
 import { Plus, RefreshCw } from "lucide-react";
-
-const EMPTY_SNAPSHOT: PluginSnapshot = { plugins: [], channels: [], diff: [], marketplace: [] };
-const CHANNEL_REFRESH_TTL = 60_000;
-
-function normalizeSnapshot(snap: PluginSnapshot | null | undefined): PluginSnapshot {
-  return {
-    plugins: snap?.plugins ?? [],
-    channels: snap?.channels ?? [],
-    diff: snap?.diff ?? [],
-    marketplace: snap?.marketplace ?? [],
-  };
-}
+import {
+  ensurePluginSnapshot,
+  invalidatePluginSnapshotStore,
+  runPluginSnapshotAction,
+  usePluginSnapshotStore,
+} from "../../lib/pluginSnapshotStore";
 
 function actionPayload(
   kind: ActionKind,
@@ -57,52 +51,35 @@ export function ExtensionsView({
   pluginActivities: Map<string, PluginActivity>;
   pluginActivityDisplayMap: PluginActivityDisplayMap;
 }) {
-  const [snapshot, setSnapshot] = useState<PluginSnapshot>(EMPTY_SNAPSHOT);
+  const snapshotState = usePluginSnapshotStore();
+  const snapshot = snapshotState.snapshot;
   const [config, setConfig] = useState<AppConfigShape | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<CatalogFilter>("all");
-  const [error, setError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
   const [addChannelOpen, setAddChannelOpen] = useState(false);
-  const lastChannelRefreshAt = useRef<number>(0);
 
-  const refresh = useCallback(async (refreshChannels = false) => {
-    if (refreshChannels) setBusy("refresh-channel");
+  const refreshConfig = useCallback(async () => {
     try {
-      const [snap, cfg] = await Promise.all([
-        refreshChannels
-          ? invoke<PluginSnapshot>("plugin_manager_action", { action: { kind: "refresh-channel" } })
-          : invoke<PluginSnapshot>("plugin_manager_snapshot"),
-        invoke<AppConfigShape>("get_config"),
-      ]);
-      if (refreshChannels) lastChannelRefreshAt.current = Date.now();
-      setSnapshot(normalizeSnapshot(snap));
+      const cfg = await invoke<AppConfigShape>("get_config");
       setConfig(cfg ?? {});
-      setError(null);
+      setLocalError(null);
     } catch (e) {
-      setError(refreshChannels ? `Couldn't refresh channels: ${String(e)}` : String(e));
-      if (refreshChannels) {
-        try {
-          const snap = await invoke<PluginSnapshot>("plugin_manager_snapshot");
-          setSnapshot(normalizeSnapshot(snap));
-        } catch {
-          // Keep the channel-refresh error visible.
-        }
-      }
-    } finally {
-      if (refreshChannels) setBusy(null);
+      setLocalError(String(e));
     }
   }, []);
 
   useEffect(() => {
     if (!visible) return;
-    const stale = Date.now() - lastChannelRefreshAt.current >= CHANNEL_REFRESH_TTL;
-    void refresh(stale);
-  }, [visible, refresh]);
+    void Promise.all([
+      ensurePluginSnapshot({ background: snapshotState.lastSuccessfulSnapshot !== null }),
+      refreshConfig(),
+    ]);
+  }, [visible, refreshConfig, snapshotState.lastSuccessfulSnapshot]);
 
-  // Deep-link: the titlebar tray dispatches this to jump straight to a plugin.
   useEffect(() => {
     const onSelect = (e: Event) => {
       const id = (e as CustomEvent<{ id: string | null }>).detail?.id ?? null;
@@ -130,9 +107,9 @@ export function ExtensionsView({
       plugins[pluginId] = { ...(plugins[pluginId] ?? {}), [key]: value };
       await invoke("update_config", { config: { ...cfg, plugins } });
       setConfig({ ...cfg, plugins });
-      setError(null);
+      setLocalError(null);
     } catch (e) {
-      setError(`Couldn't save ${pluginId} setting: ${String(e)}`);
+      setLocalError(`Couldn't save ${pluginId} setting: ${String(e)}`);
     }
   }, []);
 
@@ -145,24 +122,23 @@ export function ExtensionsView({
       plugins[id] = entry;
       await invoke("update_config", { config: { ...cfg, plugins } });
       setConfig({ ...cfg, plugins });
-      setError(null);
+      setLocalError(null);
     } catch (e) {
-      setError(`Couldn't pin ${id}: ${String(e)}`);
+      setLocalError(`Couldn't pin ${id}: ${String(e)}`);
     }
   }, []);
 
   const runAction = useCallback(
-    async (key: string, action: Record<string, unknown>): Promise<PluginSnapshot | null> => {
+    async (key: string, action: Record<string, unknown>): Promise<boolean> => {
       setBusy(key);
-      setError(null);
+      setLocalError(null);
       try {
-        const snap = await invoke<PluginSnapshot>("plugin_manager_action", { action });
-        const normalized = normalizeSnapshot(snap);
-        setSnapshot(normalized);
-        return normalized;
+        await runPluginSnapshotAction(action);
+        invalidatePluginSnapshotStore();
+        return true;
       } catch (e) {
-        setError(String(e));
-        return null;
+        setLocalError(String(e));
+        return false;
       } finally {
         setBusy(null);
       }
@@ -212,31 +188,39 @@ export function ExtensionsView({
       const trimmedName = name.trim();
       const trimmedUrl = url.trim();
       if (!trimmedName || !trimmedUrl) {
-        setError("Channel name and URL are required.");
+        setLocalError("Channel name and URL are required.");
         return false;
       }
       if (!/^[A-Za-z0-9._-]+$/.test(trimmedName)) {
-        setError("Channel name can use letters, numbers, dots, underscores, and hyphens.");
+        setLocalError("Channel name can use letters, numbers, dots, underscores, and hyphens.");
         return false;
       }
       if (!looksLikeChannelUrl(trimmedUrl)) {
-        setError("Channel URL must be a URL, local path, or git SSH address.");
+        setLocalError("Channel URL must be a URL, local path, or git SSH address.");
         return false;
       }
       const added = await runAction("add-channel", { kind: "add-channel", url: trimmedUrl, name: trimmedName });
       if (!added) return false;
+      setSelectedChannel(trimmedName);
       const refreshed = await runAction("refresh-channel", { kind: "refresh-channel", channel: trimmedName });
+      if (!refreshed) return false;
       setSelectedChannel(trimmedName);
       setAddChannelOpen(false);
-      if (!refreshed) return false;
       return true;
     },
     [runAction],
   );
 
+  const error = localError ?? snapshotState.error;
+
   return (
     <div className="h-full overflow-hidden" style={{ background: "var(--ct-bg)", color: "var(--ct-fg)" }} data-testid="extensions-view">
       <div style={{ display: "flex", flexDirection: "column", height: "100%", maxWidth: 1100, margin: "0 auto", padding: "24px 24px 0" }}>
+        {snapshotState.loading && (
+          <div data-testid="extensions-loading" style={{ fontSize: 12.5, color: "var(--ct-muted)", marginBottom: 12, flex: "none" }}>
+            Loading plugins…
+          </div>
+        )}
         {error && (
           <div
             role="alert"
@@ -246,29 +230,36 @@ export function ExtensionsView({
             {error}
           </div>
         )}
+        {snapshotState.refreshing && snapshotState.lastSuccessfulSnapshot && (
+          <div data-testid="extensions-stale-refresh" style={{ fontSize: 12, color: "var(--ct-muted)", marginBottom: 12, flex: "none" }}>
+            Refreshing cached plugins…
+          </div>
+        )}
 
         <div style={{ display: "flex", gap: 20, flex: 1, minHeight: 0 }}>
-          {/* Left column */}
           <div style={{ width: 320, flex: "none", display: "flex", flexDirection: "column", minHeight: 0 }} data-testid="extensions-sidebar">
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
               <button
                 data-testid="extensions-refresh"
                 title="Force refresh channels"
-                disabled={busy === "refresh-channel"}
+                disabled={busy === "refresh-channel" || snapshotState.refreshing}
                 onClick={() => {
-                  lastChannelRefreshAt.current = 0;
-                  void refresh(true);
+                  setBusy("refresh-channel");
+                  void runPluginSnapshotAction({ kind: "refresh-channel" })
+                    .then(() => invalidatePluginSnapshotStore())
+                    .catch((e) => setLocalError(`Couldn't refresh channels: ${String(e)}`))
+                    .finally(() => setBusy(null));
                 }}
                 style={{
                   background: "transparent",
                   border: "none",
-                  cursor: busy === "refresh-channel" ? "default" : "pointer",
+                  cursor: busy === "refresh-channel" || snapshotState.refreshing ? "default" : "pointer",
                   color: "var(--ct-muted)",
                   padding: 4,
                   borderRadius: 4,
                   display: "flex",
                   alignItems: "center",
-                  opacity: busy === "refresh-channel" ? 0.4 : 1,
+                  opacity: busy === "refresh-channel" || snapshotState.refreshing ? 0.4 : 1,
                 }}
               >
                 <RefreshCw size={13} />
@@ -297,7 +288,6 @@ export function ExtensionsView({
             </div>
           </div>
 
-          {/* Right pane */}
           <div style={{ flex: 1, minWidth: 0, overflowY: "auto", paddingBottom: 24, borderLeft: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.06))", paddingLeft: 20 }} data-testid="extensions-detail-pane">
             {filter === "channels" ? (
               <ChannelDetailPanel
@@ -321,14 +311,14 @@ export function ExtensionsView({
                   try {
                     await invoke("update_config", { config: next });
                     setConfig(next as unknown as AppConfigShape);
-                    setError(null);
+                    setLocalError(null);
                   } catch (e) {
-                    setError(`Couldn't save settings: ${String(e)}`);
+                    setLocalError(`Couldn't save settings: ${String(e)}`);
                   }
                 }}
                 onGone={() => {
                   setSelectedId(null);
-                  void refresh();
+                  void ensurePluginSnapshot({ force: true });
                 }}
               />
             ) : (
