@@ -6,6 +6,7 @@ import { WorkspacePlanEntry, WorkspacePlanTreeSlot } from "./WorkspacePlanEntry"
 import { canvasFocusStore } from "../Canvas/canvasFocusStore";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { Pane, Workspace } from "../../lib/types";
+import { workspacePlanTabId } from "./sidebarSelection";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -71,7 +72,12 @@ test("present → tab-row plan entry with plan title + task hint", async () => {
   const { host, root } = await render(slot([mkEntry()]));
   const btn = host.querySelector('[data-testid="workspace-plan-entry"]');
   assert(btn, "entry renders for a matching plan");
-  assert(btn.getAttribute("data-pinned") === "true", "entry is pinned, not a tab");
+  assert(btn.getAttribute("data-tab-id") === workspacePlanTabId(workspace.id), "entry has stable workspace plan tab id");
+  assert(btn.getAttribute("data-tab-kind") === "workspace-plan", "entry exposes plan tab kind");
+  assert(!btn.hasAttribute("role"), "entry does not create partial ARIA tab semantics");
+  assert(!btn.hasAttribute("aria-selected"), "entry does not create partial ARIA tab state");
+  assert(!btn.hasAttribute("aria-current"), "inactive entry is not current");
+  assert(!btn.hasAttribute("data-pinned"), "entry is no longer modeled as a pinned action");
   assert(btn.className.includes("sidebar-tab"), "uses tab row grammar");
   assert(btn.className.includes("sidebar-tab-plan"), "keeps distinct plan identity");
   assert(btn.getAttribute("data-active") === "false", "inactive until canvas opens");
@@ -88,10 +94,13 @@ test("present → tab-row plan entry with plan title + task hint", async () => {
 
 test("active plan entry sets data-active and shows selection pill", async () => {
   const { host, root } = await render(
-    <WorkspacePlanEntry entries={[mkEntry()]} isActive onClick={() => {}} />,
+    <WorkspacePlanEntry workspaceId={workspace.id} entries={[mkEntry()]} isActive onClick={() => {}} />,
   );
   const btn = host.querySelector('[data-testid="workspace-plan-entry"]');
   assert(btn?.getAttribute("data-active") === "true", "active state exposed for sidebar tests");
+  assert(btn?.getAttribute("data-tab-id") === "workspace-plan:ws-1", "active entry keeps the workspace plan tab id");
+  assert(!btn?.hasAttribute("aria-selected"), "active entry still avoids partial ARIA tab state");
+  assert(btn?.getAttribute("aria-current") === "page", "active entry exposes current workspace surface");
   assert(btn?.getAttribute("aria-pressed") === "true", "pressed for a11y");
   const pill = btn?.querySelector(".pointer-events-none.absolute");
   assert(pill, "active pill like session tabs");
@@ -100,7 +109,7 @@ test("active plan entry sets data-active and shows selection pill", async () => 
 
 test("in-flight badge renders when count is positive", async () => {
   const { host, root } = await render(
-    <WorkspacePlanEntry entries={[mkEntry()]} isActive={false} inflightCount={3} onClick={() => {}} />,
+    <WorkspacePlanEntry workspaceId={workspace.id} entries={[mkEntry()]} isActive={false} inflightCount={3} onClick={() => {}} />,
   );
   const badge = host.querySelector('[data-testid="sidebar-inflight-badge"]');
   assert(badge?.textContent === "3", "badge shows inflight count");
@@ -112,6 +121,7 @@ test("long plan title stays in a single truncated line", async () => {
     "Canvas rendering substrate — Figma-grade migration with extra words that should not shard";
   const { host, root } = await render(
     <WorkspacePlanEntry
+      workspaceId={workspace.id}
       entries={[mkEntry({ title: longTitle })]}
       isActive={false}
       onClick={() => {}}
@@ -180,13 +190,15 @@ test("no plans → renders nothing (graceful empty index)", async () => {
   await act(async () => root.unmount());
 });
 
-test("compact mode → glyph-only button, still pinned and clickable", async () => {
+test("compact mode → glyph-only tab button, still identified and clickable", async () => {
   const calls: number[] = [];
   const { host, root } = await render(
-    <WorkspacePlanEntry entries={[mkEntry()]} isActive={false} compact onClick={() => calls.push(1)} />,
+    <WorkspacePlanEntry workspaceId={workspace.id} entries={[mkEntry()]} isActive={false} compact onClick={() => calls.push(1)} />,
   );
   const btn = host.querySelector('[data-testid="workspace-plan-entry"]') as HTMLButtonElement;
   assert(btn?.className.includes("sidebar-workspace-plan-compact"), "compact variant");
+  assert(btn.getAttribute("data-tab-id") === workspacePlanTabId(workspace.id), "compact keeps stable plan tab id");
+  assert(!btn.hasAttribute("role"), "compact also avoids partial ARIA tab semantics");
   assert(btn.querySelector("svg"), "compact still shows the glyph");
   assert(!host.querySelector('[data-testid="workspace-plan-title"]'), "compact hides the title row");
   await act(async () => { btn.click(); });
