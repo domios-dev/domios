@@ -1,9 +1,7 @@
 /**
- * 02-multiplexer — workspace/pane lifecycle against the live dev console,
- * verified through BOTH the API and the rendered UI (CDP).
- *
- * Includes the #132 lesson as e2e: across 50 focus switches the projected
- * pane list must mark exactly one focused pane every single time.
+ * WHAT: multiplexer covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 02-multiplexer.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type PaneCleanup } from "../../helpers/fixtures";
 import { type ApiClient, type Pane } from "../../helpers/api-client";

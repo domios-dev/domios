@@ -32,6 +32,53 @@ fn emit_spec_changed(app: &AppHandle, spec_id: &str) {
     crate::api::events::emit_everywhere(app, "spec-changed", json!({ "spec_id": spec_id }));
 }
 
+fn bad_param(message: String) -> JsonRpcError {
+    JsonRpcError {
+        code: -32602,
+        message,
+        data: None,
+    }
+}
+
+/// Coverage edges for `spec.link.add`: an `edges` array of
+/// `{spec_section_id, plan_section_id}` objects, else the legacy single pair.
+fn spec_link_edges(params: &Option<Value>) -> Result<Vec<(String, String)>, JsonRpcError> {
+    if let Some(items) = params
+        .as_ref()
+        .and_then(|x| x.get("edges"))
+        .and_then(|v| v.as_array())
+    {
+        let mut edges = Vec::with_capacity(items.len());
+        for item in items {
+            let ss = item
+                .get("spec_section_id")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let ps = item
+                .get("plan_section_id")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            match (ss, ps) {
+                (Some(ss), Some(ps)) => edges.push((ss.to_string(), ps.to_string())),
+                _ => {
+                    return Err(bad_param(
+                        "each edge needs non-empty spec_section_id and plan_section_id".into(),
+                    ))
+                }
+            }
+        }
+        if edges.is_empty() {
+            return Err(bad_param("edges must not be empty".into()));
+        }
+        return Ok(edges);
+    }
+    let spec_section_id = get_string_param(params, "spec_section_id")?;
+    let plan_section_id = get_string_param(params, "plan_section_id")?;
+    Ok(vec![(spec_section_id, plan_section_id)])
+}
+
 fn tags_field(params: Option<&Value>) -> Vec<String> {
     params
         .and_then(|x| x.get("tags"))
@@ -97,6 +144,12 @@ pub(super) fn dispatch(
             }
             Ok(json!({ "specs": entries }))
         }
+        "spec.delete" => {
+            let id = super::plan_refs::resolve_spec(store, params)?;
+            store.delete_spec(&id, now).map_err(plan_rpc_err)?;
+            emit_spec_changed(app, &id);
+            Ok(json!({ "ok": true, "spec_id": id }))
+        }
         "spec.show" => {
             let id = super::plan_refs::resolve_spec(store, params)?;
             if p.and_then(|x| x.get("full")).and_then(|v| v.as_bool()) == Some(true) {
@@ -108,11 +161,6 @@ pub(super) fn dispatch(
                 .get_spec(&id)
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
             Ok(json!({ "spec": spec }))
-        }
-        "spec.files" => {
-            let id = super::plan_refs::resolve_spec(store, params)?;
-            let manifest = store.spec_file_manifest(&id).map_err(plan_rpc_err)?;
-            Ok(serde_json::to_value(manifest).unwrap_or_default())
         }
         "spec.section.add" => {
             let id = super::plan_refs::resolve_spec(store, params)?;
@@ -173,13 +221,35 @@ pub(super) fn dispatch(
         "spec.link.add" => {
             let plan_id = super::plan_refs::resolve_plan(store, params)?;
             let spec_id = super::plan_refs::resolve_spec(store, params)?;
-            let spec_section_id = get_string_param(params, "spec_section_id")?;
-            let plan_section_id = get_string_param(params, "plan_section_id")?;
-            store
-                .link_spec_section(&plan_id, &spec_id, &spec_section_id, &plan_section_id, now)
-                .map_err(plan_rpc_err)?;
+            let edges = spec_link_edges(params)?;
+            let mut results = Vec::with_capacity(edges.len());
+            let mut all_ok = true;
+            for (spec_section_id, plan_section_id) in edges {
+                match store.link_spec_section(
+                    &plan_id,
+                    &spec_id,
+                    &spec_section_id,
+                    &plan_section_id,
+                    now,
+                ) {
+                    Ok(()) => results.push(json!({
+                        "spec_section_id": spec_section_id,
+                        "plan_section_id": plan_section_id,
+                        "ok": true,
+                    })),
+                    Err(e) => {
+                        all_ok = false;
+                        results.push(json!({
+                            "spec_section_id": spec_section_id,
+                            "plan_section_id": plan_section_id,
+                            "ok": false,
+                            "error": e.to_string(),
+                        }));
+                    }
+                }
+            }
             emit_plan_changed(app, &plan_id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": all_ok, "results": results }))
         }
         "spec.link.rm" => {
             let plan_id = super::plan_refs::resolve_plan(store, params)?;
@@ -234,5 +304,44 @@ pub(super) fn dispatch(
             message: "Method not found".to_string(),
             data: None,
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::spec_link_edges;
+    use serde_json::json;
+
+    #[test]
+    fn edges_array_parses_all_pairs() {
+        let params = Some(json!({
+            "edges": [
+                { "spec_section_id": "s1", "plan_section_id": "p1" },
+                { "spec_section_id": "s2", "plan_section_id": "p2" },
+            ]
+        }));
+        let edges = spec_link_edges(&params).ok();
+        assert_eq!(
+            edges,
+            Some(vec![
+                ("s1".to_string(), "p1".to_string()),
+                ("s2".to_string(), "p2".to_string())
+            ])
+        );
+    }
+
+    #[test]
+    fn legacy_single_pair_still_supported() {
+        let params = Some(json!({ "spec_section_id": "s1", "plan_section_id": "p1" }));
+        let edges = spec_link_edges(&params).ok();
+        assert_eq!(edges, Some(vec![("s1".to_string(), "p1".to_string())]));
+    }
+
+    #[test]
+    fn edge_with_empty_side_is_rejected() {
+        let params = Some(json!({
+            "edges": [ { "spec_section_id": "s1", "plan_section_id": "" } ]
+        }));
+        assert!(spec_link_edges(&params).is_err());
     }
 }

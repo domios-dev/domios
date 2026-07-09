@@ -1,4 +1,4 @@
-import { MARKER_OPEN, parseMarker, markPluginConfig, markSystemPrompt } from "./markers";
+import { MARKER_OPEN, parseMarker, markPluginConfig, markSystemPrompt, markContextRequest, markWatcherVerdict } from "./markers";
 
 let passed = 0,
   failed = 0;
@@ -44,6 +44,15 @@ const systemPromptParsed = parseMarker(systemPromptWire);
 eq(systemPromptParsed?.kind, "system_prompt", "system_prompt marker kind parses");
 eq(systemPromptParsed?.attrs, {}, "system_prompt marker has no attrs");
 eq(systemPromptParsed?.payload, systemPrompt, "system_prompt payload is prompt text");
+
+const contextBody = '{"state":{},"input":{"tick":1}}';
+const contextWire = markContextRequest(contextBody);
+eq(contextWire, "-=-codeterm:context_request-=-{\"state\":{},\"input\":{\"tick\":1}}", "markContextRequest wire");
+eq(parseMarker(contextWire)?.kind, "context_request", "context_request marker kind parses");
+
+const verdictBody = '{"status":"ok","summary":"All good"}';
+const verdictWire = markWatcherVerdict(verdictBody);
+eq(verdictWire, "-=-codeterm:watcher_verdict-=-{\"status\":\"ok\",\"summary\":\"All good\"}", "markWatcherVerdict wire");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

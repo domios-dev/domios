@@ -41,11 +41,7 @@ fn prune_report(project: Option<String>, apply: bool) -> Result<Value, String> {
         if is_inbox_plan(&Value::Null, &path) {
             continue;
         }
-        let raw = match std::fs::read_to_string(&path) {
-            Ok(raw) => raw,
-            Err(_) => continue,
-        };
-        let plan: Value = match serde_json::from_str(&raw) {
+        let plan: Value = match crate::cmd::plan_local::load_plan_value(&path) {
             Ok(plan) => plan,
             Err(_) => continue,
         };
@@ -235,8 +231,8 @@ mod tests {
             "tasks": [],
             "sections": []
         });
-        let path = plan_dir.join("plan.json");
-        fs::write(&path, plan.to_string()).unwrap();
+        let path = plan_dir.join("plan.yaml");
+        fs::write(&path, serde_yaml::to_string(&plan).unwrap()).unwrap();
         let report = prune_report(Some(dir.path().display().to_string()), false).unwrap();
         assert_eq!(report["candidate_count"], 1);
         assert!(report["dry_run"].as_bool().unwrap());
@@ -255,8 +251,8 @@ mod tests {
             "tasks": [],
             "sections": []
         });
-        let path = plan_dir.join("plan.json");
-        fs::write(&path, plan.to_string()).unwrap();
+        let path = plan_dir.join("plan.yaml");
+        fs::write(&path, serde_yaml::to_string(&plan).unwrap()).unwrap();
         let report = prune_report(Some(dir.path().display().to_string()), true).unwrap();
         assert_eq!(report["deleted"].as_array().unwrap().len(), 1);
         assert!(!path.exists());

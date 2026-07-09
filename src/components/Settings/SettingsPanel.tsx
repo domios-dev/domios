@@ -26,7 +26,6 @@ import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
 import { IntegrationsTab } from "./IntegrationsTab";
 import { SecretsTab } from "./SecretsTab";
 import { LogsTab } from "./LogsTab";
-import { PluginsTab } from "./PluginsTab";
 import { HelpPanel } from "../../help/HelpPanel";
 import type { HelpSectionId } from "../../help/types";
 import {
@@ -419,17 +418,12 @@ export function SettingsPanel({
                   config={localConfig}
                   onUpdate={(section, patch) => update(section, patch)}
                   onOpenProvider={(providerId) => push({ kind: "agent-provider", providerId })}
-                  onOpenPlugins={() => push({ kind: "section", id: "plugins" })}
                   onUpdateFullConfig={(next) => {
                     setLocalConfig(next);
                     onUpdateConfig(next).catch(() => {});
                   }}
                 />
               </SettingsPage>
-            )}
-
-            {top.kind === "section" && top.id === "plugins" && (
-              <PluginsTab />
             )}
 
             {top.kind === "agent-provider" && (

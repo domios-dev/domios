@@ -254,27 +254,41 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
             crate::service::hierarchy::worker_death_report(&mux, &store, pid)
         };
         if let Some((target_id, msg)) = watchdog {
+            let role_tag = if msg.starts_with("MANAGER ") {
+                "manager-death"
+            } else {
+                "worker-death"
+            };
             match svc.submit_report(pid, &msg, Default::default(), None, None, None) {
                 Ok(_) => log::info!(
-                    "[worker-death] synthesized dead-report for worker {} -> {}",
+                    "[{}] synthesized dead-report for {} -> {}",
+                    role_tag,
                     pid,
                     target_id
                 ),
-                Err(e) => log::warn!("[worker-death] synthetic report failed for {}: {}", pid, e),
+                Err(e) => log::warn!("[{}] synthetic report failed for {}: {}", role_tag, pid, e),
             }
         }
 
-        // A delegated Worker has no run-watcher to close it; prune on PTY death so
-        // it drops from the sidebar structurally instead of lingering as a ghost row.
-        let is_worker = svc
+        let leaf_role = svc
             .mux
             .read()
             .get_pane(pid)
-            .map(|p| p.role == Some(crate::multiplexer::types::AgentRole::Worker))
-            .unwrap_or(false);
-        if is_worker {
+            .and_then(|p| match p.role {
+                Some(crate::multiplexer::types::AgentRole::Manager) => Some("manager"),
+                Some(crate::multiplexer::types::AgentRole::Worker) => Some("worker"),
+                _ => None,
+            })
+            .map(str::to_string);
+        if let Some(role_label) = leaf_role {
             if let Err(e) = svc.close_pane(pid) {
-                log::warn!("[worker-death] prune of dead worker {} failed: {}", pid, e);
+                log::warn!(
+                    "[{}-death] prune of dead {} {} failed: {}",
+                    role_label,
+                    role_label,
+                    pid,
+                    e
+                );
             }
         }
     }

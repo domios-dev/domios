@@ -7,6 +7,7 @@ import { usePlanTaskActivate } from "./planTaskInteraction";
 import { TaskExecutionBadges } from "./TaskExecutionBadges";
 import { WorkingOnRow } from "./WorkingOnRowView";
 import { deriveTaskCardMetadata, type TaskCardMetaRow } from "./taskCardMetadata";
+import { TaskStatus } from "../types";
 
 export interface BoardTaskCardProps {
   card: BoardTaskCardModel;
@@ -32,6 +33,11 @@ function metaTestId(kind: TaskCardMetaRow["kind"]): string {
 export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
   const { task } = card;
   const statusColor = TASK_STATUS_COLORS[task.status];
+  const isParked = task.status === TaskStatus.Parked;
+  const parkReason = task.park_reason?.trim() || null;
+  const parkedTitle = isParked
+    ? `Parked${parkReason ? `: ${parkReason}` : ""}`
+    : undefined;
   const interactive = Boolean(onOpen);
   const metadata = deriveTaskCardMetadata(card);
   const { onPointerDown, onPointerMove, onClick } = usePlanTaskActivate(onOpen);
@@ -49,9 +55,10 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
       data-testid="plan-board-task-card"
       data-task-id={task.id}
       data-task-status={task.status}
-      className={`plan-board-task-card plan-task-selectable${interactive ? " plan-board-task-card-interactive" : ""}`}
+      className={`plan-board-task-card plan-task-selectable${interactive ? " plan-board-task-card-interactive" : ""}${isParked ? " plan-board-task-card-parked" : ""}`}
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? 0 : undefined}
+      title={parkedTitle}
       onPointerDown={interactive ? onPointerDown : undefined}
       onPointerMove={interactive ? onPointerMove : undefined}
       onClick={interactive ? onClick : undefined}
@@ -68,8 +75,9 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
       <TaskExecutionBadges loop={card.loopBadge} competition={card.competeBadge} />
       <span
         data-testid="status-chip"
-        className="plan-board-task-status"
+        className={`plan-board-task-status${isParked ? " plan-board-task-status-parked" : ""}`}
         style={{ background: statusColor }}
+        title={parkedTitle}
       >
         {canonicalTaskStatusLabel(task)}
       </span>

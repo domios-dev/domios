@@ -27,8 +27,16 @@ pub struct AdoptPlanReport {
     pub warnings: Vec<String>,
 }
 
-impl PlanStore {
-    pub fn adopt_plan(
+pub trait AdoptPlanExt {
+    fn adopt_plan(
+        &self,
+        request: AdoptPlanRequest,
+        now_ms: u64,
+    ) -> Result<AdoptPlanReport, PlanError>;
+}
+
+impl AdoptPlanExt for PlanStore {
+    fn adopt_plan(
         &self,
         request: AdoptPlanRequest,
         now_ms: u64,

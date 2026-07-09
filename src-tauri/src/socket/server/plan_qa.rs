@@ -56,7 +56,7 @@ fn maybe_nudge_implementer(svc: &ServiceState, pane_id: Option<&str>, task_id: &
     let text = format!(
         "[qa failed] Task {task_id} needs changes.\n{note}\nUpdate the implementation, then report in_review again."
     );
-    let envelope = MessageEnvelope::reminder("CodeTerm", "qa");
+    let envelope = MessageEnvelope::codeterm_reminder("qa");
     let _ = Messenger::deliver(svc, pane_id, envelope, &text);
 }
 

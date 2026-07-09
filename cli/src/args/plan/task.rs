@@ -36,12 +36,26 @@ pub enum PlanTaskAction {
         body: Option<String>,
         #[arg(long, value_name = "PATH")]
         body_file: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\""
+        )]
         role_guidance: Option<String>,
         #[arg(long, value_name = "PATH")]
         role_guidance_file: Option<String>,
-        #[arg(long = "executor-role", allow_hyphen_values = true)]
+        #[arg(
+            long = "executor-role",
+            allow_hyphen_values = true,
+            help = "Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync"
+        )]
         executor_role: Option<String>,
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Executor persona name, e.g. Hopper, Dijkstra, Lamport"
+        )]
+        personality: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -106,12 +120,26 @@ pub enum PlanTaskAction {
         body: Option<String>,
         #[arg(long, value_name = "PATH")]
         body_file: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\""
+        )]
         role_guidance: Option<String>,
         #[arg(long, value_name = "PATH")]
         role_guidance_file: Option<String>,
-        #[arg(long = "executor-role", allow_hyphen_values = true)]
+        #[arg(
+            long = "executor-role",
+            allow_hyphen_values = true,
+            help = "Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync"
+        )]
         executor_role: Option<String>,
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Executor persona name, e.g. Hopper, Dijkstra, Lamport"
+        )]
+        personality: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -195,6 +223,21 @@ pub enum PlanTaskAction {
         pane: String,
         #[arg(long, alias = "peer")]
         mesh: Option<String>,
+    },
+    /// Spawn a worker, assign the task, and deliver its brief in one atomic call
+    Dispatch {
+        plan_id: String,
+        task_id: Option<String>,
+        #[arg(long, help = "Agent provider to spawn (e.g. claude, codex, opencode)")]
+        agent: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        model: Option<String>,
+        #[arg(long, help = "Parent pane override (defaults to the caller pane)")]
+        parent: Option<String>,
+        #[arg(long)]
+        workspace: Option<String>,
+        #[arg(long)]
+        cwd: Option<String>,
     },
     /// List execution attempts for a plan task
     Attempts { plan_id: String, task_id: String },

@@ -182,9 +182,13 @@ pub async fn mem_save(
     if should_extract {
         let svc = state.svc.clone();
         let id_for_extract = id.clone();
+        let mem_cfg = crate::config::memory_config();
+        let default_agent = crate::config::default_agent_provider();
         tokio::task::spawn_blocking(move || {
             crate::mem::auto_extract::spawn_extraction_worker(
                 &svc,
+                &mem_cfg,
+                &default_agent,
                 id_for_extract,
                 title_clone,
                 body_clone,

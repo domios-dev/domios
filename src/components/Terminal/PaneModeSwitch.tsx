@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Segmented, type SegmentedOption } from "../shared/Segmented";
 import { emitPaneUiMode, isChatDefaultEnabled, type PaneUiMode } from "../../lib/chatUiMode";
 import {
@@ -6,7 +6,8 @@ import {
   listenPaneUiModeDefaultChanged,
   resolveInitialPaneUiMode,
 } from "../../lib/clientPaneUiMode";
-import { useMultiplexer } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer";
+import { paneFieldsEqual, selectPane } from "../../store/multiplexer/selectors";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 
 const TERMINAL: SegmentedOption<PaneUiMode> = { value: "terminal", label: "Terminal" };
@@ -25,8 +26,8 @@ export function PaneModeSwitch({
   chatFirst?: boolean;
   chatPty?: boolean;
 }) {
-  const { state } = useMultiplexer();
-  const pane = state.panes[paneId];
+  const paneSelector = useCallback((s: Parameters<typeof selectPane>[0]) => selectPane(s, paneId), [paneId]);
+  const pane = useMuxSelector(paneSelector, paneFieldsEqual);
   const descriptor = useAgentDescriptor(pane?.agent_type);
   const chatCapable =
     pane?.backing?.kind === "chat_backend"

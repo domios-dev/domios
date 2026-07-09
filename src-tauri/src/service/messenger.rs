@@ -69,6 +69,20 @@ impl MessageKind {
 }
 
 impl MessageEnvelope {
+    /// CodeTerm's own sender identity — single source so no path hardcodes it.
+    pub const CODETERM: &'static str = "CodeTerm";
+    pub const CODETERM_PANE: &'static str = "system";
+
+    /// A message FROM CodeTerm (renders "from CodeTerm") — role onboarding, etc.
+    pub fn from_codeterm() -> Self {
+        Self::pane(Self::CODETERM, Self::CODETERM_PANE)
+    }
+
+    /// A reminder FROM CodeTerm tagged with a context (nudges, prefs, qa, ...).
+    pub fn codeterm_reminder(context: impl Into<String>) -> Self {
+        Self::reminder(Self::CODETERM, context)
+    }
+
     pub fn pane(from_label: impl Into<String>, from_pane: impl Into<String>) -> Self {
         Self {
             kind: MessageKind::Message,
@@ -150,6 +164,12 @@ impl Messenger {
         MessageEnvelope::pane(from_name, from_pane).into()
     }
 
+    /// Launch-task prefix marking input as coming FROM CodeTerm — prepended to a
+    /// fresh spawn's bg_task (role onboarding), the single source for that marker.
+    pub fn codeterm_prefix() -> String {
+        Self::message(MessageEnvelope::CODETERM, MessageEnvelope::CODETERM_PANE).build()
+    }
+
     pub fn report(from_name: impl Into<String>, from_pane: impl Into<String>) -> Self {
         MessageEnvelope::report(from_name, from_pane).into()
     }
@@ -201,6 +221,16 @@ impl Messenger {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
+        // A real inbound message/report landing here means the reader no longer
+        // needs to poll — clear its polling-nudge streak (skip system reminders).
+        if matches!(envelope.kind, MessageKind::Message | MessageKind::Report) {
+            let resolved = svc
+                .mux
+                .write()
+                .resolve_pane_id(to_pane)
+                .unwrap_or_else(|| to_pane.to_string());
+            svc.plan_turn_counter.reset_polls(&resolved);
+        }
         if svc.pane_chat_backing(to_pane).is_some() {
             svc.chatbackend_reopen_if_restored(to_pane)?;
             let (plugin_id, session_id) = svc

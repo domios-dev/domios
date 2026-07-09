@@ -8,7 +8,7 @@ pub struct MigrateArgs {
     pub to: String,
     pub service: String,
     pub announce: bool,
-    pub announce_chat_id: i64,
+    pub announce_chat_id: Option<i64>,
     pub no_rollback: bool,
     pub force: bool,
     pub claim_timeout_ms: u64,

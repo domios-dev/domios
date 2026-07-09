@@ -69,8 +69,8 @@ function sortChips(chips: WorkingOnChip[]): WorkingOnChip[] {
   );
 }
 
-// Working-on row for in_progress/in_review tasks: labeled fields from existing
-// lane metadata, with honest amber/red fallbacks instead of blank noise.
+// Lane hygiene warnings (branch missing, pane gone) are active-task-only via working-on chips.
+// Done/parked/pending cards surface branch metadata when present, not duplicate warn chips.
 export function deriveWorkingOnRow(
   task: Task,
   panes: Record<string, Pane>,

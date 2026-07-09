@@ -3,6 +3,7 @@ use super::plan_linking::{owner_from_params, tags_field};
 use super::plan_refs;
 use super::{get_string_param, JsonRpcError};
 use crate::plan::{OrchestratorRef, PlanStatus, PlannerRef};
+use crate::service::plan::adopt::AdoptPlanExt;
 use crate::service::plan::batch::BatchRequest;
 use crate::service::plan::{hints, PlanError};
 use crate::service::ServiceState;
@@ -134,6 +135,7 @@ pub(super) fn dispatch(
                     .map_err(plan_rpc_err)?
             };
             let plan_id = plan.id.clone();
+            let _ = svc.bind_pending_paired_planner(&plan_id, &plan.owner, now);
             let empty_sections = plan.sections.is_empty();
             let mut response = json!({
                 "plan_id": plan_id.clone(),
@@ -287,7 +289,13 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("reason"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
+            let new_owner_pane = to.pane_id.clone();
             store.transfer(&id, to, reason, now).map_err(plan_rpc_err)?;
+            // Relink AFTER transfer returns — mux is only reachable here, never
+            // under the plan lock (lock ordering: mux is acquired first).
+            if let Some(pane) = new_owner_pane {
+                svc.relink_plan_hierarchy(&id, &pane);
+            }
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true, "plan_id": id }))
         }

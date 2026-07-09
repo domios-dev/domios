@@ -213,6 +213,8 @@ pub async fn backfill(
 pub struct ChatQuery {
     #[serde(default)]
     pub since: usize,
+    #[serde(default)]
+    pub caller: Option<String>,
 }
 
 /// GET /api/panes/:id/chat?since=N — stateless normalized-chat read (no tailer).
@@ -223,6 +225,9 @@ pub async fn snapshot(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    if let Some(caller) = q.caller.as_deref().filter(|s| !s.is_empty()) {
+        state.svc.maybe_send_polling_nudge(caller, &pane_id);
+    }
     let (messages, total) =
         crate::service::pane_chat::pane_chat_snapshot(&state.svc, &pane_id, q.since)
             .map_err(|_| (StatusCode::BAD_REQUEST, "chat snapshot failed"))?;

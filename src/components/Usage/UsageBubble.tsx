@@ -62,7 +62,7 @@ export function UsageBubble({ provider, accountId = null, trackingEnabled = fals
 
   const isStale = ageMs > STALE_MS;
   // to threshold against — render the cycle spend as a neutral pill.
-  const isSpend = snapshot.spend_cents != null;
+  const isSpend = snapshot.spend_cents != null && snapshot.session_pct == null && snapshot.weekly_pct == null;
   const spendLabel = snapshot.spend_remaining_cents != null
     ? `${formatSpend(snapshot.spend_remaining_cents)} left`
     : formatSpend(snapshot.spend_cents ?? 0);

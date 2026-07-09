@@ -23,9 +23,10 @@ pub(crate) fn role_onboarding_task(
     role_profile: Option<&str>,
 ) -> Option<String> {
     match (role, role_profile) {
-        (Some("Worker"), Some("planner")) => {
+        (Some("Manager"), Some("planner")) => {
             task.map(|t| format!("{}{}", t, crate::prompts::planner_suffix()))
         }
+        (Some("Manager"), _) => task.map(str::to_string),
         (Some("Worker"), _) => task.map(|t| format!("{}{}", t, crate::prompts::worker_suffix())),
         (Some("Orchestrator"), _) => Some(format!(
             "{}{}",
@@ -33,13 +34,6 @@ pub(crate) fn role_onboarding_task(
             crate::prompts::orchestrator_suffix()
         )),
         _ => task.map(str::to_string),
-    }
-}
-
-pub(crate) fn planner_profile_task(intro: String, task: Option<String>) -> String {
-    match task {
-        Some(t) if !t.trim().is_empty() => format!("{intro}\n\n{t}"),
-        _ => intro,
     }
 }
 
@@ -261,37 +255,10 @@ pub(crate) fn launch_agent_in_background(
                         pane_id
                     );
                 }
-                let provider_submit_strategy = registry
-                    .with_provider(&agent_cmd, |p| p.verify_submit_strategy())
-                    .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
-                        timeout: std::time::Duration::from_secs(5),
-                    });
-                let task_opts = crate::service::inject_verify::VerifyOpts {
-                    require_prompt_first: false,
-                    verify_echo: true,
-                    verify_submit: true,
-                    prompt_timeout: std::time::Duration::from_secs(0),
-                    echo_timeout: std::time::Duration::from_secs(10),
-                    submit_timeout: std::time::Duration::from_secs(15),
-                };
-                let delivery = svc.send_text_verified(
-                    &pty_id,
-                    task_text,
-                    true,
-                    provider_submit_strategy,
-                    task_opts,
-                );
-                let delivery =
-                    delivery.and_then(|result| match initial_task_delivery_confirmed(&result) {
-                        Ok(()) => Ok(result),
-                        Err(message) => Err(
-                            crate::service::inject_verify::InjectionError::SubmitNeverConfirmed {
-                                waited: result.elapsed,
-                                screen_tail: message,
-                            },
-                        ),
-                    });
-                if let Err(e) = delivery {
+                set_booting(false);
+                // TUI is visible; use the fast message path without waiting for
+                // this launch thread's own boot flag to clear.
+                if let Err(e) = svc.send_text_to_pty_smart(&pty_id, task_text, true) {
                     log::error!(
                         "launch_agent: task delivery failed for pane {} (pty {}): {}",
                         pane_id,
@@ -309,6 +276,7 @@ pub(crate) fn launch_agent_in_background(
                     }
                     return;
                 }
+                svc.confirm_wake_async(&pane_id, task_text);
             }
         }
 
@@ -319,18 +287,6 @@ pub(crate) fn launch_agent_in_background(
             let _ = tx.send(Ok(()));
         }
     });
-}
-
-pub(crate) fn initial_task_delivery_confirmed(
-    result: &crate::service::inject_verify::InjectionResult,
-) -> Result<(), String> {
-    if !result.echo_observed {
-        return Err("task text was not observed in the agent input".into());
-    }
-    if !result.submit_observed {
-        return Err("task submit was not confirmed by the agent input".into());
-    }
-    Ok(())
 }
 
 /// Build a single shell command that launches the agent.

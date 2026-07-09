@@ -53,7 +53,7 @@ export function makeVirtualPickerTab(cwd?: string | null): VirtualPickerTab {
     virtual: true,
   };
   return {
-    tab: { id: `virtual-tab:${uid()}`, pane_id: paneId },
+    tab: { id: `virtual-tab:${uid()}`, pane_id: paneId, sort_order: Number.MAX_SAFE_INTEGER },
     pane,
   };
 }

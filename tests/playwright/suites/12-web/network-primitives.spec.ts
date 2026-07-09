@@ -1,10 +1,7 @@
 /**
- * Self-test for the T16 Playwright disruption/reconnect primitives
- * (`tests/playwright/helpers/network-disruption.ts`, `web-session.ts`,
- * `route-delay.ts`, `visibility-emulation.ts`). These are pull-forward
- * infrastructure consumed by later reconnect/loss/persistence gates — this
- * spec proves each primitive actually does what it claims against a real
- * `webBrowser` page, independent of any product feature.
+ * WHAT: network primitives covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 12-web.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 import { networkDisruption } from "../../helpers/network-disruption";

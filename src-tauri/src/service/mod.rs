@@ -15,6 +15,7 @@
 pub mod activity;
 pub mod agent_restart;
 pub mod boot_stage;
+mod command_port_impl;
 pub mod cron;
 pub mod general_agent;
 pub mod health;
@@ -30,13 +31,14 @@ pub mod orchestrator_digests;
 mod orchestrator_onboard;
 mod output;
 mod output_feed;
-mod pane;
+pub(crate) mod pane;
 pub mod pane_budget;
 pub mod pane_chat;
 pub mod pane_transport;
 pub mod pane_transport_chat;
 pub mod plan;
 mod plan_reconcile;
+pub mod plugin_host;
 pub mod pty_io;
 pub mod pty_lifecycle;
 pub mod push;
@@ -49,6 +51,7 @@ mod spawn_chatbackend;
 mod spawn_cli;
 mod spawn_guard;
 mod spawn_params;
+mod spawn_plan_task;
 pub(crate) mod spawn_title;
 pub mod store;
 pub mod structured_prompt;
@@ -57,6 +60,7 @@ pub mod sync_watcher;
 mod tests;
 pub mod tokens;
 pub mod transport;
+pub mod watcher;
 mod workspace;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -81,7 +85,10 @@ pub use inject_verify::{
     wait_for_submit_tui_drained, InjectionError, InjectionResult, VerifyOpts,
 };
 pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
-pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnResult};
+pub use orchestrator::{
+    BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,
+    SpawnResult,
+};
 pub use pane::{normalize_pane_description, MAX_PANE_DESCRIPTION_CHARS};
 pub use pane_budget::{evaluate_pane_budget, PaneBudgetLevel, PaneBudgetNotice};
 
@@ -323,7 +330,9 @@ impl ServiceContext {
             match crate::service::plan::watcher::PlanWatcher::watch_project(
                 &project_root,
                 self.plan_store.clone(),
-                self.app_handle.clone(),
+                std::sync::Arc::new(crate::service::plan::sink_impl::TauriPlanEventSink::new(
+                    self.app_handle.clone(),
+                )),
             ) {
                 Ok(watcher) => {
                     watchers.insert(project_root.clone(), watcher);
@@ -355,9 +364,10 @@ impl ServiceContext {
     pub(crate) fn parse_role(role_str: &str) -> Result<AgentRole, String> {
         match role_str {
             "Orchestrator" | "Conductor" => Ok(AgentRole::Orchestrator),
+            "Manager" => Ok(AgentRole::Manager),
             "Worker" => Ok(AgentRole::Worker),
             _ => Err(format!(
-                "Invalid role: {}. Use: Orchestrator, Worker",
+                "Invalid role: {}. Use: Orchestrator, Manager, Worker",
                 role_str
             )),
         }

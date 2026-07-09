@@ -23,11 +23,11 @@
 
 ## Source file size discipline
 
-**NEVER ship a source file over 1000 lines. Ever.** (`.rs`, `.ts`, `.tsx`, `.py`, `.swift`). This is absolute: an oversized file is a bug to fix by splitting, never to silence by adding it to the allowlist. The allowlist only shrinks. When a file approaches the limit, split by responsibility. If a single concern legitimately needs more than 1000 lines, your concern is two concerns wearing a trenchcoat.
+**NEVER ship a source file over 1200 lines. Ever.** (`.rs`, `.ts`, `.tsx`, `.py`, `.swift`). This is absolute and has NO allowlist — an oversized file is a bug to fix by splitting, full stop, never to baseline away. Every code file is watched; there is no escape hatch. When a file approaches the limit, split by responsibility. If a single concern legitimately needs more than 1200 lines, your concern is two concerns wearing a trenchcoat.
 
 - `mod.rs` files target <800 lines — facade + light glue. Heavy logic belongs in concrete files inside the module.
-- Excluded: `target/`, `node_modules/`, `dist/`, `gen/`, `references/`, `vendor/`, `src-tauri/pty-fork/`, data formats.
-- Enforcement: `scripts/check-file-sizes.sh` (CI-wired). `scripts/file-size-allowlist.txt` lists pre-existing oversized files (baseline-locked, must shrink, never grow).
+- Excluded: `target/`, `node_modules/`, `dist/`, `gen/`, `references/`, `vendor/`, `src-tauri/pty-fork/`, `.claude/`, data formats.
+- Enforcement: `scripts/check-file-sizes.sh` (CI-wired, `--fail` mode). No allowlist file: if the check flags a file, split it.
 
 When splitting a file with inline `#[cfg(test)] mod tests`, keep `mod tests;` in source and move the body to `<name>/tests.rs`.
 
@@ -421,6 +421,7 @@ Before tagging, a fast `cargo check` precheck (linux+macOS) gates the long build
 Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 
 - `docs/API.md` — REST / Socket / CLI reference
+- `docs/PLUGINS.md` — plugin ecosystem map: **what is published where** (npm `@codeterm/plugin-sdk`; in-repo `plugins/provider-*` → embedded `codeterm-core` channel; external `rollacode/codeterm-plugins` repo → marketplace channel), authoring, release/publish flows. Read its "Ecosystem at a glance" before touching anything plugin- or npm-related
 - `docs/CONFIG.md` — config options, themes, keybindings
 - `docs/SKILLS.md` — Claude Code skill for CodeTerm control
 - `docs/BUILD.md` — build instructions

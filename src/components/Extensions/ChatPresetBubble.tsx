@@ -8,7 +8,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronUp } from "lucide-react";
 import { getPresetManagerApi, type Preset, type PresetState } from "./presetManagerApi";
 
-export function ChatPresetBubble({ pluginId, sessionId }: { pluginId: string; sessionId?: string }) {
+export function ChatPresetBubble({
+  pluginId,
+  sessionId,
+  readOnly = false,
+}: {
+  pluginId: string;
+  sessionId?: string;
+  readOnly?: boolean;
+}) {
   const [state, setState] = useState<PresetState>({ presets: [], activePreset: null });
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -54,6 +62,25 @@ export function ChatPresetBubble({ pluginId, sessionId }: { pluginId: string; se
 
   // Generalized gate: only backends that publish presets get the bubble.
   if (state.presets.length === 0) return null;
+
+  if (readOnly) {
+    return (
+      <span
+        data-testid="chat-preset-bubble"
+        data-readonly="true"
+        className="ct-chat-preset-bubble inline-flex h-7 items-center rounded-full border px-2 text-xs font-mono"
+        style={{
+          background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 8%, transparent)",
+          borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 22%, transparent)",
+          color: "var(--ct-muted-fg)",
+          opacity: 0.85,
+        }}
+        title="Preset (read-only)"
+      >
+        <span>{label ?? "Preset"}</span>
+      </span>
+    );
+  }
 
   return (
     <div className="relative inline-flex" style={{ zIndex: 20 }}>

@@ -1,9 +1,7 @@
 /**
- * 13-canvas — Mission Control v2 flow canvas.
- *
- * Covers the FLOW canvas: plan-rivers with a group-derived milestone station,
- * the workspace | all-plans scope toggle, and a 60fps pan probe (the pan path
- * must stay on the GPU transform layer — no per-frame React re-render).
+ * WHAT: mission control flow covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
@@ -11,15 +9,19 @@ import {
   isEmpty,
   MISSION_CONTROL_LIVE_SEL,
   MISSION_CONTROL_PLAN_SURFACE_SEL,
-  seedPerfFixtureAndOpenInlineCanvas,
+  openInlineWorkspaceCanvas,
   CANVAS_ART_DIR,
 } from "../../helpers/canvas-inspect";
+import { seedWorldStateAndOpenInlineCanvas, worldStates } from "../../fixtures/world-states";
 import type { ApiClient } from "../../helpers/api-client";
 import type { Page } from "@playwright/test";
 
-async function toCanvasMode(page: Page): Promise<void> {
+async function toCanvasMode(page: Page, workspaceId: string): Promise<void> {
   await page.evaluate(() => window.localStorage.setItem("codeterm.planViewMode", "canvas"));
   await page.reload({ waitUntil: "domcontentloaded" });
+  if (!(await page.locator('[data-testid="plan-view-shell"]').first().isVisible().catch(() => false))) {
+    await openInlineWorkspaceCanvas(page, workspaceId);
+  }
   await page.waitForSelector('[data-testid="plan-view-shell"]', { state: "visible", timeout: 30_000 });
   const shell = page.locator('[data-testid="plan-view-shell"]');
   await expect(shell).toHaveAttribute("data-plan-view-mode", "canvas");
@@ -28,20 +30,23 @@ async function toCanvasMode(page: Page): Promise<void> {
 
 test("@golden @mission-control-flow flow river + group milestone + all-plans toggle", async ({ api, webBrowser }) => {
   test.setTimeout(180_000);
-  const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
+  const canvas = await seedWorldStateAndOpenInlineCanvas(
+    webBrowser,
+    api as unknown as ApiClient,
+    worldStates.paneTreeWithStatuses,
+  );
   try {
     const { page } = canvas;
     if (await isEmpty(page)) {
       test.skip(true, "canvas empty — perf fixture did not inject");
       return;
     }
-    await toCanvasMode(page);
+    await toCanvasMode(page, canvas.workspaceId);
 
     await expect(page.locator(MISSION_CONTROL_PLAN_SURFACE_SEL)).toBeVisible();
 
-    // A plan-river renders with the milestone-centric flow. Stations render only
-    // when they hold content (no ghost empty stations); the perf fixture has
-    // pending + in_progress + done work (no in_review/gates → no verify station).
+    // A plan-river renders with milestone-centric flow and no ghost stations.
+    // The perf fixture has pending, in_progress, and done work only.
     const river = page.locator('[data-testid^="plan-river-"]').first();
     await expect(river).toBeVisible();
     await expect(river.locator('[data-testid="flow-station-milestone"]')).toBeVisible();
@@ -75,14 +80,18 @@ test("@golden @mission-control-flow flow river + group milestone + all-plans tog
 
 test("@golden @mission-control-flow 60fps pan probe — transform layer, no reflow", async ({ api, webBrowser }) => {
   test.setTimeout(180_000);
-  const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
+  const canvas = await seedWorldStateAndOpenInlineCanvas(
+    webBrowser,
+    api as unknown as ApiClient,
+    worldStates.paneTreeWithStatuses,
+  );
   try {
     const { page } = canvas;
     if (await isEmpty(page)) {
       test.skip(true, "canvas empty — perf fixture did not inject");
       return;
     }
-    await toCanvasMode(page);
+    await toCanvasMode(page, canvas.workspaceId);
 
     const viewport = page.locator(`${MISSION_CONTROL_LIVE_SEL} .mc-live-viewport`).first();
     await expect(viewport).toBeVisible();
@@ -109,6 +118,7 @@ test("@golden @mission-control-flow 60fps pan probe — transform layer, no refl
     await page.mouse.down();
     for (let i = 0; i < 40; i += 1) {
       await page.mouse.move(cx - i * 6, cy - i * 3);
+      // PW_JUSTIFIED_SLEEP: fixed 8ms sampling/settle window; no app event exists for this probe.
       await page.waitForTimeout(8);
     }
     await page.mouse.up();
