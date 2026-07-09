@@ -9,6 +9,7 @@ cd "$(dirname "$0")/.."
 case "${1:-all}" in
   all)
     tests=(
+      plugins/git/tests/plugin.test.ts
       plugins/provider-claude/tests/detect.test.ts
       plugins/provider-claude/tests/status.test.ts
       plugins/provider-claude/tests/plugin.test.ts
@@ -24,6 +25,11 @@ case "${1:-all}" in
       packages/chat-ui/src/codeterm/templates.test.ts
       packages/chat-ui/src/codeterm/planRefs.test.ts
       packages/chat-ui/src/codeterm/SentMessageBubble.test.tsx
+    )
+    ;;
+  git)
+    tests=(
+      plugins/git/tests/plugin.test.ts
     )
     ;;
   provider-claude)
