@@ -36,6 +36,7 @@ fn lane_task(id: &str, status: TaskStatus, lane: TaskLaneMetadata, changed: u64)
         competition: None,
         intent: None,
         parent_task_id: None,
+        depends_on: vec![],
         assigned_pane_id: None,
         lane,
         taken_by_role: None,

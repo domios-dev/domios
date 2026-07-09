@@ -330,6 +330,7 @@ impl PlanStore {
             competition: new.competition,
             intent: new.intent,
             parent_task_id: new.parent_task_id,
+            depends_on: normalized_dependency_ids(&new.depends_on),
             assigned_pane_id,
             lane,
             taken_by_role: None,
@@ -344,6 +345,7 @@ impl PlanStore {
         let verify_sections = !task.section_ids.is_empty();
         let expected = Self::task_add_expectation(&task, verify_sections);
         let write = self.with_plan(plan_id, now_ms, |p| {
+            task.depends_on = validate_task_dependencies(p, &tid, &task.depends_on)?;
             if task.section_ids.is_empty() {
                 task.section_ids = super::section_links::auto_section_ids_for_task(p, &task);
             }

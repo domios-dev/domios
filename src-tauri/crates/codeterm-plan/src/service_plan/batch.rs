@@ -408,6 +408,7 @@ impl PlanStore {
                                     competition: None,
                                     intent: None,
                                     parent_task_id: None,
+                                    depends_on: vec![],
                                     assigned_pane_id: None,
                                     lane: Default::default(),
                                     taken_by_role: None,

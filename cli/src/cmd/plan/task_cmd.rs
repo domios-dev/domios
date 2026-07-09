@@ -173,6 +173,7 @@ pub(super) fn run_task(
             intent,
             intent_file,
             parent,
+            depends_on,
             assign_pane,
             workspace_id,
             workspace_name,
@@ -245,6 +246,9 @@ pub(super) fn run_task(
             }
             if let Some(p) = parent {
                 params["parent"] = json!(p);
+            }
+            if !depends_on.is_empty() {
+                params["depends_on"] = json!(depends_on);
             }
             if let Some(p) = assign_pane {
                 params["assign_pane"] = json!(p);
@@ -337,6 +341,8 @@ pub(super) fn run_task(
             test_plan,
             correctness,
             parent,
+            depends_on,
+            clear_dependencies,
             pane,
             workspace_id,
             workspace_name,
@@ -377,6 +383,8 @@ pub(super) fn run_task(
                 test_plan,
                 correctness,
                 parent,
+                depends_on,
+                clear_dependencies,
                 pane,
                 workspace_id,
                 workspace_name,

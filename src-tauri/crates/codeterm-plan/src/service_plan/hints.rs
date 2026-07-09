@@ -281,6 +281,7 @@ mod tests {
             competition: None,
             intent: None,
             parent_task_id: None,
+            depends_on: vec![],
             assigned_pane_id: pane.map(str::to_string),
             lane: crate::plan::TaskLaneMetadata::default(),
             taken_by_role: None,
