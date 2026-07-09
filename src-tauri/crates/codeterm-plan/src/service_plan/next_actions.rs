@@ -145,7 +145,7 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
     }
 
     for lane in &s.open_lanes {
-        if lane.status == TaskStatus::Pending {
+        if lane.status == TaskStatus::Pending && !lane.waiting_on_dependencies {
             let message = if let Some(summary) = lane.competition.as_deref() {
                 format!(
                     "{} {} ({summary}): plan.task.compete route for plan {} task {}",
@@ -186,6 +186,8 @@ mod tests {
             live_competition_attempts: 0,
             review_stage: ReviewStage::Review,
             qa_state: None,
+            waiting_on_dependencies: false,
+            dependency_waits: vec![],
         }
     }
 
@@ -304,6 +306,23 @@ mod tests {
         assert_eq!(a.len(), 1);
         assert_eq!(a[0].kind, NextActionKind::Dispatch);
         assert_eq!(a[0].task_id.as_deref(), Some("tp"));
+    }
+
+    #[test]
+    fn dispatch_rule_skips_pending_lane_waiting_on_dependency() {
+        let mut s = empty();
+        let mut waiting = lane("tp", TaskStatus::Pending);
+        waiting.waiting_on_dependencies = true;
+        waiting.dependency_waits = vec![super::super::state::DependencyWait {
+            task_id: "ta".into(),
+            name: "name-ta".into(),
+            status: Some(TaskStatus::InProgress),
+            missing: false,
+        }];
+        s.open_lanes = vec![waiting];
+        assert!(compute_next_actions(&s)
+            .iter()
+            .all(|action| action.kind != NextActionKind::Dispatch));
     }
 
     #[test]

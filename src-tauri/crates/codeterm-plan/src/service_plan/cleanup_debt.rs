@@ -101,6 +101,7 @@ mod tests {
             competition: None,
             intent: None,
             parent_task_id: None,
+            depends_on: vec![],
             assigned_pane_id: None,
             lane: TaskLaneMetadata {
                 pane_id: Some("pane-1".into()),

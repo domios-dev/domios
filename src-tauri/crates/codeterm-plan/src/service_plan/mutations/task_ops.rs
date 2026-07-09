@@ -135,6 +135,37 @@ impl PlanStore {
         )
     }
 
+    pub fn update_task_dependencies(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        depends_on: Vec<String>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        let write = self.with_plan(plan_id, now_ms, |p| {
+            let task_index = p
+                .tasks
+                .iter()
+                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            let canonical_task_id = p.tasks[task_index].id.clone();
+            let normalized = validate_task_dependencies(p, &canonical_task_id, &depends_on)?;
+            let task = &mut p.tasks[task_index];
+            task.depends_on = normalized;
+            task.updated_at = now_ms;
+            Ok(())
+        });
+        pending_after_verified(
+            write,
+            self.verify_task_dependencies_updated(
+                plan_id,
+                task_id,
+                &normalized_dependency_ids(&depends_on),
+            ),
+            Some(task_id.to_string()),
+        )
+    }
+
     pub fn update_task_role_guidance(
         &self,
         plan_id: &str,
@@ -639,5 +670,98 @@ mod fill_lane_tests {
             6,
         )
         .unwrap();
+    }
+
+    #[test]
+    fn explicit_dependencies_roundtrip_without_parking() {
+        let (_d, store, plan, dependency) = setup();
+        let child = store
+            .add_task(
+                &plan,
+                crate::service_plan::NewTask {
+                    name: "child".into(),
+                    depends_on: vec![dependency.clone()],
+                    ..Default::default()
+                },
+                3,
+            )
+            .unwrap();
+        let p = store.get(&plan).unwrap();
+        let child = p.tasks.iter().find(|t| t.id == child).unwrap();
+        assert_eq!(child.depends_on, vec![dependency]);
+        assert_eq!(child.status, crate::plan::TaskStatus::Pending);
+    }
+
+    #[test]
+    fn update_dependencies_sets_and_clears_roundtrip() {
+        let (_d, store, plan, dependency) = setup();
+        let child = store
+            .add_task(
+                &plan,
+                crate::service_plan::NewTask {
+                    name: "child".into(),
+                    ..Default::default()
+                },
+                3,
+            )
+            .unwrap();
+        store
+            .update_task_dependencies(&plan, &child, vec![dependency.clone()], 4)
+            .unwrap();
+        let p = store.get(&plan).unwrap();
+        assert_eq!(
+            p.tasks.iter().find(|t| t.id == child).unwrap().depends_on,
+            vec![dependency.clone()]
+        );
+        store
+            .update_task_dependencies(&plan, &child, vec![], 5)
+            .unwrap();
+        let p = store.get(&plan).unwrap();
+        assert!(p
+            .tasks
+            .iter()
+            .find(|t| t.id == child)
+            .unwrap()
+            .depends_on
+            .is_empty());
+    }
+
+    #[test]
+    fn invalid_dependency_ids_self_and_cycles_are_rejected() {
+        let (_d, store, plan, parent) = setup();
+        let child = store
+            .add_task(
+                &plan,
+                crate::service_plan::NewTask {
+                    name: "child".into(),
+                    ..Default::default()
+                },
+                3,
+            )
+            .unwrap();
+        let err = store
+            .update_task_dependencies(&plan, &child, vec!["missing".into()], 4)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            crate::service_plan::PlanError::DependencyTaskNotFound { .. }
+        ));
+        let err = store
+            .update_task_dependencies(&plan, &child, vec![child.clone()], 5)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            crate::service_plan::PlanError::DependencySelfReference
+        ));
+        store
+            .update_task_dependencies(&plan, &child, vec![parent.clone()], 6)
+            .unwrap();
+        let err = store
+            .update_task_dependencies(&plan, &parent, vec![child.clone()], 7)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            crate::service_plan::PlanError::DependencyCycle
+        ));
     }
 }

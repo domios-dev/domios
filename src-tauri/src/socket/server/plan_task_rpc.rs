@@ -14,6 +14,19 @@ use crate::service::ServiceState;
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
+fn dependency_vec_field(p: Option<&Value>) -> Result<Option<Vec<String>>, JsonRpcError> {
+    let Some(value) = p.and_then(|x| x.get("depends_on").or_else(|| x.get("dependency_task_ids")))
+    else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(Some(Vec::new()));
+    }
+    serde_json::from_value(value.clone())
+        .map(Some)
+        .map_err(|_| plan_rpc_err(PlanError::BadStatus))
+}
+
 pub(super) fn handles(method: &str) -> bool {
     matches!(
         method,
@@ -196,6 +209,7 @@ pub(super) fn dispatch(
                             .and_then(|v| v.as_str())
                             .map(str::to_string),
                         competition: super::plan_competition::metadata_field(p)?,
+                        depends_on: dependency_vec_field(p)?.unwrap_or_default(),
                         assigned_pane_id: assign_pane.clone(),
                         ..Default::default()
                     },
@@ -309,6 +323,7 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("parent"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
+                        depends_on: dependency_vec_field(p)?.unwrap_or_default(),
                         assigned_pane_id: p
                             .and_then(|x| x.get("assign_pane"))
                             .and_then(|v| v.as_str())
@@ -397,6 +412,11 @@ pub(super) fn dispatch(
             if let Some(lane) = lane.clone() {
                 store
                     .update_task_lane(&id, &tid, lane, now)
+                    .map_err(plan_rpc_err)?;
+            }
+            if let Some(depends_on) = dependency_vec_field(p)? {
+                store
+                    .update_task_dependencies(&id, &tid, depends_on, now)
                     .map_err(plan_rpc_err)?;
             }
             store
@@ -599,5 +619,36 @@ pub(super) fn dispatch(
             message: format!("Method not found: {other}"),
             data: None,
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dependency_vec_field;
+    use serde_json::json;
+
+    #[test]
+    fn rpc_dependency_field_omitted_is_none() {
+        assert_eq!(dependency_vec_field(Some(&json!({}))).unwrap(), None);
+    }
+
+    #[test]
+    fn rpc_dependency_field_array_replaces() {
+        assert_eq!(
+            dependency_vec_field(Some(&json!({ "depends_on": ["task_a", "task_b"] }))).unwrap(),
+            Some(vec!["task_a".to_string(), "task_b".to_string()])
+        );
+    }
+
+    #[test]
+    fn rpc_dependency_field_null_or_empty_clears() {
+        assert_eq!(
+            dependency_vec_field(Some(&json!({ "depends_on": null }))).unwrap(),
+            Some(Vec::new())
+        );
+        assert_eq!(
+            dependency_vec_field(Some(&json!({ "depends_on": [] }))).unwrap(),
+            Some(Vec::new())
+        );
     }
 }
