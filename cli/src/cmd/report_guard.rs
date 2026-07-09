@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
 
@@ -146,19 +147,13 @@ fn inspect_git_worktree(
 }
 
 fn load_changed_files(cwd: &Path, base: Option<&str>) -> Result<Vec<String>, String> {
-    let mut changed = match resolve_base_commit(cwd, base)? {
+    let committed = match resolve_base_commit(cwd, base)? {
         Some(base) => git_lines(cwd, &["diff", "--name-only", &base, "HEAD"])?,
         None => Vec::new(),
     };
-    for path in lane_dirty_files(&git_lines(cwd, &["status", "--porcelain", "-uall"])?)
-        .into_iter()
-        .filter(|path| !changed.contains(path))
-    {
-        changed.push(path);
-    }
-    changed.sort();
-    changed.dedup();
-    Ok(changed)
+    let overlay = lane_dirty_files(&git_lines(cwd, &["status", "--porcelain", "-uall"])?);
+    let changed: BTreeSet<String> = committed.into_iter().chain(overlay).collect();
+    Ok(changed.into_iter().collect())
 }
 
 fn resolve_base_commit(cwd: &Path, base: Option<&str>) -> Result<Option<String>, String> {
