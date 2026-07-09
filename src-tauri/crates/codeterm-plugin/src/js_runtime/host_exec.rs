@@ -68,6 +68,78 @@ fn err(msg: &str) -> String {
     serde_json::json!({ "error": msg }).to_string()
 }
 
+static RESOLVED_BINS: LazyLock<Mutex<HashMap<String, std::path::PathBuf>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// True when `p` is a regular file with an executable bit (any) set.
+fn is_executable_file(p: &std::path::Path) -> bool {
+    let Ok(meta) = std::fs::metadata(p) else {
+        return false;
+    };
+    if !meta.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        return meta.permissions().mode() & 0o111 != 0;
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+/// Resolve `bin` to a runnable path, memoized per process. Ladder: (1) `which`
+/// over the daemon PATH — unchanged when it hits; (2) on a miss, probe each
+/// `extra_dirs` entry in order, returning the first `<dir>/<bin>` that is an
+/// executable regular file; (3) fall back to the bare name (OS resolves at
+/// spawn). The fallback only WIDENS discovery: probe paths are `dir.join(bin)`,
+/// so the allowlisted basename is preserved by construction.
+fn resolve_bin(bin: &str, extra_dirs: &[std::path::PathBuf]) -> std::path::PathBuf {
+    if let Some(hit) = RESOLVED_BINS.lock().get(bin) {
+        return hit.clone();
+    }
+    let resolved = resolve_bin_uncached(bin, extra_dirs);
+    RESOLVED_BINS
+        .lock()
+        .insert(bin.to_string(), resolved.clone());
+    resolved
+}
+
+fn resolve_bin_uncached(bin: &str, extra_dirs: &[std::path::PathBuf]) -> std::path::PathBuf {
+    if let Ok(p) = which::which(bin) {
+        return p;
+    }
+    for dir in extra_dirs {
+        let candidate = dir.join(bin);
+        if is_executable_file(&candidate) {
+            debug_assert_eq!(
+                candidate.file_name().and_then(|n| n.to_str()),
+                Some(bin),
+                "resolved basename must equal the requested allowlisted bin"
+            );
+            return candidate;
+        }
+    }
+    std::path::PathBuf::from(bin)
+}
+
+/// Well-known dirs a GUI-launched app may miss from a login shell's PATH.
+fn well_known_bin_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs = vec![
+        std::path::PathBuf::from("/opt/homebrew/bin"),
+        std::path::PathBuf::from("/usr/local/bin"),
+    ];
+    if let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) {
+        dirs.push(home.join(".npm-global/bin"));
+        dirs.push(home.join(".local/bin"));
+        dirs.push(home.join("bin"));
+        dirs.push(home.join(".volta/bin"));
+    }
+    dirs
+}
+
 /// Run the subprocess described by `opts_json`. The binary is already
 /// permission-checked. Resolves the binary via `which`, falling back to the bare
 /// name (PATH resolution by the OS).
@@ -81,7 +153,7 @@ pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, Stri
         Err(e) => return err(&format!("bad exec opts: {e}")),
     };
     let opts = with_host_env(opts, host_env);
-    let resolved = which::which(&opts.bin).unwrap_or_else(|_| std::path::PathBuf::from(&opts.bin));
+    let resolved = resolve_bin(&opts.bin, &well_known_bin_dirs());
 
     if opts.detach {
         let log = |p: &str| {
@@ -584,6 +656,97 @@ mod tests {
         assert!(out.get("error").is_none(), "unexpected error: {out}");
         assert_eq!(out["code"], 0);
         assert_eq!(out["stdout"].as_str().map(str::len), Some(200_000));
+    }
+
+    #[test]
+    fn resolve_bin_probes_fallback_dir_when_not_on_path() {
+        // A bin absent from PATH must still resolve when its dir is passed as a
+        // fallback candidate. RED today: resolve_bin ignores extra_dirs and
+        // returns the bare name; GREEN once the fallback probe lands.
+        let name = format!("bwprobe_{}", uuid::Uuid::new_v4().simple());
+        let dir = std::env::temp_dir().join(format!(
+            "host_exec_resolve_{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin_path = dir.join(&name);
+        std::fs::write(&bin_path, b"#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perm = std::fs::metadata(&bin_path).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&bin_path, perm).unwrap();
+        }
+
+        let resolved = resolve_bin(&name, std::slice::from_ref(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(
+            resolved, bin_path,
+            "resolve_bin must find a bin via the provided fallback dir, not just PATH"
+        );
+    }
+
+    #[test]
+    fn resolve_bin_ignores_probe_dirs_when_which_succeeds() {
+        let _guard = TEST_LOCK.lock();
+        RESOLVED_BINS.lock().clear();
+        #[cfg(windows)]
+        let name = "cmd";
+        #[cfg(not(windows))]
+        let name = "sh";
+        let expected = which::which(name).expect("bin must be on PATH for this test");
+
+        // Decoy dir holding a same-named executable must be ignored: which() wins.
+        let dir =
+            std::env::temp_dir().join(format!("host_exec_decoy_{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let decoy = dir.join(name);
+        std::fs::write(&decoy, b"#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perm = std::fs::metadata(&decoy).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&decoy, perm).unwrap();
+        }
+
+        let resolved = resolve_bin(name, std::slice::from_ref(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+        RESOLVED_BINS.lock().clear();
+        assert_eq!(
+            resolved, expected,
+            "which() result must win over probe dirs"
+        );
+    }
+
+    #[test]
+    fn resolve_bin_via_probe_preserves_basename() {
+        let _guard = TEST_LOCK.lock();
+        RESOLVED_BINS.lock().clear();
+        let name = format!("bwbase_{}", uuid::Uuid::new_v4().simple());
+        let dir =
+            std::env::temp_dir().join(format!("host_exec_base_{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin_path = dir.join(&name);
+        std::fs::write(&bin_path, b"#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perm = std::fs::metadata(&bin_path).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&bin_path, perm).unwrap();
+        }
+
+        let resolved = resolve_bin(&name, std::slice::from_ref(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+        RESOLVED_BINS.lock().clear();
+        assert_eq!(
+            resolved.file_name().and_then(|n| n.to_str()),
+            Some(name.as_str()),
+            "a probe-dir resolution must preserve the requested basename"
+        );
     }
 
     #[test]
