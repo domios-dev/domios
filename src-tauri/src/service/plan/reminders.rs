@@ -1,12 +1,27 @@
 use crate::multiplexer::types::AgentRole;
 use parking_lot::Mutex;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+use crate::plan::{Plan, PlanMode, PlanStatus, TaskStatus};
+use crate::service::plan::heartbeat::is_plan_complete;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NudgeKind {
     Worker,
     Orchestrator,
     Escalated,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TimedPlanReminderKind {
+    Owner { plan_id: String },
+    Worker,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TimedPlanReminderTarget {
+    pub pane_id: String,
+    pub kind: TimedPlanReminderKind,
 }
 
 #[derive(Debug, Clone)]
@@ -97,6 +112,62 @@ pub fn idle_poke_text(pending_tasks: usize, active_lanes: usize, phrase_index: u
     template
         .replace("{pending_tasks}", &pending_tasks.to_string())
         .replace("{active_lanes}", &active_lanes.to_string())
+}
+
+pub fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
+    let mut targets = BTreeMap::<String, TimedPlanReminderKind>::new();
+    for plan in plans.iter().filter(|plan| {
+        plan.status == PlanStatus::Active
+            && plan.mode == PlanMode::Execution
+            && !is_plan_complete(plan)
+            && plan
+                .tasks
+                .iter()
+                .any(|task| task.status.counts_as_open_work())
+    }) {
+        if let Some(pane_id) = non_empty(plan.owner.pane_id.as_deref()) {
+            targets.insert(
+                pane_id.to_string(),
+                TimedPlanReminderKind::Owner {
+                    plan_id: plan.id.clone(),
+                },
+            );
+        }
+    }
+    for plan in plans.iter().filter(|plan| {
+        plan.status == PlanStatus::Active
+            && plan.mode == PlanMode::Execution
+            && !is_plan_complete(plan)
+    }) {
+        for task in plan.tasks.iter().filter(|task| {
+            matches!(
+                task.status,
+                TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::Blocked
+            )
+        }) {
+            let Some(pane_id) = non_empty(task.assigned_pane_id.as_deref()) else {
+                continue;
+            };
+            targets
+                .entry(pane_id.to_string())
+                .or_insert(TimedPlanReminderKind::Worker);
+        }
+    }
+    targets
+        .into_iter()
+        .map(|(pane_id, kind)| TimedPlanReminderTarget { pane_id, kind })
+        .collect()
+}
+
+fn non_empty(value: Option<&str>) -> Option<&str> {
+    let value = value?.trim();
+    (!value.is_empty()).then_some(value)
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct PollState {
+    consecutive: u32,
+    nudged: bool,
 }
 
 #[derive(Debug, Default)]
@@ -247,12 +318,68 @@ impl TurnCounter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plan::{
+        ElementCanvas, OrchestratorRef, PlanMode, Task, TaskLaneMetadata, TaskPriority, TaskStatus,
+    };
 
     fn cfg(role: AgentRole) -> NudgeConfig {
         NudgeConfig {
             plan_reminders: true,
             nudge_after_turns: 12,
             role: Some(role),
+        }
+    }
+
+    fn plan(id: &str, owner: &str, mode: PlanMode, tasks: Vec<Task>) -> Plan {
+        let mut plan = Plan::new(
+            "Reminder".into(),
+            "/tmp/project".into(),
+            OrchestratorRef::from_pane(owner),
+        );
+        plan.id = id.into();
+        plan.mode = mode;
+        plan.tasks = tasks;
+        plan
+    }
+
+    fn task(id: &str, status: TaskStatus, pane_id: Option<&str>) -> Task {
+        Task {
+            id: id.into(),
+            name: id.into(),
+            kind: "status_update".into(),
+            model: None,
+            model_rationale: None,
+            acceptance_criteria: vec![],
+            test_plan: None,
+            correctness: None,
+            status,
+            review_stage: Default::default(),
+            qa_state: None,
+            status_label: None,
+            priority: TaskPriority::P2,
+            created_at: 0,
+            updated_at: 0,
+            status_changed_at: 0,
+            handle: None,
+            tags: vec![],
+            section_ids: vec![],
+            body: String::new(),
+            role_guidance: None,
+            executor_role: None,
+            competition: None,
+            intent: None,
+            parent_task_id: None,
+            assigned_pane_id: pane_id.map(str::to_string),
+            lane: TaskLaneMetadata::default(),
+            taken_by_role: None,
+            peer: None,
+            group: None,
+            canvas: ElementCanvas::default(),
+            milestones: vec![],
+            execution_attempts: vec![],
+            park_reason: None,
+            personality: None,
+            attachments: vec![],
         }
     }
 
@@ -350,6 +477,162 @@ mod tests {
                 .replace("{active_lanes}", "2");
             assert_eq!(rendered, expected);
         }
+    }
+
+    #[test]
+    fn time_targets_include_execution_owner_and_worker() {
+        let plans = vec![plan(
+            "pl_1",
+            "orch",
+            PlanMode::Execution,
+            vec![task("task_1", TaskStatus::Pending, Some("worker"))],
+        )];
+
+        assert_eq!(
+            timed_plan_reminder_targets(&plans),
+            vec![
+                TimedPlanReminderTarget {
+                    pane_id: "orch".into(),
+                    kind: TimedPlanReminderKind::Owner {
+                        plan_id: "pl_1".into()
+                    }
+                },
+                TimedPlanReminderTarget {
+                    pane_id: "worker".into(),
+                    kind: TimedPlanReminderKind::Worker
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn time_targets_skip_paused_plans_with_open_owner_and_worker_work() {
+        let mut paused = plan(
+            "pl_paused",
+            "orch",
+            PlanMode::Execution,
+            vec![task("task_1", TaskStatus::Pending, Some("worker"))],
+        );
+        paused.mode = PlanMode::Paused;
+        paused.paused_from_mode = Some(PlanMode::Execution);
+
+        assert_eq!(timed_plan_reminder_targets(&[paused]), Vec::new());
+    }
+
+    #[test]
+    fn time_targets_skip_planning_and_terminal_work() {
+        let plans = vec![
+            plan(
+                "pl_planning",
+                "orch",
+                PlanMode::Planning,
+                vec![task("task_1", TaskStatus::Pending, Some("worker"))],
+            ),
+            plan(
+                "pl_done",
+                "done-orch",
+                PlanMode::Execution,
+                vec![task("task_2", TaskStatus::Done, Some("done-worker"))],
+            ),
+            plan(
+                "pl_cancelled",
+                "cancelled-orch",
+                PlanMode::Execution,
+                vec![task(
+                    "task_3",
+                    TaskStatus::Cancelled,
+                    Some("cancelled-worker"),
+                )],
+            ),
+        ];
+
+        assert!(timed_plan_reminder_targets(&plans).is_empty());
+    }
+
+    #[test]
+    fn time_targets_prioritize_owner_over_worker_for_same_pane() {
+        let plans = vec![plan(
+            "pl_1",
+            "orch",
+            PlanMode::Execution,
+            vec![task("task_1", TaskStatus::Pending, Some("orch"))],
+        )];
+
+        assert_eq!(
+            timed_plan_reminder_targets(&plans),
+            vec![TimedPlanReminderTarget {
+                pane_id: "orch".into(),
+                kind: TimedPlanReminderKind::Owner {
+                    plan_id: "pl_1".into()
+                }
+            }]
+        );
+    }
+
+    #[test]
+    fn time_targets_workers_only_for_report_pending_statuses() {
+        let plans = vec![plan(
+            "pl_1",
+            "orch",
+            PlanMode::Execution,
+            vec![
+                task("pending", TaskStatus::Pending, Some("p1")),
+                task("working", TaskStatus::InProgress, Some("p2")),
+                task("blocked", TaskStatus::Blocked, Some("p3")),
+                task("review", TaskStatus::InReview, Some("p4")),
+            ],
+        )];
+        let targets = timed_plan_reminder_targets(&plans);
+
+        assert!(targets.iter().any(|target| target.pane_id == "p1"));
+        assert!(targets.iter().any(|target| target.pane_id == "p2"));
+        assert!(targets.iter().any(|target| target.pane_id == "p3"));
+        assert!(!targets.iter().any(|target| target.pane_id == "p4"));
+    }
+
+    #[test]
+    fn timed_targets_silent_for_all_done_and_complete_mode_plans() {
+        let all_done = plan(
+            "pl_done",
+            "orch-done",
+            PlanMode::Execution,
+            vec![
+                task("t1", TaskStatus::Done, Some("w1")),
+                task("t2", TaskStatus::Done, Some("w2")),
+                task("t3", TaskStatus::Cancelled, Some("w3")),
+            ],
+        );
+        let mut complete_mode = plan(
+            "pl_complete",
+            "orch-complete",
+            PlanMode::Execution,
+            vec![task("t4", TaskStatus::Done, None)],
+        );
+        complete_mode.mode = PlanMode::Complete;
+
+        let targets = timed_plan_reminder_targets(&[all_done, complete_mode]);
+        assert!(
+            targets.is_empty(),
+            "complete plans must produce zero timed reminder targets: {targets:?}"
+        );
+    }
+
+    #[test]
+    fn timed_targets_fire_for_in_review_open_work() {
+        let plans = vec![plan(
+            "pl_review",
+            "orch-review",
+            PlanMode::Execution,
+            vec![
+                task("t_done", TaskStatus::Done, None),
+                task("t_review", TaskStatus::InReview, Some("worker-review")),
+            ],
+        )];
+        let targets = timed_plan_reminder_targets(&plans);
+        assert!(
+            targets.iter().any(|t| t.pane_id == "orch-review"),
+            "in_review open work must keep plan non-complete and owner nudge-eligible"
+        );
     }
 
     #[test]
