@@ -3,11 +3,6 @@
 use crate::service::plan::PlanStore;
 use crate::service::{ServiceContext, SpawnAgentParams};
 
-pub(crate) struct WorkerPlanTaskBind {
-    pub plan_id: String,
-    pub task_id: String,
-}
-
 pub(crate) fn worker_spawn_plan_task_ref(params: &SpawnAgentParams) -> Option<&str> {
     params
         .plan_task
@@ -77,11 +72,11 @@ impl ServiceContext {
         &self,
         params: &SpawnAgentParams,
         pane_id: &str,
-    ) -> Result<Option<WorkerPlanTaskBind>, String> {
+    ) -> Result<(), String> {
         let Some(task_ref) = worker_spawn_plan_task_ref(params) else {
-            return Ok(None);
+            return Ok(());
         };
-        let (plan_id, task_id) = bind_worker_task_to_pane(
+        let (plan_id, _task_id) = bind_worker_task_to_pane(
             &self.plan_store,
             params.plan_id.as_deref(),
             task_ref,
@@ -93,18 +88,7 @@ impl ServiceContext {
             "plan-changed",
             serde_json::json!({ "plan_id": plan_id }),
         );
-        Ok(Some(WorkerPlanTaskBind { plan_id, task_id }))
-    }
-
-    pub(crate) fn revert_worker_plan_task_bind(&self, bind: &WorkerPlanTaskBind) {
-        let _ = self
-            .plan_store
-            .revert_task_dispatch(&bind.plan_id, &bind.task_id, epoch_ms());
-        crate::api::events::emit_everywhere(
-            &self.app_handle,
-            "plan-changed",
-            serde_json::json!({ "plan_id": bind.plan_id }),
-        );
+        Ok(())
     }
 }
 

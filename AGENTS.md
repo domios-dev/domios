@@ -406,11 +406,27 @@ No `[Tag]`, `[Idea]`, `[Bug]` brackets — just the scope prefix.
 
 ## Release pipeline & issue lifecycle
 
+**Canonical release process lives in `.agents/skills/github-release/SKILL.md`; build-farm
+provisioning and workflow details live in `.codeterm/build-machine/README.md`.** For any release,
+read those two files first and follow them over chat memory. `AGENTS.md` only summarizes the
+non-negotiable gates.
+
 Branch as you like, then:
 
 1. **Develop → `develop`.** PR feature branches into `develop`. Reference issues with a **bare `#N`** (NOT `Closes #N` — that would let GitHub close on master-merge, before the build actually ships). On push to `develop` the referenced open issues get the **`ready-for-release`** label (still open).
 2. **Cut a release.** PR `develop` → `master` (or a release branch → `master`), merge it. **Always land `master` via a PR** — direct pushes to `master` are intentionally gated. Bump + sync the version on the branch first (`package.json` → `npm run sync:versions` → `check:versions`, commit `release: vX.Y.Z`). Then on `master`, manually tag: `git tag release-X.Y.Z && git push origin release-X.Y.Z` (single tag — the workflow stamps `vX.Y.Z` itself). The self-hosted build machine builds + publishes.
 3. **Published → done.** On a successful publish the release workflow closes every `ready-for-release` issue ("Released in vX.Y.Z") and drops the label. Close-on-publish, never on merge, so a failed build never closes an unshipped issue.
+
+Release preflight is mandatory before the version bump / master PR:
+- `develop` must already contain `origin/master` (`git merge-base --is-ancestor origin/master origin/develop`), or merge `origin/master` into `develop` first and resolve fallout before bumping the version.
+- The current release head must be reviewed in the main checkout, not an abandoned lane worktree. Start dev from `develop` and visually confirm the UI before opening the release PR.
+- Clean orchestration state before cutting: close finished worker panes, remove merged lane worktrees under `../codeterm-worktrees/`, and keep only intentionally preserved stashes.
+- Run the release-head gates on the exact branch that will go to `master`; do not rely on old lane checks.
+- The `develop` → `master` PR must be green and mergeable before merge. Record the merged `origin/master` SHA and tag exactly that SHA.
+
+Bad release recovery: do not move or overwrite published tags/artifacts by default. If a bad public
+release was removed intentionally, cut the correction as a new patch version, re-run the normal
+`develop` → `master` PR flow, then push only `release-X.Y.Z`.
 
 Before tagging, a fast `cargo check` precheck (linux+macOS) gates the long build; failures surface per-engine in the Actions log.
 

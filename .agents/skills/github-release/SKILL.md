@@ -30,9 +30,31 @@ Linux `linux-build` via `release-linux.yml`. **Self-hosted runner minutes are fr
 how we release without burning GitHub-hosted minutes. You do NOT build by hand on multiple
 machines anymore (that's the fallback at the bottom).
 
-**Normal change flow:** bump `package.json`, run `npm run sync:versions`, verify
-`npm run check:versions`, then open a PR from the release branch/develop into `master` and merge
-it. Releases are cut from the resulting `master` commit.
+**Normal change flow:** first prove `develop` already contains `origin/master`, merge `master` into
+`develop` if needed, verify the UI from the main checkout on `develop`, clean old lane worktrees,
+then bump `package.json`, run `npm run sync:versions`, verify `npm run check:versions`, open a PR
+from `develop` into `master`, and merge it only after required checks are green. Releases are cut
+from the resulting `master` commit.
+
+**Hard preflight before version bump / master PR:**
+
+```bash
+git fetch origin --prune
+git checkout develop
+git pull --ff-only origin develop
+git merge-base --is-ancestor origin/master HEAD || {
+  git merge --no-ff origin/master --no-edit
+  # Resolve conflicts, run the gates below, commit, and push develop before bumping the version.
+}
+
+git status --short                  # must be clean
+ls -la ../codeterm-worktrees         # should be empty or only explicitly preserved lanes
+curl -s http://127.0.0.1:7686/api/health
+```
+
+Start dev from this main checkout and visually inspect the release UI before opening the release
+PR. Do not cut a release from a lane worktree, a stale dev build, or a `develop` that is missing
+commits already present on `master`.
 
 **To cut a release — after the version bump PR lands on `master`, push only the trigger tag:**
 
@@ -66,10 +88,11 @@ End-to-end ≈ 25–30 min, hands-off. Watch it: `gh run watch --repo rollacode/
   build + sign themselves via `TAURI_SIGNING_PRIVATE_KEY` / `PACKAGE_REPOS_TOKEN`, no SSH/QEMU;
 - macOS signing/notary + `~/.tauri/codeterm.key` on the build machine (secrets table below).
 
-If a stage fails: `gh run view <id> --log-failed`, fix, re-push the trigger tag (`git tag -f
-release-X.Y.Z && git push -f origin release-X.Y.Z`). The publish step is idempotent (upserts the
-release with `--clobber`) and bails before touching any release if an artifact is missing, so a
-failed run never half-publishes.
+If a stage fails before publishing: `gh run view <id> --log-failed`, fix the runner/build-farm issue,
+and rerun the same workflow/tag only when the tag still points at the intended master SHA. Do not
+move or overwrite a published release tag/artifact by default. If a public bad release was deleted
+intentionally, cut the correction as a new patch version through the normal PR flow, then push only
+the new `release-X.Y.Z` trigger tag.
 
 > **Everything below this line is the MANUAL FALLBACK** — only for when the runner/CI is down or
 > you're debugging a single platform. The full from-scratch build-machine setup (Docker arm64
@@ -158,6 +181,13 @@ Rust builds share the target dir — concurrent `tauri build` + `tauri dev` figh
 
 ```bash
 git checkout develop
+git fetch origin --prune
+git pull --ff-only origin develop
+git merge-base --is-ancestor origin/master HEAD
+
+# If the merge-base check fails, merge origin/master into develop first and stop here until
+# develop is pushed, green, and visually checked from the main checkout.
+
 VER=1.2.0  # new
 npm run sync:versions -- "$VER"
 ./build.sh check                      # refreshes Cargo.lock
@@ -174,6 +204,26 @@ git commit -m "release: v$VER"
 git push origin develop
 ```
 
+Run these on the exact release head before opening the master PR:
+
+```bash
+pnpm build
+CODETERM_API_PORT=7686 ./build.sh check
+bash scripts/check-file-sizes.sh --fail
+git diff --check
+```
+
+Then start dev from the main checkout and visually confirm the app:
+
+```bash
+./build.sh kill
+codeterm pane new --cmd "cd $(pwd) && ./build.sh dev"
+curl -s http://127.0.0.1:7686/api/health
+```
+
+Clean old orchestration state before the PR: close finished worker panes, remove merged lane
+worktrees under `../codeterm-worktrees/`, and leave only documented stashes/lane directories.
+
 ### 2. Merge to master by PR + push the release trigger tag
 
 **Always via PR on GitHub** — don't direct-push develop to master. This avoids merge-commit
@@ -181,16 +231,38 @@ collisions when multiple machines operate on master. The normal trigger is a sin
 `release-$VER` tag on the master merge commit.
 
 ```bash
-# On GitHub: open PR develop → master, merge via "Create a merge commit"
-# Then locally:
+# On GitHub: open PR develop → master, watch checks, and merge via "Create a merge commit".
+gh pr checks <pr-number> --watch
+gh pr view <pr-number> --json mergeable,mergeStateStatus,statusCheckRollup,headRefOid
+
+# Then locally, tag the exact merged master commit:
 git checkout master
 git pull origin master --no-rebase   # get the merge commit GitHub created
-git tag "release-$VER"
+INTENDED_MASTER_SHA=$(git rev-parse HEAD)
+git ls-remote --tags origin "refs/tags/release-$VER" "refs/tags/v$VER"  # must be empty
+test "$(git rev-parse origin/master)" = "$INTENDED_MASTER_SHA"
+git tag "release-$VER" "$INTENDED_MASTER_SHA"
 git push origin "release-$VER"
 ```
 
 Do **not** create or push `v$VER` here. The release workflows create/update the private and
 public GitHub releases under `v$VER` and map the updater metadata there.
+
+### 2.1. Release closeout cleanup
+
+After the workflows publish successfully and before archiving the plan:
+
+```bash
+git worktree list
+find ../codeterm-worktrees -mindepth 1 -maxdepth 1 -type d -print
+cargo sweep --time 2
+```
+
+Remove merged lane worktrees and delete their merged `lane/*` branches. Close finished worker panes
+and stop lane-specific dev daemons. Keep only documented stashes or explicitly preserved scratch
+checkouts. Do not leave `src-tauri/target` or lane `target/` directories to grow silently between
+releases; `cargo sweep --time 2` is the default cleanup because active build artifacts are touched
+daily and stale layers otherwise accumulate into tens of GB.
 
 If you need to merge post-release develop commits to master (docs, skills, etc.) after the tag:
 ```bash

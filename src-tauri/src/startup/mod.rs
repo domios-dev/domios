@@ -14,8 +14,6 @@ mod states;
 mod window;
 
 pub(crate) use background::start_background_tasks;
-#[cfg(test)]
-pub use bridge::start_telegram_bridge_for_test;
 pub use bridge::{spawn_telegram_bridge, start_telegram_bridge, unmark_pane_connected_service};
 pub(crate) use cli_install::{install_bundled_cli, refresh_bundled_cli};
 pub(crate) use cli_shim::forward_to_cli_if_invoked;

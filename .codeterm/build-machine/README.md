@@ -103,16 +103,32 @@ each on its own self-hosted runner:
 - `.github/workflows/release-linux.yml` on the **ROG's WSL2** (`[self-hosted, linux-build]`) —
   builds + signs `x86_64` Linux `.deb`+`.AppImage` natively, then publishes/mirrors.
 
+0. **Preflight the release head.** `develop` must contain `origin/master` before the version bump
+   (`git merge-base --is-ancestor origin/master origin/develop`). If not, merge `master` into
+   `develop`, resolve conflicts, run gates, push, and visually check dev from the main checkout
+   before continuing. Clean merged lane worktrees under `../codeterm-worktrees/` so old artifacts
+   and stale agents do not influence the release.
 1. **Land the release on `master` via a PR.** Open a PR of the release branch → `master`
    (`gh pr create --base master --head <branch>`) and merge it. Direct pushes to `master` are
    intentionally gated — always go through the PR.
 2. **Bump + sync the version first** (on the branch, before the PR): set `package.json` version,
    `npm run sync:versions`, `npm run check:versions`, commit as `release: vX.Y.Z`.
-3. **Tag on `master`:** `git tag release-X.Y.Z && git push origin release-X.Y.Z` (single tag — all
-   three workflows stamp/map `vX.Y.Z` themselves). `release.yml` runs `build-all.sh` (macOS + arm64
-   Linux on the Mac) then `publish-release.sh`; `release-windows.yml` builds x64 + arm64 Windows on
-   the ROG; `release-linux.yml` builds x86_64 Linux on the ROG's WSL.
+3. **Tag on the merged `master` SHA:** after the PR is green and merged, verify local `HEAD` and
+   `origin/master` equal the intended merge SHA, verify remote `release-X.Y.Z` and `vX.Y.Z` are
+   absent, then `git tag release-X.Y.Z <merged-master-sha> && git push origin release-X.Y.Z`
+   (single tag — all three workflows stamp/map `vX.Y.Z` themselves). `release.yml` runs
+   `build-all.sh` (macOS + arm64 Linux on the Mac) then `publish-release.sh`; `release-windows.yml`
+   builds x64 + arm64 Windows on the ROG; `release-linux.yml` builds x86_64 Linux on the ROG's WSL.
 4. **Published → done.** `release.yml` closes `ready-for-release` issues.
+
+Recovery rule: do not move or overwrite a published release tag/artifact by default. If a bad
+public release is intentionally deleted, cut the fix as a new patch version through the same
+develop → master PR path and trigger it with a new `release-X.Y.Z` tag.
+
+Closeout rule: once artifacts publish, remove merged lane worktrees under `../codeterm-worktrees/`,
+delete merged `lane/*` branches, close finished worker panes, stop lane-specific dev daemons, and
+run `cargo sweep --time 2` on build machines/checkouts that accumulated Rust/Tauri artifacts. Old
+worktrees and `target/` layers are release debt, not something to leave for the next run.
 
 > **Manual re-run / verification:** `gh workflow run release-windows.yml --ref <branch>
 > -f tag=vX.Y.Z-rcN` (or `release-linux.yml`) runs ONLY that workflow via `workflow_dispatch` (a
