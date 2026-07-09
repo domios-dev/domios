@@ -693,16 +693,35 @@ mod tests {
         let _guard = TEST_LOCK.lock();
         RESOLVED_BINS.lock().clear();
         #[cfg(windows)]
-        let name = "cmd.exe";
+        let name = format!("host_exec_{}.cmd", uuid::Uuid::new_v4().simple());
         #[cfg(not(windows))]
-        let name = "sh";
-        let expected = which::which(name).expect("bin must be on PATH for this test");
+        let name = format!("host_exec_{}", uuid::Uuid::new_v4().simple());
+
+        let path_dir =
+            std::env::temp_dir().join(format!("host_exec_path_{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&path_dir).unwrap();
+        let expected = path_dir.join(&name);
+        std::fs::write(&expected, b"#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perm = std::fs::metadata(&expected).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&expected, perm).unwrap();
+        }
+
+        let old_path = std::env::var_os("PATH");
+        let mut paths = vec![path_dir.clone()];
+        if let Some(old) = old_path.as_deref() {
+            paths.extend(std::env::split_paths(old));
+        }
+        std::env::set_var("PATH", std::env::join_paths(paths).unwrap());
 
         // Decoy dir holding a same-named executable must be ignored: which() wins.
         let dir =
             std::env::temp_dir().join(format!("host_exec_decoy_{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
-        let decoy = dir.join(name);
+        let decoy = dir.join(&name);
         std::fs::write(&decoy, b"#!/bin/sh\nexit 0\n").unwrap();
         #[cfg(unix)]
         {
@@ -712,8 +731,14 @@ mod tests {
             std::fs::set_permissions(&decoy, perm).unwrap();
         }
 
-        let resolved = resolve_bin(name, std::slice::from_ref(&dir));
+        let resolved = resolve_bin(&name, std::slice::from_ref(&dir));
         let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&path_dir);
+        if let Some(old) = old_path {
+            std::env::set_var("PATH", old);
+        } else {
+            std::env::remove_var("PATH");
+        }
         RESOLVED_BINS.lock().clear();
         assert_eq!(
             resolved, expected,
