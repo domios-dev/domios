@@ -111,7 +111,7 @@ mod tests {
     #[test]
     fn planner_when_pane_idle_but_present() {
         let r = resolve_planner_ref(&pane("pane_x"), &Default::default(), idle_probe);
-        assert!(matches!(r, PeerResolution::Planner { pane_id } if pane_id == "pane_x"));
+        assert!(matches!(r, PeerResolution::Planner { ref pane_id } if pane_id == "pane_x"));
         assert_eq!(
             resolution_json(&r),
             r#"{"kind":"planner","pane_id":"pane_x"}"#
