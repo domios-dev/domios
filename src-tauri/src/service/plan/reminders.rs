@@ -164,12 +164,6 @@ fn non_empty(value: Option<&str>) -> Option<&str> {
     (!value.is_empty()).then_some(value)
 }
 
-#[derive(Debug, Default, Clone, Copy)]
-struct PollState {
-    consecutive: u32,
-    nudged: bool,
-}
-
 #[derive(Debug, Default)]
 pub struct TurnCounter {
     panes: Mutex<HashMap<String, (u32, u32)>>,
@@ -378,7 +372,6 @@ mod tests {
             milestones: vec![],
             execution_attempts: vec![],
             park_reason: None,
-            personality: None,
             attachments: vec![],
         }
     }
