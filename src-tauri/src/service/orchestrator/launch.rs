@@ -255,11 +255,10 @@ pub(crate) fn launch_agent_in_background(
                         pane_id
                     );
                 }
-                // Deliver onboarding like a normal message: fast paste+Enter plus
-                // an async submit backstop — never block the spawn thread on
-                // echo/submit verification (a 46-line verified paste stalled each
-                // pair spawn ~30s serially). confirm_wake_async re-nudges Enter.
-                if let Err(e) = svc.send_text(&pane_id, task_text, true) {
+                set_booting(false);
+                // TUI is visible; use the fast message path without waiting for
+                // this launch thread's own boot flag to clear.
+                if let Err(e) = svc.send_text_to_pty_smart(&pty_id, task_text, true) {
                     log::error!(
                         "launch_agent: task delivery failed for pane {} (pty {}): {}",
                         pane_id,
