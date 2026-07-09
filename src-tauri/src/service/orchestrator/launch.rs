@@ -82,30 +82,7 @@ pub(crate) fn launch_agent_in_background(
                     .write()
                     .get_pane(&pane_id)
                     .and_then(|p| p.cwd.clone());
-                let mut env_vars: std::collections::HashMap<String, String> =
-                    std::collections::HashMap::new();
-                env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
-                env_vars.insert(
-                    "CODETERM_SESSION_BINDING_NONCE".into(),
-                    svc.ensure_session_binding_nonce(&pane_id),
-                );
-                env_vars.insert(
-                    "CODETERM_SOCKET_PATH".into(),
-                    crate::socket::server::socket_display_path(),
-                );
-                let api_cfg = crate::config::load_config().api;
-                let host = if api_cfg.host == "0.0.0.0" {
-                    "127.0.0.1".to_string()
-                } else {
-                    api_cfg.host.clone()
-                };
-                env_vars.insert(
-                    "CODETERM_API_URL".into(),
-                    format!("http://{}:{}", host, api_cfg.port),
-                );
-                if let Some(ref tok) = api_cfg.token {
-                    env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
-                }
+                let env_vars = svc.pane_env(&pane_id);
                 let spawn_result = svc.pty.lock().spawn(None, cwd, 120, 40, env_vars);
                 match spawn_result {
                     Ok((pid, _)) => {
