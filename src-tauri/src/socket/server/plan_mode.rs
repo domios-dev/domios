@@ -8,7 +8,10 @@ use crate::service::ServiceState;
 use super::{get_string_param, JsonRpcError};
 
 pub(super) fn handles(method: &str) -> bool {
-    matches!(method, "plan.mode.set" | "plan.planning.set")
+    matches!(
+        method,
+        "plan.mode.set" | "plan.planning.set" | "plan.pause" | "plan.resume"
+    )
 }
 
 pub(super) fn dispatch(
@@ -53,6 +56,31 @@ pub(super) fn dispatch(
             }
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
+        }
+        "plan.pause" => {
+            let id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;
+            let reason = get_string_param(params, "reason")?;
+            let from = params
+                .as_ref()
+                .and_then(|p| p.get("from"))
+                .cloned()
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default();
+            let stride_id = svc
+                .plan_store
+                .pause_plan(&id, &reason, from, epoch_ms())
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "stride_id": stride_id }))
+        }
+        "plan.resume" => {
+            let id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;
+            let mode = svc
+                .plan_store
+                .resume_plan(&id, epoch_ms())
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "mode": mode }))
         }
         "plan.planning.set" => {
             let id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;

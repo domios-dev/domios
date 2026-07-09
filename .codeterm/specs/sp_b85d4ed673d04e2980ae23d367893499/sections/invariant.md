@@ -1,1 +1,0 @@
-Spec (WHAT/WHY) and Plan (HOW) are TWO distinct entities, each with its own sections. The Plan is built FROM the Spec. A spec section may belong to MANY plan sections (M:N via spec_links). Spec is stable under tactic changes; Plan/Tasks change.

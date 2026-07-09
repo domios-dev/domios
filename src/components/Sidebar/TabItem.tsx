@@ -20,11 +20,13 @@ import type { Pane, PaneStatus, Tab } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
-import { RoleModelBadge } from "./RoleModelBadge";
-import { roleBadgeLabel } from "./orchestrationSections";
+import { RoleBadge } from "./RoleBadge";
+import { roleShieldLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
-import { TabStatusRail } from "./TabStatusRail";
 import type { PaneTabActivity } from "../Canvas/paneTabActivity";
+import {
+  type ActiveWorkSnapshot,
+} from "../Canvas/planView/activeWork";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { canMakeOrchestrator, makeOrchestrator } from "../../lib/orchestratorOnboard";
 
@@ -48,15 +50,87 @@ interface TabItemProps {
   uiFontScale?: number;
   /** Plan-membership glance (resolved from the cheap index gate by the Sidebar). */
   activity?: PaneTabActivity | null;
-  /** Orchestration group head: renders a chevron that collapses/expands the
-   *  whole contained group (children + section headers). */
-  collapsible?: boolean;
+  /** Bound in-flight tasks — drives worker subline activity dots. */
+  activeWork?: ActiveWorkSnapshot | null;
+  /** Agent report count badge (orchestration worker rows). */
+  reportCount?: number;
+  /** Group head with children — overlay collapse chevron in the left padding gutter. */
+  groupCollapsible?: boolean;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   /** Shown on the head only while collapsed — "1 manager · 2 workers". */
   collapsedSummary?: string | null;
 }
 
+function GroupCollapseChevron({
+  touchMode,
+  collapsed,
+  onToggleCollapse,
+}: {
+  touchMode: boolean;
+  collapsed: boolean;
+  onToggleCollapse?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid="group-collapse-toggle"
+      data-collapsed={collapsed ? "true" : "false"}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggleCollapse?.();
+      }}
+      className={`sidebar-group-chevron ${touchMode ? "sidebar-group-chevron-touch" : ""}`}
+      title={collapsed ? "Expand orchestration" : "Collapse orchestration"}
+      aria-expanded={!collapsed}
+    >
+      <svg
+        width="8"
+        height="8"
+        viewBox="0 0 8 8"
+        fill="currentColor"
+        className="transition-transform duration-[320ms]"
+        style={{
+          transform: collapsed ? "rotate(0deg)" : "rotate(90deg)",
+          transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+        }}
+      >
+        <path d="M2 1l4 3-4 3V1z" />
+      </svg>
+    </button>
+  );
+}
+
+function TabWorkingActivity() {
+  return (
+    <span
+      data-testid="tab-working-activity"
+      className="inline-flex items-center shrink-0"
+    >
+      <span
+        data-hierarchy-typing="true"
+        className="sidebar-hierarchy-typing-dots inline-flex items-center gap-[2px] align-middle shrink-0"
+        aria-hidden
+      >
+        <span />
+        <span />
+        <span />
+      </span>
+    </span>
+  );
+}
+
+function TabSubline({ roleShield }: { roleShield: string | null }) {
+  if (!roleShield) return null;
+  return (
+    <span
+      data-testid="tab-subline"
+      className="flex min-w-0 items-center gap-1 truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]"
+    >
+      <RoleBadge label={roleShield} className="shrink-0" />
+    </span>
+  );
+}
 function TabItemInner({
   tab,
   isActive,
@@ -74,8 +148,10 @@ function TabItemInner({
   isClosing,
   touchMode = false,
   uiFontScale,
-  activity,
-  collapsible = false,
+  activity: _activity,
+  activeWork: _activeWork = null,
+  reportCount = 0,
+  groupCollapsible = false,
   collapsed = false,
   onToggleCollapse,
   collapsedSummary,
@@ -88,12 +164,12 @@ function TabItemInner({
   // back to the live chatBackend session model (fetched/cached out of band).
   const tabModel = pane?.agent_session_model ?? shellSessionModel;
   const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;
-  // slot; the model drops to the tooltip. Workers keep their model chip.
-  const roleBadge = roleBadgeLabel(pane);
+  const roleShield = roleShieldLabel(pane);
   const description = pane?.description ?? tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab, pane);
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
-  const isSubPane = pane?.role !== "Orchestrator" && (Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0);
+  const isSubPane =
+    pane?.role !== "Orchestrator" && (Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(canonicalTitle);
   const resolveChatView = (p: typeof pane): boolean => {
@@ -166,26 +242,16 @@ function TabItemInner({
       });
     }
     if (canClose && !pane?.protected) {
-      if (isSubPane) {
-        items.push({
-          label: "Close",
-          icon: <X size={11} strokeWidth={2} />,
-          onClick: () => {},
-          disabled: true,
-          title: "Part of the orchestration — close the group",
-        });
-      } else {
-        items.push({
-          label: hasAgent ? "Close Session" : "Close Tab",
-          icon: <X size={11} strokeWidth={2} />,
-          onClick: onClose,
-          danger: true,
-          "data-testid": "tab-menu-close",
-        });
-      }
+      items.push({
+        label: hasAgent ? "Close Session" : "Close Tab",
+        icon: <X size={11} strokeWidth={2} />,
+        onClick: onClose,
+        danger: true,
+        "data-testid": "tab-menu-close",
+      });
     }
     return items;
-  }, [canonicalTitle, pane, chatView, canClose, hasAgent, onClose, isSubPane]);
+  }, [canonicalTitle, pane, chatView, canClose, hasAgent, onClose]);
 
   const animClass = isClosing
     ? closePhase === 2
@@ -211,23 +277,28 @@ function TabItemInner({
         ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
       `}
     >
-      <TabStatusRail
-        status={status}
-        attention={status === "Waiting" || Boolean(pane?.pending_prompt)}
-      />
       {isActive && <ActiveTabPill />}
+      {groupCollapsible && (
+        <GroupCollapseChevron
+          touchMode={touchMode}
+          collapsed={collapsed}
+          onToggleCollapse={onToggleCollapse}
+        />
+      )}
       <div className={`flex flex-1 items-center min-w-0 relative z-[1] ${touchMode ? "gap-2.5" : "gap-2"}`}>
-        {provider ? (
-          <ProviderGlyph
-            iconSvg={provider.iconSvg}
-            iconColor={provider.iconColor}
-            iconHint={provider.iconHint}
-            className={`shrink-0 leading-none ${touchMode ? "text-[15px]" : isSubPane ? "text-[10px]" : "text-[12px]"}`}
-            title={status === "Working" ? `${providerName} working...` : status === "Waiting" ? `${providerName} — waiting for input` : providerName}
-          />
-        ) : (
-          <TerminalIcon className={`shrink-0 ${touchMode ? "scale-110" : isSubPane ? "scale-90" : ""}`} />
-        )}
+        <span data-testid="tab-pane-icon" className="shrink-0 leading-none">
+          {provider ? (
+            <ProviderGlyph
+              iconSvg={provider.iconSvg}
+              iconColor={provider.iconColor}
+              iconHint={provider.iconHint}
+              className={`leading-none ${touchMode ? "text-[15px]" : isSubPane ? "text-[10px]" : "text-[12px]"}`}
+              title={status === "Working" ? `${providerName} working...` : status === "Waiting" ? `${providerName} — waiting for input` : providerName}
+            />
+          ) : (
+            <TerminalIcon className={`${touchMode ? "scale-110" : isSubPane ? "scale-90" : ""}`} />
+          )}
+        </span>
         {editing ? (
           <input
             autoFocus
@@ -251,18 +322,22 @@ function TabItemInner({
           />
         ) : (
           <span className="min-w-0 flex-1">
-            <span
-              className={`${touchMode ? tabTouchText : tabText} block truncate ${isActive ? "font-medium" : ""}`}
-              onDoubleClick={(e) => {
-                if (pane?.protected) return; // Main is unrenameable
-                e.stopPropagation();
-                setEditName(canonicalTitle);
-                setEditing(true);
-              }}
-            >
-              {displayTitle}
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span
+                data-testid="tab-title"
+                className={`${touchMode ? tabTouchText : tabText} block truncate min-w-0 text-[var(--ct-fg)] ${isActive ? "font-medium" : ""}`}
+                onDoubleClick={(e) => {
+                  if (pane?.protected) return; // Main is unrenameable
+                  e.stopPropagation();
+                  setEditName(canonicalTitle);
+                  setEditing(true);
+                }}
+              >
+                {displayTitle}
+              </span>
+              {status === "Working" && <TabWorkingActivity />}
             </span>
-            {collapsed && collapsedSummary ? (
+            {collapsed && groupCollapsible && collapsedSummary ? (
               <span
                 data-testid="group-collapsed-summary"
                 className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]"
@@ -270,11 +345,7 @@ function TabItemInner({
                 {collapsedSummary}
               </span>
             ) : (
-              description && !activity && (
-                <span className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">
-                  {description}
-                </span>
-              )
+              <TabSubline roleShield={roleShield} />
             )}
           </span>
         )}
@@ -308,15 +379,14 @@ function TabItemInner({
             </svg>
           </span>
         )}
+        {reportCount > 0 && (
+          <span className="inline-flex shrink-0 items-center justify-center min-w-[14px] h-3.5 px-0.5 rounded-full bg-[var(--ct-accent)]/20 text-[var(--ct-accent)] text-[9px] font-bold leading-none">
+            {reportCount}
+          </span>
+        )}
       </div>
-      {/* Right slot: model badge by default, 3-dot menu on hover (layered).
-          The menu is absolutely positioned, so NO overflow-hidden here (it would
-          clip the menu when there's no badge to size the slot). Badge truncation
-          lives on .sidebar-tab-badge (its own max-width + ellipsis). */}
       <div className="shrink-0 relative z-[1] flex items-center min-w-5 justify-end">
-        {roleBadge ? (
-          <RoleModelBadge role={roleBadge} model={tabModelBadge} uiFontScale={uiFontScale} />
-        ) : tabModelBadge && !touchMode ? (
+        {tabModelBadge && !touchMode ? (
           <SidebarModelBadge label={tabModelBadge} title={tabModel ?? undefined} />
         ) : null}
         {menuItems.length > 0 && (
@@ -338,34 +408,6 @@ function TabItemInner({
           />
         )}
       </div>
-      {collapsible && (
-        <button
-          type="button"
-          data-testid="group-collapse-toggle"
-          data-collapsed={collapsed ? "true" : "false"}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleCollapse?.();
-          }}
-          className={`sidebar-group-chevron shrink-0 ${touchMode ? "w-8 h-8" : "w-4 h-4"} flex items-center justify-center text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] transition-colors relative z-[1]`}
-          title={collapsed ? "Expand orchestration" : "Collapse orchestration"}
-          aria-expanded={!collapsed}
-        >
-          <svg
-            width="8"
-            height="8"
-            viewBox="0 0 8 8"
-            fill="currentColor"
-            className="transition-transform duration-[320ms]"
-            style={{
-              transform: collapsed ? "rotate(0deg)" : "rotate(90deg)",
-              transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
-            }}
-          >
-            <path d="M2 1l4 3-4 3V1z" />
-          </svg>
-        </button>
-      )}
     </div>
   );
 }
@@ -391,10 +433,12 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     prev.index !== next.index ||
     prev.tab.id !== next.tab.id ||
     prev.tab.description !== next.tab.description ||
-    prev.collapsible !== next.collapsible ||
+    prev.groupCollapsible !== next.groupCollapsible ||
     prev.collapsed !== next.collapsed ||
     prev.collapsedSummary !== next.collapsedSummary ||
-    prev.onToggleCollapse !== next.onToggleCollapse
+    prev.onToggleCollapse !== next.onToggleCollapse ||
+    prev.reportCount !== next.reportCount ||
+    prev.activeWork !== next.activeWork
   ) return false;
 
   // so a non-task tab (both null) and an unchanged indicator skip the re-render.
@@ -429,6 +473,8 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pp.chat_view === np.chat_view &&
     pp.pending_prompt === np.pending_prompt &&
     pp.agent_session_model === np.agent_session_model &&
+    pp.agent_state?.status_line === np.agent_state?.status_line &&
+    pp.agent_state?.state === np.agent_state?.state &&
     pp.parent_pane_id === np.parent_pane_id &&
     pp.depth === np.depth &&
     JSON.stringify(pp.connected_services) === JSON.stringify(np.connected_services)

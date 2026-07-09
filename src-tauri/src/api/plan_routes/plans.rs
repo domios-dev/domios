@@ -94,6 +94,9 @@ pub async fn create(
             .create_plan(body.title, project, owner, kinds, now)
             .map_err(plan_err)?
     };
+    let _ = state
+        .svc
+        .bind_pending_paired_planner(&plan.id, &plan.owner, now);
     emit_plan_changed(&state, &plan.id);
     Ok(Json(serde_json::json!({
         "plan_id": plan.id,

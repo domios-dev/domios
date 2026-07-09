@@ -24,6 +24,7 @@ impl SpawnAgentParams {
             can_spawn: params.get("can_spawn").and_then(|v| v.as_bool()),
             task: json_str(params, "task"),
             task_id: json_str(params, "task_id"),
+            plan_task: json_str(params, "plan_task").or_else(|| json_str(params, "plan-task")),
             allow_shared_checkout: params
                 .get("allow_shared_checkout")
                 .and_then(|v| v.as_bool()),
@@ -41,15 +42,30 @@ impl SpawnAgentParams {
             system_prompt: json_str(params, "system_prompt").or_else(|| json_str(params, "system")),
             preset: json_str(params, "preset"),
             resume_session_id: json_str(params, "resume_session_id"),
+            charter: json_str(params, "charter"),
+            tick_interval_secs: json_u64(params, "tick_interval_secs"),
+            nudge_cooldown_secs: json_u64(params, "nudge_cooldown_secs"),
+            max_actions_per_tick: json_u64(params, "max_actions_per_tick")
+                .and_then(|v| u32::try_from(v).ok()),
             activate: params.get("activate").and_then(|v| v.as_bool()),
             structured_prompt_server: None,
         };
-        out.normalize_role_profile();
+        out.normalize_role_profile()?;
         Ok(out)
     }
 }
 
-pub(super) fn normalize_spawn_params(params: &mut SpawnAgentParams) {
+pub(super) fn normalize_spawn_params(params: &mut SpawnAgentParams) -> Result<(), String> {
+    params.role = params
+        .role
+        .take()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    params.role_profile = params
+        .role_profile
+        .take()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     let role = params
         .role
         .as_deref()
@@ -62,45 +78,60 @@ pub(super) fn normalize_spawn_params(params: &mut SpawnAgentParams) {
         .filter(|s| !s.is_empty());
     match role {
         Some("Planner") | Some("planner") => {
-            params.role = Some("Worker".into());
+            params.role = Some("Manager".into());
             params.role_profile = Some("planner".into());
         }
-        Some("Worker") | None if matches!(profile, Some("Planner" | "planner")) => {
-            params.role = Some("Worker".into());
-            params.role_profile = Some("planner".into());
+        Some("Watcher") | Some("watcher") => {
+            params.role = Some("Manager".into());
+            params.role_profile = Some("watcher".into());
+        }
+        Some("Manager") => {
+            params.role = Some("Manager".into());
+            match profile {
+                Some("planner" | "Planner") => params.role_profile = Some("planner".into()),
+                Some("watcher" | "Watcher") => params.role_profile = Some("watcher".into()),
+                other => {
+                    return Err(format!(
+                        "Manager requires a known role_profile (planner|watcher), got {other:?}"
+                    ))
+                }
+            }
         }
         Some("Orchestrator" | "Conductor") => {
+            params.role = Some("Orchestrator".into());
             if profile.is_some() {
                 log::warn!("[spawn] ignoring role_profile on Orchestrator spawn");
             }
             params.role_profile = None;
         }
         Some("Worker") => {
+            params.role = Some("Worker".into());
             if profile.is_some() {
-                log::warn!(
-                    "[spawn] unknown role_profile {:?}; spawning generic Worker",
+                return Err(format!(
+                    "Worker does not accept role_profile {:?}; use role Manager for planner|watcher",
                     profile
-                );
+                ));
             }
             params.role_profile = None;
         }
         Some(other) => {
-            log::warn!(
-                "[spawn] unknown role profile '{}'; spawning generic Worker",
-                other
-            );
-            params.role = Some("Worker".into());
-            params.role_profile = None;
+            return Err(format!(
+                "Invalid role: {other}. Use: Orchestrator, Manager, Worker, Planner, Watcher"
+            ));
         }
         None => {
             if profile.is_some() {
-                log::warn!(
-                    "[spawn] unknown role_profile {:?}; spawning generic Worker",
+                return Err(format!(
+                    "role_profile {:?} requires role Manager (or role Planner|Watcher sugar)",
                     profile
-                );
-                params.role = Some("Worker".into());
+                ));
             }
             params.role_profile = None;
         }
     }
+    Ok(())
+}
+
+fn json_u64(params: &serde_json::Value, key: &str) -> Option<u64> {
+    params.get(key).and_then(|v| v.as_u64())
 }

@@ -263,62 +263,48 @@ var plugin = {
     }
     return out;
   },
+  // GetCurrentPeriodUsage carries everything: ready percentages + spend (cents) + billing cycle.
   fetchUsage(nowMs) {
     const token = readCursorToken();
     if (!token) return null;
-    const when = new Date(nowMs);
-    const invoice = cursorApi(
-      "GetMonthlyInvoice",
-      { month: when.getUTCMonth(), year: when.getUTCFullYear() },
-      token
-    );
-    if (!invoice) return null;
-    const periodStart = numFrom(invoice.periodStartMs);
-    const periodEnd = numFrom(invoice.periodEndMs);
-    if (periodStart == null || periodEnd == null) return null;
-    const agg = cursorApi(
-      "GetAggregatedUsageEvents",
-      { startDate: String(periodStart), endDate: String(periodEnd) },
-      token
-    );
-    if (!agg) return null;
     const current = cursorApi("GetCurrentPeriodUsage", {}, token);
-    const spendRaw = numFrom(agg.totalCostCents);
-    if (spendRaw == null) return null;
-    const planUsage = current && typeof current.planUsage === "object" ? current.planUsage : null;
-    const limitRaw = planUsage ? numFrom(planUsage.limit) : null;
-    const remainingRaw = planUsage ? numFrom(planUsage.remaining) : null;
-    const includedSpendRaw = planUsage ? numFrom(planUsage.includedSpend) : null;
-    const spendDollars = includedSpendRaw != null ? includedSpendRaw : spendRaw;
-    const spendCents = cursorDollarsToCents(spendDollars);
+    if (!current) return null;
+    const planUsage = typeof current.planUsage === "object" && current.planUsage ? current.planUsage : null;
+    if (!planUsage) return null;
+    const spendCents = numFrom(planUsage.totalSpend);
     if (spendCents == null) return null;
-    const limitCents = cursorDollarsToCents(limitRaw);
-    const remainingCents = cursorDollarsToCents(remainingRaw);
+    const limitCents = numFrom(planUsage.limit);
+    const includedSpendCents = numFrom(planUsage.includedSpend);
+    const remainingCents = limitCents != null && includedSpendCents != null ? Math.max(0, limitCents - includedSpendCents) : null;
     return JSON.stringify({
+      totalPct: numFrom(planUsage.totalPercentUsed),
+      apiPct: numFrom(planUsage.apiPercentUsed),
+      autoPct: numFrom(planUsage.autoPercentUsed),
       spendCents,
       limitCents,
       remainingCents,
-      resetsAtMs: periodEnd,
-      periodStartMs: periodStart,
+      resetsAtMs: numFrom(current.billingCycleEnd),
+      periodStartMs: numFrom(current.billingCycleStart),
       fetchedAtMs: nowMs
     });
   },
-  // is billed by spend, not a session/weekly %, so only the spend_* fields fill.
+  // Cursor's API returns ready percentages — map verbatim, never re-derive.
   parseUsage(rawText, nowMs) {
     const data = safeJson(String(rawText || ""));
     if (!data || typeof data.spendCents !== "number") return null;
+    const resetsAt = typeof data.resetsAtMs === "number" ? data.resetsAtMs : null;
     return {
       provider: "cursor",
       account_id: null,
       captured_at_ms: nowMs,
-      session_pct: null,
-      session_resets_at_ms: null,
-      weekly_pct: null,
-      weekly_resets_at_ms: null,
+      session_pct: typeof data.apiPct === "number" ? data.apiPct : null,
+      session_resets_at_ms: resetsAt,
+      weekly_pct: typeof data.totalPct === "number" ? data.totalPct : null,
+      weekly_resets_at_ms: resetsAt,
       spend_cents: data.spendCents,
       spend_limit_cents: typeof data.limitCents === "number" ? data.limitCents : null,
       spend_remaining_cents: typeof data.remainingCents === "number" ? data.remainingCents : null,
-      spend_resets_at_ms: typeof data.resetsAtMs === "number" ? data.resetsAtMs : null,
+      spend_resets_at_ms: resetsAt,
       raw_text: String(rawText || "")
     };
   }
@@ -690,10 +676,6 @@ function numFrom(v) {
     if (isFinite(n)) return n;
   }
   return null;
-}
-function cursorDollarsToCents(dollars) {
-  if (dollars == null) return null;
-  return Math.round(dollars * 100);
 }
 function toExcludeList(exclude) {
   if (Array.isArray(exclude)) return exclude;

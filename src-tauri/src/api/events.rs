@@ -709,3 +709,11 @@ pub fn emit_everywhere<S: Serialize>(app: &tauri::AppHandle, event_type: &str, d
         events.publish_generic(event_type, value);
     }
 }
+
+impl codeterm_plugin::host_traits::PluginEventSink for EventBroadcaster {
+    fn contributions_changed(&self, kind: &str) {
+        self.publish(SystemEvent::ContributionsChanged {
+            kind: kind.to_string(),
+        });
+    }
+}

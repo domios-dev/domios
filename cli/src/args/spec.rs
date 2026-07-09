@@ -4,7 +4,7 @@ use clap::Subcommand;
 pub enum SpecAction {
     /// Create a new spec
     Create {
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(long, alias = "name", allow_hyphen_values = true)]
         title: String,
         #[arg(long)]
         project: Option<String>,
@@ -22,8 +22,13 @@ pub enum SpecAction {
     },
     /// Show a hydrated spec
     Show { spec_id: String },
-    /// List generated section body files
-    Files { spec_id: String },
+    /// Delete a spec (scrubs plan references, removes the yaml)
+    Delete {
+        spec_id: String,
+        /// Confirm permanent deletion.
+        #[arg(long, alias = "confirm")]
+        yes: bool,
+    },
     /// Spec sections
     Section {
         #[command(subcommand)]
@@ -81,15 +86,21 @@ pub enum SpecSectionAction {
 
 #[derive(Subcommand)]
 pub enum SpecLinkAction {
-    /// Link a spec section to a plan section (M:N coverage edge)
+    /// Link spec section(s) to plan section(s) (M:N coverage edges)
     Add {
         plan_id: String,
         #[arg(long)]
         spec: String,
-        #[arg(long)]
-        spec_section: String,
-        #[arg(long)]
-        plan_section: String,
+        #[arg(long, requires = "plan_section")]
+        spec_section: Option<String>,
+        #[arg(long, requires = "spec_section")]
+        plan_section: Option<String>,
+        #[arg(
+            long = "edge",
+            value_name = "SPEC_SECTION:PLAN_SECTION",
+            help = "Repeatable coverage edge; combine many in one call"
+        )]
+        edges: Vec<String>,
     },
     /// Remove spec-to-plan link(s); narrow with --spec-section / --plan-section
     Rm {

@@ -26,6 +26,10 @@ never from `develop`, never from an untagged tree.
    vX.Y.Z`, push.
 2. **Merge `develop` → `master`** via a GitHub PR (merge commit), then locally
    `git checkout master && git pull && git tag -a vX.Y.Z -m "…" && git push --tags`.
+   Before tagging a release candidate, run the QA-machine orchestration gate:
+   `bash evals/orchestration-golden/run.sh`. This is the one-command golden
+   tier for orchestration creation, restore, refresh, and report round-trip
+   harnesses; archive the printed summary table with the release notes.
 3. **Draft the GitHub release** (`gh release create vX.Y.Z --draft`).
 4. **Checkout the tag** (`git checkout vX.Y.Z` → detached HEAD). All builds run
    from this tree.

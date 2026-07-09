@@ -4,6 +4,8 @@ import { parseSend, type PaneNameResolver } from "./templates";
 import { RichMarkdown } from "../MarkdownBody";
 import { LinkedText, type OpenPlan } from "./LinkedText";
 import { hasPlanRefs } from "./planRefs";
+import { pickUiFontScaleValue } from "../uiFontScale";
+import { CrossPaneMessageShell } from "../crossPaneBubble";
 
 interface Props {
   inv: CodetermInvocation;
@@ -25,42 +27,40 @@ export function SentMessageBubble({ inv, result, resolvePaneName, onOpenPlan, fo
   const [expanded, setExpanded] = React.useState(false);
   const showFull = expanded || !collapsible;
   const shown = showFull ? msg.body : msg.body.split("\n").slice(0, COLLAPSE_LINES).join("\n");
+  const bodyText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
+
+  const header = (
+    <div
+      data-testid="chat-sent-header"
+      className="mb-1 flex items-center gap-1.5 text-xs uppercase tracking-wider"
+      style={{ color: "var(--ct-accent, #58a6ff)" }}
+    >
+      <span className="flex-shrink-0" style={{ opacity: 0.85 }}>
+        {msg.mesh ? "🛰" : "→"}
+      </span>
+      <span className="truncate">
+        {msg.recipient}
+        {msg.mesh ? ` @ ${msg.mesh}` : ""}
+      </span>
+      {msg.status && (
+        <span
+          className="flex-shrink-0 normal-case"
+          title={msg.status.label}
+          style={{ color: msg.status.ok ? "var(--ct-ok, #41d18a)" : "var(--ct-err, #ff6b6b)" }}
+        >
+          {msg.status.ok ? "✓" : "✗"}
+        </span>
+      )}
+    </div>
+  );
 
   return (
-    <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto flex justify-end">
-      <div
-        data-testid="chat-sent-message"
-        className="min-w-0 max-w-[min(44rem,90%)] rounded-lg border px-3 py-2"
-        style={{
-          background: "color-mix(in srgb, var(--ct-accent, #6ea8fe) 8%, transparent)",
-          borderColor: "color-mix(in srgb, var(--ct-accent, #6ea8fe) 30%, transparent)",
-          borderLeft: "3px solid var(--ct-accent, #6ea8fe)",
-        }}
-      >
-        <div className="flex items-center gap-1.5 text-[11px] mb-1" style={{ color: "var(--ct-muted-fg)" }}>
-          <span style={{ color: "var(--ct-accent, #6ea8fe)" }}>{msg.mesh ? "🛰" : "→"}</span>
-          <span className="font-medium truncate" style={{ color: "var(--ct-fg)" }}>
-            {msg.recipient}
-          </span>
-          {msg.mesh && <span className="truncate">@ {msg.mesh}</span>}
-          {msg.status && (
-            <span
-              className="flex-shrink-0"
-              title={msg.status.label}
-              style={{ color: msg.status.ok ? "var(--ct-ok, #41d18a)" : "var(--ct-err, #ff6b6b)" }}
-            >
-              {msg.status.ok ? "✓" : "✗"}
-            </span>
-          )}
-        </div>
-        <div className="text-xs" style={{ color: "var(--ct-fg)" }}>
-          {hasPlanRefs(shown) ? (
-            <LinkedText text={shown} onOpenPlan={onOpenPlan} />
-          ) : (
-            <RichMarkdown text={shown} fontScale={fontScale} />
-          )}
-        </div>
-        {collapsible && (
+    <CrossPaneMessageShell
+      header={header}
+      textSize={bodyText}
+      bubbleTestId="chat-sent-message"
+      afterBubble={
+        collapsible ? (
           <button
             type="button"
             data-testid="chat-sent-expand"
@@ -70,8 +70,14 @@ export function SentMessageBubble({ inv, result, resolvePaneName, onOpenPlan, fo
           >
             {expanded ? "Show less" : `Show ${bodyLineCount(msg.body) - COLLAPSE_LINES} more lines`}
           </button>
-        )}
-      </div>
-    </div>
+        ) : null
+      }
+    >
+      {hasPlanRefs(shown) ? (
+        <LinkedText text={shown} onOpenPlan={onOpenPlan} />
+      ) : (
+        <RichMarkdown text={shown} fontScale={fontScale} />
+      )}
+    </CrossPaneMessageShell>
   );
 }

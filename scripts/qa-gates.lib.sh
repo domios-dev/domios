@@ -135,7 +135,7 @@ qa_clippy_allow() {
 # gate_name -> default_timeout_secs
 qa_gate_timeout() {
   case "$1" in
-    shell-guards|fmt|file-sizes|comment-length) echo 120 ;;
+    shell-guards|fmt|file-sizes|comment-length|playwright-spec-headers) echo 120 ;;
     check) echo 600 ;;
     clippy|prepush-full) echo 1800 ;;
     rust-unit|cli-unit) echo 120 ;;
@@ -183,6 +183,7 @@ qa_gate_desc() {
     test-all) echo "build.sh test:all aggregate (non-LLM layers)" ;;
     file-sizes) echo "Source file size discipline (--fail)" ;;
     comment-length) echo "Comment length discipline (--fail)" ;;
+    playwright-spec-headers) echo "Playwright spec header contract" ;;
     macos-native) echo "macOS native lane (scripts/test-macos-native.sh)" ;;
     linux-docker) echo "Linux Docker lane (scripts/test-linux-docker.sh)" ;;
     e2e-pytest) echo "API e2e pytest (./build.sh e2e, dev required)" ;;
@@ -197,7 +198,7 @@ qa_gate_desc() {
 qa_list_gates() {
   printf '%s\n' \
     shell-guards fmt check clippy rust-unit cli-unit ts-unit plugin \
-    test-all file-sizes comment-length macos-native linux-docker \
+    test-all file-sizes comment-length playwright-spec-headers macos-native linux-docker \
     e2e-pytest playwright-smoke playwright-golden prepush-light prepush-full
 }
 
@@ -251,6 +252,9 @@ qa_run_gate_body() {
       ;;
     comment-length)
       bash scripts/check-comment-length.sh --fail
+      ;;
+    playwright-spec-headers)
+      node scripts/check-playwright-spec-headers.mjs
       ;;
     macos-native)
       bash scripts/test-macos-native.sh

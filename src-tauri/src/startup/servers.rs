@@ -43,13 +43,21 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
     // Auto-install bundled mem dreaming cron if not present. Idempotent by name. Schedule "0 3 * * *" + ±90min jitter (anti-anti-cheat).
     {
         let mut cs = cron_state.lock();
-        match mem::dreaming::ensure_dreaming_cron(&mut cs) {
+        let mem_cfg = crate::config::memory_config();
+        let default_agent = crate::config::default_agent_provider();
+        match mem::dreaming::ensure_dreaming_cron(
+            &mut crate::mem_host::CronSchedulerPort(&mut cs),
+            &mem_cfg,
+            &default_agent,
+        ) {
             Ok(true) => log::info!("[mem] auto-installed dreaming cron"),
             Ok(false) => log::debug!("[mem] dreaming cron already present"),
             Err(e) => log::warn!("[mem] failed to install dreaming cron: {}", e),
         }
         // burning tokens to wrap a single bash command.
-        if mem::dreaming::remove_legacy_librarian_cron(&mut cs) {
+        if mem::dreaming::remove_legacy_librarian_cron(&mut crate::mem_host::CronSchedulerPort(
+            &mut cs,
+        )) {
             log::info!("[mem] removed legacy librarian cron (replaced by direct loop)");
         }
     }

@@ -19,6 +19,7 @@ pub(crate) fn run(
     role_guidance: Option<String>,
     role_guidance_file: Option<String>,
     executor_role: Option<String>,
+    personality: Option<String>,
     intent: Option<String>,
     intent_file: Option<String>,
     sections: Option<String>,
@@ -75,6 +76,9 @@ pub(crate) fn run(
     }
     if let Some(role) = executor_role {
         params["executor_role"] = json!(role);
+    }
+    if let Some(name) = personality {
+        params["personality"] = json!(name);
     }
     if let Some(i) = intent_text {
         params["intent"] = json!(i);

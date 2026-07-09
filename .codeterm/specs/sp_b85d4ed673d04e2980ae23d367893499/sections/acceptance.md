@@ -1,1 +1,0 @@
-An agent following only CLI hints + the docs authors a correct Spec+Plan (distinct entities, sections linked M:N) WITHOUT using the shortcut, and the canvas shows spec ⊥ plan correctly. The existing dogfood plan + the substrate epic are re-authored into this form.

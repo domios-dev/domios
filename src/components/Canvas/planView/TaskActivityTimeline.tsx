@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { ApiConfig, Pane } from "../../../lib/types";
 import { milestoneColorMap } from "../milestoneColors";
-import { resolveTaskExecutionAttempts } from "../taskExecutorHistory";
+import { resolveTaskExecutionAttempts, attemptPaneId, attemptPaneTitle } from "../taskExecutorHistory";
 import type { Plan, Task } from "../types";
 import { AttachmentGallery } from "./attachments";
 import {
@@ -42,9 +42,8 @@ function AttemptRow({
   index: number;
   panes: Record<string, Pane>;
 }) {
-  const paneId = attempt.pane_id?.trim() || null;
-  const label = attempt.pane_title?.trim()
-    || (paneId ? panes[paneId]?.title?.trim() : null);
+  const paneId = attemptPaneId(attempt);
+  const label = attemptPaneTitle(attempt) ?? (paneId ? panes[paneId]?.title?.trim() : null);
   const bits = [label, attempt.role, attempt.model, attempt.branch, attempt.report_status?.replace(/_/g, " ")]
     .map((v) => v?.trim())
     .filter(Boolean);

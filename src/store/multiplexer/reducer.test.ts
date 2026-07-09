@@ -5,7 +5,6 @@ import { reducer } from "./reducer";
 import { makeVirtualPickerTab, type ExtendedState } from "./tree";
 import type { MultiplexerState, Workspace, Pane, Tab } from "../../lib/types";
 import { TitleLevel } from "../../lib/types";
-import { resolveTabStatusRailVariant } from "../../components/Sidebar/TabStatusRail";
 
 let failures = 0;
 function test(name: string, fn: () => void) {
@@ -95,16 +94,7 @@ test("SET_STATE merges pane_statuses without dropping untouched live entries", (
   assert(next.paneStatuses["p-2"] === "Working", "prior live-tracked status preserved");
 });
 
-test("end-to-end: a reload snapshot's pane_statuses drives the attention rail", () => {
-  // page reload renders the correct rail without waiting for a live event.
-  const withPrompt = {
-    ...snap(5, "w-new"),
-    pane_statuses: { "p-1": "Waiting" as const },
-  };
-  const next = reducer(base(), { type: "SET_STATE", state: withPrompt });
-  const variant = resolveTabStatusRailVariant(next.paneStatuses["p-1"], false, false);
-  assert(variant === "attention", "hydrated Waiting status resolves to the attention rail");
-});
+
 
 test("end-to-end: hook-driven pending_prompt survives reload as attention (not Working)", () => {
   const promptedPane = {
@@ -121,12 +111,6 @@ test("end-to-end: hook-driven pending_prompt survives reload as attention (not W
   const next = reducer(base(), { type: "SET_STATE", state: withPrompt });
   assert(next.paneStatuses["p-1"] === "Waiting", "backend-derived Waiting hydrates, not Working");
   assert(Boolean(next.panes["p-1"].pending_prompt), "pending_prompt itself survives the snapshot merge");
-  const variant = resolveTabStatusRailVariant(
-    next.paneStatuses["p-1"],
-    Boolean(next.panes["p-1"].pending_prompt),
-    false,
-  );
-  assert(variant === "attention", "hook-driven prompt resolves to attention after reload, not working");
 });
 
 test("SET_STATE drops a stale Waiting once pending_prompt clears and no fresh status is reported", () => {

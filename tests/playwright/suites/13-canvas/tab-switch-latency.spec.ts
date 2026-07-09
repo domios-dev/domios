@@ -1,15 +1,7 @@
 /**
- * Tab-switch latency audit (task_fd79beb6, loop_f5854596).
- *
- * Measures click-to-next-paint latency for sidebar tab switches under a WARM
- * session: 10+ mounted terminal panes plus a live plan/canvas workspace
- * overlay. Uses the browser's native Event Timing API (the signal behind the
- * Interaction-to-Next-Paint web vital) — an interaction entry's `duration`
- * already spans input delay + processing + presentation (paint), so it is a
- * faithful "click to first paint" measurement, not a hand-rolled proxy.
- *
- * Run (dev on 7686):
- *   CT_E2E_PORT=7686 npx playwright test -c tests/playwright -g "tab-switch-latency" --workers=1
+ * WHAT: tab switch latency covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
@@ -102,13 +94,16 @@ test("@tab-switch-latency sidebar tab switch reaches paint under budget", async 
     // "already open" state a real warm session would be in, not a cold mount.
     for (const t of tabs) {
       await page.click(`[data-testid="tab-item"][data-tab-id="${t.tab_id}"]`);
+      // PW_JUSTIFIED_SLEEP: fixed 80ms sampling/settle window; no app event exists for this probe.
       await page.waitForTimeout(80);
     }
+    // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(300);
 
     await page.click('[data-testid="canvas-toolbar-button"]');
     await page.waitForSelector('[data-testid="mission-control-plan-surface"]', { state: "attached", timeout: 15_000 });
     await page.click('[data-testid="canvas-toolbar-button"]');
+    // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(300);
 
     await startInpSampler(page);
@@ -116,8 +111,10 @@ test("@tab-switch-latency sidebar tab switch reaches paint under budget", async 
     for (let i = 0; i < N; i++) {
       const t = tabs[i % tabs.length];
       await page.click(`[data-testid="tab-item"][data-tab-id="${t.tab_id}"]`);
+      // PW_JUSTIFIED_SLEEP: fixed 120ms sampling/settle window; no app event exists for this probe.
       await page.waitForTimeout(120);
     }
+    // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(300);
     const tabSamples = await collectInp(page);
 
@@ -125,8 +122,10 @@ test("@tab-switch-latency sidebar tab switch reaches paint under budget", async 
     const M = 12;
     for (let i = 0; i < M; i++) {
       await page.click('[data-testid="canvas-toolbar-button"]');
+      // PW_JUSTIFIED_SLEEP: fixed 150ms sampling/settle window; no app event exists for this probe.
       await page.waitForTimeout(150);
     }
+    // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(300);
     const canvasSamples = await collectInp(page);
 

@@ -89,15 +89,17 @@ test("@golden wake resync does not revert an immediate tab switch", async ({ api
 
     await expect.poll(() => isActive(page, paneB.tab_id), { intervals: [20], timeout: 300 }).toBe(true);
 
-    let revertCount = 0;
     const deadline = Date.now() + 500;
-    while (Date.now() < deadline) {
+    let sawRevert = false;
+    await expect.poll(async () => {
       if (await isActive(page, paneA.tab_id)) {
-        revertCount += 1;
+        sawRevert = true;
       }
-      await page.waitForTimeout(20);
-    }
-    expect(revertCount).toBe(0);
+      if (sawRevert) {
+        return "reverted";
+      }
+      return Date.now() >= deadline ? "stable" : "pending";
+    }, { intervals: [20], timeout: 1_000 }).toBe("stable");
   } finally {
     await page.context().close();
     await api.closeWorkspace(ws.id).catch(() => {});

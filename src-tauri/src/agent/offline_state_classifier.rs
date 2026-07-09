@@ -9,6 +9,8 @@ pub use status::{
     extract_completion_summary, extract_status_line, has_active_turn_footer, StatusLine,
 };
 
+pub use codeterm_types::pty::{AgentLiveState, PaneVerdict, QuestionSubtype, TimelineState};
+
 pub const TICK_MS: u64 = 250;
 pub const WAIT_MS: u64 = 800;
 pub const DONE_MS: u64 = 800;
@@ -17,27 +19,6 @@ const BOTTOM_REGION_ROWS: u16 = 8;
 /// Upper bound on how long a Working verdict may persist with zero active-work
 /// evidence and total PTY silence before resolving to Idle (anti-stuck-Working).
 const STUCK_WORKING_IDLE_MS: u64 = 5000;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TimelineState {
-    Working,
-    Idle,
-    Question,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum QuestionSubtype {
-    ModelChoice,
-    ModelPicker,
-    Permission,
-    Auth,
-    RateLimit,
-    Update,
-    Error,
-    Unknown,
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClassifiedSegment {
@@ -67,61 +48,6 @@ pub struct CastTimelineInput {
     pub width: u16,
     pub height: u16,
     pub events: Vec<CastEvent>,
-}
-
-/// The per-tick classification result: the 3-state verdict plus, when in
-/// `Question`, its subtype. Produced by [`classify_state`] — the single source
-/// of truth shared by the offline cast replay and the live PTY path.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PaneVerdict {
-    pub state: TimelineState,
-    pub subtype: Option<QuestionSubtype>,
-}
-
-/// Persisted-to-frontend snapshot of a pane's live agent state. Stored on the
-/// pane (runtime-only, recomputed from output) and serialized into the mux
-/// snapshot so the chat view's state indicator renders it. Field names/casing
-/// mirror the frontend `AgentState` shape.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentLiveState {
-    pub state: TimelineState,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub subtype: Option<QuestionSubtype>,
-    /// The agent's live status/progress line, surfaced verbatim by the chat UI
-    /// while working (see [`extract_status_line`]). Only set in `Working`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status_line: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub phase: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub elapsed_ms: Option<u64>,
-    /// Completed-turn summary (e.g. "Churned for 1m 37s"), shown as a muted
-    /// secondary line while idle. Set only in `Idle`; distinct from the active
-    /// `status_line`. See [`extract_completion_summary`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_turn_summary: Option<String>,
-}
-
-impl From<AgentLiveState> for PaneVerdict {
-    fn from(s: AgentLiveState) -> Self {
-        PaneVerdict {
-            state: s.state,
-            subtype: s.subtype,
-        }
-    }
-}
-
-impl From<PaneVerdict> for AgentLiveState {
-    fn from(v: PaneVerdict) -> Self {
-        AgentLiveState {
-            state: v.state,
-            subtype: v.subtype,
-            status_line: None,
-            phase: None,
-            elapsed_ms: None,
-            last_turn_summary: None,
-        }
-    }
 }
 
 /// Minimal per-tick inputs the 3-state engine classifies. Both paths build this

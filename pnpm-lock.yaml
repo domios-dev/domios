@@ -101,6 +101,9 @@ importers:
       sigma:
         specifier: ^3.0.0
         version: 3.0.2(graphology-types@0.24.8)
+      use-sync-external-store:
+        specifier: ^1.6.0
+        version: 1.6.0(react@19.2.4)
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.4.16
@@ -164,6 +167,12 @@ importers:
         version: 7.4.1
 
   packages/chat-core: {}
+
+  packages/chat-engine:
+    dependencies:
+      '@codeterm/plugin-sdk':
+        specifier: workspace:*
+        version: link:../plugin-sdk
 
   packages/chat-ui:
     dependencies:

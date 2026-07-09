@@ -1,6 +1,6 @@
 [package]
 name = "codeterm-cli"
-version = "1.7.0"
+version = "1.7.1"
 edition = "2021"
 
 [[bin]]
@@ -43,3 +43,8 @@ incremental = true
 [profile.dev]
 split-debuginfo = "unpacked"
 debug = "line-tables-only"
+
+# Building Cli::command is ~10^4x slower unoptimized (release: 0ms) — every dev/test
+# calling try_parse_from otherwise hangs for minutes. opt-1 on just this crate fixes it.
+[profile.dev.package.codeterm-cli]
+opt-level = 1

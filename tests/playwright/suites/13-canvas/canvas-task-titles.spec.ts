@@ -1,19 +1,7 @@
 /**
- * 13-canvas — TASK CARD FULL TITLES + readable sizing (north-star #2).
- *
- * Two real complaints, two assertions:
- *   1. FULL TITLES — at the reading bands (W1/W2/W3) a task card shows its WHOLE
- *      title (wrapped to as many lines as it needs), never clipped, never an
- *      ellipsis. The footprint reserves the height; the card never cuts its name.
- *      Only the far W0 mass-glance keeps a 2-line ellipsis cue.
- *   2. READABLE SIZING — cards are big enough to hold their visible-band content:
- *      zero overflow on every mounted card across the dive.
- *
- * Driven against the perf fixture, whose synthetic tasks carry deliberately long
- * (~110-char) titles — the worst case for wrapping. Skips on an empty board.
- *
- *   npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=golden -g @canvas-task-titles --retries=0 --workers=1
+ * WHAT: canvas task titles covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
@@ -111,12 +99,14 @@ test("@golden @canvas-task-titles task cards show full titles, zero overflow, ac
     await panBy(page, -360, -120);
     if ((await collectBoxes(page, "canvas-task-card")).length >= 3) break;
   }
+  // PW_JUSTIFIED_SLEEP: fixed 200ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(200);
   await shot(page, "task-titles-cloud-multi");
 
   const seenBands = new Set<string>();
   for (const scale of [1.0, 1.8, 2.6, 3.6, 5.0]) {
     await focusTaskById(page, probe!, scale);
+    // PW_JUSTIFIED_SLEEP: fixed 220ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(220);
 
     const report = (await titleClipReport(page)).filter((r) => r.world);

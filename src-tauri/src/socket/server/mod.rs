@@ -12,6 +12,7 @@ mod canvas;
 mod cron;
 mod notification;
 mod orchestration;
+mod orchestrator;
 mod pane;
 mod plan;
 mod plan_archive;
@@ -32,6 +33,7 @@ mod plan_qa;
 mod plan_read;
 mod plan_refs;
 mod plan_role_helpers;
+mod plan_task_dispatch;
 mod plan_task_rpc;
 mod plan_time;
 mod services;
@@ -398,6 +400,7 @@ fn dispatch(
                 "agent.report",
                 "agent.reports",
                 "orchestration.new",
+                "orchestrator.refresh",
                 "plan.create",
                 "plan.adopt",
                 "plan.batch",
@@ -432,6 +435,7 @@ fn dispatch(
                 "plan.task.attach",
                 "plan.task.close",
                 "plan.task.assign",
+                "plan.task.dispatch",
                 "plan.task.attempts",
                 "plan.task.attempt.show",
                 "plan.task.respawn",
@@ -521,6 +525,7 @@ fn dispatch(
         "notification" => notification::dispatch(method, &params, notif, app),
         "agent" => agent::dispatch(method, &params, app, svc),
         "orchestration" => orchestration::dispatch(method, &params, app, svc),
+        "orchestrator" => orchestrator::dispatch(method, &params, app, svc),
         "plan" if plan_mode::handles(method) => plan_mode::dispatch(method, &params, app, svc),
         "plan" | "task" => plan::dispatch(method, &params, app, svc),
         "canvas" => canvas::dispatch(method, &params, app),
@@ -538,6 +543,15 @@ fn dispatch(
 }
 
 /// Extract a required string parameter from JSON-RPC params.
+pub(super) fn opt_string_param(params: &Option<serde_json::Value>, key: &str) -> Option<String> {
+    params
+        .as_ref()
+        .and_then(|p| p.get(key))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
 pub(super) fn get_string_param(
     params: &Option<serde_json::Value>,
     key: &str,

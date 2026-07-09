@@ -1,14 +1,7 @@
 /**
- * 13-canvas — §32 WORLDS v2 verification matrix. Asserts the orthogonalized
- * channels (§32.1): W0 is compressed-not-hollow (§32.2), content text is opacity
- * 1.0 at every band and done SINKS spatially below in_progress (§32.3), the
- * footprint tracks volume with an aspect floor (§32.4), strides render as a
- * connected snake of circles that blooms on zoom (§32.5), canvas text is
- * selectable (§32.6), a section click highlights the right tasks WITHOUT moving
- * the camera (§31/§32.7), and handoffs render on the timeline lane (§32.8).
- *
- *   npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=full --grep @canvas-worlds-v2
+ * WHAT: canvas worlds v2 covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import { isEmpty, openCanvas, zoomBy } from "../../helpers/canvas-inspect";
@@ -120,6 +113,7 @@ test("@golden @canvas-worlds-v2 W0 compressed, opacity-1 content, done sinks, sn
   if ((await row.count()) > 0) {
     const before = await cameraTransform(page);
     await row.click({ position: { x: 8, y: 8 } });
+    // PW_JUSTIFIED_SLEEP: fixed 200ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(200);
     const after = await cameraTransform(page);
     expect(after, "camera transform byte-identical after a section single-click (§31)").toBe(before);

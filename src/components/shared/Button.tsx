@@ -52,7 +52,10 @@ export function Button({
       data-testid={testId}
     >
       {loading ? (
-        <BusyState inline hideLabel phase="work" aria-hidden="true" />
+        <>
+          <BusyState inline hideLabel phase="work" aria-hidden="true" />
+          {children}
+        </>
       ) : (
         children
       )}

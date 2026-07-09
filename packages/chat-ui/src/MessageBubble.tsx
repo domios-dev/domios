@@ -5,11 +5,7 @@ import type {
   ChatAttachment as ImageAttachment,
 } from "@codeterm/chat-core";
 import {
-  Bot,
-  Download, FileText, Image,
-  Pencil,
-  Search,
-  Terminal,
+  Download, Image,
   ArrowRight,      // pane -> pane
   Send,            // generic chat (telegram / service)
   Network,         // mesh
@@ -18,52 +14,43 @@ import {
   Settings,        // plugin_config (Configure card)
   Info,
 } from "lucide-react";
+import { ToolCallBubble } from "./ToolCallBubble";
 import { ShellCommandItem } from "./ShellCommandItem";
-import { recognize } from "./codeterm/recognize";
-import { CodetermCard } from "./codeterm/CodetermCard";
 import { ReminderCard } from "./codeterm/ReminderCard";
 import { messageTimestamp } from "./codeterm/relativeTime";
 import type { PaneNameResolver } from "./codeterm/templates";
-import { CodeBlock, ChevronIcon, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
+import { ChevronIcon, PRE_WRAP_CLASS } from "./CodeBlock";
 import {
   CommandBody,
-  DiffView,
   ImageBadge,
   LongArtifact,
   ModelAvatar,
   RichMarkdown,
   TEXT_WRAP_CLASS,
-  extractCommand,
   extractEdits,
-  extractFilePath,
-  inferCodeLanguage,
   isLargeArtifact,
-  languageForEdits,
-  languageFromPath,
   renderUserContent,
-  shortPath,
 } from "./MarkdownBody";
-import { ToolIcon } from "./toolIcons";
 import { InteractiveElementRenderer } from "./interactive/InteractiveElementRenderer";
 import type { InteractiveAnswerHandler } from "./interactive/InteractiveQuestion";
 import { pickUiFontScaleValue } from "./uiFontScale";
 import { ToolOutputContent } from "./ToolOutputContent";
-import { isImageOnlyToolOutput, toolResultPreviewLine } from "./toolImageOutput";
+import { isImageOnlyToolOutput } from "./toolImageOutput";
+import { ContextRequestCard } from "./ContextRequestCard";
+import { WatcherVerdictCard } from "./WatcherVerdictCard";
+import { LinkedText, PlanRefCards } from "./codeterm/LinkedText";
+import { hasPlanRefs } from "./codeterm/planRefs";
 import {
   INBOUND_KIND_LABELS,
-  contentSize,
   hasMeaningfulToolResult,
   isRenderableMessage,
-  parsedToolInput,
-  previewLine,
-  resolveCuratedToolKind,
   structuredInboundFromMessage,
-  textArg,
-  toolDisplayLabel,
 } from "./MessageBubble.helpers";
+import { CrossPaneMessageShell } from "./crossPaneBubble";
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  isLatestFailedToolCall?: boolean;
   /** Route an interactive widget's answer back to the agent (existing send path). */
   onAnswerInteractive?: InteractiveAnswerHandler;
   /** Widget ids already answered — kept in the parent so they survive remounts. */
@@ -77,8 +64,8 @@ interface MessageBubbleProps {
   onOriginClick?: () => void;
   /** Resolve a pane id/short-id to a tab name for CodeTerm cards (e.g. "Sent to <name>"). */
   resolvePaneName?: PaneNameResolver;
-  /** Open the plan view for a plan (optionally focused on a task) from chat cards/links. */
-  onOpenPlan?: (planId: string, taskId?: string) => void;
+  /** Open the plan view for a plan, optionally focused on a task/section node. */
+  onOpenPlan?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => void;
   fontScale?: number;
   /** `shell_command` decoration — re-run the command in the pane's PTY. */
   onRerunShellCommand?: (command: string) => void;
@@ -87,27 +74,54 @@ interface MessageBubbleProps {
 }
 
 const INTERACTIVE_QUESTIONS_ENABLED = false;
+const TOOL_EXPANDED_BY_ID = new Map<string, boolean>();
 
-export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onOpenPlan, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, isLatestFailedToolCall = false, origin, originAvatar, onOriginClick, resolvePaneName, onOpenPlan, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
+  const isFailedToolCall = message.type === "tool_call" && message.toolError === true;
   const shouldAutoExpand = message.type === "tool_call"
-    && (message.toolInput?.content != null || extractEdits(message).length > 0);
-  const [expanded, setExpanded] = useState(shouldAutoExpand);
+    && (message.toolInput?.content != null
+      || extractEdits(message).length > 0
+      || (isFailedToolCall && isLatestFailedToolCall));
+  const [expanded, setExpanded] = useState(() => {
+    const persisted = TOOL_EXPANDED_BY_ID.get(message.id);
+    return persisted ?? shouldAutoExpand;
+  });
   const [viewingImage, setViewingImage] = useState<ImageAttachment | null>(null);
 
   const renderedContent = useMemo(() => {
     if (message.type === "assistant") {
-      return <RichMarkdown text={message.content} fontScale={fontScale} />;
+      return (
+        <>
+          <RichMarkdown text={message.content} fontScale={fontScale} />
+          <PlanRefCards text={message.content} onOpenPlan={onOpenPlan} />
+        </>
+      );
     }
     return null;
-  }, [message.type, message.content, fontScale]);
+  }, [message.type, message.content, fontScale, onOpenPlan]);
 
   const handleImageClick = useCallback((att: ImageAttachment) => {
     setViewingImage(att);
   }, []);
 
   useEffect(() => {
-    if (shouldAutoExpand) setExpanded(true);
-  }, [shouldAutoExpand]);
+    const persisted = TOOL_EXPANDED_BY_ID.get(message.id);
+    if (persisted != null) {
+      setExpanded(persisted);
+      return;
+    }
+    if (shouldAutoExpand) {
+      setExpanded(true);
+      TOOL_EXPANDED_BY_ID.set(message.id, true);
+    } else {
+      setExpanded(false);
+    }
+  }, [message.id, shouldAutoExpand]);
+
+  const setExpandedPersistent = useCallback((next: boolean) => {
+    TOOL_EXPANDED_BY_ID.set(message.id, next);
+    setExpanded(next);
+  }, [message.id]);
 
   if (!isRenderableMessage(message)) {
     return null;
@@ -119,6 +133,14 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
         <ImageBadge />
       </div>
     );
+  }
+
+  if (message.type === "context_request") {
+    return <ContextRequestCard content={message.content} fontScale={fontScale} />;
+  }
+
+  if (message.type === "watcher_verdict") {
+    return <WatcherVerdictCard content={message.content} />;
   }
 
   if (message.type === "user") {
@@ -142,7 +164,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           >
             <button
               type="button"
-              onClick={() => setExpanded(!expanded)}
+              onClick={() => setExpandedPersistent(!expanded)}
               className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:brightness-110"
               style={{ color: "var(--ct-fg)" }}
             >
@@ -279,6 +301,91 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       );
     })() : null;
 
+    const userBubbleInner = (
+      <>
+        {effectiveOrigin?.kind === "command" ? (
+          <CommandBody commands={effectiveOrigin.commands} body={message.content} />
+        ) : hasPlanRefs(message.content) ? (
+          <LinkedText text={message.content} onOpenPlan={onOpenPlan} />
+        ) : (
+          renderUserContent(message.content)
+        )}
+        {attachments && attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-2 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}>
+            {attachments.map((att) => (
+              <button
+                key={att.id}
+                data-testid="chat-image-attachment-button"
+                onClick={() => handleImageClick(att)}
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors hover:brightness-125"
+                style={{
+                  background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)",
+                  color: "var(--ct-muted-fg)",
+                }}
+                title={att.data ? "Click to preview" : "Image (not loaded)"}
+              >
+                <Image size={12} strokeWidth={2} />
+                {att.mimeType.replace("image/", "").toUpperCase()}
+              </button>
+            ))}
+          </div>
+        )}
+        {viewingImage && viewingImage.data && (
+          <div
+            data-testid="chat-image-preview"
+            className="mt-2 pt-2"
+            style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}
+          >
+            <img
+              src={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
+              alt="Attached image"
+              className="max-w-full max-h-[300px] object-contain rounded-lg"
+            />
+            <div className="flex items-center gap-2 mt-1.5">
+              <a
+                href={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
+                download={`image.${viewingImage.mimeType.replace("image/", "")}`}
+                className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
+                style={{ color: "var(--ct-muted-fg)", background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}
+              >
+                <Download size={11} strokeWidth={2} />
+                Save
+              </a>
+              <button
+                onClick={() => setViewingImage(null)}
+                className="text-[11px] px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
+                style={{ color: "var(--ct-muted-fg)" }}
+              >
+                Hide
+              </button>
+            </div>
+          </div>
+        )}
+      </>
+    );
+
+    const timestampFooter = (() => {
+      const ts = messageTimestamp(message.timestamp);
+      if (!ts) return null;
+      return (
+        <div
+          className={`mt-0.5 text-[10px] opacity-0 transition-opacity duration-150 group-hover:opacity-60 ${effectiveOrigin ? "text-left" : "text-right"}`}
+          style={{ color: "var(--ct-muted-fg)" }}
+          title={ts.full}
+        >
+          {ts.short}
+        </div>
+      );
+    })();
+
+    if (effectiveOrigin?.kind === "pane") {
+      return (
+        <CrossPaneMessageShell header={originHeader} textSize={userText} footer={timestampFooter}>
+          {userBubbleInner}
+        </CrossPaneMessageShell>
+      );
+    }
+
     return (
       <div className={`group flex mb-3 w-full max-w-4xl min-w-0 mx-auto ${effectiveOrigin ? "justify-start" : "justify-end"}`}>
         <div className="min-w-0 max-w-[75%] sm:max-w-[75%]">
@@ -286,7 +393,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           <div
             className={`min-w-0 rounded-2xl rounded-br-sm px-4 py-2 ${userText} select-text cursor-text border ${TEXT_WRAP_CLASS}`}
             style={{
-              // tint so it never blends with tool traces or assistant prose.
               background: effectiveOrigin
                 ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, var(--ct-surface, #161b22) 88%)"
                 : "color-mix(in srgb, var(--ct-accent, #58a6ff) 22%, var(--ct-bg, #0d1117) 78%)",
@@ -296,77 +402,9 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
               color: "var(--ct-fg)",
             }}
           >
-            {effectiveOrigin?.kind === "command" ? (
-              <CommandBody commands={effectiveOrigin.commands} body={message.content} />
-            ) : (
-              renderUserContent(message.content)
-            )}
-            {attachments && attachments.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-2 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}>
-                {attachments.map((att) => (
-                  <button
-                    key={att.id}
-                    data-testid="chat-image-attachment-button"
-                    onClick={() => handleImageClick(att)}
-                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors hover:brightness-125"
-                    style={{
-                      background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)",
-                      color: "var(--ct-muted-fg)",
-                    }}
-                    title={att.data ? "Click to preview" : "Image (not loaded)"}
-                  >
-                    <Image size={12} strokeWidth={2} />
-                    {att.mimeType.replace("image/", "").toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            )}
-            {/* Inline image preview */}
-            {viewingImage && viewingImage.data && (
-              <div
-                data-testid="chat-image-preview"
-                className="mt-2 pt-2"
-                style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}
-              >
-                <img
-                  src={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
-                  alt="Attached image"
-                  className="max-w-full max-h-[300px] object-contain rounded-lg"
-                />
-                <div className="flex items-center gap-2 mt-1.5">
-                  <a
-                    href={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
-                    download={`image.${viewingImage.mimeType.replace("image/", "")}`}
-                    className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
-                    style={{ color: "var(--ct-muted-fg)", background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}
-                  >
-                    <Download size={11} strokeWidth={2} />
-                    Save
-                  </a>
-                  <button
-                    onClick={() => setViewingImage(null)}
-                    className="text-[11px] px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
-                    style={{ color: "var(--ct-muted-fg)" }}
-                  >
-                    Hide
-                  </button>
-                </div>
-              </div>
-            )}
+            {userBubbleInner}
           </div>
-          {(() => {
-            const ts = messageTimestamp(message.timestamp);
-            if (!ts) return null;
-            return (
-              <div
-                className={`mt-0.5 text-[10px] opacity-0 transition-opacity duration-150 group-hover:opacity-60 ${effectiveOrigin ? "text-left" : "text-right"}`}
-                style={{ color: "var(--ct-muted-fg)" }}
-                title={ts.full}
-              >
-                {ts.short}
-              </div>
-            );
-          })()}
+          {timestampFooter}
         </div>
       </div>
     );
@@ -399,7 +437,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           label="Session continued from summary"
           text={message.content}
           expanded={expanded}
-          onToggle={() => setExpanded(!expanded)}
+          onToggle={() => setExpandedPersistent(!expanded)}
           markdown
         />
       );
@@ -423,7 +461,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           label="System context"
           text={message.content}
           expanded={expanded}
-          onToggle={() => setExpanded(!expanded)}
+          onToggle={() => setExpandedPersistent(!expanded)}
           markdown
         />
       );
@@ -434,7 +472,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           label={isSkillContext ? "skill context" : label}
           text={message.content}
           expanded={expanded}
-          onToggle={() => setExpanded(!expanded)}
+          onToggle={() => setExpandedPersistent(!expanded)}
           markdown={isSkillContext || /\.md\b/i.test(label)}
         />
       );
@@ -486,280 +524,15 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   }
 
   if (message.type === "tool_call") {
-    const toolName = message.toolName || "";
-    const filePath = extractFilePath(message);
-    const command = extractCommand(message);
-    const hasToolContent = message.toolInput?.content != null;
-    const toolContent = hasToolContent ? String(message.toolInput!.content) : null;
-    const edits = extractEdits(message);
-    const addedLines = edits.reduce((n, e) => n + (e.new ? e.new.split("\n").length : 0), 0);
-    const removedLines = edits.reduce((n, e) => n + (e.old ? e.old.split("\n").length : 0), 0);
-
-    let summary = "";
-    if (filePath) {
-      summary = shortPath(filePath);
-    } else if (command) {
-      const firstLine = command.split("\n")[0];
-      summary = firstLine.length > 60 ? firstLine.slice(0, 60) + "..." : firstLine;
-    } else if (message.toolArgs) {
-      const firstLine = message.toolArgs.split("\n")[0].trim();
-      summary = firstLine.length > 60 ? firstLine.slice(0, 60) + "..." : firstLine;
-    }
-
-    if (message.toolName === "TodoWrite" && Array.isArray(message.toolInput?.todos)) {
-      const todos = message.toolInput!.todos as Array<{ content: string; status: string; id?: string }>;
-      const STATUS_ICON: Record<string, string> = { pending: "⏳", in_progress: "🚧", completed: "✅" };
-      return (
-        <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
-          <div className="inline-flex max-w-full min-w-0 flex-col gap-0.5 rounded-md px-2.5 py-1.5" style={{ background: "var(--ct-surface)" }}>
-            <span className="text-[10px] font-medium mb-0.5" style={{ color: "var(--ct-muted-fg)" }}>TodoWrite</span>
-            {todos.map((t, i) => (
-              <div key={t.id ?? i} className="flex items-start gap-1.5 text-xs" style={{ color: "var(--ct-fg)" }}>
-                <span className="flex-shrink-0">{STATUS_ICON[t.status] ?? "⏳"}</span>
-                <span className={t.status === "completed" ? "opacity-50 line-through" : ""}>{t.content}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-    }
-
-    // shell tool shapes.
-    const shellCommand = command;
-    if (shellCommand) {
-      const inv = recognize(shellCommand);
-      if (inv) {
-        return (
-          <CodetermCard
-            inv={inv}
-            result={message.toolResult}
-            expanded={expanded}
-            onToggle={() => setExpanded(!expanded)}
-            resolvePaneName={resolvePaneName}
-            onOpenPlan={onOpenPlan}
-            fontScale={fontScale}
-          />
-        );
-      }
-    }
-
-    const curatedKind = resolveCuratedToolKind(message.toolName);
-    if (curatedKind) {
-      const input = parsedToolInput(message);
-      const Icon =
-        curatedKind === "exec" ? Terminal :
-        curatedKind === "read_file" ? FileText :
-        curatedKind === "write_file" ? Pencil :
-        curatedKind === "codeterm" ? Terminal :
-        curatedKind === "mem_search" ? Search :
-        Bot;
-      const commandText =
-        curatedKind === "exec"
-          ? (textArg(input, ["cmd", "command"]) ?? extractCommand(message))
-          : curatedKind === "codeterm" ? textArg(input, ["args", "command"]) :
-        null;
-      const pathText =
-        curatedKind === "read_file" || curatedKind === "write_file"
-          ? textArg(input, ["path", "file_path", "filePath"])
-          : null;
-      const queryText = curatedKind === "mem_search" ? textArg(input, ["query"]) : null;
-      const providerText = curatedKind === "spawn_agent" ? textArg(input, ["provider"]) : null;
-      const taskText = curatedKind === "spawn_agent" ? textArg(input, ["task"]) : null;
-      const workspaceText = curatedKind === "spawn_agent" ? textArg(input, ["workspace"]) : null;
-      const cwdText = curatedKind === "exec" ? textArg(input, ["cwd"]) : null;
-      const contentText = curatedKind === "write_file" ? textArg(input, ["content"]) : null;
-      const title =
-        curatedKind === "exec" ? "shell" :
-        curatedKind === "read_file" ? "read file" :
-        curatedKind === "write_file" ? "write file" :
-        curatedKind === "codeterm" ? "codeterm" :
-        curatedKind === "mem_search" ? "mem search" :
-        "spawn agent";
-      const primary =
-        commandText ?? pathText ?? queryText ?? taskText ?? message.toolArgs ?? message.content;
-      const secondary =
-        curatedKind === "exec" && cwdText ? `cwd ${cwdText}` :
-        curatedKind === "write_file" && contentText ? `${contentSize(contentText)} | ${previewLine(contentText)}` :
-        curatedKind === "spawn_agent"
-          ? [providerText, workspaceText ? `workspace ${workspaceText}` : null].filter(Boolean).join(" | ")
-          : null;
-
-      return (
-        <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
-          <div className="flex w-full min-w-0 flex-col">
-            <button
-              data-testid={`chatbackend-tool-${curatedKind}`}
-              onClick={() => setExpanded(!expanded)}
-              className="flex w-full min-w-0 items-center gap-1.5 text-left rounded-md border px-2.5 py-1.5 text-xs transition-colors duration-150 hover:brightness-110"
-              style={{
-                background: "color-mix(in srgb, var(--ct-surface, #161b22) 88%, black 4%)",
-                borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
-                color: "var(--ct-muted-fg)",
-              }}
-            >
-              <Icon
-                size={13}
-                strokeWidth={2}
-                className="flex-shrink-0"
-                style={{ color: "color-mix(in srgb, var(--ct-green, #3fb950) 75%, var(--ct-fg, #c9d1d9) 25%)" }}
-              />
-              <span className="font-medium font-mono" style={{ color: "var(--ct-muted-fg)" }}>
-                {title}
-              </span>
-              <span className="min-w-0 flex-1 truncate font-mono text-[11px]" style={{ color: "var(--ct-fg)" }}>
-                {primary}
-              </span>
-              {secondary && (
-                <span className="hidden min-w-0 truncate opacity-45 font-mono text-[11px] sm:inline">
-                  {secondary}
-                </span>
-              )}
-              <ChevronIcon expanded={expanded} className="ml-1 opacity-50" />
-            </button>
-
-            {message.toolResult && !expanded && !isImageOnlyToolOutput(message.toolResult) && (
-              <button
-                onClick={() => setExpanded(true)}
-                className="mt-0.5 flex min-w-0 items-start gap-1 pl-2.5 text-left text-[11px] font-mono"
-                style={{ color: "var(--ct-muted-fg)" }}
-                title="Show full output"
-              >
-                <span className="flex-shrink-0 opacity-40">{"→"}</span>
-                <span className={`min-w-0 flex-1 ${TEXT_WRAP_CLASS} opacity-70`}>{toolResultPreviewLine(message.toolResult)}</span>
-              </button>
-            )}
-            {message.toolResult && !expanded && isImageOnlyToolOutput(message.toolResult) && (
-              <div className="mt-1 pl-2.5">
-                <ToolOutputContent text={message.toolResult} />
-              </div>
-            )}
-
-            {expanded && (
-              <div
-                className="mt-1 w-full min-w-0 max-w-full rounded-md border border-[var(--ct-border)] p-2 text-xs"
-                style={{ background: "color-mix(in srgb, var(--ct-bg, #0d1117) 88%, black 4%)" }}
-              >
-                {curatedKind === "write_file" && contentText ? (
-                  <CodeBlock text={contentText} language={languageFromPath(pathText)} maxHeight="24rem" />
-                ) : (
-                  <pre className={`${PRE_WRAP_CLASS} m-0 font-mono`} style={{ color: "var(--ct-fg)" }}>
-                    {JSON.stringify(input, null, 2) || message.content}
-                  </pre>
-                )}
-                {message.toolResult && (
-                  <div className="mt-2">
-                    <div
-                      className="mb-1 text-[10px] font-medium uppercase tracking-wide"
-                      style={{ color: "var(--ct-muted-fg)" }}
-                    >
-                      Result
-                    </div>
-                    <ToolOutputContent text={message.toolResult} maxHeight="12rem" />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    const detailText = message.toolArgs || message.content;
-    const codeLanguage = edits.length > 0
-      ? languageForEdits(filePath, edits)
-      : inferCodeLanguage(filePath, toolContent ?? "");
-    const resultText = message.toolResult;
-
     return (
-      <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
-        <div className="flex w-full min-w-0 flex-col">
-          <button
-            data-testid="chat-tool-call"
-            onClick={() => setExpanded(!expanded)}
-            className="flex w-full min-w-0 items-center gap-1.5 text-left rounded-md border px-2.5 py-1.5 text-xs transition-colors duration-150 hover:brightness-110"
-            style={{
-              background: "color-mix(in srgb, var(--ct-surface, #161b22) 88%, black 4%)",
-              borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
-              color: "var(--ct-muted-fg)",
-            }}
-          >
-            <span
-              className="flex-shrink-0"
-              style={{ color: "color-mix(in srgb, var(--ct-green, #3fb950) 75%, var(--ct-fg, #c9d1d9) 25%)" }}
-            >
-              <ToolIcon name={toolName} />
-            </span>
-            <span className="font-medium font-mono shrink-0" style={{ color: "var(--ct-muted-fg)" }}>
-              {toolDisplayLabel(toolName)}
-            </span>
-            {summary && (
-              <span className="min-w-0 flex-1 truncate font-mono text-[11px]" style={{ color: "var(--ct-fg)" }}>{summary}</span>
-            )}
-            {toolContent && (
-              <span className="shrink-0 opacity-40 font-mono text-[11px]">
-                {lineCount(toolContent)} lines
-              </span>
-            )}
-            {edits.length > 0 && (
-              <span className="shrink-0 font-mono text-[11px]">
-                <span style={{ color: "var(--ct-green, #3fb950)" }}>+{addedLines}</span>{" "}
-                <span style={{ color: "var(--ct-red, #f85149)" }}>-{removedLines}</span>
-              </span>
-            )}
-            <ChevronIcon expanded={expanded} className="ml-1 opacity-50" />
-          </button>
-
-          {/* Compact inline tail — last line of output, always visible while
-              collapsed. Click to reveal the full result under the command. */}
-          {resultText && !expanded && !isImageOnlyToolOutput(resultText) && (
-            <button
-              onClick={() => setExpanded(true)}
-              className="mt-0.5 flex min-w-0 items-start gap-1 pl-2.5 text-left text-[11px] font-mono"
-              style={{ color: "var(--ct-muted-fg)" }}
-              title="Show full output"
-            >
-              <span className="flex-shrink-0 opacity-40">{"→"}</span>
-              <span className={`min-w-0 flex-1 ${TEXT_WRAP_CLASS} opacity-70`}>{toolResultPreviewLine(resultText)}</span>
-            </button>
-          )}
-          {resultText && !expanded && isImageOnlyToolOutput(resultText) && (
-            <div className="mt-1 pl-2.5">
-              <ToolOutputContent text={resultText} />
-            </div>
-          )}
-
-          {expanded && (
-            <div
-              className="mt-1 w-full min-w-0 max-w-full rounded-md border border-[var(--ct-border)] p-2.5 text-xs"
-              style={{ background: "color-mix(in srgb, var(--ct-bg, #0d1117) 88%, black 4%)" }}
-            >
-              {toolContent ? (
-                <CodeBlock text={toolContent} language={codeLanguage} maxHeight="24rem" />
-              ) : edits.length > 0 ? (
-                <DiffView edits={edits} language={codeLanguage} />
-              ) : (
-                <pre
-                  className={`${PRE_WRAP_CLASS} m-0 font-mono`}
-                  style={{ color: "var(--ct-fg)" }}
-                >
-                  {detailText}
-                </pre>
-              )}
-              {resultText && (
-                <div className="mt-2">
-                  <div
-                    className="mb-1 text-[10px] font-medium uppercase tracking-wide"
-                    style={{ color: "var(--ct-muted-fg)" }}
-                  >
-                    Result
-                  </div>
-                  <ToolOutputContent text={resultText} maxHeight="12rem" />
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
+      <ToolCallBubble
+        message={message}
+        expanded={expanded}
+        onToggle={setExpandedPersistent}
+        resolvePaneName={resolvePaneName}
+        onOpenPlan={onOpenPlan}
+        fontScale={fontScale}
+      />
     );
   }
 
@@ -779,7 +552,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           label="tool result"
           text={message.content}
           expanded={expanded}
-          onToggle={() => setExpanded(!expanded)}
+          onToggle={() => setExpandedPersistent(!expanded)}
         />
       );
     }
@@ -790,7 +563,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     return (
       <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto pl-4">
         <button
-          onClick={() => setExpanded(!expanded)}
+          onClick={() => setExpandedPersistent(!expanded)}
           className="inline-flex max-w-full min-w-0 items-start gap-1.5 text-left rounded-md px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110 sm:max-w-md"
           style={{
             color: "var(--ct-muted-fg)",
@@ -819,7 +592,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     return (
       <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
         <button
-          onClick={() => setExpanded(!expanded)}
+          onClick={() => setExpandedPersistent(!expanded)}
           className="inline-flex items-center gap-1.5 text-left rounded-md px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110"
           style={{
             color: "var(--ct-muted-fg)",

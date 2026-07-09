@@ -35,9 +35,14 @@ import {
   type ExtendedState,
 } from "./tree";
 import { reducer } from "./reducer";
-import { MultiplexerContext, type MultiplexerContextType, type SpawnedPane } from "./context";
+import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
+import { mountMuxPerfTestHook } from "./muxPerfTestHook";
+import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSession";
+import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType, type SpawnedPane } from "./context";
+import { createMuxStateStore } from "./selectorStore";
 
 export { useMultiplexer } from "./context";
+export { useMuxState, useMuxSelector } from "./selectorStore";
 export { highestTitleLevel } from "./tree";
 
 const HYDRATED_GENERATION = 0.5;
@@ -89,32 +94,21 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, null, buildInitialState);
   const stateRef = useRef(state);
   stateRef.current = state;
+  const muxStateStoreRef = useRef(createMuxStateStore(() => stateRef.current));
   // so one click = exactly one tab (no duplicate on double-fire).
   const spawnInFlight = useRef<Set<string>>(new Set());
-  const lastTabSwitchRef = useRef<Record<string, { tabId: string; time: number }>>({});
   // authoritative reconcile lands; native boots never lock (no cache path).
   const writeGateRef = useRef<WriteGate>(createWriteGate(webBootHasSyncCache()));
   const reconciledRef = useRef(false);
+  // In-flight user tab selections; masks a stale backend snapshot until the
+  // backend confirms the switch or the guard's deadline passes.
+  const pendingTabSwitchRef = useRef<TabGuards>({});
 
   const applyBackendState = useCallback((s: MultiplexerState) => {
-    const now = Date.now();
-    const guarded = {
-      ...s,
-      workspaces: s.workspaces.map((ws) => {
-        const pending = lastTabSwitchRef.current[ws.id];
-        if (!pending) return ws;
-        if (ws.active_tab_id === pending.tabId) {
-          delete lastTabSwitchRef.current[ws.id];
-          return ws;
-        }
-        if (now - pending.time < 500 && ws.tabs.some((t) => t.id === pending.tabId)) {
-          return { ...ws, active_tab_id: pending.tabId };
-        }
-        return ws;
-      }),
-    };
+    // here silently dropped the closed-history on every reload.
+    const guarded = applyPendingTabGuard(s, pendingTabSwitchRef.current, Date.now());
     dispatch({ type: "SET_STATE", state: guarded });
-    if (IS_WEB) saveStateSnapshot(guarded);
+    if (IS_WEB) saveStateSnapshot(s);
   }, []);
 
   // letting a cache-painted UI act on a target that may no longer exist.
@@ -376,10 +370,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshFromBackend, guardedInvoke]);
 
-  const createWorkspace = useCallback(async (name: string, cwd?: string) => {
+  const createWorkspace = useCallback(async (name: string, cwd?: string, opts?: { activate?: boolean }) => {
     try {
       // Reuse existing workspace for the same cwd; avoid duplicate tabs.
-      const info = await guardedInvoke<{ id: string; name: string }>("mux_create_workspace", { name, cwd: cwd ?? null, activate: true });
+      const info = await guardedInvoke<{ id: string; name: string }>("mux_create_workspace", { name, cwd: cwd ?? null, activate: opts?.activate ?? true });
       const s = await invoke<MultiplexerState>("mux_get_state");
       if (s && s.workspaces.length > 0) applyBackendState(s);
       return info;
@@ -477,7 +471,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     cwd?: string,
     model?: string,
   ): Promise<SpawnedPane | null> => {
-    const useRestSpawn = IS_WEB || (model != null && model.length > 0);
+    const useRestSpawn = IS_WEB;
     if (useRestSpawn) {
       try {
         const res = await guardedWebJson<{ pane_id: string }>("POST", "/api/agents/spawn", {
@@ -501,7 +495,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     try {
       // activate + focus, picking the transport (PTY vs chat) on the backend.
       const res = await guardedInvoke<AtomicSpawn>("mux_spawn_pane", {
-        params: { agentId, workspaceId, cwd, skipPermissions },
+        params: { agentId, workspaceId, cwd, skipPermissions, model },
       });
       applyBackendState(res.snapshot);
       if (res.launch_command) {
@@ -576,7 +570,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   );
 
   const setActiveTab = useCallback((workspaceId: string, tabId: string) => {
-    lastTabSwitchRef.current[workspaceId] = { tabId, time: Date.now() };
+    pendingTabSwitchRef.current[workspaceId] = { tabId, deadline: Date.now() + 1000 };
     guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId, tabId }).catch(() => {});
     dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
     dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
@@ -722,9 +716,17 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "UPDATE_PANE_STATUS", paneId, status });
   }, []);
 
-  const value = useMemo<MultiplexerContextType>(
+  useEffect(() => {
+    muxStateStoreRef.current.notify();
+  }, [state]);
+
+  useEffect(
+    () => mountMuxPerfTestHook(isCodeTermFrontendTestMode(), () => stateRef.current, dispatch),
+    [],
+  );
+
+  const actions = useMemo<MultiplexerActionsContextType>(
     () => ({
-      state,
       createWorkspace,
       setActiveWorkspace,
       closeWorkspace,
@@ -759,7 +761,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       createOrchestrationPair,
     }),
     [
-      state,
       createWorkspace,
       setActiveWorkspace,
       closeWorkspace,
@@ -796,8 +797,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <MultiplexerContext.Provider value={value}>
-      {children}
-    </MultiplexerContext.Provider>
+    <MuxStateStoreContext.Provider value={muxStateStoreRef.current}>
+      <MultiplexerActionsContext.Provider value={actions}>
+        {children}
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider>
   );
 }

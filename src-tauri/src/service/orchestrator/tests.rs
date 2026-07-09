@@ -1,5 +1,4 @@
 use super::*;
-use crate::service::orchestrator::launch::planner_profile_task;
 use crate::shell::ShellSyntax;
 
 #[test]
@@ -32,6 +31,11 @@ fn local_and_orchestrator_roles_keep_local_assignment() {
         None,
         Some("Mac-Air")
     ));
+    assert!(!skip_local_worker_role(
+        &AgentRole::Manager,
+        Some("parent-pane"),
+        Some("Mac-Air")
+    ));
 }
 
 #[test]
@@ -53,7 +57,7 @@ fn worker_onboarding_requires_a_task_body() {
 
 #[test]
 fn planner_profile_uses_planner_suffix() {
-    let task = role_onboarding_task(Some("plan it"), Some("Worker"), Some("planner")).unwrap();
+    let task = role_onboarding_task(Some("plan it"), Some("Manager"), Some("planner")).unwrap();
     assert!(task.contains(&crate::prompts::planner_suffix()));
     assert!(task.contains(crate::prompts::PLANNER_TESTING_ORACLE_FIRST));
     assert!(task.contains(crate::prompts::PLAN_SKILLS_PRINCIPLES));
@@ -62,15 +66,9 @@ fn planner_profile_uses_planner_suffix() {
 }
 
 #[test]
-fn planner_profile_task_keeps_intro_when_no_user_task_exists() {
-    let task = planner_profile_task("planner intro".into(), None);
-    assert_eq!(task, "planner intro");
-}
-
-#[test]
-fn planner_profile_task_prepends_intro_to_user_task() {
-    let task = planner_profile_task("planner intro".into(), Some("draft structure".into()));
-    assert_eq!(task, "planner intro\n\ndraft structure");
+fn manager_watcher_does_not_get_worker_suffix() {
+    let task = role_onboarding_task(Some("watch it"), Some("Manager"), Some("watcher")).unwrap();
+    assert_eq!(task, "watch it");
 }
 
 #[test]
@@ -87,6 +85,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         agent: Some(agent.to_string()),
         task: task.map(|t| t.to_string()),
         task_id: None,
+        plan_task: None,
         allow_shared_checkout: None,
         agent_name: None,
         args: None,
@@ -110,6 +109,10 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         system_prompt: None,
         preset: None,
         resume_session_id: None,
+        charter: None,
+        tick_interval_secs: None,
+        nudge_cooldown_secs: None,
+        max_actions_per_tick: None,
         activate: None,
         structured_prompt_server: None,
     }
@@ -331,37 +334,4 @@ fn test_build_non_claude_ignores_task_in_command() {
     let params = make_params("aider", Some("review this code"));
     let cmd = build_agent_command("aider", &params, Some("review this code"), None, &reg);
     assert_eq!(cmd, "aider");
-}
-
-#[test]
-fn initial_task_delivery_requires_echo_and_submit_confirmation() {
-    let ok = crate::service::inject_verify::InjectionResult {
-        bytes_written: 42,
-        echo_observed: true,
-        submit_observed: true,
-        elapsed: std::time::Duration::from_millis(50),
-    };
-    assert!(initial_task_delivery_confirmed(&ok).is_ok());
-
-    let lost_before_echo = crate::service::inject_verify::InjectionResult {
-        echo_observed: false,
-        ..ok.clone()
-    };
-    assert!(
-        initial_task_delivery_confirmed(&lost_before_echo)
-            .unwrap_err()
-            .contains("not observed"),
-        "spawn task delivery must not succeed when a TUI swallowed the paste before echo"
-    );
-
-    let not_submitted = crate::service::inject_verify::InjectionResult {
-        submit_observed: false,
-        ..ok
-    };
-    assert!(
-        initial_task_delivery_confirmed(&not_submitted)
-            .unwrap_err()
-            .contains("not confirmed"),
-        "spawn task delivery must not succeed when Enter was swallowed"
-    );
 }

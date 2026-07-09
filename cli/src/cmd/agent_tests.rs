@@ -113,6 +113,22 @@ fn task_file_dash_reads_stdin_byte_exact() {
 }
 
 #[test]
+fn charter_file_dash_reads_stdin_byte_exact() {
+    let body = "observe the group\nnudge only when stalled\n";
+    let mut stdin = body.as_bytes();
+    let resolved = resolve_spawn_charter(None, Some("-".to_string()), &mut stdin).unwrap();
+    assert_eq!(resolved, Some(body.to_string()));
+}
+
+#[test]
+fn parse_watcher_policy_duration_to_seconds() {
+    assert_eq!(parse_duration_secs("5", "--interval").unwrap(), 300);
+    assert_eq!(parse_duration_secs("90s", "--interval").unwrap(), 90);
+    assert_eq!(parse_duration_secs("10m", "--nudge-cooldown").unwrap(), 600);
+    assert_eq!(parse_duration_secs("1h30m", "--interval").unwrap(), 5_400);
+}
+
+#[test]
 fn task_and_task_file_together_is_an_error() {
     let err = resolve_spawn_task(
         Some("inline".to_string()),

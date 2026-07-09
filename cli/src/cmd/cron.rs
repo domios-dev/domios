@@ -90,7 +90,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             match client.call("cron.create", Some(params)) {
                 Ok(val) => {
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        crate::cmd::print::print_json(&val);
                     } else {
                         println!(
                             "Created: {} ({})",

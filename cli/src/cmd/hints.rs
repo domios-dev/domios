@@ -19,7 +19,7 @@ pub fn task_model_hint(plan_id: &str, task_id: &str) -> String {
 
 pub fn spec_create_next_plan_hint(spec_id: &str) -> String {
     format!(
-        "hint: -> now build the plan: codeterm plan create --from-spec {spec_id} --title <title>"
+        "hint: planning sequence: 1) codeterm plan create --from-spec {spec_id} --title <title> 2) codeterm plan goal set <plan> --vector <proof> <goal> 3) codeterm plan section add <plan> --title <phase> --body <how> 4) codeterm plan task add <plan> --name <task> ... 5) codeterm plan doctor <plan> --kind quality"
     )
 }
 
@@ -30,7 +30,7 @@ pub fn spec_section_add_link_hint(spec_id: &str) -> String {
 }
 
 pub fn plan_create_spec_first_hint() -> String {
-    "WARNING: plans are built from a spec; create one with `codeterm spec create`, or use `plan create --from-spec <id>`".to_string()
+    "WARNING: plans start with a spec. Sequence: `codeterm spec create --title <title>` -> `codeterm plan create --from-spec <id> --title <title>` -> `codeterm plan goal set` -> `codeterm plan section add` -> `codeterm plan task add` -> `codeterm plan doctor <plan> --kind quality`".to_string()
 }
 
 pub fn task_quality_guard_hint(
@@ -190,6 +190,24 @@ mod tests {
         push_hints(&mut value, vec!["hint: x".into()]);
         assert_eq!(value["_hints"][0], "hint: x");
         assert_eq!(value["task_id"], "task_1");
+    }
+
+    #[test]
+    fn spec_create_hint_surfaces_planning_sequence() {
+        let hint = spec_create_next_plan_hint("sp_1");
+        assert!(hint.contains("codeterm plan create --from-spec sp_1 --title <title>"));
+        assert!(hint.contains("codeterm plan goal set"));
+        assert!(hint.contains("codeterm plan section add"));
+        assert!(hint.contains("codeterm plan task add"));
+        assert!(hint.contains("codeterm plan doctor <plan> --kind quality"));
+    }
+
+    #[test]
+    fn plan_create_without_spec_hint_surfaces_sequence() {
+        let hint = plan_create_spec_first_hint();
+        assert!(hint.contains("codeterm spec create --title <title>"));
+        assert!(hint.contains("codeterm plan create --from-spec <id> --title <title>"));
+        assert!(hint.contains("codeterm plan doctor <plan> --kind quality"));
     }
 
     #[test]

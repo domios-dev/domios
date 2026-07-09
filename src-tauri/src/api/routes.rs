@@ -112,7 +112,6 @@ pub fn create_router(state: AppState) -> Router {
             get(plan_routes::spec::list).post(plan_routes::spec::create),
         )
         .route("/api/specs/{id}", get(plan_routes::spec::get))
-        .route("/api/specs/{id}/files", get(plan_routes::spec::files))
         .route(
             "/api/specs/{id}/sections",
             post(plan_routes::spec::section_add),

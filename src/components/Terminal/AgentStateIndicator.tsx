@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { formatAgentWorkingLine } from "@codeterm/chat-ui";
 import {
   AlertTriangle,
   ArrowUpCircle,
@@ -157,12 +158,16 @@ function useStablePhase(phase: WorkPhase, dwellMs = 700): WorkPhase {
 
 export function AgentStateIndicator({
   state,
+  providerName,
+  model,
   className,
   onStop,
   onCancel,
   onOpenTerminal,
 }: {
   state: AgentState;
+  providerName?: string | null;
+  model?: string | null;
   className?: string;
   /** Interrupt the working agent (PTY panes only). Renders a Stop control while
    *  working when provided. */
@@ -254,7 +259,13 @@ export function AgentStateIndicator({
   // Idle with nothing to report → render nothing (your turn).
   if (!isWorking && !summary) return null;
 
-  const text = isWorking ? state.status_line?.trim() || "Working" : (summary ?? "");
+  const rawActivity = isWorking ? (state.status_line?.trim() || "Working") : (summary ?? "");
+  const text =
+    formatAgentWorkingLine({
+      providerName,
+      model,
+      activityText: rawActivity,
+    }) ?? rawActivity;
   const visibleText = compactStatusMessage(text);
   return (
     <div
