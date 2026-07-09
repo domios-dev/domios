@@ -110,6 +110,11 @@ impl PlanStore {
 
     pub fn set_mode(&self, plan_id: &str, mode: PlanMode, now_ms: u64) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
+            if mode == PlanMode::Paused && p.mode != PlanMode::Paused {
+                p.paused_from_mode = Some(p.mode.clone());
+            } else if mode != PlanMode::Paused {
+                p.paused_from_mode = None;
+            }
             p.mode = mode;
             Ok(())
         })

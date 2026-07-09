@@ -322,7 +322,7 @@ pub async fn mode_set(
                 now,
             )
             .map_err(plan_err)?,
-        PlanMode::Execution | PlanMode::Complete => state
+        PlanMode::Execution | PlanMode::Paused | PlanMode::Complete => state
             .svc
             .plan_store
             .set_mode(&id, mode, now)

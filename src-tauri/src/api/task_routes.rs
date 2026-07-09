@@ -29,6 +29,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::InProgressRequiresPane
         | PlanError::BlockedRequiresLabel
         | PlanError::ParkRequiresReason
+        | PlanError::PauseRequiresReason
         | PlanError::QaNoteRequired
         | PlanError::QaSlotUnavailable
         | PlanError::QaNotRunning
