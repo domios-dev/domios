@@ -90,10 +90,6 @@ function KebabMenu({
   };
 
   const doArchive = () => {
-    const confirmed = window.confirm(
-      `Archive "${plan.title}"? It will be hidden from the active list.`,
-    );
-    if (!confirmed) return;
     act({ kind: "archive", planId: plan.id });
   };
 
