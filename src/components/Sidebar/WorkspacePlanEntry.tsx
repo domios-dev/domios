@@ -7,6 +7,7 @@ import { canvasFocusStore, usePlanPulseVersion } from "../Canvas/canvasFocusStor
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import { useFullPlansOptional } from "../Canvas/PlansProvider";
 import { inflightTooltip, selectActiveWork } from "../Canvas/planView/activeWork";
+import { workspacePlanTabId } from "./sidebarSelection";
 import {
   deriveWorkspacePlanEntries,
   openWorkspacePlanForEntries,
@@ -16,6 +17,7 @@ import {
 } from "../Canvas/workspacePlanEntry";
 
 interface WorkspacePlanEntryProps {
+  workspaceId: string;
   entries: PlanIndexEntry[];
   isActive: boolean;
   pulsing?: boolean;
@@ -29,6 +31,7 @@ interface WorkspacePlanEntryProps {
 }
 
 export function WorkspacePlanEntry({
+  workspaceId,
   entries,
   isActive,
   pulsing = false,
@@ -48,16 +51,19 @@ export function WorkspacePlanEntry({
   const rowTouchText = pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"]);
   const iconSize = touchMode ? 14 : compact ? 11 : 12;
   const iconBox = touchMode ? "h-6 w-6" : "h-5 w-5";
+  const tabId = workspacePlanTabId(workspaceId);
 
   if (compact) {
     return (
       <button
         type="button"
         data-testid="workspace-plan-entry"
+        data-tab-id={tabId}
+        data-tab-kind="workspace-plan"
         data-workspace-action="plan"
-        data-pinned="true"
         data-active={isActive ? "true" : "false"}
         aria-pressed={isActive}
+        aria-current={isActive ? "page" : undefined}
         title={tip}
         onClick={onClick}
         className={`
@@ -84,10 +90,12 @@ export function WorkspacePlanEntry({
     <button
       type="button"
       data-testid="workspace-plan-entry"
+      data-tab-id={tabId}
+      data-tab-kind="workspace-plan"
       data-workspace-action="plan"
-      data-pinned="true"
       data-active={isActive ? "true" : "false"}
       aria-pressed={isActive}
+      aria-current={isActive ? "page" : undefined}
       title={tip}
       onClick={onClick}
       className={`
@@ -170,6 +178,7 @@ export function WorkspacePlanTreeSlot({
   const pulsing = canvasFocusStore.anyPulsing(planIds) && !canvasActive;
   return (
     <WorkspacePlanEntry
+      workspaceId={workspace.id}
       entries={entries}
       isActive={canvasActive}
       pulsing={pulsing}
