@@ -399,6 +399,7 @@ fn dispatch(
                 "agent.reports",
                 "orchestration.new",
                 "plan.create",
+                "plan.adopt",
                 "plan.batch",
                 "plan.handoff.create",
                 "plan.handoff.list",

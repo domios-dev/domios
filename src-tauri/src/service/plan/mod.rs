@@ -1,3 +1,4 @@
+pub mod adopt;
 pub mod atomic_write;
 pub mod attachments;
 pub mod batch;
@@ -46,6 +47,8 @@ pub mod usage_digest;
 pub mod watcher;
 pub mod worker_charter;
 
+#[cfg(test)]
+mod adopt_tests;
 #[cfg(test)]
 mod body_file_tests;
 #[cfg(test)]

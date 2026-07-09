@@ -85,6 +85,29 @@ pub enum PlanAction {
         #[arg(long)]
         apply: bool,
     },
+    /// Adopt an existing plan sidecar directory into this project
+    Adopt {
+        #[arg(value_name = "SOURCE_PLAN_DIR")]
+        source: String,
+        #[arg(long, alias = "to", value_name = "PATH")]
+        project: String,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        overwrite: bool,
+    },
+    /// Move a plan sidecar from another project or data dir into this project
+    Move {
+        plan_id: String,
+        #[arg(long, value_name = "PROJECT_OR_DATA_DIR")]
+        from: String,
+        #[arg(long, value_name = "PATH")]
+        to: String,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        overwrite: bool,
+    },
     /// Plan north-star goal
     Goal {
         #[command(subcommand)]

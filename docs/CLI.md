@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1353,6 +1353,15 @@ Explicit delete
 
 Canvas plans — persistent orchestration boards
 
+#### `codeterm plan adopt`
+
+Adopt an existing plan sidecar directory into this project
+
+- `--dry_run`
+- `--overwrite`
+- `--project`
+- `<source>`
+
 #### `codeterm plan approve`
 
 Mark the plan approved for task generation
@@ -1735,6 +1744,16 @@ Set explicit effort mode: planning | approved | execution | complete
 
 - `<plan_id>`
 - `--set`
+
+#### `codeterm plan move`
+
+Move a plan sidecar from another project or data dir into this project
+
+- `--dry_run`
+- `--from`
+- `--overwrite`
+- `<plan_id>`
+- `--to`
 
 #### `codeterm plan next`
 
