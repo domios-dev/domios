@@ -65,7 +65,7 @@ mod tests {
 
     fn setup() -> (tempfile::TempDir, PlanStore, String, String, String) {
         let dir = tempfile::tempdir().unwrap();
-        let store = PlanStore::new(dir.path()).unwrap();
+        let store = PlanStore::new_for_test(dir.path());
         let plan = store
             .create_plan(
                 "Remove Dependency".into(),
