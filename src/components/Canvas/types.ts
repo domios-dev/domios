@@ -47,7 +47,7 @@ export type PlannerRef =
   | { kind: "pane"; pane_id: string; session_id?: string | null; title?: string | null }
   | { kind: "waived"; note: string };
 
-export type PlanMode = "planning" | "approved" | "execution" | "complete";
+export type PlanMode = "planning" | "approved" | "execution" | "paused" | "complete";
 export type PlanningState = "drafting" | "structure_ready" | "approved";
 
 export interface TaskLaneMetadata {

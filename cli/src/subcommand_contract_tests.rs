@@ -230,6 +230,26 @@ fn plan_delete_confirmation_flags_parse() {
 }
 
 #[test]
+fn plan_park_alias_parses_as_pause() {
+    #[derive(clap::Parser)]
+    struct PlanOnly {
+        #[command(subcommand)]
+        action: PlanAction,
+    }
+
+    let parsed =
+        PlanOnly::try_parse_from(["plan", "park", "pl_1", "--reason", "waiting for quota"])
+            .expect("plan park alias parses");
+    match parsed.action {
+        PlanAction::Pause { plan_id, reason } => {
+            assert_eq!(plan_id, "pl_1");
+            assert_eq!(reason, "waiting for quota");
+        }
+        _ => panic!("expected plan pause"),
+    }
+}
+
+#[test]
 fn plan_task_update_parses_sections() {
     let parsed = Cli::try_parse_from([
         "codeterm",

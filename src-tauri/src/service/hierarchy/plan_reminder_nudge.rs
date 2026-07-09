@@ -585,6 +585,24 @@ mod tests {
     }
 
     #[test]
+    fn time_targets_skip_paused_plans_with_open_owner_and_worker_work() {
+        let plans = vec![plan(
+            "pl_paused",
+            "orch",
+            PlanMode::Paused,
+            vec![
+                task("task_1", TaskStatus::Pending, Some("worker")),
+                task("task_2", TaskStatus::InProgress, Some("orch")),
+            ],
+        )];
+
+        assert!(
+            timed_plan_reminder_targets(&plans).is_empty(),
+            "paused plans must not produce owner or worker reminder targets"
+        );
+    }
+
+    #[test]
     fn time_targets_prioritize_owner_over_worker_for_same_pane() {
         let plans = vec![plan(
             "pl_1",

@@ -90,14 +90,14 @@ function planContent(plan: PlanModel): CardContent {
   const tags = planTopTags(plan, colors);
   return {
     kind: "plan",
-    kicker: KICKER.plan,
+    kicker: plan.mode === "paused" ? "PARKED" : KICKER.plan,
     title: plan.title,
     accent: null,
     tags,
     sections,
     fields: [],
     body: plan.goal?.vector?.trim() || undefined,
-    hash: sig(["plan", plan.title, tags, sections.map((s) => [s.title, s.glyph, s.tags, s.body ?? ""]), plan.goal?.vector ?? ""]),
+    hash: sig(["plan", plan.mode, plan.title, tags, sections.map((s) => [s.title, s.glyph, s.tags, s.body ?? ""]), plan.goal?.vector ?? ""]),
   };
 }
 
