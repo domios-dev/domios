@@ -29,6 +29,7 @@ pub enum PlanError {
     TaskCreationRequiresApproval,
     HeartbeatRequiresExecution,
     ParkRequiresReason,
+    PauseRequiresReason,
     InProgressRequiresPane,
     BlockedRequiresLabel,
     QaNoteRequired,
@@ -120,6 +121,7 @@ impl fmt::Display for PlanError {
                 f,
                 "parking a task requires a reason; run `codeterm plan task park <plan> <task> --reason \"<why>\"`"
             ),
+            PlanError::PauseRequiresReason => write!(f, "pausing a plan requires a reason"),
             PlanError::QaNoteRequired => write!(
                 f,
                 "QA transitions require evidence; pass --note \"<what changed or what was tested>\""
@@ -194,6 +196,9 @@ impl PlanError {
             }
             PlanError::ParkRequiresReason => {
                 serde_json::json!({ "type": "park_requires_reason" })
+            }
+            PlanError::PauseRequiresReason => {
+                serde_json::json!({ "type": "pause_requires_reason" })
             }
             PlanError::QaNoteRequired => serde_json::json!({ "type": "qa_note_required" }),
             PlanError::QaSlotUnavailable => serde_json::json!({ "type": "qa_slot_unavailable" }),
