@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::path::{Path, PathBuf};
 
 use crate::args::plan::{
     PlanAction, PlanElementAction, PlanFacetsAction, PlanGoalAction, PlanGroupsAction,
@@ -96,6 +97,64 @@ fn default_project_path() -> String {
         .ok()
         .map(|path| path.display().to_string())
         .unwrap_or_default()
+}
+
+fn resolve_source_plan(from: &str, plan_id: &str) -> Result<String, String> {
+    let root = PathBuf::from(from)
+        .canonicalize()
+        .map_err(|e| format!("resolve source path: {e}"))?;
+    let candidates = source_plan_candidates(&root, plan_id);
+    candidates
+        .into_iter()
+        .find(|path| path.join("plan.yaml").is_file() || path.join("plan.json").is_file())
+        .map(|path| path.display().to_string())
+        .ok_or_else(|| format!("plan {plan_id} not found under {}", root.display()))
+}
+
+fn source_plan_candidates(root: &Path, plan_id: &str) -> Vec<PathBuf> {
+    let stem = if plan_id == "inbox" {
+        "_inbox"
+    } else {
+        plan_id
+    };
+    let plans_root = if root.ends_with(".codeterm/plans") || root.ends_with("plans") {
+        root.to_path_buf()
+    } else if root.join(".codeterm").join("plans").is_dir() {
+        root.join(".codeterm").join("plans")
+    } else if root.join("plans").is_dir() {
+        root.join("plans")
+    } else {
+        root.to_path_buf()
+    };
+    ["active", "archive"]
+        .into_iter()
+        .map(|bucket| plans_root.join(bucket).join(stem))
+        .collect()
+}
+
+fn render_adopt_report(value: &Value) -> String {
+    let verb = if value.get("moved").and_then(Value::as_bool) == Some(true) {
+        "Moved"
+    } else if value.get("dry_run").and_then(Value::as_bool) == Some(true) {
+        "Would adopt"
+    } else {
+        "Adopted"
+    };
+    let plan_id = value.get("plan_id").and_then(Value::as_str).unwrap_or("?");
+    let target = value
+        .get("target_project")
+        .and_then(Value::as_str)
+        .unwrap_or("?");
+    let tasks = value.get("task_count").and_then(Value::as_u64).unwrap_or(0);
+    let mut out = format!("{verb} plan {plan_id} into {target} ({tasks} tasks)\n");
+    if let Some(warnings) = value.get("warnings").and_then(Value::as_array) {
+        for warning in warnings.iter().filter_map(Value::as_str) {
+            out.push_str("warning: ");
+            out.push_str(warning);
+            out.push('\n');
+        }
+    }
+    out
 }
 
 fn render_plan_search(value: &Value) -> String {
@@ -391,6 +450,58 @@ fn run_plan(
 
         PlanAction::Prune { project, apply } => {
             return crate::cmd::plan_prune::run(json, apply, project);
+        }
+
+        PlanAction::Adopt {
+            source,
+            project,
+            dry_run,
+            overwrite,
+        } => {
+            let val = call(
+                client,
+                "plan.adopt",
+                json!({
+                    "source": source,
+                    "project": project,
+                    "owner": owner_from_env(),
+                    "dry_run": dry_run,
+                    "overwrite": overwrite,
+                    "remove_source": false,
+                }),
+            )?;
+            if json {
+                return Ok(Some(val));
+            }
+            print!("{}", render_adopt_report(&val));
+            return Ok(None);
+        }
+
+        PlanAction::Move {
+            plan_id,
+            from,
+            to,
+            dry_run,
+            overwrite,
+        } => {
+            let source = resolve_source_plan(&from, &plan_id)?;
+            let val = call(
+                client,
+                "plan.adopt",
+                json!({
+                    "source": source,
+                    "project": to,
+                    "owner": owner_from_env(),
+                    "dry_run": dry_run,
+                    "overwrite": overwrite,
+                    "remove_source": true,
+                }),
+            )?;
+            if json {
+                return Ok(Some(val));
+            }
+            print!("{}", render_adopt_report(&val));
+            return Ok(None);
         }
 
         PlanAction::Goal { action } => match action {

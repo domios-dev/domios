@@ -4931,6 +4931,46 @@
       "args": [],
       "subcommands": [
         {
+          "name": "adopt",
+          "about": "Adopt an existing plan sidecar directory into this project",
+          "aliases": [],
+          "args": [
+            {
+              "name": "dry_run",
+              "positional": false,
+              "value_name": "DRY_RUN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "overwrite",
+              "positional": false,
+              "value_name": "OVERWRITE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "source",
+              "positional": true,
+              "value_name": "SOURCE_PLAN_DIR",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "approve",
           "about": "Mark the plan approved for task generation",
           "aliases": [],
@@ -6371,6 +6411,54 @@
               "name": "set",
               "positional": false,
               "value_name": "SET",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "move",
+          "about": "Move a plan sidecar from another project or data dir into this project",
+          "aliases": [],
+          "args": [
+            {
+              "name": "dry_run",
+              "positional": false,
+              "value_name": "DRY_RUN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "from",
+              "positional": false,
+              "value_name": "PROJECT_OR_DATA_DIR",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "overwrite",
+              "positional": false,
+              "value_name": "OVERWRITE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "to",
+              "positional": false,
+              "value_name": "PATH",
               "default": null,
               "help": null,
               "aliases": []

@@ -47,6 +47,62 @@ fn plan_task_add_force_and_rm_all_parse() {
 }
 
 #[test]
+fn plan_adopt_and_move_parse() {
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "adopt",
+        "/tmp/source/.codeterm/plans/active/pl_1",
+        "--project",
+        "/tmp/repo",
+        "--dry-run",
+        "--overwrite",
+    ])
+    .expect("plan adopt parses");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Adopt {
+                    source,
+                    project,
+                    dry_run,
+                    overwrite,
+                },
+        } => {
+            assert_eq!(source, "/tmp/source/.codeterm/plans/active/pl_1");
+            assert_eq!(project, "/tmp/repo");
+            assert!(dry_run);
+            assert!(overwrite);
+        }
+        _ => panic!("expected plan adopt"),
+    }
+
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "move",
+        "pl_1",
+        "--from",
+        "/tmp/source",
+        "--to",
+        "/tmp/repo",
+    ])
+    .expect("plan move parses");
+    match parsed.command {
+        Commands::Plan {
+            action: PlanAction::Move {
+                plan_id, from, to, ..
+            },
+        } => {
+            assert_eq!(plan_id, "pl_1");
+            assert_eq!(from, "/tmp/source");
+            assert_eq!(to, "/tmp/repo");
+        }
+        _ => panic!("expected plan move"),
+    }
+}
+
+#[test]
 fn plan_note_and_element_mutations_parse() {
     let parsed = Cli::try_parse_from([
         "codeterm", "plan", "note", "update", "pl_1", "el_1", "--text", "new",
