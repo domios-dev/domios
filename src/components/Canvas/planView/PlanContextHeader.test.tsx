@@ -7,6 +7,7 @@ import type { BoardPlanSummary } from "./boardModel";
 import { deriveBoardPlanSummary } from "./boardModel";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import type { Plan } from "../types";
+import type { ApiConfig } from "../../../lib/types";
 import {
   PlanContextCompactHeader,
   PlanContextHeader,
@@ -29,6 +30,7 @@ function setupDom() {
   Object.defineProperty(globalThis, "window", { value: window, configurable: true });
   Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
   Object.defineProperty(globalThis, "localStorage", { value: window.localStorage, configurable: true });
+  Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
 }
 
 setupDom();
@@ -114,6 +116,14 @@ function makeWideHeader(plan?: Plan): ReactElement {
     />
   );
 }
+
+const API: ApiConfig = {
+  enabled: true,
+  host: "127.0.0.1",
+  port: 7686,
+  token: "test-token",
+  cors: false,
+};
 
 test("narrow viewport renders compact wrapper even without coarse pointer", async () => {
   window.localStorage.clear();
@@ -236,6 +246,85 @@ test("remote planner binding renders short id label instead of No planner", asyn
   const planner = host.querySelector('[data-testid="plan-peer-chip-planner"]');
   assert(planner?.textContent?.includes("(remote)"), "remote planner label");
   assert(!planner?.textContent?.includes("No planner"), "must not claim no planner");
+});
+
+test("parked plan shows Parked state, resume control, and hides heartbeat focus", async () => {
+  window.localStorage.clear();
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    mode: "paused",
+    heartbeat: { current_focus: "task:task-dante still active" },
+  };
+  const { host } = await render(makeWideHeader(plan));
+  assert(host.querySelector('[data-testid="plan-parked-chip"]')?.textContent === "Parked", "parked chip");
+  assert(host.querySelector('[data-testid="plan-resume-button"]'), "resume button");
+  assert(!host.querySelector('[data-testid="plan-park-button"]'), "park button hidden while parked");
+  assert(!host.querySelector('[data-testid="plan-board-plan-focus"]'), "heartbeat focus hidden while parked");
+  assert(host.querySelector('[data-testid="plan-board-plan-meta"]')?.textContent?.includes("parked"), "meta says parked");
+});
+
+test("park button requires a reason and posts pause request", async () => {
+  window.localStorage.clear();
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  Object.defineProperty(globalThis, "fetch", {
+    value: async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    },
+    configurable: true,
+  });
+  const originalPrompt = window.prompt;
+  window.prompt = () => "waiting for quota";
+  const summary = deriveBoardPlanSummary(FIXTURE_PLAN, {});
+  const { host } = await render(
+    <PlanContextWideHeader
+      summary={summary}
+      spec={null}
+      onOpenPlan={() => {}}
+      planId={FIXTURE_PLAN.id}
+      plan={FIXTURE_PLAN}
+      api={API}
+    />,
+  );
+  const button = host.querySelector('[data-testid="plan-park-button"]') as HTMLButtonElement;
+  await act(async () => {
+    button.click();
+    await Promise.resolve();
+  });
+  window.prompt = originalPrompt;
+  const pauseCalls = calls.filter((call) => call.url.endsWith(`/api/plans/${FIXTURE_PLAN.id}/pause`));
+  assert(pauseCalls.length === 1, `expected one pause request, got ${pauseCalls.length}: ${calls.map((c) => c.url).join(", ")}`);
+  assert(JSON.parse(String(pauseCalls[0].init?.body)).reason === "waiting for quota", "reason posted");
+});
+
+test("resume button posts resume request", async () => {
+  window.localStorage.clear();
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  Object.defineProperty(globalThis, "fetch", {
+    value: async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    },
+    configurable: true,
+  });
+  const plan: Plan = { ...FIXTURE_PLAN, mode: "paused" };
+  const { host } = await render(
+    <PlanContextWideHeader
+      summary={deriveBoardPlanSummary(plan, {})}
+      spec={null}
+      onOpenPlan={() => {}}
+      planId={plan.id}
+      plan={plan}
+      api={API}
+    />,
+  );
+  const button = host.querySelector('[data-testid="plan-resume-button"]') as HTMLButtonElement;
+  await act(async () => {
+    button.click();
+    await Promise.resolve();
+  });
+  const resumeCalls = calls.filter((call) => call.url.endsWith(`/api/plans/${plan.id}/resume`));
+  assert(resumeCalls.length === 1, `expected one resume request, got ${resumeCalls.length}: ${calls.map((c) => c.url).join(", ")}`);
 });
 
 (async () => {

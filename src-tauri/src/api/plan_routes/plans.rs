@@ -388,6 +388,46 @@ pub async fn unarchive(
 }
 
 #[derive(Deserialize)]
+pub(crate) struct PauseBody {
+    reason: String,
+    #[serde(default)]
+    from: OrchestratorRef,
+}
+
+pub async fn pause(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<PauseBody>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let stride_id = state
+        .svc
+        .plan_store
+        .pause_plan(&id, &body.reason, body.from, epoch_ms())
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(
+        serde_json::json!({ "ok": true, "stride_id": stride_id }),
+    ))
+}
+
+pub async fn resume(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let mode = state
+        .svc
+        .plan_store
+        .resume_plan(&id, epoch_ms())
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({ "ok": true, "mode": mode })))
+}
+
+#[derive(Deserialize)]
 pub(crate) struct TransferBody {
     to: OrchestratorRef,
     #[serde(default)]
