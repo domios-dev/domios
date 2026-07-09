@@ -343,8 +343,8 @@ function parseCodexUsage(rawText, nowMs) {
   const text = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
   const lines = text.split("\n");
   const limits = parseCodexLimits(lines, nowMs);
-  const session = findLine(limits, "general") || findLine(limits, "legacy-session");
-  const weekly = findLine(limits, "weekly");
+  const session = limits.find((line) => line.family === "general") ?? limits.find((line) => line.family === "legacy-session");
+  const weekly = limits.find((line) => line.family === "weekly");
   if (session === void 0 && weekly === void 0) return null;
   return {
     provider: "codex",
@@ -366,7 +366,7 @@ function parseCodexLimits(lines, nowMs) {
     for (let j = i - 1; j >= 0; j--) {
       const prev = String(lines[j] || "").trim();
       if (prev) {
-        context = prev + " " + line;
+        context = `${prev} ${line}`;
         break;
       }
     }
@@ -374,11 +374,7 @@ function parseCodexLimits(lines, nowMs) {
     if (gauge.pct === null && gauge.resetsMs === null) continue;
     const family = codexLimitFamily(context);
     if (family !== "model") {
-      out.push({
-        family,
-        pct: gauge.pct,
-        resetsMs: gauge.resetsMs
-      });
+      out.push({ family, pct: gauge.pct, resetsMs: gauge.resetsMs });
     }
   }
   return out;
@@ -386,7 +382,9 @@ function parseCodexLimits(lines, nowMs) {
 function parseCodexGaugeLine(line, context, nowMs) {
   const re = /(\d+(?:\.\d+)?)\s*%\s*(left|remaining|used)\s*\(\s*resets?\s+(?:at\s+)?([^)]+?)\)/i;
   const caps = re.exec(line);
-  if (!caps) return { pct: null, resetsMs: null };
+  if (!caps) {
+    return { pct: null, resetsMs: null };
+  }
   const value = parseFloat(caps[1]);
   const pct = codexPctToUsed(value, (caps[2] || "").toLowerCase());
   const resetsRaw = (caps[3] || "").trim();
@@ -411,12 +409,6 @@ function codexLimitFamily(text) {
   if (hasWeekly) return "weekly";
   if (hasSession) return "legacy-session";
   return "general";
-}
-function findLine(lines, family) {
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].family === family) return lines[i];
-  }
-  return void 0;
 }
 function codexParseSessionResets(raw, nowMs) {
   const m = /(\d{1,2}):(\d{2})/.exec(String(raw || "").trim());
@@ -531,8 +523,7 @@ var plugin = {
   },
   hasEventMarkers(chunk) {
     const c = String(chunk || "");
-    return c.indexOf("Would you like") !== -1 || c.indexOf("approve") !== -1 || c.indexOf("run the following") !== -1 || c.indexOf("make the following") !== -1 || c.indexOf("grant these permissions") !== -1 || // Picker/menu screens (/model, /permissions, update) so the host reads the
-    // screen off the auto-approve path; the universal numbered parser then extracts.
+    return c.indexOf("Would you like") !== -1 || c.indexOf("approve") !== -1 || c.indexOf("run the following") !== -1 || c.indexOf("make the following") !== -1 || c.indexOf("grant these permissions") !== -1 || // screen off the auto-approve path; the universal numbered parser then extracts.
     c.indexOf("to confirm") !== -1 || c.indexOf("esc to go back") !== -1 || c.indexOf("Select Model") !== -1 || c.indexOf("Select Reasoning") !== -1 || c.indexOf("\u203A") !== -1 || c.indexOf("\u276F") !== -1;
   },
   detectEvents(text) {
@@ -913,8 +904,6 @@ var plugin = {
     }
     return out;
   },
-  // Classify a parked codex pane from its rendered screen. Invariants: auth is
-  // sacred (surfaced, never auto-pressed); the update verdict is an ensemble of
   classifyPaneState(snapshot) {
     const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
     if (!screen.trim()) return null;
