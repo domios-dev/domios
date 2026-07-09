@@ -103,4 +103,25 @@ assert(multi?.attemptCount === 2, "stored attempts preserved");
 assert(multi?.label === "Worker B", "latest attempt leads summary");
 assert(multi?.summary.includes("partial"), "latest report status in summary");
 
+const rustFieldsTask: Task = {
+  ...doneTask,
+  assigned_pane_id: null,
+  lane: {},
+  taken_by_role: "worker",
+  execution_attempts: [
+    {
+      id: "att-1",
+      executor_pane_id: "pane-42",
+      executor_title: "Puccini",
+      role: "worker",
+      model: "gpt-5.5",
+      closed_at: 99,
+      report: { status: "done" },
+    },
+  ],
+};
+const rustHistorical = buildHistoricalExecutorView(rustFieldsTask, panes);
+assert(rustHistorical?.label === "Puccini", `rust field label=${rustHistorical?.label}`);
+assert(!rustHistorical?.summary.toLowerCase().includes("unknown"), "rust fields avoid unknown executor");
+
 console.log("taskExecutorHistory: all assertions passed");

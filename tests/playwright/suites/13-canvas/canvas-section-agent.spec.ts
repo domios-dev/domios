@@ -1,13 +1,7 @@
 /**
- * 13-canvas — PER-SECTION LIVE AGENT.
- *
- * Reading the plan, you SEE which sections are live and who's on them: each section
- * row rolls up the LIVE agents of the tasks bound to it (task→section, live-pane
- * gated) into a quiet avatar indicator. Click it → jump to that section's live work
- * (records a nav hop, so Home/Back return to the plan).
- *
- *   npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=golden -g @canvas-section-agent --retries=0 --workers=1
+ * WHAT: canvas section agent covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
@@ -27,6 +21,7 @@ async function reachPlanWorld(page: Page, target: string, scales: number[]): Pro
   let band = await page.getAttribute(PLAN_SEL, "data-world").catch(() => null);
   for (const s of scales) {
     await setCanvasScaleOn(page, PLAN_SEL, s);
+    // PW_JUSTIFIED_SLEEP: fixed 220ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(220);
     band = await page.getAttribute(PLAN_SEL, "data-world").catch(() => null);
     if (band === target) break;
@@ -70,6 +65,7 @@ test("@golden @canvas-section-agent section rows show their live agents; click j
   expect(await indicators.first().locator('[data-testid="canvas-agent-stack"]').count(), "indicator uses the agent avatar stack").toBeGreaterThan(0);
 
   await indicators.first().dispatchEvent("click");
+  // PW_JUSTIFIED_SLEEP: fixed 900ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(900);
   await shot(page, "secagent-jumped");
   await expect(page.locator('[data-testid="canvas-breadcrumb"]'), "clicking the indicator recorded a nav hop").toBeVisible();

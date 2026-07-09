@@ -1,12 +1,7 @@
 /**
- * 13-canvas — §26 WORLDS content-LOD verification. Drives the camera so a node's
- * apparent on-screen width (appW) crosses the W0→W3 bands and asserts the headline
- * fix: SPEC, PLAN, and TASK BODIES become visible at the content band (W2+), the
- * node FOOTPRINT stays fixed across zoom (content adapts, not size), and zooming
- * out hides bodies again (territories). Skips (does not fail) on an empty board.
- *
- *   npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=full --grep @canvas-worlds
+ * WHAT: canvas worlds covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import {

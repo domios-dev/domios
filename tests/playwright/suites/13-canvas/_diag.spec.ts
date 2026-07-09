@@ -1,3 +1,8 @@
+/**
+ * WHAT: Canvas diagnostic capture opens selected plans and writes board screenshots.
+ * WHY: Visual debugging needs a quick operator-only probe outside assertion-gated acceptance specs.
+ * ORACLE: Each target plan reaches the canvas capture path and writes the requested artifact.
+ */
 import { test } from "../../helpers/fixtures";
 import { openCanvas, captureBoard } from "../../helpers/canvas-inspect";
 import fs from "node:fs";
@@ -19,6 +24,7 @@ test("@diag audit boxes", async ({ ui }) => {
       const token = localStorage.getItem(`codeterm-web-token:${window.location.origin}`) || "";
       await fetch("/api/canvas/focus", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ plan_id: id }) });
     }, p.id);
+    // PW_JUSTIFIED_SLEEP: fixed 900ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(900);
     const r = await page.evaluate((id) => {
       const spec = document.querySelector(`[data-testid="canvas-spec-node"][data-plan-id="${id}"]`);

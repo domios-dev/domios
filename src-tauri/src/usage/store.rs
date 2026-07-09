@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::agent::usage_parser::UsageSnapshot;
+pub use codeterm_types::usage::UsageSnapshotRow;
 
 use super::suspicious::{
     bounded_raw_excerpt, rejected_debug_json, suspicious_codex_reason, AcceptedUsageSnapshot,
@@ -16,37 +17,29 @@ use super::suspicious::{
 const SCHEMA: &str = include_str!("schema.sql");
 const MAX_ROWS_PER_PROVIDER: i64 = 10_000;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UsageSnapshotRow {
-    pub id: i64,
-    pub provider: String,
-    pub account_id: Option<String>,
-    pub captured_at: i64,
-    pub parsed_ok: bool,
-    pub session_pct: Option<f32>,
-    pub session_resets_at: Option<i64>,
-    pub weekly_pct: Option<f32>,
-    pub weekly_resets_at: Option<i64>,
-    #[serde(default)]
-    pub spend_cents: Option<f64>,
-    #[serde(default)]
-    pub spend_limit_cents: Option<f64>,
-    #[serde(default)]
-    pub spend_remaining_cents: Option<f64>,
-    #[serde(default)]
-    pub spend_resets_at: Option<i64>,
-    #[serde(default)]
-    pub failure_reason: Option<String>,
-    #[serde(default)]
-    pub probe_command: Option<String>,
-    #[serde(default)]
-    pub raw_excerpt: Option<String>,
-    #[serde(default)]
-    pub debug_json: Option<String>,
-}
-
 // Keep up to a 90-day baseline (~30 samples/day) per provider.
 // Storage is small (~80B per row).
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UsageFailureKind {
+    Timeout,
+    ParseError,
+    Skip,
+    NoParser,
+    DbInsert,
+}
+
+impl UsageFailureKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Timeout => "TIMEOUT",
+            Self::ParseError => "PARSE_ERROR",
+            Self::Skip => "SKIP",
+            Self::NoParser => "NO_PARSER",
+            Self::DbInsert => "DB_INSERT",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DailyRollup {
@@ -59,6 +52,7 @@ pub struct DailyRollup {
 pub struct UsageStore {
     conn: Mutex<Connection>,
     db_path: PathBuf,
+    cap: i64,
 }
 
 pub type UsageStoreHandle = Arc<UsageStore>;
@@ -78,17 +72,24 @@ impl UsageStore {
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
             db_path,
+            cap: MAX_ROWS_PER_PROVIDER,
         }))
     }
 
     #[cfg(test)]
     pub fn open_in_memory() -> Result<UsageStoreHandle, String> {
+        Self::open_in_memory_with_cap(MAX_ROWS_PER_PROVIDER)
+    }
+
+    #[cfg(test)]
+    pub fn open_in_memory_with_cap(cap: i64) -> Result<UsageStoreHandle, String> {
         let conn = Connection::open_in_memory().map_err(|e| format!("open :memory:: {}", e))?;
         conn.execute_batch(SCHEMA)
             .map_err(|e| format!("init usage schema: {}", e))?;
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
             db_path: PathBuf::from(":memory:"),
+            cap,
         }))
     }
 
@@ -109,7 +110,7 @@ impl UsageStore {
         } else {
             insert_header(&tx, snapshot)?
         };
-        trim_to_cap(&tx, &snapshot.provider)?;
+        trim_to_cap(&tx, &snapshot.provider, self.cap)?;
         tx.commit().map_err(|e| format!("commit: {}", e))?;
         Ok(id)
     }
@@ -122,9 +123,29 @@ impl UsageStore {
         error: &str,
         probe_command: Option<&str>,
     ) -> Result<i64, String> {
+        self.insert_failure_kind(
+            provider,
+            account_id,
+            raw_text,
+            UsageFailureKind::ParseError,
+            error,
+            probe_command,
+        )
+    }
+
+    pub fn insert_failure_kind(
+        &self,
+        provider: &str,
+        account_id: Option<&str>,
+        _raw_text: Option<&str>,
+        kind: UsageFailureKind,
+        detail: &str,
+        probe_command: Option<&str>,
+    ) -> Result<i64, String> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction().map_err(|e| format!("begin tx: {}", e))?;
         let now_ms = chrono::Utc::now().timestamp_millis();
+        let reason = format!("{}: {}", kind.as_str(), detail);
         tx.execute(
             r#"INSERT INTO usage_snapshots
                (provider, account_id, captured_at, parsed_ok, failure_reason, probe_command,
@@ -134,15 +155,15 @@ impl UsageStore {
                 provider,
                 account_id,
                 now_ms,
-                error,
+                reason,
                 probe_command,
-                raw_text.map(bounded_raw_excerpt),
-                failure_debug_json(error, raw_text),
+                _raw_text.map(bounded_raw_excerpt),
+                failure_debug_json(&reason, _raw_text),
             ],
         )
         .map_err(|e| format!("insert failure: {}", e))?;
         let id = tx.last_insert_rowid();
-        trim_to_cap(&tx, provider)?;
+        trim_to_cap(&tx, provider, self.cap)?;
         tx.commit().map_err(|e| format!("commit: {}", e))?;
         Ok(id)
     }
@@ -264,7 +285,7 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<UsageSnapshotRow> {
     })
 }
 
-fn trim_to_cap(tx: &rusqlite::Transaction<'_>, provider: &str) -> Result<(), String> {
+fn trim_to_cap(tx: &rusqlite::Transaction<'_>, provider: &str, cap: i64) -> Result<(), String> {
     tx.execute(
         r#"DELETE FROM usage_snapshots
            WHERE provider = ?1
@@ -274,7 +295,7 @@ fn trim_to_cap(tx: &rusqlite::Transaction<'_>, provider: &str) -> Result<(), Str
                ORDER BY captured_at DESC
                LIMIT ?2
              )"#,
-        params![provider, MAX_ROWS_PER_PROVIDER],
+        params![provider, cap],
     )
     .map_err(|e| format!("trim: {}", e))?;
     Ok(())
@@ -591,7 +612,10 @@ mod tests {
         assert_eq!(latest.session_pct, Some(42.0));
         let hist = store.get_history("claude", 0, 10, None).unwrap();
         assert_eq!(hist.len(), 2, "history still contains the failure row");
-        assert_eq!(hist[0].failure_reason.as_deref(), Some("regex panic"));
+        assert_eq!(
+            hist[0].failure_reason.as_deref(),
+            Some("PARSE_ERROR: regex panic")
+        );
         assert_eq!(hist[0].probe_command.as_deref(), Some("/usage"));
         assert_eq!(hist[0].raw_excerpt.as_deref(), Some("raw"));
         assert!(hist[0]
@@ -725,6 +749,35 @@ mod tests {
     }
 
     #[test]
+    fn failure_taxonomy_is_persisted_in_reason_prefix() {
+        let store = UsageStore::open_in_memory().unwrap();
+        for (kind, detail) in [
+            (UsageFailureKind::Timeout, "agent not ready"),
+            (UsageFailureKind::ParseError, "bad frame"),
+            (UsageFailureKind::Skip, "empty usage frame"),
+        ] {
+            store
+                .insert_failure_kind("cursor", None, Some("raw"), kind, detail, Some("/usage"))
+                .unwrap();
+        }
+
+        let hist = store.get_history("cursor", 0, 10, None).unwrap();
+        let mut reasons: Vec<_> = hist
+            .iter()
+            .filter_map(|row| row.failure_reason.as_deref())
+            .collect();
+        reasons.sort_unstable();
+        assert_eq!(
+            reasons,
+            vec![
+                "PARSE_ERROR: bad frame",
+                "SKIP: empty usage frame",
+                "TIMEOUT: agent not ready"
+            ]
+        );
+    }
+
+    #[test]
     fn spend_fields_roundtrip() {
         let store = UsageStore::open_in_memory().unwrap();
         let mut s = UsageSnapshot::empty("cursor", "raw", 1_000_000_000_000);
@@ -759,8 +812,12 @@ mod tests {
 
     #[test]
     fn trim_to_cap_keeps_only_last_n() {
-        let store = UsageStore::open_in_memory().unwrap();
-        for i in 0..(MAX_ROWS_PER_PROVIDER + 25) {
+        // Small cap so pruning is exercised in <1s: inserting 10k+ rows one tx
+        // each (the real cap) took ~70s and dominated the whole suite. The trim
+        // logic is cap-agnostic, so a 50-row cap proves the same behavior.
+        const CAP: i64 = 50;
+        let store = UsageStore::open_in_memory_with_cap(CAP).unwrap();
+        for i in 0..(CAP + 25) {
             store
                 .insert_snapshot(&make_snapshot(1_000_000_000_000 + i * 1000))
                 .unwrap();
@@ -773,9 +830,9 @@ mod tests {
             )
             .unwrap()
         });
-        assert_eq!(count, MAX_ROWS_PER_PROVIDER, "rows beyond cap are pruned");
+        assert_eq!(count, CAP, "rows beyond cap are pruned");
         let latest = store.get_latest("claude", None).unwrap().unwrap();
-        let expected_latest = 1_000_000_000_000 + (MAX_ROWS_PER_PROVIDER + 24) * 1000;
+        let expected_latest = 1_000_000_000_000 + (CAP + 24) * 1000;
         assert_eq!(latest.captured_at, expected_latest, "newest row survives");
     }
 

@@ -707,8 +707,28 @@ var plugin = {
     }
     return { messages: out };
   },
-  detectSessionId(_cwd, _exclude, _maxAgeMs) {
-    return null;
+  detectSessionId(cwd, exclude, maxAgeMs) {
+    const root = codexSessionsRoot();
+    if (!root || !host.fs.fileExists(root)) return null;
+    const excluded = new Set(Array.isArray(exclude) ? exclude : exclude ? [exclude] : []);
+    const now = host.unixNowMs ? host.unixNowMs() : Date.now();
+    const ageLimit = Number.isFinite(maxAgeMs) && maxAgeMs > 0 ? maxAgeMs : 3e5;
+    let best = null;
+    const files = host.fs.walkDir(root, 5);
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      if (!f.isFile || !endsWith(f.name, ".jsonl")) continue;
+      const modifiedMs = f.modifiedMs || 0;
+      if (modifiedMs > 0 && now - modifiedMs > ageLimit) continue;
+      const stem = f.name.substring(0, f.name.length - 6);
+      const meta = readSessionMeta(f.path);
+      const sid = meta && meta.sessionId || extractSessionUuid(stem);
+      if (!sid || excluded.has(sid) || excluded.has(stem)) continue;
+      const project = meta && meta.cwd;
+      if (cwd && project && !host.path.equal(project, cwd)) continue;
+      if (!best || modifiedMs > best.modifiedMs) best = { sid, modifiedMs };
+    }
+    return best ? best.sid : null;
   },
   checkIntegration() {
     const path = codexHooksPath();

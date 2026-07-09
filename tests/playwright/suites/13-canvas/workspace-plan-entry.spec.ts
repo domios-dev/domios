@@ -1,3 +1,8 @@
+/**
+ * WHAT: Workspace plan entry opens canvas/web plan surfaces from the sidebar flow.
+ * WHY: Plans must remain reachable from workspace navigation after canvas mount refactors.
+ * ORACLE: Sidebar expansion, plan entry activation, and canvas web-page lifecycle expose the expected plan surface.
+ */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

@@ -91,6 +91,12 @@ BUILD/TYPECHECK/TESTS: result
 FOLLOWUP: anything the Orchestrator should know
 ```
 
+Blocked work uses the normal `blocked` status plus a label. Use
+`--status-label human-decision` when the unblocker is an escalated choice
+outside agent authority. Use `--status-label human-verify` when the unblocker is
+an external leg the agent cannot physically drive, such as OAuth, real
+email/payment, or a production side effect.
+
 Reports are designed to avoid active polling. A delayed heartbeat can be used as
 a fallback for long-running work, but normal progress should come from reports
 arriving naturally.
@@ -110,6 +116,15 @@ complete. Typical gates include:
 
 A lane is not complete just because its implementation compiles. The relevant
 behavior must be exercised at the layer where the user-visible bug occurs.
+Tests should assert the true end state of the user journey, not only the
+intermediate API or status response. `POST 200` and "email sent" are setup
+evidence; passing evidence is the observable far end, such as stable DOM,
+recipient landed on the right thread, or persisted visible state.
+
+Before an autonomous fix, ask whether it is small, well-understood, and
+low-risk. If yes, ship one logical fix with a regression test that fails before
+and passes after, then re-run the scenario and adjacent journeys. Otherwise
+escalate with what is broken, options plus trade-offs, and a recommendation.
 
 ## Worktrees And Branches
 
@@ -152,4 +167,4 @@ Prompt templates compiled into the binary live under `src-tauri/prompts/`:
 
 The Rust loader is `src-tauri/src/prompts.rs`.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

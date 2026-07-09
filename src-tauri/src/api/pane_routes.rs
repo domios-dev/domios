@@ -22,7 +22,7 @@ pub async fn list_panes(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let result = crate::dispatch::dispatch(&crate::dispatch::Command::PaneList, &state.svc)
+    let result = crate::dispatch::dispatch(&crate::dispatch::Command::PaneList, state.svc.as_ref())
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list panes"))?;
     Ok(Json(result.into_json()))
 }
@@ -69,6 +69,9 @@ pub async fn create_shell_pane(
                 body.system_prompt.as_deref(),
                 body.preset.as_deref(),
                 body.model.as_deref(),
+                None,
+                None,
+                None,
             );
             if let (Some(base), Some(extra)) = (config.as_object_mut(), overrides.as_object()) {
                 for (key, value) in extra {
@@ -77,7 +80,16 @@ pub async fn create_shell_pane(
             } else if !overrides.as_object().map(|o| o.is_empty()).unwrap_or(true) {
                 config = overrides;
             }
-            PaneCommand::ChatBackend { plugin_id, config }
+            crate::service::spawn::reject_direct_watcher_chatbackend_config(&config)
+                .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+            PaneCommand::ChatBackend {
+                plugin_id,
+                config,
+                role: None,
+                role_profile: None,
+                can_spawn: None,
+                watcher: None,
+            }
         }
         None => PaneCommand::Shell,
     };
@@ -211,9 +223,11 @@ pub async fn focus_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    let result =
-        crate::dispatch::dispatch(&crate::dispatch::Command::PaneFocus { pane_id }, &state.svc)
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+    let result = crate::dispatch::dispatch(
+        &crate::dispatch::Command::PaneFocus { pane_id },
+        state.svc.as_ref(),
+    )
+    .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
     Ok(Json(result.into_json()))
 }
 
@@ -364,13 +378,37 @@ pub async fn close_pane(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(raw_pane_id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    let result =
-        crate::dispatch::dispatch(&crate::dispatch::Command::PaneClose { pane_id }, &state.svc)
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let caller_pane_id = caller_pane_header(&headers);
+    let result = crate::dispatch::dispatch(
+        &crate::dispatch::Command::PaneClose {
+            pane_id,
+            caller_pane_id,
+        },
+        state.svc.as_ref(),
+    )
+    .map_err(map_close_error)?;
     Ok(Json(result.into_json()))
+}
+
+pub(crate) fn caller_pane_header(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("X-CodeTerm-Pane-Id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// A self-termination refusal is a 403 (authenticated but forbidden); anything
+/// else from a close is a missing target.
+pub(crate) fn map_close_error(e: String) -> (StatusCode, String) {
+    if e.starts_with(crate::service::pane::SELF_CLOSE_REFUSAL_PREFIX) {
+        (StatusCode::FORBIDDEN, e)
+    } else {
+        (StatusCode::NOT_FOUND, e)
+    }
 }
 
 #[derive(Deserialize)]
@@ -391,7 +429,7 @@ pub async fn rename_pane(
             pane_id,
             title: body.title,
         },
-        &state.svc,
+        state.svc.as_ref(),
     )
     .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
     Ok(Json(result.into_json()))
@@ -415,7 +453,7 @@ pub async fn describe_pane(
             pane_id,
             description: body.description,
         },
-        &state.svc,
+        state.svc.as_ref(),
     )
     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(result.into_json()))
@@ -441,7 +479,7 @@ pub async fn resize_pane(
             cols: body.cols,
             rows: body.rows,
         },
-        &state.svc,
+        state.svc.as_ref(),
     )
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to resize PTY"))?;
     Ok(Json(result.into_json()))
@@ -600,6 +638,8 @@ fn resolve_pty_id_with_fallback(
 pub(crate) struct GetTextQuery {
     #[serde(default)]
     formatted: bool,
+    #[serde(default)]
+    caller: Option<String>,
 }
 
 pub async fn get_pane_usage(
@@ -645,6 +685,10 @@ pub async fn get_pane_text(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
+    if let Some(caller) = query.caller.as_deref().filter(|s| !s.is_empty()) {
+        let caller = resolve_pane(&state, caller).unwrap_or_else(|_| caller.to_string());
+        state.svc.maybe_send_polling_nudge(&caller, &pane_id);
+    }
     let cmd = crate::dispatch::Command::GetText {
         pane_id: pane_id.clone(),
         formatted: query.formatted,

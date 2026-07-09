@@ -1,6 +1,7 @@
 /**
- * 13-canvas — PlanDetailOverlay: opens from Board task card, List row, Canvas card.
- * Esc restores prior view state (board, list scroll).
+ * WHAT: plan detail overlay covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
@@ -9,6 +10,7 @@ import {
   seedPerfFixtureAndOpenInlineCanvas,
   CANVAS_ART_DIR,
 } from "../../helpers/canvas-inspect";
+import { seedWorldStateAndOpenInlineCanvas, worldStates } from "../../fixtures/world-states";
 import type { ApiClient } from "../../helpers/api-client";
 
 async function screenshot(page: import("@playwright/test").Page, name: string): Promise<string> {
@@ -22,7 +24,11 @@ test(
   "@golden @plan-detail-overlay board task card opens detail overlay and Esc closes it",
   async ({ api, webBrowser }) => {
     test.setTimeout(120_000);
-    const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
+    const canvas = await seedWorldStateAndOpenInlineCanvas(
+      webBrowser,
+      api as unknown as ApiClient,
+      worldStates.planWithKnownTasks,
+    );
     try {
       const { page } = canvas;
       if (await isEmpty(page)) {

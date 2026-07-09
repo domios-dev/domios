@@ -19,6 +19,40 @@ fn run_git(cwd: &Path, args: &[&str]) {
     );
 }
 
+// Materialize a plan Value into the on-disk storage-v2 layout: plan.yaml +
+// goal.yaml + one tasks/<id>.yaml per task, matching what the daemon writes.
+fn write_v2_plan(plan_dir: &Path, plan: &Value) {
+    std::fs::create_dir_all(plan_dir).unwrap();
+    let mut plan = plan.clone();
+    let obj = plan.as_object_mut().unwrap();
+    if let Some(goal) = obj.remove("goal") {
+        std::fs::write(
+            plan_dir.join("goal.yaml"),
+            serde_yaml::to_string(&goal).unwrap(),
+        )
+        .unwrap();
+    }
+    if let Some(Value::Array(tasks)) = obj.remove("tasks") {
+        if !tasks.is_empty() {
+            let tasks_dir = plan_dir.join("tasks");
+            std::fs::create_dir_all(&tasks_dir).unwrap();
+            for task in &tasks {
+                let id = task.get("id").and_then(Value::as_str).unwrap_or("task");
+                std::fs::write(
+                    tasks_dir.join(format!("{id}.yaml")),
+                    serde_yaml::to_string(task).unwrap(),
+                )
+                .unwrap();
+            }
+        }
+    }
+    std::fs::write(
+        plan_dir.join("plan.yaml"),
+        serde_yaml::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+}
+
 #[test]
 fn detects_missing_milestone_from() {
     let plan = json!({
@@ -132,14 +166,14 @@ fn detects_malformed_json() {
     let dir = tempfile::tempdir().unwrap();
     let plan_dir = dir.path().join(".codeterm/plans/active/pl_bad");
     std::fs::create_dir_all(&plan_dir).unwrap();
-    std::fs::write(plan_dir.join("plan.json"), "{not json").unwrap();
+    std::fs::write(plan_dir.join("plan.yaml"), "{not yaml").unwrap();
     let report = doctor_report(None, Some(dir.path().display().to_string()), "all").unwrap();
     assert!(!report["ok"].as_bool().unwrap());
     assert!(report["findings"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|f| f["kind"] == "malformed_json"));
+        .any(|f| f["kind"] == "malformed_plan"));
 }
 
 #[test]
@@ -178,24 +212,24 @@ fn storage_warns_about_stray_linked_worktree_sidecar_copy() {
     });
     let canonical_dir = main.join(".codeterm/plans/active/pl_1");
     let stray_dir = linked.join(".codeterm/plans/active/pl_1");
-    std::fs::create_dir_all(&canonical_dir).unwrap();
-    std::fs::create_dir_all(&stray_dir).unwrap();
-    let raw = serde_json::to_string_pretty(&plan).unwrap();
-    std::fs::write(canonical_dir.join("plan.json"), &raw).unwrap();
-    std::fs::write(stray_dir.join("plan.json"), raw).unwrap();
+    write_v2_plan(&canonical_dir, &plan);
+    write_v2_plan(&stray_dir, &plan);
 
     let report = doctor_report(None, Some(linked.display().to_string()), "storage").unwrap();
     let findings = report["findings"].as_array().unwrap();
+    // Compare through the same canonicalization production uses — raw tempdir
+    // paths differ from emitted ones (8.3 short names in service TEMP, /var
+    // symlinks) and can never mismatch when both sides share the helper.
+    let main_c = super::inspect::canonicalize_path(&main)
+        .display()
+        .to_string();
+    let linked_c = super::inspect::canonicalize_path(&linked)
+        .display()
+        .to_string();
     assert!(findings.iter().any(|f| {
         f["kind"] == "stray_sidecar_copy"
-            && f["detail"]
-                .as_str()
-                .unwrap()
-                .contains(main.to_str().unwrap())
-            && f["path"]
-                .as_str()
-                .unwrap()
-                .contains(linked.to_str().unwrap())
+            && f["detail"].as_str().unwrap().contains(&main_c)
+            && f["path"].as_str().unwrap().contains(&linked_c)
     }));
 }
 
@@ -643,6 +677,83 @@ fn quality_warns_for_missing_executor_role_on_execution_task() {
 }
 
 #[test]
+fn quality_errors_for_test_author_report_without_red_green_demo() {
+    let plan = json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "mode": "approved",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_1",
+        "sections": [{"id": "sec_1", "title": "Tests", "body": "section"}],
+        "tasks": [{
+            "id": "task_1",
+            "name": "Author drill",
+            "type": "test",
+            "status": "done",
+            "section_ids": ["sec_1"],
+            "body": "body",
+            "acceptance_criteria": ["criterion"],
+            "test_plan": "run cargo test drill_fixture",
+            "correctness": "matches spec",
+            "executor_role": "test-author",
+            "lane": {
+                "report": {
+                    "id": "report_1",
+                    "message": "STATUS: done\nCHANGES: added drill\nTESTS RUN: cargo test drill_fixture passed"
+                }
+            }
+        }]
+    });
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    let finding = findings
+        .iter()
+        .find(|f| f.kind == "test_author_report_missing_red_green_demo");
+
+    assert!(finding.is_some(), "expected red-green report enforcement");
+    assert_eq!(finding.unwrap().severity, "error");
+}
+
+#[test]
+fn quality_accepts_test_author_report_with_red_green_demo() {
+    let plan = json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "mode": "approved",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_1",
+        "sections": [{"id": "sec_1", "title": "Tests", "body": "section"}],
+        "tasks": [{
+            "id": "task_1",
+            "name": "Author drill",
+            "type": "test",
+            "status": "done",
+            "section_ids": ["sec_1"],
+            "body": "body",
+            "acceptance_criteria": ["criterion"],
+            "test_plan": "run cargo test drill_fixture",
+            "correctness": "matches spec",
+            "executor_role": "test-author",
+            "lane": {
+                "report": {
+                    "id": "report_1",
+                    "message": "STATUS: done\nRED-GREEN DEMO: red: sabotaged readiness gate failed on oracle; green: restored gate passed.\nTESTS RUN: cargo test drill_fixture"
+                }
+            }
+        }]
+    });
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+
+    assert!(
+        !findings
+            .iter()
+            .any(|f| f.kind == "test_author_report_missing_red_green_demo"),
+        "red-green evidence should satisfy test-author report gate: {findings:?}"
+    );
+}
+
+#[test]
 fn quality_exempts_planning_kind_from_executor_role_check() {
     let plan = json!({
         "id": "pl_1",
@@ -740,13 +851,8 @@ fn planner_unpaired_warns_when_orchestrator_bound_without_planner() {
 fn planner_unpaired_escalates_to_error_at_approval() {
     let dir = tempfile::tempdir().unwrap();
     let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
-    std::fs::create_dir_all(&plan_dir).unwrap();
     let plan = planner_pairing_base_plan(None);
-    std::fs::write(
-        plan_dir.join("plan.json"),
-        serde_json::to_string_pretty(&plan).unwrap(),
-    )
-    .unwrap();
+    write_v2_plan(&plan_dir, &plan);
 
     let report = doctor_report(
         Some("pl_1".into()),
@@ -864,7 +970,6 @@ fn quality_exempts_planning_kind_from_vague_test_plan() {
 fn quality_seeded_plan_flags_exactly_one_vague_test_plan() {
     let dir = tempfile::tempdir().unwrap();
     let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
-    std::fs::create_dir_all(&plan_dir).unwrap();
     let plan = json!({
         "id": "pl_1",
         "title": "Plan",
@@ -900,11 +1005,7 @@ fn quality_seeded_plan_flags_exactly_one_vague_test_plan() {
             }
         ]
     });
-    std::fs::write(
-        plan_dir.join("plan.json"),
-        serde_json::to_string_pretty(&plan).unwrap(),
-    )
-    .unwrap();
+    write_v2_plan(&plan_dir, &plan);
 
     let report = doctor_report(
         Some("pl_1".into()),

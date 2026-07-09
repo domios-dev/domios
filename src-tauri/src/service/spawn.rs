@@ -8,7 +8,19 @@ use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
 pub(crate) use super::spawn_cli::{cli_binary_on_path, provider_cli_install_warning};
-pub(crate) use super::spawn_params::chatbackend_spawn_config;
+#[cfg(test)]
+pub(crate) use super::spawn_params::validate_watcher_spawn_target;
+pub(crate) use super::spawn_params::{
+    chatbackend_spawn_config, reject_direct_watcher_chatbackend_config,
+};
+
+#[path = "spawn_model.rs"]
+mod spawn_model;
+#[cfg(test)]
+pub(crate) use spawn_model::ModelFallbackNotice;
+pub(crate) use spawn_model::{
+    model_fallback_notice_title, resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice,
+};
 
 #[path = "spawn_hidden_delivery.rs"]
 mod spawn_hidden_delivery;
@@ -53,6 +65,14 @@ pub enum PaneCommand {
         plugin_id: String,
         #[serde(default)]
         config: serde_json::Value,
+        #[serde(default)]
+        role: Option<String>,
+        #[serde(default)]
+        role_profile: Option<String>,
+        #[serde(default)]
+        can_spawn: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        watcher: Option<crate::multiplexer::types::WatcherSpec>,
     },
 }
 
@@ -184,101 +204,6 @@ pub(crate) fn validate_agent_model(
         let _ = crate::agent::model_catalog::resolve_model(provider_id, model);
     }
     Ok(())
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ModelFallbackNotice {
-    pub requested: String,
-    pub using: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FreshAgentModelResolution {
-    pub model: Option<String>,
-    pub fallback_notice: Option<ModelFallbackNotice>,
-}
-
-pub(crate) fn model_fallback_notice_title(notice: &ModelFallbackNotice) -> String {
-    format!(
-        "model {} unavailable -> using {}",
-        notice.requested, notice.using
-    )
-}
-
-pub(crate) fn resolve_fresh_agent_model(
-    registry: &AgentRegistry,
-    provider_id: &str,
-    requested: Option<String>,
-    resume_session_id: Option<&str>,
-) -> Option<String> {
-    resolve_fresh_agent_model_with_notice(registry, provider_id, requested, resume_session_id).model
-}
-
-pub(crate) fn resolve_fresh_agent_model_with_notice(
-    registry: &AgentRegistry,
-    provider_id: &str,
-    requested: Option<String>,
-    resume_session_id: Option<&str>,
-) -> FreshAgentModelResolution {
-    if resume_session_id.is_some() {
-        return FreshAgentModelResolution {
-            model: requested.and_then(non_empty_model),
-            fallback_notice: None,
-        };
-    }
-    if let Some(model) = requested.and_then(non_empty_model) {
-        let resolved = crate::agent::model_catalog::resolve_model(provider_id, Some(&model));
-        let fallback_notice = if resolved.fell_back {
-            log::warn!(
-                "[spawn] requested model '{}' unavailable for provider '{}'; using '{}'",
-                model,
-                provider_id,
-                resolved.id
-            );
-            Some(ModelFallbackNotice {
-                requested: model,
-                using: resolved.id.clone(),
-            })
-        } else {
-            None
-        };
-        return FreshAgentModelResolution {
-            model: non_empty_model(resolved.id),
-            fallback_notice,
-        };
-    }
-    if let Some(model) = crate::config::provider_config(provider_id)
-        .default_model
-        .and_then(non_empty_model)
-    {
-        let resolved = crate::agent::model_catalog::resolve_model(provider_id, Some(&model));
-        if !resolved.fell_back {
-            return FreshAgentModelResolution {
-                model: non_empty_model(resolved.id),
-                fallback_notice: None,
-            };
-        }
-        log::warn!(
-            "[spawn] ignoring stale default model '{}' for provider '{}'",
-            model,
-            provider_id
-        );
-    }
-    let provider_default = registry
-        .with_provider(provider_id, |p| p.default_model())
-        .flatten()
-        .and_then(non_empty_model);
-    let resolved =
-        crate::agent::model_catalog::resolve_model(provider_id, provider_default.as_deref());
-    FreshAgentModelResolution {
-        model: non_empty_model(resolved.id),
-        fallback_notice: None,
-    }
-}
-
-fn non_empty_model(model: String) -> Option<String> {
-    let trimmed = model.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 impl ServiceContext {
@@ -427,7 +352,7 @@ impl ServiceContext {
                 self.emit_state_changed();
                 return Err(e);
             }
-            if role_str == "Worker" {
+            if role_str == "Worker" || role_str == "Manager" {
                 if let Some(ref parent) = spec.parent_pane_id {
                     if let Err(e) = self.expect_spawn_parent_link(&pane_id, parent) {
                         let _ = self.mux.write().close_tab(&ws_id, &tab_id);
@@ -990,3 +915,7 @@ impl ServiceContext {
 #[cfg(test)]
 #[path = "spawn_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "spawn_tests_chatbackend.rs"]
+mod tests_chatbackend;

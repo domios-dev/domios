@@ -138,16 +138,25 @@ export interface TaskCompetitionMetadata {
   judge_hint?: string | null;
 }
 
+export interface TaskExecutionReportSnapshot {
+  id?: string;
+  message?: string | null;
+  status?: string | null;
+}
+
 export interface TaskExecutionAttempt {
   id?: string;
-  pane_id: string | null;
+  pane_id?: string | null;
   pane_title?: string | null;
+  executor_pane_id?: string | null;
+  executor_title?: string | null;
   agent_type?: string | null;
   model?: string | null;
   session_id?: string | null;
   role?: string | null;
   branch?: string | null;
   worktree_path?: string | null;
+  report?: TaskExecutionReportSnapshot | null;
   report_status?: string | null;
   assigned_at?: number;
   reported_at?: number;
@@ -181,6 +190,8 @@ export interface Task {
   section_ids: string[];
   body: string;
   role_guidance?: string | null;
+  executor_role?: string | null;
+  personality?: string | null;
   acceptance_criteria?: string[];
   test_plan?: string;
   /** Correctness vector — what "done right" means (rendered in the READ detail). */

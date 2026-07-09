@@ -85,3 +85,15 @@ fn spawnable_chat_backend_is_accepted() {
     let reg = registry();
     assert!(super::validate_chat_backend_spawn(&reg, "lmstudio").is_ok());
 }
+
+#[test]
+fn post_panes_rejects_watcher_mode_chatbackend_config() {
+    let err = crate::service::spawn::reject_direct_watcher_chatbackend_config(
+        &serde_json::json!({ "mode": "watcher" }),
+    )
+    .unwrap_err();
+    assert_eq!(
+        err,
+        "watcher panes spawn via codeterm agent spawn --role Watcher"
+    );
+}

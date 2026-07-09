@@ -29,11 +29,27 @@ export function realFixturePlans(): Plan[] {
   }
 }
 
+export type PerfFixtureProfile =
+  | "default"
+  | "done-heavy"
+  | "card-metadata"
+  | "plan-with-known-tasks"
+  | "pane-tree-with-statuses"
+  | "mid-stream-chat-transcript";
+
 export function perfFixtureCount(): number {
   if (typeof window === "undefined") return 0;
   try {
-    if (window.localStorage.getItem("canvas.perfFixtureProfile") === "done-heavy") return 210;
-    if (window.localStorage.getItem("canvas.perfFixtureProfile") === "card-metadata") return 1;
+    const profile = window.localStorage.getItem("canvas.perfFixtureProfile");
+    if (profile === "done-heavy") return 210;
+    if (
+      profile === "card-metadata" ||
+      profile === "plan-with-known-tasks" ||
+      profile === "pane-tree-with-statuses" ||
+      profile === "mid-stream-chat-transcript"
+    ) {
+      return 1;
+    }
     const n = Number(window.localStorage.getItem("canvas.perfFixtureN") ?? "0");
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
   } catch {
@@ -41,12 +57,15 @@ export function perfFixtureCount(): number {
   }
 }
 
-export function perfFixtureProfile(): "default" | "done-heavy" | "card-metadata" {
+export function perfFixtureProfile(): PerfFixtureProfile {
   if (typeof window === "undefined") return "default";
   try {
     const profile = window.localStorage.getItem("canvas.perfFixtureProfile");
     if (profile === "done-heavy") return "done-heavy";
     if (profile === "card-metadata") return "card-metadata";
+    if (profile === "plan-with-known-tasks") return "plan-with-known-tasks";
+    if (profile === "pane-tree-with-statuses") return "pane-tree-with-statuses";
+    if (profile === "mid-stream-chat-transcript") return "mid-stream-chat-transcript";
     return "default";
   } catch {
     return "default";
@@ -93,6 +112,115 @@ export function buildDoneHeavyPerfFixturePlans(): Plan[] {
     },
     loops: [],
   })];
+}
+
+export function buildPlanWithKnownTasksFixturePlans(): Plan[] {
+  const [setup, implement, verify, docs] = PERF_PLAN_SECTION_IDS;
+  const tasks = [
+    task("known_setup", [setup], {
+      status: TaskStatus.Done,
+      created_at: 1,
+      priority: TaskPriority.P1,
+      name: "Seed deterministic workspace state",
+      body: "Known completed setup task used by Playwright assertions.",
+      milestones: [milestone("known_setup_m0", "testing", null)],
+    }),
+    task("known_impl", [implement], {
+      status: TaskStatus.InProgress,
+      created_at: 2,
+      priority: TaskPriority.P0,
+      assigned_pane_id: "pane-known-impl",
+      taken_by_role: "frontend-dev",
+      name: "Implement fixture-backed plan controls",
+      body: "Stable in-progress task with a bound pane and predictable title.",
+      acceptance_criteria: ["Board card opens detail", "List row preserves scroll"],
+      milestones: [milestone("known_impl_m0", "status_update", null)],
+    }),
+    task("known_review", [verify], {
+      status: TaskStatus.InReview,
+      created_at: 3,
+      priority: TaskPriority.P2,
+      assigned_pane_id: "pane-known-review",
+      taken_by_role: "code-reviewer",
+      name: "Review deterministic fixture migration",
+      body: "Review task exercises non-pending status columns.",
+      milestones: [milestone("known_review_m0", "review", null)],
+    }),
+    task("known_docs", [docs], {
+      status: TaskStatus.Pending,
+      created_at: 4,
+      priority: TaskPriority.P3,
+      name: "Document seeded world states",
+      body: "Pending documentation task with stable copy.",
+      milestones: [],
+    }),
+  ];
+  return [plan("fixture_known_plan", "fixture_orch", 1, PERF_PLAN_SECTIONS, tasks, {
+    primary_spec_id: PERF_SPEC_ID,
+    spec_links: PERF_SPEC_LINKS,
+    task_groups: [
+      { key: "implementation", label: "Implementation", color: null },
+      { key: "verification", label: "Verification", color: null },
+    ],
+    goal: {
+      vector: "Known task plan for deterministic board/list/canvas Playwright tests.",
+      postulates: ["Task ids, statuses, and pane bindings remain stable across runs"],
+    },
+    heartbeat: {
+      current_focus: "Migrating canvas tests away from live setup.",
+      active_lanes: ["fixtures/known-tasks"],
+      rules: ["No network-dependent plan data"],
+      learnings: [],
+    },
+    loops: [{ id: "known_loop", target: "fixture migration", stages: [], budget: 3, count: 1, stop_when: null, status: "running" }],
+  })];
+}
+
+export function buildPaneTreeWithStatusesFixturePlans(): Plan[] {
+  const plans = buildPlanWithKnownTasksFixturePlans();
+  const p = plans[0];
+  return [{
+    ...p,
+    id: "fixture_pane_tree_plan",
+    title: "Pane tree with statuses",
+    tasks: p.tasks.map((t, i) => ({
+      ...t,
+      assigned_pane_id: ["pane-orch", "pane-worker-active", "pane-worker-waiting", "pane-worker-idle"][i] ?? t.assigned_pane_id,
+      parent_task_id: i > 1 ? "known_impl" : t.parent_task_id,
+    })),
+    heartbeat: {
+      current_focus: "Validate pane status badges and assigned-agent affordances.",
+      active_lanes: ["pane-orch", "pane-worker-active", "pane-worker-waiting"],
+      rules: ["Working, Waiting, Idle, and Dead panes are represented"],
+      learnings: [],
+    },
+  }];
+}
+
+export function buildMidStreamChatTranscriptFixturePlans(): Plan[] {
+  const plans = buildPlanWithKnownTasksFixturePlans();
+  const p = plans[0];
+  return [{
+    ...p,
+    id: "fixture_mid_stream_chat_plan",
+    title: "Mid-stream chat transcript",
+    tasks: p.tasks.map((t, i) => ({
+      ...t,
+      status: i === 0 ? TaskStatus.Done : i === 1 ? TaskStatus.InProgress : TaskStatus.Pending,
+      assigned_pane_id: i === 1 ? "pane-chat-streaming" : t.assigned_pane_id,
+      status_label: i === 1 ? "streaming reply" : t.status_label,
+      name: i === 1 ? "Assistant reply is mid-stream" : t.name,
+      body: i === 1
+        ? "Fixture represents a chat pane with user prompt, partial assistant response, and tool output in flight."
+        : t.body,
+    })),
+    heartbeat: {
+      current_focus: "Assistant is streaming a response while canvas remains usable.",
+      active_lanes: ["pane-chat-streaming"],
+      rules: ["Transcript state is deterministic"],
+      learnings: [{ id: "chat_stream_1", text: "Partial replies should not shift plan controls.", ts: 1, tag: "chat" }],
+    },
+  }];
 }
 
 const MS_KINDS = ["status_update", "testing", "review"];
@@ -205,6 +333,37 @@ export function buildPerfFixturePanes(plans: Plan[]): Record<string, Pane> {
     }
   }
   return panes;
+}
+
+export function buildPaneTreeWithStatusesFixturePanes(): Record<string, Pane> {
+  return {
+    "pane-orch": { id: "pane-orch", pty_id: null, pane_type: "Terminal", title: "Orchestrator", cwd: null, agent_type: "codex", can_spawn: true, depth: 0, agent_state: { state: "working", status_line: "Coordinating fixture migration", elapsed_ms: 42000 } },
+    "pane-worker-active": { id: "pane-worker-active", pty_id: null, pane_type: "Terminal", title: "Fisher", cwd: null, agent_type: "codex", parent_pane_id: "pane-orch", depth: 1, agent_state: { state: "working", status_line: "Running assertions", elapsed_ms: 18000 } },
+    "pane-worker-waiting": { id: "pane-worker-waiting", pty_id: null, pane_type: "Terminal", title: "Reviewer", cwd: null, agent_type: "codex", parent_pane_id: "pane-orch", depth: 1, agent_state: { state: "question", status_line: "Waiting for report", elapsed_ms: 9000 } },
+    "pane-worker-idle": { id: "pane-worker-idle", pty_id: null, pane_type: "Terminal", title: "Docs", cwd: null, agent_type: "codex", parent_pane_id: "pane-orch", depth: 1, agent_state: { state: "idle", status_line: "Idle", elapsed_ms: 0 } },
+  };
+}
+
+export function buildMidStreamChatTranscriptFixturePanes(): Record<string, Pane> {
+  return {
+    "pane-chat-streaming": {
+      id: "pane-chat-streaming",
+      pty_id: null,
+      pane_type: "Terminal",
+      title: "General Agent · streaming fixture",
+      cwd: null,
+      agent_type: "codex",
+      chat_view: true,
+      agent_state: { state: "working", status_line: "assistant reply streaming", elapsed_ms: 6500 },
+      pending_prompt: {
+        question: "Summarize the fixture migration and keep the canvas responsive.",
+        options: [],
+        submit_available: true,
+      },
+    },
+    "pane-known-impl": { id: "pane-known-impl", pty_id: null, pane_type: "Terminal", title: "Implementation lane", cwd: null, agent_type: "codex", agent_state: { state: "working", status_line: "Applying patch", elapsed_ms: 12000 } },
+    "pane-known-review": { id: "pane-known-review", pty_id: null, pane_type: "Terminal", title: "Review lane", cwd: null, agent_type: "codex", agent_state: { state: "question", status_line: "Awaiting diff", elapsed_ms: 3000 } },
+  };
 }
 
 export function fixtureSpecSectionsByPlan(plans: Plan[]): Map<string, Section[]> {

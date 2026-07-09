@@ -1,14 +1,7 @@
 /**
- * 13-canvas - multi-view overflow regression across canvas mount contexts.
- *
- * Exercises two real UI surfaces where clipped canvas content has regressed:
- *   1. Inline workspace board (no active tab, mode=workspace) @ desktop viewport
- *   2. Inline workspace board @ narrow viewport (same mount, overflow regression)
- *
- * Deterministic synthetic long-content plan; assertions use visible DOM geometry only.
- *
- *   npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=golden --grep @canvas-multiview-overflow
+ * WHAT: canvas multiview overflow covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import fs from "node:fs";
 import os from "node:os";

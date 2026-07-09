@@ -195,3 +195,15 @@ impl ServiceContext {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::next_char_boundary;
+
+    #[test]
+    fn next_char_boundary_handles_multibyte_offsets() {
+        let s = "abкd";
+        assert_eq!(next_char_boundary(s, 3), 4);
+        assert_eq!(&s[next_char_boundary(s, 3)..], "d");
+    }
+}

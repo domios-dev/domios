@@ -24,6 +24,11 @@ pub(super) fn owner_from_params(p: &Value) -> OrchestratorRef {
                 .and_then(|v| v.as_str())
                 .map(OrchestratorRef::from_pane)
         })
+        .or_else(|| {
+            p.get("caller_pane_id")
+                .and_then(|v| v.as_str())
+                .map(OrchestratorRef::from_pane)
+        })
         .unwrap_or_else(|| OrchestratorRef::from_pane("unknown"))
 }
 

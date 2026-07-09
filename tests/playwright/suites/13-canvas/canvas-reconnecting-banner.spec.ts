@@ -1,21 +1,7 @@
 /**
- * 13-canvas — reconnecting-banner hysteresis (stabilization pass).
- *
- * Proves the calm-reconnect contract on a REAL plan board (the resilient query
- * must hold real data, else `hasDataRef` is false and `reconnecting` can never
- * flip — a synthetic perf fixture paints a board but leaves the query empty):
- *  1. A healthy board never flashes the banner across sampled refetch kicks
- *     (the "steady 200s but flashing every ~500ms" regression).
- *  2. A SINGLE forced /api/plans failure stays silent (hysteresis); a second
- *     consecutive failure shows the banner; recovery clears it on first success.
- *
- * The web client registers a workbox service worker that proxies /api/* via its
- * own `fetch()`, which bypasses `page.route()`. We open the test context with
- * `serviceWorkers: "block"` so plans fetches stay on the page thread where
- * route interception (and the 503 fulfill below) actually takes effect.
- *
- * Banner testids (all gated by `reconnecting && itemCount > 0`):
- *   canvas- / mission-control- / plan-board- / plan-list-reconnecting.
+ * WHAT: canvas reconnecting banner covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -120,6 +106,7 @@ test("@golden @canvas-reconnecting healthy board never flashes reconnecting", as
     // must be absent every time (no lifecycle-driven flashing on refetch).
     for (let i = 0; i < 12; i++) {
       await kickRefetch(page);
+      // PW_JUSTIFIED_SLEEP: fixed 250ms sampling/settle window; no app event exists for this probe.
       await page.waitForTimeout(250);
       expect(await bannerCount(page), `sample ${i}: banner absent on healthy board`).toBe(0);
     }
@@ -153,6 +140,7 @@ test("@golden @canvas-reconnecting one failure is silent, two show, recovery cle
 
     failPlans = true;
     await kickRefetch(page);
+    // PW_JUSTIFIED_SLEEP: fixed 250ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(250);
     expect(await bannerCount(page), "single failure stays quiet").toBe(0);
 

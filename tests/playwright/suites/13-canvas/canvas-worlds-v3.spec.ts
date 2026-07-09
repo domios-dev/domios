@@ -1,24 +1,7 @@
 /**
- * 13-canvas — worlds-v3 GEOMETRY acceptance criterion (substrateV2 + cloud-left).
- *
- * worlds-v3 moved TASKS into a CLOUD to the RIGHT of the plan, so the old
- * center-zoom-in-place spec (canvas-worlds.spec.ts) can never reach a task card.
- * This spec verifies the REAL worlds-v3 geometry across camera scales:
- *
- *   1. FOOTPRINT FIXED ACROSS SCALES (§22.1/§32.4) — a node's WORLD footprint
- *      (screen box ÷ cameraScale) is constant across zoom; only on-screen px scale.
- *      Verified for a TASK card and a PLAN node.
- *   2. BODY REVEAL — zooming in until a task's appW enters the W2 band reveals
- *      canvas-task-body (the worlds-v3-correct form of the old assertion).
- *   3. CLOUD-LEFT (§35) — active (not-done) task nodes have mean-x LESS than
- *      done/cancelled nodes' mean-x (active pulled plan-side/left, done sunk right).
- *   4. SUBSTRATE V2 — at deep zoom task cards do not carry the old per-card
- *      `.ct-canvas-crisp` zoom/counter-scale wrapper.
- *
- * Skips (does not fail) on an empty board or a board with no task cards.
- *
- *   npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=full --grep @canvas-worlds-v3
+ * WHAT: canvas worlds v3 covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
@@ -172,6 +155,7 @@ test("@golden @canvas-worlds-v3 worlds-v3 geometry: footprint fixed, body reveal
   const taskFootprints: Array<{ w: number; h: number }> = [];
   for (const s of [1.6, 2.4, 3.2, 4.5, 6.0]) {
     await setCanvasScaleOnTask(page, probeTaskId, s);
+    // PW_JUSTIFIED_SLEEP: fixed 250ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(250);
     const fp = await worldFootprint(page, "canvas-task-card", probeTaskId);
     if (fp) taskFootprints.push(fp);

@@ -1,7 +1,6 @@
 import {
   Sliders,
   Bot,
-  Package,
   Plug,
   KeyRound,
   FileText,
@@ -13,7 +12,6 @@ import {
 export type SectionId =
   | "general"
   | "agents"
-  | "plugins"
   | "integrations"
   | "secrets"
   | "logs"
@@ -27,11 +25,10 @@ export interface SettingsSection {
   icon: LucideIcon;
 }
 
-// (plugins/secrets live in the Extensions surface but still need breadcrumb icons).
+// (secrets lives in the Extensions surface but still needs a breadcrumb icon).
 export const SECTION_ICONS: Record<SectionId, LucideIcon> = {
   general: Sliders,
   agents: Bot,
-  plugins: Package,
   integrations: Plug,
   secrets: KeyRound,
   logs: FileText,

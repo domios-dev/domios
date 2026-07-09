@@ -6,7 +6,7 @@ use tauri::{AppHandle, Emitter};
 use crate::multiplexer::commands::MuxState;
 use crate::service::ServiceState;
 
-use super::{get_string_param, JsonRpcError};
+use super::{get_string_param, opt_string_param, JsonRpcError};
 
 pub(super) fn dispatch(
     method: &str,
@@ -130,8 +130,12 @@ pub(super) fn dispatch(
 
         "workspace.close" => {
             let workspace_id = get_string_param(params, "workspace_id")?;
+            let caller_pane_id = opt_string_param(params, "caller_pane_id");
             crate::dispatch::dispatch(
-                &crate::dispatch::Command::WorkspaceClose { workspace_id },
+                &crate::dispatch::Command::WorkspaceClose {
+                    workspace_id,
+                    caller_pane_id,
+                },
                 svc.as_ref(),
             )
             .map(|r| r.into_json())

@@ -68,7 +68,14 @@ function bash(args: string[], timeoutMs: number): void {
 }
 
 export function killDevConsole(): void {
-  bash(["build.sh", "kill"], 60_000);
+  // A failing kill must not abort setup: on a fresh/CI runner there is nothing
+  // to kill, and Windows process enumeration can EPERM on the protected
+  // %USERPROFILE%\AppData junction. killDevLeftovers + `dev --wait` recover.
+  try {
+    bash(["build.sh", "kill"], 60_000);
+  } catch (e) {
+    console.warn(`[dev-console] build.sh kill failed (continuing): ${e}`);
+  }
   killDevLeftovers();
 }
 

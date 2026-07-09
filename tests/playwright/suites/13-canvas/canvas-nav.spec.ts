@@ -1,13 +1,7 @@
 /**
- * 13-canvas — RETURN-TO-PLAN navigation.
- *
- * "Zoom IS navigation": the PLAN is home base. Fly anywhere (here: click a live worker
- * pin → fly to its task) and there is ALWAYS a way home — a ⌂ breadcrumb whose first
- * crumb is the plan, with the real fly path after it, and Esc/Back popping one hop.
- * Pressing Home reframes the plan and clears the path.
- *
- *   npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=golden -g @canvas-nav --retries=0 --workers=1
+ * WHAT: canvas nav covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
@@ -47,6 +41,7 @@ test("@golden @canvas-nav fly into a task, then Home always returns to the plan"
 
   // At home (the plan) there is no breadcrumb.
   await setCanvasScale(page, 0.55);
+  // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(300);
   expect(await page.locator('[data-testid="canvas-breadcrumb"]').count(), "no breadcrumb at home").toBe(0);
 
@@ -54,6 +49,7 @@ test("@golden @canvas-nav fly into a task, then Home always returns to the plan"
   const pin = page.locator('[data-testid="canvas-presence-overlay"]').first();
   await expect(pin).toBeVisible({ timeout: 15_000 });
   await pin.click();
+  // PW_JUSTIFIED_SLEEP: fixed 900ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(900);
   await shot(page, "nav-deep");
 
@@ -64,6 +60,7 @@ test("@golden @canvas-nav fly into a task, then Home always returns to the plan"
 
   // HOME: click ⌂ → reframe the plan + clear the path (breadcrumb disappears).
   await page.locator('[data-testid="canvas-breadcrumb-home"]').click();
+  // PW_JUSTIFIED_SLEEP: fixed 900ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(900);
   await shot(page, "nav-home");
   expect(await page.locator('[data-testid="canvas-breadcrumb"]').count(), "home cleared the path → no breadcrumb").toBe(0);

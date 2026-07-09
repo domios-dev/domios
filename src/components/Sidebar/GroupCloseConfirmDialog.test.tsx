@@ -36,8 +36,12 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; r
   return { host, root };
 }
 
-function member(id: string, roleProfile: string | null): OrchestrationGroupMember {
-  return { paneId: id, title: id, role: "Worker", roleProfile };
+function member(
+  id: string,
+  role: OrchestrationGroupMember["role"],
+  roleProfile: string | null,
+): OrchestrationGroupMember {
+  return { paneId: id, title: id, role, roleProfile };
 }
 
 setupDom();
@@ -46,7 +50,11 @@ test("summary counts BY SECTION — 1 manager, N workers", async () => {
   const { root } = await render(
     <GroupCloseConfirmDialog
       orchestratorTitle="Orchestrator"
-      members={[member("planner", "planner"), member("w1", null), member("w2", "worker")]}
+      members={[
+        member("planner", "Manager", "planner"),
+        member("w1", "Worker", null),
+        member("w2", "Worker", "worker"),
+      ]}
       onConfirm={() => {}}
       onCancel={() => {}}
     />,
@@ -63,7 +71,7 @@ test("worker-only group omits the managers clause", async () => {
   const { root } = await render(
     <GroupCloseConfirmDialog
       orchestratorTitle="Orchestrator"
-      members={[member("w1", null), member("w2", null)]}
+      members={[member("w1", "Worker", null), member("w2", "Worker", null)]}
       onConfirm={() => {}}
       onCancel={() => {}}
     />,

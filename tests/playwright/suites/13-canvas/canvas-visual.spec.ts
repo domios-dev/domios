@@ -1,14 +1,7 @@
 /**
- * 13-canvas — visual inspection loop for the v2 plan-review board. Opens the
- * workspace canvas, then runs CANVAS_ITERS (default 20) iterations of
- * pan / zoom / fit / focus, capturing full-board + per-region screenshots and
- * asserting no card overlaps and no clipped content on every frame.
- *
- * Reusable for the orchestrator's >=20-iteration visual loop:
- *   CANVAS_ITERS=30 npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=full --grep @canvas-visual
- *
- * Skips (does not fail) when the dev workspace has no active plans yet.
+ * WHAT: canvas visual covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import {

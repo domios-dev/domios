@@ -130,10 +130,11 @@ pub(crate) fn handle_workspace_action(
             "workspace.rename",
             Some(serde_json::json!({ "workspace_id": id, "name": name })),
         )),
-        WorkspaceAction::Close { id } => Some(client.call(
-            "workspace.close",
-            Some(serde_json::json!({ "workspace_id": id })),
-        )),
+        WorkspaceAction::Close { id } => {
+            let mut params = serde_json::json!({ "workspace_id": id });
+            crate::cmd::plan::maybe_inject_caller_pane(&mut params);
+            Some(client.call("workspace.close", Some(params)))
+        }
         WorkspaceAction::MoveTab { tab_id, from, to } => Some(client.call(
             "workspace.move_tab",
             Some(serde_json::json!({

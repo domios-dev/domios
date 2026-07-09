@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { useMultiplexer } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer";
+import { panesRecordEqual } from "../../store/multiplexer/selectors";
 import { useFullPlans, usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { activeWorkForPane, selectActiveWork } from "../Canvas/planView/activeWork";
 import { resolvePaneComposerActivity } from "../Canvas/paneComposerActivity";
@@ -11,14 +12,14 @@ import { ComposerPlanActivityStrip } from "./ComposerPlanActivityStrip";
 
 // compact human-title strip — orchestrating vs working — with no raw ids in UI.
 export function PaneTaskStrip({ paneId }: { paneId: string }) {
-  const { state } = useMultiplexer();
+  const panes = useMuxSelector((s) => s.panes, panesRecordEqual);
   const { index } = usePlanIndexOptional();
   const entries = useMemo(
-    () => findPlanIndexForPane(index, paneId, state.panes),
-    [index, paneId, state.panes],
+    () => findPlanIndexForPane(index, paneId, panes),
+    [index, paneId, panes],
   );
   if (entries.length === 0) return null;
-  return <ResolvedPaneTaskStrip paneId={paneId} entries={entries} panes={state.panes} />;
+  return <ResolvedPaneTaskStrip paneId={paneId} entries={entries} panes={panes} />;
 }
 
 function ResolvedPaneTaskStrip({

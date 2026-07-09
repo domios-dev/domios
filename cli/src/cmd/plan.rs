@@ -11,6 +11,7 @@ use crate::cmd::plan_errors::render_plan_call_error;
 mod adopt_search;
 mod gate_cmd;
 mod qa_cmd;
+mod read_cmd;
 mod task_cmd;
 use self::adopt_search::{render_adopt_report, render_plan_search, resolve_source_plan};
 #[cfg(test)]
@@ -152,7 +153,7 @@ pub fn handle_plan(client: &mut SocketClient, json: bool, action: PlanAction) {
         Ok(None) => {}
         Ok(Some(val)) => print_plan_result(json, &val),
         Err(e) => {
-            println!("{}", e);
+            crate::cmd::plan_output::print_plan_error(json, &e);
             std::process::exit(1);
         }
     }
@@ -262,6 +263,44 @@ fn run_plan(
             return Ok(None);
         }
 
+        PlanAction::Locate {
+            plan_id,
+            task,
+            section,
+            spec_section,
+        } => {
+            let mut params = json!({ "plan_id": plan_id });
+            if let Some(t) = task {
+                params["task"] = json!(t);
+            }
+            if let Some(s) = section {
+                params["section"] = json!(s);
+            }
+            if let Some(s) = spec_section {
+                params["spec_section"] = json!(s);
+            }
+            let val = call(client, "plan.locate", params)?;
+            if json {
+                return Ok(Some(val));
+            }
+            let file = val.get("file").and_then(|v| v.as_str()).unwrap_or("?");
+            let start = val.get("start_line").and_then(|v| v.as_u64()).unwrap_or(0);
+            let end = val.get("end_line").and_then(|v| v.as_u64()).unwrap_or(0);
+            let editable = val
+                .get("editable")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            println!("{file}:{start}-{end}");
+            if editable {
+                println!("body is a yaml block scalar (markdown); edit these lines in place, keep the indentation");
+            } else {
+                println!(
+                    "body is empty/inline — set it via CLI (--body/--body-file) instead of editing"
+                );
+            }
+            return Ok(None);
+        }
+
         PlanAction::Files { plan_id } => {
             let val = call(client, "plan.files", json!({ "plan_id": plan_id }))?;
             if json {
@@ -280,18 +319,10 @@ fn run_plan(
             return Ok(None);
         }
 
-        PlanAction::State { plan_id } => {
-            let mut params = json!({});
-            if let Some(plan_id) = plan_id {
-                params["plan_id"] = json!(plan_id);
-            }
-            maybe_inject_caller_pane(&mut params);
-            let val = call(client, "plan.state", params)?;
-            if json {
-                return Ok(Some(val));
-            }
-            print!("{}", crate::cmd::plan_state::render_state(&val));
-            return Ok(None);
+        PlanAction::State { plan_id } => return read_cmd::state(client, json, plan_id),
+
+        PlanAction::Lanes { plan_id, stale } => {
+            return read_cmd::lanes(client, json, plan_id, stale)
         }
 
         PlanAction::Next { plan_id } => {

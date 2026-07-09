@@ -187,7 +187,7 @@ pub async fn resume_session_api(
                     cwd: Some(cwd.clone()),
                     activate: Some(true),
                 };
-                let result = crate::dispatch::dispatch(&cmd, &state.svc)
+                let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref())
                     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
                 result
                     .into_json()
@@ -220,6 +220,7 @@ pub async fn resume_session_api(
         can_spawn: None,
         task: None,
         task_id: None,
+        plan_task: None,
         allow_shared_checkout: None,
         workspace_id: Some(ws_id.clone()),
         force_tab: None,
@@ -233,6 +234,10 @@ pub async fn resume_session_api(
         system_prompt: None,
         preset: None,
         resume_session_id: Some(meta.session_id.clone()),
+        charter: None,
+        tick_interval_secs: None,
+        nudge_cooldown_secs: None,
+        max_actions_per_tick: None,
         activate: None,
         structured_prompt_server: None,
     };

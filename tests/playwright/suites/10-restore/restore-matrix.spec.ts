@@ -1,3 +1,8 @@
+/**
+ * WHAT: Restore-matrix verifies provider pane identity and visible markers after restart.
+ * WHY: Session restore must preserve workspace, tab, pane, and agent metadata across hard daemon restarts.
+ * ORACLE: Manifest slots match backend pane/tab ids and each expected marker is visible in the restored UI.
+ */
 import { readFileSync } from "node:fs";
 import { expect, test, type ManagedUiSession } from "../../helpers/fixtures";
 
