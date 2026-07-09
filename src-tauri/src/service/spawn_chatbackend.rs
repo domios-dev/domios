@@ -1,12 +1,20 @@
 //! Spawn path for non-PTY `chatBackend` panes (`pty_id: None`, no backend
 //! reader); inbound transcript arrives via the plugin `poll` → `StructuredSink`.
 
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::spawn::{PaneCommand, PaneHandle, SpawnPaneSpec};
 use super::ServiceContext;
-use crate::agent::chat_types::StructuredChat;
-use crate::multiplexer::types::PaneBacking;
+use crate::agent::chat_types::{ChatMsg, StructuredChat};
+use crate::agent::reports::ReportDetails;
+use crate::multiplexer::types::{PaneBacking, WatcherPolicy, WatcherSpec};
+use crate::service::messenger::{MessageEnvelope, Messenger};
+use crate::service::watcher::{
+    apply_guardrails, build_observation, collect_watch_group, observation_config_from_json,
+    parse_verdict, ObservationSources, VerdictOutcome, WatcherAction, WatcherVerdictStatus,
+};
 
 /// Adaptive inbound-poll cadence bounds: fast while streaming, geometric
 /// back-off to idle so an open-but-quiet chat pane costs almost nothing.
@@ -39,6 +47,181 @@ struct PollTick {
     emit: bool,
     delay_ms: u64,
     signature: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WatcherTickPlan {
+    Arm { tick: u64 },
+    BlockedInflight,
+    Wait,
+}
+
+fn epoch_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn watcher_interval_ms(policy: &WatcherPolicy) -> u64 {
+    policy.tick_interval_secs.saturating_mul(1000)
+}
+
+fn watcher_watchdog_timeout_ms(policy: &WatcherPolicy) -> u64 {
+    watcher_interval_ms(policy).saturating_mul(2).max(300_000)
+}
+
+fn plan_watcher_tick(spec: &WatcherSpec, now_ms: u64, plugin_busy: bool) -> WatcherTickPlan {
+    if spec.tick_inflight_since_ms.is_some() {
+        return WatcherTickPlan::BlockedInflight;
+    }
+    if plugin_busy {
+        return WatcherTickPlan::Wait;
+    }
+    let interval_ms = watcher_interval_ms(&spec.policy);
+    let due = spec
+        .last_tick_ms
+        .map(|last| now_ms >= last.saturating_add(interval_ms))
+        .unwrap_or(true);
+    if due {
+        WatcherTickPlan::Arm {
+            tick: spec.tick.saturating_add(1),
+        }
+    } else {
+        WatcherTickPlan::Wait
+    }
+}
+
+fn watcher_inflight_stale(spec: &WatcherSpec, now_ms: u64) -> bool {
+    spec.tick_inflight_since_ms.is_some_and(|since| {
+        now_ms.saturating_sub(since) >= watcher_watchdog_timeout_ms(&spec.policy)
+    })
+}
+
+fn clear_stale_watcher_inflight_spec(spec: &mut WatcherSpec, now_ms: u64) -> bool {
+    if watcher_inflight_stale(spec, now_ms) {
+        spec.tick_inflight_since_ms = None;
+        spec.last_tick_ms = Some(now_ms);
+        return true;
+    }
+    false
+}
+
+fn accept_watcher_verdict_id(
+    last_ids: &mut HashMap<String, String>,
+    pane_id: &str,
+    verdict_id: &str,
+) -> bool {
+    if last_ids.get(pane_id).is_some_and(|last| last == verdict_id) {
+        return false;
+    }
+    last_ids.insert(pane_id.to_string(), verdict_id.to_string());
+    true
+}
+
+fn apply_watcher_outcome_to_spec(
+    spec: &mut WatcherSpec,
+    outcome: VerdictOutcome,
+    now_ms: u64,
+) -> bool {
+    if spec.tick_inflight_since_ms.is_none() {
+        return false;
+    }
+    spec.state = outcome.state;
+    spec.last_status = Some(watcher_status_label(outcome.verdict.status).to_string());
+    spec.last_tick_ms = Some(now_ms);
+    spec.tick_inflight_since_ms = None;
+    true
+}
+
+fn watcher_system_note(text: impl Into<String>) -> ChatMsg {
+    ChatMsg {
+        id: format!("watcher-note-{}", uuid::Uuid::new_v4().simple()),
+        kind: "system".to_string(),
+        content: text.into(),
+        system_subtype: Some("watcher".to_string()),
+        ..Default::default()
+    }
+}
+
+fn watcher_status_label(status: WatcherVerdictStatus) -> &'static str {
+    match status {
+        WatcherVerdictStatus::Ok => "ok",
+        WatcherVerdictStatus::Attention => "attention",
+        WatcherVerdictStatus::Stalled => "stalled",
+    }
+}
+
+fn extract_watcher_verdicts(delta: &StructuredChat) -> Vec<(String, String)> {
+    delta
+        .messages
+        .iter()
+        .filter(|m| m.kind == "watcher_verdict")
+        .map(|m| (m.id.clone(), m.content.clone()))
+        .collect()
+}
+
+fn tick_input_json(
+    tick: u64,
+    now_ms: u64,
+    state: serde_json::Value,
+    observations: serde_json::Value,
+) -> serde_json::Value {
+    serde_json::json!({
+        "tick": tick,
+        "nowMs": now_ms,
+        "state": state,
+        "observations": observations,
+    })
+}
+
+fn execute_watcher_actions_with<N, O, R>(
+    pane_id: &str,
+    actions: &[WatcherAction],
+    now_ms: u64,
+    cooldowns: &mut HashMap<String, u64>,
+    mut nudge: N,
+    mut notify: O,
+    mut report: R,
+) where
+    N: FnMut(&str, &str) -> Result<(), String>,
+    O: FnMut(&str),
+    R: FnMut(&str) -> Result<(), String>,
+{
+    for action in actions {
+        match action.kind.as_str() {
+            "nudge" => {
+                if let Some(target) = action.pane.as_deref() {
+                    match nudge(target, &action.message) {
+                        Ok(()) => {
+                            cooldowns.insert(target.to_string(), now_ms);
+                        }
+                        Err(e) => log::warn!(
+                            "[watcher] nudge from {} to {} failed: {}",
+                            pane_id,
+                            target,
+                            e
+                        ),
+                    }
+                }
+            }
+            "notify" => notify(&action.message),
+            "report" => {
+                if let Err(e) = report(&action.message) {
+                    log::warn!("[watcher] report from {} failed: {}", pane_id, e);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Nudge targets include the orchestrator itself — the canonical health
+/// watcher nudges its own orchestrator, which is not a descendant.
+fn guardrail_group(watch: crate::service::watcher::WatchGroup) -> HashSet<String> {
+    let mut group: HashSet<String> = watch.pane_ids.into_iter().collect();
+    group.insert(watch.orchestrator_id);
+    group
 }
 
 /// Pure per-tick planning for the poll loop. Emit only when the delta is
@@ -75,8 +258,22 @@ where
 
 impl ServiceContext {
     pub(crate) fn spawn_chatbackend_impl(&self, spec: SpawnPaneSpec) -> Result<PaneHandle, String> {
-        let (plugin_id, config) = match &spec.command {
-            PaneCommand::ChatBackend { plugin_id, config } => (plugin_id.clone(), config.clone()),
+        let (plugin_id, config, role, role_profile, can_spawn, watcher) = match &spec.command {
+            PaneCommand::ChatBackend {
+                plugin_id,
+                config,
+                role,
+                role_profile,
+                can_spawn,
+                watcher,
+            } => (
+                plugin_id.clone(),
+                config.clone(),
+                role.clone(),
+                role_profile.clone(),
+                *can_spawn,
+                watcher.clone(),
+            ),
             _ => return Err("spawn_chatbackend_impl called without ChatBackend command".into()),
         };
 
@@ -120,9 +317,20 @@ impl ServiceContext {
                     session_id: String::new(),
                 };
                 pane.chat_view = true;
+                pane.role_profile = role_profile.clone();
+                pane.watcher = watcher.clone();
                 if let Some(ref dir) = resolved_cwd {
                     pane.cwd = Some(dir.clone());
                 }
+            }
+        }
+        if let Some(ref role) = role {
+            if let Err(e) =
+                self.set_pane_role(&pane_id, role, spec.parent_pane_id.as_deref(), can_spawn)
+            {
+                let _ = self.mux.write().close_tab(&ws_id, &tab_id);
+                self.emit_state_changed();
+                return Err(e);
             }
         }
         self.emit_state_changed();
@@ -266,6 +474,8 @@ impl ServiceContext {
             let mut cursor: Option<String> = None;
             let mut delay_ms = POLL_IDLE_MS;
             let mut last_signature: Option<u64> = None;
+            let mut watcher_cooldowns: HashMap<String, u64> = HashMap::new();
+            let mut last_watcher_verdict_ids: HashMap<String, String> = HashMap::new();
             loop {
                 tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
                 if svc.mux.read().get_pane(&pane_id).is_none() {
@@ -277,14 +487,43 @@ impl ServiceContext {
                     session_id.clone(),
                     cursor.clone(),
                 );
-                match tokio::task::spawn_blocking(move || {
-                    // Advance async work before reading, so a host-driven async chatBackend progresses.
-                    let _ = svc2.chatbackend_pump(&plugin2, &sid2);
-                    svc2.chatbackend_poll(&plugin2, &sid2, cur.as_deref())
-                })
+                let pane_id_for_tick = pane_id.clone();
+                let cooldowns = watcher_cooldowns.clone();
+                let verdict_ids = last_watcher_verdict_ids.clone();
+                match tokio::task::spawn_blocking(
+                    move || -> Result<
+                        (StructuredChat, HashMap<String, u64>, HashMap<String, String>),
+                        String,
+                    > {
+                        let mut cooldowns = cooldowns;
+                        let mut verdict_ids = verdict_ids;
+                        // Advance async work before reading, so a host-driven async chatBackend progresses.
+                        let _ = svc2.chatbackend_pump(&plugin2, &sid2);
+                        let delta = svc2.chatbackend_poll(&plugin2, &sid2, cur.as_deref())?;
+                        let now_ms = epoch_ms();
+                        svc2.clear_stale_watcher_inflight(&pane_id_for_tick, now_ms);
+                        svc2.handle_watcher_verdict_delta(
+                            &pane_id_for_tick,
+                            &delta,
+                            now_ms,
+                            &mut cooldowns,
+                            &mut verdict_ids,
+                        );
+                        svc2.handle_watcher_scheduler_tick(
+                            &pane_id_for_tick,
+                            &plugin2,
+                            &sid2,
+                            &delta,
+                            now_ms,
+                        );
+                        Ok((delta, cooldowns, verdict_ids))
+                    },
+                )
                 .await
                 {
-                    Ok(Ok(delta)) => {
+                    Ok(Ok((delta, cooldowns, verdict_ids))) => {
+                        watcher_cooldowns = cooldowns;
+                        last_watcher_verdict_ids = verdict_ids;
                         let tick = plan_poll_tick(&delta, cursor.take(), delay_ms, last_signature);
                         cursor = tick.cursor;
                         delay_ms = tick.delay_ms;
@@ -305,154 +544,286 @@ impl ServiceContext {
             log::info!("[chatbackend] poll loop ended for pane {}", pane_id);
         });
     }
+
+    fn handle_watcher_scheduler_tick(
+        &self,
+        pane_id: &str,
+        plugin_id: &str,
+        session_id: &str,
+        delta: &StructuredChat,
+        now_ms: u64,
+    ) {
+        let plugin_busy = delta.done == Some(false);
+        let Some((tick, state, observations_cfg)) =
+            self.prepare_due_watcher_tick(pane_id, now_ms, plugin_busy)
+        else {
+            return;
+        };
+        let observations = self.build_watcher_observation(pane_id, &observations_cfg);
+        let input = tick_input_json(tick, now_ms, state, observations);
+        match self.chatbackend_watcher_tick(plugin_id, session_id, input) {
+            Ok(()) => {
+                self.mark_watcher_tick_inflight(pane_id, tick, now_ms);
+            }
+            Err(e) => {
+                log::warn!("[watcher] tick enqueue failed for pane {}: {}", pane_id, e);
+                self.backoff_watcher_tick(pane_id, now_ms);
+                self.emit_watcher_note(pane_id, format!("Watcher tick failed to enqueue: {e}"));
+            }
+        }
+    }
+
+    fn handle_watcher_verdict_delta(
+        &self,
+        pane_id: &str,
+        delta: &StructuredChat,
+        now_ms: u64,
+        cooldowns: &mut HashMap<String, u64>,
+        last_verdict_ids: &mut HashMap<String, String>,
+    ) {
+        for (id, raw) in extract_watcher_verdicts(delta) {
+            if !accept_watcher_verdict_id(last_verdict_ids, pane_id, &id) {
+                continue;
+            }
+            self.apply_watcher_verdict(pane_id, &id, &raw, now_ms, cooldowns);
+        }
+    }
+
+    fn clear_stale_watcher_inflight(&self, pane_id: &str, now_ms: u64) -> bool {
+        let mut cleared = false;
+        {
+            let mut mux = self.mux.write();
+            let Some(spec) = mux.get_pane_mut(pane_id).and_then(|p| p.watcher.as_mut()) else {
+                return false;
+            };
+            if clear_stale_watcher_inflight_spec(spec, now_ms) {
+                cleared = true;
+            }
+        }
+        if cleared {
+            log::warn!("[watcher] stale inflight tick cleared for pane {}", pane_id);
+            self.emit_watcher_note(pane_id, "Watcher tick timed out; scheduling will resume.");
+            self.emit_state_changed();
+        }
+        cleared
+    }
+
+    fn prepare_due_watcher_tick(
+        &self,
+        pane_id: &str,
+        now_ms: u64,
+        plugin_busy: bool,
+    ) -> Option<(u64, serde_json::Value, serde_json::Value)> {
+        let mux = self.mux.read();
+        let spec = mux.get_pane(pane_id)?.watcher.as_ref()?;
+        match plan_watcher_tick(spec, now_ms, plugin_busy) {
+            WatcherTickPlan::Arm { tick } => {
+                Some((tick, spec.state.clone(), spec.observations.clone()))
+            }
+            WatcherTickPlan::BlockedInflight | WatcherTickPlan::Wait => None,
+        }
+    }
+
+    fn mark_watcher_tick_inflight(&self, pane_id: &str, tick: u64, now_ms: u64) {
+        {
+            let mut mux = self.mux.write();
+            if let Some(spec) = mux.get_pane_mut(pane_id).and_then(|p| p.watcher.as_mut()) {
+                // One poll loop owns a pane's watcher ticks; multiple loops would need an atomic claim.
+                spec.tick = tick;
+                spec.tick_inflight_since_ms = Some(now_ms);
+            }
+        }
+        self.emit_state_changed();
+    }
+
+    fn backoff_watcher_tick(&self, pane_id: &str, now_ms: u64) {
+        {
+            let mut mux = self.mux.write();
+            if let Some(spec) = mux.get_pane_mut(pane_id).and_then(|p| p.watcher.as_mut()) {
+                spec.tick = spec.tick.saturating_add(1);
+                spec.last_tick_ms = Some(now_ms);
+                spec.tick_inflight_since_ms = None;
+            }
+        }
+        self.emit_state_changed();
+    }
+
+    fn build_watcher_observation(
+        &self,
+        pane_id: &str,
+        observations_cfg: &serde_json::Value,
+    ) -> serde_json::Value {
+        let config = observation_config_from_json(observations_cfg);
+        let snapshot = {
+            let mux = self.mux.read();
+            let tracker = self.agent_tracker.lock();
+            mux.snapshot_with_status(&tracker)
+        };
+        let orchestrator_id = collect_watch_group(&snapshot, pane_id).map(|g| g.orchestrator_id);
+        let reports = orchestrator_id
+            .as_deref()
+            .map(|id| self.report_store.lock().get(id, false))
+            .unwrap_or_default();
+        let last_activity_ms = HashMap::new();
+        let chat_tail = |target: &str, n: usize| -> Vec<ChatMsg> {
+            crate::service::pane_chat::pane_chat_snapshot(self, target, 0)
+                .map(|(mut msgs, _)| {
+                    let keep_from = msgs.len().saturating_sub(n);
+                    msgs.drain(..keep_from);
+                    msgs
+                })
+                .unwrap_or_default()
+        };
+        let sources = ObservationSources {
+            chat_tail: &chat_tail,
+            reports: &reports,
+            last_activity_ms: &last_activity_ms,
+        };
+        build_observation(&snapshot, pane_id, &config, &sources)
+    }
+
+    fn apply_watcher_verdict(
+        &self,
+        pane_id: &str,
+        verdict_id: &str,
+        raw: &str,
+        now_ms: u64,
+        cooldowns: &mut HashMap<String, u64>,
+    ) {
+        let Some((policy, previous_state, group)) = self.watcher_guardrail_context(pane_id) else {
+            log::warn!(
+                "[watcher] dropping late verdict {} for pane {} with no inflight tick",
+                verdict_id,
+                pane_id
+            );
+            self.emit_watcher_note(
+                pane_id,
+                format!("Dropped late watcher verdict {verdict_id}; no tick is in flight."),
+            );
+            return;
+        };
+        let verdict = parse_verdict(raw);
+        let outcome = apply_guardrails(
+            &verdict,
+            &policy,
+            &group,
+            cooldowns,
+            now_ms,
+            &previous_state,
+        );
+        for (dropped, reason) in &outcome.dropped {
+            log::warn!(
+                "[watcher] pane {} dropped {} action to {:?}: {}",
+                pane_id,
+                dropped.kind,
+                dropped.pane,
+                reason
+            );
+        }
+        if !outcome.dropped.is_empty() {
+            let dropped_summary = outcome
+                .dropped
+                .iter()
+                .map(|(a, r)| format!("{} -> {:?} ({r})", a.kind, a.pane))
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.emit_watcher_note(
+                pane_id,
+                format!("Guardrails dropped actions: {dropped_summary}"),
+            );
+        }
+        let actions = outcome.allowed_actions.clone();
+        let applied = {
+            let mut mux = self.mux.write();
+            mux.get_pane_mut(pane_id)
+                .and_then(|p| p.watcher.as_mut())
+                .map(|spec| apply_watcher_outcome_to_spec(spec, outcome, now_ms))
+                .unwrap_or(false)
+        };
+        if applied {
+            self.execute_watcher_actions(pane_id, &actions, now_ms, cooldowns);
+            self.emit_state_changed();
+        } else {
+            log::warn!(
+                "[watcher] dropping late verdict {} for pane {} with no inflight tick",
+                verdict_id,
+                pane_id
+            );
+            self.emit_watcher_note(
+                pane_id,
+                format!("Dropped late watcher verdict {verdict_id}; no tick is in flight."),
+            );
+        }
+    }
+
+    fn watcher_guardrail_context(
+        &self,
+        pane_id: &str,
+    ) -> Option<(WatcherPolicy, serde_json::Value, HashSet<String>)> {
+        let snapshot = {
+            let mux = self.mux.read();
+            let tracker = self.agent_tracker.lock();
+            mux.snapshot_with_status(&tracker)
+        };
+        let spec = snapshot.panes.get(pane_id)?.watcher.as_ref()?;
+        spec.tick_inflight_since_ms?;
+        let group = guardrail_group(collect_watch_group(&snapshot, pane_id).ok()?);
+        Some((spec.policy.clone(), spec.state.clone(), group))
+    }
+
+    fn execute_watcher_actions(
+        &self,
+        pane_id: &str,
+        actions: &[WatcherAction],
+        now_ms: u64,
+        cooldowns: &mut HashMap<String, u64>,
+    ) {
+        execute_watcher_actions_with(
+            pane_id,
+            actions,
+            now_ms,
+            cooldowns,
+            |target, message| {
+                let envelope = MessageEnvelope::pane("Watcher", pane_id);
+                Messenger::deliver(self, target, envelope, message).map(|_| {
+                    self.emit_watcher_note(
+                        pane_id,
+                        format!("Nudge delivered to {target}: {message}"),
+                    );
+                })
+            },
+            |message| {
+                self.create_notification(
+                    "Watcher notification".to_string(),
+                    Some(message.to_string()),
+                    Some("warning"),
+                );
+            },
+            |message| {
+                self.submit_report(pane_id, message, ReportDetails::default(), None, None, None)
+                    .map(|_| ())
+            },
+        );
+    }
+
+    fn emit_watcher_note(&self, pane_id: &str, text: impl Into<String>) {
+        let note = watcher_system_note(text);
+        if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
+            crate::service::pane_chat::chatbackend_history::ChatBackendHistory::shared(
+                &plugin_id,
+                &session_id,
+            )
+            .lock()
+            .upsert(std::slice::from_ref(&note));
+        }
+        crate::service::pane_chat::structured_sink::emit_chat_msgs(
+            &self.app_handle,
+            pane_id,
+            &[note],
+            None,
+        );
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::mpsc;
-    use std::time::Duration;
-
-    use super::{
-        delta_signature, next_poll_delay_ms, plan_poll_tick, POLL_ACTIVE_MS, POLL_IDLE_MS,
-    };
-    use crate::agent::chat_types::{ChatMsg, StructuredChat};
-
-    fn delta(n: usize, cursor: Option<&str>) -> StructuredChat {
-        StructuredChat {
-            messages: (0..n)
-                .map(|i| ChatMsg {
-                    id: i.to_string(),
-                    ..Default::default()
-                })
-                .collect(),
-            cursor: cursor.map(|c| c.to_string()),
-        }
-    }
-
-    #[test]
-    fn cadence_is_fast_while_active() {
-        assert_eq!(next_poll_delay_ms(true, POLL_IDLE_MS), POLL_ACTIVE_MS);
-        assert_eq!(next_poll_delay_ms(true, POLL_ACTIVE_MS), POLL_ACTIVE_MS);
-        const { assert!(POLL_ACTIVE_MS <= 80, "active cadence must be near-token") };
-    }
-
-    #[test]
-    fn cadence_backs_off_to_idle_when_quiet() {
-        let mut d = POLL_ACTIVE_MS;
-        let mut steps = 0;
-        loop {
-            let next = next_poll_delay_ms(false, d);
-            assert!((POLL_ACTIVE_MS..=POLL_IDLE_MS).contains(&next));
-            assert!(next > d || next == POLL_IDLE_MS, "must grow until capped");
-            d = next;
-            steps += 1;
-            if d == POLL_IDLE_MS {
-                break;
-            }
-            assert!(steps < 20, "must converge to idle cap");
-        }
-        assert_eq!(next_poll_delay_ms(false, POLL_IDLE_MS), POLL_IDLE_MS);
-    }
-
-    #[test]
-    fn tick_emits_and_advances_cursor_on_nonempty_delta() {
-        let tick = plan_poll_tick(&delta(2, Some("c2")), Some("c1".into()), POLL_IDLE_MS, None);
-        assert!(tick.emit, "non-empty delta must emit");
-        assert_eq!(tick.cursor.as_deref(), Some("c2"), "cursor advances");
-        assert_eq!(tick.delay_ms, POLL_ACTIVE_MS, "active ⇒ fast next poll");
-    }
-
-    #[test]
-    fn tick_idle_does_not_emit_and_keeps_cursor() {
-        let tick = plan_poll_tick(&delta(0, None), Some("c1".into()), POLL_ACTIVE_MS, None);
-        assert!(!tick.emit, "empty delta must NOT emit");
-        assert_eq!(
-            tick.cursor.as_deref(),
-            Some("c1"),
-            "cursor unchanged when idle"
-        );
-        assert!(tick.delay_ms > POLL_ACTIVE_MS, "idle backs off");
-    }
-
-    #[test]
-    fn tick_first_poll_no_cursor_emits_full_transcript() {
-        let tick = plan_poll_tick(&delta(3, Some("c0")), None, POLL_IDLE_MS, None);
-        assert!(tick.emit);
-        assert_eq!(tick.cursor.as_deref(), Some("c0"));
-    }
-
-    #[test]
-    fn tick_suppresses_byte_identical_delta() {
-        let d = delta(1, Some("liveFrom"));
-        let sig = delta_signature(&d);
-        let t1 = plan_poll_tick(&d, Some("c0".into()), POLL_ACTIVE_MS, None);
-        assert!(t1.emit, "first delta must emit");
-        assert_eq!(t1.signature, Some(sig));
-        let t2 = plan_poll_tick(&d, t1.cursor.clone(), t1.delay_ms, t1.signature);
-        assert!(!t2.emit, "byte-identical re-returned delta must NOT emit");
-        assert_eq!(t2.signature, Some(sig), "signature unchanged");
-        assert_eq!(t2.delay_ms, POLL_ACTIVE_MS, "still active while streaming");
-    }
-
-    #[test]
-    fn tick_emits_when_delta_grows() {
-        let d1 = delta(1, Some("c1"));
-        let t1 = plan_poll_tick(&d1, None, POLL_IDLE_MS, None);
-        assert!(t1.emit);
-        let d2 = delta(2, Some("c2"));
-        let t2 = plan_poll_tick(&d2, t1.cursor.clone(), t1.delay_ms, t1.signature);
-        assert!(t2.emit, "grown delta must emit");
-        assert_ne!(t2.signature, t1.signature, "signature reflects new content");
-    }
-
-    #[test]
-    fn tick_idle_preserves_last_signature_for_later_dedup() {
-        // The prior signature must survive an empty tick so a later identical delta stays suppressed.
-        let d = delta(1, Some("c1"));
-        let t1 = plan_poll_tick(&d, None, POLL_ACTIVE_MS, None);
-        assert!(t1.emit);
-        let idle = plan_poll_tick(
-            &delta(0, None),
-            t1.cursor.clone(),
-            t1.delay_ms,
-            t1.signature,
-        );
-        assert!(!idle.emit, "empty delta does not emit");
-        assert_eq!(idle.signature, t1.signature, "idle keeps prior signature");
-        let again = plan_poll_tick(&d, idle.cursor.clone(), idle.delay_ms, idle.signature);
-        assert!(
-            !again.emit,
-            "same content after an idle gap must stay suppressed"
-        );
-    }
-
-    /// Repro for the socket-RPC spawn panic: a plain `#[test]` (no `#[tokio::test]`)
-    /// reproduces the no-ambient-runtime thread where bare `tokio::spawn` panics
-    /// but `spawn_bg` (daemon's global tauri runtime) still runs the future.
-    #[test]
-    fn poll_loop_spawn_does_not_need_ambient_runtime() {
-        assert!(
-            tokio::runtime::Handle::try_current().is_err(),
-            "test must reproduce the no-ambient-runtime context"
-        );
-
-        // Suppress the panic hook so the expected catch_unwind panic doesn't pollute output.
-        let prev = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
-        let bare = std::panic::catch_unwind(|| {
-            tokio::spawn(async {});
-        });
-        std::panic::set_hook(prev);
-        assert!(
-            bare.is_err(),
-            "precondition: tokio::spawn must panic without an ambient runtime"
-        );
-
-        let (tx, rx) = mpsc::channel();
-        super::spawn_bg(async move {
-            let _ = tx.send(());
-        });
-        rx.recv_timeout(Duration::from_secs(5))
-            .expect("poll loop future must run on the tauri runtime, not the ambient one");
-    }
-}
+mod tests;

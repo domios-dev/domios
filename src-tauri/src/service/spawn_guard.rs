@@ -18,10 +18,9 @@ pub(crate) struct SharedCheckoutException {
     pub cwd: String,
 }
 
-/// Only real Workers are guarded. Planners live beside the Orchestrator in the
-/// canonical checkout by design; Orchestrator/General spawns are never guarded.
-pub(crate) fn is_worker_spawn(role: Option<&str>, role_profile: Option<&str>) -> bool {
-    role == Some("Worker") && role_profile != Some("planner")
+/// Only real Workers are guarded. Managers and Orchestrators are not Worker lanes.
+pub(crate) fn is_worker_spawn(role: Option<&str>, _role_profile: Option<&str>) -> bool {
+    role == Some("Worker")
 }
 
 /// A canonical checkout is one a Worker must not share: it equals the
@@ -72,10 +71,14 @@ fn norm(s: &str) -> PathBuf {
 }
 
 pub(crate) fn refusal_message(cwd: &str) -> String {
+    let repo = std::path::Path::new(cwd)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("project");
     format!(
         "Refusing to spawn a Worker into the canonical checkout '{cwd}'. \
-Workers get isolated worktrees:\n  \
-git -C '{cwd}' worktree add ../<task-slug> -b lane/<task-slug>\n\
+Workers get isolated worktrees in ONE sibling container `../{repo}-worktrees/` (never nested inside the repo):\n  \
+git -C '{cwd}' worktree add ../{repo}-worktrees/<branch-slug> -b lane/<task-slug>\n\
 then spawn with --cwd <that path>. Or pass --allow-shared-checkout to record an exception."
     )
 }
@@ -112,7 +115,7 @@ impl ServiceContext {
         }
         Ok(Some(SharedCheckoutException {
             plan_id: params.plan_id.clone(),
-            task_id: params.task_id.clone(),
+            task_id: params.plan_task.clone().or_else(|| params.task_id.clone()),
             cwd: effective,
         }))
     }
@@ -165,11 +168,9 @@ mod tests {
     use std::process::Command;
 
     fn git(dir: &Path, args: &[&str]) {
-        let status = Command::new("git")
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .expect("git runs");
+        let mut cmd = Command::new("git");
+        crate::process_util::no_window_std(&mut cmd);
+        let status = cmd.current_dir(dir).args(args).status().expect("git runs");
         assert!(status.success(), "git {:?} failed", args);
     }
 
@@ -190,7 +191,8 @@ mod tests {
     fn worker_role_matrix() {
         assert!(is_worker_spawn(Some("Worker"), None));
         assert!(is_worker_spawn(Some("Worker"), Some("something")));
-        assert!(!is_worker_spawn(Some("Worker"), Some("planner")));
+        assert!(is_worker_spawn(Some("Worker"), Some("planner")));
+        assert!(!is_worker_spawn(Some("Manager"), Some("planner")));
         assert!(!is_worker_spawn(Some("Orchestrator"), None));
         assert!(!is_worker_spawn(None, None));
     }

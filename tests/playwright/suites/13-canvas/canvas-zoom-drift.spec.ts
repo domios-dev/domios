@@ -1,3 +1,8 @@
+/**
+ * WHAT: Canvas zoom and focus operations keep task geometry stable across camera changes.
+ * WHY: Zoom drift makes deep-read navigation land away from the intended task.
+ * ORACLE: Task world coordinates and visible card geometry stay within tolerance after focus and zoom cycles.
+ */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -61,6 +66,7 @@ async function readbackScale(page: Page, taskId: string): Promise<number> {
 
 async function sampleTask(page: Page, taskId: string, requested: number): Promise<Sample> {
   await setCanvasScaleOnTask(page, taskId, requested);
+  // PW_JUSTIFIED_SLEEP: fixed 180ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(180);
   const actualScale = await readbackScale(page, taskId);
   const sample = await page.evaluate((id) => {

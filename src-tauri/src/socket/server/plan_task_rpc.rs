@@ -27,6 +27,7 @@ pub(super) fn handles(method: &str) -> bool {
             | "plan.task.link"
             | "plan.task.relink"
             | "plan.task.assign"
+            | "plan.task.dispatch"
             | "plan.task.attempts"
             | "plan.task.attempt.show"
             | "plan.task.respawn"
@@ -279,6 +280,10 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("why"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
+                        personality: p
+                            .and_then(|x| x.get("personality"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
                         acceptance_criteria,
                         test_plan,
                         correctness,
@@ -421,6 +426,7 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             super::plan_role_helpers::update_role_guidance_if_present(store, &id, &tid, p, now)?;
+            super::plan_role_helpers::update_personality_if_present(store, &id, &tid, p, now)?;
             if let Some(competition) = super::plan_competition::update_field(p)? {
                 store
                     .update_task_competition(&id, &tid, competition, now)
@@ -480,6 +486,7 @@ pub(super) fn dispatch(
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
         }
+        "plan.task.dispatch" => super::plan_task_dispatch::dispatch(params, app, svc, now),
         "plan.task.attempts" => {
             let (id, tid) = plan_refs::resolve_task(store, params)?;
             let attempts = store.list_task_attempts(&id, &tid).map_err(plan_rpc_err)?;

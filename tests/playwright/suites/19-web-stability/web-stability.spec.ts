@@ -1,3 +1,8 @@
+/**
+ * WHAT: Web stability scenarios cover reconnect, grouped tab focus, and browser lifecycle edges.
+ * WHY: Remote browser sessions lose SSE, visibility, and page lifecycle events in real use.
+ * ORACLE: RAIL-4 means reconnect/readiness rails; GRP-4 means grouped tab-focus convergence after SSE loss.
+ */
 import { expect, test, type Browser, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 import type { ApiClient } from "../../helpers/api-client";
 import { CAST, injectCast } from "../../helpers/inject-cast";
@@ -427,7 +432,9 @@ test.describe("@golden web stability verification", () => {
       await api.post(`/workspaces/${ws.id}/tabs/${paneB.tab_id}/focus`);
       await disruption.restore("sse");
       try {
-        await expect(terminalScope(page, paneB.id)).toBeVisible({ timeout: 5_000 });
+        const terminal = terminalScope(page, paneB.id);
+        await expect(terminal).toBeVisible({ timeout: 5_000 });
+        await expect(terminal).toHaveAttribute("data-pane-id", paneB.id);
       } catch {
         test.skip(true, "GRP-4 feature gap: tab focus while SSE is severed does not resync the active web terminal without reload");
       }

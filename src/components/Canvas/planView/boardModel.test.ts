@@ -51,7 +51,10 @@ function doneCard(t: Task): BoardTaskCardModel {
 }
 
 test("BOARD_COLUMN_DEFS covers workflow statuses in stable order", () => {
-  assert(BOARD_COLUMN_DEFS.map((c) => c.key).join(",") === "pending,in_progress,in_review,blocked,done", "column keys");
+  assert(
+    BOARD_COLUMN_DEFS.map((c) => c.key).join(",") === "pending,in_progress,in_review,blocked,done",
+    "column keys",
+  );
 });
 
 test("deriveBoardSpecSummary returns null without primary_spec_id", () => {
@@ -114,6 +117,22 @@ test("deriveBoardPlanSummary prefers bound planner title over remote fallback", 
   };
   const summary = deriveBoardPlanSummary(plan, {});
   assert(summary.plannerLabel === "Prod planner", "ref title when pane absent");
+});
+
+test("groupTasksIntoColumns folds parked tasks into pending column", () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      task({ id: "parked-a", status: TaskStatus.Parked, name: "Deferred auth" }),
+      task({ id: "parked-b", status: TaskStatus.Parked, name: "Wait on API" }),
+      task({ id: "pending", status: TaskStatus.Pending }),
+    ],
+  };
+  const { columns } = groupTasksIntoColumns(plan, PANES);
+  assert(!columns.map((c) => String(c.key)).includes("parked"), "no separate parked column");
+  const pending = columns.find((c) => c.key === "pending")!;
+  assert(pending.cards.length === 3, `pending count=${pending.cards.length}`);
+  assert(pending.cards.filter((card) => card.task.status === TaskStatus.Parked).length === 2, "parked visible in pending");
 });
 
 test("groupTasksIntoColumns places tasks by status and sorts freshest first", () => {

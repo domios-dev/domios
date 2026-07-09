@@ -202,6 +202,14 @@
           "aliases": [],
           "args": [
             {
+              "name": "acknowledge_dirty",
+              "positional": false,
+              "value_name": "ACKNOWLEDGE_DIRTY",
+              "default": null,
+              "help": "Acknowledge unrelated dirty files in the worktree and proceed with the readiness report. Stride is recorded acknowledging the override",
+              "aliases": []
+            },
+            {
               "name": "attachments",
               "positional": false,
               "value_name": "PATH",
@@ -418,6 +426,14 @@
               "aliases": []
             },
             {
+              "name": "allow_shared_checkout",
+              "positional": false,
+              "value_name": "ALLOW_SHARED_CHECKOUT",
+              "default": null,
+              "help": "Allow a Worker to spawn into a shared/canonical checkout instead of an isolated worktree. Records a visible exception stride on the bound task",
+              "aliases": []
+            },
+            {
               "name": "args",
               "positional": false,
               "value_name": "ARGS",
@@ -426,11 +442,35 @@
               "aliases": []
             },
             {
+              "name": "bound_task",
+              "positional": false,
+              "value_name": "BOUND_TASK",
+              "default": null,
+              "help": "Bound task id for the shared-checkout exception stride",
+              "aliases": []
+            },
+            {
               "name": "can_spawn",
               "positional": false,
               "value_name": "CAN_SPAWN",
               "default": null,
               "help": "Override whether an explicit Orchestrator may spawn children",
+              "aliases": []
+            },
+            {
+              "name": "charter",
+              "positional": false,
+              "value_name": "CHARTER",
+              "default": null,
+              "help": "Watcher charter text",
+              "aliases": []
+            },
+            {
+              "name": "charter_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read watcher charter text from a file",
               "aliases": []
             },
             {
@@ -450,11 +490,35 @@
               "aliases": []
             },
             {
+              "name": "interval",
+              "positional": false,
+              "value_name": "INTERVAL",
+              "default": null,
+              "help": "Watcher tick interval, e.g. 90s, 5m, 1h",
+              "aliases": []
+            },
+            {
+              "name": "max_actions",
+              "positional": false,
+              "value_name": "MAX_ACTIONS",
+              "default": null,
+              "help": "Max watcher actions per tick",
+              "aliases": []
+            },
+            {
               "name": "model",
               "positional": false,
               "value_name": "MODEL",
               "default": null,
               "help": "Model selector (e.g. \"github-copilot/claude-haiku-4.5\", \"gpt-5\"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available",
+              "aliases": []
+            },
+            {
+              "name": "nudge_cooldown",
+              "positional": false,
+              "value_name": "NUDGE_COOLDOWN",
+              "default": null,
+              "help": "Watcher nudge cooldown, e.g. 10m",
               "aliases": []
             },
             {
@@ -471,6 +535,14 @@
               "value_name": "PLAN",
               "default": null,
               "help": "Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator",
+              "aliases": []
+            },
+            {
+              "name": "plan_task",
+              "positional": false,
+              "value_name": "PLAN_TASK",
+              "default": null,
+              "help": "Plan task to bind when spawning `--role Worker` (handle, id, or prefix)",
               "aliases": []
             },
             {
@@ -494,7 +566,7 @@
               "positional": false,
               "value_name": "ROLE",
               "default": null,
-              "help": "Role: Worker, Orchestrator, or Planner profile sugar",
+              "help": "Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar",
               "aliases": []
             },
             {
@@ -581,8 +653,8 @@
               "name": "announce_chat_id",
               "positional": false,
               "value_name": "ANNOUNCE_CHAT_ID",
-              "default": "186809246",
-              "help": "Sentinel chat id for --announce. Defaults to the maintainer's chat",
+              "default": null,
+              "help": "Sentinel chat id for --announce. Defaults to the target's first allow-listed bridge user",
               "aliases": []
             },
             {
@@ -1237,30 +1309,6 @@
       ]
     },
     {
-      "name": "debug",
-      "about": "Internal diagnostics — verify crash reporter, etc. Dev-only; hidden from --help because the matching daemon endpoint is gated to debug builds. Calling against a prod daemon returns Method-not-found",
-      "aliases": [],
-      "args": [],
-      "subcommands": [
-        {
-          "name": "crash",
-          "about": "Trigger a synthetic crash to verify the crash-reporter writes files. Daemon dies (segv/abort) or just records a panic report (panic). Only available in dev builds",
-          "aliases": [],
-          "args": [
-            {
-              "name": "kind",
-              "positional": false,
-              "value_name": "KIND",
-              "default": null,
-              "help": "Kind of crash to trigger",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        }
-      ]
-    },
-    {
       "name": "delayed",
       "about": "Manage delayed Chat UI sends",
       "aliases": [],
@@ -1450,7 +1498,7 @@
     },
     {
       "name": "docs",
-      "about": "Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm panes; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING)",
+      "about": "Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm panes; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING, TEST-AUTHORING)",
       "aliases": [],
       "args": [
         {
@@ -4428,6 +4476,30 @@
           "subcommands": []
         },
         {
+          "name": "refresh",
+          "about": "Run the daemon-side refresh cycle (handoff → compact → re-orient → verify resumption)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "status",
           "about": "Show orchestration status as reports, live lanes, drift, and next actions",
           "aliases": [],
@@ -5947,6 +6019,30 @@
           ]
         },
         {
+          "name": "lanes",
+          "about": "Lane hygiene table: one row per open lane (task/status/pane/branch/worktree/cleanup)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "stale",
+              "positional": false,
+              "value_name": "STALE",
+              "default": null,
+              "help": "Only show stale lanes (dead pane / report-overdue / uncleaned)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "layout",
           "about": "Canvas layout overrides",
           "aliases": [],
@@ -6077,6 +6173,46 @@
               "value_name": "WORKSPACE",
               "default": null,
               "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "locate",
+          "about": "File + line range of a body block, for in-place edits with file tools",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "section",
+              "positional": false,
+              "value_name": "SECTION",
+              "default": null,
+              "help": "Plan section id or handle",
+              "aliases": []
+            },
+            {
+              "name": "spec_section",
+              "positional": false,
+              "value_name": "SPEC_SECTION",
+              "default": null,
+              "help": "Spec section id or handle (of the plan's spec)",
+              "aliases": []
+            },
+            {
+              "name": "task",
+              "positional": false,
+              "value_name": "TASK",
+              "default": null,
+              "help": "Task id or handle",
               "aliases": []
             }
           ],
@@ -6603,6 +6739,32 @@
           ]
         },
         {
+          "name": "pause",
+          "about": "Park the whole effort without changing task state or executor bindings",
+          "aliases": [
+            "park"
+          ],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "reason",
+              "positional": false,
+              "value_name": "REASON",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "planning-state",
           "about": "Advance planner-owned planning state: drafting | structure_ready | approved",
           "aliases": [],
@@ -6955,6 +7117,22 @@
               "name": "id",
               "positional": false,
               "value_name": "ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "resume",
+          "about": "Resume a paused effort, restoring its previous mode",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
               "default": null,
               "help": null,
               "aliases": []
@@ -7586,7 +7764,7 @@
                   "positional": false,
                   "value_name": "EXECUTOR_ROLE",
                   "default": null,
-                  "help": null,
+                  "help": "Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync",
                   "aliases": []
                 },
                 {
@@ -7670,6 +7848,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "personality",
+                  "positional": false,
+                  "value_name": "PERSONALITY",
+                  "default": null,
+                  "help": "Executor persona name, e.g. Hopper, Dijkstra, Lamport",
+                  "aliases": []
+                },
+                {
                   "name": "plan_id",
                   "positional": true,
                   "value_name": "PLAN_ID",
@@ -7698,7 +7884,7 @@
                   "positional": false,
                   "value_name": "ROLE_GUIDANCE",
                   "default": null,
-                  "help": null,
+                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
                   "aliases": []
                 },
                 {
@@ -7945,6 +8131,70 @@
                   "name": "task_id",
                   "positional": true,
                   "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "dispatch",
+              "about": "Spawn a worker, assign the task, and deliver its brief in one atomic call",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "agent",
+                  "positional": false,
+                  "value_name": "AGENT",
+                  "default": null,
+                  "help": "Agent provider to spawn (e.g. claude, codex, opencode)",
+                  "aliases": []
+                },
+                {
+                  "name": "cwd",
+                  "positional": false,
+                  "value_name": "CWD",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "model",
+                  "positional": false,
+                  "value_name": "MODEL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "parent",
+                  "positional": false,
+                  "value_name": "PARENT",
+                  "default": null,
+                  "help": "Parent pane override (defaults to the caller pane)",
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "workspace",
+                  "positional": false,
+                  "value_name": "WORKSPACE",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -8322,7 +8572,7 @@
                   "positional": false,
                   "value_name": "EXECUTOR_ROLE",
                   "default": null,
-                  "help": null,
+                  "help": "Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync",
                   "aliases": []
                 },
                 {
@@ -8398,6 +8648,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "personality",
+                  "positional": false,
+                  "value_name": "PERSONALITY",
+                  "default": null,
+                  "help": "Executor persona name, e.g. Hopper, Dijkstra, Lamport",
+                  "aliases": []
+                },
+                {
                   "name": "plan_id",
                   "positional": true,
                   "value_name": "PLAN_ID",
@@ -8426,7 +8684,7 @@
                   "positional": false,
                   "value_name": "ROLE_GUIDANCE",
                   "default": null,
-                  "help": null,
+                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
                   "aliases": []
                 },
                 {
@@ -8982,6 +9240,14 @@
       "about": "Report worker progress to the owning orchestrator or plan",
       "aliases": [],
       "args": [
+        {
+          "name": "acknowledge_dirty",
+          "positional": false,
+          "value_name": "ACKNOWLEDGE_DIRTY",
+          "default": null,
+          "help": "Acknowledge unrelated dirty files in the worktree and proceed with the readiness report. Stride is recorded acknowledging the override",
+          "aliases": []
+        },
         {
           "name": "attachments",
           "positional": false,
@@ -9610,8 +9876,8 @@
           "subcommands": []
         },
         {
-          "name": "files",
-          "about": "List generated section body files",
+          "name": "delete",
+          "about": "Delete a spec (scrubs plan references, removes the yaml)",
           "aliases": [],
           "args": [
             {
@@ -9620,6 +9886,14 @@
               "value_name": "SPEC_ID",
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "yes",
+              "positional": false,
+              "value_name": "YES",
+              "default": null,
+              "help": "Confirm permanent deletion",
               "aliases": []
             }
           ],
@@ -9633,9 +9907,17 @@
           "subcommands": [
             {
               "name": "add",
-              "about": "Link a spec section to a plan section (M:N coverage edge)",
+              "about": "Link spec section(s) to plan section(s) (M:N coverage edges)",
               "aliases": [],
               "args": [
+                {
+                  "name": "edges",
+                  "positional": false,
+                  "value_name": "SPEC_SECTION:PLAN_SECTION",
+                  "default": null,
+                  "help": "Repeatable coverage edge; combine many in one call",
+                  "aliases": []
+                },
                 {
                   "name": "plan_id",
                   "positional": true,
@@ -10228,6 +10510,22 @@
           "about": "Show one task with plan and section context",
           "aliases": [],
           "args": [
+            {
+              "name": "all",
+              "positional": false,
+              "value_name": "ALL",
+              "default": null,
+              "help": "With --siblings, include done/cancelled tasks",
+              "aliases": []
+            },
+            {
+              "name": "siblings",
+              "positional": false,
+              "value_name": "SIBLINGS",
+              "default": null,
+              "help": "List sibling tasks (open-only unless --all)",
+              "aliases": []
+            },
             {
               "name": "task_id",
               "positional": true,

@@ -360,9 +360,9 @@ pub enum BridgeAction {
         /// Send a one-shot "now serving from <host>" message to the sentinel chat.
         #[arg(long)]
         announce: bool,
-        /// Sentinel chat id for --announce. Defaults to the maintainer's chat.
-        #[arg(long, default_value_t = 186809246)]
-        announce_chat_id: i64,
+        /// Sentinel chat id for --announce. Defaults to the target's first allow-listed bridge user.
+        #[arg(long)]
+        announce_chat_id: Option<i64>,
         /// Skip auto-rollback if target claim fails (leave source disabled).
         #[arg(long)]
         no_rollback: bool,

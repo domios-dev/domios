@@ -8,6 +8,7 @@
 #   ./build.sh test      — run Rust unit tests
 #   ./build.sh build     — production build
 #   ./build.sh bootstrap — create/build bundled CLI + embed sidecar for fresh clones
+#   ./build.sh qa-prep   — one-shot: dist + sidecars for a fresh isolated worktree (no tsc gate)
 #   ./build.sh cli       — build CLI and install to ~/.codeterm/bin/ + ~/.codeterm-dev/bin/
 #   ./build.sh clean     — clean build cache
 #   ./build.sh kill      — kill dev instance (safe, won't touch prod)
@@ -134,7 +135,7 @@ else
   CT_VITE_PORT=1420
 fi
 CT_DATA_DIR="$HOME/.codeterm-dev${CT_SUFFIX}"
-if [ "$CT_PORT" = "7685" ]; then
+if [ "$CT_PORT" = "7685" ] && [ "$CMD" != "qa-prep" ]; then
   echo "ERROR: refusing to target prod CodeTerm port 7685. Use dev port 7686 or a named non-prod instance." >&2
   exit 1
 fi
@@ -433,6 +434,9 @@ case "$CMD" in
     fi
     echo "✅ web bundle present (dist/index.html) — packaged into installer via bundle.resources"
     ;;
+  qa-prep)
+    bash scripts/qa-prep.sh "${@:2}"
+    ;;
   bootstrap)
     ensure_deps
     prepare_bundle_stubs
@@ -470,6 +474,14 @@ case "$CMD" in
     ensure_deps
     # Shared compile cache when available — makes cold worktree builds warm.
     command -v sccache >/dev/null 2>&1 && export RUSTC_WRAPPER=sccache
+    # In a worktree: share the canonical checkout's warm debug target (avoids cold build).
+    if [ -z "${CARGO_TARGET_DIR:-}" ]; then
+      _CT_CANONICAL=$(git worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2; exit}')
+      if [ -n "$_CT_CANONICAL" ] && [ "$_CT_CANONICAL" != "$(pwd)" ] && [ -d "$_CT_CANONICAL/src-tauri/target" ]; then
+        export CARGO_TARGET_DIR="$_CT_CANONICAL/src-tauri/target"
+        echo "Using shared CARGO_TARGET_DIR=$CARGO_TARGET_DIR (warm)"
+      fi
+    fi
     echo "Building CLI..."
     cargo build --release --manifest-path cli/Cargo.toml
     if [ -z "$CT_INSTANCE" ]; then
@@ -608,7 +620,7 @@ case "$CMD" in
     exit "$ta_rc"
     ;;
   *)
-    echo "Usage: ./build.sh {dev|check|test|test:all|build|cli|clean|kill|e2e|env}"
+    echo "Usage: ./build.sh {dev|check|test|test:all|build|qa-prep|cli|clean|kill|e2e|env}"
     exit 1
     ;;
 esac

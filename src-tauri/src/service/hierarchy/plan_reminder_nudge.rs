@@ -1,7 +1,8 @@
 use crate::multiplexer::types::AgentRole;
-use crate::plan::Plan;
-use crate::service::plan::reminders::TimedPlanReminderKind;
+use crate::plan::{Plan, PlanMode, PlanStatus, TaskStatus};
+use crate::service::plan::heartbeat::is_plan_complete;
 use crate::service::{ServiceContext, ServiceState};
+use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const MAX_PLAN_REMINDER_POLL_SECS: u64 = 60;
@@ -18,6 +19,12 @@ enum PlanReminderTarget {
     Worker,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct TimedPlanReminderTarget {
+    pane_id: String,
+    target: PlanReminderTarget,
+}
+
 pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
     tauri::async_runtime::spawn(async move {
         loop {
@@ -25,6 +32,7 @@ pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
             let svc_for_scan = svc.clone();
             if let Err(e) = tauri::async_runtime::spawn_blocking(move || {
                 svc_for_scan.send_due_plan_time_reminders();
+                svc_for_scan.run_lane_watchdog();
             })
             .await
             {
@@ -77,6 +85,36 @@ impl ServiceContext {
         );
     }
 
+    // A coordinator repeatedly reading a worker/lane pane's output/text/chat is a
+    // polling smell — reports auto-inject, so it should wait, not poll.
+    pub(crate) fn maybe_send_polling_nudge(&self, caller_pane: &str, target_pane: &str) {
+        let caller = caller_pane.trim();
+        let target = target_pane.trim();
+        if caller.is_empty() || target.is_empty() || caller == target {
+            return;
+        }
+        if !crate::config::load_config().orchestration.plan_reminders {
+            return;
+        }
+        // Gate to coordinator callers polling worker/lane panes.
+        if self
+            .plan_store
+            .active_owned_plan_with_open_work_for_pane(caller)
+            .is_none()
+        {
+            return;
+        }
+        if self.plan_store.task_binding_for_pane(target).is_none() {
+            return;
+        }
+        if !self.plan_turn_counter.record_poll(caller) {
+            return;
+        }
+        let text = crate::service::plan::reminders::polling_nudge_text();
+        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
+        let _ = crate::service::messenger::Messenger::deliver(self, caller, envelope, &text);
+    }
+
     pub(crate) fn maybe_send_idle_plan_poke(&self, pane_id: &str) {
         let cfg = crate::config::load_config().orchestration;
         if !cfg.plan_reminders || !cfg.idle_poke.enabled {
@@ -118,7 +156,7 @@ impl ServiceContext {
             Some(pane_id),
             &text,
         );
-        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
+        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
         let success =
             crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text).is_ok();
 
@@ -180,9 +218,9 @@ impl ServiceContext {
             return;
         }
         let now = current_epoch_secs();
-        let targets = crate::service::plan::reminders::timed_plan_reminder_targets(
-            &self.plan_store.list_full(),
-        );
+        let targets = timed_plan_reminder_targets(&self.plan_store.list_full());
+        let candidates = targets.len();
+        let mut due = 0usize;
         for timed in targets {
             if !self
                 .plan_turn_counter
@@ -190,18 +228,18 @@ impl ServiceContext {
             {
                 continue;
             }
-            let target = PlanReminderTarget::from(timed.kind);
+            due += 1;
             let delivered = self.deliver_plan_reminder_target(
                 &timed.pane_id,
-                &target,
-                target.time_nudge_kind(),
+                &timed.target,
+                timed.target.time_nudge_kind(),
             );
             // A reminder that silently fails to deliver is indistinguishable
             // from the feature not existing — log both outcomes.
             if delivered {
                 log::info!(
                     "[plan-reminder] delivered {:?} nudge to pane {}",
-                    target.time_nudge_kind(),
+                    timed.target.time_nudge_kind(),
                     timed.pane_id
                 );
                 self.plan_turn_counter.mark_time_nudged(&timed.pane_id, now);
@@ -209,10 +247,11 @@ impl ServiceContext {
                 log::warn!(
                     "[plan-reminder] FAILED to deliver nudge to pane {} (target {:?})",
                     timed.pane_id,
-                    target
+                    timed.target
                 );
             }
         }
+        log::info!("[plan-reminder] tick: {candidates} candidate pane(s), {due} due");
         self.send_due_complete_wrapup_reminders(now, cfg.nudge_interval_secs);
     }
 
@@ -228,8 +267,7 @@ impl ServiceContext {
                 continue;
             }
             let text = crate::service::plan::complete_wrapup::complete_wrapup_message(&plan_id);
-            let envelope =
-                crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
+            let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
             if crate::service::messenger::Messenger::deliver(self, &pane_id, envelope, &text)
                 .is_ok()
             {
@@ -283,8 +321,14 @@ impl ServiceContext {
                 .plan_store
                 .prepend_worker_charter_for_pane(pane_id, &text),
         };
-        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
-        crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text).is_ok()
+        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
+        match crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text) {
+            Ok(_) => true,
+            Err(e) => {
+                log::warn!("[plan-reminder] deliver to {} failed: {}", pane_id, e);
+                false
+            }
+        }
     }
 
     // at concrete drift instead of a generic reminder. None when nothing is aged.
@@ -329,20 +373,56 @@ impl PlanReminderTarget {
     }
 }
 
-impl From<TimedPlanReminderKind> for PlanReminderTarget {
-    fn from(kind: TimedPlanReminderKind) -> Self {
-        match kind {
-            TimedPlanReminderKind::Owner { plan_id } => Self::Owner { plan_id },
-            TimedPlanReminderKind::Worker => Self::Worker,
-        }
-    }
-}
-
 fn current_epoch_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
+    let mut targets = BTreeMap::<String, PlanReminderTarget>::new();
+    for plan in plans.iter().filter(|plan| {
+        plan.status == PlanStatus::Active
+            && plan.mode == PlanMode::Execution
+            && !is_plan_complete(plan)
+            && plan
+                .tasks
+                .iter()
+                .any(|task| task.status.counts_as_open_work())
+    }) {
+        if let Some(pane_id) = non_empty(plan.owner.pane_id.as_deref()) {
+            targets.insert(
+                pane_id.to_string(),
+                PlanReminderTarget::Owner {
+                    plan_id: plan.id.clone(),
+                },
+            );
+        }
+    }
+    for plan in plans.iter().filter(|plan| {
+        plan.status == PlanStatus::Active
+            && plan.mode == PlanMode::Execution
+            && !is_plan_complete(plan)
+    }) {
+        for task in plan.tasks.iter().filter(|task| {
+            matches!(
+                task.status,
+                TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::Blocked
+            )
+        }) {
+            let Some(pane_id) = non_empty(task.assigned_pane_id.as_deref()) else {
+                continue;
+            };
+            targets
+                .entry(pane_id.to_string())
+                .or_insert(PlanReminderTarget::Worker);
+        }
+    }
+    targets
+        .into_iter()
+        .map(|(pane_id, target)| TimedPlanReminderTarget { pane_id, target })
+        .collect()
 }
 
 fn idle_frontier_for_poke(
@@ -378,6 +458,60 @@ fn complete_wrapup_targets(plans: &[Plan]) -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plan::{ElementCanvas, OrchestratorRef, Task, TaskLaneMetadata, TaskPriority};
+
+    fn plan(id: &str, owner: &str, mode: PlanMode, tasks: Vec<Task>) -> Plan {
+        let mut plan = Plan::new(
+            "Reminder".into(),
+            "/tmp/project".into(),
+            OrchestratorRef::from_pane(owner),
+        );
+        plan.id = id.into();
+        plan.mode = mode;
+        plan.tasks = tasks;
+        plan
+    }
+
+    fn task(id: &str, status: TaskStatus, pane_id: Option<&str>) -> Task {
+        Task {
+            id: id.into(),
+            name: id.into(),
+            kind: "status_update".into(),
+            model: None,
+            model_rationale: None,
+            acceptance_criteria: vec![],
+            test_plan: None,
+            correctness: None,
+            status,
+            review_stage: Default::default(),
+            qa_state: None,
+            status_label: None,
+            priority: TaskPriority::P2,
+            created_at: 0,
+            updated_at: 0,
+            status_changed_at: 0,
+            handle: None,
+            tags: vec![],
+            section_ids: vec![],
+            body: String::new(),
+            role_guidance: None,
+            executor_role: None,
+            competition: None,
+            intent: None,
+            parent_task_id: None,
+            assigned_pane_id: pane_id.map(str::to_string),
+            lane: TaskLaneMetadata::default(),
+            taken_by_role: None,
+            peer: None,
+            group: None,
+            canvas: ElementCanvas::default(),
+            milestones: vec![],
+            execution_attempts: vec![],
+            park_reason: None,
+            personality: None,
+            attachments: vec![],
+        }
+    }
 
     #[test]
     fn owner_only_trigger_ignores_worker_binding() {
@@ -450,6 +584,104 @@ mod tests {
         );
     }
 
+    #[test]
+    fn time_targets_include_execution_owner_and_worker() {
+        let plans = vec![plan(
+            "pl_1",
+            "orch",
+            PlanMode::Execution,
+            vec![task("task_1", TaskStatus::Pending, Some("worker"))],
+        )];
+
+        assert_eq!(
+            timed_plan_reminder_targets(&plans),
+            vec![
+                TimedPlanReminderTarget {
+                    pane_id: "orch".into(),
+                    target: PlanReminderTarget::Owner {
+                        plan_id: "pl_1".into()
+                    }
+                },
+                TimedPlanReminderTarget {
+                    pane_id: "worker".into(),
+                    target: PlanReminderTarget::Worker
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn time_targets_skip_planning_and_terminal_work() {
+        let plans = vec![
+            plan(
+                "pl_planning",
+                "orch",
+                PlanMode::Planning,
+                vec![task("task_1", TaskStatus::Pending, Some("worker"))],
+            ),
+            plan(
+                "pl_done",
+                "done-orch",
+                PlanMode::Execution,
+                vec![task("task_2", TaskStatus::Done, Some("done-worker"))],
+            ),
+            plan(
+                "pl_cancelled",
+                "cancelled-orch",
+                PlanMode::Execution,
+                vec![task(
+                    "task_3",
+                    TaskStatus::Cancelled,
+                    Some("cancelled-worker"),
+                )],
+            ),
+        ];
+
+        assert!(timed_plan_reminder_targets(&plans).is_empty());
+    }
+
+    #[test]
+    fn time_targets_prioritize_owner_over_worker_for_same_pane() {
+        let plans = vec![plan(
+            "pl_1",
+            "orch",
+            PlanMode::Execution,
+            vec![task("task_1", TaskStatus::Pending, Some("orch"))],
+        )];
+
+        assert_eq!(
+            timed_plan_reminder_targets(&plans),
+            vec![TimedPlanReminderTarget {
+                pane_id: "orch".into(),
+                target: PlanReminderTarget::Owner {
+                    plan_id: "pl_1".into()
+                }
+            }]
+        );
+    }
+
+    #[test]
+    fn time_targets_workers_only_for_report_pending_statuses() {
+        let plans = vec![plan(
+            "pl_1",
+            "orch",
+            PlanMode::Execution,
+            vec![
+                task("pending", TaskStatus::Pending, Some("p1")),
+                task("working", TaskStatus::InProgress, Some("p2")),
+                task("blocked", TaskStatus::Blocked, Some("p3")),
+                task("review", TaskStatus::InReview, Some("p4")),
+            ],
+        )];
+        let targets = timed_plan_reminder_targets(&plans);
+
+        assert!(targets.iter().any(|target| target.pane_id == "p1"));
+        assert!(targets.iter().any(|target| target.pane_id == "p2"));
+        assert!(targets.iter().any(|target| target.pane_id == "p3"));
+        assert!(!targets.iter().any(|target| target.pane_id == "p4"));
+    }
+
+    #[test]
     fn idle_frontier_filters_plan_pokes_by_live_lanes() {
         assert!(idle_frontier_for_poke(Some(("plan-1".into(), 2, 1)), 1).is_none());
         assert_eq!(
@@ -463,5 +695,53 @@ mod tests {
         assert!(idle_frontier_for_poke(Some(("plan-1".into(), 0, 0)), 3).is_none());
         assert!(idle_frontier_for_poke(Some(("plan-1".into(), 2, 1)), 0).is_none());
         assert!(idle_frontier_for_poke(None, 3).is_none());
+    }
+
+    #[test]
+    fn timed_targets_silent_for_all_done_and_complete_mode_plans() {
+        // Execution plan where all tasks are Done — no nudges for owner or workers.
+        let all_done = plan(
+            "pl_done",
+            "orch-done",
+            PlanMode::Execution,
+            vec![
+                task("t1", TaskStatus::Done, Some("w1")),
+                task("t2", TaskStatus::Done, Some("w2")),
+                task("t3", TaskStatus::Cancelled, Some("w3")),
+            ],
+        );
+        // Complete mode plan with open-looking task — still silent.
+        let mut complete_mode = plan(
+            "pl_complete",
+            "orch-complete",
+            PlanMode::Execution,
+            vec![task("t4", TaskStatus::Done, None)],
+        );
+        complete_mode.mode = PlanMode::Complete;
+
+        let targets = timed_plan_reminder_targets(&[all_done, complete_mode]);
+        assert!(
+            targets.is_empty(),
+            "complete plans must produce zero timed reminder targets: {targets:?}"
+        );
+    }
+
+    #[test]
+    fn timed_targets_fire_for_in_review_open_work() {
+        // InReview is open work: plan is NOT complete, owner should be nudged.
+        let plans = vec![plan(
+            "pl_review",
+            "orch-review",
+            PlanMode::Execution,
+            vec![
+                task("t_done", TaskStatus::Done, None),
+                task("t_review", TaskStatus::InReview, Some("worker-review")),
+            ],
+        )];
+        let targets = timed_plan_reminder_targets(&plans);
+        assert!(
+            targets.iter().any(|t| t.pane_id == "orch-review"),
+            "in_review open work must keep plan non-complete and owner nudge-eligible"
+        );
     }
 }

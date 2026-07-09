@@ -1,6 +1,5 @@
 use super::launch::{
-    build_agent_command, launch_agent_in_background, planner_profile_task, role_onboarding_task,
-    skip_local_worker_role,
+    build_agent_command, launch_agent_in_background, role_onboarding_task, skip_local_worker_role,
 };
 use super::types::{SpawnAgentParams, SpawnResult};
 use crate::service::{spawn_title, ServiceContext};
@@ -61,7 +60,8 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<SpawnResult, String> {
         params.title = spawn_title::normalize_agent_title(params.title.take());
-        params.normalize_role_profile();
+        params.normalize_role_profile()?;
+        crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         let checkout_exception = self.worker_checkout_guard(&params)?;
         let role = params.role.clone();
         let role_profile = params.role_profile.clone();
@@ -76,12 +76,20 @@ impl ServiceContext {
             .or_else(|| params.agent_name.clone())
             .unwrap_or_else(|| agent.clone());
         let model = params.model.clone();
-        self.classify_spawn_target(&agent)?;
+        self.classify_spawn_target_for_params(&agent, &params)?;
+        let bind_params = params.clone();
         let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params_with_chatbackends(
             self.chatbackend_registry.as_ref(),
             params,
         );
         let handle = self.spawn_pane_with_ready(spec, ready_tx)?;
+        match self.bind_worker_plan_task_at_spawn(&bind_params, &handle.pane_id) {
+            Ok(_) => {}
+            Err(e) => {
+                let _ = self.close_pane(&handle.pane_id);
+                return Err(e);
+            }
+        }
         if let Some(exc) = checkout_exception {
             self.record_shared_checkout_exception(&exc, &handle.pane_id);
         }
@@ -107,7 +115,8 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<SpawnResult, String> {
         params.title = spawn_title::normalize_agent_title(params.title.take());
-        params.normalize_role_profile();
+        params.normalize_role_profile()?;
+        crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         let checkout_exception = self.worker_checkout_guard(&params)?;
         // Orchestrators must be pinned to an explicit workspace.
         // Active-workspace fallback can silently land them in the wrong plan context.
@@ -119,12 +128,22 @@ impl ServiceContext {
                  (orchestrators must be pinned to a workspace)"
                 .into());
         }
+        // Low disk turns lanes into silent stalls (workers idle, reports lost
+        // to ENOSPC) — warn loudly at spawn time while there is still room.
+        if let Some(free_gb) = free_disk_gb(params.cwd.as_deref().unwrap_or("/")) {
+            if free_gb < 10 {
+                log::warn!(
+                    "[spawn] LOW DISK: {free_gb}GB free — worker lanes fill disk fast (cargo targets); reclaim finished-lane targets before spawning more"
+                );
+            }
+        }
+        apply_worker_hierarchy_defaults(&mut params);
         let default_provider = crate::config::default_agent_provider();
         let agent_cmd = params
             .agent
             .clone()
             .unwrap_or_else(|| default_provider.clone());
-        let is_shell = self.classify_spawn_target(&agent_cmd)?;
+        let is_shell = self.classify_spawn_target_for_params(&agent_cmd, &params)?;
         if is_shell {
             let role = params.role.clone();
             let role_profile = params.role_profile.clone();
@@ -134,11 +153,16 @@ impl ServiceContext {
                 .clone()
                 .or_else(|| params.agent_name.clone())
                 .unwrap_or_else(|| agent_cmd.clone());
+            let bind_params = params.clone();
             let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params_with_chatbackends(
                 self.chatbackend_registry.as_ref(),
                 params,
             );
             let handle = self.spawn_pane_with_ready(spec, ready_tx)?;
+            if let Err(e) = self.bind_worker_plan_task_at_spawn(&bind_params, &handle.pane_id) {
+                let _ = self.close_pane(&handle.pane_id);
+                return Err(e);
+            }
             return Ok(SpawnResult {
                 pane_id: handle.pane_id,
                 tab_id: handle.tab_id,
@@ -283,7 +307,7 @@ impl ServiceContext {
                     params.parent_pane_id.as_deref(),
                     params.can_spawn,
                 )?;
-                if role_str == "Worker" {
+                if role_str == "Worker" || role_str == "Manager" {
                     if let Some(ref parent) = params.parent_pane_id {
                         self.expect_spawn_parent_link(&pane_id, parent)?;
                     }
@@ -355,39 +379,59 @@ impl ServiceContext {
             params.role.as_deref(),
             params.role_profile.as_deref(),
         );
-        // this pane and tells the Planner who its Orchestrator peer is.
-        let bg_task = if params.role_profile.as_deref() == Some("planner") {
+        // Planner gets a short display hint (pending_greeting, user-facing only)
+        // plus its FULL onboarding as real launch input attributed to CodeTerm —
+        // never a FROM-<orchestrator> relay, mirroring the Orchestrator's onboarding.
+        let is_planner = params.role_profile.as_deref() == Some("planner");
+        // A pair-spawned Orchestrator carries its onboarding in the launch task and
+        // skips the separate deliver — attribute that onboarding to CodeTerm too, so
+        // BOTH roles get an emergent "FROM CodeTerm" message on any path to a role.
+        let is_orch_onboarding = params.role.as_deref() == Some("Orchestrator")
+            && params.skip_orchestrator_onboarding == Some(true);
+        let codeterm_pfx = crate::service::messenger::Messenger::codeterm_prefix();
+        let bg_task = if is_planner {
             match params.plan_id.as_deref() {
                 Some(plan_id) => {
                     self.bind_planner_spawn(Some(plan_id), Some("planner"), &pane_id);
                     let orch_pane = self.plan_store.owner_of(plan_id).and_then(|o| o.pane_id);
-                    // assistant message so a bound Planner never boots silent.
                     let orch_label = orch_pane
                         .as_deref()
                         .map(|p| self.mux.read().display_label_for_pane(p))
                         .unwrap_or_else(|| "your Orchestrator".to_string());
+                    let orch_tab = orch_pane.as_deref().unwrap_or("unknown");
                     if let Some(pane) = self.mux.write().get_pane_mut(&pane_id) {
-                        pane.pending_greeting = Some(crate::prompts::peer_planner_greeting(
-                            &orch_label,
-                            orch_pane.as_deref().unwrap_or("unknown"),
-                        ));
+                        pane.pending_greeting =
+                            Some(crate::prompts::peer_planner_greeting(&orch_label, orch_tab));
                     }
-                    let intro = crate::service::plan::peer_mandate::planner_peer_intro_line(
-                        plan_id,
-                        orch_pane.as_deref(),
-                    );
-                    Some(planner_profile_task(intro, bg_task))
+                    let onboard =
+                        crate::prompts::planner_onboarding_task(&orch_label, orch_tab, plan_id);
+                    Some(format!("{codeterm_pfx}{onboard}"))
                 }
                 None => bg_task,
             }
+        } else if is_orch_onboarding {
+            bg_task.map(|t| format!("{codeterm_pfx}{t}"))
         } else {
             bg_task
         };
-        // Tag with the spawner's origin prefix uniformly for every provider; delivery handles the marker per provider (TUI-typed for PtyInput, positional after `--` for inline-flag).
-        let bg_task = bg_task.map(|t| match self.spawn_task_prefix(&pane_id) {
-            Some(pfx) => format!("{}{}", pfx, t),
-            None => t,
-        });
+        // Planner-start injection point: pull machine-local orchestration preferences off the hot path.
+        if is_planner {
+            self.deliver_orchestration_preferences(&pane_id);
+        }
+        // Tag with the spawner's origin prefix (FROM-<spawner>) for every provider —
+        // but role onboarding is already CodeTerm-attributed, so skip it there.
+        let bg_task = if is_planner || is_orch_onboarding {
+            bg_task
+        } else {
+            bg_task.map(|t| match self.spawn_task_prefix(&pane_id) {
+                Some(pfx) => format!("{}{}", pfx, t),
+                None => t,
+            })
+        };
+        if let Err(e) = self.bind_worker_plan_task_at_spawn(&params, &pane_id) {
+            let _ = self.close_pane(&pane_id);
+            return Err(e);
+        }
         let launch_cmd = build_agent_command(
             &agent_cmd,
             &params,
@@ -488,4 +532,84 @@ impl ServiceContext {
             None,
         )
     }
+}
+
+/// Deterministic hierarchy defaults: a local Worker with no explicit --parent
+/// belongs to its CALLER, and reports route to its parent — never to whichever
+/// other orchestrator happens to share the workspace.
+fn apply_worker_hierarchy_defaults(params: &mut SpawnAgentParams) {
+    if params.role.as_deref() != Some("Worker") || params.report_target_mesh_peer.is_some() {
+        return;
+    }
+    if params.parent_pane_id.is_none() {
+        params.parent_pane_id = params
+            .spawned_by_pane_id
+            .clone()
+            .filter(|sb| !sb.is_empty());
+    }
+    if params.report_target_pane_id.is_none() {
+        params.report_target_pane_id = params.parent_pane_id.clone();
+    }
+}
+
+#[cfg(test)]
+mod hierarchy_defaults_tests {
+    use super::*;
+
+    fn worker_params(spawned_by: Option<&str>) -> SpawnAgentParams {
+        SpawnAgentParams {
+            role: Some("Worker".into()),
+            spawned_by_pane_id: spawned_by.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn worker_without_parent_defaults_to_caller_and_reports_to_parent() {
+        let mut p = worker_params(Some("caller-pane"));
+        apply_worker_hierarchy_defaults(&mut p);
+        assert_eq!(p.parent_pane_id.as_deref(), Some("caller-pane"));
+        assert_eq!(p.report_target_pane_id.as_deref(), Some("caller-pane"));
+    }
+
+    #[test]
+    fn explicit_parent_and_report_target_are_untouched() {
+        let mut p = worker_params(Some("caller-pane"));
+        p.parent_pane_id = Some("boss".into());
+        p.report_target_pane_id = Some("boss".into());
+        apply_worker_hierarchy_defaults(&mut p);
+        assert_eq!(p.parent_pane_id.as_deref(), Some("boss"));
+        assert_eq!(p.report_target_pane_id.as_deref(), Some("boss"));
+    }
+
+    #[test]
+    fn cross_mesh_and_non_worker_are_skipped() {
+        let mut mesh = worker_params(Some("caller"));
+        mesh.report_target_mesh_peer = Some("peer".into());
+        apply_worker_hierarchy_defaults(&mut mesh);
+        assert_eq!(mesh.parent_pane_id, None);
+
+        let mut orch = SpawnAgentParams {
+            role: Some("Orchestrator".into()),
+            spawned_by_pane_id: Some("caller".into()),
+            ..Default::default()
+        };
+        apply_worker_hierarchy_defaults(&mut orch);
+        assert_eq!(orch.parent_pane_id, None);
+    }
+}
+
+#[cfg(unix)]
+fn free_disk_gb(path: &str) -> Option<u64> {
+    let c_path = std::ffi::CString::new(path).ok()?;
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) } != 0 {
+        return None;
+    }
+    Some((stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64) / 1_073_741_824)
+}
+
+#[cfg(not(unix))]
+fn free_disk_gb(_path: &str) -> Option<u64> {
+    None
 }

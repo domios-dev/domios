@@ -4,7 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { IS_WEB } from "../../lib/webApi";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
-import { useMultiplexer } from "../../store/multiplexer";
+import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { setProviderSettings } from "../../lib/clientSettings";
@@ -63,7 +63,6 @@ export function Sidebar({
   workspaceCanvasActive = false,
 }: SidebarProps) {
   const {
-    state,
     createWorkspace,
     setActiveWorkspace,
     closeWorkspace,
@@ -82,6 +81,7 @@ export function Sidebar({
     createOrchestrationPair,
     addNotification,
   } = useMultiplexer();
+  const state = useMuxState();
   const isWorkspaceMode = mainView === "workspace";
   const [agentSpawnModal, setAgentSpawnModal] = useState<
     { folder: string; agentId: string; workspaceId: string } | null

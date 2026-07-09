@@ -1,9 +1,7 @@
 /**
- * 13-canvas — deterministic large-world layout fixtures (100/500/1000 tasks).
- * Pure layout acceptance; no dev daemon required.
- *
- *   npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=golden --grep @canvas-figma-fixtures
+ * WHAT: figma acceptance fixtures covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "@playwright/test";
 import {

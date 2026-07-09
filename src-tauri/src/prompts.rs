@@ -3,82 +3,26 @@
 //! Edit the .md files in `src-tauri/prompts/` to change instructions.
 //! Rust code uses `include_str!()` so changes require recompilation.
 
-/// Appended to Worker tasks — tells them how to report back.
-pub const WORKER_SUFFIX: &str = include_str!("../prompts/worker_suffix.md");
-
-/// Shared worker testing discipline fragment.
-pub const TESTING_DISCIPLINE: &str = include_str!("../prompts/testing_discipline.md");
-
-/// Shared QA queue discipline fragment.
-pub const QA_PIPELINE_DISCIPLINE: &str = include_str!("../prompts/qa_pipeline_discipline.md");
-
-/// Worker charter heading for loop-specific execution context.
-pub const WORKER_LOOP_CONTEXT_TITLE: &str = "Loop context:";
-
-/// Worker charter reminder to report loop iteration evidence explicitly.
-pub const WORKER_LOOP_EVIDENCE_RULE: &str =
-    "When you report, include this iteration's evidence, whether it made progress, and whether the loop should continue or stop.";
-
-/// Worker charter heading for competitive-attempt isolation.
-pub const WORKER_COMPETITIVE_CONTEXT_TITLE: &str = "Competitive context:";
-
-/// Competitive worker-attempt isolation rules shared by charter renderers and tests.
-pub const WORKER_COMPETITIVE_ISOLATION_RULES: [&str; 3] = [
-    "Work only in your own assigned lane, branch, and worktree.",
-    "Do not inspect, tail, or reuse another live attempt's pane, worktree, or branch.",
-    "The Orchestrator compares the attempts and decides the winner or next follow-up.",
-];
-
-/// Orchestrator heartbeat heading for live concurrent attempts.
-pub const HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE: &str = "Competitive attempts:";
-
-/// Milestone kind for a group-scoped regression working point (the full-gate record).
-pub const REGRESSION_MILESTONE_KIND: &str = "regression";
-
-/// Heartbeat / next-action heading for completed groups awaiting their full-gate run.
-pub const MILESTONE_GATE_HEARTBEAT_TITLE: &str = "Regression gates:";
+pub use crate::service::plan::prompts_plan::{
+    milestone_gate_suggestion, orch_defer_structure_line, reflection_block, worker_suffix,
+    HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE, MILESTONE_GATE_HEARTBEAT_TITLE,
+    MILESTONE_GATE_SUGGESTION, PEER_ORCH_DEFER_STRUCTURE_LINE, PEER_PLANNER_CHARTER_LINE,
+    PEER_WAIVER_HINT, PLAN_ARCHIVE_SUGGESTION, PLAN_RETROSPECTIVE_NUDGE, PLAN_SKILLS_PRINCIPLES,
+    PLAN_SKILLS_REGISTRY_LINE, PLAN_SKILLS_WORKER_LINE, QA_PIPELINE_DISCIPLINE, REFLECTION_BLOCK,
+    REFLECTION_HEARTBEAT_TITLE, REGRESSION_MILESTONE_KIND, TESTING_DISCIPLINE,
+    WORKER_COMPETITIVE_CONTEXT_TITLE, WORKER_COMPETITIVE_ISOLATION_RULES,
+    WORKER_LOOP_CONTEXT_TITLE, WORKER_LOOP_EVIDENCE_RULE, WORKER_SUFFIX,
+};
 
 /// The three-tier testing ladder. Single source shared by next-actions/heartbeat prose
 /// and asserted verbatim in the ORCHESTRATION doc so the wording never drifts.
 pub const MILESTONE_GATE_LADDER: &str = "Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit + playwright golden, serialized in the warm checkout); per-release = the farm matrix across every platform.";
 
-/// Regression-gate suggestion template emitted when a task group (milestone) closes.
-/// `{label}` / `{key}` are the group's display label and key. Shared by next-actions and heartbeat.
-pub const MILESTONE_GATE_SUGGESTION: &str = "group {label} complete — run the full gate once: cargo suite + ts-unit + playwright golden, serialized in the warm checkout / remote-test farm, then record it with `codeterm plan qa next --group {key} --claim --note \"<scope>\"`.";
-
-/// Fills the `{label}` and `{key}` placeholders in [`MILESTONE_GATE_SUGGESTION`].
-pub fn milestone_gate_suggestion(key: &str, label: &str) -> String {
-    MILESTONE_GATE_SUGGESTION
-        .replace("{label}", label)
-        .replace("{key}", key)
-}
-
-/// Heartbeat heading for the one-shot self-review block.
-pub const REFLECTION_HEARTBEAT_TITLE: &str = "Reflection:";
-
-/// One-shot reflection block. `{trigger}` names why it fired; `{closed}`/`{bounces}`/`{leaks}`
-/// are honest window counts (zero when not derivable). Routes lessons to existing primitives —
-/// it invents no storage; recording a learning clears it until the next trigger.
-pub const REFLECTION_BLOCK: &str = "{trigger} — pause and self-review this window (tasks closed: {closed}, bounces: {bounces}, gate leaks: {leaks}). Route every lesson to an existing home, do not invent a store: a durable orchestration lesson -> `codeterm orchestrator learn \"<lesson>\"`; a reusable recipe/procedure -> `codeterm plan skill new <slug>` or edit an existing one; a prompt or process defect -> propose the prompt change to your Planner. Recording a learning clears this block until the next group close or gate window. Then run the VELOCITY AND COST sweep over the open frontier: is it shrinking — and if not, what blocks it? Which open tasks no longer earn their priority (descope, defer, or split — propose it to your Planner)? Which gates can batch into one QA run instead of several? Which remaining work fits a cheaper model or an idle machine? Green lanes get one-line verdicts, not essays — spend tokens on findings, not ceremony.";
-
-/// Fills [`REFLECTION_BLOCK`] placeholders from a reflection window.
-pub fn reflection_block(
-    trigger: &str,
-    window: &crate::service::plan::reflection::ReflectionWindow,
-) -> String {
-    REFLECTION_BLOCK
-        .replace("{trigger}", trigger)
-        .replace("{closed}", &window.tasks_closed.to_string())
-        .replace("{bounces}", &window.bounces.to_string())
-        .replace("{leaks}", &window.gate_leaks.to_string())
-}
-
-pub fn worker_suffix() -> String {
-    format!("{TESTING_DISCIPLINE}\n{QA_PIPELINE_DISCIPLINE}\n{WORKER_SUFFIX}")
-}
-
 /// Appended to Planner-profile Worker tasks.
 pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");
+
+/// Canonical role_guidance for tasks whose primary deliverable is tests.
+pub const TEST_AUTHOR_GUIDANCE: &str = "You are a test-author. docs/contributing/test-authoring.md is your operating charter — read it fully before writing the first test. Non-negotiables: oracle-first, red-green demo in your report, condition-waits never sleeps, agent-readiness gates, bounded everything, smoke-run every harness script against the real CLI.";
 
 /// Appended to Orchestrator tasks — no-sleep rule.
 pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../prompts/orchestrator_suffix.md");
@@ -108,7 +52,7 @@ pub const BOOTSTRAP_INSTRUCTIONS_TEMPLATE: &str =
     include_str!("../prompts/bootstrap_instructions.md");
 
 /// Wrapper applied to every headless memory worker task. Placeholders: `{intent}`, `{worker_id}`, `{task}`.
-pub const WORKER_TASK_PREAMBLE: &str = include_str!("../prompts/worker_task_preamble.md");
+pub use crate::mem::prompts::WORKER_TASK_PREAMBLE;
 
 /// Wrapper for plugin-spawned agents (chatBackend NPCs, etc). Unlike memory
 /// workers they own their whole prompt and act through plugin verbs, so they
@@ -117,27 +61,13 @@ pub const PLUGIN_AGENT_TASK_PREAMBLE: &str =
     include_str!("../prompts/plugin_agent_task_preamble.md");
 
 /// Auto-extraction prompt for the haiku graph worker. Placeholders: `{id}`, `{title}`, `{body}`.
-pub const MEM_EXTRACTION: &str = include_str!("../prompts/mem_extraction.md");
+pub use crate::mem::prompts::MEM_EXTRACTION;
 
 /// Search-result reranking prompt sent directly to the model API. Placeholders: `{query}`, `{items}`.
-pub const MEM_RERANK: &str = include_str!("../prompts/mem_rerank.md");
+pub use crate::mem::prompts::MEM_RERANK;
 
 /// REM-phase dreaming prompt — optimization steps for the headless dream worker. No placeholders.
-pub const DREAMING_REM: &str = include_str!("../prompts/dreaming_rem.md");
-
-/// One-time archive line prepended before [`PLAN_RETROSPECTIVE_NUDGE`] for complete active plans.
-pub const PLAN_ARCHIVE_SUGGESTION: &str =
-    "This plan is complete. Archive it with `codeterm plan archive <plan>` when wrap-up is finished.";
-
-/// Pinned verbatim by the Planner — do not reword.
-pub const PLAN_RETROSPECTIVE_NUDGE: &str = "This plan is complete. Before archiving, write its retrospective:\n\
-`codeterm plan retrospective <plan> --body \"...\"` — what worked, what failed and why, which plan skills proved out, and which deserve promotion to machine memory (`codeterm mem skill`). Honest beats flattering: the discarded approaches are the most useful part.\n\
-Graduate the proven ones: a durable know-how skill or helper script earned in this effort belongs in machine mem (`codeterm mem skill`) and, when it is repo-shaped, in `.agents/skills/` or `scripts/` — landed through a reviewed lane, never edited straight into the integration checkout.";
-
-/// Planner role line — attached specialist, not a co-owner.
-pub const PEER_PLANNER_CHARTER_LINE: &str = "Planner is the attached planning specialist: \
-     draft GOAL, Spec, Plan structure, task briefs, and decision options when the \
-     Orchestrator delegates planning work.";
+pub use crate::mem::prompts::DREAMING_REM;
 
 /// Orchestrator authority line when a planner is bound.
 pub const PEER_ORCH_DEFERENCE_LINE: &str =
@@ -151,22 +81,6 @@ pub const PEER_PAIRING_MANDATE_BLOCK: &str = "\
 This plan requires an attached Planner specialist. Spawn it with `{spawn_cmd}` if it is not live. \
 The Orchestrator remains the single authority for plan structure, execution, and acceptance.";
 
-/// Planning-phase delegation line. `{planner}` is filled with the resolved
-/// planner label. Shared by next-actions, the plan nudge, and prompts.
-pub const PEER_ORCH_DEFER_STRUCTURE_LINE: &str =
-    "Planning is not approved yet — delegate GOAL/spec/plan/task-graph drafting to {planner}, \
-     then review and approve the structure as Orchestrator.";
-
-/// Fills the `{planner}` placeholder in [`PEER_ORCH_DEFER_STRUCTURE_LINE`].
-pub fn orch_defer_structure_line(planner: &str) -> String {
-    PEER_ORCH_DEFER_STRUCTURE_LINE.replace("{planner}", planner)
-}
-
-/// Hint shown when no planner is bound and no waiver is set.
-pub const PEER_WAIVER_HINT: &str = "No Planner specialist is bound. \
-     Bind one with `codeterm plan update --planner <PANE_ID>` or waive with \
-     `codeterm plan update --planner none --note <reason>`.";
-
 /// Orchestrator's opening greeting on a fresh pair spawn — rendered verbatim
 /// as the pane's first assistant message (never model-improvised), so the
 /// user always lands on a ready, invitational state. `{planner}` is filled
@@ -179,14 +93,45 @@ pub fn peer_orch_greeting(planner: &str) -> String {
     PEER_ORCH_GREETING.replace("{planner}", planner)
 }
 
+/// Short user-facing hint shown in the tab for a freshly-promoted Orchestrator
+/// (display only — the detailed onboarding is delivered separately as real input).
+pub fn orchestrator_display_hint() -> String {
+    "Orchestrator for this tab — I own the plan's execution: I dispatch tasks to workers and accept or bounce their results. Tell me the goal; until then, we hold.".to_string()
+}
+
 /// Planner's opening greeting — the mirror of [`PEER_ORCH_GREETING`] for the
 /// subordinate side, rendered verbatim as the Planner pane's first assistant
 /// message so it never boots into silence. Identity framing only; the
 /// subordination prose is reused from the shared charter/deference constants.
-pub fn peer_planner_greeting(orchestrator_label: &str, orchestrator_pane_id: &str) -> String {
+pub fn peer_planner_greeting(orchestrator_label: &str, _orchestrator_pane_id: &str) -> String {
     format!(
-        "Planner specialist reporting for this plan — I work under Orchestrator {orchestrator_label} (pane {orchestrator_pane_id}). {}\n{}",
-        PEER_PLANNER_CHARTER_LINE, PEER_ORCH_DEFERENCE_LINE,
+        "Planner specialist paired with Orchestrator {orchestrator_label} — I draft the GOAL, spec, and plan structure and cut the tasks when a plan exists. Ready; I will wait for the goal before doing anything."
+    )
+}
+
+/// The Planner's detailed onboarding, delivered as its own real launch input by
+/// CodeTerm (never relayed by the Orchestrator). Second-person; carries the
+/// role, toolset, docs pointer, persona-field mandate, and the wait-if-empty rule.
+pub fn planner_onboarding_task(
+    orchestrator_label: &str,
+    orchestrator_tab_id: &str,
+    plan_id: &str,
+) -> String {
+    format!(
+        "You are the Planner specialist for plan {plan_id}, working under Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
+First read `codeterm docs PLANNER` for your role. Planner can EXECUTE: `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. YOU cut the tasks — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. The full CLI reference is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
+    )
+}
+
+/// Pair-spawn Planner onboarding before any plan exists. The first
+/// Orchestrator goal/plan create binds this pane to the resulting plan.
+pub fn planner_onboarding_task_no_plan(
+    orchestrator_label: &str,
+    orchestrator_tab_id: &str,
+) -> String {
+    format!(
+        "You are the Planner specialist paired with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). No plan exists yet; the Orchestrator's first goal/plan create will bind you to that plan. {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
+First read `codeterm docs PLANNER` for your role. Planner can EXECUTE after a plan exists: `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. YOU cut the tasks after the Orchestrator delegates the goal — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
     )
 }
 
@@ -203,25 +148,6 @@ pub fn peer_pairing_mandate_full(spawn_cmd: &str) -> String {
         peer_pairing_mandate_block(spawn_cmd)
     )
 }
-
-/// Five emergent plan-skill principles. Single source shared by the orchestrator
-/// and planner suffixes (via the `{plan_skills_principles}` placeholder) so the
-/// behavior emerges from why+when phrasing rather than a re-typed checklist.
-pub const PLAN_SKILLS_PRINCIPLES: &str = "\
-Plan skills — the plan's own know-how:
-- Learned something reusable in this effort (a test recipe, a seeding script, a gotcha)? Record it: `codeterm plan skill new <slug>`. Improve an existing skill before writing a new one.
-- A skill names what is FIXED (the oracle: the command or observation that proves success) and what is MUTABLE. Never edit the oracle to make results look better.
-- Prefer skills with a --check command; cite the check when keeping or discarding an approach.
-- Simplicity wins: a marginal gain that adds hacky steps is a loss; a deletion that preserves results is a win.
-- Every skill edit logs keep/discard/superseded + why. Discarded approaches are data, not embarrassment.";
-
-/// Appended to the worker charter only when the plan already carries >=1 skill.
-pub const PLAN_SKILLS_WORKER_LINE: &str = "This plan has skills — procedures earlier agents proved out. Check before inventing: `codeterm plan skill list`. Learned something reusable yourself? `codeterm plan skill new <slug>` — future workers inherit it.";
-
-/// Orchestrator-heartbeat registry line template. `{n}` is the skill count and
-/// `{slug1}, {slug2}, …` is the placeholder slug region, both filled at render.
-pub const PLAN_SKILLS_REGISTRY_LINE: &str =
-    "Plan skills ({n}): {slug1}, {slug2}, … — codeterm plan skill show <slug> | new | edit.";
 
 /// Planner testing methodology, part 1 — oracle-first (inserted after workflow
 /// item 5 via the `{planner_testing_methodology}` placeholder).
@@ -248,6 +174,7 @@ pub fn planner_suffix() -> String {
             "{planner_testing_methodology}",
             &planner_testing_methodology(),
         )
+        .replace("{test_author_guidance}", TEST_AUTHOR_GUIDANCE)
         .replace("{plan_skills_principles}", PLAN_SKILLS_PRINCIPLES)
 }
 
@@ -289,6 +216,18 @@ mod tests {
         assert!(CODETERM_CLI.contains("delay-only"));
         assert!(MEMORY_DOC.contains("0..30 min delay-only jitter"));
         assert!(CONFIG_DOC.contains("0..30 min delay-only jitter"));
+    }
+
+    #[test]
+    fn planner_suffix_uses_canonical_test_author_guidance() {
+        let suffix = planner_suffix();
+
+        assert!(suffix.contains(
+            "A task whose primary deliverable is tests (specs, drills, eval harnesses, baselines)"
+        ));
+        assert!(suffix.contains("`executor_role=test-author`"));
+        assert!(suffix.contains(TEST_AUTHOR_GUIDANCE));
+        assert!(!suffix.contains("{test_author_guidance}"));
     }
 
     #[test]
@@ -370,25 +309,46 @@ mod tests {
     }
 
     #[test]
-    fn peer_planner_greeting_names_orchestrator_and_reuses_subordination_constants() {
+    fn peer_planner_greeting_is_a_short_user_hint() {
         let g = peer_planner_greeting("Opus Orchestrator", "pane_orch_9");
-        assert!(g.contains("pane_orch_9"), "names the orchestrator pane id");
+        assert!(g.contains("Opus Orchestrator"), "names the orchestrator");
+        assert!(g.contains("Planner"), "identifies the role");
+        assert!(g.contains("wait for the goal"), "conveys the hold state");
+        // Display hint only — no CLI commands, no docs/toolset detail.
+        assert!(!g.contains("codeterm "), "greeting carries no commands");
+        assert!(!g.contains("--personality"), "greeting carries no flags");
+    }
+
+    #[test]
+    fn planner_onboarding_task_carries_role_and_toolset_from_codeterm() {
+        let t = planner_onboarding_task("Opus Orchestrator", "tab_orch_9", "pl_abc");
+        assert!(t.contains("pl_abc"), "names the plan");
+        assert!(t.contains("Opus Orchestrator"), "names the orchestrator");
         assert!(
-            g.contains("Opus Orchestrator"),
-            "names the orchestrator label"
+            t.contains("You are the Planner"),
+            "second-person onboarding"
+        );
+        assert!(t.contains("codeterm docs PLANNER"), "points at the doc");
+        assert!(
+            t.contains("Planner can EXECUTE:"),
+            "lists concrete executable actions"
         );
         assert!(
-            g.contains("work under Orchestrator"),
-            "planner is subordinate"
+            t.contains("codeterm plan task add"),
+            "names concrete planner action"
         );
-        assert!(
-            g.contains(PEER_PLANNER_CHARTER_LINE),
-            "reuses the charter constant"
-        );
-        assert!(
-            g.contains(PEER_ORCH_DEFERENCE_LINE),
-            "reuses the deference constant"
-        );
+        assert!(t.contains("--personality"), "mandates persona fields");
+        assert!(t.contains(PEER_PLANNER_CHARTER_LINE), "reuses the charter");
+        assert!(t.contains(PEER_ORCH_DEFERENCE_LINE), "reuses the deference");
+    }
+
+    #[test]
+    fn planner_onboarding_task_no_plan_carries_pair_hold_state_without_plan_id() {
+        let t = planner_onboarding_task_no_plan("Opus Orchestrator", "tab_orch_9");
+        assert!(t.contains("No plan exists yet"));
+        assert!(t.contains("first goal/plan create"));
+        assert!(t.contains("Opus Orchestrator"));
+        assert!(!t.contains("pl_"));
     }
 
     #[test]

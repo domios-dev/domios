@@ -1,0 +1,35 @@
+//! CodeTerm Mesh — peer-to-peer networking between CodeTerm instances.
+
+pub mod broadcast;
+pub mod crown;
+pub mod discovered;
+pub mod discovery;
+pub mod health;
+pub mod identity;
+pub mod manager;
+pub mod pairing;
+pub mod peer_services;
+pub mod peers;
+pub mod ports;
+pub mod serve_setup;
+pub mod toggle;
+pub mod transport;
+pub mod types;
+
+use std::sync::Arc;
+
+use parking_lot::Mutex;
+
+pub use broadcast::{
+    broadcast_announce, broadcast_introductions, broadcast_sync, refresh_local_addresses,
+    AnnounceReport,
+};
+pub use manager::MeshManager;
+pub use ports::{LastActivityProvider, MeshEventSink};
+pub use serve_setup::{
+    disable_web_serve, enable_web_serve, probe_serve_status, tailscale_serve_https_url,
+    ServeResult, ServeStatus,
+};
+pub use toggle::apply_mesh_enabled;
+
+pub type MeshState = Arc<Mutex<MeshManager>>;

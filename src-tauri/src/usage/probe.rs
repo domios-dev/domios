@@ -445,9 +445,14 @@ fn parser_accepts(
     parser: Option<&dyn crate::agent::usage_parser::UsageParser>,
     text: &str,
 ) -> bool {
+    use crate::agent::usage_parser::UsageParseOutcome;
+
     parser
-        .and_then(|up| up.parse(text).ok())
-        .is_some_and(|s| s.has_any_field())
+        .and_then(|up| up.parse_outcome(text).ok())
+        .is_some_and(|outcome| match outcome {
+            UsageParseOutcome::Parsed(s) => s.has_any_field(),
+            UsageParseOutcome::Skip(_) => false,
+        })
 }
 
 fn only_loading_state(text: &str) -> bool {
@@ -467,7 +472,9 @@ fn render_tall(bytes: &[u8], rows: u16, cols: u16) -> String {
 #[cfg(test)]
 mod tests {
     use super::{parser_accepts, select_epoch_text};
-    use crate::agent::usage_parser::{UsageParseError, UsageParser, UsageSnapshot};
+    use crate::agent::usage_parser::{
+        UsageParseError, UsageParseOutcome, UsageParser, UsageSnapshot,
+    };
 
     #[test]
     fn parser_accepts_none_is_not_ready() {
@@ -497,6 +504,12 @@ mod tests {
     }
 
     #[test]
+    fn nothing_found_is_a_skip_outcome() {
+        let outcome = StubParser.parse_outcome("Loading usage data…").unwrap();
+        assert!(matches!(outcome, UsageParseOutcome::Skip(_)));
+    }
+
+    #[test]
     fn epoch_text_ignores_unchanged_stale_screen() {
         let stale = Some("Codex status\n5h limit 78% left (resets 23:00)".to_string());
         assert_eq!(select_epoch_text(&[], false, stale), "");
@@ -517,7 +530,7 @@ mod tests {
     #[test]
     fn real_claude_parser_gates_like_old_markers() {
         let parser = crate::plugin::agent_claude::usage_tui::ClaudeTuiUsageParser;
-        let fixture = include_str!("../plugin/agent_claude/fixtures/usage_v2_1.txt");
+        let fixture = include_str!("fixtures/usage_v2_1.txt");
         assert!(
             parser_accepts(Some(&parser), fixture),
             "captured /usage screen must be accepted"

@@ -1,3 +1,4 @@
+export { formatAgentWorkingLine, AGENT_WORKING_LINE_SEP } from "./formatAgentWorkingLine";
 export { MessageBubble } from "./MessageBubble";
 export { RichMarkdown } from "./MarkdownBody";
 export { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";

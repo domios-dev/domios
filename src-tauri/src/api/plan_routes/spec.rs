@@ -285,20 +285,6 @@ pub async fn section_rm(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-pub async fn files(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> RouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let manifest = state
-        .svc
-        .plan_store
-        .spec_file_manifest(&id)
-        .map_err(plan_err)?;
-    Ok(Json(serde_json::to_value(manifest).unwrap_or_default()))
-}
-
 pub async fn link_add(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

@@ -1,13 +1,7 @@
 /**
- * 13-canvas — SECTION ZONES (territory-by-section).
- *
- * Tasks of the same section pack as one cohesive cluster, and each section group is
- * wrapped in a labeled ORGANIC region (translucent blob + name pill on its top edge)
- * drawn UNDER the cards. Zones are the W1/W2 territory glance and recede at W3.
- * Verified on the perf fixture (tasks spread across the rich plan sections).
- *
- *   npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=golden -g @canvas-section-zones --retries=0 --workers=1
+ * WHAT: canvas section zones covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
@@ -27,6 +21,7 @@ async function reach(page: Page, target: string, scales: number[]): Promise<stri
   let band = await page.getAttribute(PLAN_SEL, "data-world").catch(() => null);
   for (const s of scales) {
     await setCanvasScaleOn(page, PLAN_SEL, s);
+    // PW_JUSTIFIED_SLEEP: fixed 220ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(220);
     band = await page.getAttribute(PLAN_SEL, "data-world").catch(() => null);
     if (band === target) break;
@@ -57,10 +52,12 @@ test("@golden @canvas-section-zones labeled organic territories cluster tasks by
   await expect(page.locator(PLAN_SEL).first()).toBeVisible({ timeout: 30_000 });
 
   await setCanvasScale(page, 0.18);
+  // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(300);
   await shot(page, "zones2-W0");
 
   await setCanvasScale(page, 0.5);
+  // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(300);
   await shot(page, "zones2-W1");
   const zoneCount = await page.locator('[data-testid="canvas-section-zone"]').count();

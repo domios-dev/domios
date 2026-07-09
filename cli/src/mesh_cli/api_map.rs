@@ -1,6 +1,6 @@
 use crate::{
     cmd::{delayed::parse_schedule, send_text::resolve_send_text_input},
-    Commands, ServiceAction, UpdateAction,
+    Commands, UpdateAction,
 };
 
 use super::update::resolve_update_action;
@@ -9,7 +9,7 @@ use super::{parse_ip_port, MeshAction, MeshPeerAction};
 mod actions;
 
 pub(crate) use actions::send_text_to_api;
-use actions::{delayed_create_to_api, mem_to_api, now_ms};
+use actions::{delayed_create_to_api, mem_to_api, now_ms, service_to_api};
 
 pub const UNSUPPORTED_OVER_MESH: &str = "UNSUPPORTED";
 
@@ -416,8 +416,14 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 model,
                 system_prompt,
                 preset,
+                charter,
+                charter_file,
+                interval,
+                nudge_cooldown,
+                max_actions,
                 allow_shared_checkout,
                 bound_task,
+                plan_task,
             } => {
                 let task = match crate::cmd::agent::resolve_spawn_task(
                     task.clone(),
@@ -426,6 +432,16 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ) {
                     Ok(t) => t,
                     Err(e) => return unsupported(&format!("agent spawn task input error: {}", e)),
+                };
+                let charter = match crate::cmd::agent::resolve_spawn_charter(
+                    charter.clone(),
+                    charter_file.clone(),
+                    &mut std::io::stdin(),
+                ) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        return unsupported(&format!("agent spawn charter input error: {}", e))
+                    }
                 };
                 let agent_name = agent.as_str();
                 let mut body = serde_json::json!({
@@ -442,6 +458,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(r) = role {
                     body["role"] = serde_json::json!(r.as_str());
+                    if let Some(profile) = r.role_profile() {
+                        body["role_profile"] = serde_json::json!(profile);
+                    }
                 }
                 if let Some(p) = parent {
                     body["parent_pane_id"] = serde_json::json!(p);
@@ -480,11 +499,38 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 if let Some(preset) = preset {
                     body["preset"] = serde_json::json!(preset);
                 }
+                if let Some(charter) = charter {
+                    body["charter"] = serde_json::json!(charter);
+                }
+                if let Some(interval) = interval {
+                    let secs = match crate::cmd::agent::parse_duration_secs(interval, "--interval")
+                    {
+                        Ok(v) => v,
+                        Err(e) => return unsupported(&e),
+                    };
+                    body["tick_interval_secs"] = serde_json::json!(secs);
+                }
+                if let Some(nudge_cooldown) = nudge_cooldown {
+                    let secs = match crate::cmd::agent::parse_duration_secs(
+                        nudge_cooldown,
+                        "--nudge-cooldown",
+                    ) {
+                        Ok(v) => v,
+                        Err(e) => return unsupported(&e),
+                    };
+                    body["nudge_cooldown_secs"] = serde_json::json!(secs);
+                }
+                if let Some(max_actions) = max_actions {
+                    body["max_actions_per_tick"] = serde_json::json!(max_actions);
+                }
                 if *allow_shared_checkout {
                     body["allow_shared_checkout"] = serde_json::json!(true);
                 }
                 if let Some(tid) = bound_task {
                     body["task_id"] = serde_json::json!(tid);
+                }
+                if let Some(pt) = plan_task {
+                    body["plan_task"] = serde_json::json!(pt);
                 }
                 (
                     "POST".into(),
@@ -846,146 +892,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 )
             }
         },
-        Commands::Service { action } => match action {
-            ServiceAction::List { kind, enabled } => {
-                let mut path = String::from("/api/services");
-                let mut sep = '?';
-                if let Some(k) = kind {
-                    path.push(sep);
-                    sep = '&';
-                    path.push_str(&format!("kind={}", urlencoding::encode(k)));
-                }
-                if let Some(e) = enabled {
-                    path.push(sep);
-                    let _ = sep;
-                    path.push_str(&format!("enabled={}", e));
-                }
-                ("GET".into(), path, None)
-            }
-            ServiceAction::Add {
-                name,
-                kind,
-                health_mode,
-                url,
-                host,
-                port,
-                process_label,
-                script_path,
-                health_path,
-                health_json_field,
-                health_ok_values,
-                health_degraded_values,
-                health_interval,
-                description,
-                push,
-            } => {
-                let mut body = serde_json::json!({
-                    "name": name,
-                    "kind": kind,
-                    "health_mode": health_mode,
-                    "health_interval": health_interval,
-                    "push_enabled": push,
-                });
-                if let Some(v) = url {
-                    body["url"] = serde_json::json!(v);
-                }
-                if let Some(v) = host {
-                    body["host"] = serde_json::json!(v);
-                }
-                if let Some(v) = port {
-                    body["port"] = serde_json::json!(v);
-                }
-                if let Some(v) = process_label {
-                    body["process_label"] = serde_json::json!(v);
-                }
-                if let Some(v) = script_path {
-                    body["script_path"] = serde_json::json!(v);
-                }
-                if let Some(v) = health_path {
-                    body["health_path"] = serde_json::json!(v);
-                }
-                if let Some(v) = health_json_field {
-                    body["health_json_field"] = serde_json::json!(v);
-                }
-                if let Some(v) = health_ok_values {
-                    body["health_ok_values"] = serde_json::json!(v);
-                }
-                if let Some(v) = health_degraded_values {
-                    body["health_degraded_values"] = serde_json::json!(v);
-                }
-                if let Some(v) = description {
-                    body["description"] = serde_json::json!(v);
-                }
-                (
-                    "POST".into(),
-                    "/api/services".into(),
-                    Some(body.to_string()),
-                )
-            }
-            ServiceAction::Show { id } => (
-                "GET".into(),
-                format!("/api/services/{}", urlencoding::encode(id)),
-                None,
-            ),
-            ServiceAction::Edit {
-                id,
-                name,
-                url,
-                health_path,
-                health_json_field,
-                health_ok_values,
-                health_degraded_values,
-                enabled,
-            } => {
-                let mut body = serde_json::json!({});
-                if let Some(v) = name {
-                    body["name"] = serde_json::json!(v);
-                }
-                if let Some(v) = url {
-                    body["url"] = serde_json::json!(v);
-                }
-                if let Some(v) = health_path {
-                    body["health_path"] = serde_json::json!(v);
-                }
-                if let Some(v) = health_json_field {
-                    body["health_json_field"] = serde_json::json!(v);
-                }
-                if let Some(v) = health_ok_values {
-                    body["health_ok_values"] = serde_json::json!(v);
-                }
-                if let Some(v) = health_degraded_values {
-                    body["health_degraded_values"] = serde_json::json!(v);
-                }
-                if let Some(v) = enabled {
-                    body["enabled"] = serde_json::json!(v);
-                }
-                (
-                    "PUT".into(),
-                    format!("/api/services/{}", urlencoding::encode(id)),
-                    Some(body.to_string()),
-                )
-            }
-            ServiceAction::Delete { id } => (
-                "DELETE".into(),
-                format!("/api/services/{}", urlencoding::encode(id)),
-                None,
-            ),
-            ServiceAction::Token { id, rotate } => {
-                if *rotate {
-                    (
-                        "POST".into(),
-                        format!("/api/services/{}/regenerate-token", urlencoding::encode(id)),
-                        None,
-                    )
-                } else {
-                    (
-                        "GET".into(),
-                        format!("/api/services/{}", urlencoding::encode(id)),
-                        None,
-                    )
-                }
-            }
-        },
+        Commands::Service { action } => service_to_api(action),
         Commands::Debug { .. } => {
             eprintln!("Error: `debug` is local-only — refusing to crash a remote peer via --mesh");
             std::process::exit(2);

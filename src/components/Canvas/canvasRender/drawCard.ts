@@ -282,9 +282,16 @@ function drawMore(ctx: CanvasRenderingContext2D, remaining: number, pad: number,
   ctx.fillText(`+${remaining} more - View`, pad, y + 12);
 }
 
-// lives behind View). Drops fences/emphasis/heading marks; collapses to flowing prose.
-function cleanMarkdown(text: string): string {
-  return text.replace(/`+/g, "").replace(/\*\*/g, "").replace(/^#{1,6}\s*/gm, "").replace(/^[-*]\s+/gm, "• ");
+// lives behind View). Drops fences/links/emphasis/heading marks; collapses to flowing prose.
+export function cleanMarkdown(text: string): string {
+  return text
+    .replace(/`+/g, "")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/\*\*|~~/g, "")
+    .replace(/^\s{0,3}>\s?/gm, "")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/^\s*[-*+]\s+/gm, "• ");
 }
 
 // remainder (wrapLines), and a short bg fade softens the cut. Returns the y after.

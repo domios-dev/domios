@@ -192,11 +192,77 @@ test("open-pane action invokes callback", async () => {
     />,
   );
   const btn = host.querySelector('[data-testid="plan-detail-open-pane"]') as HTMLButtonElement;
-  assert(btn?.textContent?.includes("Show agent"), "show agent button visible");
+  assert(btn?.textContent?.includes("Open tab"), "open tab button visible");
   await act(async () => {
     btn.click();
   });
   assert(opened === "pane-worker", "onOpenPane called with pane id");
+});
+
+test("agent identity shows tab title, provider and model from pane state", async () => {
+  const task: Task = { ...FIXTURE_TASK, assigned_pane_id: "pane-worker" };
+  const { host } = await render(
+    <PlanDetailOverlay
+      kind="task"
+      task={task}
+      panes={{ "pane-worker": { id: "pane-worker", title: "Elgar", agent_type: "claude", agent_session_model: "opus-4.8" } as never }}
+      onOpenPane={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  const block = host.querySelector('[data-testid="task-agent-identity"]');
+  assert(block, "agent identity block visible");
+  assert(host.querySelector('[data-testid="task-agent-name"]')?.textContent?.includes("Elgar"), "tab title as agent name");
+  assert(host.querySelector('[data-testid="task-agent-provider"]')?.textContent?.includes("claude"), "provider from pane state");
+  assert(host.querySelector('[data-testid="task-agent-model"]')?.textContent?.includes("opus-4.8"), "model from pane state");
+  assert(host.querySelector('[data-testid="task-personality"]')?.textContent === "Elgar", "persona falls back to live tab title");
+});
+
+test("personality field renders prominently and overrides the live tab title", async () => {
+  const task: Task = { ...FIXTURE_TASK, personality: "Ada", assigned_pane_id: "pane-worker" };
+  const { host } = await render(
+    <PlanDetailOverlay
+      kind="task"
+      task={task}
+      panes={{ "pane-worker": { id: "pane-worker", title: "Elgar", agent_type: "claude" } as never }}
+      onOpenPane={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  assert(host.querySelector('[data-testid="task-personality"]')?.textContent === "Ada", "personality field wins over tab title");
+  assert(host.querySelector('[data-testid="task-agent-name"]')?.textContent?.includes("Ada"), "agent name uses personality");
+});
+
+test("lane block shows tab title with pane id demoted to secondary", async () => {
+  const task: Task = {
+    ...FIXTURE_TASK,
+    lane: { pane_id: "pane-lane", branch: "lane/x" } as never,
+  };
+  const { host } = await render(
+    <PlanDetailOverlay
+      kind="task"
+      task={task}
+      panes={{ "pane-lane": { id: "pane-lane", title: "ws-scaffold" } as never }}
+      onOpenPane={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  assert(host.querySelector('[data-testid="task-lane-panel"]'), "lane panel visible");
+  assert(host.querySelector('[data-testid="task-lane-tab-title"]')?.textContent === "ws-scaffold", "lane shows live tab title");
+  assert(host.querySelector('[data-testid="task-lane-pane-id"]')?.textContent === "pane-lane", "hex pane id demoted to secondary");
+  assert(!host.querySelector('[data-testid="task-lane-pane-dead"]'), "live tab not marked closed");
+});
+
+test("lane block marks a closed tab with last known id", async () => {
+  const task: Task = {
+    ...FIXTURE_TASK,
+    lane: { pane_id: "pane-gone", branch: "lane/x" } as never,
+  };
+  const { host } = await render(
+    <PlanDetailOverlay kind="task" task={task} panes={{}} onOpenPane={() => {}} onClose={() => {}} />,
+  );
+  assert(host.querySelector('[data-testid="task-lane-tab-title"]')?.textContent === "pane-gone", "closed tab falls back to last known id");
+  assert(host.querySelector('[data-testid="task-lane-pane-dead"]')?.textContent === "closed", "closed tab marked closed");
 });
 
 test("task detail renders linked plan sections as navigable links", async () => {

@@ -156,6 +156,31 @@ test("status filter chip limits visible tasks", async () => {
   await unmount();
 });
 
+test("parked tasks stay in pending group with parked chip and reason title", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    sections: [FIXTURE_SECTION],
+    tasks: [
+      {
+        ...FIXTURE_TASK,
+        id: "t-parked",
+        status: TaskStatus.Parked,
+        name: "Deferred lane",
+        park_reason: "Provider quotas exhausted",
+      },
+    ],
+  };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const group = host.querySelector('[data-testid="plan-list-plan-section"]') as HTMLElement;
+  assert(group?.textContent?.includes("Pending"), "parked task grouped under pending");
+  const row = host.querySelector('[data-testid="plan-list-task"]') as HTMLElement;
+  assert(row?.getAttribute("data-task-id") === "t-parked", "parked task visible");
+  assert(row.className.includes("plan-list-row-parked"), "parked row style");
+  assert(row.getAttribute("title") === "Parked: Provider quotas exhausted", "park reason title");
+  assert(row.querySelector('[data-testid="plan-list-parked-chip"]')?.textContent === "parked", "parked chip");
+  await unmount();
+});
+
 test("clicking a task row opens PlanDetailOverlay", async () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,

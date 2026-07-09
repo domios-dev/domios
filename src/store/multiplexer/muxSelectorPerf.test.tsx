@@ -1,0 +1,163 @@
+// Run: npx tsx src/store/multiplexer/muxSelectorPerf.test.tsx
+
+export {};
+
+async function setupHappyDom() {
+  const React = await import("react");
+  const { act, useLayoutEffect } = React;
+  const { createRoot } = await import("react-dom/client");
+  const { Window } = await import("happy-dom");
+
+  const window = new Window({ url: "http://localhost:7686/" });
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "HTMLButtonElement",
+    "SVGElement",
+    "Element",
+    "Node",
+    "Event",
+    "CustomEvent",
+  ] as const) {
+    Object.defineProperty(globalThis, key, {
+      value: (window as unknown as Record<string, unknown>)[key],
+      configurable: true,
+    });
+  }
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  process.env.VITE_CODETERM_TEST = "1";
+  if (typeof (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame !== "function") {
+    (globalThis as { requestAnimationFrame: (cb: FrameRequestCallback) => number }).requestAnimationFrame = (
+      cb: FrameRequestCallback,
+    ) => {
+      cb(0);
+      return 0;
+    };
+    (globalThis as { cancelAnimationFrame: (id: number) => void }).cancelAnimationFrame = () => {};
+  }
+  return { act, useLayoutEffect, React, createRoot };
+}
+
+async function main() {
+  const { act, useLayoutEffect, React, createRoot } = await setupHappyDom();
+  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+  const { MultiplexerProvider } = await import("./index");
+  const { PaneSessionChat } = await import("../../components/Terminal/PaneSessionChat");
+
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest((async (cmd: string) => {
+    if (cmd === "chat_start") return { text: "", offset: 0, messages: [] };
+    if (cmd === "delayed_send_list") return [];
+    if (cmd === "mux_get_state") {
+      return {
+        workspaces: [{
+          id: "ws",
+          name: "ws",
+          tabs: [
+            { id: "tab-a", pane_id: paneA },
+            { id: "tab-b", pane_id: paneB },
+          ],
+          active_tab_id: "tab-a",
+          cwd: null,
+        }],
+        panes: {
+          [paneA]: {
+            id: paneA,
+            pty_id: null,
+            pane_type: "Terminal",
+            title: "A",
+            cwd: null,
+            agent_type: "claude",
+            chat_view: true,
+            backing: { kind: "chat_backend", plugin_id: "lmstudio", session_id: "s1" },
+          },
+          [paneB]: {
+            id: paneB,
+            pty_id: null,
+            pane_type: "Terminal",
+            title: "B",
+            cwd: null,
+            agent_type: "claude",
+            chat_view: true,
+            backing: { kind: "chat_backend", plugin_id: "lmstudio", session_id: "s2" },
+          },
+        },
+        active_workspace_id: "ws",
+        focused_pane_id: paneA,
+        generation: 1,
+      };
+    }
+    return {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }) as any);
+
+  const paneA = "pane-a-churn";
+  const paneB = "pane-b-hidden";
+
+  function Boot() {
+    useLayoutEffect(() => {
+      window.__renderCounts = {};
+    }, []);
+    return (
+      <MultiplexerProvider>
+        <PaneSessionChat paneId={paneA} chatBackend isVisible={false} />
+        <PaneSessionChat paneId={paneB} chatBackend isVisible={false} />
+      </MultiplexerProvider>
+    );
+  }
+
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+
+  await act(async () => {
+    root.render(React.createElement(Boot));
+  });
+  for (let i = 0; i < 5; i += 1) {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+
+  const { isCodeTermFrontendTestMode } = await import("../../components/Terminal/useChatSession");
+  if (!isCodeTermFrontendTestMode()) {
+    throw new Error("VITE_CODETERM_TEST not visible to isCodeTermFrontendTestMode");
+  }
+
+  if (!window.__muxPerfChurnPane) {
+    throw new Error("__muxPerfChurnPane hook missing — VITE_CODETERM_TEST path broken");
+  }
+
+  const beforeB = window.__renderCounts?.[paneB] ?? 0;
+  const beforeA = window.__renderCounts?.[paneA] ?? 0;
+
+  for (let i = 0; i < 60; i += 1) {
+    await act(async () => {
+      window.__muxPerfChurnPane?.(paneA);
+    });
+  }
+
+  const afterB = window.__renderCounts?.[paneB] ?? 0;
+  const afterA = window.__renderCounts?.[paneA] ?? 0;
+  const deltaB = afterB - beforeB;
+  const deltaA = afterA - beforeA;
+
+  await act(async () => root.unmount());
+  __setInvokeForTest(null);
+  __setListenForTest(null);
+
+  if (deltaB > 3) {
+    throw new Error(`hidden pane B render delta ${deltaB} exceeds budget (pre-fix ~60)`);
+  }
+  if (deltaA <= 0) {
+    throw new Error(`churn owner pane A did not re-render (delta=${deltaA})`);
+  }
+  console.log(`PASS mux selector render isolation: paneA delta=${deltaA}, paneB delta=${deltaB}`);
+}
+
+void main().catch((e) => {
+  console.error("FAIL", e);
+  process.exit(1);
+});

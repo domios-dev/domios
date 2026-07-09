@@ -6,22 +6,29 @@ pub enum SpawnRole {
     Orchestrator,
     #[value(name = "Worker")]
     Worker,
+    #[value(name = "Manager")]
+    Manager,
     #[value(name = "Planner")]
     Planner,
+    #[value(name = "Watcher")]
+    Watcher,
 }
 
 impl SpawnRole {
     pub fn as_str(&self) -> &'static str {
         match self {
             SpawnRole::Orchestrator => "Orchestrator",
+            SpawnRole::Manager => "Manager",
             SpawnRole::Worker => "Worker",
-            SpawnRole::Planner => "Worker",
+            SpawnRole::Planner => "Manager",
+            SpawnRole::Watcher => "Manager",
         }
     }
 
     pub fn role_profile(&self) -> Option<&'static str> {
         match self {
             SpawnRole::Planner => Some("planner"),
+            SpawnRole::Watcher => Some("watcher"),
             _ => None,
         }
     }
@@ -230,7 +237,7 @@ pub enum AgentAction {
         /// Working directory
         #[arg(long)]
         cwd: Option<String>,
-        /// Role: Worker, Orchestrator, or Planner profile sugar.
+        /// Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar.
         #[arg(long)]
         role: Option<SpawnRole>,
         /// Parent pane ID (for Workers)
@@ -275,6 +282,21 @@ pub enum AgentAction {
         /// Select a chatBackend shell preset. Omit to use the plugin default preset.
         #[arg(long)]
         preset: Option<String>,
+        /// Watcher charter text.
+        #[arg(long, allow_hyphen_values = true, conflicts_with = "charter_file")]
+        charter: Option<String>,
+        /// Read watcher charter text from a file.
+        #[arg(long = "charter-file", value_name = "PATH", conflicts_with = "charter")]
+        charter_file: Option<String>,
+        /// Watcher tick interval, e.g. 90s, 5m, 1h.
+        #[arg(long)]
+        interval: Option<String>,
+        /// Watcher nudge cooldown, e.g. 10m.
+        #[arg(long = "nudge-cooldown")]
+        nudge_cooldown: Option<String>,
+        /// Max watcher actions per tick.
+        #[arg(long = "max-actions")]
+        max_actions: Option<u32>,
         /// Allow a Worker to spawn into a shared/canonical checkout instead of an
         /// isolated worktree. Records a visible exception stride on the bound task.
         #[arg(long)]
@@ -282,6 +304,9 @@ pub enum AgentAction {
         /// Bound task id for the shared-checkout exception stride.
         #[arg(long = "task-id", env = "CODETERM_TASK_ID")]
         bound_task: Option<String>,
+        /// Plan task to bind when spawning `--role Worker` (handle, id, or prefix).
+        #[arg(long = "plan-task")]
+        plan_task: Option<String>,
     },
 }
 
@@ -456,8 +481,59 @@ mod tests {
                 action: AgentAction::Spawn { role, .. },
             } => {
                 let role = role.expect("role set");
-                assert_eq!(role.as_str(), "Worker");
+                assert_eq!(role.as_str(), "Manager");
                 assert_eq!(role.role_profile(), Some("planner"));
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn spawn_watcher_role_maps_to_manager_profile() {
+        let cli = Cli::try_parse_from([
+            "codeterm", "agent", "spawn", "lmstudio", "--role", "Watcher",
+        ])
+        .expect("watcher role parses");
+        match cli.command {
+            crate::Commands::Agent {
+                action: AgentAction::Spawn { role, .. },
+            } => {
+                let role = role.expect("role set");
+                assert_eq!(role.as_str(), "Manager");
+                assert_eq!(role.role_profile(), Some("watcher"));
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn spawn_worker_plan_task_parses() {
+        let cli = Cli::try_parse_from([
+            "codeterm",
+            "agent",
+            "spawn",
+            "claude",
+            "--role",
+            "Worker",
+            "--plan",
+            "pl_test",
+            "--plan-task",
+            "my-task",
+        ])
+        .expect("spawn with plan-task parses");
+        match cli.command {
+            crate::Commands::Agent {
+                action:
+                    AgentAction::Spawn {
+                        role,
+                        plan,
+                        plan_task,
+                        ..
+                    },
+            } => {
+                assert!(matches!(role, Some(SpawnRole::Worker)));
+                assert_eq!(plan.as_deref(), Some("pl_test"));
+                assert_eq!(plan_task.as_deref(), Some("my-task"));
             }
             _ => panic!("expected agent spawn"),
         }

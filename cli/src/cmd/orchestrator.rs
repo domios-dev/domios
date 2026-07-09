@@ -35,6 +35,7 @@ pub fn handle(
                 clear_rules,
             ),
         },
+        OrchestratorAction::Refresh { plan, pane } => refresh(client, json_output, plan, pane),
         OrchestratorAction::Handoff {
             plan,
             task,
@@ -61,6 +62,36 @@ pub fn handle(
             from_file,
         ),
     }
+}
+
+fn refresh(
+    client: &mut SocketClient,
+    json_output: bool,
+    plan: Option<String>,
+    pane: Option<String>,
+) -> Result<Option<Value>, String> {
+    let plan_id = plan.ok_or("--plan or CODETERM_PLAN_ID is required")?;
+    let pane_id = resolve_pane(client, pane);
+    let result = client
+        .call_detailed(
+            "orchestrator.refresh",
+            Some(json!({ "pane_id": pane_id, "plan_id": plan_id })),
+        )
+        .map_err(|err| {
+            format!(
+                "cannot start orchestrator refresh for pane {pane_id}.\nfix: run `codeterm pane list --agents` and pass an agent pane with `--pane <pane_id>`.\ncause: {}",
+                concise_socket_error(err)
+            )
+        })?;
+    if json_output {
+        return Ok(Some(result));
+    }
+    let status = result
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("started");
+    println!("orchestrator refresh {status} for {plan_id} (pane {pane_id})");
+    Ok(None)
 }
 
 fn heartbeat_params(plan: Option<String>) -> Value {

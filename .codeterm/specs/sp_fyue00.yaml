@@ -1,0 +1,23 @@
+id: sp_fyue00
+plan_id: null
+canonical_project_path: /Users/rollacode/Developer/codeterm
+canvas:
+  viewport: null
+created_at: 1782375920124
+project_path: /Users/rollacode/Developer/codeterm
+sections:
+- attachments: []
+  body: |
+    b
+  canvas:
+    collapsed: false
+    x: null
+    y: null
+  handle: s1
+  id: sec_iueayz
+  subsections: []
+  tags: []
+  title: S1
+status: active
+title: Hint check spec 2
+updated_at: 1782375920176

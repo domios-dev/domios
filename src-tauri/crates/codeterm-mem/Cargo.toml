@@ -1,0 +1,41 @@
+[package]
+name = "codeterm-mem"
+version = "1.6.2"
+edition = "2021"
+
+[dependencies]
+codeterm-types = { path = "../codeterm-types" }
+codeterm-util = { path = "../codeterm-util" }
+codeterm-mem-store = { path = "../../../crates/mem-store" }
+codeterm-paths = { path = "../../../crates/codeterm-paths" }
+parking_lot = "0.12"
+rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "rt", "time", "macros", "process"] }
+rand = "0.8"
+sha2 = "0.10"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+ulid = "1"
+log = "0.4"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+sqlite-vec = { version = "0.1.9", optional = true }
+fastembed = { version = "5", optional = true }
+ndarray = { version = "0.17", optional = true }
+hnsw_rs = { version = "0.3", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+annembed = { version = "0.1.6", optional = true, default-features = false, features = ["macos-accelerate"] }
+
+[target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]
+fastembed = { version = "5", optional = true, features = ["ort-load-dynamic"] }
+
+[features]
+default = ["embeddings"]
+embeddings = ["dep:sqlite-vec", "dep:fastembed", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
+
+[dev-dependencies]
+tempfile = "3"
