@@ -1,8 +1,3 @@
-// Run: npx tsx src/components/Canvas/canvasRender/drawCard.test.ts
-//
-// The size ladder is ONE card growing: kicker-on-top at every distance, NO status dot.
-// FAR (tiny) names the KIND word; MID (title band) shows kicker + title below; both are
-// status-coloured and clipped. A recording stub ctx captures the text actually drawn.
 
 import { FIXTURE_PLAN, FIXTURE_TAG_FACETS, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { TASK_STATUS_COLORS } from "../settings";
@@ -23,7 +18,6 @@ const palette: CanvasPalette = {
   fg: "#eee", fgMuted: "#999", chipBg: "#222", accent: "#7c83f8",
 };
 
-// Minimal recording 2D context: captures fillText + the fill style/font at draw time, and
 // returns a px-proportional measureText so wrap/ellipsize + the fit loop behave.
 interface Drawn { text: string; fill: string; px: number; arc: boolean }
 function stubCtx(): { ctx: CanvasRenderingContext2D; drawn: Drawn[]; arcs: number } {
@@ -75,6 +69,15 @@ const statusColor = TASK_STATUS_COLORS[FIXTURE_TASK.status];
   ok("MID kicker is status-coloured", kicker?.fill === statusColor);
 }
 
+// NEAR expand affordance is not status-like: "View", never "Open".
+{
+  const s = stubCtx();
+  drawCard(s.ctx, taskContent, 260, 190, "near", palette);
+  const texts = s.drawn.map((d) => d.text);
+  ok("NEAR expand affordance says View", texts.includes("View"));
+  ok("NEAR expand affordance does not say Open", !texts.includes("Open"));
+}
+
 // Extreme tiny: a clean single initial, never a half-cut word.
 {
   const s = stubCtx();
@@ -83,7 +86,6 @@ const statusColor = TASK_STATUS_COLORS[FIXTURE_TASK.status];
   ok("extreme-tiny shows only a single kind initial", texts.every((t) => t.length <= 1) && texts.includes("T"));
 }
 
-// DEEP band: a task card past W3 (≥540w, ≥220h) reads like a document — big title, the
 // DESCRIPTION label, the body rendered, larger fonts.
 {
   const s = stubCtx();

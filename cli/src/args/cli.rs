@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand};
 
 use crate::mesh_cli::MeshAction;
 
-use super::agent::AgentAction;
+use super::agent::{AgentAction, ReportArgs};
 use super::cron::CronAction;
 use super::debug::DebugAction;
 use super::delayed::DelayedAction;
@@ -19,6 +19,7 @@ use super::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction, PasteAction,
     ThemeAction, WorkspaceAction,
 };
+use super::orchestration::OrchestrationAction;
 use super::orchestrator::OrchestratorAction;
 use super::plan::PlanAction;
 use super::plugin::PluginAction;
@@ -73,6 +74,9 @@ pub enum Commands {
         /// Regenerate committed artifacts (docs/cli-manifest.json + docs/CLI.md)
         #[arg(long)]
         write: bool,
+        /// Emit the docs/CLI.md auto-block markdown instead of JSON
+        #[arg(long, conflicts_with = "write")]
+        markdown: bool,
     },
 
     /// Workspace management
@@ -85,6 +89,12 @@ pub enum Commands {
     Orchestrator {
         #[command(subcommand)]
         action: OrchestratorAction,
+    },
+
+    /// Paired creation — spawn an Orchestrator + Planner bound to a fresh plan
+    Orchestration {
+        #[command(subcommand)]
+        action: OrchestrationAction,
     },
 
     /// Pane management
@@ -133,14 +143,18 @@ pub enum Commands {
         stdin: bool,
 
         /// Terminal actions to run after optional text, comma-separated.
-        /// Examples: enter, esc, up, down, left, right, tab, backspace,
-        /// ctrl-c, delay:250ms. With --actions, text is inserted first but
-        /// not auto-submitted; include enter when you want to submit it.
+        /// Full key set: enter, esc, tab, backspace, delete, up, down, left,
+        /// right, home, end, pageup, pagedown, space, ctrl-c, plus
+        /// delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3).
+        /// With --actions, text is inserted first but not auto-submitted;
+        /// include enter when you want to submit it.
         #[arg(long, conflicts_with_all = ["delay", "at"])]
         actions: Option<String>,
 
         /// Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d.
-        /// Bare number means minutes.
+        /// Bare number means minutes. NOT the normal send path: use only for
+        /// future delivery the user asked for — plain send is immediate and
+        /// must never be buffered.
         #[arg(long, conflicts_with = "at")]
         delay: Option<String>,
 
@@ -208,6 +222,9 @@ pub enum Commands {
         #[command(subcommand)]
         action: AgentAction,
     },
+
+    /// Report worker progress to the owning orchestrator or plan
+    Report(ReportArgs),
 
     /// Cron job management
     Cron {

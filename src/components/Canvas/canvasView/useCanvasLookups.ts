@@ -3,19 +3,18 @@ import type { Pane } from "../../../lib/types";
 import type { LaidOutNode, WorkspaceLayout } from "../layout";
 import { milestoneColorMap } from "../milestoneColors";
 import { zoneColor } from "../layout/sectionZones";
+import { resolvePlanExclusivePaneTasks } from "../paneCurrentTask";
 import { buildTaskPresence } from "../taskPresence";
+import { historicalExecutorForTask } from "../taskExecutorHistory";
 import type { CanvasElement, DriftItem, Plan, Section, Task } from "../types";
+export { buildTaskPresenceFingerprint } from "./presenceFingerprint";
 import { collectSections, type CanvasLookups, type TaskCardModel } from "./models";
 
-// Per-data lookups: id→node/task/model/section/milestone/cluster/element maps. Built
-// once per layout / plan / drift / panes change — NOT per pan/zoom frame (camera-
-// decoupled). Mirrors the original CanvasViewInner useMemo verbatim.
 export function useCanvasLookups(
   layout: WorkspaceLayout,
   filteredPlans: Plan[],
   driftByPlan: Map<string, DriftItem[]>,
   panes: Record<string, Pane>,
-  // Presence-relevant fingerprint of `panes` (existence + title of task-referenced
   // panes). Used as the rebuild trigger so a non-presence heartbeat is a no-op.
   panesContentKey: string,
 ): CanvasLookups {
@@ -39,7 +38,6 @@ export function useCanvasLookups(
         }
       }
       const colors = milestoneColorMap(plan);
-      // A task's REGION = its main (first) section. A subtask has no sections of its
       // own — it inherits the region of the top-level task that spawned it (walk up).
       const taskByIdLocal = new Map(plan.tasks.map((t) => [t.id, t]));
       const regionSectionOf = (t: Task): string | undefined => {
@@ -55,9 +53,11 @@ export function useCanvasLookups(
         const existing = driftByTask.get(item.task_id);
         if (!existing || (existing.not_mine && !item.not_mine)) driftByTask.set(item.task_id, item);
       }
+      const exclusivePaneTasks = resolvePlanExclusivePaneTasks(plan);
       for (const task of plan.tasks) {
         taskById.set(task.id, task);
         const parentTaskName = task.parent_task_id ? taskNameById.get(task.parent_task_id) ?? null : null;
+        const presence = buildTaskPresence(plan, task, panes, exclusivePaneTasks);
         taskModelById.set(task.id, {
           task,
           tagFacets: plan.tag_facets,
@@ -66,7 +66,8 @@ export function useCanvasLookups(
           parentTaskName,
           stepColors: colors,
           drift: driftByTask.get(task.id),
-          presence: buildTaskPresence(plan, task, panes),
+          presence,
+          historicalExecutor: historicalExecutorForTask(task, panes, presence != null),
           regionColor: (() => { const sid = regionSectionOf(task); return sid ? zoneColor(sid) : undefined; })(),
         });
         for (const m of task.milestones) milestoneTaskById.set(m.id, task.id);

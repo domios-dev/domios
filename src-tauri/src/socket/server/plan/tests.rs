@@ -1,4 +1,5 @@
 use super::*;
+use crate::socket::server::plan_fields::optional_string_field;
 
 #[test]
 fn optional_string_field_preserves_missing_vs_null() {

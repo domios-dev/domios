@@ -2,6 +2,7 @@
 
 use super::ServiceContext;
 use crate::multiplexer::types::TitleLevel;
+use crate::service::session_persist::{self, SessionPersistUrgency};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const MAX_PANE_DESCRIPTION_CHARS: usize = 200;
@@ -30,12 +31,9 @@ fn epoch_ms() -> u64 {
 
 impl ServiceContext {
     pub fn close_pane(&self, pane_id: &str) -> Result<(), String> {
-        // Tear down the chat tailer (if any) BEFORE pane state goes away — the tailer thread reads provider/cwd/session_id from the mux on its first
         // iteration; once close_pane drops the entry, future polls would see Provider::None and bail anyway, but explicit stop joins the thread cleanly and frees the JSONL handle.
         self.chat_registry.stop(pane_id);
 
-        // Tear down the plugin chatBackend session BEFORE the pane entry is
-        // dropped — otherwise `pane_chat_backing` can no longer resolve it and
         if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
             let _ = self.chatbackend_close(&plugin_id, &session_id);
         }
@@ -62,6 +60,7 @@ impl ServiceContext {
         self.mux.write().rename_pane(pane_id, title)?;
         self.emit_pane_title_pinned(pane_id, title);
         self.emit_state_changed();
+        session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt)?;
         Ok(())
     }
 
@@ -83,10 +82,13 @@ impl ServiceContext {
     }
 
     pub fn focus_pane(&self, pane_id: &str) -> Result<(), String> {
-        self.mux.write().set_focused_pane(pane_id)?;
-        self.emit_pane_focus_changed(pane_id);
-        self.refresh_focused_pane_model();
-        Ok(())
+        self.user_last_activity.mark();
+        focus_pane_hot_path(
+            &self.mux,
+            pane_id,
+            |focused| self.emit_pane_focus_changed(focused),
+            || self.schedule_focused_pane_model_refresh(),
+        )
     }
 
     pub fn link_pty(&self, pane_id: &str, pty_id: String) {
@@ -203,8 +205,6 @@ impl ServiceContext {
                     }
                 }
             }
-            // Invariant: every agent pane surfaces exactly idle|working|question,
-            // never null. A restored pane has no `agent_state` until its first
             let seeded = {
                 use crate::agent::offline_state_classifier::{
                     AgentLiveState, PaneVerdict, TimelineState,
@@ -272,6 +272,13 @@ impl ServiceContext {
         if let Some((pid, at)) = target {
             self.refresh_session_model_once(&pid, &at);
         }
+    }
+
+    fn schedule_focused_pane_model_refresh(&self) {
+        let svc = self.clone();
+        std::thread::spawn(move || {
+            svc.refresh_focused_pane_model();
+        });
     }
 
     fn refresh_session_model_once(&self, pane_id: &str, agent_id: &str) {
@@ -575,18 +582,14 @@ impl ServiceContext {
         // Transition PromptDetector to Cooldown — suppresses re-detection of the same prompt from PTY output that hasn't been cleared yet.
         self.prompt_detector.lock().mark_responded(pane_id);
 
-        // STRUCTURED handle (opencode SSE) answers over HTTP, not the PTY: the
-        // PTY is display-only for these prompt classes. When a structured route
         if let Some(result) = crate::service::structured_prompt::respond(self, pane_id, value) {
             self.emit_state_changed();
             return result;
         }
 
-        // Only send to PTY if there was an actual prompt — prevents phantom input
         if had_prompt {
             let pty_id = self.resolve_pty_id(pane_id)?;
 
-            // Verify prompt is on screen before sending keystrokes
             let screen = {
                 let buf = self.output_buf.lock();
                 buf.get_text(&pty_id).unwrap_or_default()
@@ -597,8 +600,6 @@ impl ServiceContext {
                 .read()
                 .get_pane(pane_id)
                 .and_then(|p| p.agent_type.clone());
-            // Providers whose prompts aren't the universal numbered-list shape
-            // (opencode's horizontal row, cursor overlays) verify via their own
             let prompt_on_screen = crate::agent::detector::detect_interactive_prompt(&clean)
                 || agent_type.as_deref().is_some_and(|at| {
                     crate::agent::prompt::parse_prompt_safely(|| {
@@ -637,4 +638,16 @@ impl ServiceContext {
         self.emit_state_changed();
         Ok(())
     }
+}
+
+pub(crate) fn focus_pane_hot_path(
+    mux: &crate::multiplexer::commands::MuxState,
+    pane_id: &str,
+    emit_focus_changed: impl FnOnce(&str),
+    schedule_model_refresh: impl FnOnce(),
+) -> Result<(), String> {
+    mux.write().set_focused_pane(pane_id)?;
+    emit_focus_changed(pane_id);
+    schedule_model_refresh();
+    Ok(())
 }

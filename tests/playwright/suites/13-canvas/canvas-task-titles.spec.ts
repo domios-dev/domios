@@ -30,9 +30,6 @@ import {
 const PERF_KEY = "canvas.perfFixtureN";
 const SUBSTRATE_KEY = "canvas.substrateV2";
 
-// Per-card title-clip probe: is the title element fully inside the card's box, and
-// does it carry the full title text? A short footprint would clip the title via the
-// card's overflow:hidden — caught here as title.bottom poking past the card bottom.
 async function titleClipReport(page: Page) {
   return page.evaluate(() => {
     const cards = Array.from(
@@ -109,7 +106,6 @@ test("@golden @canvas-task-titles task cards show full titles, zero overflow, ac
   const probe = mounted[0].id;
   expect(probe, "probe task id present").toBeTruthy();
 
-  // Multi-card glance: pan into the cloud (content left/up) so several cards frame
   // together, then capture — a readable-sizing eyeball of the cards side by side.
   for (let i = 0; i < 4; i++) {
     await panBy(page, -360, -120);
@@ -120,16 +116,12 @@ test("@golden @canvas-task-titles task cards show full titles, zero overflow, ac
 
   const seenBands = new Set<string>();
   for (const scale of [1.0, 1.8, 2.6, 3.6, 5.0]) {
-    // Deterministic framing: center the probe task at the exact zoom via the product
-    // focus nav, so the reading-band cards are always on-screen for the title probe
-    // (the pan-then-anchor heuristic could cull the probe before the scale loop).
     await focusTaskById(page, probe!, scale);
     await page.waitForTimeout(220);
 
     const report = (await titleClipReport(page)).filter((r) => r.world);
     if (report.length === 0) continue;
 
-    // Reading bands (W1/W2/W3): no card may clip its title; no card may show the
     // ellipsis cue (that is a W0-only mass-glance affordance).
     const reading = report.filter((r) => r.world === "W1" || r.world === "W2" || r.world === "W3");
     for (const r of reading) {

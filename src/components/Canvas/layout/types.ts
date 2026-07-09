@@ -1,9 +1,6 @@
 import type { OrchestratorRef } from "../types";
 import type { Box, Point } from "./geometry";
 
-// OPEN by design: kinds grow (spec/orchestrator/note/html/…) without editing
-// core. The structured model emits the known kinds below; free-form
-// CanvasElement kinds flow through the same render registry.
 export type CanvasNodeKind = string;
 
 export const KNOWN_NODE_KINDS = [
@@ -31,7 +28,6 @@ export type CanvasEdgeKind =
   | "plan-plan"
   | "handoff-chain";
 
-// An edge endpoint is either a live node (follows drag) or a static world/local
 // point (section-row anchors and cluster anchors that are not standalone nodes).
 export interface LaidOutEdge {
   id: string;
@@ -42,15 +38,13 @@ export interface LaidOutEdge {
   toPoint?: Point;
 }
 
-// A section TERRITORY: the organic enclosing region around one section's task
-// cluster. `hull` is the inflated boundary polygon (world coords) the overlay
-// smooths into a blob; `label` names it (null = the neutral unsectioned group).
 export interface SectionZone {
   sectionId: string;
   label: string | null;
   color: string;
   hull: Point[];
   labelAnchor: Point;
+  box?: Box;
 }
 
 export interface PlanFrame {
@@ -84,7 +78,6 @@ export interface WorkspaceLayout {
   crossEdges?: LaidOutEdge[];
 }
 
-// Frame in local coords (origin 0,0), before region packing offsets it. Points
 // in edges/anchors are local too and get translated alongside node boxes.
 export interface IntraPlanLayout {
   planId: string;

@@ -365,7 +365,10 @@ test("codex exec_command rg search does not render as structured edit diff", asy
     codexStructuredEditMessages[0],
   ]);
   try {
+    assert(host.querySelector('[data-testid="chatbackend-tool-exec"]'), "exec_command should render shell card");
+    assertIncludes(host, "shell", "exec_command card label");
     assertIncludes(host, "rg -n", "rg exec command renders");
+    assert(!textOf(host).includes("exec_command"), "raw exec_command label should not appear");
     assert(!textOf(host).includes("let body = text.trim()"), "rg search must not show patch diff content");
     const diffMarkers = textOf(host).match(/\+\d+/g) ?? [];
     assert(diffMarkers.length === 0, "rg search must not show +/- edit counts");
@@ -400,12 +403,173 @@ test("chatBackend exec tool_call renders command card and attached result", asyn
     assert(host.querySelector('[data-testid="chatbackend-tool-exec"]'), "expected exec card");
     assertIncludes(host, "npm test -- --runInBand", "exec card command");
     assertIncludes(host, "cwd /repo/app", "exec card cwd");
-    assertIncludes(host, "result", "exec card phase");
     assertIncludes(host, "Tests passed", "exec card result preview");
+    const execCard = host.querySelector('[data-testid="chatbackend-tool-exec"]');
+    assert(execCard, "expected exec card root");
+    const execCardText = execCard.textContent ?? "";
+    assert(!/\b(pending|running|result)\b/i.test(execCardText), "exec card should not show phase badge");
     assert(
       !buttons(host).some((button) => (button.textContent ?? "").includes("Exit code: 0")),
       "paired tool_result should not render as a separate result button",
     );
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("chatBackend curated tool cards hide internal lifecycle phase badges", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "cb-pending-exec",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "exec",
+      toolId: "pending-call",
+      toolInput: { cmd: "sleep 1" },
+      toolArgs: JSON.stringify({ cmd: "sleep 1" }),
+    },
+    {
+      id: "cb-running-read",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "read_file",
+      toolId: "running-call",
+      toolInput: { path: "src/status.ts" },
+      toolArgs: JSON.stringify({ path: "src/status.ts" }),
+    },
+    {
+      id: "cb-result-write",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "write_file",
+      toolId: "result-call",
+      toolInput: { path: "src/done.ts", content: "ok" },
+      toolArgs: JSON.stringify({ path: "src/done.ts" }),
+      toolResult: "written",
+    },
+  ]);
+  try {
+    const cards = Array.from(host.querySelectorAll('[data-testid^="chatbackend-tool-"]'));
+    assert(cards.length === 3, `expected three curated cards, got ${cards.length}`);
+    for (const card of cards) {
+      const label = card.getAttribute("data-testid") ?? "card";
+      const text = card.textContent ?? "";
+      assert(!/\b(pending|running|result)\b/i.test(text), `${label} should not expose lifecycle phase badge`);
+    }
+    assertIncludes(host, "sleep 1", "pending exec still shows command");
+    assertIncludes(host, "src/status.ts", "running read still shows path");
+    assertIncludes(host, "written", "result write still shows attached output");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("codex codeterm command after cd chain renders CodeTerm card", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "codex-codeterm-chain",
+      provider: "codex",
+      type: "tool_call",
+      content: "",
+      toolName: "exec_command",
+      toolId: "call-codeterm",
+      toolInput: { cmd: "cd frontend && codeterm agent reports" },
+      toolArgs: "cd frontend && codeterm agent reports",
+    },
+    {
+      id: "codex-codeterm-chain-result",
+      provider: "codex",
+      type: "tool_result",
+      content: "OK\n",
+      toolResult: "OK\n",
+      toolId: "call-codeterm",
+    },
+  ]);
+  try {
+    assertIncludes(host, "CodeTerm", "CodeTerm card label");
+    assertIncludes(host, "agent reports", "CodeTerm command title");
+    assert(!host.querySelector('[data-testid="chat-tool-call"]'), "codeterm command should not render as generic exec tool");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("standalone arrow-only tool result is hidden", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "arrow-only-result",
+      provider: "codex",
+      type: "tool_result",
+      content: "→\n\n->\n⎿",
+    },
+  ]);
+  try {
+    assert(textOf(host).trim() === "", `arrow-only tool result should be hidden, got: ${textOf(host)}`);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+const PNG_1X1_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+
+test("generate image tool result renders preview instead of raw base64", async () => {
+  const dataUrl = `data:image/png;base64,${PNG_1X1_BASE64}`;
+  const { host, root } = await renderMessages([
+    {
+      id: "image-tool-call",
+      provider: "cursor",
+      type: "tool_call",
+      content: "",
+      toolName: "GenerateImage",
+      toolId: "call-image",
+      toolArgs: JSON.stringify({ description: "A red dot" }),
+    },
+    {
+      id: "image-tool-result",
+      provider: "cursor",
+      type: "tool_result",
+      content: JSON.stringify([{ type: "image_url", image_url: { url: dataUrl } }]),
+      toolResult: JSON.stringify([{ type: "image_url", image_url: { url: dataUrl } }]),
+      toolId: "call-image",
+    },
+  ]);
+  try {
+    assert(host.querySelector('[data-testid="chat-tool-image-preview"]'), "expected image preview card");
+    const img = host.querySelector('[data-testid="chat-tool-image-preview"] img') as HTMLImageElement | null;
+    assert(img, "expected preview img");
+    assert(img.src.startsWith("data:image/png;base64,"), "expected data url src");
+    assertIncludes(host, "Save", "expected save affordance");
+    assert(!textOf(host).includes(PNG_1X1_BASE64.slice(0, 40)), "raw base64 should not render as text");
+    assert(host.querySelector('[data-testid="chat-tool-image-download"]'), "expected download link");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("generate image standalone tool_result renders preview card", async () => {
+  const dataUrl = `data:image/png;base64,${PNG_1X1_BASE64}`;
+  const { host, root } = await renderMessages([
+    {
+      id: "image-only-result",
+      provider: "cursor",
+      type: "tool_result",
+      content: dataUrl,
+      toolResult: dataUrl,
+    },
+  ]);
+  try {
+    assert(host.querySelector('[data-testid="chat-tool-image-preview"]'), "expected standalone image preview");
+    assertIncludes(host, "PNG", "expected format label");
+    assert(!textOf(host).includes(PNG_1X1_BASE64.slice(0, 40)), "standalone result must not leak base64 text");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -450,18 +614,22 @@ test("codex sparse tool_call rows between exec commands do not render ghost butt
   try {
     assertIncludes(host, "npm test", "first codex exec command");
     assertIncludes(host, "npm run build", "second codex exec command");
-    const toolButtons = Array.from(host.querySelectorAll('[data-testid="chat-tool-call"]'));
+    const toolButtons = Array.from(host.querySelectorAll('[data-testid="chatbackend-tool-exec"]'));
     assert(
       toolButtons.length === 2,
-      `only real codex exec rows should render tool buttons (${toolButtons.length}: ${toolButtons.map((button) => button.textContent ?? "").join(" | ")})`,
+      `only real codex exec rows should render shell cards (${toolButtons.length}: ${toolButtons.map((button) => button.textContent ?? "").join(" | ")})`,
     );
     assert(
       toolButtons.every((button) => (button.textContent ?? "").trim()),
       "sparse codex rows should not render chevron-only buttons",
     );
     assert(
-      toolButtons.filter((button) => (button.textContent ?? "").includes("exec_command")).length === 2,
-      "real codex exec rows still render",
+      toolButtons.every((button) => (button.textContent ?? "").includes("shell")),
+      "codex exec_command rows should render as shell cards",
+    );
+    assert(
+      !textOf(host).includes("exec_command"),
+      "raw exec_command label should not appear in chat UI",
     );
   } finally {
     await act(async () => root.unmount());

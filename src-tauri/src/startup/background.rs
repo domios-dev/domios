@@ -1,16 +1,19 @@
 //! Background tasks: auto-save, mesh health, update check, agent idle poll.
 
-use tauri::{Emitter, Manager};
+use std::collections::{HashMap, HashSet};
+
+use tauri::Manager;
 
 use crate::multiplexer::commands::MuxState;
 use crate::session::SessionState;
-use crate::{mesh, update};
+use crate::{keepawake, mesh, update};
 
 use super::states::AppStates;
 
 /// Start background threads: auto-save, update check, agent idle monitoring.
 pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &AppStates) {
-    // Auto-save session every 30 seconds
+    keepawake::start_supervisor(states.keepawake.clone(), app_handle.clone());
+
     {
         let app_handle = app_handle.clone();
         std::thread::spawn(move || loop {
@@ -53,7 +56,6 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                     }
                     mesh::discovery::cleanup_stale_peers(&mesh);
                     mesh.lock().cleanup_expired_requests();
-                    // Ping all paired peers
                     let (peers, sync_payload, signed_token) = {
                         let m = mesh.lock();
                         let peers: Vec<_> = m.paired_peers.values().cloned().collect();
@@ -143,6 +145,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                 let voucher = peer.instance_id.clone();
                                 let mut m = mesh.lock();
                                 for p in their_payload.peers {
+                                    m.apply_gossip_peer_info(&p);
                                     if m.paired_peers.contains_key(&p.instance_id) {
                                         continue;
                                     }
@@ -383,10 +386,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                 info.current_version,
                                 info.latest_version
                             );
-                            let _ = app_h.emit(
-                                "update-available",
-                                serde_json::to_value(&info).unwrap_or_default(),
-                            );
+                            crate::api::events::emit_everywhere(&app_h, "update-available", &info);
                         }
                         let mut us = update_st.lock();
                         us.last_check = Some(info);
@@ -398,7 +398,6 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
         });
     }
 
-    // Agent idle check loop — transitions Working -> Idle after timeout
     {
         let tracker = states.agent_tracker.clone();
         let mux = states.mux.clone();
@@ -410,25 +409,80 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
             let cfg = states.config.lock();
             std::time::Duration::from_millis(cfg.agent.poll_interval_ms as u64)
         };
+        let idle_poke_cfg = states.config.clone();
         let app_handle = app_handle.clone();
+        let mut idle_since_by_pty: HashMap<String, u64> = HashMap::new();
+        let mut was_idle_by_pty: HashSet<String> = HashSet::new();
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(poll_interval);
                 // Hold tracker lock for collect, then unlock before mux updates.
-                let changed: Vec<(String, crate::agent::status::PaneStatus)> = {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let (changed, status_snapshots): (
+                    Vec<(String, crate::agent::status::PaneStatus)>,
+                    Vec<(String, crate::agent::status::PaneStatus)>,
+                ) = {
                     let mut t = tracker.lock();
                     let pty_ids = t.all_ids();
                     let mut changes = Vec::new();
+                    let mut snapshots = Vec::with_capacity(pty_ids.len());
                     for pty_id in pty_ids {
                         let prev = t.get_status(&pty_id);
                         t.check_idle(&pty_id, idle_timeout);
                         let now = t.get_status(&pty_id);
                         if now != prev {
-                            changes.push((pty_id, now));
+                            changes.push((pty_id.clone(), now));
+                        }
+                        snapshots.push((pty_id, now));
+                    }
+                    (changes, snapshots)
+                }; // tracker lock released here
+                let idle_threshold = {
+                    let cfg = idle_poke_cfg.lock();
+                    cfg.orchestration.idle_poke.idle_threshold_secs
+                };
+                let mut seen_pty_ids = HashSet::new();
+
+                for (pty_id, status) in status_snapshots {
+                    seen_pty_ids.insert(pty_id.clone());
+                    let pane_id = mux.write().pane_id_for_pty(&pty_id);
+                    let Some(pane_id) = pane_id else {
+                        continue;
+                    };
+                    match status {
+                        crate::agent::status::PaneStatus::Idle => {
+                            let started_at = idle_since_by_pty.entry(pty_id.clone()).or_insert(now);
+                            if now.saturating_sub(*started_at) >= idle_threshold {
+                                if let Some(service) =
+                                    app_handle.try_state::<crate::service::ServiceState>()
+                                {
+                                    service.maybe_send_idle_plan_poke(&pane_id);
+                                }
+                            }
+                            was_idle_by_pty.insert(pty_id);
+                        }
+                        crate::agent::status::PaneStatus::Working => {
+                            idle_since_by_pty.remove(&pty_id);
+                            if was_idle_by_pty.remove(&pty_id) {
+                                if let Some(service) =
+                                    app_handle.try_state::<crate::service::ServiceState>()
+                                {
+                                    service.plan_turn_counter.reset(&pane_id);
+                                }
+                            }
+                        }
+                        _ => {
+                            idle_since_by_pty.remove(&pty_id);
                         }
                     }
-                    changes
-                }; // tracker lock released here
+                }
+
+                let seen_pty_ids = seen_pty_ids;
+                idle_since_by_pty.retain(|pty_id, _| seen_pty_ids.contains(pty_id));
+                was_idle_by_pty.retain(|pty_id| seen_pty_ids.contains(pty_id));
 
                 for (pty_id, status) in changed {
                     let pane_id = mux.write().pane_id_for_pty(&pty_id);
@@ -453,6 +507,25 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                 }
 
                 // Exit detection moved from idle-poll to output.rs.
+            }
+        });
+    }
+
+    // Runaway test-binary sweeper — kills orphan */target/*/deps/* processes.
+    {
+        let cfg = states.config.clone();
+        let app_handle = app_handle.clone();
+        std::thread::spawn(move || {
+            // Initial delay: give the daemon a moment to settle before first sweep.
+            std::thread::sleep(std::time::Duration::from_secs(60));
+            loop {
+                let runaway_cfg = cfg.lock().runaway.clone();
+                if runaway_cfg.enabled {
+                    if let Some(svc) = app_handle.try_state::<crate::service::ServiceState>() {
+                        crate::runaway_sweeper::sweep_once(&runaway_cfg, &svc);
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_secs(60));
             }
         });
     }

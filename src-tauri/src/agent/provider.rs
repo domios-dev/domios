@@ -47,7 +47,6 @@ pub struct AgentLaunchParams {
     pub task: Option<String>,
     pub args: Option<Vec<String>>,
     pub skip_permissions: bool,
-    // Pre-generated session id to use when starting a NEW conversation. Honored only by providers reporting `SessionIdInjection != None` — others
     // ignore it (they generate ids themselves and CodeTerm has to detect after launch).
     pub session_id: Option<String>,
     /// Fixed local server the host wants the agent's structured-prompt handle to
@@ -194,7 +193,6 @@ pub enum SettingField {
         fields: Vec<SettingField>,
     },
 
-    // ── Inputs ───────────────────────────────────────────────────
     Toggle {
         /// Config path relative to the plugin's namespace
         /// (e.g. `"resume_sessions"` → `agents.<id>.resume_sessions`).
@@ -415,19 +413,17 @@ pub fn session_resume_section(description: &str, skip_flag: &str) -> SettingFiel
 /// don't need to include it manually.
 pub fn usage_tracking_section(probe_command: &str) -> SettingField {
     SettingField::Section {
-        title: "Usage Tracking (experimental)".into(),
+        title: "Usage Tracking".into(),
         description: Some(format!(
-            "Periodically probe {} in a hidden pane to capture session + weekly limits, \
-             then surface them as a pill in the corner of every pane plus a projections \
-             popover. Off by default — turn on to enable for this provider. Experimental: \
-             the hidden probe spawns a real agent process every 10–50 min and can in rare \
-             cases interact awkwardly with active sessions on the same account.",
+            "Periodically probe {} to capture session + weekly limits and surface them in \
+             orchestrator heartbeats and the usage pill. Enabled by default for usage-capable \
+             providers; disable per provider if the probe interferes with active sessions.",
             probe_command
         )),
         fields: vec![SettingField::Toggle {
             key: "usage_tracking_enabled".into(),
             label: "Enable usage tracking".into(),
-            default: false,
+            default: true,
             description: None,
         }],
     }

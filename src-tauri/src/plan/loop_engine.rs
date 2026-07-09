@@ -64,13 +64,13 @@ mod tests {
         LoopSpec {
             id: id.into(),
             target: "harden the parser".into(),
-            stages: vec![],
             budget: 0,
             count: 0,
             stop_when: None,
             status: LoopStatus::Running,
             stagnation: 0,
             deviation: None,
+            last_iteration_at: None,
         }
     }
 
@@ -168,7 +168,6 @@ mod tests {
         assert!(can_advance(&l));
         advance(&mut l);
         assert!(!can_advance(&l), "exhausted loop cannot advance");
-        // a stopped loop also cannot advance regardless of stagnation
         let mut s = LoopSpec {
             budget: 10,
             stagnation: 5,

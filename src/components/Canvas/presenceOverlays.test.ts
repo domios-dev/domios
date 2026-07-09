@@ -31,7 +31,7 @@ function fixture(taskCount: 100 | 500 | 1000) {
   return { layout, nodeById, taskIds };
 }
 
-const transform = { x: 40, y: 30, scale: 1.2 };
+const cameraScale = 1.2;
 
 console.log("presence overlay budget:");
 {
@@ -41,10 +41,15 @@ console.log("presence overlay budget:");
   );
   const visibleIds = new Set(taskIds);
   const worldByNode = new Map<string, World>(taskIds.map((id) => [id, "W1" as World]));
-  const overlays = buildPresenceOverlays({ presenceByTask, nodeById, visibleIds, worldByNode, transform });
+  const overlays = buildPresenceOverlays({ presenceByTask, nodeById, visibleIds, worldByNode, cameraScale });
   ok("every task active → pin count capped at the budget", overlays.length === MAX_ACTIVE_PRESENCE_OVERLAYS);
   ok("budget is a hard ceiling, never exceeded", overlays.length <= MAX_ACTIVE_PRESENCE_OVERLAYS);
-  ok("anchors are screen-space (camera-projected)", overlays.every((o) => Number.isFinite(o.anchor.x) && Number.isFinite(o.anchor.y)));
+  ok("anchors are world-space (camera layer projects them)", overlays.every((o) => Number.isFinite(o.anchor.x) && Number.isFinite(o.anchor.y)));
+  const node = nodeById.get(overlays[0]?.taskId ?? "");
+  if (node) {
+    const expectedX = node.box.x + node.box.width;
+    ok("anchor x is task top-right in world coords", overlays[0].anchor.x === expectedX);
+  }
   ok("each pin carries its agents + world band", overlays.every((o) => o.agents.length > 0 && !!o.world));
 }
 
@@ -58,7 +63,7 @@ console.log("viewport culling:");
   const onScreen = taskIds.slice(0, 3);
   const visibleIds = new Set(onScreen);
   const worldByNode = new Map<string, World>(taskIds.map((id) => [id, "W2" as World]));
-  const overlays = buildPresenceOverlays({ presenceByTask, nodeById, visibleIds, worldByNode, transform });
+  const overlays = buildPresenceOverlays({ presenceByTask, nodeById, visibleIds, worldByNode, cameraScale });
   ok("off-screen swarm emits nothing (culled)", overlays.length === onScreen.length);
   ok("emitted pins are exactly the visible ones", overlays.every((o) => visibleIds.has(o.taskId)));
 }
@@ -73,7 +78,7 @@ console.log("only-active + LOD fallback:");
   });
   const visibleIds = new Set(taskIds.slice(0, 10));
   const worldByNode = new Map<string, World>(); // empty → every pin falls back to W0
-  const overlays = buildPresenceOverlays({ presenceByTask, nodeById, visibleIds, worldByNode, transform });
+  const overlays = buildPresenceOverlays({ presenceByTask, nodeById, visibleIds, worldByNode, cameraScale });
   ok("only tasks with agents produce a pin", overlays.every((o) => o.agents.length > 0));
   ok("idle (agentless) tasks emit no pin", overlays.length === taskIds.slice(0, 10).filter((_, i) => i % 2 === 0).length);
   ok("missing world band falls back to W0", overlays.every((o) => o.world === "W0"));
@@ -87,9 +92,22 @@ console.log("determinism:");
   );
   const visibleIds = new Set(taskIds);
   const worldByNode = new Map<string, World>(taskIds.map((id) => [id, "W1" as World]));
-  const a = buildPresenceOverlays({ presenceByTask, nodeById, visibleIds, worldByNode, transform });
-  const b = buildPresenceOverlays({ presenceByTask, nodeById, visibleIds, worldByNode, transform });
+  const a = buildPresenceOverlays({ presenceByTask, nodeById, visibleIds, worldByNode, cameraScale });
+  const b = buildPresenceOverlays({ presenceByTask, nodeById, visibleIds, worldByNode, cameraScale });
   ok("same inputs → identical selection", JSON.stringify(a.map((o) => o.taskId)) === JSON.stringify(b.map((o) => o.taskId)));
+}
+
+console.log("camera pan independence:");
+{
+  const { nodeById, taskIds } = fixture(500);
+  const presenceByTask = new Map<string, PresenceSource>(
+    taskIds.map((id) => [id, { agents: [agent(id)], live: true, label: id }]),
+  );
+  const visibleIds = new Set(taskIds);
+  const worldByNode = new Map<string, World>(taskIds.map((id) => [id, "W1" as World]));
+  const a = buildPresenceOverlays({ presenceByTask, nodeById, visibleIds, worldByNode, cameraScale: 0.8 });
+  const b = buildPresenceOverlays({ presenceByTask, nodeById, visibleIds, worldByNode, cameraScale: 0.8 });
+  ok("same scale + visibility fully determine pin selection", JSON.stringify(a) === JSON.stringify(b));
 }
 
 console.log(`\npresenceOverlays: ${passed} passed, ${failed} failed`);

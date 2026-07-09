@@ -6,13 +6,10 @@ import type {
 } from "@codeterm/chat-core";
 import {
   Bot,
-  CheckCircle2,
-  Clock,
   Download, FileText, Image,
   Pencil,
   Search,
   Terminal,
-  // Origin icons
   ArrowRight,      // pane -> pane
   Send,            // generic chat (telegram / service)
   Network,         // mesh
@@ -34,7 +31,6 @@ import {
   ImageBadge,
   LongArtifact,
   ModelAvatar,
-  PlainOutput,
   RichMarkdown,
   TEXT_WRAP_CLASS,
   extractCommand,
@@ -44,7 +40,6 @@ import {
   isLargeArtifact,
   languageForEdits,
   languageFromPath,
-  lastNonEmptyLine,
   renderUserContent,
   shortPath,
 } from "./MarkdownBody";
@@ -52,6 +47,20 @@ import { ToolIcon } from "./toolIcons";
 import { InteractiveElementRenderer } from "./interactive/InteractiveElementRenderer";
 import type { InteractiveAnswerHandler } from "./interactive/InteractiveQuestion";
 import { pickUiFontScaleValue } from "./uiFontScale";
+import { ToolOutputContent } from "./ToolOutputContent";
+import { isImageOnlyToolOutput, toolResultPreviewLine } from "./toolImageOutput";
+import {
+  INBOUND_KIND_LABELS,
+  contentSize,
+  hasMeaningfulToolResult,
+  isRenderableMessage,
+  parsedToolInput,
+  previewLine,
+  resolveCuratedToolKind,
+  structuredInboundFromMessage,
+  textArg,
+  toolDisplayLabel,
+} from "./MessageBubble.helpers";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -68,6 +77,8 @@ interface MessageBubbleProps {
   onOriginClick?: () => void;
   /** Resolve a pane id/short-id to a tab name for CodeTerm cards (e.g. "Sent to <name>"). */
   resolvePaneName?: PaneNameResolver;
+  /** Open the plan view for a plan (optionally focused on a task) from chat cards/links. */
+  onOpenPlan?: (planId: string, taskId?: string) => void;
   fontScale?: number;
   /** `shell_command` decoration — re-run the command in the pane's PTY. */
   onRerunShellCommand?: (command: string) => void;
@@ -75,128 +86,9 @@ interface MessageBubbleProps {
   onJumpToShellCommand?: (message: ChatMessage) => void;
 }
 
-// Kill switch for interactive AskUserQuestion widgets (all providers). Detection
-// is mistimed — the prompt surfaces AFTER the user has already answered — so the
 const INTERACTIVE_QUESTIONS_ENABLED = false;
 
-type CuratedToolKind = "exec" | "read_file" | "write_file" | "codeterm" | "mem_search" | "spawn_agent";
-type StructuredInboundKind = NonNullable<ChatMessage["inboundKind"]>;
-
-const INBOUND_KIND_LABELS: Record<StructuredInboundKind, string> = {
-  pane: "pane",
-  report: "report",
-  reminder: "reminder",
-  mesh: "mesh",
-  telegram: "telegram",
-};
-
-interface StructuredInbound {
-  origin: ChatOrigin;
-  kind: StructuredInboundKind;
-}
-
-function structuredInboundFromMessage(message: ChatMessage): StructuredInbound | null {
-  const fromLabel = message.fromLabel?.trim();
-  if (!fromLabel) return null;
-  const kind = message.inboundKind ?? (message.fromMesh ? "mesh" : "pane");
-  const title = kind === "mesh" && message.fromMesh
-    ? `${fromLabel}@${message.fromMesh}`
-    : fromLabel;
-  return {
-    kind,
-    origin: {
-      kind: "pane",
-      title,
-      paneIdShort: message.fromPane ?? "",
-      model: message.fromModel,
-      mesh: kind === "mesh" ? undefined : message.fromMesh,
-      report: kind === "report",
-    },
-  };
-}
-
-function parsedToolInput(message: ChatMessage): Record<string, unknown> {
-  if (message.toolInput) return message.toolInput;
-  if (!message.toolArgs) return {};
-  try {
-    const parsed = JSON.parse(message.toolArgs);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function textArg(input: Record<string, unknown>, keys: string[]): string | null {
-  for (const key of keys) {
-    const value = input[key];
-    if (typeof value === "string" && value.trim()) return value;
-    if (Array.isArray(value) && value.length > 0) return value.map(String).join(" ");
-  }
-  return null;
-}
-
-function contentSize(content: string): string {
-  const bytes = new TextEncoder().encode(content).length;
-  if (bytes < 1024) return `${bytes} B`;
-  return `${(bytes / 1024).toFixed(1)} KB`;
-}
-
-function previewLine(text: string, max = 90): string {
-  const line = text.replace(/\r/g, "").split("\n").find((part) => part.trim())?.trim() ?? "";
-  return line.length > max ? `${line.slice(0, max)}...` : line;
-}
-
-function curatedToolKind(name: string | undefined): CuratedToolKind | null {
-  const normalized = (name ?? "").trim().toLowerCase();
-  switch (normalized) {
-    case "exec":
-    case "read_file":
-    case "write_file":
-    case "codeterm":
-    case "mem_search":
-    case "spawn_agent":
-      return normalized;
-    default:
-      return null;
-  }
-}
-
-function hasRenderableValue(value: unknown): boolean {
-  if (value == null) return false;
-  if (typeof value === "string") return value.trim().length > 0;
-  if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === "object") return Object.keys(value).length > 0;
-  return true;
-}
-
-function hasRenderableText(value: string | undefined): boolean {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function isRenderableMessage(message: ChatMessage): boolean {
-  if (message.type === "tool_call") {
-    return (
-      hasRenderableText(message.content) ||
-      hasRenderableText(message.toolName) ||
-      hasRenderableText(message.toolArgs) ||
-      hasRenderableText(message.toolResult) ||
-      hasRenderableValue(message.toolInput) ||
-      Boolean(message.interactive?.length)
-    );
-  }
-
-  if (message.type === "tool_result") {
-    return hasRenderableText(message.content) || hasRenderableText(message.toolResult);
-  }
-
-  return true;
-}
-
-export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
-  // Auto-expand for Write-style tool input (the file body being written) and
-  // for Edit/MultiEdit (always show the diff). A bash/grep result must NOT
+export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onOpenPlan, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
   const shouldAutoExpand = message.type === "tool_call"
     && (message.toolInput?.content != null || extractEdits(message).length > 0);
   const [expanded, setExpanded] = useState(shouldAutoExpand);
@@ -221,7 +113,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     return null;
   }
 
-  // Image message (standalone, legacy) — compact placeholder
   if (message.type === "image") {
     return (
       <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
@@ -230,7 +121,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     );
   }
 
-  // User message — right-aligned by default; left-aligned with origin header for injected messages
   if (message.type === "user") {
     const attachments = message.attachments;
     const userText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
@@ -291,7 +181,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       );
     }
 
-    // Origin header rendered above the bubble when the message came from a
     // codeterm channel (cross-pane, telegram, mesh) or wraps slash-commands.
     const originHeader = effectiveOrigin ? (() => {
       // Cross-pane / report: model-avatar + "from <Name>" + mesh·model subtitle.
@@ -397,7 +286,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           <div
             className={`min-w-0 rounded-2xl rounded-br-sm px-4 py-2 ${userText} select-text cursor-text border ${TEXT_WRAP_CLASS}`}
             style={{
-              // The user voice is the ONE filled element in the feed — a clear accent
               // tint so it never blends with tool traces or assistant prose.
               background: effectiveOrigin
                 ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, var(--ct-surface, #161b22) 88%)"
@@ -484,7 +372,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     );
   }
 
-  // Assistant message — left-aligned, NO bubble, clean prose
   if (message.type === "assistant") {
     const assistantText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
     return (
@@ -518,7 +405,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       );
     }
     if (isTurnAborted) {
-      // Synthetic provider envelope (codex <turn_aborted>) — a meta event, not a
       // chat turn. Render as the centered status chip, never the raw XML text.
       return (
         <div className="flex w-full max-w-4xl min-w-0 justify-center mb-2 mx-auto">
@@ -584,8 +470,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     );
   }
 
-  // Interactive prompt — answerable widget rendered in place of the raw
-  // tool-call JSON (e.g. AskUserQuestion). Provider-agnostic: the backend
   if (INTERACTIVE_QUESTIONS_ENABLED && message.interactive && message.interactive.length > 0) {
     return (
       <div className="w-full">
@@ -601,7 +485,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     );
   }
 
-  // Tool call — compact pill/card
   if (message.type === "tool_call") {
     const toolName = message.toolName || "";
     const filePath = extractFilePath(message);
@@ -612,7 +495,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     const addedLines = edits.reduce((n, e) => n + (e.new ? e.new.split("\n").length : 0), 0);
     const removedLines = edits.reduce((n, e) => n + (e.old ? e.old.split("\n").length : 0), 0);
 
-    // Build summary text
     let summary = "";
     if (filePath) {
       summary = shortPath(filePath);
@@ -624,7 +506,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       summary = firstLine.length > 60 ? firstLine.slice(0, 60) + "..." : firstLine;
     }
 
-    // TodoWrite — render checklist inline
     if (message.toolName === "TodoWrite" && Array.isArray(message.toolInput?.todos)) {
       const todos = message.toolInput!.todos as Array<{ content: string; status: string; id?: string }>;
       const STATUS_ICON: Record<string, string> = { pending: "⏳", in_progress: "🚧", completed: "✅" };
@@ -643,7 +524,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       );
     }
 
-    // CodeTerm CLI command — render a branded semantic card across Claude/Codex
     // shell tool shapes.
     const shellCommand = command;
     if (shellCommand) {
@@ -656,15 +536,16 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             expanded={expanded}
             onToggle={() => setExpanded(!expanded)}
             resolvePaneName={resolvePaneName}
+            onOpenPlan={onOpenPlan}
+            fontScale={fontScale}
           />
         );
       }
     }
 
-    const curatedKind = curatedToolKind(message.toolName);
+    const curatedKind = resolveCuratedToolKind(message.toolName);
     if (curatedKind) {
       const input = parsedToolInput(message);
-      const phase = message.toolResult ? "result" : message.toolId ? "running" : "pending";
       const Icon =
         curatedKind === "exec" ? Terminal :
         curatedKind === "read_file" ? FileText :
@@ -672,10 +553,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
         curatedKind === "codeterm" ? Terminal :
         curatedKind === "mem_search" ? Search :
         Bot;
-      const PhaseIcon = phase === "result" ? CheckCircle2 : phase === "running" ? Clock : Clock;
       const commandText =
-        curatedKind === "exec" ? textArg(input, ["cmd", "command"]) :
-        curatedKind === "codeterm" ? textArg(input, ["args", "command"]) :
+        curatedKind === "exec"
+          ? (textArg(input, ["cmd", "command"]) ?? extractCommand(message))
+          : curatedKind === "codeterm" ? textArg(input, ["args", "command"]) :
         null;
       const pathText =
         curatedKind === "read_file" || curatedKind === "write_file"
@@ -688,7 +569,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       const cwdText = curatedKind === "exec" ? textArg(input, ["cwd"]) : null;
       const contentText = curatedKind === "write_file" ? textArg(input, ["content"]) : null;
       const title =
-        curatedKind === "exec" ? "exec" :
+        curatedKind === "exec" ? "shell" :
         curatedKind === "read_file" ? "read file" :
         curatedKind === "write_file" ? "write file" :
         curatedKind === "codeterm" ? "codeterm" :
@@ -705,13 +586,13 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
       return (
         <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
-          <div className="inline-flex flex-col max-w-[min(52rem,100%)]">
+          <div className="flex w-full min-w-0 flex-col">
             <button
               data-testid={`chatbackend-tool-${curatedKind}`}
               onClick={() => setExpanded(!expanded)}
-              className="inline-flex min-w-0 items-center gap-1.5 text-left rounded-md border px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110"
+              className="flex w-full min-w-0 items-center gap-1.5 text-left rounded-md border px-2.5 py-1.5 text-xs transition-colors duration-150 hover:brightness-110"
               style={{
-                background: "transparent",
+                background: "color-mix(in srgb, var(--ct-surface, #161b22) 88%, black 4%)",
                 borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
                 color: "var(--ct-muted-fg)",
               }}
@@ -725,7 +606,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
               <span className="font-medium font-mono" style={{ color: "var(--ct-muted-fg)" }}>
                 {title}
               </span>
-              <span className="min-w-0 truncate opacity-70 font-mono text-[11px]">
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px]" style={{ color: "var(--ct-fg)" }}>
                 {primary}
               </span>
               {secondary && (
@@ -733,29 +614,24 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                   {secondary}
                 </span>
               )}
-              <span
-                className="ml-1 inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono"
-                style={{
-                  background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 10%, transparent)",
-                  color: phase === "result" ? "var(--ct-green, #3fb950)" : "var(--ct-muted-fg)",
-                }}
-              >
-                <PhaseIcon size={10} strokeWidth={2} />
-                {phase}
-              </span>
               <ChevronIcon expanded={expanded} className="ml-1 opacity-50" />
             </button>
 
-            {message.toolResult && !expanded && (
+            {message.toolResult && !expanded && !isImageOnlyToolOutput(message.toolResult) && (
               <button
                 onClick={() => setExpanded(true)}
                 className="mt-0.5 flex min-w-0 items-start gap-1 pl-2.5 text-left text-[11px] font-mono"
                 style={{ color: "var(--ct-muted-fg)" }}
                 title="Show full output"
               >
-                <span className="flex-shrink-0 opacity-40">{"->"}</span>
-                <span className="min-w-0 truncate opacity-70">{lastNonEmptyLine(message.toolResult)}</span>
+                <span className="flex-shrink-0 opacity-40">{"→"}</span>
+                <span className={`min-w-0 flex-1 ${TEXT_WRAP_CLASS} opacity-70`}>{toolResultPreviewLine(message.toolResult)}</span>
               </button>
+            )}
+            {message.toolResult && !expanded && isImageOnlyToolOutput(message.toolResult) && (
+              <div className="mt-1 pl-2.5">
+                <ToolOutputContent text={message.toolResult} />
+              </div>
             )}
 
             {expanded && (
@@ -778,7 +654,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                     >
                       Result
                     </div>
-                    <PlainOutput text={message.toolResult} maxHeight="12rem" />
+                    <ToolOutputContent text={message.toolResult} maxHeight="12rem" />
                   </div>
                 )}
               </div>
@@ -796,15 +672,13 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
     return (
       <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
-        <div className="inline-flex flex-col max-w-[min(52rem,100%)]">
+        <div className="flex w-full min-w-0 flex-col">
           <button
             data-testid="chat-tool-call"
             onClick={() => setExpanded(!expanded)}
-            // De-bubbled on purpose: tool activity is a thin terminal trace (hairline border,
-            // no fill, green exec glyph) so it visually recedes behind user/assistant voices.
-            className="inline-flex min-w-0 items-center gap-1.5 text-left rounded-md border px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110"
+            className="flex w-full min-w-0 items-center gap-1.5 text-left rounded-md border px-2.5 py-1.5 text-xs transition-colors duration-150 hover:brightness-110"
             style={{
-              background: "transparent",
+              background: "color-mix(in srgb, var(--ct-surface, #161b22) 88%, black 4%)",
               borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
               color: "var(--ct-muted-fg)",
             }}
@@ -815,11 +689,11 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             >
               <ToolIcon name={toolName} />
             </span>
-            <span className="font-medium font-mono" style={{ color: "var(--ct-muted-fg)" }}>
-              {toolName === "shell_command" ? "shell" : message.toolName}
+            <span className="font-medium font-mono shrink-0" style={{ color: "var(--ct-muted-fg)" }}>
+              {toolDisplayLabel(toolName)}
             </span>
             {summary && (
-              <span className="min-w-0 truncate opacity-60 font-mono text-[11px]">{summary}</span>
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px]" style={{ color: "var(--ct-fg)" }}>{summary}</span>
             )}
             {toolContent && (
               <span className="shrink-0 opacity-40 font-mono text-[11px]">
@@ -837,7 +711,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
           {/* Compact inline tail — last line of output, always visible while
               collapsed. Click to reveal the full result under the command. */}
-          {resultText && !expanded && (
+          {resultText && !expanded && !isImageOnlyToolOutput(resultText) && (
             <button
               onClick={() => setExpanded(true)}
               className="mt-0.5 flex min-w-0 items-start gap-1 pl-2.5 text-left text-[11px] font-mono"
@@ -845,13 +719,18 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
               title="Show full output"
             >
               <span className="flex-shrink-0 opacity-40">{"→"}</span>
-              <span className="min-w-0 truncate opacity-70">{lastNonEmptyLine(resultText)}</span>
+              <span className={`min-w-0 flex-1 ${TEXT_WRAP_CLASS} opacity-70`}>{toolResultPreviewLine(resultText)}</span>
             </button>
+          )}
+          {resultText && !expanded && isImageOnlyToolOutput(resultText) && (
+            <div className="mt-1 pl-2.5">
+              <ToolOutputContent text={resultText} />
+            </div>
           )}
 
           {expanded && (
             <div
-              className="mt-1 w-full min-w-0 max-w-full rounded-md border border-[var(--ct-border)] p-2 text-xs"
+              className="mt-1 w-full min-w-0 max-w-full rounded-md border border-[var(--ct-border)] p-2.5 text-xs"
               style={{ background: "color-mix(in srgb, var(--ct-bg, #0d1117) 88%, black 4%)" }}
             >
               {toolContent ? (
@@ -874,7 +753,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                   >
                     Result
                   </div>
-                  <PlainOutput text={resultText} maxHeight="12rem" />
+                  <ToolOutputContent text={resultText} maxHeight="12rem" />
                 </div>
               )}
             </div>
@@ -884,8 +763,16 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     );
   }
 
-  // Tool result — subtle, compact
   if (message.type === "tool_result") {
+    if (!hasMeaningfulToolResult(message.content)) return null;
+    const standaloneResult = message.toolResult || message.content;
+    if (isImageOnlyToolOutput(standaloneResult)) {
+      return (
+        <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto pl-4">
+          <ToolOutputContent text={standaloneResult} />
+        </div>
+      );
+    }
     if (isLargeArtifact(message.content)) {
       return (
         <LongArtifact
@@ -920,18 +807,14 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           {hasMore && <ChevronIcon expanded={expanded} className="ml-1 mt-0.5 opacity-40" />}
         </button>
         {expanded && (
-          <div
-            className="mt-1 ml-4 max-w-full min-w-0 rounded-md px-3 py-2 text-xs font-mono overflow-x-auto max-h-48 overflow-y-auto border border-[var(--ct-border)]"
-            style={{ background: "var(--ct-bg)", color: "var(--ct-fg)" }}
-          >
-            <pre className={`${PRE_WRAP_CLASS} m-0`}>{message.content}</pre>
+          <div className="mt-1 ml-4 max-w-full min-w-0">
+            <ToolOutputContent text={standaloneResult} maxHeight="12rem" />
           </div>
         )}
       </div>
     );
   }
 
-  // Thinking block — minimal, collapsed by default
   if (message.type === "thinking") {
     return (
       <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
@@ -974,7 +857,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     );
   }
 
-  // Status message
   if (message.type === "status") {
     return (
       <div className="flex w-full max-w-4xl min-w-0 justify-center mb-2 mx-auto">

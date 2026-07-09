@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { open } from "@tauri-apps/plugin-dialog";
 import { IS_WEB } from "../../lib/webApi";
-import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
-import { KeepAwakeTray } from "../Titlebar/KeepAwakeTray";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer } from "../../store/multiplexer";
@@ -11,14 +9,12 @@ import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { setProviderSettings } from "../../lib/clientSettings";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
-import type { Tab, PaneStatus, AppConfig } from "../../lib/types";
-import { Plus } from "lucide-react";
-import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon, ExtensionsIcon } from "../Icons";
+import type { AppConfig } from "../../lib/types";
+import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
+import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
 import { WorkspaceItem } from "./WorkspaceItem";
-import { TabItem } from "./TabItem";
 import { WorkspacePlanTreeSlot } from "./WorkspacePlanEntry";
-import { RemoteWorkerRow } from "./RemoteWorkerRow";
 import { RecentlyClosed } from "./RecentlyClosed";
 import { useRemoteWorkers } from "../../hooks/useRemoteWorkers";
 import {
@@ -28,41 +24,24 @@ import {
   verticalListSortingStrategy,
   sortByOrder,
   WS_PREFIX,
-  TAB_PREFIX,
 } from "./sortable";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
-import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import type { MeshPresence } from "./meshPresenceHeader";
-import {
-  childTabsForParent,
-  collectPaneIds,
-  flattenSidebarTabs,
-  topLevelTabsInWorkspace,
-} from "./workspaceTabs";
-import { usePlanIndexOptional } from "../Canvas/PlansProvider";
-import { resolvePaneTabActivity } from "../Canvas/paneTabActivity";
+import { flattenSidebarTabs, collectPaneIds } from "./workspaceTabs";
+import { aggregateTabStatus } from "./sidebarTabStatus";
+import { useFullPlansOptional, usePlanIndexOptional } from "../Canvas/PlansProvider";
+import { selectActiveWork } from "../Canvas/planView/activeWork";
+import { isWorkspacePlanEntryActive, isWorkspaceTabActive } from "./sidebarSelection";
+import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
+import { deriveWorkspacePlanEntries, openWorkspacePlanForEntries } from "../Canvas/workspacePlanEntry";
+import { matchesBinding } from "../../lib/keybindings";
+import { SidebarCollapsedActiveTab, SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
+import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
+import { collectOrchestrationGroupMembers, type OrchestrationGroupMember } from "./orchestrationGroupClose";
 
-export { buildHierarchyTree, HierarchyTree } from "./HierarchyTree";
-
-/** Returns the "worst" status among a set of pane statuses. */
-function aggregateStatus(
-  paneIds: string[],
-  statuses: Record<string, PaneStatus>,
-): PaneStatus | null {
-  const priority: PaneStatus[] = ["Dead", "Waiting", "Working", "Idle"];
-  let worst: PaneStatus | null = null;
-  for (const pid of paneIds) {
-    const s = statuses[pid];
-    if (!s) continue;
-    if (!worst || priority.indexOf(s) < priority.indexOf(worst)) {
-      worst = s;
-    }
-  }
-  return worst;
-}
+export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
 interface SidebarProps {
-  onOpenSettings?: () => void;
   onOpenMemory?: () => void;
   onOpenMesh?: () => void;
   onOpenExtensions?: () => void;
@@ -74,7 +53,6 @@ interface SidebarProps {
 }
 
 export function Sidebar({
-  onOpenSettings,
   onOpenMemory,
   onOpenMesh,
   onOpenExtensions,
@@ -93,6 +71,7 @@ export function Sidebar({
     reorderTabs,
     reorderWorkspaces,
     createTab,
+    openSessionPicker,
     closeTab,
     reopenClosed,
     reopenGroup,
@@ -100,13 +79,10 @@ export function Sidebar({
     setActiveTab,
     setTabTitle,
     spawnAgentTab,
+    createOrchestrationPair,
+    addNotification,
   } = useMultiplexer();
-  // When mainView leaves the workspace (Memory / Settings open), suppress the "active" highlight on the current workspace + tab so the sidebar
-  // clearly shows where the user is in the hierarchy. Backend focus state is unchanged — returning to workspace restores the visual highlight.
   const isWorkspaceMode = mainView === "workspace";
-
-  // Agent spawn modal state. `workspaceId` is captured up front so the confirm step targets the workspace that opened the menu, not whatever
-  // happens to be active when the user clicks Continue.
   const [agentSpawnModal, setAgentSpawnModal] = useState<
     { folder: string; agentId: string; workspaceId: string } | null
   >(null);
@@ -117,12 +93,16 @@ export function Sidebar({
   } | null>(null);
   const [claudeSkipPerms, setClaudeSkipPerms] = useState(false);
   const [claudeRememberChoice, setClaudeRememberChoice] = useState(false);
+  const [orchestrationModal, setOrchestrationModal] = useState<{ workspaceId: string } | null>(null);
   const { providers } = useAgentProviders();
   const { index: planIndex } = usePlanIndexOptional();
+  const fullPlans = useFullPlansOptional();
+  const activeWork = useMemo(
+    () => selectActiveWork(fullPlans.plans, state.panes),
+    [fullPlans.plans, state.panes],
+  );
   const remoteWorkers = useRemoteWorkers();
   const agentsConfig = config?.agents;
-  // Skip-permissions "remember" choice is centralized in backend config so it
-  // carries across the desktop app and every web client (not per-localStorage).
   const claudeConfig = agentsConfig?.claude;
   const claudeSkipRemembered = claudeConfig?.spawn_skip_permissions_remembered === true;
   const claudeSavedSkipPerms = claudeConfig?.spawn_skip_permissions === true;
@@ -136,8 +116,6 @@ export function Sidebar({
     workspaceId: string,
     workspaceCwd: string | null,
   ) => {
-    // Spawning from a workspace's 3-dot menu — the workspace folder is the implicit choice; no need for a folder picker. Older versions opened a
-    // dialog here even though the user had already selected the workspace.
     let folder: string | null = workspaceCwd;
     if (!folder) {
       const provider = getAgentProvider(agentId);
@@ -168,7 +146,6 @@ export function Sidebar({
       }
       if (!folder) return;
     }
-    // If user chose "remember", skip the modal and spawn directly
     if (claudeSkipRemembered) {
       spawnAgentTab(workspaceId, agentId, claudeSavedSkipPerms, folder);
       return;
@@ -193,12 +170,31 @@ export function Sidebar({
     setAgentSpawnModal(null);
   }, [agentSpawnModal, claudeSkipPerms, claudeRememberChoice, spawnAgentTab]);
 
+  const handleOrchestrationConfirm = useCallback((result: OrchestrationCreateResult) => {
+    if (!orchestrationModal) return;
+    const workspaceId = orchestrationModal.workspaceId;
+    setOrchestrationModal(null);
+    createOrchestrationPair({ ...result, workspaceId }).catch((e) => {
+      addNotification({
+        pane_id: null,
+        workspace_id: workspaceId,
+        title: "Orchestration pair failed",
+        body: e instanceof Error ? e.message : String(e),
+        level: "Error",
+        sticky: true,
+      });
+    });
+  }, [addNotification, createOrchestrationPair, orchestrationModal]);
+
+  const handleNewSession = useCallback((workspaceId: string, workspaceCwd: string | null) => {
+    // Virtual only — no backend pane/PTY until the picker is confirmed.
+    openSessionPicker(workspaceId, workspaceCwd ?? undefined);
+  }, [openSessionPicker]);
+
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => new Set(state.active_workspace_id ? [state.active_workspace_id] : []),
   );
   const [meshEnabledOverride, setMeshEnabledOverride] = useState<boolean | null>(null);
-
-  // Auto-expand only the active workspace when it changes
   useEffect(() => {
     if (state.active_workspace_id) {
       setExpandedWorkspaces((prev) => {
@@ -230,7 +226,6 @@ export function Sidebar({
     if (!folder) return;
     const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
     await createWorkspace(basename, folder);
-    // useMemo auto-expands active workspace, but force expand all for immediate feedback
     setExpandedWorkspaces(prev => {
       const next = new Set(prev);
       state.workspaces.forEach(ws => next.add(ws.id));
@@ -331,13 +326,9 @@ export function Sidebar({
   const sidebarNavTouchText = pickUiFontScaleValue(uiFontScale, ["text-[12px]", "text-[13px]", "text-[14px]", "text-[15px]"]);
   const visibleSidebarWidth = isSidebarCollapsed ? 16 : touchMode ? Math.round(sidebarWidth * 1.3) : sidebarWidth;
   const isCompact = !touchMode && !isSidebarCollapsed && sidebarWidth < 100;
-
-  // Track tabs for appear/close animations
   const prevTabIdsRef = useRef<Set<string>>(new Set());
   const [appearingTabs, setAppearingTabs] = useState<Set<string>>(new Set());
   const [closingTabs, setClosingTabs] = useState<Map<string, { wsId: string }>>(new Map());
-
-  // Detect new tabs appearing
   const allTabIds = useMemo(() => {
     const ids = new Set<string>();
     for (const ws of state.workspaces) {
@@ -348,7 +339,6 @@ export function Sidebar({
 
   useEffect(() => {
     const prev = prevTabIdsRef.current;
-    // Skip on first render (initial tabs should not animate in)
     if (prev.size > 0) {
       const newIds = new Set<string>();
       for (const id of allTabIds) {
@@ -360,20 +350,23 @@ export function Sidebar({
     }
     prevTabIdsRef.current = allTabIds;
   }, [allTabIds]);
-
-  // Clear appearing animation after delay — separate effect to avoid cleanup cancellation
   useEffect(() => {
     if (appearingTabs.size === 0) return;
     const timer = setTimeout(() => setAppearingTabs(new Set()), 250);
     return () => clearTimeout(timer);
   }, [appearingTabs]);
+  const [pendingGroupClose, setPendingGroupClose] = useState<{
+    wsId: string;
+    tabId: string;
+    orchestratorTitle: string;
+    members: OrchestrationGroupMember[];
+  } | null>(null);
 
-  // Fire backend PTY-kill immediately so it runs in parallel with the visual exit animation; defer the local state dispatch (which removes the
-  // tab) until the 350ms animation completes so the pill doesn't disappear mid-fade.
-  const animatedCloseTab = useCallback((wsId: string, tabId: string) => {
+  const performCloseTab = useCallback((wsId: string, tabId: string) => {
     const ws = state.workspaces.find((w) => w.id === wsId);
     const tab = ws?.tabs.find((t) => t.id === tabId);
-    if (tab) {
+    // not fire a mux_close_pane for a pane the daemon never created.
+    if (tab && !state.panes[tab.pane_id]?.virtual) {
       invoke("mux_close_pane", { paneId: tab.pane_id }).catch(() => {});
     }
     setClosingTabs((prev) => {
@@ -389,15 +382,58 @@ export function Sidebar({
         return next;
       });
     }, 350);
-  }, [closeTab, state.workspaces]);
+  }, [closeTab, state.workspaces, state.panes]);
 
-  // Workspaces rendered in sort_order; the sidebar is the source of visual order.
+  const animatedCloseTab = useCallback((wsId: string, tabId: string) => {
+    const ws = state.workspaces.find((w) => w.id === wsId);
+    const tab = ws?.tabs.find((t) => t.id === tabId);
+    const pane = tab ? state.panes[tab.pane_id] : undefined;
+    if (pane?.role === "Orchestrator") {
+      const members = collectOrchestrationGroupMembers(pane.id, state.panes);
+      if (members.length > 0) {
+        // taking out the Orchestrator + every Planner/Worker beneath it.
+        setPendingGroupClose({ wsId, tabId, orchestratorTitle: pane.title, members });
+        return;
+      }
+    }
+    performCloseTab(wsId, tabId);
+  }, [performCloseTab, state.workspaces, state.panes]);
+  useEffect(() => {
+    const kb = config?.keybindings ?? {};
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const forward = matchesBinding(e, kb.next_tab ?? "Ctrl+Tab");
+      const backward = !forward && matchesBinding(e, kb.prev_tab ?? "Ctrl+Shift+Tab");
+      if (!forward && !backward) return;
+
+      const ws = state.workspaces.find((w) => w.id === state.active_workspace_id);
+      if (!ws) return;
+
+      const entries = deriveWorkspacePlanEntries(planIndex, ws, state.panes);
+      const items = buildSidebarCycleItems(ws.tabs, state.panes, entries.length > 0);
+      if (items.length < 2) return;
+
+      const direction = forward ? 1 : -1;
+      const next = cycleStep(items, state.activeTabIds[ws.id], workspaceCanvasActive, direction);
+      if (!next) return;
+
+      e.preventDefault();
+      if (next.kind === "plan") {
+        onNavigateToTab?.();
+        openWorkspacePlanForEntries(entries);
+      } else {
+        setActiveTab(ws.id, next.tabId);
+        onNavigateToTab?.();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [config?.keybindings, state, planIndex, workspaceCanvasActive, setActiveTab, onNavigateToTab]);
+
   const sortedWorkspaces = useMemo(() => sortByOrder(state.workspaces), [state.workspaces]);
   const workspaceSortIds = useMemo(
     () => sortedWorkspaces.map((ws) => `${WS_PREFIX}${ws.id}`),
     [sortedWorkspaces],
   );
-  // The General (protected) workspace is pinned to the top and never reorders.
   const pinnedWorkspaceIds = useMemo(
     () => sortedWorkspaces.filter((ws) => ws.protected).map((ws) => `${WS_PREFIX}${ws.id}`),
     [sortedWorkspaces],
@@ -424,20 +460,8 @@ export function Sidebar({
         >
           {!isSidebarCollapsed && (
             <>
-              {/* Web mirror: the titlebar is stripped, so the host picker (with
-                  its online dot) and keep-awake live at the top of the sidebar. */}
-              {IS_WEB && (
-                <div className="flex items-center gap-2 px-2 pt-2 pb-1 border-b border-[var(--ct-border)]">
-                  <WebPeerPicker />
-                  <div className="ml-auto">
-                    <KeepAwakeTray />
-                  </div>
-                </div>
-              )}
-              {/* Header row — new-workspace action. Presence moved to the bottom nav. */}
               <div className={`flex items-center ${isCompact ? "justify-center" : "justify-end"} px-3 py-2`}>
                 <div className="flex items-center gap-1">
-                  {/* New workspace */}
                   <button
                     onClick={handleNewWorkspace}
                     className="flex items-center justify-center w-6 h-6 rounded border border-[var(--ct-border)] hover:bg-[var(--ct-hover)] hover:border-[var(--ct-muted)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
@@ -450,7 +474,6 @@ export function Sidebar({
 
             <div className="flex-1 overflow-y-auto">
               {isCompact ? (
-                /* Compact mode — icon list with collapsible tabs */
                 <div className="flex flex-col items-center py-1">
                   {sortedWorkspaces.map((ws) => {
                     const isActive = ws.id === state.active_workspace_id;
@@ -473,7 +496,7 @@ export function Sidebar({
                               workspace={ws}
                               panes={state.panes}
                               planIndex={planIndex}
-                              canvasActive={isActiveVisual && workspaceCanvasActive}
+                              canvasActive={isWorkspacePlanEntryActive(isActiveVisual, workspaceCanvasActive)}
                               touchMode={touchMode}
                               compact={isCompact}
                               uiFontScale={uiFontScale}
@@ -484,7 +507,12 @@ export function Sidebar({
                             />
                             {flattenSidebarTabs(ws.tabs, state.panes).map((tab) => {
                           const tabPaneIds = collectPaneIds(tab, state.panes);
-                          const isTabActive = isActiveVisual && tab.id === state.activeTabIds[ws.id];
+                          const isTabActive = isWorkspaceTabActive(
+                            isActiveVisual,
+                            workspaceCanvasActive,
+                            tab.id,
+                            state.activeTabIds[ws.id],
+                          );
                           return (
                             <button
                               key={tab.id}
@@ -497,8 +525,6 @@ export function Sidebar({
                               title={displayTitleForTab(tab, state.panes[tab.pane_id])}
                             >
                               {(() => {
-                                // Any pane with an agent_type set (backend already classified) — don't gate on the FE-only `getAgentProvider` registry, or drop-in plugins
-                                // without a FE module wouldn't surface here.
                                 const agentPid = tabPaneIds.find((pid) => !!state.panes[pid]?.agent_type);
                                 const agentType = agentPid ? state.panes[agentPid]?.agent_type : undefined;
                                 return agentType ? (
@@ -523,20 +549,19 @@ export function Sidebar({
                 {sortedWorkspaces.map((ws) => {
                 const sortedTabs = sortByOrder(ws.tabs);
                 const allPaneIds = sortedTabs.flatMap((t) => collectPaneIds(t, state.panes));
-                const wsStatus = aggregateStatus(allPaneIds, state.paneStatuses);
+                const wsStatus = aggregateTabStatus(allPaneIds, state.paneStatuses);
                 const hasWaiting = allPaneIds.some(
                   (pid) => state.paneStatuses[pid] === "Waiting",
                 );
                 const isActive = ws.id === state.active_workspace_id;
                 const isActiveVisual = isActive && isWorkspaceMode;
                 const isExpanded = expandedWorkspaces.has(ws.id);
-                // Orchestrators available for linking (across all workspaces)
                 const wsOrchestrators = Object.values(state.panes).filter(
                   (p) => p.role === "Orchestrator",
                 );
 
                 return (
-                  <div key={ws.id}>
+                  <div key={ws.id} data-testid="workspace-group" data-workspace-id={ws.id}>
                     <SortableRow
                       id={`${WS_PREFIX}${ws.id}`}
                       disabled={ws.protected}
@@ -559,7 +584,6 @@ export function Sidebar({
                       uiFontScale={uiFontScale}
                     />
                     </SortableRow>
-                    {/* Animated expand/collapse using grid-template-rows */}
                     <div
                       className="grid transition-[grid-template-rows] duration-[320ms]"
                       style={{
@@ -568,184 +592,58 @@ export function Sidebar({
                       }}
                     >
                       <div className="overflow-hidden">
-                        {/* Content always rendered — CSS grid-template-rows handles show/hide with animation */}
-                        <>
-                          {(() => {
-                            // Render a tab + its children recursively. `group`/`groupKey`/
-                            // `items` scope this tab's drag to its own sibling set.
-                            const renderTab = (
-                              tab: Tab,
-                              index: number,
-                              depth: number,
-                              group: "tab" | "child",
-                              groupKey: string,
-                              items: string[],
-                              pinnedIds: string[],
-                            ): React.ReactNode => {
-                              const tabPids = collectPaneIds(tab, state.panes);
-                              const firstPane = tabPids[0] ? state.panes[tabPids[0]] : null;
-                              const tabActivity = firstPane
-                                ? resolvePaneTabActivity(planIndex, firstPane.id, state.panes)
-                                : null;
-                              const childTabs = firstPane
-                                ? childTabsForParent(sortedTabs, state.panes, firstPane.id)
-                                : [];
-                              const childIds = childTabs.map((t) => `${TAB_PREFIX}${t.id}`);
-
-                              const isClosing = closingTabs.has(tab.id);
-                              const isAppearing = appearingTabs.has(tab.id);
-
-                              return (
-                                <div key={tab.id} style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}>
-                                  <SortableRow
-                                    id={`${TAB_PREFIX}${tab.id}`}
-                                    disabled={firstPane?.protected}
-                                    data={{ group, groupKey, items, pinnedIds }}
-                                  >
-                                  <TabItem
-                                    tab={tab}
-                                    index={index}
-                                    isActive={isActiveVisual && tab.id === state.activeTabIds[ws.id]}
-                                    onClick={() => {
-                                      setActiveTab(ws.id, tab.id);
-                                      onNavigateToTab?.();
-                                    }}
-                                    onClose={() => animatedCloseTab(ws.id, tab.id)}
-                                    canClose={true}
-                                    paneCount={tabPids.length}
-                                    workspaceId={ws.id}
-                                    hasAgent={tabPids.some(
-                                      (pid) => !!state.panes[pid]?.agent_type
-                                    )}
-                                    status={aggregateStatus(tabPids, state.paneStatuses)}
-                                    onRename={(title) => {
-                                      setTabTitle(ws.id, tab.id, title);
-                                      invoke("mux_rename_tab", { workspaceId: ws.id, tabId: tab.id, title }).catch(() => {});
-                                    }}
-                                    pane={firstPane}
-                                    orchestrators={wsOrchestrators}
-                                    isAppearing={isAppearing}
-                                    isClosing={isClosing}
-                                    touchMode={touchMode}
-                                    uiFontScale={uiFontScale}
-                                    activity={tabActivity}
-                                  />
-                                  </SortableRow>
-                                  {childTabs.length > 0 && firstPane && (
-                                    <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
-                                      {childTabs.map((ct, ci) =>
-                                        renderTab(ct, ci, depth + 1, "child", firstPane.id, childIds, []),
-                                      )}
-                                    </SortableContext>
-                                  )}
-                                  {/* Remote (cross-mesh) workers reporting to this pane — ghost nodes, no local PTY. */}
-                                  {firstPane &&
-                                    remoteWorkers[firstPane.id]?.map((w) => (
-                                      <RemoteWorkerRow
-                                        key={`${w.peer}/${w.remote_pane}`}
-                                        worker={w}
-                                        depth={depth + 1}
-                                      />
-                                    ))}
-                                </div>
-                              );
-                            };
-
-                            // Only render top-level tabs (children render under their parent).
-                            const topLevel = topLevelTabsInWorkspace(sortedTabs, state.panes);
-                            const topLevelIds = topLevel.map((t) => `${TAB_PREFIX}${t.id}`);
-                            // Pin the General (protected) tab to the top of this group.
-                            const pinnedTabIds = topLevel
-                              .filter((t) => state.panes[t.pane_id]?.protected)
-                              .map((t) => `${TAB_PREFIX}${t.id}`);
-                            return (
-                              <>
-                                <WorkspacePlanTreeSlot
-                                  workspace={ws}
-                                  panes={state.panes}
-                                  planIndex={planIndex}
-                                  canvasActive={isActiveVisual && workspaceCanvasActive}
-                                  touchMode={touchMode}
-                                  compact={isCompact}
-                                  uiFontScale={uiFontScale}
-                                  onBeforeOpen={() => {
-                                    setActiveWorkspace(ws.id);
-                                    onNavigateToTab?.();
-                                  }}
-                                />
-                                <SortableContext items={topLevelIds} strategy={verticalListSortingStrategy}>
-                                  {topLevel.map((tab, index) =>
-                                    renderTab(tab, index, 0, "tab", ws.id, topLevelIds, pinnedTabIds),
-                                  )}
-                                </SortableContext>
-                              </>
-                            );
-                          })()}
-                          {/* Add agent session button */}
-                          {(() => {
-                            const newSessionItems: DropdownMenuItem[] = visibleProviders.map((provider) => ({
-                              label: `New ${provider.display_name} Session`,
-                              icon: <AgentIcon providerId={provider.id} className="text-[12px]" />,
-                              onClick: () => handleAgentSpawn(provider.id, ws.id, ws.cwd ?? null),
-                            }));
-                            const trigger = (
-                              <button
-                                disabled={newSessionItems.length === 0}
-                                className="flex items-center gap-2 min-w-0 max-w-full mx-2 mt-1 mb-0.5 px-3 py-1 rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
-                                title={newSessionItems.length === 0 ? "No visible agent providers" : "New session in this workspace"}
-                              >
-                                <Plus size={10} strokeWidth={1.5} className="shrink-0" />
-                                <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>
-                              </button>
-                            );
-                            return newSessionItems.length === 0 ? (
-                              trigger
-                            ) : (
-                              <DropdownMenu
-                                items={newSessionItems}
-                                trigger={trigger}
-                              />
-                            );
-                          })()}
-                        </>
+                        <SidebarWorkspaceTabs
+                          workspace={ws}
+                          activeTabId={state.activeTabIds[ws.id] ?? null}
+                          sortedTabs={sortedTabs}
+                          panes={state.panes}
+                          paneStatuses={state.paneStatuses}
+                          planIndex={planIndex}
+                          plans={fullPlans.plans}
+                          activeWork={activeWork}
+                          remoteWorkers={remoteWorkers}
+                          closingTabIds={new Set(closingTabs.keys())}
+                          appearingTabIds={appearingTabs}
+                          isActiveVisual={isActiveVisual}
+                          workspaceCanvasActive={workspaceCanvasActive}
+                          touchMode={touchMode}
+                          uiFontScale={uiFontScale}
+                          compact={isCompact}
+                          sidebarActionText={sidebarActionText}
+                          orchestrators={wsOrchestrators}
+                          onBeforeOpenPlan={() => {
+                            setActiveWorkspace(ws.id);
+                            onNavigateToTab?.();
+                          }}
+                          onActivateTab={(tabId) => {
+                            setActiveTab(ws.id, tabId);
+                            onNavigateToTab?.();
+                          }}
+                          onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
+                          onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
+                          onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
+                        />
                       </div>
                     </div>
                     {!isExpanded && isActiveVisual && state.activeTabIds[ws.id] ? (
-                      /* Collapsed but active — show selected tab */
-                      (() => {
-                        const activeTab = ws.tabs.find((t) => t.id === state.activeTabIds[ws.id]);
-                        if (!activeTab) return null;
-                        const atPids = collectPaneIds(activeTab, state.panes);
-                        const atFirstPane = atPids[0] ? state.panes[atPids[0]] : null;
-                        const atActivity = atFirstPane
-                          ? resolvePaneTabActivity(planIndex, atFirstPane.id, state.panes)
-                          : null;
-                        return (
-                          <TabItem
-                            tab={activeTab}
-                            index={0}
-                            isActive={isActiveVisual}
-                            onClick={() => { setActiveTab(ws.id, activeTab.id); onNavigateToTab?.(); }}
-                            onClose={() => animatedCloseTab(ws.id, activeTab.id)}
-                            canClose={true}
-                            paneCount={atPids.length}
-                            workspaceId={ws.id}
-                            hasAgent={atPids.some(
-                              (pid) => !!state.panes[pid]?.agent_type
-                            )}
-                            status={aggregateStatus(atPids, state.paneStatuses)}
-                            onRename={(title) => {
-                              setTabTitle(ws.id, activeTab.id, title);
-                              invoke("mux_rename_tab", { workspaceId: ws.id, tabId: activeTab.id, title }).catch(() => {});
-                            }}
-                            pane={atFirstPane}
-                            orchestrators={wsOrchestrators}
-                            touchMode={touchMode}
-                            uiFontScale={uiFontScale}
-                            activity={atActivity}
-                          />
-                        );
-                      })()
+                      <SidebarCollapsedActiveTab
+                        workspace={ws}
+                        activeTabId={state.activeTabIds[ws.id] ?? null}
+                        panes={state.panes}
+                        paneStatuses={state.paneStatuses}
+                        planIndex={planIndex}
+                        isActiveVisual={isActiveVisual}
+                        workspaceCanvasActive={workspaceCanvasActive}
+                        orchestrators={wsOrchestrators}
+                        touchMode={touchMode}
+                        uiFontScale={uiFontScale}
+                        onActivateTab={(tabId) => {
+                          setActiveTab(ws.id, tabId);
+                          onNavigateToTab?.();
+                        }}
+                        onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
+                        onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
+                      />
                     ) : null}
                   </div>
                 );
@@ -754,11 +652,7 @@ export function Sidebar({
                 </SidebarDnd>
               )}
             </div>
-
-            {/* Recently closed — pinned above bottom nav, aggregated across all workspaces */}
             {!isCompact && (() => {
-              // Newest-first closed-history view, sourced from the sqlite store
-              // (already bounded + sorted server-side).
               const views = state.recently_closed ?? [];
               if (views.length === 0) return null;
               const hasOrphaned = views.some((v) => v.orphaned);
@@ -777,12 +671,11 @@ export function Sidebar({
                 />
               );
             })()}
-            {/* Memory + Settings buttons at bottom */}
             <div className={`border-t border-[var(--ct-border)] mt-auto ${isCompact ? "px-1 py-2 flex flex-col items-center gap-1" : "px-3 py-2 flex flex-col gap-1"}`}>
               <button
                 data-testid="nav-extensions"
                 onClick={onOpenExtensions}
-                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
+                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "min-h-[44px] py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
                   mainView === "extensions"
                     ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                     : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
@@ -795,7 +688,7 @@ export function Sidebar({
               <button
                 data-testid="nav-memory"
                 onClick={onOpenMemory}
-                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
+                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "min-h-[44px] py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
                   mainView === "memory"
                     ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                     : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
@@ -813,12 +706,11 @@ export function Sidebar({
                 </svg>
                 {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Memory</span>}
               </button>
-              {/* Mesh row — nav entry on the left, inline [off|on] segmented switch on the right. */}
               <div className={`flex items-center ${isCompact ? "justify-center" : "gap-1 w-full"}`}>
                 <button
                   data-testid="nav-mesh"
                   onClick={onOpenMesh}
-                  className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 flex-1 min-w-0 px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
+                  className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 flex-1 min-w-0 px-2 ${touchMode ? "min-h-[44px] py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
                     mainView === "mesh"
                       ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                       : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
@@ -874,29 +766,10 @@ export function Sidebar({
                   </div>
                 )}
               </div>
-              {/* Desktop surfaces Settings in the titlebar tray; web mirror has no
-                  titlebar, so the sidebar keeps the entry point there. */}
-              {IS_WEB && (
-                <button
-                  data-testid="nav-settings"
-                  onClick={onOpenSettings}
-                  className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
-                    mainView === "settings"
-                      ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                      : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                  }`}
-                  title="Settings (Ctrl+,)"
-                >
-                  <GearIcon size={touchMode ? 18 : 14} className="shrink-0" />
-                  {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Settings</span>}
-                </button>
-              )}
             </div>
           </>
         )}
       </aside>
-
-      {/* Resize/collapse grabber */}
       <button
         type="button"
         onMouseDown={handleSidebarDragStart}
@@ -919,8 +792,6 @@ export function Sidebar({
           }}
         />
       )}
-
-      {/* Agent spawn modal */}
       {agentSpawnModal && (
         <>
           <div className="fixed inset-0 z-50 bg-black/40" onClick={() => setAgentSpawnModal(null)} />
@@ -967,6 +838,26 @@ export function Sidebar({
             </div>
           </div>
         </>
+      )}
+
+      {orchestrationModal && (
+        <OrchestrationCreate
+          providers={visibleProviders}
+          onCancel={() => setOrchestrationModal(null)}
+          onConfirm={handleOrchestrationConfirm}
+        />
+      )}
+
+      {pendingGroupClose && (
+        <GroupCloseConfirmDialog
+          orchestratorTitle={pendingGroupClose.orchestratorTitle}
+          members={pendingGroupClose.members}
+          onCancel={() => setPendingGroupClose(null)}
+          onConfirm={() => {
+            performCloseTab(pendingGroupClose.wsId, pendingGroupClose.tabId);
+            setPendingGroupClose(null);
+          }}
+        />
       )}
     </>
   );

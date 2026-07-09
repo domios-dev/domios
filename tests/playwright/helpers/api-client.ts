@@ -33,6 +33,12 @@ export interface Provider {
   available_models?: { id: string; display_name: string }[];
 }
 
+export interface PlanSummary {
+  plan_id: string;
+  title: string;
+  status?: string;
+}
+
 function configPort(configPath: string): string | null {
   const m = readFileSync(configPath, "utf8").match(/^port\s*=\s*(\d+)/m);
   return m?.[1] ?? null;
@@ -56,7 +62,6 @@ export function devDataDirName(): string {
   return ".codeterm-dev";
 }
 
-// Default data dir is ~/.codeterm-dev. An isolated instance can override via
 // CT_E2E_DATADIR, or CT_E2E_PORT when its config.toml records that port.
 export function readDevToken(): string {
   const dir = devDataDirName();
@@ -131,5 +136,11 @@ export class ApiClient {
   }
   closePane(id: string): Promise<unknown> {
     return this.post(`/panes/${id}/close`);
+  }
+  plans(): Promise<PlanSummary[]> {
+    return this.get<{ plans: PlanSummary[] }>("/plans").then((r) => r.plans ?? []);
+  }
+  deletePlan(id: string): Promise<unknown> {
+    return this.request("DELETE", `/plans/${id}`);
   }
 }

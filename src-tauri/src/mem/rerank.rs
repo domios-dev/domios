@@ -166,7 +166,6 @@ fn which_on_path(name: &str) -> Option<std::path::PathBuf> {
 
     #[cfg(windows)]
     let extensions: Vec<String> = {
-        // If the caller already supplied an extension, just use it as-is; otherwise iterate over PATHEXT plus a blank entry so `dir.join(name)` also
         // gets a shot (rare, but avoids a regression for bare names that were resolvable before).
         let has_dot = std::path::Path::new(name).extension().is_some();
         if has_dot {
@@ -381,7 +380,6 @@ impl Reranker for LocalReranker {
 
         match self.score_candidates(query, &docs) {
             Ok(scores) => {
-                // Pair scores with hits, sort desc by score, truncate
                 let mut paired: Vec<(f32, SearchHit)> = scores.into_iter().zip(limited).collect();
                 paired.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
                 let mut out: Vec<SearchHit> = paired
@@ -446,7 +444,6 @@ impl LocalReranker {
             }
         };
 
-        // fastembed wants documents as Vec<String> via owned slice
         let owned: Vec<String> = docs.to_vec();
         let results = model
             .rerank(query.to_string(), owned, false, None)
@@ -659,7 +656,6 @@ fn call_openai(
             }
         }
     }
-    // Fallback: parse as bare array
     parse_id_array(text)
 }
 
@@ -725,7 +721,6 @@ mod tests {
             model: None,
         };
         let r = build(&cfg);
-        // Falls back to Noop because env var unset
         let hits = vec![hit("a"), hit("b")];
         let out = r.rerank("q", hits, 5);
         assert_eq!(out.len(), 2);
@@ -801,7 +796,6 @@ mod tests {
         let cfg = RerankConfig {
             enabled: true,
             provider: "auto".into(),
-            // Use unset env vars so neither Anthropic nor OpenAI build
             api_key_env: Some("DEFINITELY_NOT_SET_AUTO_12345".into()),
             model: None,
         };

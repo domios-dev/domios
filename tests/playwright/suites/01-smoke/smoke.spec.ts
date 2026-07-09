@@ -19,18 +19,12 @@ test("@smoke the real app window renders the shell UI", async ({ ui }) => {
   // Non-empty render: the shell mounts real content, not a blank root.
   const childCount = await page.locator("#root > *").count();
   expect(childCount).toBeGreaterThan(0);
-  // A terminal surface exists; a pane left in chat-view shows the composer
   // instead — either proves the shell.
   await expect(
     page.locator('[data-testid="terminal-pane"], [data-testid="chat-composer"]').first(),
   ).toBeVisible();
-  if (process.platform === "win32") {
-    // Desktop chrome is present — the web mirror strips it (see 12-web),
-    // so this guards the inverse: Tauri must keep its titlebar.
-    await expect(page.locator('[data-testid="titlebar"]')).toBeVisible();
-  } else {
-    await expect(page.locator('[data-testid="titlebar"]')).toHaveCount(0);
-  }
+  // Native and the web mirror mount the same titlebar strip (parity decision A).
+  await expect(page.locator('[data-testid="titlebar"]')).toBeVisible();
 });
 
 test("@smoke default workspace and at least one pane exist", async ({ api }) => {

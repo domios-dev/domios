@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Canvas/paneCurrentTask.test.ts
 
-import { resolvePaneCurrentTask } from "./paneCurrentTask";
+import { resolvePaneCurrentTask, resolvePlanExclusivePaneTasks } from "./paneCurrentTask";
 import type { Plan, Task } from "./types";
 
 let passed = 0;
@@ -83,6 +83,15 @@ const live = resolvePaneCurrentTask(
 );
 ok("in_progress beats done regardless of freshness", live?.task.id === "wip");
 
+const closedOnly = resolvePaneCurrentTask(
+  [plan([
+    task({ id: "done", assigned_pane_id: "p1", lane: { pane_id: "p1" }, status: "done", status_changed_at: 999 }),
+    task({ id: "cancelled", assigned_pane_id: "p1", status: "cancelled", status_changed_at: 1000 }),
+  ])],
+  "p1",
+);
+ok("done/cancelled bindings do not create current work", closedOnly === null);
+
 const fresh = resolvePaneCurrentTask(
   [plan([
     task({ id: "old", assigned_pane_id: "p1", status: "pending", updated_at: 10 }),
@@ -97,6 +106,19 @@ const archived = resolvePaneCurrentTask(
   "p1",
 );
 ok("archived plan ignored", archived === null);
+
+const exclusive = resolvePlanExclusivePaneTasks(
+  plan([
+    task({ id: "wip", assigned_pane_id: "p1", status: "in_progress", updated_at: 20 }),
+    task({ id: "stale", assigned_pane_id: "p1", status: "pending", updated_at: 10 }),
+  ]),
+);
+ok("exclusive map picks in_progress task", exclusive.get("p1") === "wip");
+
+const closedExclusive = resolvePlanExclusivePaneTasks(
+  plan([task({ id: "done", assigned_pane_id: "p1", lane: { pane_id: "p1" }, status: "done" })]),
+);
+ok("exclusive map ignores terminal stale bindings", !closedExclusive.has("p1"));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

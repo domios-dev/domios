@@ -1,16 +1,14 @@
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::readback::pending_after_readback;
 use super::{PlanError, PlanStore};
-use crate::plan::{HeartbeatLearning, OrchestratorHeartbeat, Plan, PlanStatus};
+use crate::plan::{
+    HeartbeatLearning, LoopSpec, LoopStatus, OrchestratorHeartbeat, Plan, PlanMode, PlanStatus,
+    QaState, ReviewStage, TaskStatus,
+};
 
-pub const STATE_RECONCILIATION_PROMPT: &str = concat!(
-    "STATE-RECONCILIATION:\n",
-    "- First run `codeterm agent reports` and process queued reports before inspecting panes.\n",
-    "- Reconcile live panes against the plan: active tasks, pane status, branches, and worktrees.\n",
-    "- Close verified tasks, bounce incomplete ones with the next concrete instruction, and record the plan milestone.\n",
-    "- Clean finished lane worktrees/branches/dev daemons or record why cleanup is deferred.\n",
-    "- Re-arm exactly one heartbeat carrying current focus and active lanes."
-);
+pub const STATE_RECONCILIATION_PROMPT: &str = "STATE-RECONCILIATION";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HeartbeatLearnResult {
@@ -27,7 +25,14 @@ pub struct HeartbeatShowResult {
 }
 
 fn gen_id() -> String {
-    format!("learn_{}", uuid::Uuid::new_v4().simple())
+    crate::plan::ids::short_id("learn")
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or_default()
 }
 
 fn normalized_learning(text: &str) -> String {
@@ -61,7 +66,141 @@ fn render_list(items: &[String], out: &mut String) {
     }
 }
 
-fn render_heartbeat(plan_id: &str, heartbeat: &OrchestratorHeartbeat) -> String {
+fn render_running_loops(loops: &[LoopSpec], out: &mut String) {
+    let running = loops
+        .iter()
+        .filter(|loop_spec| loop_spec.status == LoopStatus::Running)
+        .collect::<Vec<_>>();
+    if running.is_empty() {
+        return;
+    }
+    out.push_str("Running loops:\n");
+    for loop_spec in running {
+        out.push_str("- ");
+        out.push_str(&loop_spec.id);
+        out.push_str(": ");
+        out.push_str(loop_spec.target.trim());
+        out.push_str(" (");
+        out.push_str(&format!("{}/{}", loop_spec.count, loop_spec.budget));
+        out.push(')');
+        out.push('\n');
+    }
+}
+
+pub(super) fn competitive_attempt_summary_line(
+    task_id: &str,
+    task_name: &str,
+    live_attempts: usize,
+) -> String {
+    format!("- {task_id} ({task_name}): {live_attempts} live attempts")
+}
+
+fn render_competitive_attempts(plan: &Plan, out: &mut String) {
+    let summaries = plan
+        .tasks
+        .iter()
+        .filter_map(|task| {
+            let live_attempts = super::task_attempts::live_attempt_count(task);
+            (live_attempts > 1)
+                .then(|| competitive_attempt_summary_line(&task.id, &task.name, live_attempts))
+        })
+        .collect::<Vec<_>>();
+    if summaries.is_empty() {
+        return;
+    }
+    out.push_str(crate::prompts::HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE);
+    out.push('\n');
+    for summary in summaries {
+        out.push_str(&summary);
+        out.push('\n');
+    }
+}
+
+fn render_qa_queue(plan: &Plan, out: &mut String) {
+    let queued = plan
+        .tasks
+        .iter()
+        .filter(|task| {
+            task.status == TaskStatus::InReview
+                && task.review_stage == ReviewStage::Qa
+                && task.qa_state == Some(QaState::Queued)
+        })
+        .count();
+    let running = plan.tasks.iter().find(|task| {
+        task.status == TaskStatus::InReview
+            && task.review_stage == ReviewStage::Qa
+            && task.qa_state == Some(QaState::Running)
+    });
+    if queued == 0 && running.is_none() {
+        return;
+    }
+    out.push_str("QA queue:\n");
+    out.push_str(&format!("- queued: {queued}\n"));
+    if let Some(task) = running {
+        let age_ms = now_ms().saturating_sub(task.status_changed_at);
+        out.push_str(&format!(
+            "- running: {} ({}) age_ms={age_ms}\n",
+            task.id, task.name
+        ));
+    }
+}
+
+fn render_regression_gates(plan: &Plan, out: &mut String) {
+    let gates = super::milestone_gates::pending_regression_gates(plan);
+    if gates.is_empty() {
+        return;
+    }
+    out.push_str(crate::prompts::MILESTONE_GATE_HEARTBEAT_TITLE);
+    out.push('\n');
+    for gate in gates {
+        out.push_str("- ");
+        out.push_str(&crate::prompts::milestone_gate_suggestion(
+            &gate.key,
+            &gate.label,
+        ));
+        out.push('\n');
+    }
+}
+
+fn reflect_every_gates() -> u32 {
+    crate::config::load_config()
+        .orchestration
+        .reflect
+        .every_gates
+}
+
+fn render_open_gates(plan: &Plan, now_ms: u64, out: &mut String) {
+    let open: Vec<_> = plan.gates.iter().filter(|g| g.is_open()).collect();
+    if open.is_empty() {
+        return;
+    }
+    out.push_str("Decision gates:\n");
+    for gate in open {
+        let age_ms = now_ms.saturating_sub(gate.asked_at);
+        let age_h = age_ms / 3_600_000;
+        let age_min = (age_ms % 3_600_000) / 60_000;
+        let age = if age_h > 0 {
+            format!("{age_h}h{age_min}m")
+        } else {
+            format!("{age_min}m")
+        };
+        let blocking = gate.blocking_task_ids.len();
+        let routed = gate.routed_to_pane_id.as_deref().unwrap_or("unrouted");
+        out.push_str(&format!(
+            "- {} (age:{age} blocking:{blocking} routed:{routed}): {}\n",
+            gate.id,
+            gate.question.chars().take(100).collect::<String>()
+        ));
+    }
+}
+
+fn render_heartbeat(
+    plan: &Plan,
+    heartbeat: &OrchestratorHeartbeat,
+    loops: &[LoopSpec],
+    extra_digest_lines: &[String],
+) -> String {
+    let plan_id = &plan.id;
     let has_focus = heartbeat
         .current_focus
         .as_deref()
@@ -75,7 +214,35 @@ fn render_heartbeat(plan_id: &str, heartbeat: &OrchestratorHeartbeat) -> String 
         .learnings
         .iter()
         .any(|learning| !learning.text.trim().is_empty());
-    if !has_focus && !has_lanes && !has_rules && !has_learnings {
+    let has_running_loops = loops
+        .iter()
+        .any(|loop_spec| loop_spec.status == LoopStatus::Running);
+    let has_competitive_attempts = plan
+        .tasks
+        .iter()
+        .any(|task| super::task_attempts::live_attempt_count(task) > 1);
+    let has_qa = plan.tasks.iter().any(|task| {
+        task.status == TaskStatus::InReview
+            && task.review_stage == ReviewStage::Qa
+            && task.qa_state.is_some()
+    });
+    let has_open_gates = plan.gates.iter().any(|g| g.is_open());
+    let has_regression_gates = !super::milestone_gates::pending_regression_gates(plan).is_empty();
+    let has_reflection =
+        !super::reflection::pending_reflections(plan, reflect_every_gates()).is_empty();
+    let has_digests = !extra_digest_lines.is_empty();
+    if !has_focus
+        && !has_lanes
+        && !has_rules
+        && !has_learnings
+        && !has_running_loops
+        && !has_competitive_attempts
+        && !has_qa
+        && !has_open_gates
+        && !has_regression_gates
+        && !has_reflection
+        && !has_digests
+    {
         return String::new();
     }
     let mut out = format!("<codeterm-orchestrator-heartbeat plan=\"{plan_id}\">\n");
@@ -108,14 +275,76 @@ fn render_heartbeat(plan_id: &str, heartbeat: &OrchestratorHeartbeat) -> String 
             out.push('\n');
         }
     }
+    render_qa_queue(plan, &mut out);
+    render_regression_gates(plan, &mut out);
+    super::reflection::render_reflection(plan, reflect_every_gates(), &mut out);
+    render_competitive_attempts(plan, &mut out);
+    render_running_loops(loops, &mut out);
+    render_open_gates(plan, now_ms(), &mut out);
+    if has_digests {
+        out.push_str("Digests:\n");
+        for line in extra_digest_lines
+            .iter()
+            .filter(|line| !line.trim().is_empty())
+        {
+            out.push_str("- ");
+            out.push_str(line.trim());
+            out.push('\n');
+        }
+    }
+    let skill_slugs = super::skill_registry::list_plan_skill_slugs(plan);
+    out.push_str(&super::skill_registry::render_plan_skills_registry_line(
+        skill_slugs.len(),
+        &skill_slugs,
+    ));
+    out.push('\n');
     out.push_str("</codeterm-orchestrator-heartbeat>");
     out
 }
 
-fn prepend_heartbeat(plan_id: &str, heartbeat: &OrchestratorHeartbeat, text: &str) -> String {
-    let block = render_heartbeat(plan_id, heartbeat);
+pub(super) fn reconciliation_prompt(plan_id: &str, pane_id: Option<&str>) -> String {
+    let reports = pane_id.map_or_else(
+        || "codeterm agent reports".to_string(),
+        |pane| format!("codeterm agent reports --pane {pane}"),
+    );
+    let status = pane_id.map_or_else(
+        || format!("codeterm orchestrator status --plan {plan_id} --json"),
+        |pane| format!("codeterm orchestrator status --plan {plan_id} --pane {pane} --json"),
+    );
+    format!(
+        "STATE-RECONCILIATION:\n\
+         - This pane owns an execution-mode plan with unfinished work; do not park while open tasks remain.\n\
+         - If you forgot how to orchestrate, read `codeterm docs ORCHESTRATION` first.\n\
+         - First run `{reports}` and process queued reports before inspecting panes.\n\
+         - Pull the full plan-owned snapshot with `{status}`.\n\
+         - Reconcile live panes against the plan with `codeterm plan reconcile {plan_id}`.\n\
+         - {} \n\
+         - Parallelize independent writer lanes, but serialize broad/heavy gates in one warm integration checkout so worker worktrees do not all rebuild/test at once.\n\
+         - Close verified tasks with `codeterm plan task close {plan_id} <task_id>`.\n\
+         - Bounce incomplete work with `codeterm send \"<next concrete instruction>\" --pane <worker_pane_id>` and record `codeterm plan record {plan_id} --task <task_id> --step decision:<text>`.\n\
+         - Clean finished lane worktrees/branches/dev daemons, then record `codeterm plan task update {plan_id} <task_id> --cleanup-status done` or why cleanup is deferred.\n\
+         - Keep the plan-owned heartbeat current with `codeterm orchestrator heartbeat set --plan {plan_id} --focus \"<now>\" --lane \"<active-lane>\"`.",
+        crate::prompts::QA_PIPELINE_DISCIPLINE.trim()
+    )
+}
+
+fn prepend_heartbeat(
+    plan_id: &str,
+    heartbeat: &OrchestratorHeartbeat,
+    loops: &[LoopSpec],
+    text: &str,
+    pane_id: Option<&str>,
+) -> String {
+    let plan = Plan {
+        id: plan_id.to_string(),
+        heartbeat: heartbeat.clone(),
+        loops: loops.to_vec(),
+        ..Plan::new(String::new(), String::new(), Default::default())
+    };
+    let block = render_heartbeat(&plan, heartbeat, loops, &[]);
+    let prompt = reconciliation_prompt(plan_id, pane_id);
     let reconciliation = format!(
-        "<codeterm-state-reconciliation plan=\"{plan_id}\">\n{STATE_RECONCILIATION_PROMPT}\n</codeterm-state-reconciliation>"
+        "<codeterm-state-reconciliation plan=\"{plan_id}\">\n{prompt}\n</codeterm-state-reconciliation>"
     );
     let prelude = if block.is_empty() {
         reconciliation
@@ -130,15 +359,79 @@ fn prepend_heartbeat(plan_id: &str, heartbeat: &OrchestratorHeartbeat, text: &st
 }
 
 pub(super) fn prepend_plan_heartbeat(plan: &Plan, text: &str) -> String {
-    prepend_heartbeat(&plan.id, &plan.heartbeat, text)
+    prepend_plan_heartbeat_with_digests(plan, text, &[])
+}
+
+pub(super) fn prepend_plan_heartbeat_with_digests(
+    plan: &Plan,
+    text: &str,
+    digest_lines: &[String],
+) -> String {
+    if plan.mode == PlanMode::Paused || is_plan_complete(plan) {
+        return text.to_string();
+    }
+    let block = render_heartbeat(plan, &plan.heartbeat, &plan.loops, digest_lines);
+    let prompt = reconciliation_prompt(&plan.id, plan.owner.pane_id.as_deref());
+    let reconciliation = format!(
+        "<codeterm-state-reconciliation plan=\"{}\">\n{prompt}\n</codeterm-state-reconciliation>",
+        plan.id
+    );
+    let prelude = if block.is_empty() {
+        reconciliation
+    } else {
+        format!("{reconciliation}\n\n{block}")
+    };
+    if text.trim().is_empty() {
+        prelude
+    } else {
+        format!("{prelude}\n\n{text}")
+    }
 }
 
 pub(super) fn prepend_heartbeat_snapshot(
     plan_id: &str,
     heartbeat: &OrchestratorHeartbeat,
+    loops: &[LoopSpec],
     text: &str,
 ) -> String {
-    prepend_heartbeat(plan_id, heartbeat, text)
+    prepend_heartbeat(plan_id, heartbeat, loops, text, None)
+}
+
+fn has_open_work(plan: &Plan) -> bool {
+    plan.tasks
+        .iter()
+        .any(|task| task.status.counts_as_open_work())
+}
+
+/// A plan is complete when explicitly marked Complete OR when it is in Execution
+/// mode and every task has finished (no task counts as open work). This is the
+/// single source of truth used to gate ALL orchestrator nudge families: a complete
+/// plan must produce zero reconciliation/reminder injections.
+pub fn is_plan_complete(plan: &Plan) -> bool {
+    plan.mode == PlanMode::Complete
+        || (plan.mode == PlanMode::Execution && !plan.tasks.is_empty() && !has_open_work(plan))
+}
+
+fn owner_matches(plan: &Plan, pane_id: Option<&str>, session_id: Option<&str>) -> bool {
+    let pane_matches = pane_id
+        .filter(|pane| !pane.trim().is_empty())
+        .is_some_and(|pane| plan.owner.pane_id.as_deref() == Some(pane));
+    let session_matches = session_id
+        .filter(|session| !session.trim().is_empty())
+        .is_some_and(|session| plan.owner.session_id.as_deref() == Some(session));
+    pane_matches || session_matches
+}
+
+fn heartbeat_resolution_rank(plan: &Plan) -> (u8, u64) {
+    let rank = match (&plan.mode, has_open_work(plan)) {
+        (PlanMode::Execution, true) => 5,
+        (PlanMode::Execution, false) => 4,
+        (PlanMode::Approved, true) => 3,
+        (PlanMode::Planning, true) => 2,
+        (PlanMode::Approved | PlanMode::Planning, false) => 1,
+        (PlanMode::Paused | PlanMode::Complete, _) => 0,
+    };
+    (rank, plan.updated_at)
 }
 
 impl PlanStore {
@@ -154,6 +447,7 @@ impl PlanStore {
                 .map(|plan| plan.id)
                 .ok_or(PlanError::NotFound);
         }
+        let mut best_match = None;
         for entry in self.list_index() {
             let Some(plan) = self.get(&entry.plan_id) else {
                 continue;
@@ -161,17 +455,23 @@ impl PlanStore {
             if plan.status != PlanStatus::Active {
                 continue;
             }
-            let pane_matches = pane_id
-                .filter(|pane| !pane.trim().is_empty())
-                .is_some_and(|pane| plan.owner.pane_id.as_deref() == Some(pane));
-            let session_matches = session_id
-                .filter(|session| !session.trim().is_empty())
-                .is_some_and(|session| plan.owner.session_id.as_deref() == Some(session));
-            if pane_matches || session_matches {
-                return Ok(plan.id);
+            if !owner_matches(&plan, pane_id, session_id) {
+                continue;
+            }
+            let rank = heartbeat_resolution_rank(&plan);
+            if rank.0 == 0 {
+                continue;
+            }
+            if best_match
+                .as_ref()
+                .is_none_or(|(_, best_rank)| rank > *best_rank)
+            {
+                best_match = Some((plan.id, rank));
             }
         }
-        Err(PlanError::NotFound)
+        best_match
+            .map(|(plan_id, _)| plan_id)
+            .ok_or(PlanError::NotFound)
     }
 
     pub fn add_heartbeat_learning(
@@ -239,9 +539,28 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<HeartbeatShowResult, PlanError> {
         let plan_id = self.resolve_active_plan_for_orchestrator(plan_id, pane_id, session_id)?;
-        self.with_plan(&plan_id, now_ms, |plan| {
+        let write = self.with_plan(&plan_id, now_ms, |plan| {
+            let writes_runtime_state = focus.is_some()
+                || lanes
+                    .as_ref()
+                    .is_some_and(|items| !clean_list(items.clone()).is_empty())
+                || rules
+                    .as_ref()
+                    .is_some_and(|items| !clean_list(items.clone()).is_empty());
+            if plan.mode == PlanMode::Planning && writes_runtime_state {
+                return Err(PlanError::HeartbeatRequiresExecution);
+            }
             if let Some(focus) = focus {
                 let focus = focus.trim();
+                if focus.to_ascii_lowercase().starts_with("waiting") {
+                    let names_open_gate = plan
+                        .gates
+                        .iter()
+                        .any(|g| g.is_open() && focus.contains(&g.id));
+                    if !names_open_gate {
+                        return Err(PlanError::WaitingFocusRequiresOpenGate);
+                    }
+                }
                 plan.heartbeat.current_focus = (!focus.is_empty()).then(|| focus.to_string());
             }
             if clear_lanes {
@@ -255,8 +574,8 @@ impl PlanStore {
                 plan.heartbeat.rules = clean_list(rules);
             }
             Ok(())
-        })?;
-        self.show_heartbeat(Some(&plan_id), None, None)
+        });
+        pending_after_readback(write, self.show_heartbeat(Some(&plan_id), None, None))
     }
 
     pub fn show_heartbeat(
@@ -269,7 +588,7 @@ impl PlanStore {
         let plan = self.get(&plan_id).ok_or(PlanError::NotFound)?;
         Ok(HeartbeatShowResult {
             plan_id: plan.id.clone(),
-            reinjection: render_heartbeat(&plan.id, &plan.heartbeat),
+            reinjection: render_heartbeat(&plan, &plan.heartbeat, &plan.loops, &[]),
             heartbeat: plan.heartbeat,
         })
     }
@@ -279,6 +598,18 @@ impl PlanStore {
             return text.to_string();
         };
         prepend_plan_heartbeat(&plan, text)
+    }
+
+    pub fn prepend_heartbeat_for_plan_with_digests(
+        &self,
+        plan_id: &str,
+        text: &str,
+        digest_lines: &[String],
+    ) -> String {
+        let Some(plan) = self.get(plan_id) else {
+            return text.to_string();
+        };
+        prepend_plan_heartbeat_with_digests(&plan, text, digest_lines)
     }
 
     pub fn prepend_heartbeat_for_orchestrator_pane(&self, pane_id: &str, text: &str) -> String {

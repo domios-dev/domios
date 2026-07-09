@@ -56,12 +56,10 @@ test("@golden @canvas-section-zones labeled organic territories cluster tasks by
   }
   await expect(page.locator(PLAN_SEL).first()).toBeVisible({ timeout: 30_000 });
 
-  // ── W0 far glance: distinct VISIBLE labeled territories (hull shapes), not islands. ──
   await setCanvasScale(page, 0.18);
   await page.waitForTimeout(300);
   await shot(page, "zones2-W0");
 
-  // ── W1: visible hull territories + name pills; region identity also on the card tint. ──
   await setCanvasScale(page, 0.5);
   await page.waitForTimeout(300);
   await shot(page, "zones2-W1");
@@ -71,7 +69,6 @@ test("@golden @canvas-section-zones labeled organic territories cluster tasks by
   expect(labelCount, "region name pills present").toBeGreaterThan(0);
   await shot(page, "labels-W1");
 
-  // FULL titles (no ellipsis truncation): the reserved tile sizes to the title, so a
   // multi-word section name renders complete.
   const labelTexts = await page.locator('[data-testid="canvas-section-zone-label"]').allTextContents();
   expect(labelTexts.some((t) => t.replace(/\s+/g, " ").includes("Worlds & content-LOD")), `a full multi-word title renders complete: ${JSON.stringify(labelTexts)}`).toBe(true);
@@ -91,7 +88,6 @@ test("@golden @canvas-section-zones labeled organic territories cluster tasks by
   });
   expect(labelOnCard, "region labels do not overlap task cards (reserved in pack)").toBe(0);
 
-  // ── W2 content band: territories still read, zero card overflow. ──
   const w2 = await reach(page, "W2", [1.8, 2.2, 2.6, 3.0]);
   await shot(page, "zones2-W2");
   const w3 = await reach(page, "W3", [3.8, 4.6, 5.4, 6.2]);

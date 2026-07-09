@@ -7,11 +7,11 @@ use axum::{
 use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, cors::CorsLayer};
 
 use super::{
-    agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, delayed_send_routes,
-    fs_routes, health_routes, hook_routes, logs_routes, mem_routes, mesh_routes, network_routes,
-    notification_routes, pane_chat_routes, pane_routes, pasteboard_routes, plan_routes,
-    services_routes, session_routes, task_routes, theme_routes, updater_routes, usage_routes,
-    web_routes, webhook_routes, workspace_routes,
+    agent_routes, bridge_routes, clipboard_routes, config_routes, cron_routes, debug_routes,
+    fs_routes, health_routes, logs_routes, mem_routes, mesh_routes, network_routes,
+    notification_routes, output_stream, pane_agent_routes, pane_routes, pasteboard_routes,
+    plan_routes, pty_routes, services_routes, session_routes, task_routes, theme_routes,
+    updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
 #[derive(Clone)]
@@ -135,13 +135,26 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/plans/{id}/archive", post(plan_routes::archive))
         .route("/api/plans/{id}/unarchive", post(plan_routes::unarchive))
+        .route("/api/plans/{id}/pause", post(plan_routes::pause))
+        .route("/api/plans/{id}/resume", post(plan_routes::resume))
+        .route("/api/plans/{id}/mode", post(plan_routes::mode_set))
         .route("/api/plans/{id}/reconcile", get(plan_routes::reconcile))
         .route("/api/plans/{id}/state", get(plan_routes::state))
         .route("/api/plans/{id}/next", get(plan_routes::next))
+        .route("/api/plans/{id}/attachments", get(plan_routes::attachment))
         .route("/api/plans/{id}/transfer", post(plan_routes::transfer))
         .route("/api/plans/{id}/disown", post(plan_routes::disown))
         .route("/api/plans/{id}/claim", post(plan_routes::claim))
         .route("/api/plans/{id}/ingest", post(plan_routes::ingest))
+        .route("/api/plans/{id}/skills", get(plan_routes::skills_list))
+        .route(
+            "/api/plans/{id}/skills/{slug}",
+            get(plan_routes::skills_show),
+        )
+        .route(
+            "/api/plans/{id}/retrospective",
+            post(plan_routes::retrospective_write),
+        )
         .route("/api/plans/{id}/sections", post(plan_routes::section_add))
         .route(
             "/api/plans/{id}/sections/{sid}",
@@ -192,12 +205,36 @@ pub fn create_router(state: AppState) -> Router {
             post(plan_routes::task_assign),
         )
         .route(
+            "/api/plans/{id}/tasks/{tid}/attempts",
+            get(plan_routes::task_attempts),
+        )
+        .route(
+            "/api/plans/{id}/tasks/{tid}/attempts/{attempt_id}",
+            get(plan_routes::task_attempt_show),
+        )
+        .route(
+            "/api/plans/{id}/tasks/{tid}/respawn",
+            post(plan_routes::task_respawn),
+        )
+        .route(
             "/api/plans/{id}/tasks/{tid}/milestones",
             post(plan_routes::milestone_add),
         )
         .route(
             "/api/plans/{id}/tasks/{tid}/milestones/{ms_id}",
             patch(plan_routes::milestone_update).delete(plan_routes::milestone_rm),
+        )
+        .route(
+            "/api/plans/{id}/decision",
+            post(plan_routes::gate_ask).get(plan_routes::gate_list),
+        )
+        .route(
+            "/api/plans/{id}/decision/{gid}/answer",
+            post(plan_routes::gate_answer),
+        )
+        .route(
+            "/api/plans/{id}/decision/{gid}/escalate",
+            post(plan_routes::gate_escalate),
         )
         .route("/api/plans/{id}/loops", post(plan_routes::loop_create))
         .route(
@@ -209,66 +246,21 @@ pub fn create_router(state: AppState) -> Router {
             post(plan_routes::loop_stop),
         )
         .route(
-            "/api/plans/{id}/loops/{lid}/advance",
-            post(plan_routes::loop_advance),
+            "/api/plans/{id}/loops/{lid}/record",
+            post(plan_routes::loop_record),
         )
         .route("/api/plans/{id}/layout", patch(plan_routes::layout_set))
         .route("/api/plans/{id}/notes", post(plan_routes::note_add))
+        .route(
+            "/api/plans/{id}/notes/{element_id}",
+            patch(plan_routes::note_update).delete(plan_routes::element_rm),
+        )
         .route("/api/plans/{id}/elements", post(plan_routes::element_add))
-        .route("/api/panes/{id}/send", post(pane_routes::send_text))
-        .route("/api/panes/{id}/stop", post(pane_routes::stop_pane))
-        .route("/api/panes/{id}/focus", post(pane_routes::focus_pane))
-        .route("/api/panes/{id}/close", post(pane_routes::close_pane))
-        .route("/api/panes/{id}/rename", post(pane_routes::rename_pane))
-        .route("/api/panes/{id}/describe", post(pane_routes::describe_pane))
-        .route("/api/panes/{id}/output", get(pane_routes::get_pane_output))
         .route(
-            "/api/panes/{id}/output/stream",
-            get(pane_routes::stream_pane_output),
+            "/api/plans/{id}/elements/{element_id}",
+            patch(plan_routes::element_update).delete(plan_routes::element_rm),
         )
-        .route(
-            "/api/agent-runs/{pane_id}/log",
-            get(pane_routes::agent_run_log),
-        )
-        .route("/api/panes/{id}/text", get(pane_routes::get_pane_text))
-        .route(
-            "/api/panes/{id}/shell-commands",
-            get(pane_routes::shell_command_snapshot),
-        )
-        .route("/api/panes/{id}/usage", get(pane_routes::get_pane_usage))
-        .route("/api/panes/{id}/exec", post(pane_routes::exec_in_pane))
-        .route(
-            "/api/panes/{id}/capture/start",
-            post(pane_routes::start_capture),
-        )
-        .route(
-            "/api/panes/{id}/capture/stop",
-            post(pane_routes::stop_capture),
-        )
-        .route("/api/panes/{id}/resize", post(pane_routes::resize_pane))
-        .route(
-            "/api/panes/{id}/resize-owner",
-            post(web_routes::claim_resize_owner),
-        )
-        .route("/api/panes/{id}/chat", get(pane_chat_routes::snapshot))
-        .route("/api/panes/{id}/chat/start", post(pane_chat_routes::start))
-        .route("/api/panes/{id}/chat/stop", post(pane_chat_routes::stop))
-        .route(
-            "/api/panes/{id}/chat/backfill",
-            post(pane_chat_routes::backfill),
-        )
-        .route(
-            "/api/panes/{id}/delayed-messages",
-            get(delayed_send_routes::list).post(delayed_send_routes::create),
-        )
-        .route(
-            "/api/delayed-messages/{id}",
-            axum::routing::patch(delayed_send_routes::update).delete(delayed_send_routes::delete),
-        )
-        .route(
-            "/api/delayed-messages/{id}/send-now",
-            post(delayed_send_routes::send_now),
-        )
+        .route("/api/app/restart", post(network_routes::restart_app))
         .route("/api/serve-file", get(notification_routes::serve_file))
         .route(
             "/api/notifications",
@@ -335,55 +327,18 @@ pub fn create_router(state: AppState) -> Router {
             "/api/setup/hooks/uninstall",
             post(theme_routes::uninstall_hooks_api),
         )
-        .route(
-            "/api/panes/{id}/role",
-            post(agent_routes::set_pane_role).delete(agent_routes::clear_pane_role),
-        )
-        .route("/api/panes/{id}/status", get(agent_routes::get_pane_status))
-        .route("/api/panes/{id}/report", post(agent_routes::submit_report))
-        .route("/api/panes/{id}/reports", get(agent_routes::get_reports))
-        .route(
-            "/api/panes/{id}/can-spawn",
-            post(agent_routes::set_can_spawn),
-        )
-        .route(
-            "/api/panes/{id}/agent/restart",
-            post(agent_routes::agent_restart_handler),
-        )
-        .route(
-            "/api/panes/{id}/agent-type",
-            post(agent_routes::set_agent_type),
-        )
-        .route(
-            "/api/panes/{id}/prompt/respond",
-            post(agent_routes::respond_prompt),
-        )
-        .route(
-            "/api/panes/{id}/prompt/clear",
-            post(agent_routes::clear_prompt),
-        )
-        .route(
-            "/api/panes/{id}/hook/permission",
-            post(hook_routes::hook_permission),
-        )
-        .route("/api/panes/{id}/hook/stop", post(hook_routes::hook_stop))
-        .route(
-            "/api/panes/{id}/hook/session_start",
-            post(hook_routes::hook_session_start),
-        )
-        .route(
-            "/api/agents/providers",
-            get(agent_routes::list_agent_providers),
-        )
-        .route(
-            "/api/remote-workers",
-            get(agent_routes::remote_workers).post(agent_routes::record_remote_worker),
-        )
         .route("/api/debug/clock", get(debug_routes::clock_status))
         .route(
             "/api/debug/clock/advance",
             post(debug_routes::clock_advance),
-        )
+        );
+    let router = pane_agent_routes::mount(router);
+    #[cfg(debug_assertions)]
+    let router = router.route(
+        "/api/dev/inject-cast",
+        post(super::dev_cast_routes::inject_cast),
+    );
+    let router = router
         // Web mirror: IPC equivalents + the SSE event stream.
         .route("/api/mux/state", get(web_routes::mux_state))
         .route(
@@ -415,6 +370,7 @@ pub fn create_router(state: AppState) -> Router {
             get(web_routes::peer_cron_history),
         )
         .route("/api/events/stream", get(web_routes::events_stream))
+        .route("/api/output/stream", get(output_stream::output_stream))
         .route("/api/transcribe-voice", post(web_routes::transcribe_voice))
         .route(
             "/api/panes/{id}/chat-raw/start",
@@ -438,9 +394,14 @@ pub fn create_router(state: AppState) -> Router {
                 // Voice notes and attached files: axum's 2MB default is too small; cap at 200MB so a runaway client can't fill the disk.
                 .layer(axum::extract::DefaultBodyLimit::max(200 * 1024 * 1024)),
         )
-        .route("/api/pty/{id}/read", get(web_routes::pty_read))
-        .route("/api/pty/{id}/write", post(web_routes::pty_write))
-        .route("/api/pty/{id}/resize", post(web_routes::pty_resize))
+        .route("/api/pty/spawn", post(pty_routes::pty_spawn))
+        .route("/api/pty/{id}/read", get(pty_routes::pty_read))
+        .route("/api/pty/{id}/write", post(pty_routes::pty_write))
+        .route("/api/pty/{id}/resize", post(pty_routes::pty_resize))
+        .route(
+            "/api/pty/{id}/launch-command",
+            post(pty_routes::pty_launch_command),
+        )
         .route("/api/session/save", post(session_routes::save_session_api))
         .route(
             "/api/providers",
@@ -456,6 +417,10 @@ pub fn create_router(state: AppState) -> Router {
             post(session_routes::resume_session_api),
         )
         .route("/api/agents/spawn", post(agent_routes::spawn_agent))
+        .route(
+            "/api/orchestration/new",
+            post(agent_routes::create_orchestration_pair),
+        )
         .route("/api/batch", post(agent_routes::batch_commands))
         .route(
             "/api/crons",
@@ -480,11 +445,16 @@ pub fn create_router(state: AppState) -> Router {
             "/api/services/{id}",
             get(services_routes::get_service)
                 .put(services_routes::update_service)
+                .patch(services_routes::update_service)
                 .delete(services_routes::delete_service),
         )
         .route(
             "/api/services/{id}/regenerate-token",
             post(services_routes::regenerate_token),
+        )
+        .route(
+            "/api/services/smart-add-inspect",
+            post(services_routes::smart_add_inspect),
         )
         .route("/api/activity", get(services_routes::list_activity))
         .route(
@@ -547,6 +517,14 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/mesh/relay", post(mesh_routes::mesh_relay))
         .route(
+            "/api/mesh/relay-stream",
+            get(mesh_routes::mesh_relay_stream),
+        )
+        .route(
+            "/api/mesh/relay-asset/{peer}/{*path}",
+            get(mesh_routes::mesh_relay_asset),
+        )
+        .route(
             "/api/mesh/peers/{id}",
             axum::routing::delete(mesh_routes::mesh_unpair),
         )
@@ -578,6 +556,11 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/mesh/peers/{id}/addr",
             post(mesh_routes::mesh_set_peer_addr),
+        )
+        .route("/api/mesh/exit", post(mesh_routes::mesh_exit))
+        .route(
+            "/api/mesh/peers/{id}/access",
+            post(mesh_routes::mesh_set_access),
         )
         .route("/api/mem/search", get(mem_routes::mem_search))
         .route("/api/mem/items", post(mem_routes::mem_save))
@@ -738,7 +721,35 @@ pub fn create_router(state: AppState) -> Router {
             "/api/plugins/chatbackend/switch-model",
             post(web_routes::chatbackend_switch_model),
         )
+        .route(
+            "/api/plugins/chatbackend/open",
+            post(web_routes::open_chat_backend_pane),
+        )
         .route("/api/plugins/{id}/ui/{*path}", get(web_routes::plugin_ui))
+        .route(
+            "/api/attachments/temp-file",
+            post(web_routes::save_temp_file),
+        )
+        .route(
+            "/api/attachments/clipboard-image",
+            post(clipboard_routes::save_clipboard_image),
+        )
+        .route(
+            "/api/attachments/clipboard-file",
+            post(clipboard_routes::save_clipboard_file),
+        )
+        .route(
+            "/api/clipboard/copy-image",
+            post(web_routes::copy_image_to_clipboard),
+        )
+        .route(
+            "/api/agents/general/restart",
+            post(agent_routes::restart_general_agent),
+        )
+        .route(
+            "/api/agents/general/complete-first-run",
+            post(agent_routes::complete_general_agent_first_run),
+        )
         .route("/api/secrets/status", get(crate::secrets::api::status))
         .route("/api/secrets/unlock", post(crate::secrets::api::unlock))
         .route("/api/secrets/lock", post(crate::secrets::api::lock))
@@ -785,7 +796,6 @@ pub fn create_router(state: AppState) -> Router {
             get(logs_routes::list_logs).delete(logs_routes::delete_logs),
         );
 
-    // gzip-scoped snapshot route: 100k-node payloads compress ~4:1. Kept on its
     // own sub-router so compression only runs for this large response.
     let router = router.merge(
         Router::new()
@@ -796,14 +806,10 @@ pub fn create_router(state: AppState) -> Router {
             .layer(CompressionLayer::new()),
     );
 
-    // Web mirror: serve the built React bundle at the daemon root with an SPA
-    // fallback (deep links resolve to index.html). Public route — the auth
-    // middleware skips non-/api paths; all API calls remain token-gated.
     let router = if let Some(dist) = &state.web_dist {
         let root_serve = tower_http::services::ServeDir::new(dist).fallback(
             tower_http::services::ServeFile::new(dist.join("index.html")),
         );
-        // no-cache = revalidate every load (304s via Last-Modified). Installed
         // iOS web apps otherwise heuristically cache index.html and miss updates.
         let root_serve = tower_http::set_header::SetResponseHeader::overriding(
             root_serve,

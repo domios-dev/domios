@@ -150,7 +150,13 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
         }
         MemAction::Get { id } => ("GET".into(), format!("/api/mem/items/{}", enc(id)), None),
         MemAction::Delete { id } => ("DELETE".into(), format!("/api/mem/items/{}", enc(id)), None),
-        MemAction::Forget { area } => ("DELETE".into(), format!("/api/mem/forget/{}", enc(area)), None),
+        MemAction::Forget { area, yes } => {
+            if let Err(e) = crate::cmd::mem::item::validate_mem_forget_confirmation(area, *yes) {
+                eprintln!("Error: {}", e);
+                std::process::exit(2);
+            }
+            ("DELETE".into(), format!("/api/mem/forget/{}", enc(area)), None)
+        }
         MemAction::History { id } => ("GET".into(), format!("/api/mem/items/{}/history", enc(id)), None),
         MemAction::Append { id, text, file, changed_by } => {
             let resolved = resolve_remote_text(text, file).unwrap_or_else(|| {
@@ -220,6 +226,30 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
             if let Some(v) = source_path { payload["source_path"] = json!(v); }
             if *replace { payload["replace"] = json!(true); }
             if *skip_extract { payload["skip_extract"] = json!(true); }
+            if *pin { payload["pinned"] = json!(true); }
+            ("POST".into(), "/api/mem/items".into(), Some(payload.to_string()))
+        }
+        MemAction::SavePreference { title, body, body_file, summary, tags, area, importance, scope, workspace, pin, replace } => {
+            let mut payload = json!({"kind": "preference", "importance": importance, "skip_extract": true});
+            if let Some(v) = title { payload["title"] = json!(v); }
+            if let Some(v) = resolve_remote_text(body, body_file) { payload["body"] = json!(v); }
+            if let Some(v) = summary { payload["summary"] = json!(v); }
+            if let Some(v) = tags { payload["tags"] = json!(v); }
+            if let Some(v) = area { payload["area"] = json!(v); }
+            let resolved_scope = match (workspace, scope) {
+                (Some(ws), _) => {
+                    let ws = ws.trim();
+                    if ws.is_empty() {
+                        eprintln!("Error: --workspace requires a non-empty id");
+                        std::process::exit(1);
+                    }
+                    Some(format!("workspace:{ws}"))
+                }
+                (None, Some(s)) => Some(s.clone()),
+                (None, None) => None,
+            };
+            if let Some(v) = resolved_scope { payload["scope"] = json!(v); }
+            if *replace { payload["replace"] = json!(true); }
             if *pin { payload["pinned"] = json!(true); }
             ("POST".into(), "/api/mem/items".into(), Some(payload.to_string()))
         }

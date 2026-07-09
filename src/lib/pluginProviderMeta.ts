@@ -1,7 +1,5 @@
 import type { ModelInfo } from "./types";
 
-// Per-plugin identity sourced from `plugin_manager_snapshot` (CB-P1 exposes
-// icon/display-name/models per plugin). Shell panes have no `agent_type`, so the
 export interface PluginProviderMeta {
   id: string;
   displayName: string;

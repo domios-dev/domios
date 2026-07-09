@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { IS_WEB } from "../lib/webApi";
 
 function detectTouchOptimizedUi(): boolean {
-  // The desktop Tauri app is never touch-optimized — phones/tablets reach
   // us through the web mirror. maxTouchPoints is deliberately NOT used:
   if (!IS_WEB || typeof window === "undefined") return false;
   return (

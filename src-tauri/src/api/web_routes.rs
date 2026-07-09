@@ -14,13 +14,19 @@ use std::time::{Duration, SystemTime};
 
 use crate::api::routes::{check_auth, AppState};
 
+pub use crate::api::web_plugin_routes::plugin_ui;
+
 /// Full multiplexer snapshot — the web bundle's `mux_get_state`.
 pub async fn mux_state(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let snapshot = state.svc.mux.read().snapshot();
+    let snapshot = state
+        .svc
+        .mux
+        .read()
+        .snapshot_with_status(&state.svc.agent_tracker.lock());
     Ok(Json(serde_json::to_value(snapshot).unwrap_or_default()))
 }
 
@@ -123,41 +129,121 @@ pub async fn peer_cron_history(
     Ok(Json(value))
 }
 
-/// SSE stream of system events for the web bundle's `listen()` bridge.
-/// Frames are `data: {"event_type": "...", "data": {...}}`.
+/// Optional replay cursor: `?since=<boot_id>:<seq>` (D1).
+#[derive(Deserialize)]
+pub(crate) struct EventsStreamQuery {
+    since: Option<String>,
+}
+
+/// Parse a `<boot_id>:<seq>` cursor; the boot_id is dash-free hex (no colon).
+fn parse_since(raw: &str) -> Option<(String, u64)> {
+    let (boot, seq) = raw.rsplit_once(':')?;
+    if boot.is_empty() {
+        return None;
+    }
+    Some((boot.to_string(), seq.parse().ok()?))
+}
+
+/// Generic carries a real frontend event name inside — surface that, not "generic".
+fn render_event(ev: &crate::api::events::SystemEvent) -> (String, serde_json::Value) {
+    use crate::api::events::SystemEvent;
+    match ev {
+        SystemEvent::Generic { event_type, data } => (event_type.clone(), data.clone()),
+        other => (
+            other.type_name().to_string(),
+            serde_json::to_value(other).unwrap_or(serde_json::Value::Null),
+        ),
+    }
+}
+
+fn event_frame(se: &crate::api::events::SeqEvent, boot: &str) -> Event {
+    let (event_type, data) = render_event(&se.event);
+    let payload = serde_json::json!({
+        "seq": se.seq,
+        "boot": boot,
+        "event_type": event_type,
+        "data": data,
+    });
+    Event::default().data(payload.to_string())
+}
+
+/// The ONLY loss signal (D1): client adopts `next_seq` and full-resyncs.
+fn overflow_frame(reason: &str, boot: &str, next_seq: u64, oldest: Option<u64>) -> Event {
+    let mut data = serde_json::json!({
+        "reason": reason,
+        "boot": boot,
+        "next_seq": next_seq,
+    });
+    if let Some(oldest) = oldest {
+        data["oldest"] = serde_json::json!(oldest);
+    }
+    let payload = serde_json::json!({ "event_type": "overflow", "data": data });
+    Event::default().data(payload.to_string())
+}
+
+/// SSE stream of system events for the web bundle's `listen()` bridge (D1).
+/// Frames: `data: {"seq":N,"boot":"..","event_type":"..","data":{..}}`.
+/// `?since=<boot>:<seq>` replays missed events from the ring then goes live;
+/// overflow/boot-change/lagged emit the explicit overflow frame (no silent gap).
+/// Absent `?since` ⇒ start live from now (old-client behavior).
 pub async fn events_stream(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
+    Query(q): Query<EventsStreamQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, (StatusCode, String)>
 {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+
+    use crate::api::events::ReplayPlan;
+    // between the snapshot and buffered live events is deduped by seq below.
     let mut rx = state.events.subscribe();
+    let snap = state.events.snapshot_ring();
+    let boot = snap.boot_id.clone();
+    let since = q.since.as_deref().and_then(parse_since);
+    let cursor_seq = since.as_ref().map(|(_, s)| *s);
+    let plan = snap.plan(since.as_ref().map(|(b, s)| (b.as_str(), *s)));
+    let events = state.events.clone();
+
     let stream = async_stream::stream! {
+        // tracks the highest seq yielded so the live loop drops the overlap.
+        let mut replayed_max: u64;
+        let replay = match plan {
+            ReplayPlan::FromNow => {
+                replayed_max = 0;
+                Vec::new()
+            }
+            ReplayPlan::BootChanged { next_seq } => {
+                replayed_max = 0;
+                yield Ok(overflow_frame("boot-changed", &boot, next_seq, None));
+                Vec::new()
+            }
+            ReplayPlan::Covered { replay } => {
+                replayed_max = cursor_seq.unwrap_or(0);
+                replay
+            }
+            ReplayPlan::Evicted { oldest, next_seq, replay } => {
+                replayed_max = next_seq.saturating_sub(1);
+                yield Ok(overflow_frame("ring-evicted", &boot, next_seq, Some(oldest)));
+                replay
+            }
+        };
+        for se in &replay {
+            if se.seq > replayed_max {
+                replayed_max = se.seq;
+            }
+            yield Ok(event_frame(se, &boot));
+        }
         loop {
             match rx.recv().await {
-                Ok(ev) => {
-                    // Generic carries a real frontend event name inside — surface that, not the literal "generic".
-                    let (event_type, data) = match &ev {
-                        crate::api::events::SystemEvent::Generic { event_type, data } => {
-                            (event_type.clone(), data.clone())
-                        }
-                        other => (
-                            other.type_name().to_string(),
-                            serde_json::to_value(other).unwrap_or(serde_json::Value::Null),
-                        ),
-                    };
-                    let payload = serde_json::json!({
-                        "event_type": event_type,
-                        "data": data,
-                    });
-                    yield Ok(Event::default().data(payload.to_string()));
+                Ok(se) => {
+                    if se.seq <= replayed_max {
+                        continue;
+                    }
+                    replayed_max = se.seq;
+                    yield Ok(event_frame(&se, &boot));
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                    let payload = serde_json::json!({
-                        "event_type": "lagged",
-                        "data": { "skipped": n },
-                    });
-                    yield Ok(Event::default().data(payload.to_string()));
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    yield Ok(overflow_frame("lagged", &boot, events.current_seq(), None));
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
@@ -188,7 +274,7 @@ fn get_cookie<'a>(headers: &'a axum::http::HeaderMap, name: &str) -> Option<&'a 
 }
 
 /// Validate a token against the configured local API token.
-fn validate_manifest_token(
+pub(crate) fn validate_manifest_token(
     state: &AppState,
     candidate: &str,
 ) -> Result<bool, (StatusCode, &'static str)> {
@@ -296,149 +382,6 @@ pub async fn web_manifest(
         )],
         manifest.to_string(),
     )
-}
-
-// ── PTY over HTTP — the browser terminal's read/write/resize loop ──
-
-#[derive(Deserialize)]
-pub(crate) struct PtyTailQuery {
-    offset: Option<u64>,
-}
-
-/// Browser-safe PTY mirror. Unlike the Tauri `read_pty` command, this never
-/// reads the PTY master. It tails bytes already captured in OutputBuffer, so
-/// web clients cannot steal terminal output from the desktop webview.
-pub async fn pty_read(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(pty_id): Path<String>,
-    Query(query): Query<PtyTailQuery>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let mut offset = {
-        let buf = state.svc.output_buf.lock();
-        query.offset.unwrap_or_else(|| buf.total_written(&pty_id))
-    };
-
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(25);
-    loop {
-        // Message avoids "PTY not found"/"PTY closed" — those trigger frontend respawn.
-        if state.svc.pty.lock().get_session(&pty_id).is_none() {
-            return Err((StatusCode::NOT_FOUND, "pty session ended".to_string()));
-        }
-        let (data, next_offset) = state.svc.output_buf.lock().read_since(&pty_id, offset);
-        offset = next_offset;
-        if !data.is_empty() || tokio::time::Instant::now() >= deadline {
-            return Ok(Json(serde_json::json!({
-                "data": data,
-                "offset": offset,
-            })));
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-}
-
-#[derive(Deserialize)]
-pub(crate) struct PtyWriteBody {
-    data: String,
-    /// Mirrors the Tauri command: raw=false means "composed text" — bracket
-    /// paste + verified Enter for agent panes. Defaults to true (xterm
-    /// keystroke stream).
-    #[serde(default = "default_true")]
-    raw: bool,
-}
-
-fn default_true() -> bool {
-    true
-}
-
-pub async fn pty_write(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(pty_id): Path<String>,
-    Json(body): Json<PtyWriteBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    if body.raw {
-        crate::commands::write_pty_string_core(&state.svc, pty_id, body.data)
-            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    } else {
-        // Verified injection blocks (drain-checked Enter retries) — keep it
-        // off the async runtime.
-        let svc = state.svc.clone();
-        tokio::task::spawn_blocking(move || {
-            let text_stripped = body.data.trim_end_matches('\r');
-            let enter = text_stripped.len() != body.data.len();
-            svc.send_text_to_pty_smart(&pty_id, text_stripped, enter)
-        })
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("send task failed: {e}"),
-            )
-        })?
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    }
-    Ok(Json(serde_json::json!({"ok": true})))
-}
-
-#[derive(Deserialize)]
-pub(crate) struct PtyResizeBody {
-    cols: u16,
-    rows: u16,
-    client_id: Option<String>,
-}
-
-pub async fn pty_resize(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(pty_id): Path<String>,
-    Json(body): Json<PtyResizeBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    if let Some(client_id) = body.client_id.as_deref() {
-        if !state.resize_owner.lock().is_owner(&pty_id, client_id) {
-            return Ok(Json(serde_json::json!({"ok": true, "ignored": true})));
-        }
-    }
-    crate::commands::resize_pty_core(&state.svc.pty, pty_id, body.cols, body.rows)
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    Ok(Json(serde_json::json!({"ok": true})))
-}
-
-#[derive(Deserialize)]
-pub(crate) struct ResizeOwnerBody {
-    pty_id: String,
-    client_id: String,
-    cols: u16,
-    rows: u16,
-    #[serde(default)]
-    force: bool,
-}
-
-pub async fn claim_resize_owner(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(pane_id): Path<String>,
-    Json(body): Json<ResizeOwnerBody>,
-) -> Result<Json<crate::resize_owner::ResizeOwner>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let owner = state.resize_owner.lock().claim(
-        pane_id,
-        body.pty_id,
-        body.client_id,
-        body.cols,
-        body.rows,
-        body.force,
-    );
-    state
-        .events
-        .publish(crate::api::events::SystemEvent::Generic {
-            event_type: "pty-resize-owner-changed".to_string(),
-            data: serde_json::to_value(&owner).unwrap_or_default(),
-        });
-    Ok(Json(owner))
 }
 
 // ── uploads — browser attachments are copied onto daemon host for agent CLI path reads.
@@ -559,6 +502,49 @@ pub async fn upload(
     Err((StatusCode::BAD_REQUEST, "missing 'file' field".to_string()))
 }
 
+#[derive(Deserialize)]
+pub(crate) struct SaveTempFileBody {
+    data: String,
+    extension: String,
+    name: Option<String>,
+}
+
+/// Web-mirror twin of the `save_temp_file` Tauri command.
+pub async fn save_temp_file(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SaveTempFileBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let path = tokio::task::spawn_blocking(move || {
+        crate::commands::save_temp_file(body.data, body.extension, body.name)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({ "path": path })))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct CopyImageToClipboardBody {
+    path: String,
+}
+
+/// Web-mirror twin of the `copy_image_to_clipboard` Tauri command. Sets the
+/// daemon host's OS clipboard, not the browser's — intentional, since the
+/// PTY paste keystroke that follows reads from the same host clipboard.
+pub async fn copy_image_to_clipboard(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CopyImageToClipboardBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    crate::commands::copy_image_to_clipboard(body.path)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::api::routes::WEB_TOKEN_TTL;
@@ -643,7 +629,6 @@ pub async fn plugin_snapshot(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    // snapshot() does blocking filesystem work + clones channels via `git` —
     // never on the async runtime (mirrors the Tauri command's spawn_blocking wrap).
     let svc = state.svc.clone();
     tokio::task::spawn_blocking(move || {
@@ -662,7 +647,6 @@ pub async fn plugin_action(
     Json(action): Json<crate::commands::plugins::PluginManagerAction>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    // run_action does blocking plugin filesystem work (+ `git` for channels) —
     // keep it off the async runtime (mirrors the Tauri command's spawn_blocking wrap).
     let svc = state.svc.clone();
     tokio::task::spawn_blocking(move || crate::commands::plugins::run_action(action, svc.as_ref()))
@@ -766,10 +750,13 @@ pub async fn chatbackend_session_info(
     Json(req): Json<ChatBackendSessionReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let info = state
-        .svc
-        .chatbackend_session_info(&req.plugin_id, &req.session_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let svc = state.svc.clone();
+    let info = tokio::task::spawn_blocking(move || {
+        svc.chatbackend_session_info(&req.plugin_id, &req.session_id)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::to_value(info).unwrap_or_default()))
 }
 
@@ -788,123 +775,62 @@ pub async fn chatbackend_switch_model(
     Json(req): Json<ChatBackendSwitchModelReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let info = state
-        .svc
-        .chatbackend_set_model(&req.plugin_id, &req.session_id, &req.model)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let svc = state.svc.clone();
+    let info = tokio::task::spawn_blocking(move || {
+        svc.chatbackend_set_model(&req.plugin_id, &req.session_id, &req.model)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::to_value(info).unwrap_or_default()))
 }
 
-/// The `ct` bridge shim injected (nonce'd) into every plugin iframe. The iframe's
-/// ONLY channel to the host: postMessage to the parent, which runs the
-/// permission-gated `plugin_view_call`. No direct network (CSP `connect-src 'none'`).
-const PLUGIN_BRIDGE_JS: &str = r#"
-(function(){var p={},s=0;
-window.addEventListener('message',function(e){var m=e.data||{};
- if(m.__ctReply!=null&&p[m.__ctReply]){var d=p[m.__ctReply];delete p[m.__ctReply];
-  m.error?d.reject(new Error(m.error)):d.resolve(m.result);}
- if(m.__ctTheme!=null){document.documentElement.style.cssText=m.__ctTheme;}});
-window.ct={invoke:function(method,args){var id=++s;return new Promise(function(res,rej){
-  p[id]={resolve:res,reject:rej};parent.postMessage({__ctInvoke:id,method:method,args:args||null},'*');});},
- close:function(){parent.postMessage({__ctClose:true},'*');}};
-parent.postMessage({__ctReady:true},'*');
-function rz(){if(!document.body)return;var h=document.body.scrollHeight;if(h)parent.postMessage({__ctResize:h},'*');}
-function watch(){if(window.ResizeObserver){new ResizeObserver(rz).observe(document.body);}rz();}
-document.readyState==='loading'?document.addEventListener('DOMContentLoaded',watch):watch();})();
-"#;
-
 #[derive(serde::Deserialize)]
-pub struct PluginUiQuery {
-    pub token: Option<String>,
+#[serde(rename_all = "camelCase")]
+pub struct OpenChatBackendPaneReq {
+    pub plugin_id: String,
+    pub workspace_id: Option<String>,
+    pub config: Option<serde_json::Value>,
+    pub system_prompt: Option<String>,
+    pub preset: Option<String>,
+    pub model: Option<String>,
 }
 
-fn ui_mime(path: &str) -> &'static str {
-    match path.rsplit('.').next() {
-        Some("html") => "text/html; charset=utf-8",
-        Some("js") | Some("mjs") => "text/javascript; charset=utf-8",
-        Some("css") => "text/css; charset=utf-8",
-        Some("svg") => "image/svg+xml",
-        Some("png") => "image/png",
-        Some("woff2") => "font/woff2",
-        Some("json") => "application/json",
-        _ => "application/octet-stream",
-    }
-}
-
-/// Serves a plugin's iframe UI from `plugins/<id>/ui/*`, injecting CSP+nonce and the
-/// bridge shim into `index.html`. Query-token-gated; all power flows through `plugin_view_call`.
-pub async fn plugin_ui(
+/// Web-mirror twin of the `open_chat_backend_pane` Tauri command — opens a
+/// non-PTY chatBackend pane (e.g. an LM Studio plugin) from the Extensions panel.
+pub async fn open_chat_backend_pane(
     AxumState(state): AxumState<AppState>,
-    axum::extract::Path((id, path)): axum::extract::Path<(String, String)>,
-    Query(q): Query<PluginUiQuery>,
-) -> Result<axum::response::Response, (StatusCode, String)> {
-    let dir = crate::view_host::plugin_ui_dir(&id)
-        .ok_or((StatusCode::NOT_FOUND, format!("no ui for plugin '{id}'")))?;
-    let rel = if path.is_empty() {
-        "index.html"
-    } else {
-        path.as_str()
-    };
-    if rel.contains("..") {
-        return Err((StatusCode::BAD_REQUEST, "path traversal".into()));
-    }
-    // Token-gate only the HTML entry (it carries the nonce + bridge); the iframe loads
-    // the content-hashed assets it references via <script src> with no token.
-    if rel.ends_with(".html") {
-        let ok = q
-            .token
-            .as_deref()
-            .map(|t| validate_manifest_token(&state, t).unwrap_or(false))
-            .unwrap_or(false);
-        if !ok {
-            return Err((StatusCode::UNAUTHORIZED, "bad or missing token".into()));
-        }
-    }
-    let file = dir.join(rel);
-    let bytes = tokio::fs::read(&file)
-        .await
-        .map_err(|_| (StatusCode::NOT_FOUND, "not found".to_string()))?;
-
-    use axum::http::{header, HeaderValue};
-    let mut resp = if rel.ends_with(".html") {
-        let nonce = uuid::Uuid::new_v4().simple().to_string();
-        let raw = String::from_utf8_lossy(&bytes).replace("__CT_NONCE__", &nonce);
-        let bridge = format!("<script nonce=\"{nonce}\">{PLUGIN_BRIDGE_JS}</script>");
-        let html = match raw.find("<head>") {
-            Some(i) => format!("{}{}{}", &raw[..i + 6], bridge, &raw[i + 6..]),
-            None => format!("{bridge}{raw}"),
-        };
-        let csp = format!(
-            "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}' 'unsafe-inline'; \
-             img-src 'self' data:; font-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'"
-        );
-        let mut r = axum::response::Response::new(axum::body::Body::from(html));
-        r.headers_mut().insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("text/html; charset=utf-8"),
-        );
-        if let Ok(v) = HeaderValue::from_str(&csp) {
-            r.headers_mut().insert(header::CONTENT_SECURITY_POLICY, v);
-        }
-        r
-    } else {
-        let mut r = axum::response::Response::new(axum::body::Body::from(bytes));
-        r.headers_mut()
-            .insert(header::CONTENT_TYPE, HeaderValue::from_static(ui_mime(rel)));
-        r
-    };
-    // Deliberately NO X-Frame-Options: the app embeds this cross-origin, and SAMEORIGIN
-    // would blank the panel. Framing is safe anyway — sandboxed, CSP-locked, token-gated to an inert document.
-    let cache = if rel.ends_with(".html") {
-        "no-store, must-revalidate"
-    } else {
-        "public, max-age=31536000, immutable"
-    };
-    resp.headers_mut().insert(
-        axum::http::header::CACHE_CONTROL,
-        axum::http::HeaderValue::from_static(cache),
+    headers: HeaderMap,
+    Json(req): Json<OpenChatBackendPaneReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    use crate::service::spawn::{PaneCommand, PaneVisibility, SpawnPaneSpec};
+    let mut config = req.config.unwrap_or(serde_json::Value::Null);
+    let overrides = crate::service::spawn::chatbackend_spawn_config(
+        req.system_prompt.as_deref(),
+        req.preset.as_deref(),
+        req.model.as_deref(),
     );
-    Ok(resp)
+    if let (Some(base), Some(extra)) = (config.as_object_mut(), overrides.as_object()) {
+        for (key, value) in extra {
+            base.insert(key.clone(), value.clone());
+        }
+    } else if !overrides.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+        config = overrides;
+    }
+    let handle = state
+        .svc
+        .spawn_pane(SpawnPaneSpec {
+            workspace_id: req.workspace_id,
+            visibility: PaneVisibility::Visible,
+            command: PaneCommand::ChatBackend {
+                plugin_id: req.plugin_id,
+                config,
+            },
+            ..Default::default()
+        })
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({ "pane_id": handle.pane_id })))
 }
 
 #[derive(Deserialize)]

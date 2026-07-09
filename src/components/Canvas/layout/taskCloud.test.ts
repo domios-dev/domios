@@ -34,10 +34,8 @@ function plan(tasks: Task[], sections: Section[] = []): Plan {
   };
 }
 
-// ── golden angle constant ──────────────────────────────────────────
 ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
 
-// ── packCloud: non-overlap (circumscribed-circle guarantee) ─────────
 {
   const items = Array.from({ length: 80 }, (_, i) => ({
     id: `t${i}`,
@@ -63,11 +61,9 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   ok(`disk radius bounded (${Math.round(pack.radius)} < 1600)`, pack.radius < 1600);
 }
 
-// ── center-fill: the disk is DENSE from the middle, not a hollow ring ─────
 {
   const items = Array.from({ length: 40 }, (_, i) => ({ id: `t${i}`, w: 130, h: 110, slot: i }));
   const pack = packCloud(items);
-  // The innermost tile (slot 0) sits AT the origin — old `cumArea+area/2` seeded
   // it ≈0.7ρ off-center, leaving a hole. Center-out fill puts tile 0 dead-center.
   const slot0 = pack.items[0];
   ok("innermost tile is at the disk center (no hole)", Math.hypot(slot0.cx, slot0.cy) < 1e-6);
@@ -77,7 +73,6 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   ok(`center filled — nearest tile ≪ ρ (${minD.toFixed(1)} < ${(0.25 * rho).toFixed(1)})`, minD < 0.25 * rho);
 }
 
-// ── packCloud: determinism ──────────────────────────────────────────
 {
   const items = Array.from({ length: 40 }, (_, i) => ({ id: `t${i}`, w: 130, h: 110, slot: i }));
   const a = packCloud(items);
@@ -89,7 +84,6 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   ok("pack is deterministic & input-order-independent (slot-keyed)", sameById && a.radius === b.radius);
 }
 
-// ── append-stability (§31): adding a newest task moves no existing tile ──
 {
   const base = Array.from({ length: 12 }, (_, i) => ({ id: `t${i}`, w: 140, h: 120, slot: ACTIVE_CORE_K + i }));
   const before = packCloud(base);
@@ -101,7 +95,6 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   ok("appending the outermost slot leaves every prior tile byte-identical", stable);
 }
 
-// ── two-zone sunflower: in_progress lands in the active core (inner) ──
 {
   const tasks: Task[] = [];
   // many old done/pending tasks (history spiral) + a couple of active ones.
@@ -121,7 +114,6 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   ok("active task 2 inside the median history radius", distOf("act2") < medianHist);
 }
 
-// ── §35 comet fold: active pulls LEFT (plan side), done sinks RIGHT/outer ──
 {
   const tasks: Task[] = [];
   for (let i = 0; i < 14; i++) tasks.push(task(`act${i}`, { status: i < 3 ? "in_progress" : "pending", created_at: i }));
@@ -135,18 +127,12 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   const doneXs = tasks.filter((t) => t.id.startsWith("done")).map((t) => cx(t.id));
   const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
   ok(`active mean-x left of done mean-x (${Math.round(mean(actXs))} < ${Math.round(mean(doneXs))})`, mean(actXs) < mean(doneXs));
-  // Flush-to-plan pack: the cloud's flat-left edge sits against the plan, so every tile is
-  // right of it (x≥0). The comet-fold legibility invariant is now relative — active work
-  // clusters nearer the plan (smaller x) than done — so the active centre of mass stays in
-  // the plan-near half of the cloud, and active never extends as far out as the done centre.
   const allXs = [...actXs, ...doneXs];
   const midX = (Math.min(...allXs) + Math.max(...allXs)) / 2;
   ok("active centre of mass is in the plan-near half", mean(actXs) < midX);
 }
 
-// ── §35 fold is append-stable: a NEW task moves no existing tile ──
 {
-  // Core already full (K in_progress) so the fresh task lands on the outer history
   // spiral (slot = K + creationRank), not an open core slot → no ripple.
   const base: Task[] = [];
   for (let i = 0; i < ACTIVE_CORE_K; i++) base.push(task(`a${i}`, { status: "in_progress", created_at: i }));
@@ -160,7 +146,6 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   ok("appending a fresh task (core full) leaves every prior tile byte-identical", stable);
 }
 
-// ── subtask satellites: solid smaller tiles swarming around the parent ──
 {
   const parent = task("P", { body: "x".repeat(400), created_at: 0 });
   const kids = Array.from({ length: 6 }, (_, i) => task(`c${i}`, { parent_task_id: "P", created_at: i + 1 }));
@@ -175,11 +160,9 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   const pArea = pn.box.width * pn.box.height;
   const cArea = cn.box.width * cn.box.height;
   ok(`satellite is smaller than its parent (${Math.round(cArea)} < ${Math.round(pArea)})`, cArea < pArea * 0.7);
-  // UX-3: a satellite is smaller, but still LEGIBLE — never below the readable floor
   // (a 2-line title + glyph row). Old tiny 70×46 dots were the user's complaint.
   ok(`satellite is legible, not tiny (${cn.box.width}×${cn.box.height} ≥ 140×84)`, cn.box.width >= 140 && cn.box.height >= 84);
 
-  // Satellites swarm AROUND the parent: each child center sits close to the parent
   // center (within the local cluster), never flung across the disk.
   const pc = { x: pn.box.x + pn.box.width / 2, y: pn.box.y + pn.box.height / 2 };
   const orbit = (id: string) => {
@@ -197,7 +180,6 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   ok("no overlap among parent + satellites", !overlap);
 }
 
-// ── sibling clusters never collide (each parent keeps its own swarm) ────
 {
   const tasks: Task[] = [];
   for (let p = 0; p < 5; p++) {
@@ -214,10 +196,8 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   ok("no overlap across sibling clusters' satellites", !overlap);
 }
 
-// ── full layout: disk is right of the plan, no node overlap ──────────
 {
   const sections = Array.from({ length: 8 }, (_, i) => section(`s${i}`));
-  // Balanced mix: active folds plan-near, done sinks outward → a right-opening fan (§35,
   // flush-to-plan pack — flat-left edge against the plan, not a centred round disk).
   const tasks = Array.from({ length: 38 }, (_, i) =>
     task(`t${i}`, { section_ids: [`s${i % 8}`], created_at: i, status: i < 4 ? "in_progress" : i % 2 ? "done" : "pending" }),
@@ -236,18 +216,17 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   for (let i = 0; i < taskNodes.length; i++)
     for (let j = i + 1; j < taskNodes.length; j++)
       if (boxesOverlap(taskNodes[i].box, taskNodes[j].box)) overlap = true;
-  ok("no task-tile overlap in the packed disk", !overlap);
+  ok("no task-tile overlap in the zone grid", !overlap);
 
-  // the flush-to-plan fan reads as a balanced bloom (flat-left, right-opening): neither a
-  // wide sliver nor a tall spike. The pack is intentionally not a centred round disk.
+  // wider than tall (fixes the old vertical-strip fit-to-13% failure mode).
   const xs = taskNodes.flatMap((n) => [n.box.x, n.box.x + n.box.width]);
   const ys = taskNodes.flatMap((n) => [n.box.y, n.box.y + n.box.height]);
   const w = Math.max(...xs) - Math.min(...xs);
   const h = Math.max(...ys) - Math.min(...ys);
-  ok(`task fan is balanced (aspect ${(w / h).toFixed(2)} in [0.5,1.8])`, w / h > 0.5 && w / h < 1.8);
+  ok(`zone grid field is wider than tall (aspect ${(w / h).toFixed(2)} >= 1)`, w / h >= 1);
+  ok("one zone container per section", frame.zones.length === 8);
 }
 
-// ── section grouping: same-section tasks cluster + one group per section ──
 {
   const sections = [section("s0"), section("s1"), section("s2")];
   const tasks: Task[] = [];
@@ -258,9 +237,6 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   ok("one group per non-empty section", cloud.groups.length === 3);
   ok("groups carry all member boxes", cloud.groups.every((g) => g.boxes.length === 6));
 
-  // Sunburst cohesion: each section is a contiguous ANGULAR WEDGE. Sorting every task
-  // by its angle from the fan origin yields exactly one run per section (no two
-  // sections interleave in angle) — the puzzle-wedge guarantee.
   const centerOf = (id: string) => {
     const n = cloud.nodes.find((x) => x.id === id)!;
     return { x: n.box.x + n.box.width / 2, y: n.box.y + n.box.height / 2 };
@@ -282,7 +258,6 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   ok("each task is closest to its own section's centroid (cohesive blobs)", cohesive);
 }
 
-// ── label tile is RESERVED in the pack: no card overlaps the region name box ──
 {
   const sections = [section("s0"), section("s1")];
   const tasks: Task[] = [];
@@ -308,14 +283,12 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   ok("long title → larger label box than a short one", zoneLabelBox(longTitle).width > zoneLabelBox("Tests").width);
 }
 
-// ── unsectioned tasks form one neutral group ─────────────────────────
 {
   const cloud = layoutTaskCloud(plan(Array.from({ length: 10 }, (_, i) => task(`u${i}`, { created_at: i }))), S, new Map());
   ok("no-section tasks → exactly one group", cloud.groups.length === 1);
   ok("the lone group is the UNSECTIONED group", cloud.groups[0].sectionId === "__unsectioned__");
 }
 
-// ── full layout determinism ──────────────────────────────────────────
 {
   const sections = [section("s0")];
   const mk = () => plan(Array.from({ length: 20 }, (_, i) => task(`t${i}`, { section_ids: ["s0"], created_at: i })), sections);

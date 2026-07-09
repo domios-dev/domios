@@ -133,10 +133,8 @@ mod tests {
 
         let secret = "my-mesh-token-abc";
 
-        // A encrypts for B
         let encrypted = encrypt_with_shared_secret(&priv_a, &pub_b, &nonce, secret).unwrap();
 
-        // B decrypts
         let decrypted = decrypt_with_shared_secret(&priv_b, &pub_a, &nonce, &encrypted).unwrap();
         assert_eq!(decrypted, secret);
     }

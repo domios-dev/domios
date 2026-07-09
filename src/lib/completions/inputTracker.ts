@@ -13,7 +13,6 @@ export class InputTracker {
       const code = ch.charCodeAt(0);
 
       if (ch === "\r" || ch === "\n") {
-        // Enter — reset line
         this.line = "";
         this.cursor = 0;
         this.confident = true;
@@ -22,7 +21,6 @@ export class InputTracker {
       } else if (ch === "\x1b") {
         i = this.feedEscape(data, i);
       } else if (ch === "\x03" || ch === "\x04") {
-        // Ctrl+C / Ctrl+D — reset
         this.line = "";
         this.cursor = 0;
         this.confident = true;
@@ -42,21 +40,17 @@ export class InputTracker {
       } else if (code > 127) {
         this.insert(ch);
       }
-      // Ignore other control chars
       i++;
     }
   }
 
   /** Feed PTY output to detect prompt and re-sync. */
   feedOutput(text: string): void {
-    // Strip ANSI escape sequences before checking for prompt
     const clean = text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
                       .replace(/\x1b\][^\x07]*\x07/g, "")  // OSC sequences
                       .replace(/\x1b[()][0-9A-Z]/g, "")    // charset sequences
                       .replace(/[\r\x00-\x08\x0e-\x1f]/g, ""); // control chars
 
-    // Only reset on actual new prompt — must contain newline + prompt char at end This avoids resetting mid-typing when shell sends syntax
-    // highlighting
     if (!clean.includes("\n")) return;
 
     const lastLine = clean.split("\n").pop()?.trimEnd() || "";

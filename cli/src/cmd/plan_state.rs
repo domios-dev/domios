@@ -15,6 +15,39 @@ pub fn render_state(val: &Value) -> String {
     let id = s(val, "plan_id");
     let status = s(val, "status");
     out.push_str(&format!("{title} [{id}] ({status})\n"));
+    let mode = s(val, "mode");
+    if !mode.is_empty() {
+        out.push_str(&format!("mode: {mode}\n"));
+    }
+    let planning_state = s(val, "planning_state");
+    if !planning_state.is_empty() {
+        let unlocked = val
+            .get("execution_tasks_unlocked")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let gate = if unlocked {
+            "execution tasks unlocked"
+        } else {
+            "execution tasks locked until approved"
+        };
+        out.push_str(&format!("planning state: {planning_state} ({gate})\n"));
+        if let Some(blockers) = val
+            .get("planning_approval_blockers")
+            .and_then(|v| v.as_array())
+            .filter(|a| !a.is_empty())
+        {
+            let list = blockers
+                .iter()
+                .filter_map(|b| b.as_str())
+                .collect::<Vec<_>>()
+                .join("; ");
+            out.push_str(&format!("approval blockers: {list}\n"));
+        }
+    }
+    let canonical_path = s(val, "canonical_project_path");
+    if !canonical_path.is_empty() {
+        out.push_str(&format!("canonical project: {canonical_path}\n"));
+    }
 
     if let Some(vector) = val
         .get("goal")
@@ -33,8 +66,33 @@ pub fn render_state(val: &Value) -> String {
     if let Some(owner) = owner {
         out.push_str(&format!("owner: {owner}\n"));
     }
+    if let Some(res) = val.get("planner_resolution") {
+        let kind = res.get("kind").and_then(|v| v.as_str()).unwrap_or("unset");
+        match kind {
+            "live" => {
+                let pane = res.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
+                out.push_str(&format!("planner: {pane} (live)\n"));
+            }
+            "fallback_orchestrator" => {
+                let bound = res
+                    .get("bound_pane_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let reason = res.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+                out.push_str(&format!(
+                    "planner: {bound} (fallback to orchestrator — {reason})\n"
+                ));
+            }
+            "waived" => {
+                let note = res.get("note").and_then(|v| v.as_str()).unwrap_or("");
+                out.push_str(&format!("planner: waived ({note})\n"));
+            }
+            _ => {}
+        }
+    }
 
     if let Some(c) = val.get("task_counts") {
+        let total = u(c, "total");
         let pct = val
             .get("percent_done")
             .and_then(|v| v.as_f64())
@@ -42,7 +100,7 @@ pub fn render_state(val: &Value) -> String {
             * 100.0;
         out.push_str(&format!(
             "tasks: {} total | done {} | in_progress {} | in_review {} | pending {} | blocked {} | cancelled {} ({pct:.0}% done)\n",
-            u(c, "total"),
+            total,
             u(c, "done"),
             u(c, "in_progress"),
             u(c, "in_review"),
@@ -50,6 +108,15 @@ pub fn render_state(val: &Value) -> String {
             u(c, "blocked"),
             u(c, "cancelled"),
         ));
+        let unlocked = val
+            .get("execution_tasks_unlocked")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(mode != "planning");
+        if !unlocked {
+            out.push_str(
+                "planning: delegate structure drafting to the Planner; run `codeterm plan doctor <plan> --kind quality` then `codeterm plan approve <plan>`\n",
+            );
+        }
     }
 
     if let Some(cov) = val.get("coverage") {
@@ -63,6 +130,47 @@ pub fn render_state(val: &Value) -> String {
             .and_then(|v| v.as_array())
             .map_or(0, |a| a.len());
         out.push_str(&format!("coverage: {frac:.0}% ({gaps} section gap(s))\n"));
+        if val
+            .get("task_counts")
+            .and_then(|c| c.get("total"))
+            .and_then(|v| v.as_u64())
+            == Some(0)
+        {
+            out.push_str("coverage note: this is task coverage, so 0% is expected before execution tasks exist\n");
+        }
+    }
+
+    if let Some(readiness) = val.get("planning_readiness") {
+        let spec_frac = readiness
+            .get("spec_link_coverage")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0)
+            * 100.0;
+        let linked = u(readiness, "linked_plan_sections");
+        let total = u(readiness, "total_plan_sections");
+        out.push_str(&format!(
+            "planning readiness: goal={} spec_source={} plan_sections={} spec_links={spec_frac:.0}% ({linked}/{total}) approval_gate={} verification={}\n",
+            readiness
+                .get("has_goal")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            readiness
+                .get("has_spec_source")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            readiness
+                .get("has_plan_sections")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            readiness
+                .get("has_approval_gate_hint")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            readiness
+                .get("has_verification_hint")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        ));
     }
 
     if let Some(drift) = val.get("drift") {
@@ -122,10 +230,30 @@ pub fn render_state(val: &Value) -> String {
         if !lanes.is_empty() {
             out.push_str(&format!("open lanes: {}\n", lanes.len()));
             for l in lanes {
+                let role_part = l
+                    .get("executor_role")
+                    .and_then(|v| v.as_str())
+                    .filter(|v| !v.is_empty())
+                    .map(|r| format!(" role:{r}"))
+                    .unwrap_or_default();
+                let competition_part = l
+                    .get("competition")
+                    .and_then(|v| v.as_str())
+                    .filter(|v| !v.is_empty())
+                    .map(|c| {
+                        let live = l
+                            .get("live_competition_attempts")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+                        format!(" competition:{c} live:{live}")
+                    })
+                    .unwrap_or_default();
                 out.push_str(&format!(
-                    "  - {} [{}] {}\n",
+                    "  - {} [{}]{}{} {}\n",
                     s(l, "task_id"),
                     s(l, "status"),
+                    role_part,
+                    competition_part,
                     s(l, "name"),
                 ));
             }
@@ -152,7 +280,12 @@ pub fn render_state(val: &Value) -> String {
             for m in strides {
                 let text = s(m, "text");
                 let kind = s(m, "kind");
-                out.push_str(&format!("  - [{kind}] {text}\n"));
+                let scope = if m.get("plan_level").and_then(|v| v.as_bool()) == Some(true) {
+                    " (plan)"
+                } else {
+                    ""
+                };
+                out.push_str(&format!("  - [{kind}]{scope} {text}\n"));
             }
         }
     }
@@ -171,6 +304,7 @@ mod tests {
             "plan_id": "pl_1",
             "title": "Loop",
             "status": "active",
+            "mode": "planning",
             "goal": {"vector": "ship it"},
             "owner": {"pane_id": "pane_o"},
             "task_counts": {"total": 4, "done": 1, "in_progress": 1, "in_review": 1, "pending": 1, "blocked": 0, "cancelled": 0},
@@ -194,5 +328,24 @@ mod tests {
         assert!(out.contains("t_p [pending] pend"));
         assert!(out.contains("t_r -> pane_live (rev)"));
         assert!(out.contains("[decision] did a thing"));
+    }
+
+    #[test]
+    fn renders_planning_mode_without_task_alarm() {
+        let val = json!({
+            "plan_id": "pl_1",
+            "title": "Planning",
+            "status": "active",
+            "mode": "planning",
+            "task_counts": {"total": 0, "done": 0, "in_progress": 0, "in_review": 0, "pending": 0, "blocked": 0, "cancelled": 0},
+            "percent_done": 0.0,
+            "coverage": {"plan_covered_fraction": 0.0, "gaps": ["Execution"]},
+            "planning_readiness": {"has_goal": true, "has_spec_source": true, "has_plan_sections": true, "spec_link_coverage": 1.0, "linked_plan_sections": 1, "total_plan_sections": 1, "has_approval_gate_hint": true, "has_verification_hint": true}
+        });
+        let out = render_state(&val);
+        assert!(out.contains("mode: planning"));
+        assert!(out.contains("planning: delegate structure drafting to the Planner"));
+        assert!(out.contains("coverage note: this is task coverage"));
+        assert!(out.contains("planning readiness: goal=true"));
     }
 }

@@ -1,10 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { listen } from "../../lib/bridge";
 import type { ApiConfig, Pane, Workspace } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
-import { CanvasComposer } from "./CanvasComposer";
-import type { OverlayRef } from "./canvasContext";
 import { resolveCanvasFocusNodeIds, type CanvasFocusPayload } from "./canvasFocusPayload";
 import { CanvasEmptyActions } from "./CanvasEmptyActions";
 import { CanvasToolbar } from "./CanvasToolbar";
@@ -31,7 +29,8 @@ import type { PlanGhostModel } from "./canvasView/models";
 import type { OrchestratorRef, Plan, Section, TagFacet } from "./types";
 import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { usePlanDrift } from "./usePlanDrift";
-import { useCanvasViewport } from "./useCanvasViewport";
+import { useCanvasViewport, paintLayer, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE, type ViewportTransform } from "./useCanvasViewport";
+import { buildSectionGroups, resolveSceneLod } from "./canvasRender/sceneLod";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import { canvasFitContextKey, resolveWorkspaceFocusNodeIds } from "./workspacePlanEntry";
 import { CanvasPresenceLayer } from "./CanvasPresenceLayer";
@@ -40,9 +39,9 @@ import { CanvasWorldCanvas, type CanvasRenderApi } from "./canvasRender/CanvasWo
 import type { GroupGlyph } from "./canvasRender/drawScene";
 import { CanvasSwarmCluster } from "./CanvasSwarmCluster";
 import { buildCanvasScene } from "./scene";
-import { perfFixtureCount, buildPerfFixturePlans, buildPerfFixturePanes, realFixtureEnabled, realFixturePlans, fixtureSpecSectionsByPlan } from "./perfFixture";
+import { perfFixtureCount, perfFixtureProfile, buildPerfFixturePlans, buildDoneHeavyPerfFixturePlans, buildCardMetadataFixturePlans, buildCardMetadataFixturePanes, buildPerfFixturePanes, realFixtureEnabled, realFixturePlans, fixtureSpecSectionsByPlan } from "./perfFixture";
 import { flattenSections } from "./sectionRows";
-import { useCanvasLookups } from "./canvasView/useCanvasLookups";
+import { buildTaskPresenceFingerprint, useCanvasLookups } from "./canvasView/useCanvasLookups";
 import { useCanvasFlyTo } from "./canvasView/useCanvasFlyTo";
 import { useCanvasNavHistory, type NavEntry } from "./canvasView/useCanvasNavHistory";
 import { rollUpSectionAgents, type SectionAgentSource } from "./sectionAgents";
@@ -51,6 +50,13 @@ import { useCanvasOverlays } from "./canvasView/useCanvasOverlays";
 import { useCanvasChangeSignal } from "./canvasView/useCanvasChangeSignal";
 import { useStableSet } from "./canvasView/useStableSet";
 import { useCanvasFrameProbe } from "./canvasView/useCanvasFrameProbe";
+import { bumpCanvasChurn } from "./canvasChurn";
+import { PlanViewShell } from "./PlanViewShell";
+import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "./planView/PlanFetchErrorState";
+import { planFetchShowsData } from "./planView/planViewFetchGate";
+import { revealAssignedAgentPane } from "./planRevealAgentPane";
+import { FlyToActiveControl } from "./FlyToActiveControl";
+import { selectActiveWork } from "./planView/activeWork";
 
 export type { TaskCardModel } from "./canvasView/models";
 
@@ -58,7 +64,9 @@ export interface CanvasViewInnerProps {
   mode: "workspace" | "focus";
   plans: Plan[];
   loading?: boolean;
+  reconnecting?: boolean;
   error?: string | null;
+  onRetry?: () => void;
   planId?: string;
   orchestratorPaneId?: string;
   /** The pane that opened Plan mode — its assigned tasks get the initial camera. */
@@ -88,7 +96,9 @@ export function CanvasViewInner({
   mode,
   plans,
   loading = false,
+  reconnecting = false,
   error = null,
+  onRetry,
   planId,
   orchestratorPaneId,
   focusPaneId = null,
@@ -104,11 +114,10 @@ export function CanvasViewInner({
 }: CanvasViewInnerProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
+  useEffect(() => {
+    bumpCanvasChurn("canvasCommits");
+  });
 
-  // Computed every render (value-based change detector) so an in-place plan-body
-  // mutation is still caught — downstream memos key on the STRING value, so they
-  // only recompute when content actually changes. (The heavier layout fingerprint is
-  // memoized below; it chains off this via filteredPlans, so in-place still propagates.)
   const plansRevision = layoutInputRevision(plans);
   const planFilterRevision = plans
     .map((p) => [p.id, p.status, p.owner.pane_id ?? "", p.owner.session_id ?? ""].join(":"))
@@ -116,6 +125,15 @@ export function CanvasViewInner({
   const filteredPlans = useMemo(
     () => filterPlansForCanvas(plans, mode, { planId, orchestratorPaneId, panes }),
     [plans, plansRevision, planFilterRevision, mode, planId, orchestratorPaneId, panes],
+  );
+
+  const activeWork = useMemo(
+    () => selectActiveWork(filteredPlans, panes),
+    [filteredPlans, panes],
+  );
+  const staleActiveTaskIds = useMemo(
+    () => new Set(activeWork.entries.filter((e) => e.stale).map((e) => e.task.id)),
+    [activeWork],
   );
 
   const planById = useMemo(() => new Map(filteredPlans.map((p) => [p.id, p])), [filteredPlans]);
@@ -126,10 +144,6 @@ export function CanvasViewInner({
   );
   const driftByPlan = usePlanDrift(api, filteredPlanIds);
 
-  // Fetch the REAL linked Spec entity per plan (Spec=WHAT ⊥ Plan=HOW). The spec
-  // node renders THESE sections, not the plan's — they are distinct entities. Dev
-  // fixtures have no real Spec entity to fetch, so their spec sections are seeded
-  // synthetically and the API fetch skips them.
   const fixtureSpecSections = useMemo(() => fixtureSpecSectionsByPlan(filteredPlans), [filteredPlans]);
   const [fetchedSpecSections, setFetchedSpecSections] = useState<Map<string, Section[]>>(new Map());
   useEffect(() => {
@@ -156,9 +170,6 @@ export function CanvasViewInner({
     for (const [k, v] of fixtureSpecSections) merged.set(k, v);
     return merged;
   }, [fetchedSpecSections, fixtureSpecSections]);
-  // Region labels resolve from the plan's OWN sections (sec_… ids + titles). The layout
-  // plan gets its sections OVERLAID with spec sections (plansForLayout), so its ids no
-  // longer match the tasks' section_ids — resolve titles from the original plans here.
   const sectionTitleById = useMemo(() => {
     const m = new Map<string, string>();
     for (const p of filteredPlans) {
@@ -180,63 +191,48 @@ export function CanvasViewInner({
     return m;
   }, [specSectionsByPlan]);
 
-  // The <canvas> renderer publishes its blit-scheduler here; the viewport calls it
   // on every camera paint so the canvas re-blits in lockstep with the gesture.
   const drawRequestRef = useRef<(() => void) | null>(null);
   const canvasApiRef = useRef<CanvasRenderApi | null>(null);
   const hoverRafRef = useRef<number | null>(null);
-  const onCanvasPaint = useCallback(() => drawRequestRef.current?.(), []);
-  const { transform, handlers, fitToView, animateTo, animateToView, zoomBy, setTransform, isDragging, containerRef, transformRef } = useCanvasViewport({
+  const onPaintImpl = useRef<(t: ViewportTransform) => void>(() => {});
+  const { transform, handlers, fitToView, animateTo, animateToView, zoomBy, setTransform, isDragging, containerRef, layerRef, transformRef } = useCanvasViewport({
     width: size.width,
     height: size.height,
     panButton: "middle",
-    // §32.10 / worlds-dive: tasks/strides are tiny → deep zoom-drill needs wide range (to 1000%).
-    maxScale: 10,
-    onPaint: onCanvasPaint,
+    minScale: CANVAS_MIN_SCALE,
+    maxScale: CANVAS_MAX_SCALE,
+    onPaint: (t) => onPaintImpl.current(t),
   });
+  onPaintImpl.current = (t) => {
+    bumpCanvasChurn("cameraPaints");
+    paintLayer(layerRef.current, t);
+    drawRequestRef.current?.();
+  };
+  const paintWorldLayer = useCallback((t: ViewportTransform) => {
+    paintLayer(layerRef.current, t);
+  }, [layerRef]);
 
-  // §24.1: ONE behavior — no manual view modes. Node frames are fixed; content
+  useLayoutEffect(() => {
+    paintLayer(layerRef.current, transformRef.current);
+  }, [transform, layerRef, transformRef]);
+
   // adapts to camera zoom (content-LOD). The toolbar is camera-only.
   const [minimapOn, setMinimapOn] = useState(true);
 
-  // Memoize the layout source + its fingerprint: plansForLayout maps a NEW array when
-  // spec sections are present, so an unmemoized call minted a fresh ref every render →
-  // the scene memo (dep: layoutSourcePlans) rebuilt every render. Stable now.
   const layoutSourcePlans = useMemo(() => plansForLayout(filteredPlans, specSectionsByPlan), [filteredPlans, specSectionsByPlan]);
   const layoutRevision = useMemo(() => layoutInputRevision(layoutSourcePlans, specSectionsByPlan), [layoutSourcePlans, specSectionsByPlan]);
   const lineageCatalog = useMemo(() => buildLineageCatalog(plans), [plansRevision]);
   const layout = useMemo(() => layoutWorkspace(layoutSourcePlans, undefined, sectionTitleById), [layoutRevision, sectionTitleById]);
-  // Scale-independent: scene structure does not depend on camera zoom, so it
   // rebuilds only when the layout changes — not on every pan/zoom frame.
-  const scene = useMemo(() => buildCanvasScene({ layout, plans: layoutSourcePlans }), [layout, layoutSourcePlans]);
+  const scene = useMemo(() => {
+    bumpCanvasChurn("sceneBuilds");
+    return buildCanvasScene({ layout, plans: layoutSourcePlans });
+  }, [layout, layoutSourcePlans]);
 
-  // #8: a pane heartbeat mutates the whole `panes` map ref, but buildTaskPresence
-  // reads only EXISTENCE + title of the panes referenced by tasks (assigned/lane +
-  // milestone authors). Key on exactly that so a heartbeat that changes nothing
-  // presence-relevant does NOT rebuild all ~N task models.
-  const panesContentKey = useMemo(() => {
-    const ids = new Set<string>();
-    const add = (v?: string | null) => {
-      const s = v?.trim();
-      if (s) ids.add(s);
-    };
-    for (const p of filteredPlans) {
-      for (const t of p.tasks) {
-        add(t.assigned_pane_id);
-        add(t.lane?.pane_id);
-        for (const m of t.milestones) add(m.from?.pane_id);
-      }
-    }
-    const parts: string[] = [];
-    for (const id of [...ids].sort()) {
-      const pane = panes[id];
-      parts.push(id, pane ? pane.title ?? "" : "\x00");
-    }
-    return parts.join("\x1f");
-  }, [filteredPlans, panes]);
+  const panesContentKey = useMemo(() => buildTaskPresenceFingerprint(filteredPlans, panes), [filteredPlans, panes]);
   const lookups = useCanvasLookups(layout, filteredPlans, driftByPlan, panes, panesContentKey);
 
-  // Per plan: sectionId → LIVE agents working it (task→section roll-up). Live-only,
   // deduped — a section shows who's on it RIGHT NOW. Camera-decoupled (presence + data).
   const sectionAgentsByPlan = useMemo(() => {
     const out = new Map<string, Map<string, PresenceAgent[]>>();
@@ -252,9 +248,6 @@ export function CanvasViewInner({
     return out;
   }, [filteredPlans, lookups.taskModelById]);
 
-  // #4: pre-mint ONE stable model object per plan/spec/ghost, rebuilt only on a data
-  // change — resolveModel returns the cached identity so CanvasNodeCard's memo holds
-  // across pan/zoom (the old per-call spread minted a fresh object every render).
   const planModelById = useMemo(() => {
     const m = new Map<string, unknown>();
     for (const p of filteredPlans) {
@@ -340,9 +333,6 @@ export function CanvasViewInner({
 
   const padding = viewportPadding ?? DEFAULT_CANVAS_SETTINGS.cullPadding;
   const canvasSize = useMemo(() => ({ width: size.width, height: size.height }), [size.width, size.height]);
-  // Build the visible-id set, then collapse identity when membership is unchanged
-  // (#2 cascade root): a pan that reveals no new node keeps the SAME Set reference,
-  // so every memo'd child below skips its re-render instead of cascading.
   const nodeIds = useStableSet(
     useMemo(
       () => new Set(visibleNodeIds(layout, transform, canvasSize, padding)),
@@ -350,12 +340,6 @@ export function CanvasViewInner({
     ),
   );
 
-  // §26 worlds: each node's content band is driven by its OWN appW (footprint ×
-  // camera scale), not the global scale. Hysteresis (prev band, ±10%) kills flicker.
-  // #1: only VISIBLE nodes (+ every plan node — the zone-label site needs plan-level
-  // bands even when the plan node is off-screen) are banded; and the returned Map keeps
-  // its identity across scale ticks while no band actually crosses, so memo'd consumers
-  // skip re-render during a zoom that doesn't change any node's band.
   const bandRef = useRef<Map<string, World>>(new Map());
   const worldByNodeRef = useRef<Map<string, World>>(new Map());
   const worldByNode = useMemo(() => {
@@ -376,15 +360,9 @@ export function CanvasViewInner({
   }, [layout, transform.scale, nodeIds]);
 
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
-  // UX-2 READ surface: the node whose fullscreen detail is open (null = none). It
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   // OVERLAYS the map without moving the camera, so closing returns to the exact spot.
   const [detailNodeId, setDetailNodeId] = useState<string | null>(null);
-  // The open overlay node, as the floating composer's primary referent (overlay wins).
-  const composerOverlayRef = useMemo<OverlayRef | null>(() => {
-    if (!detailNodeId) return null;
-    const n = lookups.nodeById.get(detailNodeId);
-    return n ? { id: n.id, kind: n.kind, planId: n.planId } : null;
-  }, [detailNodeId, lookups.nodeById]);
   const nav = useCanvasNavHistory();
 
   const {
@@ -409,6 +387,7 @@ export function CanvasViewInner({
     lookups,
     nodeIds,
     worldByNode,
+    staleActiveTaskIds,
   });
 
   // §25.3 dominance: a task filling ≳60% of the viewport elevates (emphasis ring).
@@ -428,6 +407,16 @@ export function CanvasViewInner({
     }
     return best;
   }, [layout, nodeIds, transform.scale, size.width, size.height, focusedNodeId]);
+
+  const presenceEmphasisIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (hoveredNodeId) ids.add(hoveredNodeId);
+    if (detailNodeId) ids.add(detailNodeId);
+    if (focusedNodeId) ids.add(focusedNodeId);
+    if (dominantNodeId) ids.add(dominantNodeId);
+    for (const entry of activeWork.entries) ids.add(entry.task.id);
+    return ids;
+  }, [hoveredNodeId, detailNodeId, focusedNodeId, dominantNodeId, activeWork.entries]);
 
   const { pulsePlanIds, changeMarkers, flyToPlan } = useCanvasChangeSignal({
     filteredPlans,
@@ -454,26 +443,22 @@ export function CanvasViewInner({
     [mode, workspaceTarget, filteredPlans],
   );
 
-  // §31: auto-fit runs ONLY on mount / when the mount CONTEXT changes (mode or the
-  // focused pane) — NEVER on a data change. A new task/plan/stride updates nodes in
-  // place; the camera transform stays byte-identical (no surprise pan/recenter).
   const fittedRef = useRef<string | null>(null);
   const fitContextKey = canvasFitContextKey(mode, focusPaneId, workspaceTarget);
   useEffect(() => {
     if (size.width <= 0 || size.height <= 0 || layout.bounds.width <= 0) return;
     if (fittedRef.current === fitContextKey) return;
     fittedRef.current = fitContextKey;
-    // Task context -> fly to assigned task(s) on the full board. Normal Plan open
     // frames the active plan (§23.4), not fit-all (which lands at 5% on a big board).
     if (workspaceFocusIds.length) focusOnNodes(workspaceFocusIds);
     else if (paneTaskIds.length) focusOnNodes(paneTaskIds);
-    else if (activePlanId) fitCameraToNodes([activePlanId]);
-    else fitToView(layout.bounds);
-  }, [fitContextKey, fitToView, fitCameraToNodes, focusOnNodes, workspaceFocusIds, paneTaskIds, activePlanId, layout.bounds, size.width, size.height]);
+    else if (activePlanId) {
+      const frame = layout.frames.find((f) => f.planId === activePlanId);
+      if (frame) fitToView(frame.box);
+      else fitToView(layout.bounds);
+    } else fitToView(layout.bounds);
+  }, [fitContextKey, fitToView, fitCameraToNodes, focusOnNodes, workspaceFocusIds, paneTaskIds, activePlanId, size.width, size.height]);
 
-  // canvas-focus event (camera + blink). Backends emit {task_id, plan_id, pane_id}
-  // (a task/plan node id == its id; a pane resolves to its assigned tasks). Optional
-  // `scale` lands centered at an exact zoom for deterministic "go to id @ zoom" nav.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let active = true;
@@ -517,7 +502,6 @@ export function CanvasViewInner({
     return [...byKey.values()];
   }, [filteredPlans]);
 
-  // Canvas-renderer inputs: ALL laid-out nodes/edges (the draw loop culls live to the
   // camera), and the zone name labels. Camera-decoupled — rebuilt only on layout change.
   const allNodes = useMemo(() => layout.frames.flatMap((f) => f.nodes), [layout]);
   const allEdges = useMemo(() => [...layout.frames.flatMap((f) => f.edges), ...(layout.crossEdges ?? [])], [layout]);
@@ -531,6 +515,16 @@ export function CanvasViewInner({
     }
     return out;
   }, [layout, sectionTitleById]);
+
+  const sectionZones = useMemo(() => {
+    const out: { hull: { x: number; y: number }[]; color: string; box?: { x: number; y: number; width: number; height: number } }[] = [];
+    for (const frame of layout.frames) {
+      for (const z of frame.zones) {
+        out.push({ hull: z.hull, color: z.color, box: z.box });
+      }
+    }
+    return out;
+  }, [layout]);
 
   // Orchestrator avatars + their plan connectors (drawn on the canvas, §32.5).
   const groupGlyphs = useMemo<GroupGlyph[]>(() => {
@@ -557,17 +551,33 @@ export function CanvasViewInner({
     return m;
   }, [lookups.taskModelById]);
 
+  const presenceBySection = useMemo(() => {
+    const out = new Map<string, PresenceAgent[]>();
+    for (const [planId, bySection] of sectionAgentsByPlan) {
+      for (const [sectionId, agents] of bySection) out.set(`${planId}:${sectionId}`, agents);
+    }
+    return out;
+  }, [sectionAgentsByPlan]);
+
+  const lodGroups = useMemo(
+    () =>
+      buildSectionGroups(
+        allNodes,
+        lookups.taskById,
+        (_planId, sectionId) => sectionTitleById.get(sectionId) ?? (sectionId === "__unsectioned__" ? "Tasks" : sectionId),
+        presenceBySection,
+      ),
+    [allNodes, lookups.taskById, sectionTitleById, presenceBySection],
+  );
+
+  const sceneLod = useMemo(
+    () => resolveSceneLod(transform.scale, lodGroups, lookups.taskById),
+    [transform.scale, lodGroups, lookups.taskById],
+  );
+
   // Fly-arrival blink + off-screen-change plan pulse → one emphasis-ring set on the canvas.
   const blinkSet = useMemo(() => new Set<string>([...blinkIds, ...pulsePlanIds]), [blinkIds, pulsePlanIds]);
   const highlightIds = highlight?.taskIds ?? null;
-
-  const viewportCenter = useMemo(
-    () => ({
-      x: (size.width / 2 - transform.x) / transform.scale,
-      y: (size.height / 2 - transform.y) / transform.scale,
-    }),
-    [size.width, size.height, transform.x, transform.y, transform.scale],
-  );
 
   const fitView = useCallback(() => fitToView(layout.bounds), [fitToView, layout.bounds]);
   const resetView = useCallback(() => {
@@ -632,21 +642,19 @@ export function CanvasViewInner({
     return () => window.removeEventListener("keydown", onKey);
   }, [nav.path.length, focusedNodeId, goBack]);
 
-  // The world is a <canvas> now — no per-node DOM to hit-test. Double-click uses the
-  // SAME smallest-area hit-test as single-click (canvasApiRef.hitTest), so a click and a
-  // double-click at one point always resolve to the same node — then focuses it.
   const onWorldDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       const rect = containerRef.current?.getBoundingClientRect();
       const hit = canvasApiRef.current?.hitTest({ x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0) });
+      if (hit?.action.type === "section-cluster" || hit?.action.type === "done-stack") {
+        onSectionFrame({ planId: hit.action.planId, sectionId: hit.action.sectionId, variant: "plan" });
+        return;
+      }
       if (hit) focusNodeCamera(hit.node.id);
     },
-    [containerRef, focusNodeCamera],
+    [containerRef, focusNodeCamera, onSectionFrame],
   );
 
-  // Single-click → canvas hit-test → action: ⤢ opens the full detail overlay; a
-  // section / "→ tasks" button navigates to that section's tasks; node body focuses.
-  // Falls through to the delegated fly-click (rich-overlay chips, swarm rows).
   const onCanvasClick = useCallback(
     (e: React.MouseEvent) => {
       const rect = containerRef.current?.getBoundingClientRect();
@@ -659,6 +667,10 @@ export function CanvasViewInner({
           onSectionFrame({ planId: node.planId, sectionId: action.sectionId, variant: node.kind === "spec" ? "spec" : "plan" });
           return;
         }
+        if (action.type === "section-cluster" || action.type === "done-stack") {
+          onSectionFrame({ planId: action.planId, sectionId: action.sectionId, variant: "plan" });
+          return;
+        }
         if (action.type === "node") { focusNodeCamera(node.id); return; }
       }
       onCanvasFlyClick(e);
@@ -666,7 +678,6 @@ export function CanvasViewInner({
     [containerRef, onSectionFrame, focusNodeCamera, onCanvasFlyClick],
   );
 
-  // Hover → highlight the node/region under the pointer (rAF-throttled hit-test; the
   // canvas paints the ring as a primitive — no per-frame DOM). Skipped while panning.
   const onCanvasPointerMove = useCallback(
     (e: React.MouseEvent) => {
@@ -677,12 +688,16 @@ export function CanvasViewInner({
         hoverRafRef.current = null;
         const rect = containerRef.current?.getBoundingClientRect();
         const hit = canvasApiRef.current?.hitTest({ x: cx - (rect?.left ?? 0), y: cy - (rect?.top ?? 0) });
-        canvasApiRef.current?.setHover(hit?.node.id ?? null);
+        const nodeId = hit?.node.id ?? null;
+        canvasApiRef.current?.setHover(nodeId);
+        setHoveredNodeId(nodeId);
       });
     },
     [isDragging, containerRef],
   );
 
+
+  const showsData = planFetchShowsData(loading, error ?? null, plans.length);
 
   return (
     <div ref={shellRef} className="relative h-full w-full overflow-hidden" data-testid="canvas-view">
@@ -712,17 +727,22 @@ export function CanvasViewInner({
           background: "radial-gradient(ellipse at center, var(--ct-titlebar-bg) 0%, var(--ct-bg) 100%)",
         }}
       >
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center text-sm" style={{ color: "var(--ct-fg)", opacity: "var(--ct-text-secondary-opacity)" }}>
-            Loading plans…
-          </div>
-        )}
-        {!loading && error && (
-          <div className="absolute inset-0 flex items-center justify-center text-sm px-4 text-center" style={{ color: "var(--ct-error, #f87171)" }}>
-            {error}
-          </div>
-        )}
-        {!loading && !error && filteredPlans.length === 0 && (
+        <PlanFetchReconnectingBanner
+          reconnecting={reconnecting}
+          itemCount={plans.length}
+          testId="canvas-reconnecting"
+          className="absolute top-2 left-3 z-30"
+        />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <PlanFetchErrorState
+            loading={loading}
+            error={error}
+            itemCount={plans.length}
+            onRetry={onRetry}
+            testId="canvas-fetch"
+          />
+        </div>
+        {showsData && filteredPlans.length === 0 && (
           <div
             data-testid="canvas-empty"
             className="absolute inset-0 flex flex-col items-center justify-center text-sm px-6 text-center gap-4"
@@ -733,9 +753,16 @@ export function CanvasViewInner({
           </div>
         )}
         {!loading && filteredPlans.length > 0 && (
-          <CanvasPresenceLayer overlays={presenceOverlays} onFlyToTask={onFlyToTask} />
+          <div
+            ref={layerRef}
+            data-testid="canvas-world-layer"
+            className="pointer-events-none absolute inset-0"
+            style={{ transformOrigin: "0 0", zIndex: 10, overflow: "visible" }}
+          >
+            <CanvasPresenceLayer overlays={presenceOverlays} emphasisTaskIds={presenceEmphasisIds} onFlyToTask={onFlyToTask} />
+          </div>
         )}
-        {!loading && !error && filteredPlans.length > 0 && (
+        {showsData && filteredPlans.length > 0 && (
           <CanvasSwarmCluster roster={swarmRoster} onFlyToTask={onFlyToTask} reserveTopRight={!!onClose} />
         )}
         {!loading && filteredPlans.length > 0 && (
@@ -750,6 +777,7 @@ export function CanvasViewInner({
             nodeById={lookups.nodeById}
             edges={allEdges}
             zoneLabels={zoneLabels}
+            sectionZones={sectionZones}
             groups={groupGlyphs}
             presenceByNode={presenceByNode}
             resolveModel={resolveModel}
@@ -758,6 +786,9 @@ export function CanvasViewInner({
             highlightIds={highlightIds}
             blinkIds={blinkSet}
             dominantId={dominantNodeId}
+            lodGroups={lodGroups}
+            taskById={lookups.taskById}
+            onCameraPaint={paintWorldLayer}
           />
         )}
         {/* §31 off-screen change marker: a directional dot at the viewport edge
@@ -774,7 +805,10 @@ export function CanvasViewInner({
           />
         ))}
       </div>
-      {!loading && !error && filteredPlans.length > 0 && (
+      {showsData && filteredPlans.length > 0 && (
+        <FlyToActiveControl entries={activeWork.entries} onFly={onFlyToTask} />
+      )}
+      {showsData && filteredPlans.length > 0 && (
         <CanvasToolbar
           scale={transform.scale}
           onZoomIn={() => zoomBy(0.2)}
@@ -787,20 +821,17 @@ export function CanvasViewInner({
           minimapOn={minimapOn}
         />
       )}
-      {legendFacets.length > 0 && !loading && !error && filteredPlans.length > 0 && (
+      {legendFacets.length > 0 && showsData && filteredPlans.length > 0 && (
         <CanvasTagLegend facets={legendFacets} filter={tagFilter} onToggleTag={onToggleTagFilter} />
       )}
-      {minimapOn && !loading && !error && filteredPlans.length > 0 && (
-        <CanvasMinimap bounds={layout.bounds} nodes={[...lookups.nodeById.values()]} transform={transform} viewport={size} />
-      )}
-      {api && filteredPlans.length > 0 && (
-        <CanvasComposer
-          api={api}
-          plans={filteredPlans}
-          layout={layout}
-          viewportCenter={viewportCenter}
-          overlay={composerOverlayRef}
-          panes={panes}
+      {minimapOn && showsData && filteredPlans.length > 0 && (
+        <CanvasMinimap
+          bounds={layout.bounds}
+          nodes={[...lookups.nodeById.values()]}
+          transform={transform}
+          viewport={size}
+          hiddenNodeIds={sceneLod.hiddenNodeIds}
+          lodMarkers={sceneLod.markers}
         />
       )}
       {api && mode === "workspace" && <CanvasUnownedTray api={api} claimOwner={claimOwner} />}
@@ -808,8 +839,11 @@ export function CanvasViewInner({
         nodeId={detailNodeId}
         nodeById={lookups.nodeById}
         resolveModel={resolveModel}
+        panes={panes}
+        api={api}
         onClose={() => setDetailNodeId(null)}
         onOpenPane={onOpenPane}
+        onOpenTask={(taskId) => setDetailNodeId(taskId)}
         onCopyLink={onCopyLink}
         onFocusStride={onFocusStride}
         onSectionClick={onSectionClick}
@@ -830,30 +864,57 @@ export interface CanvasViewProps {
 }
 
 export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api, onClose }: CanvasViewProps) {
-  const { state, setFocusedPane } = useMultiplexer();
+  const { state, setFocusedPane, setActiveTab } = useMultiplexer();
+  const onOpenPane = useCallback(
+    (paneId: string) => {
+      revealAssignedAgentPane(
+        { workspaces: state.workspaces, setActiveTab, setFocusedPane },
+        paneId,
+      );
+    },
+    [state.workspaces, setActiveTab, setFocusedPane],
+  );
   const activeWs = state.workspaces.find((ws) => ws.id === state.active_workspace_id);
   const projectPath = activeWs?.cwd ?? null;
   const workspaceTarget = useCanvasWorkspaceTarget();
-  const { plans: livePlans, loading, error } = useCanvasPlans(mode, projectPath);
+  const [allPlans, setAllPlans] = useState(false);
+  // All-plans mode lifts the workspace filter: fetch with no project scope.
+  const { plans: livePlans, loading, reconnecting, error, refetch } = useCanvasPlans(
+    mode,
+    allPlans ? null : projectPath,
+  );
   // Dev harness: real exported plan, or a synthetic N-task plan, when flagged.
   const perfN = perfFixtureCount();
+  const perfProfile = perfFixtureProfile();
   const useReal = realFixtureEnabled();
   const plans = useMemo(
-    () => (useReal ? realFixturePlans() : perfN > 0 ? buildPerfFixturePlans(perfN) : livePlans),
-    [useReal, perfN, livePlans],
+    () =>
+      useReal
+        ? realFixturePlans()
+        : perfProfile === "card-metadata"
+          ? buildCardMetadataFixturePlans()
+          : perfProfile === "done-heavy"
+            ? buildDoneHeavyPerfFixturePlans()
+            : perfN > 0
+              ? buildPerfFixturePlans(perfN)
+              : livePlans,
+    [useReal, perfProfile, perfN, livePlans],
   );
-  // Fixture-only: synthesize live panes for the synthetic swarm so presence renders
   // (the live-pane gate filters real plans correctly; this only feeds the demo plan).
-  const panes = useMemo(
-    () => (perfN > 0 && !useReal ? { ...state.panes, ...buildPerfFixturePanes(plans) } : state.panes),
-    [perfN, useReal, plans, state.panes],
-  );
+  const panes = useMemo(() => {
+    if (perfN <= 0 || useReal) return state.panes;
+    const fixturePanes =
+      perfProfile === "card-metadata" ? buildCardMetadataFixturePanes() : buildPerfFixturePanes(plans);
+    return { ...state.panes, ...fixturePanes };
+  }, [perfN, useReal, perfProfile, plans, state.panes]);
   return (
-    <CanvasViewInner
+    <PlanViewShell
       mode={mode}
       plans={plans}
       loading={loading}
+      reconnecting={reconnecting}
       error={error}
+      onRetry={refetch}
       planId={planId}
       orchestratorPaneId={orchestratorPaneId}
       focusPaneId={focusPaneId}
@@ -863,8 +924,10 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
       projectPath={projectPath}
       workspaceTarget={mode === "workspace" ? workspaceTarget : null}
       onClose={onClose}
-      onOpenPane={setFocusedPane}
+      onOpenPane={onOpenPane}
       api={api}
+      allPlans={allPlans}
+      onAllPlansChange={setAllPlans}
     />
   );
 }

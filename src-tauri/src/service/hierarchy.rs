@@ -1,14 +1,19 @@
 //! Agent hierarchy: roles, reports, status queries.
 
-use serde::Serialize;
-use tauri::Emitter;
+mod plan_reminder_nudge;
 
-use super::{ReportResult, ServiceContext};
+use serde::Serialize;
+
+use super::{ReportResult, ServiceContext, ServiceState};
 use crate::agent::ledger::LedgerRow;
 use crate::agent::reports::{ReportDetails, ReportStatus};
 use crate::multiplexer::types::AgentRole;
 use crate::plan::AgentRef;
 use tauri::Manager;
+
+pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
+    plan_reminder_nudge::start_plan_reminder_scheduler(svc);
+}
 
 impl ServiceContext {
     pub fn set_pane_role(
@@ -32,9 +37,28 @@ impl ServiceContext {
     }
 
     pub fn clear_pane_role(&self, pane_id: &str) -> Result<(), String> {
-        self.mux.write().clear_pane_role(pane_id)?;
-        self.emit_state_changed();
-        Ok(())
+        match self.mux.write().clear_pane_role(pane_id) {
+            Ok(()) => {
+                self.emit_state_changed();
+                Ok(())
+            }
+            Err(e) if e.contains("not found") => {
+                // Cross-mesh workers live only in RemoteWorkerRegistry — their
+                // foreign pane id is what `agent unlink --pane` passes.
+                let touched = self
+                    .remote_workers
+                    .forget_by_remote_pane(pane_id, None, None);
+                if touched.is_empty() {
+                    Err(e)
+                } else {
+                    for orch in touched {
+                        self.emit_remote_workers_changed(&orch);
+                    }
+                    Ok(())
+                }
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub fn set_can_spawn(&self, pane_id: &str, can_spawn: bool) -> Result<(), String> {
@@ -68,6 +92,13 @@ impl ServiceContext {
     /// remote mesh target (`report_target_mesh_peer` + pane/alias) →
     /// `parent_pane_id` → `report_target_pane_id` → `spawned_by_pane_id`.
     /// NEVER routes back to the reporter's own pane; errors when none resolve.
+    ///
+    /// Plan/task resolution order:
+    /// 1. Explicit `plan_id`/`task_id` from the caller — validated against live store.
+    /// 2. If provided ids are stale (plan not found) — falls back to pane assignment.
+    /// 3. Daemon-side pane assignment lookup (`task_bindings_with_name_for_pane`).
+    /// 4. Ambiguous (>1 assignment) — errors with candidate list.
+    /// 5. No assignment — proceeds without a plan milestone.
     pub fn submit_report(
         &self,
         pane_id: &str,
@@ -77,11 +108,17 @@ impl ServiceContext {
         task_id: Option<&str>,
         milestone_kind: Option<&str>,
     ) -> Result<ReportResult, String> {
+        let task_status = report_task_status_transition(details.status)?;
+
+        let mut notices: Vec<String> = Vec::new();
+        let (eff_plan_id, eff_task_id) =
+            resolve_plan_ctx(&self.plan_store, pane_id, plan_id, task_id, &mut notices)?;
+
         let (from_title, default_target_opt, model, from_ref, role) = {
             let mux = self.mux.read();
             let (from_title, target_opt) = match resolve_report_target(&mux, pane_id) {
                 Ok(resolved) => resolved,
-                Err(_) if plan_id.is_some() => (pane_id.to_string(), None),
+                Err(_) if eff_plan_id.is_some() => (pane_id.to_string(), None),
                 Err(e) => return Err(e),
             };
             let pane = mux.get_pane(pane_id);
@@ -97,58 +134,152 @@ impl ServiceContext {
             let role = pane.and_then(|p| p.role);
             (from_title, target_opt, model, from_ref, role)
         };
-        let target_opt = plan_id
+        // Capture mesh peer before default_target_opt is consumed by .or().
+        let default_mesh_peer = match &default_target_opt {
+            Some(ReportTarget::Mesh { peer, .. }) => Some(peer.clone()),
+            _ => None,
+        };
+
+        let target_opt = eff_plan_id
+            .as_deref()
             .and_then(|id| self.plan_store.owner_of(id))
             .and_then(|owner| owner.pane_id)
             .filter(|target| !target.is_empty() && target != pane_id)
             .map(ReportTarget::Local)
             .or(default_target_opt);
 
-        if let Some(plan_id) = plan_id {
-            let task_id = task_id
-                .map(str::to_string)
-                .or_else(|| {
-                    self.plan_store.task_binding_for_pane(pane_id).and_then(
-                        |(bound_plan, bound_task)| {
-                            if bound_plan == plan_id {
-                                Some(bound_task)
-                            } else {
-                                None
-                            }
-                        },
-                    )
-                })
-                .ok_or_else(|| "task_id required for plan report".to_string())?;
-            let mut ops = Vec::new();
-            if matches!(details.status, Some(ReportStatus::InReview)) {
-                ops.push(crate::service::plan::batch::BatchOp::SetTaskStatus {
-                    client_id: None,
-                    task: task_id.clone(),
-                    status: "in_review".into(),
-                });
+        let foreign = is_explicit_plan_foreign(plan_id, eff_plan_id.as_deref());
+        let homed_to_remote = if eff_plan_id.is_none() || foreign {
+            let h_plan = plan_id.map(str::trim).filter(|s| !s.is_empty());
+            let h_task = task_id.map(str::trim).filter(|s| !s.is_empty());
+            match (h_plan, h_task, &default_mesh_peer) {
+                (Some(h_plan), Some(h_task), Some(peer)) => {
+                    if let Err(e) = self.relay_plan_batch_to_peer(
+                        peer.clone(),
+                        h_plan.to_string(),
+                        h_task.to_string(),
+                        from_ref.clone(),
+                        task_status,
+                        milestone_text(message, details.status),
+                        milestone_kind.unwrap_or("status_update").to_string(),
+                    ) {
+                        notices.push(format!(
+                            "plan milestone relay to peer '{}' failed — check mesh pairing with \
+                             `codeterm mesh status`, then retry: {}",
+                            peer, e
+                        ));
+                    }
+                    if !details.attachments.is_empty() {
+                        notices.push(
+                            "report attachments were not relayed to the remote owning daemon; \
+                             mesh plan relay currently carries text/status only"
+                                .into(),
+                        );
+                    }
+                    true
+                }
+                (Some(h_plan), Some(_), None) if foreign => {
+                    // Explicit foreign plan but no mesh peer on this pane.
+                    notices.push(format!(
+                        "plan '{}' is not active on this machine and no mesh homing peer is \
+                         configured; milestone NOT recorded — spawn this worker via \
+                         `codeterm agent spawn --mesh <peer>` so the report homes to the \
+                         plan's owning machine",
+                        h_plan
+                    ));
+                    false
+                }
+                _ => false,
             }
-            ops.push(crate::service::plan::batch::BatchOp::AddMilestone {
-                client_id: Some("report".into()),
-                task: task_id,
-                kind: milestone_kind.unwrap_or("status_update").into(),
-                text: milestone_text(message, details.status),
-                from: Some(from_ref),
-                key: None,
-                links: vec![],
-            });
-            self.plan_store
-                .apply_batch(
+        } else {
+            false
+        };
+
+        if let Some(ref plan_id) = eff_plan_id {
+            // homing succeeded) — avoids a milestone landing on the wrong local plan.
+            if !homed_to_remote && !foreign {
+                let task_id = eff_task_id
+                    .clone()
+                    .or_else(|| {
+                        self.plan_store.task_binding_for_pane(pane_id).and_then(
+                            |(bound_plan, bound_task)| {
+                                if &bound_plan == plan_id {
+                                    Some(bound_task)
+                                } else {
+                                    None
+                                }
+                            },
+                        )
+                    })
+                    .ok_or_else(|| "task_id required for plan report".to_string())?;
+                let mut ops = Vec::new();
+                if let Some(status) = task_status {
+                    ops.push(crate::service::plan::batch::BatchOp::SetTaskStatus {
+                        client_id: None,
+                        task: task_id.clone(),
+                        status: status.into(),
+                    });
+                }
+                ops.push(crate::service::plan::batch::BatchOp::AddMilestone {
+                    client_id: Some("report".into()),
+                    task: task_id.clone(),
+                    kind: milestone_kind.unwrap_or("status_update").into(),
+                    text: milestone_text(message, details.status),
+                    from: Some(from_ref.clone()),
+                    key: None,
+                    links: vec![],
+                });
+                let batch_result = self
+                    .plan_store
+                    .apply_batch(
+                        plan_id,
+                        crate::service::plan::batch::BatchRequest { key: None, ops },
+                        epoch_ms(),
+                    )
+                    .map_err(|e| e.to_string())?;
+                if !details.attachments.is_empty() {
+                    let milestone_id = batch_result
+                        .milestone_ids
+                        .first()
+                        .ok_or_else(|| "report milestone missing for attachments".to_string())?
+                        .clone();
+                    for path in &details.attachments {
+                        self.plan_store
+                            .attach_to_milestone(
+                                plan_id,
+                                &task_id,
+                                &milestone_id,
+                                std::path::Path::new(path),
+                                epoch_ms(),
+                            )
+                            .map_err(|e| e.to_string())?;
+                    }
+                }
+                let _ = self.plan_store.record_task_attempt_report(
                     plan_id,
-                    crate::service::plan::batch::BatchRequest { key: None, ops },
+                    &task_id,
+                    &from_ref,
+                    message,
+                    details.status,
                     epoch_ms(),
-                )
-                .map_err(|e| e.to_string())?;
-            self.plan_turn_counter.reset(pane_id);
-            crate::api::events::emit_everywhere(
-                &self.app_handle,
-                "plan-changed",
-                serde_json::json!({ "plan_id": plan_id }),
-            );
+                );
+                // Recording discipline: capture lane truth from the report into
+                // empty fields (never overwrite an explicit prior value).
+                let _ = self.plan_store.fill_task_lane_if_empty(
+                    plan_id,
+                    &task_id,
+                    Some(pane_id),
+                    details.branch.as_deref(),
+                    None,
+                    epoch_ms(),
+                );
+                self.plan_turn_counter.reset(pane_id);
+                crate::api::events::emit_everywhere(
+                    &self.app_handle,
+                    "plan-changed",
+                    serde_json::json!({ "plan_id": plan_id }),
+                );
+            }
         }
 
         let target = target_opt.ok_or_else(|| {
@@ -171,7 +302,8 @@ impl ServiceContext {
                 "report": report,
             }),
         );
-        let _ = self.app_handle.emit(
+        crate::api::events::emit_everywhere(
+            &self.app_handle,
             "agent-report",
             serde_json::json!({
                 "target_pane_id": storage_key,
@@ -182,9 +314,6 @@ impl ServiceContext {
         );
 
         match target {
-            // Remote worker: the real orchestrator/General target lives on a
-            // paired peer. Reuse the signed mesh `/send` relay so the report
-            // surfaces there exactly like a local `[Report from <worker>@<peer>]`.
             ReportTarget::Mesh { peer, pane } => {
                 self.relay_report_to_peer(
                     peer,
@@ -209,13 +338,14 @@ impl ServiceContext {
             }
         }
 
-        if plan_id.is_none() {
+        if eff_plan_id.is_none() {
             self.maybe_send_plan_reminder(pane_id, role);
         }
 
         Ok(ReportResult {
             report_id: report.id,
             orchestrator_pane_id: storage_key,
+            notices,
         })
     }
 
@@ -253,35 +383,160 @@ impl ServiceContext {
         let text = format!(
             "[task in_review] '{task_name}' ({task_id}) → in_review by {who}{intent_part}\nReview it, then judge done or bounce back."
         );
-        let text = self.plan_store.prepend_heartbeat_for_plan(plan_id, &text);
+        let text = crate::service::orchestrator_digests::prepend_orchestrator_heartbeat(
+            self,
+            plan_id,
+            Some(owner),
+            &text,
+        );
         let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "plan");
         let _ = crate::service::messenger::Messenger::deliver(self, owner, envelope, &text);
     }
 
-    fn maybe_send_plan_reminder(&self, pane_id: &str, role: Option<AgentRole>) {
-        if self.plan_store.task_binding_for_pane(pane_id).is_none() {
-            return;
-        }
-        let (turns, last_nudge) = self.plan_turn_counter.increment(pane_id);
-        let cfg = crate::config::load_config().orchestration;
-        let nudge_cfg = crate::service::plan::reminders::NudgeConfig {
-            plan_reminders: cfg.plan_reminders,
-            nudge_after_turns: cfg.nudge_after_turns,
-            role,
+    /// Deliver a decision gate question to the resolved planner/orchestrator pane.
+    /// Uses plan's `planner` field via `resolve_planner_ref`; falls back to owner.
+    /// Returns the pane_id that was delivered to (if any).
+    pub fn deliver_gate_question(
+        &self,
+        plan_id: &str,
+        gate_id: &str,
+        question: &str,
+        asked_by_pane: Option<&str>,
+    ) -> Option<String> {
+        let plan = self.plan_store.get(plan_id)?;
+        let resolution =
+            crate::plan::peer::resolve_planner_ref(&plan.planner, &plan.owner, |pane_id| {
+                self.pane_probe(pane_id)
+            });
+        let pane_id = match &resolution {
+            crate::plan::peer::PeerResolution::Planner { pane_id } => pane_id.clone(),
+            crate::plan::peer::PeerResolution::OrchestratorFallback { .. } => {
+                plan.owner.pane_id.clone()?
+            }
+            crate::plan::peer::PeerResolution::Waived { .. } => return None,
+            crate::plan::peer::PeerResolution::Unbound => plan.owner.pane_id.clone()?,
         };
-        let Some(kind) =
-            crate::service::plan::reminders::should_nudge(turns, last_nudge, &nudge_cfg)
-        else {
+        if Some(pane_id.as_str()) == asked_by_pane {
+            return None; // no self-deliver
+        }
+        let who = asked_by_pane.unwrap_or("orchestrator");
+        let text = format!(
+            "[decision gate {gate_id}] '{question}'\nAsked by {who}. Answer with: \
+             codeterm plan decision answer {plan_id} {gate_id} --answer \"<your answer>\""
+        );
+        let text = crate::service::orchestrator_digests::prepend_orchestrator_heartbeat(
+            self,
+            plan_id,
+            Some(&pane_id),
+            &text,
+        );
+        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "plan");
+        let _ = crate::service::messenger::Messenger::deliver(self, &pane_id, envelope, &text);
+        Some(pane_id)
+    }
+
+    /// Nudge the gate asker pane when a gate is answered.
+    pub fn nudge_gate_asker(
+        &self,
+        plan_id: &str,
+        gate_id: &str,
+        answer_text: &str,
+        answered_by_pane: Option<&str>,
+    ) {
+        let Some(plan) = self.plan_store.get(plan_id) else {
             return;
         };
-        let text = crate::service::plan::reminders::nudge_text(kind);
-        let text = self
-            .plan_store
-            .prepend_worker_charter_for_pane(pane_id, &text);
-        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
-        if crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text).is_ok() {
-            self.plan_turn_counter.mark_nudged(pane_id, turns);
+        let gate = plan.gates.iter().find(|g| g.id == gate_id);
+        let asker_pane = gate
+            .and_then(|g| g.asked_by_pane_id.as_deref())
+            .or(plan.owner.pane_id.as_deref());
+        let Some(asker) = asker_pane else {
+            return;
+        };
+        if Some(asker) == answered_by_pane {
+            return; // no self-notify
         }
+        let preview = answer_text.chars().take(160).collect::<String>();
+        let text = format!(
+            "[gate answered: {gate_id}] Answer: {preview}\n\
+             Unblocked tasks are now pending. Review with: codeterm plan state {plan_id}"
+        );
+        let text = crate::service::orchestrator_digests::prepend_orchestrator_heartbeat(
+            self,
+            plan_id,
+            Some(asker),
+            &text,
+        );
+        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "plan");
+        let _ = crate::service::messenger::Messenger::deliver(self, asker, envelope, &text);
+    }
+
+    /// Relay plan batch ops (status update + milestone) to the peer that owns the
+    /// plan. Used when the plan doesn't exist in the local store but plan_id +
+    /// task_id were provided (remote worker mesh homing scenario).
+    ///
+    /// Returns `Err` immediately when the named peer is not in the paired set so
+    /// the caller can surface a retry hint. The actual HTTP send is async
+    /// fire-and-forget; transport errors are logged but not returned.
+    fn relay_plan_batch_to_peer(
+        &self,
+        peer: String,
+        plan_id: String,
+        task_id: String,
+        from_ref: AgentRef,
+        task_status: Option<&'static str>,
+        ms_text: String,
+        ms_kind: String,
+    ) -> Result<(), String> {
+        let client = {
+            let mesh_handle = self.app_handle.state::<crate::MeshStateHandle>();
+            let mesh = mesh_handle.lock();
+            resolve_peer_client_by_name(&mesh, &peer)
+        };
+        let Some(client) = client else {
+            return Err(format!(
+                "peer '{}' is not paired — run `codeterm mesh status` to check connectivity, \
+                 then retry",
+                peer
+            ));
+        };
+        let mut ops: Vec<serde_json::Value> = Vec::new();
+        if let Some(status) = task_status {
+            ops.push(serde_json::json!({
+                "op": "set_task_status",
+                "task": task_id,
+                "status": status,
+            }));
+        }
+        ops.push(serde_json::json!({
+            "op": "add_milestone",
+            "client_id": "report",
+            "task": task_id,
+            "kind": ms_kind,
+            "text": ms_text,
+            "from": serde_json::to_value(&from_ref).unwrap_or_default(),
+        }));
+        let body = serde_json::json!({ "ops": ops });
+        let cmd = crate::mesh::types::RelayCommand {
+            method: "POST".into(),
+            path: format!("/api/plans/{}/batch", plan_id),
+            body,
+        };
+        tauri::async_runtime::spawn(async move {
+            match client.send_relay(&cmd).await {
+                Ok(r) if r.ok => {
+                    log::info!("[plan/mesh] batch relayed to {}/{}", peer, plan_id)
+                }
+                Ok(r) => log::warn!(
+                    "[plan/mesh] {} rejected plan batch for {}: {:?}",
+                    peer,
+                    plan_id,
+                    r.error
+                ),
+                Err(e) => log::warn!("[plan/mesh] plan batch relay to {} failed: {}", peer, e),
+            }
+        });
+        Ok(())
     }
 
     /// Fire-and-forget delivery of a report to a pane (id or `main`/`general`
@@ -397,6 +652,19 @@ impl ServiceContext {
     }
 }
 
+fn report_task_status_transition(
+    status: Option<ReportStatus>,
+) -> Result<Option<&'static str>, String> {
+    match status {
+        Some(ReportStatus::Done) => Err(
+            "workers must not report --status done because only the owner can close a task. Use --status in_review when the work is ready for review, --status partial for progress, or ask the owner to close after review.".to_string(),
+        ),
+        Some(ReportStatus::InReview) => Ok(Some("in_review")),
+        Some(ReportStatus::Blocked) => Ok(Some("blocked")),
+        Some(ReportStatus::Partial) | None => Ok(None),
+    }
+}
+
 fn milestone_text(message: &str, status: Option<ReportStatus>) -> String {
     match status {
         Some(ReportStatus::Done) => format!("DONE: {message}"),
@@ -445,16 +713,9 @@ fn ledger_with_live_children(
                 orchestrator_pane_id: orchestrator_pane_id.to_string(),
                 worker_pane_id: child_id,
                 title,
-                branch: None,
                 model: child.agent_session_model.clone(),
-                status: None,
-                message: String::new(),
-                sha: None,
-                changed_files: None,
-                test_cmd: None,
-                test_result: None,
-                skipped: None,
                 updated_at: now,
+                ..Default::default()
             }),
         }
     }
@@ -486,6 +747,22 @@ impl ReportTarget {
             ReportTarget::Mesh { peer, pane } => format!("mesh:{}/{}", peer, pane),
         }
     }
+}
+
+/// True when the caller passed an explicit plan id that `resolve_plan_ctx` did
+/// NOT resolve to the same local plan — i.e., the plan is on a different peer's
+/// store, or `resolve_plan_ctx` silently substituted a local binding. When this
+/// returns true, report homing should use the explicit hint, NOT the local
+/// substitution.
+pub(crate) fn is_explicit_plan_foreign(
+    explicit_plan_id: Option<&str>,
+    eff_plan_id: Option<&str>,
+) -> bool {
+    explicit_plan_id
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(|p| eff_plan_id.map(str::trim) != Some(p))
+        .unwrap_or(false)
 }
 
 /// Resolve where a report from `pane_id` should be delivered.
@@ -561,6 +838,60 @@ fn resolve_peer_client_by_name(
     mesh.client_for(&id)
 }
 
+/// Resolve the effective (plan_id, task_id) for a report, following the priority chain:
+/// 1. Provided `plan_id_hint` validated against live store.
+/// 2. If stale (plan not found), falls back to daemon-side pane assignment.
+/// 3. If no `plan_id_hint`, tries pane assignment directly.
+/// 4. Ambiguous (>1 assignment) — errors with candidate list.
+/// 5. No assignment — returns (None, None) so the report proceeds without a milestone.
+pub(crate) fn resolve_plan_ctx(
+    plan_store: &crate::service::plan::PlanStore,
+    pane_id: &str,
+    plan_id_hint: Option<&str>,
+    task_id_hint: Option<&str>,
+    notices: &mut Vec<String>,
+) -> Result<(Option<String>, Option<String>), String> {
+    let valid_plan = plan_id_hint
+        .filter(|s| !s.trim().is_empty())
+        .and_then(|id| {
+            if plan_store.get(id).is_some() {
+                Some(id.to_string())
+            } else {
+                notices.push(format!(
+                    "plan '{}' not found in active plans — ignoring, checking pane assignment",
+                    id
+                ));
+                None
+            }
+        });
+
+    if valid_plan.is_some() {
+        return Ok((valid_plan, task_id_hint.map(str::to_string)));
+    }
+
+    let bindings = plan_store.task_bindings_with_name_for_pane(pane_id);
+    match bindings.len() {
+        0 => Ok((None, None)),
+        1 => {
+            let (p, t, _name) = bindings.into_iter().next().unwrap();
+            Ok((Some(p), Some(t)))
+        }
+        _ => {
+            let list = bindings
+                .iter()
+                .map(|(p, t, n)| format!("  {t} «{n}» in plan {p}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            Err(format!(
+                "ambiguous: pane {} is assigned to {} tasks — pass --plan and --task to disambiguate:\n{}",
+                pane_id,
+                bindings.len(),
+                list
+            ))
+        }
+    }
+}
+
 /// Whether a dying pane needs a synthetic worker-death report, and to whom — a
 /// worker whose PTY dies without ever reporting leaves its orchestrator blind.
 /// Returns `(target, message)` for a hierarchy worker that hasn't already reported
@@ -597,450 +928,4 @@ pub struct PaneStatusInfo {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        ledger_with_live_children, milestone_text, resolve_report_target, worker_death_report,
-        ReportTarget,
-    };
-    use crate::agent::ledger::LedgerRow;
-    use crate::agent::reports::{ReportStatus, ReportStore};
-    use crate::multiplexer::state::MultiplexerState;
-    use crate::multiplexer::types::AgentRole;
-
-    // Enforce report key symmetry: reporter writes and parent query must use the same key.
-    // This avoids "report succeeded" with empty parent results.
-
-    fn build_orchestrator_with_worker(worker_title: &str) -> (MultiplexerState, String, String) {
-        let (mut mux, orch) = MultiplexerState::new();
-        let worker = mux.create_pane();
-        mux.set_pane_role(&worker, AgentRole::Worker, Some(&orch))
-            .expect("attach worker to orchestrator");
-        mux.rename_pane(&worker, worker_title)
-            .expect("rename worker pane");
-        (mux, orch, worker)
-    }
-
-    #[test]
-    fn worker_report_is_listed_by_orchestrator() {
-        let (mux, orch, worker) = build_orchestrator_with_worker("Worker-1");
-        let mut store = ReportStore::new(100);
-
-        let (from_title, target) = resolve_report_target(&mux, &worker).expect("resolve target");
-        let target = target.expect("worker has a parent target");
-        assert_eq!(
-            target,
-            ReportTarget::Local(orch.clone()),
-            "worker reports to its direct parent"
-        );
-        assert_eq!(from_title, "Worker-1");
-
-        store.add(&target.storage_key(), &worker, &from_title, "task done");
-
-        let listed = store.get(&orch, false);
-        assert_eq!(
-            listed.len(),
-            1,
-            "orchestrator must see the worker's report after submit"
-        );
-        assert_eq!(listed[0].from_pane_id, worker);
-        assert_eq!(listed[0].from_title, "Worker-1");
-        assert_eq!(listed[0].message, "task done");
-    }
-
-    #[test]
-    fn worker_report_keys_match_storage_and_query() {
-        let (mux, orch, worker) = build_orchestrator_with_worker("Worker-A");
-        let mut store = ReportStore::new(100);
-
-        let (from_title, target) = resolve_report_target(&mux, &worker).expect("resolve target");
-        let storage_key = target.expect("worker has a parent target").storage_key();
-        store.add(&storage_key, &worker, &from_title, "msg");
-
-        let query_key = &orch;
-        assert_eq!(
-            &storage_key, query_key,
-            "submit_report write key and agent.reports query key must agree"
-        );
-        assert_eq!(store.get(query_key, false).len(), 1);
-    }
-
-    #[test]
-    fn ledger_includes_live_child_before_first_report() {
-        let (mut mux, orch, worker) = build_orchestrator_with_worker("ledger-smoke");
-        mux.get_pane_mut(&worker).unwrap().agent_session_model = Some("gpt-5.5".into());
-
-        let rows = ledger_with_live_children(&mux, &orch, vec![], 123);
-
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].orchestrator_pane_id, orch);
-        assert_eq!(rows[0].worker_pane_id, worker);
-        assert_eq!(rows[0].title, "ledger-smoke");
-        assert_eq!(rows[0].model.as_deref(), Some("gpt-5.5"));
-        assert_eq!(rows[0].status, None);
-        assert_eq!(rows[0].message, "");
-        assert_eq!(rows[0].updated_at, 123);
-    }
-
-    #[test]
-    fn ledger_refreshes_existing_live_child_without_losing_report_details() {
-        let (mut mux, orch, worker) = build_orchestrator_with_worker("fresh-title");
-        mux.get_pane_mut(&worker).unwrap().agent_session_model = Some("sonnet".into());
-        let rows = vec![LedgerRow {
-            orchestrator_pane_id: orch.clone(),
-            worker_pane_id: worker.clone(),
-            title: "stale-title".into(),
-            branch: Some("lane/agent-ledger".into()),
-            model: Some("old-model".into()),
-            status: Some(ReportStatus::Partial),
-            message: "still working".into(),
-            sha: Some("abc123".into()),
-            changed_files: Some(vec!["src-tauri/src/service/hierarchy.rs".into()]),
-            test_cmd: Some("cargo test hierarchy".into()),
-            test_result: Some("ok".into()),
-            skipped: None,
-            updated_at: 10,
-        }];
-
-        let rows = ledger_with_live_children(&mux, &orch, rows, 99);
-
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].title, "fresh-title");
-        assert_eq!(rows[0].model.as_deref(), Some("sonnet"));
-        assert_eq!(rows[0].branch.as_deref(), Some("lane/agent-ledger"));
-        assert_eq!(rows[0].status, Some(ReportStatus::Partial));
-        assert_eq!(rows[0].message, "still working");
-        assert_eq!(rows[0].updated_at, 99);
-    }
-
-    #[test]
-    fn no_plan_routing_keeps_parent_priority() {
-        let (mux, orch, worker) = build_orchestrator_with_worker("Worker-A");
-        let (_from_title, target) = resolve_report_target(&mux, &worker).expect("resolve target");
-        assert_eq!(target, Some(ReportTarget::Local(orch.clone())));
-    }
-
-    #[test]
-    fn report_title_uses_user_pinned_pane_identity_not_provider_default() {
-        let (mut mux, orch) = MultiplexerState::new();
-        let ws = mux
-            .find_workspace_for_pane(&orch)
-            .expect("orchestrator lives in a workspace");
-        let (_tab_id, worker) = mux.create_tab(&ws).expect("create worker tab");
-        mux.set_pane_role(&worker, AgentRole::Worker, Some(&orch))
-            .expect("attach worker");
-        mux.rename_pane(&worker, "Euler")
-            .expect("set pane identity");
-        mux.rename_pane_at_level(
-            &worker,
-            "claude",
-            crate::multiplexer::types::TitleLevel::Agent,
-        )
-        .expect("agent title ignored below user pin");
-
-        let (from_title, target) = resolve_report_target(&mux, &worker).expect("resolve");
-        assert_eq!(target, Some(ReportTarget::Local(orch.clone())));
-        assert_eq!(
-            from_title, "Euler",
-            "report must carry the tab identity, not the provider default"
-        );
-    }
-
-    #[test]
-    fn milestone_text_prefixes_structured_status_only() {
-        assert_eq!(milestone_text("shipped", None), "shipped");
-        assert_eq!(
-            milestone_text("shipped", Some(ReportStatus::Done)),
-            "DONE: shipped"
-        );
-        assert_eq!(
-            milestone_text("needs help", Some(ReportStatus::Blocked)),
-            "BLOCKED: needs help"
-        );
-        assert_eq!(
-            milestone_text("ready", Some(ReportStatus::InReview)),
-            "IN_REVIEW: ready"
-        );
-    }
-
-    #[test]
-    fn cron_report_target_is_used_when_no_parent() {
-        let (mut mux, orch) = MultiplexerState::new();
-        let cron_pane = mux.create_pane();
-        // Cron-spawned panes carry an explicit report_target_pane_id but no role.
-        if let Some(pane) = mux.get_pane_mut(&cron_pane) {
-            pane.report_target_pane_id = Some(orch.clone());
-        }
-        mux.rename_pane(&cron_pane, "cron-task").unwrap();
-
-        let (from_title, target) = resolve_report_target(&mux, &cron_pane).unwrap();
-        assert_eq!(target, Some(ReportTarget::Local(orch.clone())));
-        assert_eq!(from_title, "cron-task");
-    }
-
-    #[test]
-    fn parent_pane_id_takes_priority_over_other_targets() {
-        let (mut mux, orch, worker) = build_orchestrator_with_worker("Worker-Pri");
-        let other = mux.create_pane();
-        let spawner = mux.create_pane();
-        if let Some(pane) = mux.get_pane_mut(&worker) {
-            pane.report_target_pane_id = Some(other.clone());
-            pane.spawned_by_pane_id = Some(spawner.clone());
-        }
-
-        let (_, target) = resolve_report_target(&mux, &worker).unwrap();
-        assert_eq!(
-            target,
-            Some(ReportTarget::Local(orch.clone())),
-            "explicit parent_pane_id wins over report_target and spawned_by"
-        );
-    }
-
-    #[test]
-    fn orchestrator_falls_back_to_spawned_by_when_no_parent() {
-        let (mut mux, orch) = MultiplexerState::new();
-        // Simulate the spawning agent — it lives in its own pane elsewhere.
-        let spawner = mux.create_pane();
-        // Top-level orchestrator has no parent and no report_target, but `agent spawn` recorded who asked for it.
-        if let Some(pane) = mux.get_pane_mut(&orch) {
-            pane.spawned_by_pane_id = Some(spawner.clone());
-        }
-
-        let (_, target) = resolve_report_target(&mux, &orch).unwrap();
-        assert_eq!(
-            target,
-            Some(ReportTarget::Local(spawner.clone())),
-            "top-level orchestrator routes its report to whoever spawned it"
-        );
-    }
-
-    #[test]
-    fn never_routes_back_to_self_when_all_targets_unset() {
-        // Top-level orchestrator with no parent / no report_target / no spawner. The previous implementation walked the parent chain and returned the
-        // pane's own id, so reports got injected into the orchestrator's own PTY and `agent reports` against the spawning agent stayed empty.
-        let (mux, orch) = MultiplexerState::new();
-        let (_, target) = resolve_report_target(&mux, &orch).unwrap();
-        assert!(
-            target.is_none(),
-            "orphan orchestrator must NOT resolve to itself; got {:?}",
-            target
-        );
-    }
-
-    #[test]
-    fn never_routes_back_to_self_even_when_targets_point_at_self() {
-        // Defensive: if any field accidentally points at the reporter itself, that field is skipped — reports should never bounce.
-        let (mut mux, orch) = MultiplexerState::new();
-        if let Some(pane) = mux.get_pane_mut(&orch) {
-            pane.parent_pane_id = Some(orch.clone());
-            pane.report_target_pane_id = Some(orch.clone());
-            pane.spawned_by_pane_id = Some(orch.clone());
-        }
-        let (_, target) = resolve_report_target(&mux, &orch).unwrap();
-        assert!(
-            target.is_none(),
-            "self-referential targets must be filtered out; got {:?}",
-            target
-        );
-    }
-
-    #[test]
-    fn spawned_by_used_only_when_parent_and_report_target_missing() {
-        let (mut mux, orch) = MultiplexerState::new();
-        let spawner = mux.create_pane();
-        let report_target = mux.create_pane();
-        if let Some(pane) = mux.get_pane_mut(&orch) {
-            pane.report_target_pane_id = Some(report_target.clone());
-            pane.spawned_by_pane_id = Some(spawner.clone());
-        }
-        let (_, target) = resolve_report_target(&mux, &orch).unwrap();
-        assert_eq!(
-            target,
-            Some(ReportTarget::Local(report_target.clone())),
-            "report_target_pane_id wins over spawned_by_pane_id"
-        );
-    }
-
-    #[test]
-    fn unknown_pane_id_is_rejected() {
-        let (mux, _orch) = MultiplexerState::new();
-        let err = resolve_report_target(&mux, "nonexistent").unwrap_err();
-        assert!(err.contains("Pane not found"), "got: {}", err);
-    }
-
-    // ── Worker-death watchdog ──
-
-    #[test]
-    fn dead_worker_without_report_routes_synthetic_to_parent() {
-        let (mux, orch, worker) = build_orchestrator_with_worker("Worker-Dead");
-        let store = ReportStore::new(100);
-
-        let (target, msg) = worker_death_report(&mux, &store, &worker)
-            .expect("dead unreported worker must synthesize a report");
-        assert_eq!(target, orch, "synthetic dead-report routes to the parent");
-        assert_eq!(
-            msg,
-            format!("WORKER {} EXITED without reporting (dead)", worker)
-        );
-    }
-
-    #[test]
-    fn dead_worker_that_already_reported_gets_no_synthetic() {
-        let (mux, orch, worker) = build_orchestrator_with_worker("Worker-Reported");
-        let mut store = ReportStore::new(100);
-        // Worker already spoke to its parent before dying.
-        store.add(&orch, &worker, "Worker-Reported", "task done");
-
-        assert!(
-            worker_death_report(&mux, &store, &worker).is_none(),
-            "a worker that already reported must NOT get a synthetic dead-report"
-        );
-    }
-
-    #[test]
-    fn dead_non_hierarchy_pane_gets_no_synthetic() {
-        // Plain pane: no parent/report_target/spawner → no routing target → no synthetic report.
-        let (mut mux, _orch) = MultiplexerState::new();
-        let plain = mux.create_pane();
-        let store = ReportStore::new(100);
-
-        assert!(
-            worker_death_report(&mux, &store, &plain).is_none(),
-            "a non-hierarchy pane must NOT get a synthetic dead-report"
-        );
-    }
-
-    #[test]
-    fn dead_worker_routes_via_spawned_by_when_no_parent() {
-        // A top-level pane spawned by another agent still routes its death to whoever spawned it.
-        let (mut mux, _orch) = MultiplexerState::new();
-        let spawner = mux.create_pane();
-        let worker = mux.create_pane();
-        if let Some(pane) = mux.get_pane_mut(&worker) {
-            pane.spawned_by_pane_id = Some(spawner.clone());
-        }
-        let store = ReportStore::new(100);
-
-        let (target, _msg) =
-            worker_death_report(&mux, &store, &worker).expect("spawned_by gives a target");
-        assert_eq!(target, spawner);
-    }
-
-    // ── Report message format ── submit_report builds the notify body without a trailing CR — Enter is sent as a separate delayed raw write by send_text's bracket-paste path.
-
-    fn format_report(from_title: &str, message: &str) -> String {
-        format!("[Report from {}] {}", from_title, message)
-    }
-
-    #[test]
-    fn report_format_basic() {
-        let msg = format_report("Scout", "Task completed successfully");
-        assert_eq!(msg, "[Report from Scout] Task completed successfully");
-    }
-
-    #[test]
-    fn report_format_no_trailing_cr() {
-        // Enter is delivered as a separate write by send_text — the body itself must NOT contain trailing \r, otherwise Claude's prompt submits before
-        // the bracket-paste end marker is processed.
-        let msg = format_report("Worker-1", "done");
-        assert!(!msg.ends_with('\r'), "Report body must not end with \\r");
-    }
-
-    #[test]
-    fn report_format_message_with_newlines() {
-        // Internal newlines pass through raw — bracket paste protects them.
-        let msg = format_report("Worker", "line1\nline2\nline3");
-        assert_eq!(msg, "[Report from Worker] line1\nline2\nline3");
-        assert!(msg.contains('\n'), "Internal newlines are preserved");
-    }
-
-    #[test]
-    fn report_format_empty_message() {
-        let msg = format_report("Agent", "");
-        assert_eq!(msg, "[Report from Agent] ");
-    }
-
-    #[test]
-    fn report_format_title_with_spaces() {
-        let msg = format_report("My Agent Title", "ok");
-        assert_eq!(msg, "[Report from My Agent Title] ok");
-    }
-
-    #[test]
-    fn report_format_message_with_special_chars() {
-        let msg = format_report("Bot", "found 3 files: a.rs, b.rs, c.rs");
-        assert!(msg.starts_with("[Report from Bot] "));
-    }
-
-    // ── Remote (mesh) report target ──
-
-    #[test]
-    fn mesh_target_resolves_when_peer_and_pane_set() {
-        // A worker spawned via `agent spawn --mesh PEER --report-to main` carries
-        // both fields; it must resolve to a Mesh target, never a local pane.
-        let (mut mux, _orch) = MultiplexerState::new();
-        let worker = mux.create_pane();
-        if let Some(pane) = mux.get_pane_mut(&worker) {
-            pane.report_target_mesh_peer = Some("Mac-Air".into());
-            pane.report_target_pane_id = Some("main".into());
-        }
-        mux.rename_pane(&worker, "Remote-Worker").unwrap();
-
-        let (from_title, target) = resolve_report_target(&mux, &worker).unwrap();
-        assert_eq!(from_title, "Remote-Worker");
-        assert_eq!(
-            target,
-            Some(ReportTarget::Mesh {
-                peer: "Mac-Air".into(),
-                pane: "main".into()
-            })
-        );
-    }
-
-    #[test]
-    fn mesh_target_wins_over_local_parent() {
-        // Even with a local role parent, an explicit remote target takes priority
-        // so the report crosses the mesh instead of landing in a stale local pane.
-        let (mux, _orch, worker) = build_orchestrator_with_worker("Remote-Pri");
-        let mut mux = mux;
-        if let Some(pane) = mux.get_pane_mut(&worker) {
-            pane.report_target_mesh_peer = Some("eight".into());
-            pane.report_target_pane_id = Some("orch-42".into());
-        }
-        let (_, target) = resolve_report_target(&mux, &worker).unwrap();
-        assert_eq!(
-            target,
-            Some(ReportTarget::Mesh {
-                peer: "eight".into(),
-                pane: "orch-42".into()
-            }),
-            "remote target must win over a local parent_pane_id"
-        );
-    }
-
-    #[test]
-    fn mesh_peer_without_target_pane_falls_back_to_local() {
-        // A dangling peer with no target pane is incomplete — don't synthesize a
-        // half-addressed remote target; fall through to the local chain.
-        let (mux, orch, worker) = build_orchestrator_with_worker("Half-Remote");
-        let mut mux = mux;
-        if let Some(pane) = mux.get_pane_mut(&worker) {
-            pane.report_target_mesh_peer = Some("eight".into());
-            pane.report_target_pane_id = None;
-        }
-        let (_, target) = resolve_report_target(&mux, &worker).unwrap();
-        assert_eq!(target, Some(ReportTarget::Local(orch)));
-    }
-
-    #[test]
-    fn storage_keys_distinguish_local_and_mesh() {
-        assert_eq!(ReportTarget::Local("p1".into()).storage_key(), "p1");
-        assert_eq!(
-            ReportTarget::Mesh {
-                peer: "Mac-Air".into(),
-                pane: "main".into()
-            }
-            .storage_key(),
-            "mesh:Mac-Air/main"
-        );
-    }
-}
+mod tests;

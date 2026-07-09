@@ -1,6 +1,6 @@
 use crate::args::plan::PlanSectionAction;
 use crate::client::SocketClient;
-use crate::cmd::plan::{call_plan_rpc, resolve_text};
+use crate::cmd::plan::{call_plan_rpc, maybe_inject_caller_pane, resolve_text};
 use serde_json::{json, Value};
 
 pub fn handle(
@@ -71,6 +71,15 @@ pub(crate) fn render_section_show(val: &Value) -> String {
 fn section_mutation(client: &mut SocketClient, action: PlanSectionAction) -> Result<Value, String> {
     match action {
         PlanSectionAction::Show { .. } => unreachable!("Show handled before mutation dispatch"),
+        PlanSectionAction::Attach {
+            plan_id,
+            section_id,
+            file,
+        } => call_plan_rpc(
+            client,
+            "plan.section.attach",
+            json!({ "plan_id": plan_id, "section_id": section_id, "path": file }),
+        ),
         PlanSectionAction::Add {
             plan_id,
             title,
@@ -99,6 +108,7 @@ fn section_mutation(client: &mut SocketClient, action: PlanSectionAction) -> Res
             if let Some(handle) = handle {
                 params["handle"] = json!(handle);
             }
+            maybe_inject_caller_pane(&mut params);
             call_plan_rpc(client, "plan.section.add", params)
         }
         PlanSectionAction::Update {
@@ -128,6 +138,7 @@ fn section_mutation(client: &mut SocketClient, action: PlanSectionAction) -> Res
             if let Some(handle) = handle {
                 params["handle"] = json!(handle);
             }
+            maybe_inject_caller_pane(&mut params);
             call_plan_rpc(client, "plan.section.update", params)
         }
         PlanSectionAction::Rm {

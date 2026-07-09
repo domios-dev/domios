@@ -1,1 +1,0 @@
-FAR constellation / MID thread+spine+kind-lanes+coil with readable 1-line titles / NEAR step-cards; live step pulses; owned by task via stem. Per design §16.9.

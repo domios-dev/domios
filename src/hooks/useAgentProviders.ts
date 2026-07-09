@@ -21,6 +21,12 @@ async function fetchAgentProviders(): Promise<ProviderDescriptor[]> {
   return result ?? [];
 }
 
+// Avoid wiping the shared descriptor cache during a hook's initial loading beat.
+export function syncAgentDescriptorCache(items: ProviderDescriptor[], loading: boolean): void {
+  if (loading) return;
+  setAgentDescriptors(items);
+}
+
 export function useAgentProviders(): {
   providers: ProviderDescriptor[];
   loading: boolean;
@@ -33,7 +39,7 @@ export function useAgentProviders(): {
     fetcher,
   );
   useEffect(() => {
-    setAgentDescriptors(items);
-  }, [items]);
+    syncAgentDescriptorCache(items, loading);
+  }, [items, loading]);
   return { providers: items, loading, error, refetch };
 }

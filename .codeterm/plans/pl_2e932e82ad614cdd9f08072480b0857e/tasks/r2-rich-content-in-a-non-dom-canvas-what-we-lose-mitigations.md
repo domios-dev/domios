@@ -1,1 +1,0 @@
-Enumerate how to render text layout/wrapping, markdown, mermaid, hit-testing, per-node scroll, selection/clipboard, a11y, and the composer overlay in the chosen substrate. Decide the hybrid boundary: what is GPU-drawn vs a thin DOM overlay at 1x for the FOCUSED/read node only.

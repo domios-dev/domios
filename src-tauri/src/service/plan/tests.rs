@@ -3,269 +3,7 @@ use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, Plan, PlanStatus, Ta
 use crate::service::plan::task_queries::TaskListFilter;
 
 mod tag_retag;
-
-#[test]
-fn store_saves_loads_indexes() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(dir.path());
-    let mut p = Plan::new(
-        "T".into(),
-        dir.path().display().to_string(),
-        OrchestratorRef::from_pane("abc"),
-    );
-    store.save(&mut p, 1000).unwrap();
-    let path = dir
-        .path()
-        .join(".codeterm/plans")
-        .join(format!("{}.json", p.id));
-    assert!(path.exists());
-    let loaded = store.get(&p.id).unwrap();
-    assert_eq!(loaded.title, "T");
-    assert!(store.list_index().iter().any(|e| e.plan_id == p.id));
-    assert_eq!(loaded.updated_at, 1000);
-}
-
-#[test]
-fn reload_from_disk_replaces_memory_and_index() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(dir.path());
-    let mut p = Plan::new(
-        "Original".into(),
-        dir.path().display().to_string(),
-        OrchestratorRef::from_pane("abc"),
-    );
-    store.save(&mut p, 1000).unwrap();
-
-    let path = dir
-        .path()
-        .join(".codeterm/plans")
-        .join(format!("{}.json", p.id));
-    let mut edited: Plan = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    edited.title = "Edited".into();
-    edited.updated_at = 2000;
-    std::fs::write(&path, serde_json::to_string_pretty(&edited).unwrap()).unwrap();
-
-    store.reload_from_disk(&p.id).unwrap();
-
-    assert_eq!(store.get(&p.id).unwrap().title, "Edited");
-    let entry = store
-        .list_index()
-        .into_iter()
-        .find(|e| e.plan_id == p.id)
-        .unwrap();
-    assert_eq!(entry.title, "Edited");
-    assert_eq!(entry.updated_at, 2000);
-}
-
-#[test]
-fn in_review_status_persists_and_reloads() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(dir.path());
-    let mut p = Plan::new(
-        "Review".into(),
-        dir.path().display().to_string(),
-        OrchestratorRef::from_pane("abc"),
-    );
-    store.save(&mut p, 1).unwrap();
-    let task_id = store
-        .add_task(
-            &p.id,
-            NewTask {
-                name: "worker lane".into(),
-                kind: "implement".into(),
-                ..Default::default()
-            },
-            2,
-        )
-        .unwrap();
-    store
-        .update_task(
-            &p.id,
-            &task_id,
-            None,
-            None,
-            None,
-            None,
-            Some("in_review"),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &[],
-            None,
-            None,
-            3,
-        )
-        .unwrap();
-
-    store.plans.write().clear();
-    store.reload_from_disk(&p.id).unwrap();
-
-    let loaded = store.get(&p.id).unwrap();
-    let task = loaded.tasks.iter().find(|task| task.id == task_id).unwrap();
-    assert_eq!(task.status, TaskStatus::InReview);
-}
-
-#[test]
-fn task_quality_fields_persist_and_reload() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(dir.path());
-    let mut p = Plan::new(
-        "Quality".into(),
-        dir.path().display().to_string(),
-        OrchestratorRef::from_pane("abc"),
-    );
-    store.save(&mut p, 1).unwrap();
-    let task_id = store
-        .add_task(
-            &p.id,
-            NewTask {
-                name: "criteria lane".into(),
-                kind: "implement".into(),
-                acceptance_criteria: vec![
-                    "Task JSON contains structured acceptance criteria".into(),
-                    "CLI shows each criterion".into(),
-                ],
-                test_plan: Some(
-                    "cargo test service::plan::tests::task_quality_fields_persist_and_reload"
-                        .into(),
-                ),
-                correctness: Some("quality fields round-trip unchanged".into()),
-                ..Default::default()
-            },
-            2,
-        )
-        .unwrap();
-
-    store.plans.write().clear();
-    store.reload_from_disk(&p.id).unwrap();
-
-    let loaded = store.get(&p.id).unwrap();
-    let task = loaded.tasks.iter().find(|task| task.id == task_id).unwrap();
-    assert_eq!(
-        task.acceptance_criteria,
-        vec![
-            "Task JSON contains structured acceptance criteria",
-            "CLI shows each criterion"
-        ]
-    );
-    assert_eq!(
-        task.test_plan.as_deref(),
-        Some("cargo test service::plan::tests::task_quality_fields_persist_and_reload")
-    );
-    assert_eq!(
-        task.correctness.as_deref(),
-        Some("quality fields round-trip unchanged")
-    );
-}
-
-#[test]
-fn reload_from_disk_preserves_plan_arc_for_concurrent_holders() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(dir.path());
-    let mut p = Plan::new(
-        "Original".into(),
-        dir.path().display().to_string(),
-        OrchestratorRef::from_pane("abc"),
-    );
-    store.save(&mut p, 1000).unwrap();
-    let held = store.plans.read().get(&p.id).cloned().unwrap();
-
-    let path = dir
-        .path()
-        .join(".codeterm/plans")
-        .join(format!("{}.json", p.id));
-    let mut edited: Plan = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    edited.title = "Edited".into();
-    edited.updated_at = 2000;
-    std::fs::write(&path, serde_json::to_string_pretty(&edited).unwrap()).unwrap();
-
-    store.reload_from_disk(&p.id).unwrap();
-
-    let current = store.plans.read().get(&p.id).cloned().unwrap();
-    assert!(std::sync::Arc::ptr_eq(&held, &current));
-    assert_eq!(held.lock().title, "Edited");
-}
-
-#[test]
-fn reload_from_disk_does_not_overwrite_newer_in_flight_plan_mutation() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = std::sync::Arc::new(PlanStore::new_for_test(dir.path()));
-    let mut p = Plan::new(
-        "Original".into(),
-        dir.path().display().to_string(),
-        OrchestratorRef::from_pane("abc"),
-    );
-    store.save(&mut p, 1000).unwrap();
-    let held = store.plans.read().get(&p.id).cloned().unwrap();
-
-    let path = dir
-        .path()
-        .join(".codeterm/plans")
-        .join(format!("{}.json", p.id));
-    let mut stale: Plan = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    stale.title = "Stale disk snapshot".into();
-    stale.updated_at = 3000;
-    std::fs::write(&path, serde_json::to_string_pretty(&stale).unwrap()).unwrap();
-
-    let mut guard = held.lock();
-    let reload_store = store.clone();
-    let plan_id = p.id.clone();
-    let reload = std::thread::spawn(move || reload_store.reload_from_disk(&plan_id));
-    std::thread::sleep(std::time::Duration::from_millis(25));
-
-    guard.title = "Newer in-flight mutation".into();
-    guard.updated_at = 3000;
-    let written_path = PlanStore::write_atomic(&guard).unwrap();
-    store.note_plan_write(&guard, &written_path);
-    drop(guard);
-
-    reload.join().unwrap().unwrap();
-
-    let current = store.get(&p.id).unwrap();
-    assert_eq!(current.title, "Newer in-flight mutation");
-    assert_eq!(current.updated_at, 3000);
-    let entry = store
-        .list_index()
-        .into_iter()
-        .find(|entry| entry.plan_id == p.id)
-        .unwrap();
-    assert_eq!(entry.title, "Newer in-flight mutation");
-    assert_eq!(entry.updated_at, 3000);
-}
-
-#[test]
-fn scan_project_loads_plan_written_directly_to_disk() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(dir.path());
-    let project = paths::project_root(dir.path());
-    let plans_dir = paths::plans_dir(&project).unwrap();
-    let mut plan = Plan::new(
-        "Persisted".into(),
-        project.display().to_string(),
-        OrchestratorRef::from_pane("abc"),
-    );
-    plan.created_at = 1000;
-    plan.updated_at = 2000;
-    let plan_id = plan.id.clone();
-    let path = plans_dir.join(format!("{plan_id}.json"));
-    std::fs::write(&path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();
-
-    let loaded_project = store.scan_project(dir.path()).unwrap();
-    let plans: Vec<_> = store
-        .list_index()
-        .into_iter()
-        .filter_map(|e| store.get(&e.plan_id))
-        .filter(|p| p.project_path == loaded_project.display().to_string())
-        .collect();
-
-    assert_eq!(plans.len(), 1);
-    assert_eq!(plans[0].id, plan_id);
-    assert_eq!(plans[0].title, "Persisted");
-}
+mod task_queries;
 
 fn store_with_task(kinds: &[&str]) -> (PlanStore, String, String) {
     let root = tempfile::tempdir().unwrap().keep();
@@ -289,6 +27,7 @@ fn store_with_task(kinds: &[&str]) -> (PlanStore, String, String) {
             NewTask {
                 name: "n".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -333,13 +72,16 @@ fn generated_index_regenerates_with_current_titles() {
             NewTask {
                 name: "Old Task".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             3,
         )
         .unwrap();
 
-    store.update_plan(&plan.id, Some("After"), None, 4).unwrap();
+    store
+        .update_plan(&plan.id, Some("After"), None, None, 4)
+        .unwrap();
     store
         .update_section(
             &plan.id,
@@ -368,6 +110,7 @@ fn generated_index_regenerates_with_current_titles() {
             None,
             None,
             None,
+            None,
             &[],
             None,
             None,
@@ -377,7 +120,7 @@ fn generated_index_regenerates_with_current_titles() {
 
     let index_path = dir
         .path()
-        .join(format!(".codeterm/plans/{}/INDEX.md", plan.id));
+        .join(format!(".codeterm/plans/active/{}/INDEX.md", plan.id));
     let index = std::fs::read_to_string(index_path).unwrap();
     assert!(index.contains("# After"));
     assert!(index.contains("- [new-spec (New Spec)](sections/new-spec.md)"));
@@ -427,6 +170,7 @@ fn plan_spec_markdown_assembles_only_sections() {
                 name: "Implement".into(),
                 kind: "implement".into(),
                 body: "task body".into(),
+                competition: None,
                 ..Default::default()
             },
             4,
@@ -459,6 +203,7 @@ fn plan_file_manifest_lists_index_and_body_paths() {
             NewTask {
                 name: "Build".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             3,
@@ -468,17 +213,17 @@ fn plan_file_manifest_lists_index_and_body_paths() {
     let manifest = store.file_manifest(&plan.id).unwrap();
     assert_eq!(
         manifest.index_path,
-        format!(".codeterm/plans/{}/INDEX.md", plan.id)
+        format!(".codeterm/plans/active/{}/INDEX.md", plan.id)
     );
     assert!(manifest.entries.iter().any(|entry| {
         entry.kind == "section"
             && entry.title == "spec (Spec)"
-            && entry.path == format!(".codeterm/plans/{}/sections/spec.md", plan.id)
+            && entry.path == format!(".codeterm/plans/active/{}/sections/spec.md", plan.id)
     }));
     assert!(manifest.entries.iter().any(|entry| {
         entry.kind == "task"
             && entry.title == "build (Build)"
-            && entry.path == format!(".codeterm/plans/{}/tasks/build.md", plan.id)
+            && entry.path == format!(".codeterm/plans/active/{}/tasks/build.md", plan.id)
     }));
 }
 
@@ -495,9 +240,10 @@ fn external_section_body_edit_reloads_into_full_plan() {
     let _section_id = store
         .add_section(&plan.id, "Spec", "before", None, &[], None, None, 2)
         .unwrap();
-    let section_path = dir
-        .path()
-        .join(format!(".codeterm/plans/{}/sections/spec.md", plan.id));
+    let section_path = dir.path().join(format!(
+        ".codeterm/plans/active/{}/sections/spec.md",
+        plan.id
+    ));
 
     std::fs::write(&section_path, "after direct edit").unwrap();
     store.reload_from_disk(&plan.id).unwrap();
@@ -533,6 +279,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         body: "inline section".into(),
         subsections: vec![],
         canvas: Default::default(),
+        attachments: vec![],
     });
     plan.tasks.push(crate::plan::Task {
         id: "task_legacy".into(),
@@ -544,6 +291,8 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         test_plan: None,
         correctness: None,
         status: TaskStatus::Pending,
+        review_stage: Default::default(),
+        qa_state: None,
         status_label: None,
         priority: Default::default(),
         created_at: 0,
@@ -553,6 +302,9 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         tags: vec![],
         section_ids: vec![],
         body: "inline task".into(),
+        role_guidance: None,
+        executor_role: None,
+        competition: None,
         intent: None,
         parent_task_id: None,
         assigned_pane_id: None,
@@ -562,19 +314,23 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         group: None,
         canvas: Default::default(),
         milestones: vec![],
+        execution_attempts: vec![],
+        park_reason: None,
+        attachments: vec![],
     });
-    let json_path = plans_dir.join(format!("{}.json", plan.id));
+    let json_path = paths::plan_json_path(&project, &plan.status, &plan.id).unwrap();
     std::fs::write(&json_path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();
 
     store.scan_project(dir.path()).unwrap();
 
-    let section_path = plans_dir.join(format!("{}/sections/spec.md", plan.id));
-    let task_path = plans_dir.join(format!("{}/tasks/task.md", plan.id));
-    assert_eq!(
-        std::fs::read_to_string(section_path).unwrap(),
-        "inline section"
-    );
-    assert_eq!(std::fs::read_to_string(task_path).unwrap(), "inline task");
+    let section_path = plans_dir.join(format!("active/{}/sections/spec.md", plan.id));
+    let task_path = plans_dir.join(format!("active/{}/tasks/task.md", plan.id));
+    assert!(std::fs::read_to_string(section_path)
+        .unwrap()
+        .ends_with("inline section\n"));
+    assert!(std::fs::read_to_string(task_path)
+        .unwrap()
+        .ends_with("inline task\n"));
     let raw_json = std::fs::read_to_string(json_path).unwrap();
     assert!(!raw_json.contains("inline section"));
     assert!(!raw_json.contains("inline task"));
@@ -611,11 +367,10 @@ fn atomic_body_write_leaves_only_final_markdown_file() {
 
     let section_dir = dir
         .path()
-        .join(format!(".codeterm/plans/{}/sections", plan.id));
-    assert_eq!(
-        std::fs::read_to_string(section_dir.join("spec.md")).unwrap(),
-        "replacement"
-    );
+        .join(format!(".codeterm/plans/active/{}/sections", plan.id));
+    assert!(std::fs::read_to_string(section_dir.join("spec.md"))
+        .unwrap()
+        .ends_with("replacement\n"));
     assert!(!section_dir.join("spec.md.tmp").exists());
 }
 
@@ -629,6 +384,7 @@ fn add_task_supports_many_to_many_sections() {
                 name: "Dante".into(),
                 kind: "implement".into(),
                 section_ids: vec!["s1".into(), "s2".into()],
+                competition: None,
                 ..Default::default()
             },
             20,
@@ -650,6 +406,7 @@ fn show_task_includes_parent_label_for_subtasks() {
                 name: "Child".into(),
                 kind: "implement".into(),
                 parent_task_id: Some(parent_id.clone()),
+                competition: None,
                 ..Default::default()
             },
             20,
@@ -671,6 +428,7 @@ fn add_task_persists_parent_task_id() {
                 name: "Child".into(),
                 kind: "implement".into(),
                 parent_task_id: Some(parent_id.clone()),
+                competition: None,
                 ..Default::default()
             },
             20,
@@ -690,6 +448,7 @@ fn update_task_sets_and_clears_parent_task_id() {
             NewTask {
                 name: "Child".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             20,
@@ -699,6 +458,7 @@ fn update_task_sets_and_clears_parent_task_id() {
         .update_task(
             &id,
             &child_id,
+            None,
             None,
             None,
             None,
@@ -744,6 +504,7 @@ fn update_task_sets_and_clears_parent_task_id() {
             None,
             None,
             None,
+            None,
             Some(None),
             None,
             &[],
@@ -776,6 +537,7 @@ fn update_task_preserves_model_when_patching_parent() {
                 kind: "implement".into(),
                 model: Some("opus".into()),
                 model_rationale: Some("deep reasoning".into()),
+                competition: None,
                 ..Default::default()
             },
             20,
@@ -786,6 +548,7 @@ fn update_task_preserves_model_when_patching_parent() {
         .update_task(
             &id,
             &child_id,
+            None,
             None,
             None,
             None,
@@ -815,14 +578,69 @@ fn update_task_preserves_model_when_patching_parent() {
 #[test]
 fn close_task_sets_done_and_optional_milestone() {
     let (store, id, tid) = store_with_task(&["status_update"]);
+    store.assign_task(&id, &tid, "pane-live", None, 20).unwrap();
     store
         .close_task(&id, &tid, Some("shipped"), AgentRef::from_pane("w"), 30)
         .unwrap();
     let p = store.get(&id).unwrap();
     let t = p.tasks.iter().find(|t| t.id == tid).unwrap();
     assert_eq!(t.status, TaskStatus::Done);
+    assert!(t.assigned_pane_id.is_none());
+    assert!(t.lane.pane_id.is_none());
     assert!(t.milestones.iter().any(|m| m.text == "shipped"));
     assert_eq!(p.updated_at, 30);
+}
+
+#[test]
+fn closed_task_assignment_is_not_indexed_or_bound() {
+    let (store, id, tid) = store_with_task(&["status_update"]);
+    store.assign_task(&id, &tid, "pane-live", None, 20).unwrap();
+    store
+        .close_task(&id, &tid, None, AgentRef::from_pane("w"), 30)
+        .unwrap();
+
+    let entry = store
+        .list_index()
+        .into_iter()
+        .find(|entry| entry.plan_id == id)
+        .unwrap();
+    assert!(entry.assigned_pane_ids.is_empty());
+    assert!(store.task_binding_for_pane("pane-live").is_none());
+    assert!(store.task_bindings_for_pane("pane-live").is_empty());
+}
+
+#[test]
+fn reconcile_assignment_cleanup_clears_lane_pane() {
+    let (store, id, tid) = store_with_task(&["status_update"]);
+    store.assign_task(&id, &tid, "pane-live", None, 20).unwrap();
+    let drift = [crate::plan::reconcile::DriftItem {
+        plan_id: id.clone(),
+        task_id: tid.clone(),
+        kind: crate::plan::reconcile::DriftKind::BoundToClosedPane,
+        detail: "closed".into(),
+        suggested_fix: "clear".into(),
+        not_mine: false,
+    }];
+
+    store.apply_reconcile_fixes(&id, &drift, 30).unwrap();
+
+    let p = store.get(&id).unwrap();
+    let t = p.tasks.iter().find(|t| t.id == tid).unwrap();
+    assert!(t.assigned_pane_id.is_none());
+    assert!(t.lane.pane_id.is_none());
+}
+
+#[test]
+fn pane_gone_cleanup_clears_lane_pane() {
+    let (store, id, tid) = store_with_task(&["status_update"]);
+    store.assign_task(&id, &tid, "pane-live", None, 20).unwrap();
+
+    assert!(store.flag_pane_gone(&id, &tid, 30).unwrap());
+
+    let p = store.get(&id).unwrap();
+    let t = p.tasks.iter().find(|t| t.id == tid).unwrap();
+    assert!(t.assigned_pane_id.is_none());
+    assert!(t.lane.pane_id.is_none());
 }
 
 #[test]
@@ -898,9 +716,6 @@ fn owner_of_returns_current_owner() {
 
 #[test]
 fn set_layout_uses_the_real_id_the_frontend_sends() {
-    // The frontend (useCanvasNodeDrag) sends node.id — the bare 'task_<uuid>' id,
-    // NOT a 'task:<id>' namespace. Regression for the drag-never-persists 404:
-    // set_layout used split_once(':') which rejected every underscore id.
     let (store, id, tid) = store_with_task(&["status_update"]);
     store
         .set_layout(&id, &tid, Some(12.0), Some(34.0), 60)
@@ -908,6 +723,50 @@ fn set_layout_uses_the_real_id_the_frontend_sends() {
     let p = store.get(&id).unwrap();
     let t = p.tasks.iter().find(|t| t.id == tid).unwrap();
     assert_eq!((t.canvas.x, t.canvas.y), (Some(12.0), Some(34.0)));
+}
+
+#[test]
+fn set_layout_accepts_prefixed_ids_from_cli_and_docs() {
+    let (store, id, tid) = store_with_task(&["status_update"]);
+    store
+        .set_layout(&id, &format!("task:{tid}"), Some(56.0), Some(78.0), 60)
+        .unwrap();
+    let p = store.get(&id).unwrap();
+    let t = p.tasks.iter().find(|t| t.id == tid).unwrap();
+    assert_eq!((t.canvas.x, t.canvas.y), (Some(56.0), Some(78.0)));
+}
+
+#[test]
+fn task_creation_requires_plan_approval_unless_forced() {
+    use crate::plan::PlanMode;
+
+    let root = tempfile::tempdir().unwrap().keep();
+    let store = PlanStore::new_for_test(&root);
+    let mut plan = crate::plan::Plan::new(
+        "Approval".into(),
+        root.display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    let id = plan.id.clone();
+    store.save(&mut plan, 1).unwrap();
+
+    let err = store
+        .ensure_task_creation_allowed(&id, "implement", false)
+        .unwrap_err();
+    assert!(matches!(err, PlanError::TaskCreationRequiresApproval));
+    store
+        .ensure_task_creation_allowed(&id, "implement", true)
+        .unwrap();
+
+    // Planning-kind tasks are first-class in planning mode: allowed without --force.
+    store
+        .ensure_task_creation_allowed(&id, "planning", false)
+        .unwrap();
+
+    store.set_mode(&id, PlanMode::Approved, 2).unwrap();
+    store
+        .ensure_task_creation_allowed(&id, "implement", false)
+        .unwrap();
 }
 
 #[test]
@@ -1019,6 +878,7 @@ fn list_tasks_is_strictly_project_scoped() {
             NewTask {
                 name: "only-a".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             3,
@@ -1030,6 +890,7 @@ fn list_tasks_is_strictly_project_scoped() {
             NewTask {
                 name: "only-b".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             4,
@@ -1070,7 +931,10 @@ fn inbox_plan_is_lazy_and_idempotent() {
     assert_eq!(first.title, crate::plan::INBOX_PLAN_TITLE);
     assert!(first.sections.is_empty());
     assert_eq!(second.created_at, first.created_at);
-    assert!(root.path().join(".codeterm/plans/_inbox.json").exists());
+    assert!(root
+        .path()
+        .join(".codeterm/plans/active/_inbox/plan.json")
+        .exists());
 }
 
 #[test]
@@ -1084,6 +948,7 @@ fn add_inbox_task_lands_in_reserved_plan() {
             NewTask {
                 name: "standalone".into(),
                 kind: "fix".into(),
+                competition: None,
                 ..Default::default()
             },
             3,
@@ -1095,65 +960,4 @@ fn add_inbox_task_lands_in_reserved_plan() {
     assert_eq!(plan.tasks.len(), 1);
     assert_eq!(plan.tasks[0].id, task_id);
     assert_eq!(plan.tasks[0].name, "standalone");
-}
-
-#[test]
-fn task_queries_exclude_archived_plans() {
-    let (store, id, _) = store_with_task(&["status_update"]);
-    store.archive(&id, 99).unwrap();
-
-    let tasks = store.list_tasks(TaskListFilter {
-        active_only: false,
-        ..Default::default()
-    });
-
-    assert!(tasks.is_empty());
-    assert!(store.coverage_report(&id).is_none());
-}
-
-#[test]
-fn task_queries_filter_by_status() {
-    let (store, id, blocked_id) = store_with_task(&["status_update"]);
-    store
-        .add_task(
-            &id,
-            NewTask {
-                name: "still-pending".into(),
-                kind: "implement".into(),
-                ..Default::default()
-            },
-            2,
-        )
-        .unwrap();
-    store
-        .update_task(
-            &id,
-            &blocked_id,
-            None,
-            None,
-            None,
-            None,
-            Some("blocked"),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &[],
-            None,
-            None,
-            3,
-        )
-        .unwrap();
-
-    let tasks = store.list_tasks(TaskListFilter {
-        active_only: false,
-        status: Some(TaskStatus::Blocked),
-        ..Default::default()
-    });
-
-    assert_eq!(tasks.len(), 1);
-    assert_eq!(tasks[0].task.id, blocked_id);
 }

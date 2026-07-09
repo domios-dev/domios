@@ -1,27 +1,66 @@
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 pub(crate) fn project_root(project: Option<String>) -> Result<PathBuf, String> {
     let raw = project.unwrap_or_else(|| ".".into());
-    PathBuf::from(raw)
+    let cwd = PathBuf::from(raw)
         .canonicalize()
-        .map_err(|e| format!("resolve project path: {e}"))
+        .map_err(|e| format!("resolve project path: {e}"))?;
+    Ok(main_worktree_root(&cwd).unwrap_or(cwd))
+}
+
+fn main_worktree_root(cwd: &Path) -> Option<PathBuf> {
+    let out = Command::new("git")
+        .current_dir(cwd)
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let common_dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if common_dir.is_empty() {
+        return None;
+    }
+    let common_dir = PathBuf::from(common_dir);
+    if common_dir.file_name().and_then(|name| name.to_str()) != Some(".git") {
+        return None;
+    }
+    let root = common_dir.parent()?.to_path_buf();
+    Some(root.canonicalize().unwrap_or(root))
 }
 
 pub(crate) fn plan_files(plans_dir: &Path, plan_id: Option<&str>) -> Result<Vec<PathBuf>, String> {
     if let Some(id) = plan_id {
-        return Ok(vec![plans_dir.join(format!("{id}.json"))]);
+        return Ok(["active", "archive"]
+            .into_iter()
+            .map(|bucket| plans_dir.join(bucket).join(plan_stem(id)).join("plan.json"))
+            .filter(|path| path.is_file())
+            .collect());
     }
     let mut files = Vec::new();
-    let entries =
-        std::fs::read_dir(plans_dir).map_err(|e| format!("read {}: {e}", plans_dir.display()))?;
-    for entry in entries {
-        let path = entry.map_err(|e| e.to_string())?.path();
-        if path.extension().and_then(|s| s.to_str()) == Some("json") {
-            files.push(path);
+    for bucket in ["active", "archive"] {
+        let bucket_dir = plans_dir.join(bucket);
+        let Ok(entries) = std::fs::read_dir(&bucket_dir) else {
+            continue;
+        };
+        for entry in entries {
+            let path = entry.map_err(|e| e.to_string())?.path().join("plan.json");
+            if path.is_file() {
+                files.push(path);
+            }
         }
     }
     files.sort();
     Ok(files)
+}
+
+fn plan_stem(id: &str) -> &str {
+    if id == "inbox" {
+        "_inbox"
+    } else {
+        id
+    }
 }
 
 pub(crate) fn plan_id_from(plan: &serde_json::Value, path: &Path) -> Option<String> {
@@ -29,9 +68,16 @@ pub(crate) fn plan_id_from(plan: &serde_json::Value, path: &Path) -> Option<Stri
         .and_then(|v| v.as_str())
         .map(str::to_string)
         .or_else(|| {
-            path.file_stem()
+            path.parent()?
+                .file_name()
                 .and_then(|s| s.to_str())
-                .map(str::to_string)
+                .map(|stem| {
+                    if stem == "_inbox" {
+                        "inbox".to_string()
+                    } else {
+                        stem.to_string()
+                    }
+                })
         })
 }
 
@@ -40,7 +86,8 @@ pub(crate) fn is_inbox_plan(plan: &serde_json::Value, path: &Path) -> bool {
         .and_then(|v| v.as_str())
         .is_some_and(|id| id == "inbox")
         || path
-            .file_stem()
+            .parent()
+            .and_then(|p| p.file_name())
             .and_then(|s| s.to_str())
             .is_some_and(|stem| stem == "_inbox")
 }

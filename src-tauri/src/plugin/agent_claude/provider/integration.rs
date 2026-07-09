@@ -154,7 +154,6 @@ pub fn install_integration(api_port: u16) -> Result<(), String> {
         serde_json::json!({})
     };
 
-    // Hooks run via sh/bash even on Windows, so the null device is /dev/null,
     // not "NUL" — bash `> NUL` would create a real reserved-name file in the cwd.
     let null_dev = "/dev/null";
     let auth_h = "-H \"Authorization: Bearer ${CODETERM_API_TOKEN}\"";

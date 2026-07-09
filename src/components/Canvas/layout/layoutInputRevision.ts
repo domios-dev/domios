@@ -16,9 +16,6 @@ function sectionTreeKey(sections: Section[]): string {
   return flatSectionIds(sections).join(",");
 }
 
-// Fingerprint of every plan field that affects layoutWorkspace output. Computed
-// every render so bounds recompute even if a parent reuses the plans array ref
-// and mutates plan bodies in place.
 export function layoutInputRevision(
   plans: Plan[],
   specSectionsByPlan?: ReadonlyMap<string, Section[]>,
@@ -33,7 +30,6 @@ export function layoutInputRevision(
     for (const t of p.tasks) {
       parts.push(
         t.id,
-        t.status,
         String(t.parent_task_id ?? ""),
         t.section_ids.join(","),
         String(t.body.length),

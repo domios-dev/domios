@@ -69,6 +69,44 @@ test("@smoke pane status endpoint answers for a live pane and 404s for a dead id
   expect(code).toBe(404);
 });
 
+test("@smoke make-orchestrator rejects plain shell panes", async ({ api, paneCleanup }) => {
+  const pane = await paneCleanup.createPane({ title: "pw-make-orch-shell" });
+  let status = 0;
+  try {
+    await api.post(`/panes/${pane.id}/make-orchestrator`, {});
+  } catch (e) {
+    status = Number(/HTTP (\d+)/.exec(String(e))?.[1] ?? 0);
+  }
+  expect(status).toBe(400);
+});
+
+test("@smoke make-orchestrator promotes agent pane and surfaces onboarding", async ({
+  api,
+  paneCleanup,
+}) => {
+  const pane = await paneCleanup.createPane({ title: "pw-make-orch-agent", eager: true });
+  await api.post(`/panes/${pane.id}/agent-type`, { agent_type: "claude" });
+
+  const promoted = await api.post<{ ok: boolean }>(`/panes/${pane.id}/make-orchestrator`, {});
+  expect(promoted.ok).toBe(true);
+
+  const state = await api.get<{ panes: Record<string, { role?: string; can_spawn?: boolean }> }>(
+    "/mux/state",
+  );
+  const live = state.panes[pane.id];
+  expect(live?.role).toBe("Orchestrator");
+  expect(live?.can_spawn).toBe(true);
+
+  const chat = await api.post<{ messages?: { content?: string }[] }>(
+    `/panes/${pane.id}/chat-raw/start`,
+    {},
+  );
+  const greeting = JSON.stringify(chat.messages ?? []);
+  expect(greeting).toContain("You are now the Orchestrator");
+  expect(greeting).toContain("codeterm doc orchestration");
+  expect(greeting).toContain(`codeterm agent spawn --parent ${pane.id}`);
+});
+
 // ── @golden: ONE real LLM call ───────────────────────────────────────
 
 test("@golden real agent spawn → works → reports back (structural asserts)", async ({ api, paneCleanup, spawnAgent }) => {
@@ -107,8 +145,6 @@ test("@golden real agent spawn → works → reports back (structural asserts)",
     expect(pane, "spawned agent pane missing from pane list").toBeDefined();
     expect(pane!.agent_type).toBe("claude");
 
-    // The agent runs the report command; poll the inbox. Single LLM call,
-    // no retries — if the model never reports within budget, that is a
     const reportText = await pollUntil(async () => {
       const reports = await api.get<unknown>(`/panes/${inbox.id}/reports`);
       const text = JSON.stringify(reports);
@@ -143,8 +179,6 @@ async function spawnWorker(spawnAgent: SpawnAgent, inboxId: string, task: string
 }
 
 test("@golden multi-turn + tool round-trip observed in the live terminal DOM", async ({ api, paneCleanup, spawnAgent, pollMarkerInDom }) => {
-  // Turn 1 makes the agent EXECUTE a command (tool use — the echoed marker
-  // only reaches the terminal if the tool actually ran); turn 2 sends a
   test.setTimeout(420_000);
 
   const inbox = await paneCleanup.createPane({ title: "pw-mt-inbox" });
@@ -228,7 +262,6 @@ test("@golden agent restart mid-session resumes and stays usable", async ({ api,
     });
     await pollMarkerInDom(resumeMarker);
 
-    // Resume (not a fresh session): the session id survives when it was
     // known before the restart.
     if (sessionBefore?.agent_session_id) {
       const after = (await api.panes()).find((p) => p.id === agentPaneId) as
@@ -244,8 +277,6 @@ test("@golden agent restart mid-session resumes and stays usable", async ({ api,
 });
 
 test("@golden fully live: agent response read from the rendered terminal DOM", async ({ api, paneCleanup, spawnAgent, pollMarkerInDom }) => {
-  // Real UI → real PTY → real LLM → real DOM. The WebGL canvas has no
-  // readable text; the screenReaderMode accessibility tree
   test.setTimeout(300_000);
 
   const inbox = await paneCleanup.createPane({ title: "pw-dom-inbox" });
@@ -267,11 +298,9 @@ test("@golden fully live: agent response read from the rendered terminal DOM", a
     });
     agentPaneId = spawned.pane_id;
 
-    // The model's reply lands in the agent pane's terminal; the active
     // pane's accessibility tree mirrors the viewport text.
     await pollMarkerInDom(marker);
 
-    // Cross-check the same content through the PTY text API — DOM and
     // daemon-side buffer must agree.
     const text = await api.get<{ text?: string } | string>(`/panes/${agentPaneId}/text`);
     const buffer = typeof text === "string" ? text : (text.text ?? JSON.stringify(text));

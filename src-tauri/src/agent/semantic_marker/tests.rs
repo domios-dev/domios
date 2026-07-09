@@ -186,7 +186,6 @@ fn osc1337_non_cwd_key_ignored() {
     assert_eq!(parse(b"\x1b]1337;RemoteHost=user@host\x07"), Vec::new());
 }
 
-// Boundary: sub-ids outside this parser's typed-event set produce nothing
 // (RightPrompt H, EnvJson, etc. are OSC3 capability concerns, not ours).
 #[test]
 fn right_prompt_ignored() {

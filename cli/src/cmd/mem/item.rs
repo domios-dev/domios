@@ -28,6 +28,105 @@ fn read_path_or_stdin(path: &str) -> Result<String, String> {
     }
 }
 
+struct SaveMemItem {
+    kind: String,
+    title: Option<String>,
+    body: Option<String>,
+    body_file: Option<String>,
+    summary: Option<String>,
+    tags: Option<String>,
+    area: Option<String>,
+    importance: f64,
+    scope: Option<String>,
+    workspace: Option<String>,
+    pin: bool,
+    source_path: Option<String>,
+    replace: bool,
+    skip_extract: bool,
+}
+
+fn save_mem_item(
+    http: &reqwest::blocking::Client,
+    base: &str,
+    item: SaveMemItem,
+) -> Result<serde_json::Value, String> {
+    let resolved_body = match resolve_text(item.body, item.body_file) {
+        Ok(Some(b)) => b,
+        Ok(None) => {
+            let mut s = String::new();
+            if std::io::stdin().read_to_string(&mut s).is_err() || s.trim().is_empty() {
+                eprintln!("Error: no body provided (pass as arg or pipe to stdin)");
+                std::process::exit(1);
+            }
+            s
+        }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let resolved_title = item.title.unwrap_or_else(|| {
+        resolved_body
+            .lines()
+            .next()
+            .unwrap_or("untitled")
+            .chars()
+            .take(80)
+            .collect()
+    });
+    let tag_list = split_csv(item.tags);
+    let resolved_scope = resolve_scope(item.workspace, item.scope);
+    let payload = serde_json::json!({
+        "kind": item.kind,
+        "title": resolved_title,
+        "summary": item.summary,
+        "area": item.area,
+        "tags": tag_list,
+        "body": resolved_body,
+        "importance": item.importance,
+        "scope": resolved_scope,
+        "source_path": item.source_path,
+        "replace": item.replace,
+        "skip_extract": item.skip_extract,
+        "pinned": item.pin,
+    });
+    mem_post_request(http, &format!("{}/api/mem/items", base), &payload)
+}
+
+pub(crate) fn validate_mem_forget_confirmation(area: &str, yes: bool) -> Result<(), String> {
+    if !yes {
+        return Err(format!(
+            "refusing to batch-delete area '{area}' without --yes; retry: codeterm mem forget {area} --yes"
+        ));
+    }
+    Ok(())
+}
+
+fn split_csv(raw: Option<String>) -> Vec<String> {
+    raw.map(|tags| {
+        tags.split(',')
+            .map(|tag| tag.trim().to_string())
+            .filter(|tag| !tag.is_empty())
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
+fn resolve_scope(workspace: Option<String>, scope: Option<String>) -> Option<String> {
+    match (workspace, scope) {
+        (Some(ws), _) => {
+            let ws = ws.trim();
+            if ws.is_empty() {
+                eprintln!("Error: --workspace requires a non-empty id");
+                std::process::exit(1);
+            }
+            Some(format!("workspace:{ws}"))
+        }
+        (None, Some(s)) => Some(s),
+        (None, None) => None,
+    }
+}
+
 pub(crate) fn handle_mem_items(
     http: &reqwest::blocking::Client,
     base: &str,
@@ -79,7 +178,8 @@ pub(crate) fn handle_mem_items(
                 .map_err(|e| e.to_string());
             resp.map(|r| serde_json::json!({"deleted": r.status().is_success()}))
         }
-        MemAction::Forget { area } => {
+        MemAction::Forget { area, yes } => {
+            validate_mem_forget_confirmation(&area, yes)?;
             let resp = http
                 .delete(format!(
                     "{}/api/mem/forget/{}",
@@ -211,69 +311,58 @@ pub(crate) fn handle_mem_items(
             source_path,
             replace,
             skip_extract,
-        } => {
-            let resolved_body = match resolve_text(body, body_file) {
-                Ok(Some(b)) => b,
-                Ok(None) => {
-                    let mut s = String::new();
-                    if std::io::stdin().read_to_string(&mut s).is_err() || s.trim().is_empty() {
-                        eprintln!("Error: no body provided (pass as arg or pipe to stdin)");
-                        std::process::exit(1);
-                    }
-                    s
-                }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
-            };
-            let resolved_title = title.unwrap_or_else(|| {
-                resolved_body
-                    .lines()
-                    .next()
-                    .unwrap_or("untitled")
-                    .chars()
-                    .take(80)
-                    .collect()
-            });
-            let split_csv = |raw: Option<String>| -> Vec<String> {
-                raw.map(|t| {
-                    t.split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect()
-                })
-                .unwrap_or_default()
-            };
-            let tag_list = split_csv(tags);
-            let resolved_scope = match (workspace, scope) {
-                (Some(ws), _) => {
-                    let ws = ws.trim();
-                    if ws.is_empty() {
-                        eprintln!("Error: --workspace requires a non-empty id");
-                        std::process::exit(1);
-                    }
-                    Some(format!("workspace:{ws}"))
-                }
-                (None, Some(s)) => Some(s),
-                (None, None) => None,
-            };
-            let payload = serde_json::json!({
-                "kind": kind,
-                "title": resolved_title,
-                "summary": summary,
-                "area": area,
-                "tags": tag_list,
-                "body": resolved_body,
-                "importance": importance,
-                "scope": resolved_scope,
-                "source_path": source_path,
-                "replace": replace,
-                "skip_extract": skip_extract,
-                "pinned": pin,
-            });
-            mem_post_request(http, &format!("{}/api/mem/items", base), &payload)
-        }
+        } => save_mem_item(
+            http,
+            base,
+            SaveMemItem {
+                kind,
+                title,
+                body,
+                body_file,
+                summary,
+                tags,
+                area,
+                importance,
+                scope,
+                workspace,
+                pin,
+                source_path,
+                replace,
+                skip_extract,
+            },
+        ),
+        MemAction::SavePreference {
+            title,
+            body,
+            body_file,
+            summary,
+            tags,
+            area,
+            importance,
+            scope,
+            workspace,
+            pin,
+            replace,
+        } => save_mem_item(
+            http,
+            base,
+            SaveMemItem {
+                kind: "preference".to_string(),
+                title,
+                body,
+                body_file,
+                summary,
+                tags,
+                area,
+                importance,
+                scope,
+                workspace,
+                pin,
+                source_path: None,
+                replace,
+                skip_extract: true,
+            },
+        ),
         MemAction::ExtractPending { limit } => mem_post_request(
             http,
             &format!("{}/api/mem/extract-pending?limit={}", base, limit),
@@ -461,7 +550,19 @@ pub(crate) fn handle_mem_taxonomy(
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_text;
+    use super::{resolve_text, validate_mem_forget_confirmation};
+
+    #[test]
+    fn mem_forget_refused_without_yes() {
+        let err = validate_mem_forget_confirmation("auth", false).unwrap_err();
+        assert!(err.contains("refusing to batch-delete area 'auth'"));
+        assert!(err.contains("--yes"));
+    }
+
+    #[test]
+    fn mem_forget_allowed_with_yes() {
+        assert!(validate_mem_forget_confirmation("auth", true).is_ok());
+    }
 
     #[test]
     fn resolve_text_returns_verbatim_value() {

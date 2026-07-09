@@ -5,7 +5,6 @@
 /// the typical case.
 pub fn parse_ip_port(input: &str) -> (String, Option<u16>) {
     let s = input.trim();
-    // [ipv6]:port form
     if let Some(rest) = s.strip_prefix('[') {
         if let Some(end) = rest.find(']') {
             let ip = rest[..end].to_string();
@@ -14,12 +13,10 @@ pub fn parse_ip_port(input: &str) -> (String, Option<u16>) {
             return (ip, port);
         }
     }
-    // ipv4[:port] — split on the LAST colon to avoid breaking bare ipv6
     if let Some(idx) = s.rfind(':') {
         let (ip, port_str) = s.split_at(idx);
         let port_str = &port_str[1..];
         if !ip.contains(':') {
-            // Plain ipv4 with port
             if let Ok(p) = port_str.parse::<u16>() {
                 return (ip.to_string(), Some(p));
             }

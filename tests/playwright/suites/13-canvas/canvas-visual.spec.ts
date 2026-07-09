@@ -39,7 +39,6 @@ test("@canvas-visual board opens, renders nodes, and survives a pan/zoom/fit loo
   expect(baseline.nodes, "at least one plan node on the board").toBeGreaterThan(0);
   assertClean(baseline);
 
-  // Deterministic, varied camera moves so each iteration exercises a different
   // pose; no Math.random so the loop is reproducible across runs.
   for (let i = 1; i <= ITERS; i++) {
     const phase = i % 4;

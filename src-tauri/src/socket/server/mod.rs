@@ -11,16 +11,29 @@ mod bridge;
 mod canvas;
 mod cron;
 mod notification;
+mod orchestration;
 mod pane;
 mod plan;
+mod plan_archive;
+mod plan_attachments;
+mod plan_competition;
 mod plan_elements;
 mod plan_fields;
+mod plan_gates;
 mod plan_goal;
 mod plan_handoff;
 mod plan_heartbeat;
+mod plan_lane_fields;
+mod plan_lifecycle;
 mod plan_linking;
 mod plan_loops;
+mod plan_mode;
+mod plan_qa;
 mod plan_read;
+mod plan_refs;
+mod plan_role_helpers;
+mod plan_task_rpc;
+mod plan_time;
 mod services;
 mod spec;
 mod workspace;
@@ -97,7 +110,6 @@ impl JsonRpcResponse {
 /// `GenericNamespaced` on Unix prepends `/tmp/` automatically,
 /// so we only provide the bare name here.
 pub fn socket_path() -> String {
-    // Dev builds use a stable socket name (no PID) so CLI tools in existing PTY sessions survive dev server restarts. Only one dev instance at a
     // time. Prod builds include PID to allow multiple instances.
     #[cfg(debug_assertions)]
     {
@@ -180,7 +192,6 @@ impl SocketServer {
     ) -> Result<(), String> {
         Self::cleanup_stale_sockets();
 
-        // Dev builds use a fixed socket name — remove stale file before binding
         #[cfg(all(debug_assertions, not(target_os = "windows")))]
         {
             let display = socket_display_path();
@@ -352,46 +363,143 @@ fn dispatch(
             }));
         }
         "system.capabilities" => {
-            return Ok(serde_json::json!({
-                "methods": [
-                    "system.identify",
-                    "system.capabilities",
-                    "workspace.list", "workspace.create", "workspace.focus",
-                    "workspace.rename", "workspace.close", "workspace.move_tab",
-                    "workspace.recently_closed", "workspace.reopen_closed",
-                    "workspace.reopen_closed_group",
-                    "pane.list", "pane.focus", "pane.close", "pane.send_text",
-                    "pane.get_output", "pane.rename", "pane.resize", "pane.kill_pty",
-                    "browser.open",
-                    "notification.create", "notification.list", "notification.clear",
-                    "agent.list", "agent.hierarchy", "agent.spawn", "agent.set_role",
-                    "agent.clear_role", "agent.status", "agent.children", "agent.link",
-                    "agent.report", "agent.reports",
-                    "plan.create", "plan.batch", "plan.handoff.create", "plan.handoff.list", "plan.handoff.show", "plan.handoff.reseed", "plan.list", "plan.get", "plan.goal.set", "plan.goal.show", "plan.spec", "plan.files", "plan.tags", "plan.update", "plan.archive",
-                    "plan.delete", "plan.transfer", "plan.disown", "plan.claim",
-                    "plan.ingest", "plan.section.add", "plan.section.update", "plan.section.rm",
-                    "plan.kinds.set", "plan.tag_facets.set",
-                    "plan.task.add", "plan.task.update", "plan.task.close", "plan.task.assign",
-                    "plan.task.rm",
-                    "plan.milestone.add", "plan.milestone.update", "plan.milestone.rm",
-                    "plan.loop.create", "plan.loop.set", "plan.loop.status", "plan.loop.stop", "plan.loop.advance",
-                    "plan.layout.set", "plan.note.add", "plan.element.add",
-                    "plan.element.list", "plan.element.show",
-                    "spec.create", "spec.list", "spec.show", "spec.files",
-                    "spec.section.add", "spec.section.update", "spec.section.rm",
-                    "spec.link.add", "spec.link.rm", "spec.link.list",
-                    "effort.show", "effort.link",
-                    "task.list", "task.show", "task.take", "task.drop", "task.add",
-                    "canvas.focus", "canvas.filter",
-                    "cron.list", "cron.get", "cron.create", "cron.update", "cron.delete",
-                    "cron.enable", "cron.disable", "cron.trigger", "cron.cancel",
-                    "cron.history", "cron.complete",
-                    "services.list", "services.create", "services.get", "services.update",
-                    "services.delete", "services.regenerate_token",
-                    "activity.list",
-                    "bridge.send", "bridge.react", "bridge.restart"
-                ]
-            }));
+            let methods = vec![
+                "system.identify",
+                "system.capabilities",
+                "workspace.list",
+                "workspace.create",
+                "workspace.focus",
+                "workspace.rename",
+                "workspace.close",
+                "workspace.move_tab",
+                "workspace.recently_closed",
+                "workspace.reopen_closed",
+                "workspace.reopen_closed_group",
+                "pane.list",
+                "pane.focus",
+                "pane.close",
+                "pane.send_text",
+                "pane.get_output",
+                "pane.rename",
+                "pane.resize",
+                "pane.kill_pty",
+                "browser.open",
+                "notification.create",
+                "notification.list",
+                "notification.clear",
+                "agent.list",
+                "agent.hierarchy",
+                "agent.spawn",
+                "agent.set_role",
+                "agent.clear_role",
+                "agent.status",
+                "agent.children",
+                "agent.link",
+                "agent.report",
+                "agent.reports",
+                "orchestration.new",
+                "plan.create",
+                "plan.adopt",
+                "plan.batch",
+                "plan.handoff.create",
+                "plan.handoff.list",
+                "plan.handoff.show",
+                "plan.handoff.reseed",
+                "plan.list",
+                "plan.get",
+                "plan.goal.set",
+                "plan.goal.show",
+                "plan.spec",
+                "plan.files",
+                "plan.tags",
+                "plan.update",
+                "plan.mode.set",
+                "plan.planning.set",
+                "plan.archive",
+                "plan.delete",
+                "plan.transfer",
+                "plan.disown",
+                "plan.claim",
+                "plan.ingest",
+                "plan.section.add",
+                "plan.section.update",
+                "plan.section.attach",
+                "plan.section.rm",
+                "plan.kinds.set",
+                "plan.tag_facets.set",
+                "plan.task.add",
+                "plan.task.update",
+                "plan.task.attach",
+                "plan.task.close",
+                "plan.task.assign",
+                "plan.task.attempts",
+                "plan.task.attempt.show",
+                "plan.task.respawn",
+                "plan.task.compete",
+                "plan.task.judge",
+                "plan.task.rm",
+                "plan.milestone.add",
+                "plan.milestone.update",
+                "plan.milestone.rm",
+                "plan.stride.add",
+                "plan.skills.list",
+                "plan.skills.show",
+                "plan.retrospective",
+                "plan.loop.create",
+                "plan.loop.set",
+                "plan.loop.status",
+                "plan.loop.stop",
+                "plan.loop.record",
+                "plan.layout.set",
+                "plan.note.add",
+                "plan.note.update",
+                "plan.element.add",
+                "plan.element.update",
+                "plan.element.rm",
+                "plan.element.list",
+                "plan.element.show",
+                "spec.create",
+                "spec.list",
+                "spec.show",
+                "spec.files",
+                "spec.section.add",
+                "spec.section.update",
+                "spec.section.rm",
+                "spec.link.add",
+                "spec.link.rm",
+                "spec.link.list",
+                "effort.show",
+                "effort.link",
+                "task.list",
+                "task.show",
+                "task.take",
+                "task.drop",
+                "task.add",
+                "canvas.focus",
+                "canvas.filter",
+                "cron.list",
+                "cron.get",
+                "cron.create",
+                "cron.update",
+                "cron.delete",
+                "cron.enable",
+                "cron.disable",
+                "cron.trigger",
+                "cron.cancel",
+                "cron.history",
+                "cron.complete",
+                "services.list",
+                "services.create",
+                "services.get",
+                "services.update",
+                "services.delete",
+                "services.regenerate_token",
+                "activity.list",
+                "bridge.send",
+                "bridge.react",
+                "bridge.restart",
+            ];
+            return Ok(serde_json::json!({ "methods": methods }));
         }
         #[cfg(debug_assertions)]
         "debug.crash" => {
@@ -406,14 +514,14 @@ fn dispatch(
         _ => {}
     }
 
-    // Domain prefix → submodule. Each submodule owns its own per-method match (and returns Method-not-found for anything within its prefix it
-    // doesn't know). The split also breaks on `:` so the reserved `plugin:<id>.<verb>`
     let prefix = method.split(['.', ':']).next().unwrap_or("");
     match prefix {
         "workspace" => workspace::dispatch(method, &params, mux, app, svc),
         "pane" | "agents" | "browser" => pane::dispatch(method, &params, mux, app, svc),
         "notification" => notification::dispatch(method, &params, notif, app),
         "agent" => agent::dispatch(method, &params, app, svc),
+        "orchestration" => orchestration::dispatch(method, &params, app, svc),
+        "plan" if plan_mode::handles(method) => plan_mode::dispatch(method, &params, app, svc),
         "plan" | "task" => plan::dispatch(method, &params, app, svc),
         "canvas" => canvas::dispatch(method, &params, app),
         "spec" | "effort" => spec::dispatch(method, &params, app, svc),

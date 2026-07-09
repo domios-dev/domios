@@ -1,0 +1,12 @@
+OpenAI Codex
+GPT-5.3-Codex-Spark 5h limit
+█████████████░░░░░░░░░  78% left (resets at 23:17)
+
+General 5h limit
+████████████████████░  18% left (resets at 23:17)
+
+GPT-5.5 5h limit
+████████░░░░░░░░░░░░░░  63% left (resets at 21:01)
+
+Weekly limit
+█████████░░░░░░  44% left (resets 07:45 on Jul 14)

@@ -7,12 +7,22 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::api::routes::{check_auth, AppState};
-use crate::plan::{AgentRef, OrchestratorRef, TaskLaneMetadata};
+use crate::plan::{AgentRef, OrchestratorRef, TaskCompetitionMetadata, TaskLaneMetadata};
+use crate::service::plan::task_attempts::TaskRespawnRequest;
 use crate::service::plan::{NewTask, TaskLaneUpdate};
 
 use super::{
     emit_plan_changed, epoch_ms, optional_string_field, plan_err, text_err, PlanRouteResult,
 };
+
+fn planner_role_for_pane(state: &AppState, pane_id: &str) -> Option<&'static str> {
+    state
+        .svc
+        .mux
+        .read()
+        .get_pane(pane_id)
+        .and_then(|pane| (pane.role_profile.as_deref() == Some("planner")).then_some("planner"))
+}
 
 fn lane_update_field(body: &Value) -> Result<Option<TaskLaneUpdate>, String> {
     let Some(lane) = body.get("lane") else {
@@ -46,6 +56,17 @@ fn lane_update_field(body: &Value) -> Result<Option<TaskLaneUpdate>, String> {
     Ok((!update.is_empty()).then_some(update))
 }
 
+fn push_hints(value: &mut Value, hints: Vec<String>) {
+    let hints: Vec<String> = hints
+        .into_iter()
+        .filter(|hint| !hint.trim().is_empty())
+        .collect();
+    if hints.is_empty() {
+        return;
+    }
+    value["_hints"] = serde_json::json!(hints);
+}
+
 #[derive(Deserialize, Default)]
 pub(crate) struct TaskAddBody {
     name: String,
@@ -66,6 +87,12 @@ pub(crate) struct TaskAddBody {
     #[serde(default)]
     body: Option<String>,
     #[serde(default)]
+    role_guidance: Option<String>,
+    #[serde(default)]
+    executor_role: Option<String>,
+    #[serde(default)]
+    competition: Option<TaskCompetitionMetadata>,
+    #[serde(default)]
     intent: Option<String>,
     #[serde(default)]
     parent: Option<String>,
@@ -81,6 +108,8 @@ pub(crate) struct TaskAddBody {
     handle: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    force: bool,
 }
 
 pub async fn task_add(
@@ -106,6 +135,16 @@ pub async fn task_add(
         .plan_store
         .resolve_task_section_ids(&id, &requested_sections)
         .map_err(plan_err)?;
+    let kind = if body.kind.is_empty() {
+        "implement".to_string()
+    } else {
+        body.kind.clone()
+    };
+    state
+        .svc
+        .plan_store
+        .ensure_task_creation_allowed(&id, &kind, body.force)
+        .map_err(plan_err)?;
     let has_sections = !section_ids.is_empty();
     let has_model = body.model.as_deref().is_some_and(|s| !s.trim().is_empty());
     let has_why = body.why.as_deref().is_some_and(|s| !s.trim().is_empty());
@@ -128,11 +167,7 @@ pub async fn task_add(
             &id,
             NewTask {
                 name: body.name,
-                kind: if body.kind.is_empty() {
-                    "implement".into()
-                } else {
-                    body.kind
-                },
+                kind,
                 section_ids,
                 model: body.model,
                 model_rationale: body.why,
@@ -140,6 +175,9 @@ pub async fn task_add(
                 test_plan: body.test_plan,
                 correctness: body.correctness,
                 body: body.body.unwrap_or_default(),
+                role_guidance: body.role_guidance,
+                executor_role: body.executor_role,
+                competition: body.competition,
                 intent: body.intent,
                 parent_task_id: body.parent,
                 assigned_pane_id: body.assign_pane,
@@ -218,6 +256,7 @@ pub async fn task_update(
             body.get("priority").and_then(|v| v.as_str()),
             body.get("body").and_then(|v| v.as_str()),
             optional_string_field(&body, "intent"),
+            optional_string_field(&body, "executor_role"),
             section_ids,
             body.get("parent_task_id").map(|v| v.as_str()),
             optional_string_field(&body, "group"),
@@ -227,6 +266,18 @@ pub async fn task_update(
             epoch_ms(),
         )
         .map_err(plan_err)?;
+    if body.get("role_guidance").is_some() {
+        state
+            .svc
+            .plan_store
+            .update_task_role_guidance(
+                &id,
+                &tid,
+                optional_string_field(&body, "role_guidance"),
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+    }
     if let Some(lane) = lane {
         state
             .svc
@@ -234,7 +285,15 @@ pub async fn task_update(
             .update_task_lane(&id, &tid, lane, epoch_ms())
             .map_err(plan_err)?;
     }
-    // §EFFORT: a task moving to in_review IS the trigger — notify the plan owner
+    if let Some(value) = body.get("competition") {
+        let update = serde_json::from_value(value.clone())
+            .map_err(|e| text_err(axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
+        state
+            .svc
+            .plan_store
+            .update_task_competition(&id, &tid, update, epoch_ms())
+            .map_err(plan_err)?;
+    }
     // (orchestrator) directly, so a separate `agent report` isn't needed.
     if body.get("status").and_then(|v| v.as_str()) == Some("in_review") {
         let by_pane = headers
@@ -274,7 +333,20 @@ pub async fn task_close(
         .close_task(&id, &tid, body.result.as_deref(), from, epoch_ms())
         .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    let mut resp = serde_json::json!({ "ok": true });
+    if let Some(plan) = state.svc.plan_store.get(&id) {
+        let cleanup = crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(&plan, |pane| {
+            state.svc.pane_probe(pane).exists
+        });
+        let hints = crate::service::plan::cleanup_debt::cleanup_debt_hints(
+            &cleanup
+                .into_iter()
+                .filter(|item| item.task_id == tid)
+                .collect::<Vec<_>>(),
+        );
+        push_hints(&mut resp, hints);
+    }
+    Ok(Json(resp))
 }
 
 #[derive(Deserialize)]
@@ -294,10 +366,108 @@ pub async fn task_assign(
     state
         .svc
         .plan_store
-        .assign_task(&id, &tid, &body.pane, body.peer.as_deref(), epoch_ms())
+        .assign_task_with_role(
+            &id,
+            &tid,
+            &body.pane,
+            body.peer.as_deref(),
+            planner_role_for_pane(&state, &body.pane),
+            epoch_ms(),
+        )
         .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+pub async fn task_attempts(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid)): Path<(String, String)>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let attempts = state
+        .svc
+        .plan_store
+        .list_task_attempts(&id, &tid)
+        .map_err(plan_err)?;
+    Ok(Json(serde_json::json!({
+        "plan_id": id,
+        "task_id": tid,
+        "attempts": attempts
+    })))
+}
+
+pub async fn task_attempt_show(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid, attempt_id)): Path<(String, String, String)>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let attempt = state
+        .svc
+        .plan_store
+        .show_task_attempt(&id, &tid, &attempt_id)
+        .map_err(plan_err)?;
+    Ok(Json(serde_json::json!({
+        "plan_id": id,
+        "task_id": tid,
+        "attempt": attempt
+    })))
+}
+
+pub async fn task_respawn(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid)): Path<(String, String)>,
+    Json(body): Json<TaskRespawnRequest>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let draft = state
+        .svc
+        .plan_store
+        .build_task_respawn_draft(&id, &tid, body)
+        .map_err(plan_err)?;
+    let spawn = state
+        .svc
+        .spawn_agent(
+            crate::service::SpawnAgentParams {
+                agent: Some(draft.provider.clone()),
+                cwd: Some(draft.cwd.clone()),
+                title: Some(draft.title.clone()),
+                role: Some("Worker".into()),
+                parent_pane_id: draft.parent_pane_id.clone(),
+                task: Some(draft.task_prompt.clone()),
+                workspace_id: draft.workspace_id.clone(),
+                spawned_by_pane_id: draft.parent_pane_id.clone(),
+                model: draft.model.clone(),
+                ..Default::default()
+            },
+            None,
+        )
+        .await
+        .map_err(|e| text_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let created = state
+        .svc
+        .plan_store
+        .record_task_respawn_attempt(
+            &id,
+            &tid,
+            &spawn.pane_id,
+            &draft,
+            planner_role_for_pane(&state, &spawn.pane_id).or(Some("worker")),
+            epoch_ms(),
+        )
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "plan_id": id,
+        "task_id": tid,
+        "pane_id": spawn.pane_id,
+        "spawn": spawn,
+        "attempt": created.attempt,
+        "draft": draft
+    })))
 }
 
 pub async fn task_rm(

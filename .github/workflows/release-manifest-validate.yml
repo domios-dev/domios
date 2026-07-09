@@ -52,3 +52,22 @@ jobs:
 
           if [ "$fail" -ne 0 ]; then exit 1; fi
           echo "OK — manifest looks correct"
+
+      - name: Fetch latest-deb.json and validate Debian updater URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://github.com/rollacode/codeterm-releases/releases/latest/download/latest-deb.json"
+          JSON=$(curl -sfL "$URL")
+          echo "$JSON" | jq .
+
+          linux=$(echo "$JSON" | jq -r '.platforms["linux-x86_64"].url // empty')
+          if [ -z "$linux" ]; then
+            echo "::error::latest-deb.json missing linux-x86_64 entry"
+            exit 1
+          fi
+          echo "$linux" | grep -qE '\.deb(\?|$)' || {
+            echo "::error::debian manifest linux url missing .deb: $linux"
+            exit 1
+          }
+          echo "OK — Debian manifest looks correct"

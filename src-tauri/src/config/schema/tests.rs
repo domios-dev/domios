@@ -1,8 +1,7 @@
-use super::{IntegrationsConfig, MemoryConfig, OrchestrationConfig, UiConfig};
+use super::{IntegrationsConfig, MemoryConfig, OrchestrationConfig, UiConfig, UsageConfig};
 
 #[test]
 fn ui_config_extra_keys_round_trip_over_json() {
-    // Centralized client settings ride the flatten `extra` map. The frontend
     // talks JSON over IPC, so the JSON round-trip is the load-bearing path.
     let json = r#"{
         "default_new_agent_pane_chat": true,
@@ -61,14 +60,50 @@ fn orchestration_plan_reminder_defaults() {
     let cfg: OrchestrationConfig = toml::from_str("").unwrap();
     assert!(cfg.plan_reminders);
     assert_eq!(cfg.nudge_after_turns, 12);
+    assert_eq!(cfg.nudge_interval_secs, 1800);
+    assert!(cfg.idle_poke.enabled);
+    assert_eq!(cfg.idle_poke.idle_threshold_secs, 150);
+    assert_eq!(cfg.idle_poke.live_lane_cap, 3);
+    assert_eq!(cfg.idle_poke.max_per_day, 4);
+    assert_eq!(cfg.idle_poke.backoff_base_secs, 90);
+    assert_eq!(
+        cfg.reflect.every_gates,
+        crate::service::plan::reflection::DEFAULT_REFLECT_EVERY_GATES
+    );
+    assert!(cfg.digests.enabled);
+    assert_eq!(cfg.digests.rules.len(), 2);
+}
+
+#[test]
+fn usage_config_defaults_on() {
+    let cfg: UsageConfig = toml::from_str("").unwrap();
+    assert!(cfg.enabled);
+    assert!(cfg.heartbeat);
+    assert_eq!(cfg.freshness_secs, 180);
+    assert_eq!(cfg.standalone_cadence_secs, 0);
+}
+
+#[test]
+fn orchestration_reflect_every_gates_override() {
+    let cfg: OrchestrationConfig = toml::from_str("[reflect]\nevery_gates = 25\n").unwrap();
+    assert_eq!(cfg.reflect.every_gates, 25);
 }
 
 #[test]
 fn orchestration_plan_reminder_overrides() {
     let cfg: OrchestrationConfig =
-        toml::from_str("plan_reminders = false\nnudge_after_turns = 3").unwrap();
+        toml::from_str(
+            "plan_reminders = false\nnudge_after_turns = 3\nnudge_interval_secs = 90\nidle_poke.enabled = false\nidle_poke.idle_threshold_secs = 60\nidle_poke.live_lane_cap = 1\nidle_poke.max_per_day = 2\nidle_poke.backoff_base_secs = 45",
+        )
+            .unwrap();
     assert!(!cfg.plan_reminders);
     assert_eq!(cfg.nudge_after_turns, 3);
+    assert_eq!(cfg.nudge_interval_secs, 90);
+    assert!(!cfg.idle_poke.enabled);
+    assert_eq!(cfg.idle_poke.idle_threshold_secs, 60);
+    assert_eq!(cfg.idle_poke.live_lane_cap, 1);
+    assert_eq!(cfg.idle_poke.max_per_day, 2);
+    assert_eq!(cfg.idle_poke.backoff_base_secs, 45);
 }
 
 #[test]

@@ -1,6 +1,38 @@
 //! General workspace + pane setup in [`MultiplexerState`].
 
 use super::{general_dir, GENERAL_ALIAS, GENERAL_PANE_TITLE, GENERAL_WORKSPACE_NAME, MAIN_ALIAS};
+use crate::agent::registry::AgentRegistry;
+use crate::service::spawn::{should_default_agent_pane_to_chat, PaneVisibility};
+
+pub fn default_chat_view_for_provider(
+    config: &crate::config::schema::AppConfig,
+    registry: &AgentRegistry,
+    provider_id: &str,
+) -> bool {
+    let supports_chat_ui = registry
+        .with_provider(provider_id, |provider| provider.supports_chat_ui())
+        .unwrap_or(false);
+    should_default_agent_pane_to_chat(
+        config.ui.default_new_agent_pane_chat,
+        PaneVisibility::Visible,
+        supports_chat_ui,
+    )
+}
+
+pub fn apply_general_chat_view_default(
+    mux: &mut crate::multiplexer::state::MultiplexerState,
+    default_chat_view: bool,
+) {
+    if !default_chat_view {
+        return;
+    }
+    let Some(pane_id) = mux.resolve_pane_id(GENERAL_ALIAS) else {
+        return;
+    };
+    if let Some(pane) = mux.get_pane_mut(&pane_id) {
+        pane.chat_view = true;
+    }
+}
 
 /// Ensure General workspace + pane exist in MultiplexerState.
 /// Called BEFORE mux is wrapped in Arc<Mutex<>> — no locking needed.
@@ -11,7 +43,6 @@ pub fn ensure_general_workspace(
 ) {
     let general_cwd = general_dir().to_string_lossy().to_string();
 
-    // Check by protected flag — the only reliable marker
     let protected_ws: Vec<_> = mux
         .list_workspaces()
         .iter()
@@ -19,7 +50,6 @@ pub fn ensure_general_workspace(
         .cloned()
         .collect();
 
-    // Clean up duplicates: keep first protected, close rest
     if protected_ws.len() > 1 {
         for ws in &protected_ws[1..] {
             mux.set_workspace_protected(&ws.id, false);
@@ -32,22 +62,42 @@ pub fn ensure_general_workspace(
     }
 
     if !protected_ws.is_empty() {
-        let ws = &protected_ws[0];
-        if ws.name != GENERAL_WORKSPACE_NAME {
-            let _ = mux.rename_workspace(&ws.id, GENERAL_WORKSPACE_NAME);
+        let ws_id = protected_ws[0].id.clone();
+        if protected_ws[0].name != GENERAL_WORKSPACE_NAME {
+            let _ = mux.rename_workspace(&ws_id, GENERAL_WORKSPACE_NAME);
         }
-        mux.move_workspace_to_front(&ws.id);
-        if let Some(pid) = ws.pane_ids.first() {
+        mux.move_workspace_to_front(&ws_id);
+        let pane_id =
+            protected_ws[0]
+                .pane_ids
+                .first()
+                .cloned()
+                .or_else(|| match mux.create_tab(&ws_id) {
+                    Ok((tab_id, pane_id)) => {
+                        let _ = mux.rename_tab(&ws_id, &tab_id, GENERAL_PANE_TITLE);
+                        log::info!(
+                            "[general-agent] Repaired empty General workspace {} with pane {}",
+                            ws_id,
+                            pane_id
+                        );
+                        Some(pane_id)
+                    }
+                    Err(e) => {
+                        log::error!("[general-agent] Failed to repair General tab: {}", e);
+                        None
+                    }
+                });
+        if let Some(pid) = pane_id {
             let pid = pid.clone();
             let _ = mux.rename_pane(&pid, GENERAL_PANE_TITLE);
-            // The sidebar reads tab.title, which create_tab seeded with a
-            // random scientist name — pin the GA tab to "Main" too so the
             if let Some(tab_id) = mux.find_tab_for_pane(&pid) {
-                let ws_id = ws.id.clone();
                 let _ = mux.rename_tab(&ws_id, &tab_id, GENERAL_PANE_TITLE);
             }
             if let Some(pane) = mux.get_pane_mut(&pid) {
                 pane.protected = true;
+                pane.role = Some(crate::multiplexer::types::AgentRole::Orchestrator);
+                pane.can_spawn = true;
+                pane.cwd = Some(general_cwd);
                 if default_chat_view && !pane.chat_view {
                     pane.chat_view = true;
                 }
@@ -62,7 +112,6 @@ pub fn ensure_general_workspace(
         return;
     }
 
-    // Create General workspace
     let ws_info = mux.create_workspace(
         GENERAL_WORKSPACE_NAME.to_string(),
         Some(general_cwd.clone()),
@@ -84,7 +133,6 @@ pub fn ensure_general_workspace(
             }
             mux.register_alias(GENERAL_ALIAS, &pane_id);
             mux.register_alias(MAIN_ALIAS, &pane_id);
-            // Make General the active workspace + focused pane on first create
             let _ = mux.set_active_workspace(&ws_info.id);
             let _ = mux.set_focused_pane(&pane_id);
             log::info!(
@@ -151,5 +199,58 @@ mod tests {
         let pane = mux.get_pane(pane_id).expect("pane");
         assert_eq!(pane.title, GENERAL_PANE_TITLE);
         assert!(pane.chat_view);
+    }
+
+    #[test]
+    fn general_workspace_repair_creates_main_pane_when_protected_workspace_is_empty() {
+        let mut mux = MultiplexerState::empty();
+        let ws = mux.create_workspace(GENERAL_WORKSPACE_NAME.to_string(), None);
+        mux.set_workspace_protected(&ws.id, true);
+
+        super::ensure_general_workspace(&mut mux, true);
+
+        let ws = mux
+            .list_workspaces()
+            .iter()
+            .find(|ws| ws.name == GENERAL_WORKSPACE_NAME)
+            .expect("general workspace")
+            .clone();
+        assert_eq!(ws.pane_ids.len(), 1);
+        let pane = mux.get_pane(&ws.pane_ids[0]).expect("pane");
+        assert_eq!(pane.title, GENERAL_PANE_TITLE);
+        assert!(pane.protected);
+        assert!(pane.chat_view);
+    }
+
+    #[test]
+    fn general_agent_chat_default_uses_provider_capability_not_bundled_id() {
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(
+            crate::agent::test_provider::MockProvider::with_chat_ui("community-chat"),
+        ));
+        let mut config = crate::config::schema::AppConfig::default();
+        config.ui.default_new_agent_pane_chat = true;
+
+        assert!(super::default_chat_view_for_provider(
+            &config,
+            &registry,
+            "community-chat"
+        ));
+    }
+
+    #[test]
+    fn general_agent_chat_default_rejects_provider_without_chat_capability() {
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "community-terminal",
+        )));
+        let mut config = crate::config::schema::AppConfig::default();
+        config.ui.default_new_agent_pane_chat = true;
+
+        assert!(!super::default_chat_view_for_provider(
+            &config,
+            &registry,
+            "community-terminal"
+        ));
     }
 }

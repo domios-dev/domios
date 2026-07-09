@@ -194,7 +194,5 @@ fn cursor_stays_on_native_prompt_detector() {
     if require_plugins().is_none() {
         return;
     }
-    // cursor's ACP structured channel is not reachable in interactive-PTY mode,
-    // so cursor has no structured prompt handle — pickers come from the native
     assert!(!cursor().supports_structured_prompts());
 }

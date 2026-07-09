@@ -1,4 +1,4 @@
-import { POLL_EVENTS } from "./webEvents";
+import { RESYNC_EVENTS } from "./webEvents";
 
 let passed = 0;
 let failed = 0;
@@ -13,14 +13,20 @@ function assert(label: string, cond: boolean) {
   }
 }
 
-// The 5s poll tick dispatches each POLL_EVENTS entry with a null payload as a
-// pure "refetch now" signal. Any payload-bearing event whose handler reads
-console.log("webEvents POLL_EVENTS:");
-assert("polls mux-state-changed (refresh signal)", POLL_EVENTS.includes("mux-state-changed"));
-assert("polls mesh-state-changed (refresh signal)", POLL_EVENTS.includes("mesh-state-changed"));
+console.log("webEvents RESYNC_EVENTS:");
+assert("resyncs plan-changed (plan-list convergence)", RESYNC_EVENTS.includes("plan-changed"));
+assert("resyncs mesh-state-changed", RESYNC_EVENTS.includes("mesh-state-changed"));
 assert(
-  "does NOT poll pane-status-changed (payload-bearing, SSE-delivered)",
-  !POLL_EVENTS.includes("pane-status-changed"),
+  "does NOT resync config-changed (handler applies payload directly)",
+  !RESYNC_EVENTS.includes("config-changed"),
+);
+assert(
+  "does NOT resync shell-command-changed (handler reads payload.pane_id unguarded)",
+  !RESYNC_EVENTS.includes("shell-command-changed"),
+);
+assert(
+  "does NOT resync usage-snapshot-updated (handler reads payload.provider unguarded)",
+  !RESYNC_EVENTS.includes("usage-snapshot-updated"),
 );
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -1,6 +1,6 @@
 import type { Pane } from "../../lib/types";
 import type { PlanIndexEntry } from "./plansApi";
-import type { OrchestratorRef, Plan } from "./types";
+import { TaskStatus, type OrchestratorRef, type Plan } from "./types";
 
 export function collectPaneChain(
   paneId: string,
@@ -29,9 +29,6 @@ export function resolveOrchestratorPaneId(
   return paneId;
 }
 
-// Ownership by the pane ITSELF — its own pane id or its own agent session, never
-// an ancestor. The shared rule behind both the orchestrator strip (paneOwnedPlans)
-// and the tab indicator (paneTabActivity) so they classify a pane identically.
 export function ownerIsPaneSelf(
   owner: OrchestratorRef,
   paneId: string,
@@ -53,6 +50,15 @@ function ownerMatchesPaneChain(owner: OrchestratorRef, chain: Pane[]): boolean {
 
 function planMatchesPaneChain(plan: Plan, chain: Pane[]): boolean {
   return ownerMatchesPaneChain(plan.owner, chain);
+}
+
+function taskActivelyAssignedToPane(plan: Plan, paneId: string): boolean {
+  return plan.tasks.some(
+    (t) =>
+      t.status !== TaskStatus.Done &&
+      t.status !== TaskStatus.Cancelled &&
+      t.assigned_pane_id === paneId,
+  );
 }
 
 // PlanButton visibility from the lightweight index alone (no full bodies).
@@ -78,7 +84,7 @@ export function findPlansForPane(
   const active = plans.filter((p) => p.status === "active");
   const chain = collectPaneChain(paneId, panes);
   return active.filter((plan) => {
-    if (plan.tasks.some((t) => t.assigned_pane_id === paneId)) return true;
+    if (taskActivelyAssignedToPane(plan, paneId)) return true;
     if (plan.owner.pane_id === paneId) return true;
     return planMatchesPaneChain(plan, chain);
   });

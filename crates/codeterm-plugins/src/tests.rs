@@ -372,6 +372,259 @@ mod store_index_tests {
         });
     }
 
+    // Register a healthy local channel (cache present) alongside a broken one (cache and
+    // source both absent) and assert the aggregate diff keeps the healthy channel while
+    // skipping the broken one — a single bad channel must not blank the whole marketplace.
+    #[test]
+    fn aggregate_diff_skips_failed_channel_but_keeps_healthy_local() {
+        with_data_root(|_root| {
+            let healthy = channels_root().join("healthy");
+            write_channel(&healthy, "healthy", &[("good-plugin", "provider-good")]);
+            let missing = channels_root().join("broken-cache-does-not-exist");
+            write_channel_registry(&ChannelRegistry {
+                channels: BTreeMap::from([
+                    (
+                        "healthy".to_string(),
+                        ChannelRecord {
+                            name: "healthy".to_string(),
+                            url: format!("file://{}", healthy.display()),
+                            path: healthy.display().to_string(),
+                            kind: ChannelKind::Local,
+                        },
+                    ),
+                    (
+                        "broken".to_string(),
+                        ChannelRecord {
+                            name: "broken".to_string(),
+                            url: format!("file://{}/nope", channels_root().display()),
+                            path: missing.display().to_string(),
+                            kind: ChannelKind::Local,
+                        },
+                    ),
+                ]),
+            })
+            .unwrap();
+
+            let diff =
+                channel_diff(None).expect("aggregate diff must not abort on one bad channel");
+            let ids: Vec<String> = diff["diff"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["id"].as_str().unwrap().to_string())
+                .collect();
+            assert!(
+                ids.iter().any(|id| id == "good-plugin"),
+                "healthy channel was dropped: {ids:?}"
+            );
+            assert!(
+                diff["diff"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|r| r["channel"].as_str() != Some("broken")),
+                "broken channel should be skipped, not surfaced"
+            );
+        });
+    }
+
+    // A diff for one explicitly named channel must stay strict: if that channel can't be
+    // materialized/read, the caller asked for it specifically, so propagate the error
+    // rather than silently returning an empty diff.
+    #[test]
+    fn named_single_channel_diff_stays_strict() {
+        with_data_root(|_root| {
+            let missing = channels_root().join("broken-cache-does-not-exist");
+            write_channel_registry(&ChannelRegistry {
+                channels: BTreeMap::from([(
+                    "broken".to_string(),
+                    ChannelRecord {
+                        name: "broken".to_string(),
+                        url: format!("file://{}/nope", channels_root().display()),
+                        path: missing.display().to_string(),
+                        kind: ChannelKind::Local,
+                    },
+                )]),
+            })
+            .unwrap();
+
+            channel_diff(Some("broken"))
+                .expect_err("named diff of an unresolvable channel must error, not return empty");
+        });
+    }
+
+    // The diff of a LOCAL channel must read the stable cached copy (ch.path), so it keeps
+    // working when the original file:// source is transiently gone (e.g. a fixture on a
+    // tmp dir torn down between test cases). Old behaviour re-read source_dir() and failed.
+    #[test]
+    fn local_channel_diff_reads_cache_when_source_is_gone() {
+        with_data_root(|root| {
+            let source = root.join("volatile-source");
+            write_channel(
+                &source.join("plugins"),
+                "cached",
+                &[("cached-plugin", "provider-cached")],
+            );
+            let cache = channels_root().join("cached");
+            write_channel(&cache, "cached", &[("cached-plugin", "provider-cached")]);
+            write_channel_registry(&ChannelRegistry {
+                channels: BTreeMap::from([(
+                    "cached".to_string(),
+                    ChannelRecord {
+                        name: "cached".to_string(),
+                        url: format!("file://{}/plugins", source.display()),
+                        path: cache.display().to_string(),
+                        kind: ChannelKind::Local,
+                    },
+                )]),
+            })
+            .unwrap();
+
+            // The volatile source disappears; the stable cache must carry the diff.
+            std::fs::remove_dir_all(&source).unwrap();
+            let diff = channel_diff(Some("cached"))
+                .expect("diff must read the cache when the source is gone");
+            let ids: Vec<String> = diff["diff"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["id"].as_str().unwrap().to_string())
+                .collect();
+            assert!(
+                ids.iter().any(|id| id == "cached-plugin"),
+                "diff should surface the cached plugin: {ids:?}"
+            );
+        });
+    }
+
+    // The refresh swap must keep the local cache continuously readable: publishing the
+    // new copy must never leave ch.path absent (old code did remove_dir_all + rename).
+    // After a successful refresh from an updated source the cache reflects the new content.
+    #[test]
+    fn refresh_swap_keeps_local_cache_readable_and_updates_it() {
+        with_data_root(|_root| {
+            let source = channels_root().join("src-live");
+            write_channel(
+                &source,
+                "live",
+                &[("v2-plugin", "provider-v2"), ("extra", "provider-extra")],
+            );
+            let cache = channels_root().join("live");
+            write_channel(&cache, "live", &[("v1-plugin", "provider-v1")]);
+            write_channel_registry(&ChannelRegistry {
+                channels: BTreeMap::from([(
+                    "live".to_string(),
+                    ChannelRecord {
+                        name: "live".to_string(),
+                        url: format!("file://{}", source.display()),
+                        path: cache.display().to_string(),
+                        kind: ChannelKind::Local,
+                    },
+                )]),
+            })
+            .unwrap();
+
+            refresh_channel(Some("live")).expect("refresh from a valid source must succeed");
+            // Cache is present and now reflects the source content (atomic swap published it).
+            let manifest =
+                read_channel_manifest(&cache).expect("cache must stay readable post-swap");
+            let ids: Vec<String> = manifest.plugins.iter().map(|p| p.id.clone()).collect();
+            assert!(
+                ids.iter().any(|id| id == "v2-plugin"),
+                "swap did not update cache: {ids:?}"
+            );
+            let leftover_backups = std::fs::read_dir(channels_root())
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .any(|e| e.file_name().to_string_lossy().starts_with(".live-old-"));
+            assert!(
+                !leftover_backups,
+                "refresh swap left a stale backup dir behind"
+            );
+        });
+    }
+
+    // clone_git_channel must use a unique scratch dir per invocation: several clones of the
+    // SAME channel running at once (the ensure/refresh stampede under rapid snapshot polls)
+    // must not corrupt each other's git metadata. A fixed "<cache>.git-clone" path did.
+    #[test]
+    fn concurrent_git_channel_clones_do_not_corrupt_shared_temp() {
+        with_data_root(|root| {
+            let prev_git_bin = std::env::var("CODETERM_TEST_GIT_BIN").ok();
+            std::env::remove_var("CODETERM_TEST_GIT_BIN"); // use the real git binary
+
+            let git = |args: &[&str], cwd: Option<&Path>| {
+                let mut c = std::process::Command::new("git");
+                if let Some(d) = cwd {
+                    c.current_dir(d);
+                }
+                let out = c.args(args).output().expect("git runs");
+                assert!(
+                    out.status.success(),
+                    "git {args:?}: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
+            };
+            let origin = root.join("origin.git");
+            let work = root.join("work");
+            git(&["init", "--bare", origin.to_str().unwrap()], None);
+            git(
+                &["clone", origin.to_str().unwrap(), work.to_str().unwrap()],
+                None,
+            );
+            write_channel(&work, "conc", &[("conc-plugin", "provider-conc")]);
+            git(&["add", "-A"], Some(&work));
+            git(
+                &[
+                    "-c",
+                    "user.name=t",
+                    "-c",
+                    "user.email=t@t",
+                    "commit",
+                    "-m",
+                    "seed",
+                ],
+                Some(&work),
+            );
+            let cache = channels_root().join("conc");
+            // No #ref fragment: clone work's default branch directly. The concurrency under
+            // test is the clone-into-scratch-dir step (where the fixed temp used to corrupt).
+            let url = format!("file://{}", work.display());
+            let errors: Vec<String> = std::thread::scope(|s| {
+                let handles: Vec<_> = (0..8)
+                    .map(|_| {
+                        let url = url.clone();
+                        let cache = cache.clone();
+                        s.spawn(move || {
+                            clone_git_channel(&parse_channel_source(&url), &cache).err()
+                        })
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .filter_map(|h| h.join().unwrap())
+                    .collect()
+            });
+
+            for e in &errors {
+                // Concurrent-clone corruption manifests as these git errors; the fix (unique
+                // temp) must eliminate them. Same-target publish races ("rename channel
+                // cache") are acceptable — production dedups those via ensure_default's lock.
+                assert!(
+                    !e.contains("could not lock")
+                        && !e.contains("refs/files-backend")
+                        && !e.contains("shallow file"),
+                    "concurrent clone corrupted a shared temp: {e}"
+                );
+            }
+            let manifest = read_channel_manifest(&cache)
+                .expect("cache must be readable after concurrent clones");
+            assert_eq!(manifest.plugins[0].id, "conc-plugin");
+
+            restore_env("CODETERM_TEST_GIT_BIN", prev_git_bin);
+        });
+    }
+
     #[test]
     fn install_from_git_channel_refreshes_before_resolving() {
         with_data_root(|root| {

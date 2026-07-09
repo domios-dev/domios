@@ -60,7 +60,6 @@ function readThemeColors(): ThemeColors {
     muted: getCSSVar("--ct-muted", "#565f89"),
     mutedFg: getCSSVar("--ct-muted-fg", "#a9b1d6"),
     surface: getCSSVar("--ct-surface", "#24283b"),
-    // These aren't in CSS vars, derive from theme data attribute or use accent
     cyan: getCSSVar("--ct-accent", "#7dcfff"),
     magenta: getCSSVar("--ct-red", "#bb9af7"),
   };
@@ -137,7 +136,6 @@ export function useSwarmCanvas(
   const rafRef = useRef<number>(0);
   const colorsRef = useRef<ThemeColors>(readThemeColors());
 
-  // Update theme colors when visibility changes
   useEffect(() => {
     if (visible) {
       colorsRef.current = readThemeColors();
@@ -162,7 +160,6 @@ export function useSwarmCanvas(
       const colors = colorsRef.current;
       const dpr = window.devicePixelRatio || 1;
 
-      // Size canvas to window
       const w = window.innerWidth;
       const h = window.innerHeight;
       if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
@@ -173,30 +170,24 @@ export function useSwarmCanvas(
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
 
-      // Clear
       ctx.clearRect(0, 0, w, h);
 
-      // Apply viewport transform
       const vp = swarmState.viewport;
       ctx.save();
       ctx.translate(vp.x, vp.y);
       ctx.scale(vp.zoom, vp.zoom);
 
-      // --- Dot grid ---
       drawDotGrid(ctx, w, h, vp, colors);
 
-      // --- Animate node positions (lerp toward targets) ---
       for (const node of swarmState.nodes.values()) {
         node.x += (node.targetX - node.x) * 0.12;
         node.y += (node.targetY - node.y) * 0.12;
       }
 
-      // --- Edges ---
       for (const edge of swarmState.edges.values()) {
         drawEdge(ctx, edge, swarmState, now, colors);
       }
 
-      // --- Nodes ---
       for (const node of swarmState.nodes.values()) {
         drawNode(ctx, node, now, colors);
       }
@@ -223,7 +214,6 @@ function drawDotGrid(
   const spacing = 24;
   ctx.fillStyle = rgba(colors.border, 0.12);
 
-  // Compute visible range in world space
   const startX = Math.floor(-vp.x / (vp.zoom * spacing)) * spacing - spacing;
   const startY = Math.floor(-vp.y / (vp.zoom * spacing)) * spacing - spacing;
   const endX = startX + (w / vp.zoom) + spacing * 2;
@@ -247,7 +237,6 @@ function drawEdge(
   const childNode = state.nodes.get(edge.to);
   if (!parentNode || !childNode) return;
 
-  // Check for death retraction animation
   const childDead = childNode.deadTime !== null;
   let edgeOpacity = 1;
   if (childDead) {
@@ -259,7 +248,6 @@ function drawEdge(
 
   const b = edgeBezier(parentNode, childNode);
 
-  // Check if any particle is making the edge glow green
   let edgeGlow = false;
   for (const p of edge.particles) {
     if (p.progress > 0 && p.progress < 1) {
@@ -268,7 +256,6 @@ function drawEdge(
     }
   }
 
-  // Draw the bezier curve
   ctx.beginPath();
   ctx.moveTo(b.x0, b.y0);
   ctx.bezierCurveTo(b.cx0, b.cy0, b.cx1, b.cy1, b.x1, b.y1);
@@ -286,7 +273,6 @@ function drawEdge(
     p.progress = Math.min(1, easeOut(elapsed / duration));
 
     if (p.progress >= 1) {
-      // Particle arrived at parent: flash parent green
       parentNode.flashColor = colors.green;
       parentNode.flashStart = now;
       edge.particles.splice(i, 1);
@@ -297,7 +283,6 @@ function drawEdge(
     const t = 1 - p.progress;
     const pt = bezierPoint(b.x0, b.y0, b.cx0, b.cy0, b.cx1, b.cy1, b.x1, b.y1, t);
 
-    // Glow
     ctx.beginPath();
     ctx.arc(pt.x, pt.y, 12, 0, Math.PI * 2);
     const gradient = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, 12);
@@ -306,7 +291,6 @@ function drawEdge(
     ctx.fillStyle = gradient;
     ctx.fill();
 
-    // Solid circle
     ctx.beginPath();
     ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
     ctx.fillStyle = colors.green;
@@ -324,14 +308,12 @@ function drawNode(
   const statusColor = getStatusColor(node.status, colors);
   const icon = ROLE_ICON[node.role || ""] || "\u25CB";
 
-  // Spawn animation
   const spawnElapsed = now - node.spawnTime;
   const spawnDuration = 400;
   const spawnProgress = Math.min(1, spawnElapsed / spawnDuration);
   const scale = spring(spawnProgress);
   const opacity = Math.min(1, spawnProgress * 2); // fade in faster than scale
 
-  // Death animation
   let deathScale = 1;
   let deathOpacity = 1;
   if (node.deadTime !== null) {
@@ -344,7 +326,6 @@ function drawNode(
   const finalScale = scale * deathScale;
   const finalOpacity = opacity * deathOpacity;
 
-  // Transform around node center
   const cx = node.x + NODE_W / 2;
   const cy = node.y + NODE_H / 2;
 
@@ -354,7 +335,6 @@ function drawNode(
   ctx.translate(-cx, -cy);
   ctx.globalAlpha = finalOpacity;
 
-  // Working status: pulsing border glow
   if (node.status === "Working" && node.deadTime === null) {
     const pulse = (Math.sin(now / 800 * Math.PI) + 1) / 2; // 0 to 1, 1.6s cycle
     const glowSize = pulse * 4;
@@ -371,7 +351,6 @@ function drawNode(
     node.flashColor = null;
   }
 
-  // Node background
   const r = 6; // border radius
   ctx.beginPath();
   roundRect(ctx, node.x, node.y, NODE_W, NODE_H, r);
@@ -384,14 +363,12 @@ function drawNode(
   ctx.shadowColor = "transparent";
   ctx.shadowBlur = 0;
 
-  // Title line: icon + title
   ctx.fillStyle = colors.fg;
   ctx.font = "11px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
   ctx.textBaseline = "middle";
   const titleText = `${icon} ${truncate(node.title, 14)}`;
   ctx.fillText(titleText, node.x + 8, node.y + 20);
 
-  // Status line
   ctx.fillStyle = statusColor;
   ctx.font = "9px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
   ctx.fillText(node.status, node.x + 8, node.y + 38);
@@ -399,7 +376,6 @@ function drawNode(
   ctx.globalAlpha = 1;
   ctx.restore();
 
-  // Spawn ring burst
   if (spawnElapsed < 500 && spawnElapsed > 0) {
     const burstProgress = spawnElapsed / 500;
     const burstScale = 1 + burstProgress;

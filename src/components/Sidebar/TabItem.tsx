@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { X, Pencil, UserMinus, MessageSquare, SquareTerminal } from "lucide-react";
+import { X, Pencil, UserMinus, MessageSquare, SquareTerminal, UserCog } from "lucide-react";
 import {
   emitPaneUiMode,
   isChatUiSupported,
@@ -20,9 +20,13 @@ import type { Pane, PaneStatus, Tab } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
-import { TabActivityIndicator } from "./TabActivityIndicator";
+import { RoleModelBadge } from "./RoleModelBadge";
+import { roleBadgeLabel } from "./orchestrationSections";
+import { ActiveTabPill } from "./ActiveTabPill";
+import { TabStatusRail } from "./TabStatusRail";
 import type { PaneTabActivity } from "../Canvas/paneTabActivity";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
+import { canMakeOrchestrator, makeOrchestrator } from "../../lib/orchestratorOnboard";
 
 interface TabItemProps {
   tab: Tab;
@@ -44,6 +48,13 @@ interface TabItemProps {
   uiFontScale?: number;
   /** Plan-membership glance (resolved from the cheap index gate by the Sidebar). */
   activity?: PaneTabActivity | null;
+  /** Orchestration group head: renders a chevron that collapses/expands the
+   *  whole contained group (children + section headers). */
+  collapsible?: boolean;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+  /** Shown on the head only while collapsed — "1 manager · 2 workers". */
+  collapsedSummary?: string | null;
 }
 
 function TabItemInner({
@@ -64,24 +75,27 @@ function TabItemInner({
   touchMode = false,
   uiFontScale,
   activity,
+  collapsible = false,
+  collapsed = false,
+  onToggleCollapse,
+  collapsedSummary,
 }: TabItemProps) {
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
   // panes — drives the icon, tooltip, and (for shells) the model badge.
   const provider = usePaneProvider(pane);
   const shellSessionModel = useShellSessionModel(pane);
   const providerName = provider?.displayName || "Agent";
-  // Agent panes carry the model on the pane record; shell panes don't — fall
   // back to the live chatBackend session model (fetched/cached out of band).
   const tabModel = pane?.agent_session_model ?? shellSessionModel;
   const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;
+  // slot; the model drops to the tooltip. Workers keep their model chip.
+  const roleBadge = roleBadgeLabel(pane);
   const description = pane?.description ?? tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab, pane);
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
-  const isSubPane = Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0;
+  const isSubPane = pane?.role !== "Orchestrator" && (Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(canonicalTitle);
-  // Mirror TerminalPane's mode resolution: no client override falls back to
-  // the agent default (claude/GA panes open in chat), so the menu reflects
   const resolveChatView = (p: typeof pane): boolean => {
     if (!p) return false;
     const current = getCurrentPaneUiMode(p.id);
@@ -103,7 +117,6 @@ function TabItemInner({
     return listenCurrentPaneUiMode(pane.id, (mode) => setChatView(mode === "chat"));
   }, [pane?.id, pane?.agent_type, pane?.backing?.kind]);
 
-  // Close animation phases
   const [closePhase, setClosePhase] = useState<0 | 1 | 2>(0);
   useEffect(() => {
     if (isClosing && closePhase === 0) {
@@ -113,7 +126,6 @@ function TabItemInner({
     }
   }, [isClosing, closePhase]);
 
-  // Build menu items for the 3-dot dropdown
   const menuItems: DropdownMenuItem[] = useMemo(() => {
     const items: DropdownMenuItem[] = [];
     // Main (the protected GA pane) is the anchor — no rename.
@@ -122,6 +134,13 @@ function TabItemInner({
         label: "Rename",
         icon: <Pencil size={11} strokeWidth={2} />,
         onClick: () => { setEditName(canonicalTitle); setEditing(true); },
+      });
+    }
+    if (pane && canMakeOrchestrator(pane)) {
+      items.push({
+        label: "Make Orchestrator",
+        icon: <UserCog size={11} strokeWidth={2} />,
+        onClick: () => { void makeOrchestrator(pane.id); },
       });
     }
     // Role management — hide for Orchestrators (default role on all tabs)
@@ -147,17 +166,27 @@ function TabItemInner({
       });
     }
     if (canClose && !pane?.protected) {
-      items.push({
-        label: hasAgent ? "Close Session" : "Close Tab",
-        icon: <X size={11} strokeWidth={2} />,
-        onClick: onClose,
-        danger: true,
-      });
+      if (isSubPane) {
+        items.push({
+          label: "Close",
+          icon: <X size={11} strokeWidth={2} />,
+          onClick: () => {},
+          disabled: true,
+          title: "Part of the orchestration — close the group",
+        });
+      } else {
+        items.push({
+          label: hasAgent ? "Close Session" : "Close Tab",
+          icon: <X size={11} strokeWidth={2} />,
+          onClick: onClose,
+          danger: true,
+          "data-testid": "tab-menu-close",
+        });
+      }
     }
     return items;
-  }, [canonicalTitle, pane, chatView, canClose, hasAgent, onClose]);
+  }, [canonicalTitle, pane, chatView, canClose, hasAgent, onClose, isSubPane]);
 
-  // Build animation CSS class
   const animClass = isClosing
     ? closePhase === 2
       ? "sidebar-tab-closing-2"
@@ -171,6 +200,7 @@ function TabItemInner({
       ref={tabRef}
       data-testid="tab-item"
       data-tab-id={tab.id}
+      data-tab-no-task-bubble="true"
       title={description ? `${displayTitle}\n${description}` : displayTitle}
       onClick={onClick}
       className={`
@@ -181,25 +211,17 @@ function TabItemInner({
         ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
       `}
     >
-      {/* Active tab sliding pill indicator */}
-      {isActive && (
-        <div
-          className="absolute inset-y-0 left-0 right-0 pointer-events-none"
-          style={{
-            background: "var(--ct-bg-selected, rgba(99, 102, 241, 0.12))",
-            transition: "transform 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease",
-          }}
-        />
-      )}
+      <TabStatusRail
+        status={status}
+        attention={status === "Waiting" || Boolean(pane?.pending_prompt)}
+      />
+      {isActive && <ActiveTabPill />}
       <div className={`flex flex-1 items-center min-w-0 relative z-[1] ${touchMode ? "gap-2.5" : "gap-2"}`}>
         {provider ? (
-          // Agent (descriptor) OR chatBackend shell (plugin snapshot) — both
-          // resolve through usePaneProvider, so shell panes get their plugin
           <ProviderGlyph
             iconSvg={provider.iconSvg}
             iconColor={provider.iconColor}
             iconHint={provider.iconHint}
-            working={status === "Working"}
             className={`shrink-0 leading-none ${touchMode ? "text-[15px]" : isSubPane ? "text-[10px]" : "text-[12px]"}`}
             title={status === "Working" ? `${providerName} working...` : status === "Waiting" ? `${providerName} — waiting for input` : providerName}
           />
@@ -240,16 +262,21 @@ function TabItemInner({
             >
               {displayTitle}
             </span>
-            {description && (
-              <span className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">
-                {description}
+            {collapsed && collapsedSummary ? (
+              <span
+                data-testid="group-collapsed-summary"
+                className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]"
+              >
+                {collapsedSummary}
               </span>
+            ) : (
+              description && !activity && (
+                <span className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">
+                  {description}
+                </span>
+              )
             )}
           </span>
-        )}
-        {/* Plan-membership glance — worker dot / orchestrator glyph (EMERGENCE) */}
-        {activity && pane && !editing && (
-          <TabActivityIndicator activity={activity} paneId={pane.id} status={status} />
         )}
         {/* Connected services */}
         {pane?.connected_services?.includes("telegram") && (
@@ -260,7 +287,7 @@ function TabItemInner({
         {/* Prompt/status indicator dot */}
         {pane?.pending_prompt && (
           <span
-            className="shrink-0 w-2 h-2 rounded-full animate-pulse"
+            className="shrink-0 w-2 h-2 rounded-full"
             style={{ background: "var(--ct-yellow)" }}
             title={pane.pending_prompt.question}
           />
@@ -287,9 +314,11 @@ function TabItemInner({
           clip the menu when there's no badge to size the slot). Badge truncation
           lives on .sidebar-tab-badge (its own max-width + ellipsis). */}
       <div className="shrink-0 relative z-[1] flex items-center min-w-5 justify-end">
-        {tabModelBadge && !touchMode && (
+        {roleBadge ? (
+          <RoleModelBadge role={roleBadge} model={tabModelBadge} uiFontScale={uiFontScale} />
+        ) : tabModelBadge && !touchMode ? (
           <SidebarModelBadge label={tabModelBadge} title={tabModel ?? undefined} />
-        )}
+        ) : null}
         {menuItems.length > 0 && (
           <DropdownMenu
             items={menuItems}
@@ -309,12 +338,38 @@ function TabItemInner({
           />
         )}
       </div>
+      {collapsible && (
+        <button
+          type="button"
+          data-testid="group-collapse-toggle"
+          data-collapsed={collapsed ? "true" : "false"}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleCollapse?.();
+          }}
+          className={`sidebar-group-chevron shrink-0 ${touchMode ? "w-8 h-8" : "w-4 h-4"} flex items-center justify-center text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] transition-colors relative z-[1]`}
+          title={collapsed ? "Expand orchestration" : "Collapse orchestration"}
+          aria-expanded={!collapsed}
+        >
+          <svg
+            width="8"
+            height="8"
+            viewBox="0 0 8 8"
+            fill="currentColor"
+            className="transition-transform duration-[320ms]"
+            style={{
+              transform: collapsed ? "rotate(0deg)" : "rotate(90deg)",
+              transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+            }}
+          >
+            <path d="M2 1l4 3-4 3V1z" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
 
-// Pane objects are always new references after SET_STATE (reducer spreads panes
-// map). Comparing by value for the fields TabItem actually renders prevents
 function backingPluginId(p: Pane): string | undefined {
   return p.backing?.kind === "chat_backend" ? p.backing.plugin_id : undefined;
 }
@@ -335,11 +390,13 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     prev.uiFontScale !== next.uiFontScale ||
     prev.index !== next.index ||
     prev.tab.id !== next.tab.id ||
-    prev.tab.title !== next.tab.title ||
-    prev.tab.description !== next.tab.description
+    prev.tab.description !== next.tab.description ||
+    prev.collapsible !== next.collapsible ||
+    prev.collapsed !== next.collapsed ||
+    prev.collapsedSummary !== next.collapsedSummary ||
+    prev.onToggleCollapse !== next.onToggleCollapse
   ) return false;
 
-  // Plan-membership glance is a fresh object each Sidebar render — compare by value
   // so a non-task tab (both null) and an unchanged indicator skip the re-render.
   const pa = prev.activity;
   const na = next.activity;
@@ -358,9 +415,11 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
   if (!pp || !np) return false;
   return (
     pp.id === np.id &&
+    // a stale label after wake/cache-reconcile.
+    pp.title === np.title &&
+    pp.title_level === np.title_level &&
     pp.description === np.description &&
     pp.agent_type === np.agent_type &&
-    // backing drives the shell icon/tooltip/model badge + chat gating; the live
     // shell model itself comes from a hook (useShellSessionModel), not a prop.
     pp.backing?.kind === np.backing?.kind &&
     backingPluginId(pp) === backingPluginId(np) &&

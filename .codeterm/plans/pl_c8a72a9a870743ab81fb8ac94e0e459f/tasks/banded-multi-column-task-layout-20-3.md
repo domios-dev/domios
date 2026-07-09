@@ -1,1 +1,0 @@
-Band by primary section, bounded cols, wrap to sub-rows, top-down non-overlap sweep, super-cells for subtasks, steps as interior height.

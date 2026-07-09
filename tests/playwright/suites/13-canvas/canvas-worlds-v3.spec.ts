@@ -157,10 +157,6 @@ test("@golden @canvas-worlds-v3 worlds-v3 geometry: footprint fixed, body reveal
     test.skip(true, "no active plans in the dev workspace — seed a plan to verify worlds-v3");
     return;
   }
-  // worlds-v3 scatters the task cloud far from the plan; viewport-center zoom culls
-  // it. Use the PRODUCT navigation method (canvas-focus by id) to land the camera on
-  // a known probe task — deterministic, no pan/zoom heuristics. Re-focus before each
-  // measurement group so the probe is always centered + mounted.
   const probeTaskId = await pickProbeTaskId(page);
   if (!probeTaskId) {
     test.skip(true, "plan has no tasks to probe — worlds-v3 cloud geometry needs at least one task");
@@ -172,8 +168,6 @@ test("@golden @canvas-worlds-v3 worlds-v3 geometry: footprint fixed, body reveal
     return;
   }
 
-  // ── 1. STABLE FOOTPRINT WHILE DIVING (§22.1 + substrateV2). The object-space
-  // footprint stays fixed; only the single camera matrix changes on-screen px. ──
   await focusTaskById(page, probeTaskId);
   const taskFootprints: Array<{ w: number; h: number }> = [];
   for (const s of [1.6, 2.4, 3.2, 4.5, 6.0]) {
@@ -189,9 +183,6 @@ test("@golden @canvas-worlds-v3 worlds-v3 geometry: footprint fixed, body reveal
     expect(footprintEqual(taskFootprints[i].h, taskFootprints[0].h), `task world height fixed (${JSON.stringify(taskFootprints)})`).toBe(true);
   }
 
-  // ── 2. BODY REVEAL — dive INTO the probe task until its appW enters the W2 band. ──
-  // Anchor the zoom on THIS task (worlds-v3 cloud sits right of plan; viewport-center
-  // zoom drifts tasks off-screen → culled). Check the probe card's OWN body slot.
   const probeBodyVisible = async (): Promise<boolean> =>
     page.evaluate((id) => {
       const card = document.querySelector(`[data-testid="canvas-task-card"][data-task-id="${id}"]`);
@@ -210,11 +201,9 @@ test("@golden @canvas-worlds-v3 worlds-v3 geometry: footprint fixed, body reveal
     taskBody = await probeBodyVisible();
   }
   await captureBoard(page, "worlds-v3-body");
-  // §35.3 (zoom-into-task body reveal): the DESCRIPTION box is a fixed slot that
   // reveals at the W2 content band — reachable by zoom alone, content-independent.
   expect(taskBody, "canvas-task-body revealed by zoom into the W2 content band (§35.3)").toBe(true);
 
-  // ── 2b. WORLDS-DIVE: inner boxes stay put while detail count increases. ──
   // Anchor every step on the probe task so it never drifts off-screen / gets culled.
   const diveScales = [1.0, 1.3, 1.6, 2.0, 2.4, 3.0, 3.6, 4.5, 5.5, 7.5, 10];
   const snapshots: Array<NonNullable<Awaited<ReturnType<typeof taskDiveSnapshot>>> & { scale: number }> = [];
@@ -234,9 +223,6 @@ test("@golden @canvas-worlds-v3 worlds-v3 geometry: footprint fixed, body reveal
     expect(snap.overlaps, `no visible inner-box overlap at ${snap.world} scale ${snap.scale}`).toEqual([]);
   }
 
-  // §37 boxiness: within the W2+ READ regime (all slots reserved), diving deeper must
-  // NOT shift any inner slot. W1 is the compact approach form with a different layout;
-  // the W1->W2 regime change is a separate, tracked finding, not asserted here.
   const readSnaps = snapshots.filter((s) => s.world === "W2" || s.world === "W3");
   const baseline = readSnaps.find((s) => s.boxes.name && s.boxes.meta && s.boxes.summary && s.boxes.bodySlot && s.boxes.strides);
   expect(baseline, "has a complete inner-slot baseline sample in the W2+ read regime").toBeTruthy();
@@ -266,14 +252,12 @@ test("@golden @canvas-worlds-v3 worlds-v3 geometry: footprint fixed, body reveal
     expect(snap.titleText.length, `title is legible at ${snap.world}: "${snap.titleText}"`).toBeGreaterThanOrEqual(minReadable);
   }
 
-  // ── 4. SUBSTRATE V2 — no per-card crisp wrapper at deep zoom. ──
   const scaleNow = await canvasScale(page);
   if (scaleNow > 1.05) {
     const crispWrappers = await page.locator(".ct-canvas-crisp").count();
     expect(crispWrappers, "no per-card .ct-canvas-crisp wrapper under substrateV2").toBe(0);
   }
 
-  // ── 3. CLOUD-LEFT (§35) — active (not-done) mean-x < done/cancelled mean-x. ──
   // Re-fit to a wide view so both halves of the cloud are in DOM, then bucket by shelf.
   await setCanvasScale(page, 0.7);
   const shelves = await page.$$eval('[data-testid="canvas-task-card"]', (els) =>

@@ -23,11 +23,10 @@ pub enum AgentEvent {
 /// (within 8 lines). This prevents false positives when Claude's answer contains
 /// a numbered list far above the actual prompt.
 ///
-/// This is generic enough for any TUI menu, not just Claude.
-/// Source code won't have this exact structural combination.
-
 /// Known selector prefixes in prompt option lines.
 ///
+/// This is generic enough for any TUI menu, not just Claude.
+/// Source code won't have this exact structural combination.
 /// `❯` (U+276F) is the canonical selector, `>` is the ASCII fallback.
 /// Some VT100 parsers mangle UTF-8 — the byte sequence E2 9D AF (❯) can lose
 /// the middle byte 0x9D (C1 control) and become `â¯` (U+00E2 U+00AF).
@@ -37,12 +36,10 @@ const GARBLED_SELECTOR: &str = "\u{00e2}\u{00af}"; // â¯ — VT100-mangled ❯
 
 /// Strip selector prefix from a line, returning the remainder trimmed.
 fn strip_selector(trimmed: &str) -> &str {
-    // Try single-char selectors first
     let s = trimmed.trim_start_matches(SELECTOR_CHARS).trim_start();
     if s.len() < trimmed.trim_start().len() {
         return s;
     }
-    // Try garbled multi-byte selector
     if let Some(rest) = trimmed.strip_prefix(GARBLED_SELECTOR) {
         return rest.trim_start();
     }
@@ -60,11 +57,9 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
         return false;
     }
 
-    // Scan from the end — prompt is always at the bottom of output
     let scan_start = lines.len().saturating_sub(20);
     let tail_lines = &lines[scan_start..];
 
-    // Track line indices of features to check proximity
     let mut option_indices: Vec<usize> = Vec::new();
     let mut footer_idx: Option<usize> = None; // keyboard hint line
     let mut selector_idx: Option<usize> = None;
@@ -85,7 +80,6 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
             }
         }
 
-        // Keyboard hint footer: contains Esc/Tab/Enter as shortcuts
         let lower = trimmed.to_lowercase();
         if (lower.contains("esc") || lower.contains("enter"))
             && (lower.contains("cancel")
@@ -101,12 +95,10 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
         return false;
     }
 
-    // Check proximity: options must be close to each other AND to footer/selector. Find the contiguous cluster of options near the anchor (footer
     // or selector).
     let anchor = footer_idx.or(selector_idx);
 
     if let Some(anchor_idx) = anchor {
-        // Count options within 8 lines of the anchor
         let nearby_options = option_indices
             .iter()
             .filter(|&&idx| {
@@ -120,7 +112,6 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
             .count();
         nearby_options >= 2
     } else {
-        // No footer and no selector — not a prompt
         false
     }
 }
@@ -171,7 +162,6 @@ pub fn parse_interactive_picker(text: &str) -> Option<InteractivePicker> {
         return None;
     }
 
-    // Extract last cluster: walk backwards from the last option, include options that are within 3 lines of each other
     let mut options: Vec<(String, String, usize)> = Vec::new();
     let mut prev_idx = all_opts.last()?.2;
     for opt in all_opts.iter().rev() {
@@ -190,7 +180,6 @@ pub fn parse_interactive_picker(text: &str) -> Option<InteractivePicker> {
     let first_opt = options.first()?.2;
     let last_opt = options.last()?.2;
 
-    // Must have interactive markers nearby: ❯/> selector OR keyboard footer Without these, it's just a regular numbered list
     let has_selector = options
         .iter()
         .any(|(_, _, idx)| has_selector_prefix(lines[*idx].trim()));
@@ -206,7 +195,6 @@ pub fn parse_interactive_picker(text: &str) -> Option<InteractivePicker> {
         return None;
     }
 
-    // Find question: nearest line ending with `?` above the first option
     let mut question = None;
     for i in (0..first_opt).rev() {
         let trimmed = lines[i].trim();
@@ -214,13 +202,11 @@ pub fn parse_interactive_picker(text: &str) -> Option<InteractivePicker> {
             question = Some(trimmed.to_string());
             break;
         }
-        // Don't search more than 5 lines above
         if first_opt - i > 5 {
             break;
         }
     }
 
-    // Fallback: use the non-empty line just above first option
     if question.is_none() {
         for i in (0..first_opt).rev() {
             let trimmed = lines[i].trim();
@@ -289,8 +275,6 @@ mod tests {
 
     #[test]
     fn test_parse_codex_model_picker() {
-        // Live-captured codex `/model` ratatui menu: numbered options, a › selector on
-        // the highlight, and an enter/esc footer. This is the path codex relies on
         let text = "Select Model and Effort\n\
             Access legacy models by running codex -m <model_name> or in your config.toml\n\
             \u{203A} 1. gpt-5.5 (current)    Frontier model for complex coding\n\
@@ -327,28 +311,24 @@ mod tests {
 
     #[test]
     fn test_fingerprint_real_claude_bash_approval() {
-        // Real Claude output when asking to run a bash command
         let text = "I'll run this command:\n\n  Bash(npm test)\n\nDo you want to proceed?\n  ❯ 1. Yes\n    2. Yes, and don't ask again for Bash commands\n    3. No\n\nEsc to cancel · Tab to amend";
         assert!(detect_interactive_prompt(text));
     }
 
     #[test]
     fn test_fingerprint_real_claude_write_approval() {
-        // Real Claude output when writing a file
         let text = "Write file\n\n  Write(src/main.rs)\n\nDo you want to proceed?\n  ❯ 1. Yes\n    2. Yes, allow writing to src/ during this session\n    3. No\n\nEsc to cancel · Tab to amend";
         assert!(detect_interactive_prompt(text));
     }
 
     #[test]
     fn test_fingerprint_generic_cli_menu() {
-        // Any TUI with numbered options + selector works
         let text = "Select an option:\n  > 1. Install\n    2. Update\n    3. Remove\n    4. Exit";
         assert!(detect_interactive_prompt(text));
     }
 
     #[test]
     fn test_fingerprint_no_match_markdown_list() {
-        // Markdown numbered list — no selector, no footer
         let text =
             "Steps to follow:\n1. Clone the repo\n2. Install dependencies\n3. Run tests\n4. Deploy";
         assert!(!detect_interactive_prompt(text));
@@ -356,7 +336,6 @@ mod tests {
 
     #[test]
     fn test_fingerprint_no_match_code_with_options() {
-        // Code that mentions options as strings
         let text = r#"match choice {
     "1. Yes" => proceed(),
     "2. No" => cancel(),
@@ -367,14 +346,12 @@ mod tests {
 
     #[test]
     fn test_fingerprint_no_match_log_output() {
-        // Log lines starting with numbers
         let text = "2026-03-28 10:00:01 Server started\n2026-03-28 10:00:02 Listening on port 8080\n2026-03-28 10:00:03 Ready";
         assert!(!detect_interactive_prompt(text));
     }
 
     #[test]
     fn test_fingerprint_prompt_buried_in_output() {
-        // Prompt at the end of long output — should still match
         let mut text = "lots of output\n".repeat(100);
         text.push_str("Do you want to proceed?\n  ❯ 1. Yes\n    2. No\n\nEsc to cancel");
         assert!(detect_interactive_prompt(&text));
@@ -382,7 +359,6 @@ mod tests {
 
     #[test]
     fn test_fingerprint_old_prompt_not_at_end() {
-        // Old prompt NOT in last 20 lines — should not match
         let mut text = String::from("Old prompt:\n  ❯ 1. Yes\n    2. No\nEsc to cancel\n");
         for _ in 0..25 {
             text.push_str("Agent is working on something...\n");
@@ -413,7 +389,6 @@ mod tests {
 
     #[test]
     fn test_fingerprint_no_match_just_numbered_answer() {
-        // Claude's numbered answer WITHOUT any prompt
         let text = "Here's what I found:\n1. First issue\n2. Second issue\n3. Third issue\n\nLet me fix these.";
         assert!(!detect_interactive_prompt(text));
     }
@@ -456,7 +431,6 @@ mod tests {
 
     #[test]
     fn test_no_false_positive_question_with_options_no_selector() {
-        // Question with ? before numbered list — but no selector/footer = NOT a prompt
         let text = "Which approach do you prefer?\n\n1. Refactor the entire module into smaller components\n2. Add a compatibility layer for backward support\n3. Keep backward compatibility and add feature flags";
         assert!(
             parse_permission_prompt(text).is_none(),
@@ -502,7 +476,6 @@ mod tests {
 
     #[test]
     fn test_no_false_positive_three_options_summary() {
-        // Three approaches listed — looks like options but no selector/footer
         let text = "I see three possible approaches:\n\n1. **Use a feature flag** — toggle the new behavior at runtime, minimal risk\n2. **Create a new endpoint** — keep old behavior, add `/v2/resource`, gradual migration\n3. **In-place migration** — modify existing endpoint, all clients must update simultaneously\n\nI recommend option 1 for the safest rollout.";
         assert!(parse_permission_prompt(text).is_none());
         assert!(!detect_interactive_prompt(text));
@@ -510,7 +483,6 @@ mod tests {
 
     #[test]
     fn test_no_false_positive_numbered_list_inside_code_block() {
-        // Numbered list that happens to be in a markdown code block context
         let text = "```\n1. First item\n2. Second item\n3. Third item\n```\nThis shows the expected output format.";
         assert!(parse_permission_prompt(text).is_none());
         assert!(!detect_interactive_prompt(text));
@@ -555,7 +527,6 @@ mod tests {
 
     #[test]
     fn test_real_prompt_with_preceding_answer() {
-        // Answer text BEFORE the prompt — prompt at the end should still trigger
         let text = "Found 3 issues:\n1. Bug in parser\n2. Missing test\n3. Type error\n\nApply fixes?\n  ❯ 1. Yes\n    2. No\n\nEsc to cancel";
         assert!(detect_interactive_prompt(text));
         let result = parse_permission_prompt(text);
@@ -595,7 +566,6 @@ mod tests {
 
     #[test]
     fn test_real_prompt_with_plan_before() {
-        // Answer with numbered plan, then a prompt at the end
         let text = "Here is the plan:\n1. Update schema\n2. Migrate data\n3. Deploy service\n\nProceed with migration?\n  ❯ 1. Yes\n    2. No\n\nEsc to cancel · Tab to amend";
         assert!(detect_interactive_prompt(text));
         let result = parse_permission_prompt(text);
@@ -609,7 +579,6 @@ mod tests {
 
     #[test]
     fn test_edge_case_question_mark_then_plain_list() {
-        // Question ending with ? followed by plain numbered list — no selector/footer
         let text = "What should we prioritize?\n\n1. Performance optimization\n2. Bug fixes\n3. New features\n4. Technical debt\n\nLet me know your preference.";
         assert!(
             parse_permission_prompt(text).is_none(),
@@ -620,14 +589,12 @@ mod tests {
 
     #[test]
     fn test_edge_case_esc_in_text_far_from_list() {
-        // Text mentioning "Esc to cancel" far away from a numbered list — not a prompt
         let text = "Press Esc to cancel the operation.\n\nSome other output here.\nMore output.\nEven more output.\nStill going.\nAlmost done.\nKeep going.\nYet another line.\nMore lines here.\nFinal line.\n\nHere are the steps:\n1. Open the dialog\n2. Select the file\n3. Click confirm";
         assert!(!detect_interactive_prompt(text));
     }
 
     #[test]
     fn test_edge_case_numbers_in_output_not_list() {
-        // Numbers that look like list items but are not
         let text = "2026-03-28 10:00:01 Server started\n2026-03-28 10:00:02 Connected to database\n2026-03-28 10:00:03 Ready to accept requests";
         assert!(!detect_interactive_prompt(text));
     }
@@ -658,7 +625,6 @@ mod tests {
 
     #[test]
     fn test_garbled_selector_3_options() {
-        // Full 3-option prompt with garbled selector — all options parsed
         let text = "\nDo you want to proceed?\n  \u{00e2}\u{00af} 1. Yes\n    2. Yes, allow during session\n    3. No\n\nEsc to cancel \u{00b7} Tab to amend\n";
         let result = parse_permission_prompt(text);
         assert!(result.is_some());
@@ -672,7 +638,6 @@ mod tests {
 
     #[test]
     fn test_claude_todo_not_prompt() {
-        // Claude Code TUI shows todo lists with ✓/□ checkboxes — not a prompt
         let text = concat!(
             "* Seasoning... (32s · ↓ 96 tokens)\n",
             "  ✓ Step 1: Registration token on backend\n",
@@ -691,7 +656,6 @@ mod tests {
 
     #[test]
     fn test_claude_todo_with_numbered_steps() {
-        // Numbered steps without selector or footer — not a prompt
         let text = "Here's my plan:\n1. Fix the parser\n2. Add tests\n3. Update docs\n4. Deploy\n\nLet me start with step 1.";
         assert!(!detect_interactive_prompt(text));
         assert!(parse_permission_prompt(text).is_none());
@@ -704,7 +668,6 @@ mod tests {
         assert_eq!(strip_selector("❯ 1. Yes"), "1. Yes");
         assert_eq!(strip_selector("> 1. Yes"), "1. Yes");
         assert_eq!(strip_selector("\u{00e2}\u{00af} 1. Yes"), "1. Yes");
-        // Callers always pass .trim()'d input, so no leading spaces
         assert_eq!(strip_selector("1. Yes"), "1. Yes"); // no selector present
         assert_eq!(strip_selector("1. Yes"), "1. Yes");
     }
@@ -747,7 +710,6 @@ Press enter to continue";
         assert!(result.is_some());
         let (question, options) = result.unwrap();
         assert!(question.contains("trust"));
-        // First option label starts with "Yes" — this is what auto-approve checks
         assert!(options[0].0.starts_with("Yes"));
         assert_eq!(options[0].1, "1");
     }

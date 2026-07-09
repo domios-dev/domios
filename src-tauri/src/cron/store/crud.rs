@@ -280,7 +280,6 @@ impl CronStore {
             let max = job.max_history;
             let history = self.file.history.entry(job_id.to_string()).or_default();
             history.push(run);
-            // Evict old entries
             while history.len() > max {
                 history.remove(0);
             }
@@ -315,7 +314,6 @@ impl CronStore {
             }
         }
 
-        // Observability parity: terminal states (Failed/Cancelled) get a "Cron run completed" log line just like Success runs do (which are emitted by
         // service::cron_complete). Without this, dashboards and grep-based observability miss every Failed/Cancelled run.
         let elapsed_ms = started_at.map(|s| now.saturating_sub(s));
         match status {

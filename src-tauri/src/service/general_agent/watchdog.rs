@@ -52,7 +52,6 @@ pub fn start_watchdog(
     let app = app.clone();
 
     std::thread::spawn(move || {
-        // Wait for initial startup to complete
         std::thread::sleep(std::time::Duration::from_secs(20));
         let mut consecutive_restarts = 0u32;
         let check_interval = std::time::Duration::from_secs(10);
@@ -61,11 +60,13 @@ pub fn start_watchdog(
             std::thread::sleep(check_interval);
 
             let general_config = config.lock().general_agent.clone();
-            if !general_config.enabled || !general_config.auto_restart {
+            if !general_config.enabled
+                || !general_config.auto_restart
+                || !general_config.first_run_complete
+            {
                 continue;
             }
 
-            // Find the General pane and check its state
             let needs_restart = {
                 let m = mux.write();
                 m.resolve_pane_id(GENERAL_ALIAS).and_then(|pid| {

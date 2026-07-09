@@ -1,7 +1,8 @@
+use crate::plan::{Plan, TaskStatus};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const ORCHESTRATION_REMINDER: &str =
-    "hint: you work autonomously; if unsure how to orchestrate -> codeterm doc orchestration";
+    "hint: orchestrating? read `codeterm docs ORCHESTRATION`; before dispatch, run `codeterm plan doctor <plan> --kind quality`";
 const ORCHESTRATION_REMINDER_EVERY: u64 = 5;
 static ORCHESTRATION_REMINDER_COUNT: AtomicU64 = AtomicU64::new(0);
 
@@ -87,6 +88,28 @@ pub fn orchestration_reminder_for_count(count: u64) -> Option<String> {
 pub fn maybe_orchestration_reminder() -> Option<String> {
     let count = ORCHESTRATION_REMINDER_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
     orchestration_reminder_for_count(count)
+}
+
+/// Returns a one-line hint if `plan` has an open planning-kind task assigned to
+/// a pane other than `caller_pane_id`. Silent when the caller IS the planner or
+/// when no planning task has an assigned pane (nothing actionable to route to).
+pub fn planner_ownership_nudge(plan: &Plan, caller_pane_id: Option<&str>) -> Option<String> {
+    let task = plan.tasks.iter().find(|t| {
+        t.kind == "planning"
+            && !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled)
+            && t.assigned_pane_id
+                .as_deref()
+                .is_some_and(|pane| caller_pane_id.map_or(true, |caller| pane != caller))
+    })?;
+    let handle = task
+        .handle
+        .as_deref()
+        .filter(|h| !h.is_empty())
+        .unwrap_or(&task.name);
+    Some(format!(
+        "hint: plan {} has an active Planner lane (task {}); route planning input there or record a stride.",
+        plan.id, handle
+    ))
 }
 
 #[cfg(test)]
@@ -223,5 +246,147 @@ mod tests {
         assert!(orchestration_reminder_for_count(2).is_none());
         assert!(orchestration_reminder_for_count(5).is_some());
         assert!(orchestration_reminder_for_count(6).is_none());
+    }
+
+    fn make_task(
+        id: &str,
+        kind: &str,
+        status: TaskStatus,
+        handle: Option<&str>,
+        pane: Option<&str>,
+    ) -> crate::plan::Task {
+        crate::plan::Task {
+            id: id.into(),
+            name: id.into(),
+            kind: kind.into(),
+            model: None,
+            model_rationale: None,
+            acceptance_criteria: vec![],
+            test_plan: None,
+            correctness: None,
+            status,
+            review_stage: Default::default(),
+            qa_state: None,
+            status_label: None,
+            priority: crate::plan::TaskPriority::P2,
+            created_at: 0,
+            updated_at: 0,
+            status_changed_at: 0,
+            handle: handle.map(str::to_string),
+            tags: vec![],
+            section_ids: vec![],
+            body: String::new(),
+            role_guidance: None,
+            executor_role: None,
+            competition: None,
+            intent: None,
+            parent_task_id: None,
+            assigned_pane_id: pane.map(str::to_string),
+            lane: crate::plan::TaskLaneMetadata::default(),
+            taken_by_role: None,
+            peer: None,
+            group: None,
+            canvas: crate::plan::ElementCanvas::default(),
+            milestones: vec![],
+            execution_attempts: vec![],
+            park_reason: None,
+            attachments: vec![],
+        }
+    }
+
+    fn make_plan(id: &str, tasks: Vec<crate::plan::Task>) -> Plan {
+        let mut plan = Plan::new("T".into(), "/tmp/p".into(), Default::default());
+        plan.id = id.into();
+        plan.tasks = tasks;
+        plan
+    }
+
+    #[test]
+    fn nudge_fires_when_planner_assigned_to_different_pane() {
+        let plan = make_plan(
+            "pl_1",
+            vec![make_task(
+                "task_planner",
+                "planning",
+                TaskStatus::InProgress,
+                Some("plan-wave"),
+                Some("pane-planner"),
+            )],
+        );
+        let hint = planner_ownership_nudge(&plan, Some("pane-orchestrator"));
+        assert!(hint.is_some(), "should emit hint for non-planner caller");
+        let hint = hint.unwrap();
+        assert!(hint.contains("pl_1"), "should name the plan");
+        assert!(hint.contains("plan-wave"), "should use the task handle");
+        assert!(
+            hint.contains("route planning input"),
+            "should be actionable"
+        );
+    }
+
+    #[test]
+    fn nudge_silent_when_caller_is_the_planner_pane() {
+        let plan = make_plan(
+            "pl_1",
+            vec![make_task(
+                "task_planner",
+                "planning",
+                TaskStatus::InProgress,
+                None,
+                Some("pane-planner"),
+            )],
+        );
+        assert!(
+            planner_ownership_nudge(&plan, Some("pane-planner")).is_none(),
+            "planner calling its own mutations should not see the hint"
+        );
+    }
+
+    #[test]
+    fn nudge_silent_when_planning_task_done_or_cancelled() {
+        for status in [TaskStatus::Done, TaskStatus::Cancelled] {
+            let plan = make_plan(
+                "pl_1",
+                vec![make_task("t", "planning", status, None, Some("pane-x"))],
+            );
+            assert!(
+                planner_ownership_nudge(&plan, Some("pane-other")).is_none(),
+                "closed planning tasks must not trigger the hint"
+            );
+        }
+    }
+
+    #[test]
+    fn nudge_silent_when_no_planning_task_has_assigned_pane() {
+        let plan = make_plan(
+            "pl_1",
+            vec![make_task(
+                "t",
+                "planning",
+                TaskStatus::Pending,
+                None,
+                None, // unassigned
+            )],
+        );
+        assert!(
+            planner_ownership_nudge(&plan, Some("pane-other")).is_none(),
+            "unassigned planning task provides no routing target"
+        );
+    }
+
+    #[test]
+    fn nudge_uses_task_name_when_handle_is_absent() {
+        let plan = make_plan(
+            "pl_1",
+            vec![make_task(
+                "planning-task-name",
+                "planning",
+                TaskStatus::InProgress,
+                None,
+                Some("pane-planner"),
+            )],
+        );
+        let hint = planner_ownership_nudge(&plan, None).unwrap();
+        assert!(hint.contains("planning-task-name"));
     }
 }

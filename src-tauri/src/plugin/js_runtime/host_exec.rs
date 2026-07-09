@@ -180,7 +180,6 @@ pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, Stri
             .stderr(errout)
             .spawn()
         {
-            // Drop the handle without waiting → the process is detached and keeps
             // running; the plugin manages its lifetime.
             Ok(child) => serde_json::json!({ "code": 0, "pid": child.id() }).to_string(),
             Err(e) => err(&format!("spawn {}: {e}", opts.bin)),
@@ -209,7 +208,6 @@ pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, Stri
             let _ = si.write_all(s.as_bytes());
         }
     }
-    // Drain pipes on threads BEFORE waiting: output past the ~64KB OS pipe buffer
     // would block the child on write() while we wait, deadlocking until timeout.
     let out_reader = child.stdout.take().map(|mut s| {
         std::thread::spawn(move || {
@@ -493,7 +491,6 @@ mod tests {
         assert_eq!(done["code"], 0);
         assert_eq!(done["stdout"], "hello");
 
-        // job is removed once the terminal result has been delivered
         let missing: serde_json::Value =
             serde_json::from_str(&poll("test-plugin", job_id)).unwrap();
         assert_eq!(missing["error"], "job not found");
@@ -562,8 +559,6 @@ mod tests {
         let elapsed = t.elapsed();
         let job_id = started["jobId"].as_str().expect("job id");
 
-        // The whole point: start spawns the command on a background thread and
-        // returns sub-ms, so the VM lock held across this call is released long
         assert!(
             elapsed < Duration::from_millis(500),
             "start blocked for {elapsed:?} — VM lock would be held for the exec duration"
@@ -591,9 +586,6 @@ mod tests {
 
     #[test]
     fn run_drains_output_larger_than_pipe_buffer_without_deadlock() {
-        // 200KB > the ~64KB OS pipe buffer. A read-after-wait impl deadlocks the
-        // child on write() and only returns once the timeout kills it (truncated);
-        // concurrent draining returns the full output fast.
         #[cfg(windows)]
         let opts = serde_json::json!({
             "bin": "powershell",

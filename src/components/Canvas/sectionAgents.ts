@@ -1,11 +1,6 @@
 import type { PresenceAgent } from "./presence/identity";
 import type { Task } from "./types";
 
-// Per-section LIVE presence: roll the per-task swarm up to the plan sections. A LIVE
-// task (a live pane executing it) contributes its agents to EACH section it is bound
-// to, deduped by agent id. Live-only — idle / no-live-pane tasks add nothing, so a
-// section shows an indicator only while real work is happening on it. Pure + O(tasks ×
-// sections-per-task); the caller passes the already live-gated presence source.
 export interface SectionAgentSource {
   agents: PresenceAgent[];
   live: boolean;

@@ -43,7 +43,11 @@ pub struct ClosedPane {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub role_profile: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub model: Option<String>,
+    #[serde(default)]
+    pub chat_view: bool,
     pub closed_at: u64,
     /// Workspace the pane belonged to when it was closed. Empty string on old
     /// records (pre-field snapshots) — treat as "unknown workspace".
@@ -69,7 +73,9 @@ impl From<&Pane> for ClosedPane {
             cwd: pane.cwd.clone(),
             agent_type: pane.agent_type.clone(),
             agent_session_id: pane.agent_session_id.clone(),
+            role_profile: pane.role_profile.clone(),
             model: pane.agent_session_model.clone(),
+            chat_view: pane.chat_view,
             closed_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -110,7 +116,6 @@ pub enum AgentRole {
     Worker,
 }
 
-// Keep backward-compatible aliases for deserialization
 impl AgentRole {
     pub fn from_str_compat(s: &str) -> Option<Self> {
         match s {
@@ -231,6 +236,9 @@ pub struct Pane {
     /// Orchestration role (orchestrator / worker — 2-level, no middle tier).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role: Option<AgentRole>,
+    /// Behavioral profile layered on top of the structural role.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub role_profile: Option<String>,
     /// Parent pane ID in the orchestration hierarchy.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub parent_pane_id: Option<String>,
@@ -299,6 +307,22 @@ pub struct Pane {
     /// trigger another launch.
     #[serde(skip, default)]
     pub restored_from_snapshot: bool,
+    /// In-memory only — when true, this pane is excluded from the session
+    /// snapshot. Set for ephemeral picker/onboarding panes that must not
+    /// survive a daemon restart and reappear as ghost tabs.
+    #[serde(skip, default)]
+    pub skip_snapshot: bool,
+    /// Orchestrator's opening greeting, prepended as a synthetic first
+    /// assistant message every time `chat_start_core` builds this pane's
+    /// transcript — never model-improvised. In-memory only (a restart
+    /// simply drops it; it is not required to survive a daemon restart).
+    #[serde(skip, default)]
+    pub pending_greeting: Option<String>,
+    /// Current agent-boot stage, surfaced to late UI attachers via the live
+    /// snapshot. Runtime-only — recomputed at spawn, never persisted (the
+    /// hand-built session snapshot omits it).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub boot_stage: Option<crate::service::boot_stage::BootStage>,
 }
 
 fn default_show_in_tabbar() -> bool {
@@ -363,6 +387,7 @@ mod tests {
             session_binding_nonce: None,
             shell_integration_nonce: None,
             role: None,
+            role_profile: None,
             parent_pane_id: None,
             can_spawn: false,
             depth: 0,
@@ -383,6 +408,9 @@ mod tests {
             show_in_tabbar: true,
             worker_id: None,
             restored_from_snapshot: false,
+            skip_snapshot: false,
+            pending_greeting: None,
+            boot_stage: None,
         }
     }
 
@@ -390,6 +418,21 @@ mod tests {
     fn pty_pane_is_not_chat_backend() {
         let p = pane_with("a", PaneBacking::Pty);
         assert!(!p.is_chat_backend());
+    }
+
+    #[test]
+    fn mid_boot_snapshot_exposes_current_stage() {
+        use crate::service::boot_stage::BootStage;
+        // the live snapshot.
+        let mut p = pane_with("a", PaneBacking::Pty);
+        p.boot_stage = Some(BootStage::AgentLaunching);
+        let v = serde_json::to_value(&p).unwrap();
+        assert_eq!(v["boot_stage"], "agent_launching");
+
+        // Before any boot progress the field is omitted entirely (skip_if None).
+        let idle = pane_with("b", PaneBacking::Pty);
+        let v = serde_json::to_value(&idle).unwrap();
+        assert!(v.as_object().unwrap().get("boot_stage").is_none());
     }
 
     #[test]
@@ -417,7 +460,6 @@ mod tests {
         let v = serde_json::to_value(&p).unwrap();
         let back: Pane = serde_json::from_value(v).unwrap();
         assert!(back.is_chat_backend());
-        // And a serialized pane with the `backing` key removed (pre-field
         // snapshot) defaults to Pty.
         let mut v = serde_json::to_value(&p).unwrap();
         v.as_object_mut().unwrap().remove("backing");
@@ -441,7 +483,6 @@ mod tests {
     #[test]
     fn backing_matches_frontend_ts_contract_shape() {
         // The TS type is `{ kind: 'chat_backend'; plugin_id: string;
-        // session_id: string }` (internally tagged, snake_case) — plugin_id and
         let v = serde_json::to_value(PaneBacking::ChatBackend {
             plugin_id: "lmstudio".into(),
             session_id: "s7".into(),
@@ -455,7 +496,6 @@ mod tests {
                 "session_id": "s7",
             })
         );
-        // The default (Pty) variant is a bare tag — what TabContent treats as
         // "not a chat pane".
         assert_eq!(
             serde_json::to_value(PaneBacking::Pty).unwrap(),

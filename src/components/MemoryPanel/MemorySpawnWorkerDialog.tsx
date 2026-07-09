@@ -10,7 +10,6 @@ interface Props {
 }
 
 function MemorySpawnWorkerDialogImpl({ onSpawn, onClose }: Props) {
-  // Spawnable agents resolve from the provider registry by capability (PTY
   // transport), never a hardcoded vendor list.
   const agents = useAgentDescriptors().filter((p) => p.transport === "pty");
   const [intent, setIntent] = useState("");
@@ -19,7 +18,6 @@ function MemorySpawnWorkerDialogImpl({ onSpawn, onClose }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Once the registry loads, keep the selection valid (default may have been a
   // load-time fallback before descriptors arrived).
   useEffect(() => {
     if (agents.length && !agents.some((p) => p.id === agent)) {

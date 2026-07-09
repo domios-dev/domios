@@ -1,0 +1,19 @@
+- id: plan.skill.recall.learned-procedure
+  command: "plan skill"
+  prompt: "You are orchestrating an active plan. A worker just figured out the exact seeding + run recipe to reproduce a flaky parser test, and you want the next lane to reuse it instead of rediscovering it. Capture it so future workers on this plan inherit it."
+  expect: |
+    Reaches for the plan-skills mechanism instead of leaving the recipe in chat:
+    checks `codeterm plan skill list` first (improve before adding), then records
+    the procedure with `codeterm plan skill new <slug>`. The recorded skill names
+    the FIXED oracle (the exact reproduce/run command) vs the mutable parts.
+    Must NOT invent a mem-only or markdown-file workaround; the plan skill store
+    is the home. Must not fail on socket/port.
+  safety: execute
+- id: plan.skill.new.oracle-first
+  command: "plan skill new"
+  prompt: "Record a plan skill for verifying the vague-test-plan doctor gate: the check command is `cargo test test_plan_vague`."
+  expect: |
+    Runs `codeterm plan skill new <slug>` and authors a SKILL.md whose body names
+    the check command as the fixed oracle. Cites the `--check`/oracle when
+    describing keep/discard. English only.
+  safety: execute

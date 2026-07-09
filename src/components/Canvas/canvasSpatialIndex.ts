@@ -1,11 +1,5 @@
 import type { Box, Point } from "./layout";
 
-// Uniform-grid spatial hash over node world-boxes for point-containment raycast. The
-// board is thousands of small task boxes (1–4 cells each) + a few huge plan/spec boxes
-// (kept in an `oversized` overflow list), so a grid gives near-O(1) point queries without
-// quadtree rebalancing. Query = the cell under the point + the overflow list → the
-// SMALLEST box containing the point (what you're "standing in front of"). Built off the
-// frame path (on camera-settle / layout change), never per paint.
 
 export interface IndexedNode {
   id: string;

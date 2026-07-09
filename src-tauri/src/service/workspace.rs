@@ -1,39 +1,11 @@
 //! Workspace & tab operations.
 
-use std::collections::HashSet;
-
-use tauri::Manager;
-
 use super::ServiceContext;
 use crate::multiplexer::state::WorkspaceInfo;
 use crate::multiplexer::types::ClosedPane;
+use crate::service::session_persist::{self, SessionPersistUrgency};
 
 impl ServiceContext {
-    /// Chat-UI-capable provider ids — but only when the
-    /// `default_new_agent_pane_chat` preference is on (empty set otherwise).
-    /// Restoring a pane is a creation path too, so a reopened chat-capable agent
-    /// pane re-applies the same default a fresh spawn would. Computed off the
-    /// live registry (queried at runtime, not startup) so drop-in providers are
-    /// covered automatically. Built before taking the mux lock to keep the
-    /// config + registry locks off the mux critical section.
-    fn restore_chat_capable_providers(&self) -> HashSet<String> {
-        let enabled = self
-            .app_handle
-            .state::<crate::config::ConfigState>()
-            .lock()
-            .ui
-            .default_new_agent_pane_chat;
-        if !enabled {
-            return HashSet::new();
-        }
-        self.agent_registry
-            .list_descriptors()
-            .into_iter()
-            .filter(|d| d.supports_chat_ui)
-            .map(|d| d.id)
-            .collect()
-    }
-
     pub fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
         self.mux.read().list_workspaces()
     }
@@ -105,12 +77,15 @@ impl ServiceContext {
             .and_then(|w| w.cwd);
         self.ensure_workspace_plans_loaded(cwd.as_deref());
         self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
     }
 
     pub fn rename_workspace(&self, id: &str, name: &str) -> Result<(), String> {
         self.mux.write().rename_workspace(id, name)?;
         self.emit_state_changed();
+        session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt)?;
         Ok(())
     }
 
@@ -138,6 +113,8 @@ impl ServiceContext {
             .write()
             .move_tab(tab_id, from_workspace_id, to_workspace_id)?;
         self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
     }
 
@@ -151,6 +128,8 @@ impl ServiceContext {
             .write()
             .reorder_tabs(workspace_id, ordered_tab_ids)?;
         self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
     }
 
@@ -164,6 +143,8 @@ impl ServiceContext {
             .write()
             .reorder_children(parent_pane_id, ordered_tab_ids)?;
         self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
     }
 
@@ -171,6 +152,8 @@ impl ServiceContext {
     pub fn reorder_workspace(&self, ordered_workspace_ids: &[String]) -> Result<(), String> {
         self.mux.write().reorder_workspaces(ordered_workspace_ids)?;
         self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
     }
 
@@ -212,6 +195,8 @@ impl ServiceContext {
     pub fn set_active_tab(&self, workspace_id: &str, tab_id: &str) -> Result<(), String> {
         self.mux.write().set_active_tab(workspace_id, tab_id)?;
         self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
     }
 
@@ -228,12 +213,15 @@ impl ServiceContext {
             mux.set_active_tab(workspace_id, tab_id)?;
         }
         self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
     }
 
     pub fn rename_tab(&self, workspace_id: &str, tab_id: &str, title: &str) -> Result<(), String> {
         self.mux.write().rename_tab(workspace_id, tab_id, title)?;
         self.emit_state_changed();
+        session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt)?;
         Ok(())
     }
 
@@ -251,10 +239,9 @@ impl ServiceContext {
         workspace_id: &str,
         index: Option<usize>,
     ) -> Result<(String, String), String> {
-        let chat_capable = self.restore_chat_capable_providers();
         let (tab_id, pane_id) = {
             let mut mux = self.mux.write();
-            let result = mux.reopen_closed_pane(workspace_id, index, &chat_capable)?;
+            let result = mux.reopen_closed_pane(workspace_id, index)?;
             let _ = mux.set_active_tab(workspace_id, &result.0);
             result
         };
@@ -267,10 +254,9 @@ impl ServiceContext {
     /// relinks the hierarchy, and activates the resulting tab/workspace.
     /// Returns (workspace_id, tab_id, first_pane_id).
     pub fn reopen_closed_group(&self, group_id: &str) -> Result<(String, String, String), String> {
-        let chat_capable = self.restore_chat_capable_providers();
         let result = {
             let mut mux = self.mux.write();
-            let r = mux.reopen_closed_group(group_id, &chat_capable)?;
+            let r = mux.reopen_closed_group(group_id)?;
             let _ = mux.set_active_workspace(&r.0);
             let _ = mux.set_active_tab(&r.0, &r.1);
             r
@@ -282,10 +268,9 @@ impl ServiceContext {
     /// Reopen a pane from the orphaned ring. Recreates the workspace and
     /// activates it. Returns (workspace_id, tab_id, pane_id).
     pub fn reopen_orphaned_pane(&self, pane_id: &str) -> Result<(String, String, String), String> {
-        let chat_capable = self.restore_chat_capable_providers();
         let result = {
             let mut mux = self.mux.write();
-            let r = mux.reopen_orphaned_pane(pane_id, &chat_capable)?;
+            let r = mux.reopen_orphaned_pane(pane_id)?;
             let _ = mux.set_active_workspace(&r.0);
             let _ = mux.set_active_tab(&r.0, &r.1);
             r
@@ -294,3 +279,7 @@ impl ServiceContext {
         Ok(result)
     }
 }
+
+#[cfg(test)]
+#[path = "workspace_role_tests.rs"]
+mod workspace_role_tests;

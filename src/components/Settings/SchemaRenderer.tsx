@@ -11,6 +11,10 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
+import { Button } from "../shared/Button";
+import { Card } from "../shared/Card";
+import { Chip, type ChipVariant } from "../shared/Chip";
+import { FormRow } from "../shared/FormRow";
 
 import type {
   AppConfig,
@@ -68,7 +72,6 @@ export function SchemaRenderer({
   );
 }
 
-// Provider-specific toggle inherits [agent] defaults when unset (matches backend
 // fallback). Only meaningful for agent providers; plugin surfaces pass values.
 function globalToggleFallback(key: string, config: AppConfig, agentNamespace: boolean): boolean | undefined {
   if (!agentNamespace) return undefined;
@@ -101,7 +104,7 @@ function FieldRenderer({
   switch (field.kind) {
     case "section":
       return (
-        <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3" data-testid="settings-schema-section">
+        <Card className="p-4 space-y-3" data-testid="settings-schema-section">
           <div className="text-sm font-medium text-[var(--ct-fg)]">{field.title}</div>
           {field.description && (
             <div className="text-xs text-[var(--ct-muted-fg)]">{field.description}</div>
@@ -119,7 +122,7 @@ function FieldRenderer({
               hidePathLinks={hidePathLinks}
             />
           ))}
-        </div>
+        </Card>
       );
 
     case "toggle": {
@@ -139,20 +142,18 @@ function FieldRenderer({
     case "text": {
       const value = (providerConfig[field.key] as string | undefined) ?? field.default ?? "";
       return (
-        <div className="space-y-1" data-testid="settings-schema-field" data-settings-field={field.key}>
-          <div className="text-xs text-[var(--ct-fg)]">{field.label}</div>
-          <input
-            type="text"
-            data-testid="settings-schema-text"
-            data-settings-field={field.key}
-            value={value}
-            placeholder={field.placeholder}
-            onChange={(e) => onChange(providerId, { [field.key]: e.target.value })}
-            className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
-          />
-          {field.description && (
-            <div className="text-[10px] text-[var(--ct-muted)]">{field.description}</div>
-          )}
+        <div data-testid="settings-schema-field" data-settings-field={field.key}>
+          <FormRow label={field.label} hint={field.description}>
+            <input
+              type="text"
+              data-testid="settings-schema-text"
+              data-settings-field={field.key}
+              value={value}
+              placeholder={field.placeholder}
+              onChange={(e) => onChange(providerId, { [field.key]: e.target.value })}
+              className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+            />
+          </FormRow>
         </div>
       );
     }
@@ -160,18 +161,19 @@ function FieldRenderer({
     case "number": {
       const value = (providerConfig[field.key] as number | undefined) ?? field.default ?? 0;
       return (
-        <div className="space-y-1" data-testid="settings-schema-field" data-settings-field={field.key}>
-          <div className="text-xs text-[var(--ct-fg)]">{field.label}</div>
-          <input
-            type="number"
-            data-testid="settings-schema-number"
-            data-settings-field={field.key}
-            value={value}
-            min={field.min}
-            max={field.max}
-            onChange={(e) => onChange(providerId, { [field.key]: Number(e.target.value) })}
-            className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
-          />
+        <div data-testid="settings-schema-field" data-settings-field={field.key}>
+          <FormRow label={field.label}>
+            <input
+              type="number"
+              data-testid="settings-schema-number"
+              data-settings-field={field.key}
+              value={value}
+              min={field.min}
+              max={field.max}
+              onChange={(e) => onChange(providerId, { [field.key]: Number(e.target.value) })}
+              className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+            />
+          </FormRow>
         </div>
       );
     }
@@ -318,37 +320,40 @@ function ObjectArrayField({
             <div className="text-[10px] text-[var(--ct-muted)]">{field.description}</div>
           )}
         </div>
-        <button
+        <Button
+          variant="ghost"
+          size="compact"
           type="button"
           data-testid="settings-schema-array-add"
           data-settings-field={field.key}
           onClick={add}
-          className="rounded border border-[var(--ct-border)] px-2 py-1 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+          className="text-[10px]"
         >
           Add
-        </button>
+        </Button>
       </div>
       <div className="space-y-3">
         {value.map((item, index) => (
-          <div
+          <Card
             key={index}
-            className="rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 p-3 space-y-2"
+            className="p-3 space-y-2"
             data-testid="settings-schema-array-row"
-            data-settings-field={`${field.key}.${index}`}
           >
             <div className="flex items-center justify-between gap-2">
               <div className="text-[11px] font-medium text-[var(--ct-fg)]">
                 {arrayRowTitle(item, itemLabel, index)}
               </div>
-              <button
+              <Button
+                variant="danger"
+                size="compact"
                 type="button"
                 data-testid="settings-schema-array-remove"
                 data-settings-field={`${field.key}.${index}`}
                 onClick={() => remove(index)}
-                className="rounded border border-[var(--ct-border)] px-2 py-0.5 text-[10px] text-[var(--ct-muted-fg)] hover:border-[var(--ct-red)]/60 hover:text-[var(--ct-red)]"
+                className="text-[10px]"
               >
                 Remove
-              </button>
+              </Button>
             </div>
             {field.item.fields.map((subField) => (
               <ObjectArrayItemInput
@@ -360,7 +365,7 @@ function ObjectArrayField({
                 onChange={(next) => update(index, subField.key, next)}
               />
             ))}
-          </div>
+          </Card>
         ))}
       </div>
     </div>
@@ -602,13 +607,6 @@ function PathLinkField({ label, path }: { label: string; path: string }) {
   );
 }
 
-const BADGE_COLORS: Record<BadgeStyle, string> = {
-  green: "bg-[var(--ct-green)]/20 text-[var(--ct-green)]",
-  orange: "bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)]",
-  red: "bg-[var(--ct-red)]/20 text-[var(--ct-red)]",
-  gray: "bg-[var(--ct-border)] text-[var(--ct-muted-fg)]",
-};
-
 /**
  * Map a backend status query response to a variant id string.
  *
@@ -668,12 +666,13 @@ function BadgeField({
 
   if (!variant) return null;
   return (
-    <span
+    <Chip
+      variant={badgeVariant(variant.style)}
       data-testid="settings-schema-badge"
-      className={`text-[9px] px-1.5 py-0.5 rounded-full inline-block ${BADGE_COLORS[variant.style]}`}
+      className="text-[9px]"
     >
       {variant.label}
-    </span>
+    </Chip>
   );
 }
 
@@ -752,22 +751,24 @@ function ActionField({
   }, [command, argsKey, confirm, stateQuery, refreshState]);
 
   const effective = state ?? { label, style: "primary" as const };
-  const klass = justDone
-    ? "bg-[var(--ct-green)] text-white"
-    : effective.style === "primary"
-      ? "bg-[var(--ct-accent)] text-white hover:brightness-110"
-      : effective.style === "danger"
-        ? "bg-[var(--ct-red)] text-white hover:brightness-110"
-        : "border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]";
+  const variant = justDone ? "primary" : effective.style === "danger" ? "danger" : effective.style === "secondary" ? "ghost" : "primary";
 
   return (
-    <button
+    <Button
+      variant={variant}
       data-testid="settings-schema-action"
       onClick={click}
       disabled={busy || justDone}
-      className={`w-full py-1.5 text-xs rounded font-medium transition-all duration-300 ${klass}`}
+      className={justDone ? "w-full text-xs bg-[var(--ct-green)]" : "w-full text-xs"}
     >
       {justDone ? "\u2713 Done" : busy ? "..." : effective.label}
-    </button>
+    </Button>
   );
+}
+
+function badgeVariant(style: BadgeStyle): ChipVariant {
+  if (style === "green") return "success";
+  if (style === "red") return "danger";
+  if (style === "orange") return "warning";
+  return "muted";
 }

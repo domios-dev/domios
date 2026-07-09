@@ -9,7 +9,6 @@ function ok(label: string, cond: boolean) {
   else { console.error(`  ✗ ${label}`); failed++; }
 }
 
-// worlds-v3 §1 hard size invariant: a task's enclosing circle is always smaller
 // than the smallest big node — ½·√(taskMaxW² + taskMaxH²) < min(specW,specH,planW,planH)/2.
 {
   const taskCircleR = 0.5 * Math.hypot(S.taskMaxW, S.taskMaxH);

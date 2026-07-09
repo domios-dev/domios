@@ -7,27 +7,39 @@ use crate::api::routes::AppState;
 use crate::plan::{tag_facets_from_value, MilestoneKind, TaskGroup};
 use crate::service::plan::PlanError;
 
+pub mod attachments;
 pub mod batch;
 pub mod elements;
+pub mod gates;
 pub mod handoff;
 pub mod linking;
 pub mod loops;
 pub mod milestones;
 pub mod plans;
 pub mod sections;
+pub mod skills;
 pub mod spec;
 pub mod tasks;
 
-pub use elements::{coverage, element_add, groups_set, layout_set, note_add};
+pub use attachments::attachment;
+pub use elements::{
+    coverage, element_add, element_rm, element_update, groups_set, layout_set, note_add,
+    note_update,
+};
+pub use gates::{gate_answer, gate_ask, gate_escalate, gate_list};
 pub use linking::{link, unlink};
-pub use loops::{loop_advance, loop_create, loop_set, loop_status, loop_stop};
+pub use loops::{loop_create, loop_record, loop_set, loop_status, loop_stop};
 pub use milestones::{milestone_add, milestone_rm, milestone_update};
 pub use plans::{
-    archive, claim, create, delete_plan, disown, get, kinds_set, list, next, reconcile, state,
-    tag_facets_set, transfer, unarchive, update,
+    archive, claim, create, delete_plan, disown, get, kinds_set, list, mode_set, next, pause,
+    reconcile, resume, state, tag_facets_set, transfer, unarchive, update,
 };
 pub use sections::{ingest, section_add, section_rm, section_update};
-pub use tasks::{task_add, task_assign, task_close, task_rm, task_update};
+pub use skills::{retrospective_write, skills_list, skills_show};
+pub use tasks::{
+    task_add, task_assign, task_attempt_show, task_attempts, task_close, task_respawn, task_rm,
+    task_update,
+};
 
 #[cfg(test)]
 mod tests;
@@ -51,6 +63,8 @@ fn text_err(status: StatusCode, message: impl ToString) -> (StatusCode, Json<Val
 fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
     let status = match e {
         PlanError::NotFound | PlanError::TaskNotFound => StatusCode::NOT_FOUND,
+        PlanError::WritePending { .. } => StatusCode::SERVICE_UNAVAILABLE,
+        PlanError::ReadbackMismatch { .. } => StatusCode::CONFLICT,
         _ => StatusCode::BAD_REQUEST,
     };
     let body = serde_json::json!({

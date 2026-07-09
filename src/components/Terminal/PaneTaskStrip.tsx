@@ -1,20 +1,15 @@
 import { useMemo } from "react";
 import { useMultiplexer } from "../../store/multiplexer";
 import { useFullPlans, usePlanIndexOptional } from "../Canvas/PlansProvider";
+import { activeWorkForPane, selectActiveWork } from "../Canvas/planView/activeWork";
+import { resolvePaneComposerActivity } from "../Canvas/paneComposerActivity";
 import { findPlanIndexForPane } from "../Canvas/planPaneMatch";
-import { resolvePaneCurrentTask } from "../Canvas/paneCurrentTask";
-import { resolvePaneOwnedPlans } from "../Canvas/paneOwnedPlans";
-import { buildTaskPresence } from "../Canvas/taskPresence";
 import { openPanePlanFocus } from "../Canvas/workspacePlanEntry";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { Pane } from "../../lib/types";
-import { WorkerTaskStrip } from "./WorkerTaskStrip";
-import { OrchestratorProgressStrip } from "./OrchestratorProgressStrip";
+import { ComposerPlanActivityStrip } from "./ComposerPlanActivityStrip";
 
-// Above-composer container: a cheap index gate decides whether THIS pane relates to
-// any active plan at all (most panes don't). Only then do we pull full plan bodies
-// to choose the variant — an ORCHESTRATOR pane (owns a plan) wears plan progress; a
-// WORKER pane wears its one task; a pane with neither renders nothing.
+// compact human-title strip — orchestrating vs working — with no raw ids in UI.
 export function PaneTaskStrip({ paneId }: { paneId: string }) {
   const { state } = useMultiplexer();
   const { index } = usePlanIndexOptional();
@@ -36,31 +31,32 @@ function ResolvedPaneTaskStrip({
   panes: Record<string, Pane>;
 }) {
   const full = useFullPlans();
-  const owned = useMemo(() => resolvePaneOwnedPlans(full.plans, paneId, panes), [full.plans, paneId, panes]);
-  const resolved = useMemo(() => resolvePaneCurrentTask(full.plans, paneId), [full.plans, paneId]);
-  const taskAgent = useMemo(() => {
-    if (!resolved) return null;
-    return buildTaskPresence(resolved.plan, resolved.task, panes)?.agents[0] ?? null;
-  }, [resolved, panes]);
+  const activity = useMemo(
+    () => resolvePaneComposerActivity(full.plans, paneId, panes),
+    [full.plans, paneId, panes],
+  );
+  const paneActiveWork = useMemo(() => {
+    const snapshot = selectActiveWork(full.plans, panes);
+    return activeWorkForPane(snapshot, paneId);
+  }, [full.plans, paneId, panes]);
+  if (!activity) return null;
 
-  if (owned.length > 0) {
-    const top = owned[0];
-    const planEntries = entries.filter((e) => e.plan_id === top.plan.id);
-    return (
-      <OrchestratorProgressStrip
-        summary={top}
-        extraPlans={owned.length - 1}
-        onOpen={() => openPanePlanFocus(planEntries.length ? planEntries : entries, paneId)}
-      />
-    );
-  }
-  if (!resolved) return null;
+  const onOpen = () => {
+    if (activity.kind === "working") {
+      openPanePlanFocus(entries, paneId, [activity.taskId]);
+      return;
+    }
+    openPanePlanFocus(entries, paneId);
+  };
+
   return (
-    <WorkerTaskStrip
-      task={resolved.task}
-      branch={resolved.branch}
-      agent={taskAgent}
-      onOpen={() => openPanePlanFocus(entries, paneId, [resolved.task.id])}
-    />
+    <div className="ct-composer-activity-row mb-2 w-full min-w-0 max-w-full">
+      <ComposerPlanActivityStrip
+        activity={activity}
+        onOpen={onOpen}
+        taskStatus={activity.kind === "working" ? activity.taskStatus : null}
+        stale={paneActiveWork?.stale ?? false}
+      />
+    </div>
   );
 }

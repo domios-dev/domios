@@ -244,6 +244,7 @@ mod tests {
             body: String::new(),
             subsections: vec![],
             canvas: Default::default(),
+            attachments: vec![],
         }
     }
 
@@ -258,6 +259,8 @@ mod tests {
             test_plan: None,
             correctness: None,
             status,
+            review_stage: Default::default(),
+            qa_state: None,
             status_label: None,
             priority: Default::default(),
             created_at: 0,
@@ -267,6 +270,9 @@ mod tests {
             tags: vec![],
             section_ids: sections.iter().map(|s| s.to_string()).collect(),
             body: String::new(),
+            role_guidance: None,
+            executor_role: None,
+            competition: None,
             intent: None,
             parent_task_id: None,
             assigned_pane_id: None,
@@ -276,6 +282,9 @@ mod tests {
             group: None,
             canvas: Default::default(),
             milestones: vec![],
+            execution_attempts: vec![],
+            park_reason: None,
+            attachments: vec![],
         }
     }
 

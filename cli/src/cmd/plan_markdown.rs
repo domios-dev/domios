@@ -9,7 +9,15 @@ pub(crate) fn render_plan_markdown(plan: &Value) -> String {
     let id = plan.get("id").and_then(|v| v.as_str()).unwrap_or("?");
     let status = plan.get("status").and_then(|v| v.as_str()).unwrap_or("?");
     out.push_str(&format!("# {title} (`{id}`)\n\n"));
+    out.push_str("> Exported snapshot. CodeTerm planner state is authoritative; update the plan with `codeterm plan ...`, not by editing this markdown.\n\n");
     out.push_str(&format!("**Status:** {status}\n\n"));
+    if let Some(path) = plan
+        .get("canonical_project_path")
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.is_empty())
+    {
+        out.push_str(&format!("**Canonical project path:** `{path}`\n\n"));
+    }
     if let Some(goal) = plan.get("goal").filter(|v| !v.is_null()) {
         render_goal_block(goal, &mut out);
     }
@@ -70,7 +78,16 @@ fn append_plan_task(
     let name = task.get("name").and_then(|v| v.as_str()).unwrap_or("?");
     let tid = task.get("id").and_then(|v| v.as_str()).unwrap_or("?");
     let st = task.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-    out.push_str(&format!("{indent}- **{name}** (`{tid}`) — {st}\n"));
+    let role_suffix = task
+        .get("executor_role")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|r| format!(" [role:{r}]"))
+        .unwrap_or_default();
+    out.push_str(&format!(
+        "{indent}- **{name}** (`{tid}`) — {st}{role_suffix}\n"
+    ));
+    render_task_competition(task, depth, out);
     render_task_lane(task, depth, out);
     render_task_quality(task, depth, out);
     if let Some(id) = task.get("id").and_then(|v| v.as_str()) {
@@ -80,6 +97,40 @@ fn append_plan_task(
             }
         }
     }
+}
+
+fn render_task_competition(task: &Value, depth: usize, out: &mut String) {
+    let Some(competition) = task.get("competition").filter(|v| !v.is_null()) else {
+        return;
+    };
+    if competition.get("enabled").and_then(|v| v.as_bool()) != Some(true) {
+        return;
+    }
+    let indent = "  ".repeat(depth + 1);
+    let attempts = competition
+        .get("attempts")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(2)
+        .max(2);
+    let models = competition
+        .get("models")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .unwrap_or_default();
+    let mut parts = vec![format!("{attempts} attempts")];
+    if !models.is_empty() {
+        parts.push(format!("models {models}"));
+    }
+    if let Some(hint) = competition.get("judge_hint").and_then(|v| v.as_str()) {
+        parts.push(format!("judge: {hint}"));
+    }
+    out.push_str(&format!("{indent}- competition: {}\n", parts.join("; ")));
 }
 
 fn render_task_lane(task: &Value, depth: usize, out: &mut String) {

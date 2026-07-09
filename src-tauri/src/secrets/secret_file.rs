@@ -217,14 +217,15 @@ fn restrict_file_permissions(path: &std::path::Path) {
         let path_str = path.to_string_lossy();
         let username = std::env::var("USERNAME").unwrap_or_default();
         if !username.is_empty() {
-            let _ = std::process::Command::new("icacls")
-                .args([
-                    path_str.as_ref(),
-                    "/inheritance:r",
-                    "/grant",
-                    &format!("{}:(F)", username),
-                ])
-                .output();
+            let mut command = std::process::Command::new("icacls");
+            command.args([
+                path_str.as_ref(),
+                "/inheritance:r",
+                "/grant",
+                &format!("{}:(F)", username),
+            ]);
+            crate::process_util::no_window_std(&mut command);
+            let _ = command.output();
         }
     }
 }

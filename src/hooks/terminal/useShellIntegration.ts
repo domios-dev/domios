@@ -33,7 +33,6 @@ export function useShellIntegration({
     if (ptyId) setShellReady(true);
   }, [ptyId]);
 
-  // Fade out overlay after shell ready
   useEffect(() => {
     if (shellReady && overlayVisible) {
       const t = setTimeout(() => setOverlayVisible(false), 500);
@@ -41,7 +40,6 @@ export function useShellIntegration({
     }
   }, [shellReady, overlayVisible]);
 
-  // Execute pending command after shell is ready
   const pendingCommandFired = useRef(false);
   useEffect(() => {
     if (pendingCommandFired.current) return;
@@ -75,7 +73,6 @@ export function useShellIntegration({
     return () => clearInterval(interval);
   }, [shellReady, paneId, connectedPtyRef]);
 
-  // Register OSC 7 handler for CWD tracking
   useEffect(() => {
     const term = termRef.current;
     if (!term || !termReady) return;

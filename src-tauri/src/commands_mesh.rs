@@ -74,7 +74,6 @@ pub async fn mesh_connect(
         (request, addr.ip.clone(), peer.api_port, instance_id)
     };
 
-    // Store target info for the accept handler
     {
         let mut m = mesh.lock();
         m.pairing_targets.insert(
@@ -85,7 +84,6 @@ pub async fn mesh_connect(
             .insert(request.request_id.clone(), request.clone());
     }
 
-    // Send request
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
@@ -230,7 +228,6 @@ pub async fn mesh_disconnect(
 
     mesh.lock().unpair(&instance_id);
 
-    // Notify ALL remaining peers to also unpair the disconnected peer
     if let Some(token) = broadcast_token {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
@@ -278,7 +275,6 @@ pub async fn mesh_exit(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
     svc: tauri::State<'_, crate::service::ServiceState>,
 ) -> Result<(), String> {
-    // Get signed token + peer list before exiting
     let (peers_info, token) = {
         let m = mesh.lock();
         let token = m.sign_request().ok();
@@ -297,7 +293,6 @@ pub async fn mesh_exit(
         (peers, token)
     };
 
-    // Notify all peers we're leaving
     if let Some(token) = &token {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
@@ -315,7 +310,6 @@ pub async fn mesh_exit(
         }
     }
 
-    // Clear all local mesh state
     mesh.lock().exit_mesh();
     crate::api::events::emit_everywhere(
         &svc.app_handle,
@@ -688,7 +682,6 @@ pub async fn peer_cron_action_request(
     id: &str,
     action: &str,
 ) -> Result<serde_json::Value, String> {
-    // Whitelist the cron sub-actions so this can't be turned into an arbitrary
     // POST against the peer's API surface.
     if !matches!(action, "enable" | "disable" | "trigger" | "cancel") {
         return Err(format!("unsupported cron action: {}", action));

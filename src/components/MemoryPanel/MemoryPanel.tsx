@@ -8,7 +8,7 @@ import { MemorySettingsTab } from "./MemorySettingsTab";
 import { useGraphData } from "./useGraphData";
 import { useSnapshotGraph } from "./useSnapshotGraph";
 import { useActivityPulses } from "./useActivityPulses";
-import { fetchStats, isTauriEnv, type MemStats } from "./memoryApi";
+import { fetchStats, type MemStats } from "./memoryApi";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import { tabClass, UI_BUTTON, UI_PANEL, UI_TEXT } from "../shared/design";
@@ -69,17 +69,15 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
     const load = () => fetchStats(api).then((s) => { if (active) setMemStats(s); }).catch(() => {});
     load();
     let unlisten: (() => void) | null = null;
-    if (isTauriEnv()) {
-      import("../../lib/bridge").then(({ listen }) => {
-        listen<{ op: string }>("mem-activity", (ev) => {
-          if (!active) return;
-          if (ev.payload?.op === "write" || ev.payload?.op === "delete") load();
-        }).then((fn) => {
-          if (!active) { fn(); return; }
-          unlisten = fn;
-        }).catch(() => {});
-      });
-    }
+    import("../../lib/bridge").then(({ listen }) => {
+      listen<{ op: string }>("mem-activity", (ev) => {
+        if (!active) return;
+        if (ev.payload?.op === "write" || ev.payload?.op === "delete") load();
+      }).then((fn) => {
+        if (!active) { fn(); return; }
+        unlisten = fn;
+      }).catch(() => {});
+    });
     return () => { active = false; if (unlisten) unlisten(); };
   }, [api]);
 

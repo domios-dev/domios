@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use parking_lot::RwLock;
 use serde::Serialize;
 use tauri::State;
 
@@ -9,7 +8,7 @@ use crate::service::{BatchOp, ServiceState};
 
 /// Shared multiplexer state, thread-safe. RwLock allows concurrent reads from
 /// multiple PTY output handlers; writers still get exclusive access.
-pub type MuxState = Arc<RwLock<MultiplexerState>>;
+pub type MuxState = Arc<crate::lock_hold::TimedRwLock<MultiplexerState>>;
 
 // ── Response types ───────────────────────────────────────────────────
 
@@ -24,9 +23,14 @@ pub struct TabInfo {
 // Read-only commands read MuxState directly since they have no side effects.
 
 /// Returns the full multiplexer state for frontend hydration (read-only).
+/// Includes each PTY-backed pane's live status so the tab rail hydrates
+/// correctly on reload instead of waiting for the next `pane-status-changed`.
 #[tauri::command]
-pub fn mux_get_state(state: State<'_, MuxState>) -> Result<MultiplexerSnapshot, String> {
-    Ok(state.read().snapshot())
+pub fn mux_get_state(
+    state: State<'_, MuxState>,
+    tracker: State<'_, crate::AgentTrackerState>,
+) -> Result<MultiplexerSnapshot, String> {
+    Ok(state.read().snapshot_with_status(&tracker.lock()))
 }
 
 /// Create a new workspace.
@@ -116,8 +120,6 @@ pub fn mux_create_tab(
     eager: Option<bool>,
 ) -> Result<TabInfo, String> {
     let (tab_id, pane_id) = svc.create_tab(&workspace_id)?;
-    // User-created tabs are Orchestrators by default (can spawn agents)
-    let _ = svc.set_pane_role(&pane_id, "Orchestrator", None, Some(true));
     if eager.unwrap_or(false) {
         svc.ensure_pane_pty_for_send(&pane_id)?;
     }
@@ -415,6 +417,17 @@ pub fn mux_spawn_pane(
     svc.spawn_pane_atomic(params)
 }
 
+/// Paired creation (task_7e5f9354): desktop twin of `codeterm orchestration
+/// new` / `POST /api/orchestration/new` — all three call
+/// `ServiceContext::create_orchestration_pair`.
+#[tauri::command]
+pub async fn mux_create_orchestration_pair(
+    svc: State<'_, ServiceState>,
+    params: crate::service::OrchestrationPairParams,
+) -> Result<crate::service::OrchestrationPairResult, String> {
+    svc.create_orchestration_pair(params).await
+}
+
 // ── Agent Hierarchy Commands ─────────────────────────────────────────
 
 /// Set a pane's orchestration role.
@@ -432,6 +445,12 @@ pub fn mux_set_pane_role(
 #[tauri::command]
 pub fn mux_clear_pane_role(svc: State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
     svc.clear_pane_role(&pane_id)
+}
+
+/// Promote a pane to Orchestrator and inject the onboarding cheat-sheet.
+#[tauri::command]
+pub fn mux_make_orchestrator(svc: State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
+    svc.make_orchestrator(&pane_id)
 }
 
 /// Toggle whether a pane can spawn child agents.

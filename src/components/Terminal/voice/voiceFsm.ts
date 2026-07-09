@@ -79,7 +79,6 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
       }
       if (phase === "hold") {
         if (isDragUpGesture(state.startX, state.startY, x, y)) {
-          // Drag-up threshold crossed → latch hands-free
           return { ...state, phase: "locked", cancelArmed: false, ptrX: x, ptrY: y };
         }
         return {
@@ -98,11 +97,9 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
         return { ...state, releasedDuringStart: true };
       }
       if (phase === "locked") {
-        // Releasing pointer in locked is a no-op — recording continues hands-free
         return state;
       }
       if (phase === "hold") {
-        // Caller reads cancelArmed before dispatching to decide cancel vs finish
         return { ...state, busy: true };
       }
       return state;
@@ -126,7 +123,6 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
         return { ...state, phase: "locked", cancelArmed: false };
       }
       if (state.releasedDuringStart) {
-        // Quick tap: recording started but finger already released — hook fires finishVoice
         return { ...state, phase: "hold", busy: true };
       }
       return { ...state, phase: "hold" };

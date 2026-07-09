@@ -1,1 +1,0 @@
-Per §23.6: far=wheel pans canvas (no intercept); near/focused (camera scale > ~1.0)=wheel scrolls the node body, releases at boundary. Gentle, no trap, no annoyance.

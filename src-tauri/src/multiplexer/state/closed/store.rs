@@ -7,7 +7,7 @@ use rusqlite::{params, Connection};
 
 use crate::multiplexer::types::{ClosedPane, PaneBacking};
 
-const CURRENT_CLOSED_SCHEMA_VERSION: u32 = 1;
+const CURRENT_CLOSED_SCHEMA_VERSION: u32 = 3;
 
 /// Per-workspace cap on retained closed panes; oldest fall off once exceeded.
 pub const RECENTLY_CLOSED_CAP: usize = 1000;
@@ -116,7 +116,15 @@ impl ClosedPanesStore {
             match version {
                 0 => {
                     Self::create_v1_schema(conn)?;
-                    version = 1;
+                    version = CURRENT_CLOSED_SCHEMA_VERSION;
+                }
+                1 => {
+                    Self::migrate_v2_add_chat_view(conn)?;
+                    version = 2;
+                }
+                2 => {
+                    Self::migrate_v3_add_role_profile(conn)?;
+                    version = 3;
                 }
                 CURRENT_CLOSED_SCHEMA_VERSION => return Ok(()),
                 _ => return Err(rusqlite::Error::InvalidQuery),
@@ -148,7 +156,9 @@ impl ClosedPanesStore {
                 cwd              TEXT,
                 agent_type       TEXT,
                 agent_session_id TEXT,
+                role_profile     TEXT,
                 model            TEXT,
+                chat_view        INTEGER NOT NULL DEFAULT 0,
                 workspace_id     TEXT NOT NULL DEFAULT '',
                 workspace_name   TEXT NOT NULL DEFAULT '',
                 closed_at        INTEGER NOT NULL DEFAULT 0
@@ -161,7 +171,25 @@ impl ClosedPanesStore {
             CREATE INDEX IF NOT EXISTS idx_closed_pane_recent
                 ON closed_pane(closed_at DESC);
 
-            PRAGMA user_version = 1;
+            PRAGMA user_version = 3;
+            "#,
+        )
+    }
+
+    fn migrate_v2_add_chat_view(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(
+            r#"
+            ALTER TABLE closed_pane ADD COLUMN chat_view INTEGER NOT NULL DEFAULT 0;
+            PRAGMA user_version = 2;
+            "#,
+        )
+    }
+
+    fn migrate_v3_add_role_profile(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(
+            r#"
+            ALTER TABLE closed_pane ADD COLUMN role_profile TEXT;
+            PRAGMA user_version = 3;
             "#,
         )
     }
@@ -208,8 +236,8 @@ impl ClosedPanesStore {
                 r#"
                 INSERT INTO closed_pane
                     (group_id, pane_id, parent_pane_id, title, description, backing_json,
-                     cwd, agent_type, agent_session_id, model, workspace_id, workspace_name, closed_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                     cwd, agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
                 "#,
                 params![
                     group.group_id,
@@ -221,7 +249,9 @@ impl ClosedPanesStore {
                     pane.cwd,
                     pane.agent_type,
                     pane.agent_session_id,
+                    pane.role_profile,
                     pane.model,
+                    if pane.chat_view { 1 } else { 0 },
                     pane.workspace_id,
                     pane.workspace_name,
                     pane.closed_at as i64,
@@ -258,6 +288,11 @@ impl ClosedPanesStore {
     }
 
     /// Delete oldest whole groups (and their panes) beyond `cap`.
+    ///
+    /// Ties on `closed_at` (same millisecond) break on `rowid DESC`, matching
+    /// insertion order — `group_id` (a ULID) has a random tail on collision and
+    /// would rank ties differently from `trim_workspace`'s `id DESC` on
+    /// `closed_pane`, letting the two caps disagree on which rows survive.
     fn trim_global_groups(conn: &Connection, cap: usize) -> Result<(), String> {
         conn.execute(
             r#"
@@ -266,7 +301,7 @@ impl ClosedPanesStore {
                 SELECT group_id FROM closed_group
                 WHERE group_id NOT IN (
                     SELECT group_id FROM closed_group
-                    ORDER BY closed_at DESC, group_id DESC
+                    ORDER BY closed_at DESC, rowid DESC
                     LIMIT ?1
                 )
             )
@@ -279,7 +314,7 @@ impl ClosedPanesStore {
             DELETE FROM closed_group
             WHERE group_id NOT IN (
                 SELECT group_id FROM closed_group
-                ORDER BY closed_at DESC, group_id DESC
+                ORDER BY closed_at DESC, rowid DESC
                 LIMIT ?1
             )
             "#,
@@ -305,7 +340,7 @@ impl ClosedPanesStore {
         let mut stmt = match conn.prepare(
             r#"
             SELECT pane_id, parent_pane_id, title, description, backing_json, cwd,
-                   agent_type, agent_session_id, model, workspace_id, workspace_name, closed_at
+                   agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at
             FROM closed_pane
             WHERE workspace_id = ?1
             ORDER BY closed_at DESC, id DESC
@@ -328,7 +363,7 @@ impl ClosedPanesStore {
         let mut stmt = match conn.prepare(
             r#"
             SELECT p.group_id, g.kind, p.pane_id, p.parent_pane_id, p.title, p.description,
-                   p.backing_json, p.cwd, p.agent_type, p.agent_session_id, p.model,
+                   p.backing_json, p.cwd, p.agent_type, p.agent_session_id, p.role_profile, p.model, p.chat_view,
                    p.workspace_id, p.workspace_name, p.closed_at
             FROM closed_pane p
             JOIN closed_group g ON g.group_id = p.group_id
@@ -367,7 +402,7 @@ impl ClosedPanesStore {
         conn.query_row(
             r#"
                 SELECT id, pane_id, parent_pane_id, title, description, backing_json, cwd,
-                       agent_type, agent_session_id, model, workspace_id, workspace_name, closed_at
+                       agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at
                 FROM closed_pane
                 WHERE workspace_id = ?1
                 ORDER BY closed_at DESC, id DESC
@@ -420,7 +455,7 @@ impl ClosedPanesStore {
         conn.query_row(
             r#"
                 SELECT id, pane_id, parent_pane_id, title, description, backing_json, cwd,
-                       agent_type, agent_session_id, model, workspace_id, workspace_name, closed_at
+                       agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at
                 FROM closed_pane
                 WHERE pane_id = ?1
                 ORDER BY closed_at DESC, id DESC
@@ -470,7 +505,7 @@ impl ClosedPanesStore {
                 .prepare(
                     r#"
                     SELECT pane_id, parent_pane_id, title, description, backing_json, cwd,
-                           agent_type, agent_session_id, model, workspace_id, workspace_name, closed_at
+                           agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at
                     FROM closed_pane WHERE group_id = ?1
                     ORDER BY closed_at DESC, id DESC
                     "#,
@@ -527,10 +562,12 @@ impl ClosedPanesStore {
             cwd: r.get(base + 5).ok().flatten(),
             agent_type: r.get(base + 6).ok().flatten(),
             agent_session_id: r.get(base + 7).ok().flatten(),
-            model: r.get(base + 8).ok().flatten(),
-            workspace_id: r.get(base + 9).unwrap_or_default(),
-            workspace_name: r.get(base + 10).unwrap_or_default(),
-            closed_at: r.get::<_, i64>(base + 11).unwrap_or(0) as u64,
+            role_profile: r.get(base + 8).ok().flatten(),
+            model: r.get(base + 9).ok().flatten(),
+            chat_view: r.get::<_, i64>(base + 10).unwrap_or(0) != 0,
+            workspace_id: r.get(base + 11).unwrap_or_default(),
+            workspace_name: r.get(base + 12).unwrap_or_default(),
+            closed_at: r.get::<_, i64>(base + 13).unwrap_or(0) as u64,
         }
     }
 }
@@ -549,7 +586,9 @@ mod tests {
             cwd: None,
             agent_type: None,
             agent_session_id: None,
+            role_profile: None,
             model: None,
+            chat_view: false,
             closed_at,
             workspace_id: ws.into(),
             workspace_name: "WS".into(),
@@ -626,13 +665,11 @@ mod tests {
                 &[pane("newer", "w", "newer", 2)],
             )
             .unwrap();
-        // index 1 = the older one
         let taken = store.take_in_workspace("w", 1).unwrap();
         assert_eq!(taken.pane_id, "older");
         let rest = store.list_for_workspace("w");
         assert_eq!(rest.len(), 1);
         assert_eq!(rest[0].pane_id, "newer");
-        // group with no remaining panes is pruned
         assert!(store.take_group("g1").is_none());
     }
 
@@ -664,7 +701,6 @@ mod tests {
         assert!(panes
             .iter()
             .any(|p| p.parent_pane_id.as_deref() == Some("root")));
-        // consumed
         assert!(store.list_for_workspace("w").is_empty());
     }
 
@@ -785,6 +821,61 @@ mod tests {
     }
 
     #[test]
+    fn v1_database_migrates_with_terminal_mode_default() {
+        let db = temp_db();
+        {
+            std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+            let conn = Connection::open(&db).unwrap();
+            conn.execute_batch(
+                r#"
+                CREATE TABLE closed_group (
+                    group_id TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL DEFAULT 'single',
+                    label TEXT NOT NULL DEFAULT '',
+                    workspace_id TEXT NOT NULL DEFAULT '',
+                    workspace_name TEXT NOT NULL DEFAULT '',
+                    workspace_cwd TEXT,
+                    closed_at INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE TABLE closed_pane (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id TEXT NOT NULL,
+                    pane_id TEXT NOT NULL DEFAULT '',
+                    parent_pane_id TEXT,
+                    title TEXT NOT NULL DEFAULT '',
+                    description TEXT,
+                    backing_json TEXT NOT NULL DEFAULT '{"kind":"pty"}',
+                    cwd TEXT,
+                    agent_type TEXT,
+                    agent_session_id TEXT,
+                    model TEXT,
+                    workspace_id TEXT NOT NULL DEFAULT '',
+                    workspace_name TEXT NOT NULL DEFAULT '',
+                    closed_at INTEGER NOT NULL DEFAULT 0
+                );
+                INSERT INTO closed_group (group_id, kind, label, workspace_id, workspace_name, closed_at)
+                VALUES ('g1', 'single', 'old', 'w', 'WS', 1);
+                INSERT INTO closed_pane (group_id, pane_id, title, backing_json, agent_type, workspace_id, workspace_name, closed_at)
+                VALUES ('g1', 'p1', 'old pane', '{"kind":"pty"}', 'codex', 'w', 'WS', 1);
+                PRAGMA user_version = 1;
+                "#,
+            )
+            .unwrap();
+        }
+
+        let store = ClosedPanesStore::open_at(&db).unwrap();
+        let list = store.list_for_workspace("w");
+        assert_eq!(list.len(), 1);
+        assert!(!list[0].chat_view);
+        let conn = Connection::open(&db).unwrap();
+        assert_eq!(
+            ClosedPanesStore::user_version(&conn).unwrap(),
+            CURRENT_CLOSED_SCHEMA_VERSION
+        );
+        std::fs::remove_dir_all(db.parent().unwrap()).ok();
+    }
+
+    #[test]
     fn survives_drop_and_reopen() {
         let db = temp_db();
         {
@@ -812,7 +903,6 @@ mod tests {
     fn global_group_cap_drops_oldest_groups() {
         let store = ClosedPanesStore::in_memory();
         for i in 0..(CLOSED_GROUP_CAP + 3) {
-            // each in its own workspace so per-workspace cap never fires
             let ws = format!("w{i}");
             store
                 .insert_group(
@@ -823,7 +913,6 @@ mod tests {
         }
         let total: usize = store.list_recent(CLOSED_GROUP_CAP + 100).len();
         assert_eq!(total, CLOSED_GROUP_CAP, "global group cap bounds total");
-        // oldest workspace gone
         assert!(store.list_for_workspace("w0").is_empty());
     }
 

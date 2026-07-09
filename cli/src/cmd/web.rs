@@ -34,7 +34,6 @@ fn link(
         link_peer(json_mode, &base, &peer, query);
         return;
     }
-    // The link must embed the STABLE api.token from config.toml — never the signed mesh token read_api_config prefers (those expire in ~60s and
     // are nonce-protected against replay, i.e. dead on first reuse).
     let Some(token) = config_api_token().filter(|t| !t.is_empty()) else {
         eprintln!("Error: no api.token in config — web access needs one (Settings → Network).");

@@ -16,7 +16,7 @@ pub struct SpecFileManifest {
 }
 
 pub fn spec_body_dir(spec: &Spec) -> std::io::Result<PathBuf> {
-    super::paths::specs_dir(Path::new(&spec.project_path)).map(|dir| dir.join(&spec.id))
+    super::paths::specs_dir(canonical_project_path(spec)).map(|dir| dir.join(&spec.id))
 }
 
 pub fn section_path(spec: &Spec, section_id: &str) -> std::io::Result<PathBuf> {
@@ -62,7 +62,7 @@ pub fn body_paths(spec: &Spec) -> std::io::Result<Vec<PathBuf>> {
 }
 
 pub fn file_manifest(spec: &Spec) -> std::io::Result<SpecFileManifest> {
-    let project = Path::new(&spec.project_path);
+    let project = canonical_project_path(spec);
     let entries = index_entries(spec)?
         .into_iter()
         .map(|entry| SpecFileEntry {
@@ -75,6 +75,14 @@ pub fn file_manifest(spec: &Spec) -> std::io::Result<SpecFileManifest> {
         index_path: project_relative(project, &index_path(spec)?),
         entries,
     })
+}
+
+fn canonical_project_path(spec: &Spec) -> &Path {
+    if spec.canonical_project_path.trim().is_empty() {
+        Path::new(&spec.project_path)
+    } else {
+        Path::new(&spec.canonical_project_path)
+    }
 }
 
 pub fn spec_markdown(spec: &Spec) -> String {

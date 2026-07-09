@@ -31,7 +31,8 @@ function planBelongsToWorkspacePath(entry: PlanIndexEntry, workspace: Workspace)
   if (!workspace.cwd) return false;
   const root = normalizePath(workspace.cwd);
   const file = normalizePath(entry.file_path);
-  return file === `${root}/.codeterm/plans/${entry.plan_id}.json`
+  return file === `${root}/.codeterm/plans/active/${entry.plan_id}/plan.json`
+    || file === `${root}/.codeterm/plans/archive/${entry.plan_id}/plan.json`
     || file.startsWith(`${root}/.codeterm/plans/`);
 }
 
@@ -72,14 +73,12 @@ export function workspacePlanEntryPrimaryTitle(entries: PlanIndexEntry[]): strin
   return entries[0]?.title.trim() || "Untitled plan";
 }
 
-// Tiny progress hint from the cheap index. DATA-DEP: the index carries no
-// done/total split, so this is a SIZE hint (task/section/element count), not %
-// completion — wire a per-plan progress field to upgrade to "3/12".
 export function workspacePlanEntryHint(entries: PlanIndexEntry[]): string | null {
   const e = entries[0];
   if (!e) return null;
   const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
-  if ((e.task_count ?? 0) > 0) return count(e.task_count as number, "task");
+  const openTasks = typeof e.open_task_count === "number" ? e.open_task_count : (e.task_count ?? 0);
+  if (openTasks > 0) return count(openTasks, "task");
   if ((e.section_count ?? 0) > 0) return count(e.section_count as number, "section");
   if ((e.element_count ?? 0) > 0) return count(e.element_count as number, "item");
   return null;
@@ -110,6 +109,40 @@ export function openWorkspacePlanForEntries(entries: readonly PlanIndexEntry[]):
   openWorkspacePlanCanvas({
     planId: entries.length === 1 ? entries[0].plan_id : undefined,
   });
+}
+
+/** Workspace whose cwd owns this plan's file path, or null when unknown. */
+export function findPlanOwnerWorkspace(
+  planId: string,
+  index: readonly PlanIndexEntry[],
+  workspaces: readonly Workspace[],
+): { workspace: Workspace; entry: PlanIndexEntry } | null {
+  const entry = index.find((e) => e.plan_id === planId);
+  if (!entry) return null;
+  for (const workspace of workspaces) {
+    if (planBelongsToWorkspacePath(entry, workspace)) return { workspace, entry };
+  }
+  return null;
+}
+
+export interface OpenPlanDeepLinkCtx {
+  index: readonly PlanIndexEntry[];
+  workspaces: readonly Workspace[];
+  activeWorkspaceId: string | null;
+  setActiveWorkspace: (id: string) => void;
+  onMissing?: (planId: string) => void;
+}
+
+/** Deep-link from chat: switch to the owning workspace and open the plan focused on a task. */
+export function openPlanDeepLink(planId: string, taskId: string | undefined, ctx: OpenPlanDeepLinkCtx): boolean {
+  const owner = findPlanOwnerWorkspace(planId, ctx.index, ctx.workspaces);
+  if (!owner) {
+    ctx.onMissing?.(planId);
+    return false;
+  }
+  if (owner.workspace.id !== ctx.activeWorkspaceId) ctx.setActiveWorkspace(owner.workspace.id);
+  openWorkspacePlanCanvas({ planId, nodeIds: taskId ? [taskId] : undefined });
+  return true;
 }
 
 export function resolveWorkspaceFocusNodeIds(

@@ -1,4 +1,3 @@
-// Run: npx tsx packages/chat-core/src/sessionReset.test.ts
 import { lastSessionResetIndex, trimAfterSessionReset } from "./sessionReset";
 import type { NormalizedChatMessage } from "./types";
 
@@ -50,7 +49,6 @@ function msg(id: string, type: NormalizedChatMessage["type"], content: string): 
   eq(trimAfterSessionReset(messages).map((m) => m.id), ["u1", "a1"], "non-command text is preserved");
 }
 
-// local_command type: backend-normalized form of <command-name>/new</command-name>
 {
   const messages = [
     msg("u1", "user", "some work"),
@@ -72,7 +70,6 @@ function msg(id: string, type: NormalizedChatMessage["type"], content: string): 
   eq(lastSessionResetIndex(messages), 1, "local_command bare 'new' recognized as reset marker");
 }
 
-// local_command /clear
 {
   const messages = [
     msg("u1", "user", "hello"),
@@ -85,7 +82,6 @@ function msg(id: string, type: NormalizedChatMessage["type"], content: string): 
   eq(trimAfterSessionReset(messages).map((m) => m.id), ["lc2", "a2"], "trims to latest local_command /new");
 }
 
-// local_command mixed with user type — latest reset across both types wins
 {
   const messages = [
     msg("u1", "user", "/clear"),
@@ -97,7 +93,6 @@ function msg(id: string, type: NormalizedChatMessage["type"], content: string): 
   eq(trimAfterSessionReset(messages).map((m) => m.id), ["lc1", "a2"], "latest reset (local_command) trims correctly");
 }
 
-// local_command non-reset command is not treated as reset
 {
   const messages = [
     msg("u1", "user", "hello"),

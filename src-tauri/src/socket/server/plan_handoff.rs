@@ -9,7 +9,7 @@ use crate::service::plan::handoff::{HandoffCreateRequest, HandoffReseedRequest};
 use crate::service::plan::PlanError;
 use crate::service::ServiceState;
 
-use super::{get_string_param, JsonRpcError};
+use super::JsonRpcError;
 
 fn epoch_ms() -> u64 {
     SystemTime::now()
@@ -74,7 +74,7 @@ pub(super) fn dispatch(
 
     match method {
         "plan.handoff.create" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = super::plan_refs::resolve_plan(store, params)?;
             let body = p.ok_or(JsonRpcError {
                 code: -32602,
                 message: "params required".to_string(),
@@ -97,7 +97,7 @@ pub(super) fn dispatch(
             })
         }
         "plan.handoff.list" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = super::plan_refs::resolve_plan(store, params)?;
             let result = store.list_handoffs(&id).map_err(plan_rpc_err)?;
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,
@@ -106,7 +106,7 @@ pub(super) fn dispatch(
             })
         }
         "plan.handoff.show" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = super::plan_refs::resolve_plan(store, params)?;
             let selector = p.and_then(|x| x.get("selector")).and_then(|v| v.as_str());
             let result = store.show_handoff(&id, selector).map_err(plan_rpc_err)?;
             serde_json::to_value(result).map_err(|e| JsonRpcError {
@@ -116,7 +116,7 @@ pub(super) fn dispatch(
             })
         }
         "plan.handoff.reseed" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = super::plan_refs::resolve_plan(store, params)?;
             let body = p.ok_or(JsonRpcError {
                 code: -32602,
                 message: "params required".to_string(),

@@ -85,6 +85,19 @@ fn test_spawn_agent_params_from_json_minimal() {
 }
 
 #[test]
+fn spawn_agent_params_from_json_maps_planner_to_worker_profile() {
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "role": "Planner",
+        "plan_id": "pl_test",
+    }))
+    .unwrap();
+    assert_eq!(params.role.as_deref(), Some("Worker"));
+    assert_eq!(params.role_profile.as_deref(), Some("planner"));
+    assert_eq!(params.plan_id.as_deref(), Some("pl_test"));
+}
+
+#[test]
 fn test_spawn_agent_params_parent_alias() {
     let json = serde_json::json!({"parent": "pane-abc"});
     let params = SpawnAgentParams::from_json(&json).unwrap();
@@ -161,23 +174,30 @@ fn test_batch_op_no_id() {
     assert!(op.id.is_none());
 }
 
-// `emit_state_changed` coalesces emits over a 50ms window. The snapshot that
-// gets emitted MUST be read AFTER the window so a fast follow-up mutation that
 #[test]
 fn coalesce_snapshot_reflects_latest_mutation_in_window() {
+    use crate::agent::status::PaneStatusTracker;
+    use crate::lock_hold::{TimedMutex, TimedRwLock};
     use crate::multiplexer::state::MultiplexerState;
-    use parking_lot::RwLock;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
-    let mux: MuxState = Arc::new(RwLock::new(MultiplexerState::empty()));
+    let mux: MuxState = Arc::new(TimedRwLock::new("mux", MultiplexerState::empty()));
+    let agent_tracker: AgentTrackerState =
+        Arc::new(TimedMutex::new("agent_tracker", PaneStatusTracker::new()));
     let pending = Arc::new(AtomicBool::new(true));
 
     let mux_clone = mux.clone();
+    let agent_tracker_clone = agent_tracker.clone();
     let pending_clone = pending.clone();
     let handle = std::thread::spawn(move || {
-        ServiceContext::coalesce_snapshot(&mux_clone, &pending_clone, Duration::from_millis(80))
+        ServiceContext::coalesce_snapshot(
+            &mux_clone,
+            &agent_tracker_clone,
+            &pending_clone,
+            Duration::from_millis(80),
+        )
     });
 
     // Both mutations land well inside the single coalesce window.
@@ -186,7 +206,6 @@ fn coalesce_snapshot_reflects_latest_mutation_in_window() {
 
     let snapshot = handle.join().unwrap();
 
-    // Read happened AFTER the window, so the payload reflects BOTH mutations —
     // the latest being "second".
     assert_eq!(
         snapshot.workspaces.len(),
@@ -196,4 +215,37 @@ fn coalesce_snapshot_reflects_latest_mutation_in_window() {
     assert_eq!(snapshot.workspaces.last().unwrap().name, "second");
     // Pending flag cleared so a mutation after the window starts a fresh one.
     assert!(!pending.load(Ordering::Acquire));
+}
+
+#[test]
+fn focus_pane_hot_path_does_not_refresh_agent_model_inline() {
+    use crate::lock_hold::TimedRwLock;
+    use crate::multiplexer::state::MultiplexerState;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let mux: MuxState = Arc::new(TimedRwLock::new("mux", MultiplexerState::empty()));
+    let pane_id = mux.write().create_pane();
+    let emitted = Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
+    let scheduled = Arc::new(AtomicUsize::new(0));
+
+    crate::service::pane::focus_pane_hot_path(
+        &mux,
+        &pane_id,
+        {
+            let emitted = emitted.clone();
+            move |focused| emitted.lock().push(focused.to_string())
+        },
+        {
+            let scheduled = scheduled.clone();
+            move || {
+                scheduled.fetch_add(1, Ordering::SeqCst);
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(mux.read().get_focused_pane_id(), Some(pane_id.as_str()));
+    assert_eq!(*emitted.lock(), vec![pane_id.clone()]);
+    assert_eq!(scheduled.load(Ordering::SeqCst), 1);
 }

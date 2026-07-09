@@ -40,7 +40,6 @@ export {
 } from "./lineage";
 export type { PlanLineageEdge, PlanLineageTarget } from "./lineage";
 
-// Top-level deterministic layout (§6.1): only active plans, intra-plan cascade
 // then region packing. Same data + settings → identical positions.
 export function layoutWorkspace(
   plans: Plan[],

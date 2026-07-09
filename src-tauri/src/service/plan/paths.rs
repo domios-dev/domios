@@ -1,19 +1,12 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::process_util;
+
 pub fn project_root(cwd: &Path) -> PathBuf {
     #[cfg(test)]
     if test_project_root_marker(cwd).is_some() {
         return cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
-    }
-    // A linked worktree that carries its OWN .codeterm (plans committed per-branch and
-    // checked out with the branch) owns its plan store; otherwise worktrees fall back to
-    // sharing the main worktree's store. Without this a feature-branch worktree's committed
-    // plans are invisible because resolution jumps to the main worktree (different branch).
-    if let Some(top) = worktree_top(cwd) {
-        if top.join(".codeterm").is_dir() {
-            return top;
-        }
     }
     if let Some(root) = main_worktree_root(cwd) {
         return root;
@@ -25,7 +18,9 @@ pub fn project_root(cwd: &Path) -> PathBuf {
 }
 
 fn worktree_top(cwd: &Path) -> Option<PathBuf> {
-    let out = Command::new("git")
+    let mut cmd = Command::new("git");
+    process_util::no_window_std(&mut cmd);
+    let out = cmd
         .current_dir(cwd)
         .args(["rev-parse", "--show-toplevel"])
         .output()
@@ -65,7 +60,9 @@ fn test_project_root_marker(cwd: &Path) -> Option<PathBuf> {
 }
 
 fn main_worktree_root(cwd: &Path) -> Option<PathBuf> {
-    let out = Command::new("git")
+    let mut cmd = Command::new("git");
+    process_util::no_window_std(&mut cmd);
+    let out = cmd
         .current_dir(cwd)
         .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
         .output()
@@ -91,6 +88,108 @@ pub fn plans_dir(project: &Path) -> std::io::Result<PathBuf> {
     Ok(dir)
 }
 
+pub fn plan_bucket_dir(
+    project: &Path,
+    status: &crate::plan::PlanStatus,
+) -> std::io::Result<PathBuf> {
+    let dir = plans_dir(project)?.join(plan_bucket(status));
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+pub fn plan_dir(
+    project: &Path,
+    status: &crate::plan::PlanStatus,
+    plan_id: &str,
+) -> std::io::Result<PathBuf> {
+    let stem = if plan_id == crate::plan::INBOX_PLAN_ID {
+        crate::plan::INBOX_PLAN_FILE_STEM
+    } else {
+        plan_id
+    };
+    let dir = plan_bucket_dir(project, status)?.join(stem);
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+pub fn plan_json_path(
+    project: &Path,
+    status: &crate::plan::PlanStatus,
+    plan_id: &str,
+) -> std::io::Result<PathBuf> {
+    Ok(plan_dir(project, status, plan_id)?.join("plan.json"))
+}
+
+pub fn plan_json_path_unchecked(
+    project: &Path,
+    status: &crate::plan::PlanStatus,
+    plan_id: &str,
+) -> PathBuf {
+    let stem = if plan_id == crate::plan::INBOX_PLAN_ID {
+        crate::plan::INBOX_PLAN_FILE_STEM
+    } else {
+        plan_id
+    };
+    project
+        .join(".codeterm")
+        .join("plans")
+        .join(plan_bucket(status))
+        .join(stem)
+        .join("plan.json")
+}
+
+pub fn plan_sidecar_root(plan: &crate::plan::Plan) -> &Path {
+    if plan.canonical_project_path.trim().is_empty() {
+        Path::new(&plan.project_path)
+    } else {
+        Path::new(&plan.canonical_project_path)
+    }
+}
+
+pub fn spec_sidecar_root(spec: &crate::plan::Spec) -> &Path {
+    if spec.canonical_project_path.trim().is_empty() {
+        Path::new(&spec.project_path)
+    } else {
+        Path::new(&spec.canonical_project_path)
+    }
+}
+
+pub fn normalize_plan_paths(plan: &mut crate::plan::Plan, root_path: &Path) {
+    let root = root_path.display().to_string();
+    plan.project_path = root.clone();
+    if plan.canonical_project_path.trim().is_empty() {
+        plan.canonical_project_path = root;
+    } else {
+        plan.canonical_project_path = normalize_canonical_home(&plan.canonical_project_path, &root);
+    }
+}
+
+pub fn normalize_spec_paths(spec: &mut crate::plan::Spec, root_path: &Path) {
+    let root = root_path.display().to_string();
+    spec.project_path = root.clone();
+    if spec.canonical_project_path.trim().is_empty() {
+        spec.canonical_project_path = root;
+    } else {
+        spec.canonical_project_path = normalize_canonical_home(&spec.canonical_project_path, &root);
+    }
+}
+
+fn normalize_canonical_home(raw: &str, fallback: &str) -> String {
+    let path = Path::new(raw);
+    if path.is_dir() {
+        project_root(path).display().to_string()
+    } else {
+        fallback.to_string()
+    }
+}
+
+pub fn plan_bucket(status: &crate::plan::PlanStatus) -> &'static str {
+    match status {
+        crate::plan::PlanStatus::Archived => "archive",
+        _ => "active",
+    }
+}
+
 pub fn specs_dir(project: &Path) -> std::io::Result<PathBuf> {
     let dir = project.join(".codeterm").join("specs");
     std::fs::create_dir_all(&dir)?;
@@ -102,11 +201,9 @@ mod tests {
     use super::*;
 
     fn run_git(cwd: &Path, args: &[&str]) {
-        let out = Command::new("git")
-            .current_dir(cwd)
-            .args(args)
-            .output()
-            .unwrap();
+        let mut cmd = Command::new("git");
+        process_util::no_window_std(&mut cmd);
+        let out = cmd.current_dir(cwd).args(args).output().unwrap();
         assert!(
             out.status.success(),
             "git {:?} failed: {}",
@@ -146,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn project_root_prefers_linked_worktree_with_own_codeterm() {
+    fn project_root_ignores_linked_worktree_codeterm_for_plan_sidecars() {
         let tmp = tempfile::tempdir().unwrap();
         let main = tmp.path().join("main");
         let linked = tmp.path().join("linked");
@@ -168,9 +265,8 @@ mod tests {
             ],
         );
 
-        // The linked worktree carries its own committed plans -> it owns its plan store.
         std::fs::create_dir_all(linked.join(".codeterm").join("plans")).unwrap();
 
-        assert_eq!(project_root(&linked), linked.canonicalize().unwrap());
+        assert_eq!(project_root(&linked), main.canonicalize().unwrap());
     }
 }

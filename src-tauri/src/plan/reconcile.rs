@@ -1,10 +1,56 @@
 use super::{Plan, Task, TaskStatus};
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_STALE_REVIEW_MS: u64 = 30 * 60 * 1000;
+pub const PENDING_UNSTAFFED_STALE_MS: u64 = 4 * 60 * 60 * 1000;
+pub const IN_REVIEW_UNJUDGED_STALE_MS: u64 = 2 * 60 * 60 * 1000;
+pub const DEFAULT_STALE_REVIEW_MS: u64 = IN_REVIEW_UNJUDGED_STALE_MS;
 pub const NEEDS_REASSIGN_LABEL: &str = "needs-reassign";
 pub const STALE_REVIEW_LABEL: &str = "stale-review";
+pub const STALE_UNSTAFFED_LABEL: &str = "stale-unstaffed";
 pub const PANE_GONE_LABEL: &str = "pane-gone";
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgedOpenTask {
+    pub task_id: String,
+    pub name: String,
+    pub status: TaskStatus,
+    pub age_ms: u64,
+}
+
+// non-open (terminal/parked) statuses.
+pub fn stale_threshold_ms(status: &TaskStatus) -> Option<u64> {
+    match status {
+        TaskStatus::InReview => Some(IN_REVIEW_UNJUDGED_STALE_MS),
+        TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::Blocked => {
+            Some(PENDING_UNSTAFFED_STALE_MS)
+        }
+        _ => None,
+    }
+}
+
+// Open tasks that have idled past their status threshold, newest drift first.
+pub fn aged_open_tasks(plan: &Plan, now_ms: u64) -> Vec<AgedOpenTask> {
+    let mut aged: Vec<AgedOpenTask> = plan
+        .tasks
+        .iter()
+        .filter(|task| task.status.counts_as_open_work())
+        .filter_map(|task| {
+            let threshold = stale_threshold_ms(&task.status)?;
+            if task.status_changed_at == 0 {
+                return None;
+            }
+            let age = now_ms.saturating_sub(task.status_changed_at);
+            (age > threshold).then(|| AgedOpenTask {
+                task_id: task.id.clone(),
+                name: task.name.clone(),
+                status: task.status.clone(),
+                age_ms: age,
+            })
+        })
+        .collect();
+    aged.sort_by(|a, b| b.age_ms.cmp(&a.age_ms));
+    aged
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaneRole {
@@ -42,6 +88,7 @@ impl ReconcileConfig {
 pub enum DriftKind {
     InProgressPaneGone,
     StaleInReview,
+    StalePendingUnstaffed,
     BoundToClosedPane,
     AcceptedButNotDone,
 }
@@ -63,10 +110,16 @@ where
 {
     let mut items = Vec::new();
     for task in &plan.tasks {
-        let pane = task
+        let assigned_pane = task
             .assigned_pane_id
             .as_deref()
-            .map(|pane_id| (pane_id, pane_probe(pane_id)));
+            .map(str::trim)
+            .filter(|pane_id| !pane_id.is_empty());
+        let pane = if is_terminal_task_status(&task.status) {
+            None
+        } else {
+            assigned_pane.map(|pane_id| (pane_id, pane_probe(pane_id)))
+        };
         let not_mine = pane
             .as_ref()
             .is_some_and(|(_, probe)| assigned_to_other_orchestrator(probe, config));
@@ -118,6 +171,24 @@ where
             ));
         }
 
+        if task.status == TaskStatus::Pending
+            && pane.is_none()
+            && task.status_changed_at > 0
+            && config.now_ms.saturating_sub(task.status_changed_at) > PENDING_UNSTAFFED_STALE_MS
+        {
+            items.push(item(
+                plan,
+                task,
+                DriftKind::StalePendingUnstaffed,
+                format!(
+                    "task has been pending and unstaffed for {} ms",
+                    config.now_ms.saturating_sub(task.status_changed_at)
+                ),
+                STALE_UNSTAFFED_LABEL,
+                not_mine,
+            ));
+        }
+
         if let Some((pane_id, probe)) = pane.as_ref() {
             if !probe.exists {
                 items.push(item(
@@ -146,9 +217,14 @@ where
 }
 
 pub fn detect_pane_gone(plan: &Plan, pane_id: &str) -> Vec<DriftItem> {
+    let pane_id = pane_id.trim();
+    if pane_id.is_empty() {
+        return Vec::new();
+    }
     plan.tasks
         .iter()
-        .filter(|task| task.assigned_pane_id.as_deref() == Some(pane_id))
+        .filter(|task| !is_terminal_task_status(&task.status))
+        .filter(|task| task.assigned_pane_id.as_deref().map(str::trim) == Some(pane_id))
         .map(|task| {
             item(
                 plan,
@@ -173,6 +249,10 @@ fn assigned_to_other_orchestrator(probe: &PaneProbe, config: &ReconcileConfig) -
         .current_orchestrator_pane_id
         .as_deref()
         .is_some_and(|mine| parent != mine)
+}
+
+fn is_terminal_task_status(status: &TaskStatus) -> bool {
+    matches!(status, TaskStatus::Done | TaskStatus::Cancelled)
 }
 
 fn has_unambiguous_acceptance_signal(_task: &Task) -> bool {
@@ -213,6 +293,8 @@ mod tests {
             test_plan: None,
             correctness: None,
             status,
+            review_stage: Default::default(),
+            qa_state: None,
             status_label: None,
             priority: TaskPriority::P2,
             created_at: 0,
@@ -222,6 +304,9 @@ mod tests {
             tags: vec![],
             section_ids: vec![],
             body: String::new(),
+            role_guidance: None,
+            executor_role: None,
+            competition: None,
             intent: None,
             parent_task_id: None,
             assigned_pane_id: None,
@@ -231,6 +316,9 @@ mod tests {
             group: None,
             canvas: Default::default(),
             milestones: vec![],
+            execution_attempts: vec![],
+            park_reason: None,
+            attachments: vec![],
         }
     }
 
@@ -276,6 +364,31 @@ mod tests {
     }
 
     #[test]
+    fn detects_stale_pending_unstaffed() {
+        let mut t = task("t1", TaskStatus::Pending);
+        t.status_changed_at = 1;
+        let now = PENDING_UNSTAFFED_STALE_MS + 10;
+        let items = detect_plan_drift(&plan(vec![t]), &cfg(now), |_| PaneProbe::default());
+        assert!(items
+            .iter()
+            .any(|item| item.kind == DriftKind::StalePendingUnstaffed));
+    }
+
+    #[test]
+    fn aged_open_tasks_names_stale_work_and_skips_parked() {
+        let mut pending = task("p1", TaskStatus::Pending);
+        pending.status_changed_at = 1;
+        let mut parked = task("k1", TaskStatus::Parked);
+        parked.status_changed_at = 1;
+        let mut fresh = task("f1", TaskStatus::InReview);
+        fresh.status_changed_at = PENDING_UNSTAFFED_STALE_MS;
+        let now = PENDING_UNSTAFFED_STALE_MS + 10;
+        let aged = aged_open_tasks(&plan(vec![pending, parked, fresh]), now);
+        assert_eq!(aged.len(), 1);
+        assert_eq!(aged[0].task_id, "p1");
+    }
+
+    #[test]
     fn detects_bound_to_closed_pane() {
         let mut t = task("t1", TaskStatus::Pending);
         t.assigned_pane_id = Some("closed".into());
@@ -284,6 +397,24 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(items[0].kind, DriftKind::BoundToClosedPane);
+    }
+
+    #[test]
+    fn ignores_empty_and_terminal_closed_pane_bindings() {
+        let mut empty = task("empty", TaskStatus::Pending);
+        empty.assigned_pane_id = Some(" ".into());
+        let mut done = task("done", TaskStatus::Done);
+        done.assigned_pane_id = Some("closed".into());
+        let mut cancelled = task("cancelled", TaskStatus::Cancelled);
+        cancelled.assigned_pane_id = Some("closed".into());
+        let items = detect_plan_drift(&plan(vec![empty, done, cancelled]), &cfg(2_000), |_| {
+            PaneProbe {
+                exists: false,
+                ..Default::default()
+            }
+        });
+        assert!(items.is_empty());
+        assert!(detect_pane_gone(&plan(vec![]), "").is_empty());
     }
 
     #[test]
@@ -299,6 +430,7 @@ mod tests {
             loop_id: None,
             iteration: None,
             canvas: Default::default(),
+            attachments: vec![],
         });
         let items = detect_plan_drift(&plan(vec![t]), &cfg(2), |_| PaneProbe::default());
         assert!(!items

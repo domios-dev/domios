@@ -8,7 +8,11 @@ use crate::client::SocketClient;
 use crate::cmd::hints::{plan_create_spec_first_hint, push_hints};
 use crate::cmd::plan_errors::render_plan_call_error;
 
+mod adopt_search;
+mod gate_cmd;
+mod qa_cmd;
 mod task_cmd;
+use self::adopt_search::{render_adopt_report, render_plan_search, resolve_source_plan};
 #[cfg(test)]
 use crate::cmd::plan_errors::render_plan_error;
 use crate::cmd::plan_markdown::{render_goal_block, render_plan_markdown};
@@ -49,6 +53,18 @@ pub(crate) fn owner_from_env() -> Value {
     })
 }
 
+pub(crate) fn caller_pane_id() -> Option<String> {
+    std::env::var("CODETERM_PANE_ID").ok()
+}
+
+pub(crate) fn maybe_inject_caller_pane(params: &mut Value) {
+    if let Some(pane) = caller_pane_id() {
+        if let Some(obj) = params.as_object_mut() {
+            obj.insert("caller_pane_id".into(), json!(pane));
+        }
+    }
+}
+
 pub(crate) fn call_plan_rpc(
     client: &mut SocketClient,
     method: &str,
@@ -61,6 +77,27 @@ pub(crate) fn call_plan_rpc(
 
 fn call(client: &mut SocketClient, method: &str, params: Value) -> Result<Value, String> {
     call_plan_rpc(client, method, params)
+}
+
+pub(crate) fn validate_plan_delete_confirmation(plan_id: &str, yes: bool) -> Result<(), String> {
+    if !yes {
+        return Err(format!(
+            "refusing to delete plan '{plan_id}' without --yes; pass --yes or --confirm to permanently delete it"
+        ));
+    }
+    Ok(())
+}
+
+fn plan_delete_params(plan_id: String, yes: bool) -> Result<Value, String> {
+    validate_plan_delete_confirmation(&plan_id, yes)?;
+    Ok(json!({ "plan_id": plan_id }))
+}
+
+fn default_project_path() -> String {
+    std::env::current_dir()
+        .ok()
+        .map(|path| path.display().to_string())
+        .unwrap_or_default()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -148,9 +185,7 @@ fn run_plan(
             if let Some(k) = kinds {
                 params["kinds"] = json!(k);
             }
-            if let Some(p) = project {
-                params["project_path"] = json!(p);
-            }
+            params["project_path"] = json!(project.unwrap_or_else(default_project_path));
             if let Some(spec_id) = from_spec {
                 params["from_spec"] = json!(spec_id);
             }
@@ -198,7 +233,12 @@ fn run_plan(
         }
 
         PlanAction::Get { plan_id, sections } => {
-            let val = call(client, "plan.get", json!({ "plan_id": plan_id }))?;
+            let mut params = json!({});
+            if let Some(plan_id) = plan_id {
+                params["plan_id"] = json!(plan_id);
+            }
+            maybe_inject_caller_pane(&mut params);
+            let val = call(client, "plan.get", params)?;
             if json {
                 return Ok(Some(val));
             }
@@ -241,7 +281,12 @@ fn run_plan(
         }
 
         PlanAction::State { plan_id } => {
-            let val = call(client, "plan.state", json!({ "plan_id": plan_id }))?;
+            let mut params = json!({});
+            if let Some(plan_id) = plan_id {
+                params["plan_id"] = json!(plan_id);
+            }
+            maybe_inject_caller_pane(&mut params);
+            let val = call(client, "plan.state", params)?;
             if json {
                 return Ok(Some(val));
             }
@@ -321,6 +366,58 @@ fn run_plan(
             return crate::cmd::plan_prune::run(json, apply, project);
         }
 
+        PlanAction::Adopt {
+            source,
+            project,
+            dry_run,
+            overwrite,
+        } => {
+            let val = call(
+                client,
+                "plan.adopt",
+                json!({
+                    "source": source,
+                    "project": project,
+                    "owner": owner_from_env(),
+                    "dry_run": dry_run,
+                    "overwrite": overwrite,
+                    "remove_source": false,
+                }),
+            )?;
+            if json {
+                return Ok(Some(val));
+            }
+            print!("{}", render_adopt_report(&val));
+            return Ok(None);
+        }
+
+        PlanAction::Move {
+            plan_id,
+            from,
+            to,
+            dry_run,
+            overwrite,
+        } => {
+            let source = resolve_source_plan(&from, &plan_id)?;
+            let val = call(
+                client,
+                "plan.adopt",
+                json!({
+                    "source": source,
+                    "project": to,
+                    "owner": owner_from_env(),
+                    "dry_run": dry_run,
+                    "overwrite": overwrite,
+                    "remove_source": true,
+                }),
+            )?;
+            if json {
+                return Ok(Some(val));
+            }
+            print!("{}", render_adopt_report(&val));
+            return Ok(None);
+        }
+
         PlanAction::Goal { action } => match action {
             PlanGoalAction::Get { plan_id } | PlanGoalAction::Show { plan_id } => {
                 let val = call(client, "plan.goal.show", json!({ "plan_id": plan_id }))?;
@@ -345,17 +442,15 @@ fn run_plan(
                 postulate,
             } => {
                 let vision = resolve_text(vision, vision_file)?.unwrap_or_default();
-                call(
-                    client,
-                    "plan.goal.set",
-                    json!({
-                        "plan_id": plan_id,
-                        "vector": vector,
-                        "vision": vision,
-                        "constraints": constraint,
-                        "postulates": postulate,
-                    }),
-                )
+                let mut params = json!({
+                    "plan_id": plan_id,
+                    "vector": vector,
+                    "vision": vision,
+                    "constraints": constraint,
+                    "postulates": postulate,
+                });
+                maybe_inject_caller_pane(&mut params);
+                call(client, "plan.goal.set", params)
             }
         },
 
@@ -363,14 +458,42 @@ fn run_plan(
             call(client, "plan.related", json!({ "id": id, "depth": depth }))
         }
 
+        PlanAction::Search {
+            query,
+            project,
+            kind,
+            limit,
+            active: _,
+            archived,
+            all,
+        } => {
+            let project = project.unwrap_or_else(default_project_path);
+            let status = if all {
+                "all"
+            } else if archived {
+                "archived"
+            } else {
+                "active"
+            };
+            let mut params = json!({
+                "q": query,
+                "project": project,
+                "limit": limit,
+                "status": status,
+            });
+            if let Some(kind) = kind {
+                params["kind"] = json!(kind);
+            }
+            let val = call(client, "plan.search", params)?;
+            if json {
+                return Ok(Some(val));
+            }
+            print!("{}", render_plan_search(&val));
+            return Ok(None);
+        }
+
         PlanAction::Reindex { project } => {
-            let project = project
-                .or_else(|| {
-                    std::env::current_dir()
-                        .ok()
-                        .map(|path| path.display().to_string())
-                })
-                .unwrap_or_default();
+            let project = project.unwrap_or_else(default_project_path);
             call(client, "plan.reindex", json!({ "project": project }))
         }
 
@@ -406,6 +529,9 @@ fn run_plan(
             spec: _,
             spec_file: _,
             status,
+            mode,
+            planner,
+            note,
         } => {
             let mut params = json!({ "plan_id": plan_id });
             if let Some(t) = title {
@@ -414,7 +540,68 @@ fn run_plan(
             if let Some(s) = status {
                 params["status"] = json!(s);
             }
+            if let Some(mode) = mode {
+                params["mode"] = json!(mode);
+            }
+            if let Some(ref p) = planner {
+                let planner_ref = if p == "none" {
+                    let n = note.ok_or_else(|| {
+                        "--note is required when --planner none (waiver must explain solo intent)".to_string()
+                    })?;
+                    json!({ "kind": "waived", "note": n })
+                } else {
+                    json!({ "kind": "pane", "pane_id": p })
+                };
+                params["planner"] = planner_ref;
+            }
             call(client, "plan.update", params)
+        }
+
+        PlanAction::Approve { plan_id } => {
+            crate::cmd::plan_doctor::assert_quality_ready(&plan_id)?;
+            call(
+                client,
+                "plan.mode.set",
+                json!({ "plan_id": plan_id, "mode": "approved" }),
+            )
+        }
+
+        PlanAction::Unapprove { plan_id } => call(
+            client,
+            "plan.mode.set",
+            json!({ "plan_id": plan_id, "mode": "planning" }),
+        ),
+
+        PlanAction::PlanningState {
+            plan_id,
+            set,
+            pane,
+            note,
+        } => {
+            let mut params = json!({ "plan_id": plan_id, "state": set });
+            if let Some(p) = pane {
+                params["by_pane"] = json!(p);
+            }
+            if let Some(n) = note {
+                params["note"] = json!(n);
+            }
+            call(client, "plan.planning.set", params)
+        }
+
+        PlanAction::Mode { plan_id, set } => call(
+            client,
+            "plan.mode.set",
+            json!({ "plan_id": plan_id, "mode": set }),
+        ),
+
+        PlanAction::Pause { plan_id, reason } => call(
+            client,
+            "plan.pause",
+            json!({ "plan_id": plan_id, "reason": reason, "from": owner_from_env() }),
+        ),
+
+        PlanAction::Resume { plan_id } => {
+            call(client, "plan.resume", json!({ "plan_id": plan_id }))
         }
 
         PlanAction::Archive { plan_id } => {
@@ -425,8 +612,8 @@ fn run_plan(
             call(client, "plan.unarchive", json!({ "plan_id": plan_id }))
         }
 
-        PlanAction::Delete { plan_id } => {
-            call(client, "plan.delete", json!({ "plan_id": plan_id }))
+        PlanAction::Delete { plan_id, yes } => {
+            call(client, "plan.delete", plan_delete_params(plan_id, yes)?)
         }
 
         PlanAction::Transfer {
@@ -478,6 +665,31 @@ fn run_plan(
             links,
             key,
         ),
+
+        PlanAction::Retrospective {
+            plan_id,
+            body,
+            body_file,
+        } => {
+            let text = resolve_text(body, body_file)?;
+            let Some(text) = text.filter(|t| !t.trim().is_empty()) else {
+                return Err("retrospective body is required (--body or --body-file)".into());
+            };
+            let mut params = json!({ "plan_id": plan_id, "body": text });
+            maybe_inject_caller_pane(&mut params);
+            let val = call(client, "plan.retrospective", params)?;
+            if json {
+                return Ok(Some(val));
+            }
+            println!(
+                "Recorded retrospective for plan {}",
+                val.get("plan_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(plan_id.as_str())
+            );
+            crate::cmd::plan_output::print_mutation_tail(false, &val);
+            return Ok(None);
+        }
 
         PlanAction::Ingest { plan_id, markdown } => {
             let markdown = read_path_or_stdin(&markdown)?;
@@ -541,10 +753,20 @@ fn run_plan(
             PlanLoopAction::Stop { loop_id } => {
                 call(client, "plan.loop.stop", json!({ "loop_id": loop_id }))
             }
-            PlanLoopAction::Advance { loop_id, progress } => call(
+            PlanLoopAction::Record {
+                loop_id,
+                note,
+                stop,
+                task,
+            } => call(
                 client,
-                "plan.loop.advance",
-                json!({ "loop_id": loop_id, "made_progress": progress }),
+                "plan.loop.record",
+                json!({
+                    "loop_id": loop_id,
+                    "note": note,
+                    "stop": stop,
+                    "task_id": task,
+                }),
             ),
         },
 
@@ -610,6 +832,14 @@ fn run_plan(
             ),
         },
 
+        PlanAction::Qa { action } => return qa_cmd::handle(client, json, action),
+
+        PlanAction::Decision { action } => return gate_cmd::handle(client, json, action),
+
+        PlanAction::Skill { action } => {
+            return crate::cmd::plan_skill::handle(client, json, action)
+        }
+
         PlanAction::Layout { action } => match action {
             PlanLayoutAction::Set {
                 plan_id,
@@ -657,6 +887,24 @@ fn run_plan(
                     }),
                 )
             }
+            PlanNoteAction::Update {
+                plan_id,
+                note_id,
+                text,
+                text_file,
+            } => {
+                let text_val = resolve_text(text, text_file)?.unwrap_or_default();
+                call(
+                    client,
+                    "plan.note.update",
+                    json!({ "plan_id": plan_id, "element_id": note_id, "text": text_val }),
+                )
+            }
+            PlanNoteAction::Rm { plan_id, note_id } => call(
+                client,
+                "plan.element.rm",
+                json!({ "plan_id": plan_id, "element_id": note_id }),
+            ),
         },
 
         PlanAction::Element { action } => match action {
@@ -704,6 +952,35 @@ fn run_plan(
                 }
                 call(client, "plan.element.add", params)
             }
+            PlanElementAction::Update {
+                plan_id,
+                element_id,
+                kind,
+                content,
+                content_file,
+                link,
+            } => {
+                let content_text = resolve_text(content, content_file)?;
+                let mut params = json!({ "plan_id": plan_id, "element_id": element_id });
+                if let Some(kind) = kind {
+                    params["kind"] = json!(kind);
+                }
+                if let Some(c) = content_text {
+                    params["content"] = json!({ "text": c });
+                }
+                if let Some(l) = link {
+                    params["links"] = json!(l.split(',').map(str::trim).collect::<Vec<_>>());
+                }
+                call(client, "plan.element.update", params)
+            }
+            PlanElementAction::Rm {
+                plan_id,
+                element_id,
+            } => call(
+                client,
+                "plan.element.rm",
+                json!({ "plan_id": plan_id, "element_id": element_id }),
+            ),
         },
     };
 

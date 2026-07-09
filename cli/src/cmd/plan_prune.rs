@@ -129,12 +129,24 @@ fn delete_plan_file(plans_dir: &Path, plan_id: &str, json_path: &str) -> Result<
     if !path.starts_with(plans_dir) {
         return Err("refusing to delete plan outside project plans dir".into());
     }
-    std::fs::remove_file(path).map_err(|e| e.to_string())?;
-    let dir = plans_dir.join(plan_id);
+    let dir = path
+        .parent()
+        .ok_or_else(|| "plan JSON path has no parent directory".to_string())?;
+    if dir.file_name().and_then(|s| s.to_str()) != Some(plan_stem(plan_id)) {
+        return Err("plan JSON path does not match plan id".into());
+    }
     if dir.is_dir() {
-        std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+        std::fs::remove_dir_all(dir).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+fn plan_stem(id: &str) -> &str {
+    if id == "inbox" {
+        "_inbox"
+    } else {
+        id
+    }
 }
 
 pub fn render_prune(report: &Value) -> String {
@@ -214,8 +226,8 @@ mod tests {
     #[test]
     fn dry_run_does_not_delete() {
         let dir = tempfile::tempdir().unwrap();
-        let plans_dir = dir.path().join(".codeterm/plans");
-        fs::create_dir_all(&plans_dir).unwrap();
+        let plan_dir = dir.path().join(".codeterm/plans/active/pl_tmp");
+        fs::create_dir_all(&plan_dir).unwrap();
         let plan = json!({
             "id": "pl_tmp",
             "title": "smoke test",
@@ -223,7 +235,7 @@ mod tests {
             "tasks": [],
             "sections": []
         });
-        let path = plans_dir.join("pl_tmp.json");
+        let path = plan_dir.join("plan.json");
         fs::write(&path, plan.to_string()).unwrap();
         let report = prune_report(Some(dir.path().display().to_string()), false).unwrap();
         assert_eq!(report["candidate_count"], 1);
@@ -234,8 +246,8 @@ mod tests {
     #[test]
     fn apply_deletes_smoke_plan() {
         let dir = tempfile::tempdir().unwrap();
-        let plans_dir = dir.path().join(".codeterm/plans");
-        fs::create_dir_all(&plans_dir).unwrap();
+        let plan_dir = dir.path().join(".codeterm/plans/active/pl_tmp");
+        fs::create_dir_all(&plan_dir).unwrap();
         let plan = json!({
             "id": "pl_tmp",
             "title": "smoke test",
@@ -243,7 +255,7 @@ mod tests {
             "tasks": [],
             "sections": []
         });
-        let path = plans_dir.join("pl_tmp.json");
+        let path = plan_dir.join("plan.json");
         fs::write(&path, plan.to_string()).unwrap();
         let report = prune_report(Some(dir.path().display().to_string()), true).unwrap();
         assert_eq!(report["deleted"].as_array().unwrap().len(), 1);

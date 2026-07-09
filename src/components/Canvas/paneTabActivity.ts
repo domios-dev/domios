@@ -2,14 +2,6 @@ import type { Pane } from "../../lib/types";
 import type { PlanIndexEntry } from "./plansApi";
 import { findPlanIndexForPane, ownerIsPaneSelf } from "./planPaneMatch";
 
-// EMERGENCE (north-star #2), OUTSIDE the canvas, on the TAB BAR: glance the whole
-// swarm from the session list. A pane that OWNS a plan reads as an orchestrator; a
-// pane DIRECTLY executing a plan's task reads as a worker; anything else gets nothing
-// (honest — a tab merely nested under an orchestrator is not "working"). Index-ONLY
-// by design: this runs for EVERY tab, so it stays the cheap gate (findPlanIndexForPane)
-// and never pulls full plan bodies. The orchestrator/worker rule is the SAME one the
-// above-composer strips use (ownerIsPaneSelf + direct assignment). Exact done/total
-// and the task handle live on the full-body strip; the tab carries the glance.
 export interface PaneTabActivity {
   kind: "orchestrator" | "worker";
   planId: string;

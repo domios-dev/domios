@@ -1,0 +1,161 @@
+use serde_json::{json, Value};
+use tauri::AppHandle;
+
+use crate::plan::TaskCompetitionMetadata;
+use crate::service::ServiceState;
+
+use super::plan::{emit_plan_changed, plan_rpc_err};
+use super::plan_fields::pane_role;
+use super::plan_refs;
+use super::{get_string_param, JsonRpcError};
+
+pub(super) fn metadata_field(
+    p: Option<&Value>,
+) -> Result<Option<TaskCompetitionMetadata>, JsonRpcError> {
+    p.and_then(|x| x.get("competition"))
+        .cloned()
+        .map(|value| serde_json::from_value(value).map_err(invalid_metadata))
+        .transpose()
+}
+
+pub(super) fn update_field(
+    p: Option<&Value>,
+) -> Result<Option<crate::service::plan::competition::TaskCompetitionUpdate>, JsonRpcError> {
+    p.and_then(|x| x.get("competition"))
+        .cloned()
+        .map(|value| serde_json::from_value(value).map_err(invalid_update))
+        .transpose()
+}
+
+fn invalid_metadata(e: serde_json::Error) -> JsonRpcError {
+    JsonRpcError {
+        code: -32602,
+        message: format!("invalid competition metadata: {e}"),
+        data: None,
+    }
+}
+
+fn invalid_update(e: serde_json::Error) -> JsonRpcError {
+    JsonRpcError {
+        code: -32602,
+        message: format!("invalid competition update: {e}"),
+        data: None,
+    }
+}
+
+pub(super) fn compete(
+    params: &Option<Value>,
+    app: &AppHandle,
+    svc: &ServiceState,
+    now: u64,
+) -> Result<Value, JsonRpcError> {
+    let store = &svc.plan_store;
+    let p = params.as_ref();
+    let (id, tid) = plan_refs::resolve_task(store, params)?;
+    let body = p.ok_or(JsonRpcError {
+        code: -32602,
+        message: "params required".to_string(),
+        data: None,
+    })?;
+    let request = crate::service::plan::task_attempts::TaskCompeteRequest {
+        attempts: body
+            .get("attempts")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as u32),
+        provider: body
+            .get("provider")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        models: body
+            .get("models")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default(),
+        parent_pane_id: body
+            .get("parent_pane_id")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        workspace_id: body
+            .get("workspace_id")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+    };
+    let drafts = store
+        .build_task_compete_drafts(&id, &tid, request)
+        .map_err(plan_rpc_err)?;
+    let mut attempts = Vec::new();
+    let mut spawns = Vec::new();
+    for draft in drafts {
+        let spawn_params = crate::service::SpawnAgentParams {
+            agent: Some(draft.provider.clone()),
+            cwd: Some(draft.cwd.clone()),
+            title: Some(draft.title.clone()),
+            role: Some("Worker".into()),
+            parent_pane_id: draft.parent_pane_id.clone(),
+            task: Some(draft.task_prompt.clone()),
+            workspace_id: draft.workspace_id.clone(),
+            model: draft.model.clone(),
+            spawned_by_pane_id: draft.parent_pane_id.clone(),
+            ..Default::default()
+        };
+        let spawn = svc
+            .spawn_agent_sync(spawn_params)
+            .map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e,
+                data: None,
+            })?;
+        let created = store
+            .record_task_compete_attempt(
+                &id,
+                &tid,
+                &spawn.pane_id,
+                &draft,
+                pane_role(svc, &spawn.pane_id),
+                now,
+            )
+            .map_err(plan_rpc_err)?;
+        attempts.push(created.attempt);
+        spawns.push(spawn);
+    }
+    emit_plan_changed(app, &id);
+    let group = attempts
+        .first()
+        .and_then(|attempt| attempt.competition_group_id.clone())
+        .unwrap_or_default();
+    Ok(json!({
+        "ok": true,
+        "plan_id": id,
+        "task_id": tid,
+        "competition_group_id": group,
+        "attempts": attempts,
+        "spawns": spawns
+    }))
+}
+
+pub(super) fn judge(
+    params: &Option<Value>,
+    app: &AppHandle,
+    svc: &ServiceState,
+    now: u64,
+) -> Result<Value, JsonRpcError> {
+    let store = &svc.plan_store;
+    let p = params.as_ref();
+    let (id, tid) = plan_refs::resolve_task(store, params)?;
+    let attempt_id = get_string_param(params, "attempt_id")?;
+    let verdict = get_string_param(params, "verdict")?;
+    let reason = p
+        .and_then(|x| x.get("reason"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty());
+    let winner = p.and_then(|x| x.get("winner")).and_then(|v| v.as_bool()) == Some(true);
+    let judged = store
+        .judge_task_attempt(&id, &tid, &attempt_id, &verdict, reason, winner, now)
+        .map_err(plan_rpc_err)?;
+    emit_plan_changed(app, &id);
+    Ok(json!({
+        "ok": true,
+        "plan_id": id,
+        "task_id": tid,
+        "attempt": judged.attempt
+    }))
+}

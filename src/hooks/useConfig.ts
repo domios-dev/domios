@@ -47,6 +47,7 @@ function defaultConfig(): AppConfig {
     auto_restart: true,
     max_restart_attempts: 3,
     restart_delay_s: 60,
+    first_run_complete: false,
   },
   memory: {
     extraction_agent: "",
@@ -94,7 +95,6 @@ export function useConfig() {
   const [config, setConfig] = useState<AppConfig>(() => defaultConfig());
   const [loading, setLoading] = useState(true);
 
-  // Fetch config from Rust backend on mount
   useEffect(() => {
     let cancelled = false;
 
@@ -142,7 +142,6 @@ export function useConfig() {
   const updateConfig = useCallback(async (newConfig: AppConfig) => {
     try {
       await invoke("update_config", { config: newConfig });
-      // Config will be updated via the config-changed event listener
     } catch (err) {
       console.error("Failed to update config:", err);
       throw err;

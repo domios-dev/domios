@@ -1,1 +1,0 @@
-One clean handle for agents to attach a discussion/decision md to a task as a milestone/note; document it so subagents use it uniformly.

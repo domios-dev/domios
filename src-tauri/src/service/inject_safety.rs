@@ -142,7 +142,6 @@ What do you want to do?
 Enter to confirm · Esc to cancel
 ",
         );
-        // Limit reset; the menu is gone and the session resumed — plenty of
         // fresh output now sits below the old menu.
         for i in 0..30 {
             screen.push_str(&format!("resumed work line {i}\n"));

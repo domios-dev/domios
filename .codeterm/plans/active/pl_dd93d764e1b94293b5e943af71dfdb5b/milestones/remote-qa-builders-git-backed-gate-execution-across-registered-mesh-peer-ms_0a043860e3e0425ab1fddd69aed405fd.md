@@ -1,0 +1,9 @@
+---
+plan_id: pl_dd93d764e1b94293b5e943af71dfdb5b
+kind: milestone
+id: ms_0a043860e3e0425ab1fddd69aed405fd
+handle: remote-qa-builders-git-backed-gate-execution-across-registered-mesh-peer-ms_0a043860e3e0425ab1fddd69aed405fd
+title: decision
+---
+
+SPLIT REVISION (round-77, Andrey via Orchestrator — SUPERSEDES the P0 minimal-core stride's product framing): the immediate release-blocking need is REPO-INTERNAL QA/build tooling for testing CodeTerm itself on our machines — NOT a shipped user feature. REVISED SPLIT: P0-NOW = INTERNAL TOOLING under scripts/ or evals/_lib (this repo): a gate-runner script per builder machine (ROG/eight/ubunta) that (a) fetches a named ref detached into that machine's warm checkout, (b) runs the requested gate command serially (one at a time per machine — lock file), (c) returns structured pass/fail + log tail to the orchestrator (via codeterm send or a report file); driven manually/by orchestrator over existing mesh exec — NO daemon changes, NO CLI product surface, shippable in hours. Acceptance for the P0 core: label each deliverable INTERNAL (this repo's scripts, may reference our machines/paths freely) — this replaces criteria A-E product framing where they conflict. PRODUCT FEATURE (the registry/plan-qa-routing/builder design already in this task's body) = SEPARATED behind an EXPLICIT DESIGN DECISION GATE for Andrey: whether/when the remote-builder flow becomes shipped product surface — opened as a decision gate, not built by default. WHY (recorded for the acceptance): internal tooling solves today's bottleneck without betting product API surface under release pressure; the product feature deserves an unhurried design pass informed by the internal tooling's lessons. The current worker (Cursor lane, label 'internal QA tooling') should be re-briefed to the internal scope if it was building daemon/socket/mesh surface — bounce with this stride as the brief.

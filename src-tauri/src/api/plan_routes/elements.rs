@@ -64,6 +64,35 @@ pub async fn note_add(
     Ok(Json(serde_json::json!({ "element_id": eid })))
 }
 
+#[derive(Deserialize, Default)]
+pub(crate) struct NoteUpdateBody {
+    #[serde(default)]
+    text: String,
+}
+
+pub async fn note_update(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, element_id)): Path<(String, String)>,
+    Json(body): Json<NoteUpdateBody>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    state
+        .svc
+        .plan_store
+        .update_element(
+            &id,
+            &element_id,
+            Some("note"),
+            Some(serde_json::json!({ "text": body.text })),
+            None,
+            epoch_ms(),
+        )
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
 #[derive(Deserialize)]
 pub(crate) struct ElementAddBody {
     kind: String,
@@ -99,6 +128,54 @@ pub async fn element_add(
         .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "element_id": eid })))
+}
+
+#[derive(Deserialize, Default)]
+pub(crate) struct ElementUpdateBody {
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    content: Option<Value>,
+    #[serde(default)]
+    links: Option<Vec<String>>,
+}
+
+pub async fn element_update(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, element_id)): Path<(String, String)>,
+    Json(body): Json<ElementUpdateBody>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    state
+        .svc
+        .plan_store
+        .update_element(
+            &id,
+            &element_id,
+            body.kind.as_deref(),
+            body.content,
+            body.links,
+            epoch_ms(),
+        )
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+pub async fn element_rm(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, element_id)): Path<(String, String)>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    state
+        .svc
+        .plan_store
+        .rm_element(&id, &element_id, epoch_ms())
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 pub async fn coverage(

@@ -1444,10 +1444,10 @@ breadcrumb (§20.5) and minimap (§23.4) — it never scrolls, never auto-packs,
 
 ### 34.3 PERIODIC REINJECTION — heartbeat is the carrier, plan-get is the pull
 The orchestrator must never lose the north-star. Three channels, the heartbeat being the periodic one:
-1. **Heartbeat (periodic, the key one):** the delayed self-send (§ orchestrator skill Heartbeat Discipline)
-   is **goal-anchored**. New sugar `codeterm plan goal heartbeat <plan>` composes the standard reminder
-   text — `GOAL: <vector>\nPOSTULATES: <id list>\nNow: reports first, then …` — that the skill's heartbeat
-   template injects, re-armed each cycle. So every heartbeat re-surfaces the vector + postulates.
+1. **Heartbeat (periodic, the key one):** the plan-owned orchestrator heartbeat is **goal-anchored** and
+   auto-injected by daemon nudge/delivery paths. New sugar `codeterm plan goal heartbeat <plan>` composes the
+   standard reminder text — `GOAL: <vector>\nPOSTULATES: <id list>\nNow: reports first, then …` — for that
+   plan-owned heartbeat. Delayed self-sends are optional backup state, not the current primary mechanism.
 2. **On every `plan get` (pull / always-present):** `plan get` emits a **GOAL block at the very top** of the
    assembled markdown (vector + constraints + active postulates, vision link). Missing today — add it.
 3. **On reseed (§27.3 step 4):** the lean fresh-context seed gains "load the goal: `plan goal show`" so a
@@ -1462,7 +1462,7 @@ The orchestrator must never lose the north-star. Three channels, the heartbeat b
 The standing axioms (Andrey's list), each an id the heartbeat/HUD cite:
 | id | axiom |
 |---|---|
-| `heartbeat` | set a delayed self-heartbeat so the agent never falls off the run |
+| `heartbeat` | keep the plan-owned heartbeat current so daemon reinjection carries focus and active lanes |
 | `re-read-plan-usage` | periodically re-read HOW to use the plan system (don't drift from the tooling) |
 | `always-review` | every worker report is evidence, not proof — review the diff/source yourself |
 | `real-visual-test` | verify via TestFlight / real visual (Playwright screenshot) testing, never unit-only for UI |
@@ -1529,8 +1529,8 @@ Layers on §27 handoff. The destructive context reset (§27.3 reseed) is GATED b
 - **CLI:** `plan goal set` (vector/constraints/postulate ids), `plan goal show`, `plan goal edit` (opens the
   `.md`), `plan goal heartbeat <plan>` (compose reminder text), `plan handoff verify <plan>` (the verify-loop).
 - **`plan get`:** prepend a GOAL block (vector + constraints + active postulates) — missing.
-- **Heartbeat:** the orchestrator-skill heartbeat template is generic — make it goal-anchored (carry vector +
-  postulate ids), re-armed each cycle.
+- **Heartbeat:** the orchestrator-skill heartbeat template is generic — make the plan-owned heartbeat
+  goal-anchored (carry vector + postulate ids) and refresh it after each reconciliation cycle.
 - **Canvas:** pinned screen-space GOAL HUD banner (new component; NOT a world node; §34.2). §31-compliant.
 - **Batch (§28):** `set_goal` / `set_goal_body` ops so goal writes use the one write primitive (CLI + UI + drop-ins).
 - **Reseed (§27.3 step 4):** add "load the goal (`plan goal show`)" to the lean seed.
@@ -1545,6 +1545,8 @@ HUD banner, not a world node (§34.2 Alt B). Reinjection = goal-anchored heartbe
 `Goal.postulates` (§34.4). Verify-loop = daemon structural precheck + independent SCRATCH-pane 3× semantic
 verify, gating reseed; fold into the skill only after a live pass (§34.5 Alt B+C). All §31-compliant; all new
 capability native+JS parity-tested.
+
+<!-- revision: 2 -->
 
 ## 35. WORLDS v3 — plan-centric composition (Andrey live review; brainstorm in flight)
 <!-- revision: 1 -->
@@ -1577,7 +1579,7 @@ capability native+JS parity-tested.
    skill: only fold a change into the skill once a live pass proves it worked.
 
 ## 36. Agent PRESENCE — live "who is working on what" (Andrey direction)
-<!-- revision: 1 -->
+<!-- revision: 2 -->
 > Status: DIRECTION captured. Plan task `agent-presence` (p1) — DB creation currently eaten by the
 > live lost-update bug (§36 is partly motivated BY that bug being visible). Durable record here.
 
@@ -1598,8 +1600,9 @@ current task + current work-point, and reminders enforce it so nobody silently d
 
 ### 36.2 Reminders — the enforcement (multi-trigger, not one)
 Everyone is nudged to keep "what I'm working on" current via SEVERAL triggers:
-- **Heartbeat / time-based** — the delayed-message cadence (already used by the orchestrator); the
-  re-arm carries "state your current task". (Composes with §34 goal-anchored heartbeat.)
+- **Heartbeat / time-based** — the plan-owned heartbeat/nudge cadence carries "state your current task"
+  and composes with §34 goal-anchored heartbeat. Delayed messages are a backup carrier, not the primary
+  state mechanism.
 - **CLI-use-triggered** — when an agent calls the CLI, a guard-rail hint reminds it to record a
   work-point / refresh focus if stale (extends the cli-hints guard-rail already shipped).
 - **Message-count / cadence-based** — after N turns without a work-point, prompt to report.

@@ -91,12 +91,10 @@ var plugin = {
     }
     return events;
   },
-  // OpenCode exposes `opencode models`; host-side caching keeps this sync probe
   // off hot reads. If the CLI is absent/offline, use the manifest seed.
   discoverModels() {
     return discoverOpencodeModels() || manifestModels();
   },
-  // Parse opencode prompt boxes into host cards; the plugin remembers the shape
   // because response bytes depend on horizontal vs vertical navigation.
   parsePrompt(text) {
     const screen = String(text || "");
@@ -145,11 +143,7 @@ var plugin = {
     const parts = ["opencode", "--session", host.shell.quoteFor(sessionId, host.platform())];
     return parts.join(" ");
   },
-  // Fallback for when the session-binding hook doesn't fire (e.g. CODETERM_PANE_ID
   // absent from opencode's env, or event field structure changed in a new release).
-  // Scans the sqlite DB for the most-recently-created session within the max-age
-  // window. strftime('%s','now')*1000 supplies current unix-ms inside SQLite so
-  // QuickJS never needs Date.now(). Hook wins when it fires first because
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
   detectSessionId(_cwd, exclude, maxAgeMs) {
     const db = opencodeDbPath();
@@ -258,7 +252,6 @@ var plugin = {
     );
     return rows.length > 0;
   },
-  // Session creation time (unix ms). Lets the host apply its launch-window
   // birth-time guard to sqlite-backed sessions, which have no per-session file.
   sessionCreatedMs(_cwd, sessionId) {
     const db = opencodeDbPath();
@@ -275,7 +268,6 @@ var plugin = {
   detectActiveSession(_cwd, _currentSid) {
     return null;
   },
-  // Detection keys off the pane's OWN session (capability rule #3): read only
   // the model recorded against this session_id. No "latest model in cwd"
   // fallback — that would hand the pane a SIBLING agent's model. Unknown → null.
   detectSessionModel(_cwd, sessionId) {
@@ -288,8 +280,6 @@ var plugin = {
       [sessionId]
     );
   },
-  // opencode keeps chat in opencode.db (part JOIN message), not a JSONL the
-  // host can tail — so the chat UI reads it structured. cursor is the max
   // part.time_created seen, passed back to fetch only newer parts next poll.
   usesStructuredChat() {
     return true;

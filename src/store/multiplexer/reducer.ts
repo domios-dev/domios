@@ -9,7 +9,9 @@ import type {
 } from "../../lib/types";
 import {
   highestTitleLevel,
+  injectVirtualTabs,
   type ExtendedState,
+  type VirtualPickerTab,
 } from "./tree";
 
 export type Action =
@@ -39,15 +41,45 @@ export type Action =
   | { type: "CLEAR_NOTIFICATIONS" }
   | { type: "DISMISS_TOAST"; id: string }
   | { type: "SET_PANE_TITLE"; paneId: string; title: string; level?: TitleLevel }
-  | { type: "SET_TAB_TITLE"; workspaceId: string; tabId: string; title: string }
   | { type: "SET_AGENT_TYPE"; paneId: string; agentType: string | null }
-  | { type: "UPDATE_PANE_STATUS"; paneId: string; status: PaneStatus };
+  | { type: "UPDATE_PANE_STATUS"; paneId: string; status: PaneStatus }
+  | { type: "OPEN_SESSION_PICKER"; workspaceId: string; virtual: VirtualPickerTab }
+  | { type: "CLOSE_SESSION_PICKER"; workspaceId: string; tabId: string }
+  | { type: "RESET_GENERATION" };
+
+/**
+ * Merge a fresh `pane_statuses` snapshot into the known map, then drop the
+ * synthetic "Waiting" the backend derives from a pane's `pending_prompt` once
+ * that prompt is gone and the fresh snapshot doesn't re-affirm any status for
+ * the pane. Plain merging alone leaves "Waiting" stuck forever for a pane
+ * with no attached PTY (nothing for `snapshot_with_status` to report once
+ * `pending_prompt` clears, so the key is simply absent from every future
+ * snapshot) — e.g. a hook-driven attention prompt on a pane that hasn't
+ * opened a real terminal yet. Any OTHER status (real Idle/Working/Dead, or a
+ * re-affirmed "Waiting" from a genuine PTY-detected permission prompt) is
+ * left untouched since the fresh snapshot explicitly carries it.
+ */
+function reconcilePaneStatuses(
+  prev: Record<string, PaneStatus>,
+  incoming: Record<string, PaneStatus> | undefined,
+  panes: Record<string, Pane>,
+): Record<string, PaneStatus> {
+  const merged = incoming ? { ...prev, ...incoming } : { ...prev };
+  for (const id of Object.keys(merged)) {
+    if (
+      merged[id] === "Waiting" &&
+      !panes[id]?.pending_prompt &&
+      !incoming?.[id]
+    ) {
+      delete merged[id];
+    }
+  }
+  return merged;
+}
 
 export function reducer(state: ExtendedState, action: Action): ExtendedState {
   switch (action.type) {
     case "SET_STATE": {
-      // Monotonic guard: drop a stale snapshot (older generation) that resolved
-      // after a newer one — kills the spawn-then-blink race where a pre-pane
       const incomingGen = action.state.generation;
       if (typeof incomingGen === "number" && incomingGen <= state.generation) {
         return state;
@@ -63,13 +95,18 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         const highestLevel = highestTitleLevel(backendLevel, frontendLevel);
         const keepFrontendTitle =
           existing &&
+          existing.title_pending_local === true &&
           highestLevel === frontendLevel &&
           frontendLevel !== TitleLevel.Auto;
         const title = keepFrontendTitle ? existing.title : backendPane.title;
+        // Backend has caught up once its title matches what we're keeping;
+        // otherwise the local rename is still in flight.
+        const title_pending_local = keepFrontendTitle && backendPane.title !== existing.title;
         mergedPanes[id] = {
           ...backendPane,
           title_level: highestLevel as TitleLevel,
           title,
+          title_pending_local,
           ...(agentType ? { agent_type: agentType } : {}),
         };
       }
@@ -94,26 +131,38 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       for (const w of mergedWorkspaces) {
         if (w.active_tab_id) activeTabIds[w.id] = w.active_tab_id;
       }
-      // Adopt incoming focus when it names a live pane; otherwise fall back to
+      // open picker survives every authoritative snapshot without a husk pane.
+      const injected = injectVirtualTabs(
+        state.virtualTabs,
+        mergedWorkspaces,
+        mergedPanes,
+        activeTabIds,
+        state.activeTabIds,
+      );
       // the prior focus only if that pane still exists in the merged set.
       const incomingFocus = action.state.focused_pane_id;
       const focused_pane_id =
-        incomingFocus && mergedPanes[incomingFocus]
+        incomingFocus && injected.panes[incomingFocus]
           ? incomingFocus
-          : state.focused_pane_id && mergedPanes[state.focused_pane_id]
+          : state.focused_pane_id && injected.panes[state.focused_pane_id]
             ? state.focused_pane_id
             : null;
       return {
         ...state,
-        workspaces: mergedWorkspaces,
-        panes: mergedPanes,
+        workspaces: injected.workspaces,
+        panes: injected.panes,
         focused_pane_id,
         active_workspace_id: action.state.active_workspace_id,
         toasts: [...state.toasts, ...newToasts],
-        activeTabIds,
-        // Backend-authoritative, sqlite-sourced closed-tab history; carry it
+        activeTabIds: injected.activeTabIds,
         // from the incoming snapshot or the list silently stays empty.
         recently_closed: action.state.recently_closed ?? state.recently_closed,
+        // it out while waiting for the next live pane-status-changed event.
+        paneStatuses: reconcilePaneStatuses(
+          state.paneStatuses,
+          action.state.pane_statuses,
+          mergedPanes,
+        ),
         generation:
           typeof incomingGen === "number" ? incomingGen : state.generation,
       };
@@ -212,10 +261,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     }
 
     case "REORDER_TABS": {
-      // Optimistic: assign sort_order = position within the dragged group.
-      // Reconciled by the next backend SET_STATE (authoritative). Other groups
-      // keep their values; cross-group collisions are harmless (each group is
-      // sorted independently in the sidebar).
       const orderById = new Map(action.orderedTabIds.map((id, i) => [id, i]));
       return {
         ...state,
@@ -351,24 +396,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             ...pane,
             title: action.title,
             title_level: newLevel,
-          },
-        },
-      };
-    }
-
-    case "SET_TAB_TITLE": {
-      const workspace = state.workspaces.find((ws) => ws.id === action.workspaceId);
-      const tab = workspace?.tabs.find((candidate) => candidate.id === action.tabId);
-      const pane = tab ? state.panes[tab.pane_id] : undefined;
-      if (!pane) return state;
-      return {
-        ...state,
-        panes: {
-          ...state.panes,
-          [pane.id]: {
-            ...pane,
-            title: action.title,
-            title_level: TitleLevel.User,
+            title_pending_local: true,
           },
         },
       };
@@ -439,6 +467,64 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           [action.paneId]: action.status,
         },
       };
+
+    case "OPEN_SESSION_PICKER": {
+      const ws = state.workspaces.find((w) => w.id === action.workspaceId);
+      if (!ws) return state;
+      // of stacking a second.
+      const existing = state.virtualTabs[action.workspaceId];
+      if (existing) {
+        return {
+          ...state,
+          active_workspace_id: action.workspaceId,
+          activeTabIds: { ...state.activeTabIds, [action.workspaceId]: existing.tab.id },
+        };
+      }
+      const { tab, pane } = action.virtual;
+      return {
+        ...state,
+        virtualTabs: { ...state.virtualTabs, [action.workspaceId]: action.virtual },
+        panes: { ...state.panes, [pane.id]: pane },
+        workspaces: state.workspaces.map((w) =>
+          w.id === action.workspaceId ? { ...w, tabs: [...w.tabs, tab] } : w,
+        ),
+        active_workspace_id: action.workspaceId,
+        activeTabIds: { ...state.activeTabIds, [action.workspaceId]: tab.id },
+      };
+    }
+
+    case "CLOSE_SESSION_PICKER": {
+      // Keyed on workspace (one picker per workspace), never on the exact tab
+      // id — a refresh could rebuild the virtual tab, and closing must not
+      // silently no-op on mismatch.
+      const v = state.virtualTabs[action.workspaceId];
+      if (!v) return state;
+      const pickerTabId = v.tab.id;
+      const nextVirtual = { ...state.virtualTabs };
+      delete nextVirtual[action.workspaceId];
+      const nextPanes = { ...state.panes };
+      delete nextPanes[v.pane.id];
+      const nextActive = { ...state.activeTabIds };
+      return {
+        ...state,
+        virtualTabs: nextVirtual,
+        panes: nextPanes,
+        workspaces: state.workspaces.map((w) => {
+          if (w.id !== action.workspaceId) return w;
+          const remaining = w.tabs.filter((t) => t.id !== pickerTabId);
+          if (nextActive[action.workspaceId] === pickerTabId) {
+            const fallback = remaining[remaining.length - 1]?.id;
+            if (fallback) nextActive[action.workspaceId] = fallback;
+            else delete nextActive[action.workspaceId];
+          }
+          return { ...w, tabs: remaining };
+        }),
+        activeTabIds: nextActive,
+      };
+    }
+
+    case "RESET_GENERATION":
+      return state.generation === 0 ? state : { ...state, generation: 0 };
 
     default:
       return state;

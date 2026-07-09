@@ -46,6 +46,11 @@ pub enum WorkspaceAction {
 pub enum PaneAction {
     /// List all panes as a workspace-grouped tree. `--agents` filters to
     /// agent panes only.
+    ///
+    /// Each pane carries a `backing.kind`: `pty` panes (terminal agents,
+    /// shells) have a real shell — `send` injects text you can execute.
+    /// `chat_backend` panes (LLM chat via plugin) have NO shell: `send`
+    /// delivers a chat message; never instruct them to run shell commands.
     List {
         /// Show only panes running an agent (have an agent_type).
         #[arg(long)]
@@ -258,6 +263,14 @@ pub enum KeepAwakeAction {
         /// Also prevent display sleep
         #[arg(long)]
         display: bool,
+        /// On Linux/GNOME, explicitly apply current-user power policy overrides
+        /// (disable inactive sleep, idle blanking, lid-close and power-button suspend).
+        #[arg(long)]
+        gnome_policy: bool,
+        /// Print system-level sudo mask commands in the status response.
+        /// CodeTerm never runs these commands silently.
+        #[arg(long)]
+        system_block: bool,
     },
     /// Stop the current keep-awake session
     Stop,

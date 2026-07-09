@@ -29,6 +29,7 @@ fn task_timestamps_track_create_update_and_status_transition() {
             NewTask {
                 name: "Timed".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             20,
@@ -50,6 +51,7 @@ fn task_timestamps_track_create_update_and_status_transition() {
             &id,
             &task_id,
             Some("Renamed"),
+            None,
             None,
             None,
             None,
@@ -87,6 +89,7 @@ fn task_timestamps_track_create_update_and_status_transition() {
             None,
             None,
             Some("in_progress"),
+            None,
             None,
             None,
             None,

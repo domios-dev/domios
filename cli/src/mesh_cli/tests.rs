@@ -12,6 +12,95 @@ fn update_cmd(action: Option<UpdateAction>, manifest_url: Option<String>) -> Com
 }
 
 #[test]
+fn peer_api_url_skips_loopback_addresses() {
+    let peer = serde_json::json!({
+        "instance_name": "eight",
+        "api_port": 7685,
+        "addresses": [
+            {"ip": "127.0.0.1", "is_tailscale": false},
+            {"ip": "100.84.159.37", "is_tailscale": true}
+        ]
+    });
+
+    assert_eq!(
+        super::relay::peer_api_url(&peer).as_deref(),
+        Some("http://100.84.159.37:7685")
+    );
+}
+
+#[test]
+fn peer_api_url_refuses_loopback_only_peer() {
+    let peer = serde_json::json!({
+        "instance_name": "eight",
+        "api_port": 7685,
+        "addresses": [
+            {"ip": "127.0.0.1", "is_tailscale": false},
+            {"ip": "::1", "is_tailscale": false}
+        ]
+    });
+
+    assert_eq!(super::relay::peer_api_url(&peer), None);
+}
+
+#[test]
+fn peer_api_url_brackets_ipv6_host() {
+    let peer = serde_json::json!({
+        "api_port": 7686,
+        "addresses": [
+            {"ip": "fd7a:115c:a1e0::1", "is_tailscale": true}
+        ]
+    });
+
+    assert_eq!(
+        super::relay::peer_api_url(&peer).as_deref(),
+        Some("http://[fd7a:115c:a1e0::1]:7686")
+    );
+}
+
+#[test]
+fn paste_put_over_mesh_maps_to_remote_pasteboard_create() {
+    let cmd = Commands::Paste {
+        action: crate::PasteAction::Put {
+            body: "payload".into(),
+            from_file: None,
+            from_stdin: false,
+            ttl: Some("5m".into()),
+            content_type: Some("text/plain".into()),
+            pop: true,
+        },
+    };
+
+    let (method, path, body) = cli_command_to_api(&cmd);
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/pasteboard");
+    let body: serde_json::Value = serde_json::from_str(&body.expect("body")).unwrap();
+    assert_eq!(body["body"], "payload");
+    assert_eq!(body["ttl_ms"], 300_000);
+    assert_eq!(body["content_type"], "text/plain");
+    assert_eq!(body["pop_on_read"], true);
+}
+
+#[test]
+fn paste_get_and_list_over_mesh_map_to_remote_pasteboard() {
+    let (method, path, body) = cli_command_to_api(&Commands::Paste {
+        action: crate::PasteAction::Get {
+            id: "paste:pcze9w".into(),
+            pop: true,
+        },
+    });
+    assert_eq!(method, "GET");
+    assert_eq!(path, "/api/pasteboard/paste:pcze9w?pop=true");
+    assert!(body.is_none());
+
+    let (method, path, body) = cli_command_to_api(&Commands::Paste {
+        action: crate::PasteAction::List,
+    });
+    assert_eq!(method, "GET");
+    assert_eq!(path, "/api/pasteboard");
+    assert!(body.is_none());
+}
+
+#[test]
 fn remote_worker_record_body_builds_from_spawn_request_and_response() {
     use super::relay::remote_worker_record_body;
     let spawn_body = serde_json::json!({
@@ -388,6 +477,14 @@ fn pane_new_relays_cmd_field() {
     assert_eq!(body["title"], "runner");
     assert_eq!(body["cmd"], "pnpm test");
     assert_eq!(body["eager"], true);
+}
+
+#[test]
+fn remote_worker_forget_body_matches_registry_delete_contract() {
+    let body = super::relay::remote_worker_forget_body("ROG", "pane_1");
+    assert_eq!(body["peer"], "ROG");
+    assert_eq!(body["remote_pane"], "pane_1");
+    assert!(body.get("orchestrator_pane").is_none());
 }
 
 #[test]

@@ -15,8 +15,6 @@ pub(crate) struct LoopCreateBody {
     target: String,
     budget: u32,
     #[serde(default)]
-    stages: Vec<crate::plan::LoopStage>,
-    #[serde(default)]
     stop_when: Option<String>,
 }
 
@@ -33,7 +31,6 @@ pub async fn loop_create(
         .create_loop(
             &id,
             &body.target,
-            body.stages,
             body.budget,
             body.stop_when.as_deref(),
             epoch_ms(),
@@ -96,25 +93,34 @@ pub async fn loop_status(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct LoopAdvanceBody {
+pub(crate) struct LoopRecordBody {
+    note: String,
     #[serde(default)]
-    made_progress: bool,
+    stop: bool,
+    #[serde(default)]
+    task_id: Option<String>,
 }
 
-pub async fn loop_advance(
+pub async fn loop_record(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path((id, lid)): Path<(String, String)>,
-    Json(body): Json<LoopAdvanceBody>,
+    Json(body): Json<LoopRecordBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let spec = state
+    let result = state
         .svc
         .plan_store
-        .advance_loop(&lid, body.made_progress, epoch_ms())
+        .record_loop(
+            &lid,
+            &body.note,
+            body.stop,
+            body.task_id.as_deref(),
+            epoch_ms(),
+        )
         .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::to_value(spec).unwrap_or_default()))
+    Ok(Json(serde_json::to_value(result).unwrap_or_default()))
 }
 
 pub async fn loop_stop(

@@ -522,7 +522,6 @@ fn session_jsonl_path_canonicalizes_symlinked_cwd() {
         .session_jsonl_path(link.to_str().unwrap(), "sess-xyz")
         .expect("should resolve a path");
     let s = p.to_string_lossy();
-    // Must encode the canonical (real) target, not the symlink alias —
     // otherwise the tailer watches a directory claude never writes to.
     assert!(
         s.contains("real-target"),

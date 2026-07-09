@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { CheckCircle2, Download, RefreshCw, Trash2, Upload, XCircle } from "lucide-react";
 import { invoke } from "../../lib/bridge";
+import { BusySpinner } from "../shared/BusyState";
 import { SettingsCard, SettingsPage, SettingsPill } from "./shared";
 
 type PluginSource =
@@ -131,7 +132,7 @@ export function PluginsTab() {
             title="Refresh"
             data-testid="plugin-refresh"
           >
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            <BusySpinner icon={RefreshCw} size={14} spinning={loading} />
           </button>
         }
       >
@@ -439,7 +440,7 @@ function IconButton({
       data-testid={testId}
       className="w-7 h-7 inline-flex items-center justify-center rounded-md border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-50"
     >
-      {busy ? <RefreshCw size={14} className="animate-spin" /> : icon}
+      {busy ? <BusySpinner icon={RefreshCw} size={14} /> : icon}
     </button>
   );
 }

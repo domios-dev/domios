@@ -39,9 +39,6 @@ const iconBtn = (active = false): CSSProperties => ({
 
 const divider: CSSProperties = { width: 1, height: 20, background: "var(--ct-border-subtle)", margin: "0 2px" };
 
-// §24.1: ONE behavior — no Doc/Card/Tile node-mode switch. The toolbar is camera-
-// only: zoom / fit / reset + Overview/Read camera presets + minimap. Node content
-// adapts to camera zoom (content-LOD), never a manual node mode.
 export interface CanvasToolbarProps {
   scale: number;
   onZoomIn: () => void;
