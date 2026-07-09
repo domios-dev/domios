@@ -2185,10 +2185,10 @@ button,
   font-weight: 650;
 }
 .plan-switcher-opt-archived {
-  opacity: 0.45;
+  background: color-mix(in srgb, var(--ct-surface) 34%, var(--ct-bg));
 }
 .plan-switcher-opt-archived .plan-switcher-opt-select {
-  cursor: default;
+  color: color-mix(in srgb, var(--ct-fg) 82%, var(--ct-muted-fg));
 }
 .plan-switcher-sep {
   padding: 0.4rem 0.65rem 0.2rem;
@@ -2201,45 +2201,36 @@ button,
   margin-top: 0.25rem;
 }
 
-/* ── Segmented mode: archived footer ────────────────────────────────────── */
+.plan-switcher-archived-dropdown {
+  position: relative;
+}
 .plan-switcher-archived-toggle {
   padding: 0.15rem 0.4rem;
-  border: none;
+  border: 1px solid transparent;
   border-radius: 0.35rem;
   background: transparent;
   font: inherit;
   font-size: 0.65rem;
-  color: var(--ct-muted-fg);
+  color: color-mix(in srgb, var(--ct-fg) 74%, var(--ct-muted-fg));
   cursor: pointer;
+  max-width: 18rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .plan-switcher-archived-toggle:hover,
 .plan-switcher-archived-toggle:focus-visible {
   background: color-mix(in srgb, var(--ct-border) 50%, transparent);
+  border-color: var(--ct-border);
   outline: none;
 }
-.plan-switcher-archived-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  margin-top: 0.2rem;
+.plan-switcher-archived-toggle-selected {
+  border-color: color-mix(in srgb, var(--ct-accent) 40%, var(--ct-border));
+  background: color-mix(in srgb, var(--ct-accent) 12%, var(--ct-bg));
+  color: var(--ct-fg);
 }
-.plan-switcher-pill-archived {
-  opacity: 0.5;
-}
-.plan-switcher-archived-label {
-  display: inline-flex;
-  align-items: center;
-  max-width: 16rem;
-  padding: 0.2rem 0.55rem;
-  font: inherit;
-  font-size: 0.74rem;
-  font-weight: 600;
-  color: var(--ct-muted-fg);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: default;
-  user-select: none;
+.plan-switcher-archived-popover {
+  min-width: 16rem;
 }
 .plan-switcher-inflight-badge {
   display: inline-flex;

@@ -279,8 +279,9 @@ test("overflow mode: kebab inside listbox fires action without closing listbox",
   assert(action?.kind === "rename", `action.kind=${action?.kind}`);
 });
 
-test("archived plans show toggle in segmented mode; Unarchive fires onAction", async () => {
+test("archived plans use a compact dropdown in segmented mode; select and Unarchive work", async () => {
   const actions: PlanKebabAction[] = [];
+  let picked = "";
   const plans: PlanSwitcherOption[] = [
     { id: "p-active", title: "Active Plan" },
     { id: "p-2", title: "Active Plan 2" },
@@ -290,7 +291,7 @@ test("archived plans show toggle in segmented mode; Unarchive fires onAction", a
     <PlanSwitcher
       plans={plans}
       selectedId="p-active"
-      onSelect={() => {}}
+      onSelect={(id) => (picked = id)}
       onAction={(a) => actions.push(a)}
     />,
   );
@@ -302,8 +303,21 @@ test("archived plans show toggle in segmented mode; Unarchive fires onAction", a
     toggle.click();
   });
   const archivedList = host.querySelector('[data-testid="plan-switcher-archived-list"]');
-  assert(archivedList, "archived list visible after toggle");
-  const archivedKebab = archivedList?.querySelector(
+  assert(archivedList?.getAttribute("role") === "listbox", "archived listbox visible after toggle");
+  const archivedSelect = archivedList?.querySelector(
+    '[data-plan-id="p-archived"] .plan-switcher-opt-select',
+  ) as HTMLElement;
+  assert(archivedSelect, "archived plan select button");
+  await act(async () => {
+    archivedSelect.click();
+  });
+  assert(picked === "p-archived", `picked=${picked}`);
+
+  await act(async () => {
+    toggle.click();
+  });
+  const reopenedArchivedList = host.querySelector('[data-testid="plan-switcher-archived-list"]');
+  const archivedKebab = reopenedArchivedList?.querySelector(
     '[data-testid="plan-switcher-kebab"][data-plan-id="p-archived"]',
   ) as HTMLElement;
   assert(archivedKebab, "kebab on archived plan");
@@ -325,8 +339,9 @@ test("archived plans show toggle in segmented mode; Unarchive fires onAction", a
   );
 });
 
-test("archived plans appear non-selectable in overflow listbox footer with Unarchive", async () => {
+test("archived plans are selectable in overflow listbox footer with Unarchive", async () => {
   const actions: PlanKebabAction[] = [];
+  let picked = "";
   const plans: PlanSwitcherOption[] = [
     { id: "p-0", title: "Active A" },
     { id: "p-1", title: "Active B" },
@@ -338,7 +353,7 @@ test("archived plans appear non-selectable in overflow listbox footer with Unarc
     <PlanSwitcher
       plans={plans}
       selectedId="p-0"
-      onSelect={() => {}}
+      onSelect={(id) => (picked = id)}
       onAction={(a) => actions.push(a)}
     />,
   );
@@ -349,12 +364,22 @@ test("archived plans appear non-selectable in overflow listbox footer with Unarc
   const listbox = host.querySelector('[data-testid="plan-switcher-listbox"]') as HTMLElement;
   const archivedRow = listbox.querySelector('[data-plan-id="p-archived"]');
   assert(archivedRow, "archived plan in listbox");
-  assert(archivedRow.classList.contains("plan-switcher-opt-archived"), "muted class");
-  assert(archivedRow.getAttribute("aria-disabled") === "true", "aria-disabled");
+  assert(archivedRow.classList.contains("plan-switcher-opt-archived"), "archived class");
+  assert(archivedRow.getAttribute("aria-disabled") === null, "archived remains selectable");
   const selectBtn = archivedRow.querySelector(".plan-switcher-opt-select") as HTMLButtonElement;
-  assert(selectBtn.disabled, "select button disabled");
+  assert(!selectBtn.disabled, "select button enabled");
+  await act(async () => {
+    selectBtn.click();
+  });
+  assert(picked === "p-archived", `picked=${picked}`);
 
-  const kebab = archivedRow.querySelector('[data-testid="plan-switcher-kebab"]') as HTMLElement;
+  await act(async () => {
+    trigger.click();
+  });
+  const reopenedListbox = host.querySelector('[data-testid="plan-switcher-listbox"]') as HTMLElement;
+  const reopenedArchivedRow = reopenedListbox.querySelector('[data-plan-id="p-archived"]') as HTMLElement;
+
+  const kebab = reopenedArchivedRow.querySelector('[data-testid="plan-switcher-kebab"]') as HTMLElement;
   await act(async () => {
     kebab.click();
   });

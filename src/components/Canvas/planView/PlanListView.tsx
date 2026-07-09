@@ -96,10 +96,17 @@ export function PlanListView({
     () => enrichSwitcherOptions(switcherOptions, activeWork),
     [switcherOptions, activeWork],
   );
+  const [manualPlanId, setManualPlanId] = useState<string | null>(readStoredPlanId);
 
   const filteredPlans = useMemo(
-    () => filterPlansForBoard(effectivePlans, mode, { planId, orchestratorPaneId, panes }),
-    [effectivePlans, mode, planId, orchestratorPaneId, panes],
+    () => {
+      const active = filterPlansForBoard(effectivePlans, mode, { planId, orchestratorPaneId, panes });
+      if (!manualPlanId || active.some((p) => p.id === manualPlanId)) return active;
+      const archivedPlan = plans.find((p) => p.id === manualPlanId && p.status === "archived");
+      if (!archivedPlan || (mode === "focus" && planId && planId !== archivedPlan.id)) return active;
+      return [...active, archivedPlan];
+    },
+    [effectivePlans, manualPlanId, mode, planId, orchestratorPaneId, panes, plans],
   );
   const orderedPlans = useMemo(() => orderPlansByActivity(filteredPlans), [filteredPlans]);
 
@@ -108,7 +115,6 @@ export function PlanListView({
     [orderedPlans, planId, orchestratorPaneId, panes],
   );
 
-  const [manualPlanId, setManualPlanId] = useState<string | null>(readStoredPlanId);
   const [navStack, setNavStack] = useState<NavStack>(EMPTY_NAV_STACK);
   const bodyScrollRef = useRef<HTMLDivElement | null>(null);
   const [restoreScroll, setRestoreScroll] = useState<number | undefined>(undefined);

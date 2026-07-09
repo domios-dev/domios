@@ -484,6 +484,54 @@ test("board: unarchive brings plan back to active switcher", async () => {
   assert(pill, "plan-arch is now an active pill after unarchive");
 });
 
+test("board: selecting an archived plan from dropdown shows it for inspection", async () => {
+  try {
+    window.sessionStorage.removeItem("codeterm.board.selectedPlanId");
+  } catch {
+    // Session persistence is best-effort in tests too.
+  }
+  const active: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-active",
+    title: "Active",
+    status: "active",
+    created_at: 0,
+    updated_at: 10,
+    tasks: [task({ id: "active-task", status: TaskStatus.Pending, name: "Active task" })],
+  };
+  const archived: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-arch",
+    title: "Archived",
+    status: "archived",
+    created_at: 0,
+    updated_at: 999,
+    tasks: [task({ id: "archived-task", status: TaskStatus.Pending, name: "Archived task" })],
+  };
+  const { host } = await render(
+    <PlanBoardView mode="workspace" plans={[active, archived]} panes={PANES} />,
+  );
+  assert(
+    host.querySelector('[data-testid="plan-board-plan"]')?.getAttribute("data-plan-id") === "plan-active",
+    "active plan remains the default visible plan",
+  );
+
+  const toggle = host.querySelector('[data-testid="plan-switcher-archived-toggle"]') as HTMLElement;
+  assert(toggle, "archived dropdown present");
+  await act(async () => { toggle.click(); });
+  const archivedSelect = host.querySelector(
+    '[data-testid="plan-switcher-archived-list"] [data-plan-id="plan-arch"] .plan-switcher-opt-select',
+  ) as HTMLElement;
+  assert(archivedSelect, "archived plan is selectable");
+  await act(async () => { archivedSelect.click(); });
+
+  assert(
+    host.querySelector('[data-testid="plan-board-plan"]')?.getAttribute("data-plan-id") === "plan-arch",
+    "archived plan is shown for inspection",
+  );
+  assert(host.textContent?.includes("Archived task"), "archived plan content visible");
+});
+
 let passed = 0;
 (async () => {
   for (const [name, fn] of tests) {

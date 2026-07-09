@@ -215,7 +215,6 @@ function SegmentedSwitcher({
   onAction: (a: PlanKebabAction) => void;
 }) {
   const [openMenu, setOpenMenu] = useState<{ id: string; el: HTMLButtonElement } | null>(null);
-  const [archivedOpen, setArchivedOpen] = useState(false);
   const kebabEls = useRef<Map<string, HTMLButtonElement>>(new Map());
 
   const toggleMenu = useCallback((plan: PlanSwitcherOption, e: React.MouseEvent) => {
@@ -225,7 +224,7 @@ function SegmentedSwitcher({
     setOpenMenu((prev) => (prev?.id === plan.id ? null : { id: plan.id, el }));
   }, []);
 
-  const makePill = (plan: PlanSwitcherOption, isActive: boolean) => {
+  const makePill = (plan: PlanSwitcherOption) => {
     const selected = plan.id === selectedId;
     const menuOpen = openMenu?.id === plan.id;
     const tip = plan.inflightTooltip ? `${plan.title}\n${plan.inflightTooltip}` : plan.title;
@@ -233,33 +232,23 @@ function SegmentedSwitcher({
     return (
       <div
         key={plan.id}
-        className={`plan-switcher-pill${isActive ? "" : " plan-switcher-pill-archived"}`}
+        className="plan-switcher-pill"
         role="group"
         aria-label={plan.title}
       >
-        {isActive ? (
-          <button
-            type="button"
-            data-testid="plan-switcher-option"
-            data-plan-id={plan.id}
-            data-active={selected ? "true" : "false"}
-            aria-pressed={selected}
-            className={`plan-board-switcher-btn${selected ? " plan-board-switcher-btn-active" : ""}`}
-            title={tip}
-            onClick={() => onSelect(plan.id)}
-          >
-            {plan.title}
-            {inflightBadge(plan)}
-          </button>
-        ) : (
-          <span
-            className="plan-board-switcher-btn plan-switcher-archived-label"
-            title={tip}
-          >
-            {plan.title}
-            {inflightBadge(plan)}
-          </span>
-        )}
+        <button
+          type="button"
+          data-testid="plan-switcher-option"
+          data-plan-id={plan.id}
+          data-active={selected ? "true" : "false"}
+          aria-pressed={selected}
+          className={`plan-board-switcher-btn${selected ? " plan-board-switcher-btn-active" : ""}`}
+          title={tip}
+          onClick={() => onSelect(plan.id)}
+        >
+          {plan.title}
+          {inflightBadge(plan)}
+        </button>
         <KebabTrigger
           plan={plan}
           isOpen={menuOpen}
@@ -284,27 +273,161 @@ function SegmentedSwitcher({
   return (
     <>
       <div className="plan-board-switcher-seg">
-        {activePlans.map((p) => makePill(p, true))}
+        {activePlans.map((p) => makePill(p))}
       </div>
-      {archivedPlans.length > 0 && (
-        <>
-          <button
-            type="button"
-            data-testid="plan-switcher-archived-toggle"
-            className="plan-switcher-archived-toggle"
-            aria-expanded={archivedOpen}
-            onClick={() => setArchivedOpen((v) => !v)}
-          >
-            {archivedPlans.length} archived{archivedOpen ? " ▴" : " ▾"}
-          </button>
-          {archivedOpen && (
-            <div data-testid="plan-switcher-archived-list" className="plan-switcher-archived-list">
-              {archivedPlans.map((p) => makePill(p, false))}
-            </div>
-          )}
-        </>
-      )}
+      <ArchivedPlansDropdown
+        plans={archivedPlans}
+        selectedId={selectedId}
+        onSelect={onSelect}
+        onAction={onAction}
+      />
     </>
+  );
+}
+
+function ArchivedPlansDropdown({
+  plans,
+  selectedId,
+  onSelect,
+  onAction,
+}: {
+  plans: readonly PlanSwitcherOption[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  onAction: (a: PlanKebabAction) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [openMenu, setOpenMenu] = useState<{ id: string; el: HTMLButtonElement } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listboxRef = useRef<HTMLDivElement>(null);
+  const kebabEls = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const selectedArchivedPlan = plans.find((p) => p.id === selectedId);
+
+  const close = useCallback(() => {
+    setOpen(false);
+    setOpenMenu(null);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (
+        !listboxRef.current?.contains(e.target as Node) &&
+        !triggerRef.current?.contains(e.target as Node)
+      ) {
+        close();
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open, close]);
+
+  if (plans.length === 0) return null;
+
+  const onListboxKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+      triggerRef.current?.focus();
+      return;
+    }
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const btns = Array.from(
+      listboxRef.current?.querySelectorAll<HTMLButtonElement>(".plan-switcher-opt-select") ?? [],
+    );
+    const cur = btns.indexOf(document.activeElement as HTMLButtonElement);
+    const next =
+      e.key === "ArrowDown"
+        ? cur === -1
+          ? 0
+          : Math.min(cur + 1, btns.length - 1)
+        : cur === -1
+          ? btns.length - 1
+          : Math.max(cur - 1, 0);
+    btns[next]?.focus();
+  };
+
+  const selectAndClose = (id: string) => {
+    onSelect(id);
+    close();
+  };
+
+  const toggleMenu = (plan: PlanSwitcherOption, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const el = kebabEls.current.get(plan.id);
+    if (!el) return;
+    setOpenMenu((prev) => (prev?.id === plan.id ? null : { id: plan.id, el }));
+  };
+
+  return (
+    <div className="plan-switcher-archived-dropdown" data-testid="plan-switcher-archived-dropdown">
+      <button
+        ref={triggerRef}
+        type="button"
+        data-testid="plan-switcher-archived-toggle"
+        className={`plan-switcher-archived-toggle${selectedArchivedPlan ? " plan-switcher-archived-toggle-selected" : ""}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {selectedArchivedPlan ? `Archived: ${selectedArchivedPlan.title}` : `${plans.length} archived`}
+        <span className="plan-switcher-combo-caret" aria-hidden>
+          {open ? " ▴" : " ▾"}
+        </span>
+      </button>
+      {open && (
+        <div
+          ref={listboxRef}
+          role="listbox"
+          data-testid="plan-switcher-archived-list"
+          className="plan-switcher-popover plan-switcher-archived-popover"
+          aria-label="Archived plans"
+          onKeyDown={onListboxKeyDown}
+        >
+          {plans.map((plan) => {
+            const active = plan.id === selectedId;
+            const menuOpen = openMenu?.id === plan.id;
+            return (
+              <div
+                key={plan.id}
+                role="option"
+                aria-selected={active}
+                data-plan-id={plan.id}
+                className={`plan-switcher-opt plan-switcher-opt-archived${active ? " plan-switcher-opt-selected" : ""}`}
+              >
+                <button
+                  type="button"
+                  className="plan-switcher-opt-select"
+                  title={plan.inflightTooltip ? `${plan.title}\n${plan.inflightTooltip}` : plan.title}
+                  onClick={() => selectAndClose(plan.id)}
+                >
+                  {plan.title}
+                  {inflightBadge(plan)}
+                </button>
+                <KebabTrigger
+                  plan={plan}
+                  isOpen={menuOpen}
+                  onToggle={(e) => toggleMenu(plan, e)}
+                  refCallback={(el) => {
+                    if (el) kebabEls.current.set(plan.id, el);
+                    else kebabEls.current.delete(plan.id);
+                  }}
+                />
+                {menuOpen && openMenu && (
+                  <KebabMenu
+                    plan={plan}
+                    onAction={onAction}
+                    onClose={() => setOpenMenu(null)}
+                    triggerEl={openMenu.el}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -397,16 +520,14 @@ function OverflowSwitcher({
         key={plan.id}
         role="option"
         aria-selected={active}
-        aria-disabled={isArchived || undefined}
         data-plan-id={plan.id}
         className={`plan-switcher-opt${active ? " plan-switcher-opt-selected" : ""}${isArchived ? " plan-switcher-opt-archived" : ""}`}
       >
         <button
           type="button"
           className="plan-switcher-opt-select"
-          disabled={isArchived}
           title={plan.inflightTooltip ? `${plan.title}\n${plan.inflightTooltip}` : plan.title}
-          onClick={() => !isArchived && selectAndClose(plan.id)}
+          onClick={() => selectAndClose(plan.id)}
         >
           {plan.title}
           {inflightBadge(plan)}
