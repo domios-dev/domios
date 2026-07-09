@@ -3,16 +3,16 @@
 //! these), plus the SSE event stream that replaces Tauri event emits.
 
 use axum::{
+    Json,
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
     response::sse::{Event, KeepAlive, Sse},
-    Json,
 };
 use futures_core::Stream;
 use serde::Deserialize;
 use std::time::{Duration, SystemTime};
 
-use crate::api::routes::{check_auth, AppState};
+use crate::api::routes::{AppState, check_auth};
 
 pub use crate::api::web_plugin_routes::plugin_ui;
 
@@ -626,9 +626,9 @@ pub async fn plugin_snapshot(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     crate::commands::plugins::action::plugin_manager_snapshot_for_service(state.svc.clone())
         .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .map(Json)
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
 /// Web-mirror twin of the `plugin_manager_action` Tauri command.
@@ -640,11 +640,12 @@ pub async fn plugin_action(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     // keep it off the async runtime (mirrors the Tauri command's spawn_blocking wrap).
     let svc = state.svc.clone();
-    let result =
-        tokio::task::spawn_blocking(move || crate::commands::plugins::run_action(action, svc.as_ref()))
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let result = tokio::task::spawn_blocking(move || {
+        crate::commands::plugins::run_action(action, svc.as_ref())
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     crate::commands::plugins::action::invalidate_plugin_snapshot();
     Ok(Json(result))
 }
