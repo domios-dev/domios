@@ -11,7 +11,7 @@ on:
 jobs:
   ts:
     name: ts unit + plugins
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, codeterm-builder]
     steps:
       - uses: actions/checkout@v4
 
