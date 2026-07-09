@@ -460,6 +460,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             status,
             branch,
             sha,
+            base,
             changed_files,
             test_cmd,
             test_result,
@@ -524,6 +525,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 status,
                 branch,
                 sha,
+                base,
                 changed_files,
                 acknowledge_dirty,
             ) {

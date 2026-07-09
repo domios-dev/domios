@@ -284,8 +284,7 @@ pub(super) fn build_brief(task: &Task, sections: &[TaskSection]) -> String {
     }
 
     out.push_str(
-        "## When done\nRun: codeterm agent report \"STATUS: done | blocked | partial\
-         \\nCHANGES: ...\\nTESTS RUN: ...\"\n",
+        "## When done\nRun: codeterm agent report \"STATUS: done | blocked | partial\\nCHANGES: ...\\nTESTS RUN: ...\"\n",
     );
     out
 }

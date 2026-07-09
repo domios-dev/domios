@@ -160,6 +160,7 @@ fn brief_includes_body_acceptance_and_report_command() {
     assert!(brief.contains("- returns pane id"));
     // The report command is mandatory so the worker can report back.
     assert!(brief.contains("codeterm agent report"));
+    assert!(!brief.contains("--base "));
 }
 
 #[test]
