@@ -6,6 +6,7 @@ import { presenceAnimateDemoEnabled, rotatePresenceForDemo } from "../presenceDe
 import { buildSwarmRoster } from "../swarmRoster";
 import { buildCanvasScene, publishCanvasSceneReadback } from "../scene";
 import type { CanvasLookups } from "./models";
+import { bumpCanvasChurn } from "../canvasChurn";
 
 interface OverlaysDeps {
   scene: ReturnType<typeof buildCanvasScene>;
@@ -16,18 +17,17 @@ interface OverlaysDeps {
   lookups: CanvasLookups;
   nodeIds: Set<string>;
   worldByNode: Map<string, World>;
+  staleActiveTaskIds?: ReadonlySet<string>;
 }
 
-// Camera-coupled overlay layers (rich content, presence pins, swarm roster) + the
-// scene readback publish. Each memo keeps its original dep array so it recomputes
-// only on the same triggers as before — swarmRoster stays transform-DECOUPLED.
-export function useCanvasOverlays({ scene, transform, mode, planId, lookups, nodeIds, worldByNode }: OverlaysDeps) {
+const EMPTY_STALE_ACTIVE_TASK_IDS = new Set<string>();
+
+export function useCanvasOverlays({ scene, transform, mode, planId, lookups, nodeIds, worldByNode, staleActiveTaskIds = EMPTY_STALE_ACTIVE_TASK_IDS }: OverlaysDeps) {
   useEffect(
     () => publishCanvasSceneReadback(scene, transform, `${mode}:${planId ?? "workspace"}`),
     [scene, transform, mode, planId],
   );
 
-  // EMERGENCE: the swarm (only tasks with executing agents). Built off the existing
   // per-task presence — O(tasks) once per data change, NOT per pan/zoom.
   const demoOn = presenceAnimateDemoEnabled();
   const [demoTick, setDemoTick] = useState(0);
@@ -38,28 +38,40 @@ export function useCanvasOverlays({ scene, transform, mode, planId, lookups, nod
     return () => window.clearInterval(id);
   }, [demoOn]);
   const presenceByTask = useMemo(() => {
+    bumpCanvasChurn("presenceSourceBuilds");
     const m = new Map<string, PresenceSource>();
     for (const [id, model] of lookups.taskModelById) {
       const p = model.presence;
-      if (!p || p.agents.length === 0) continue;
-      // What it's doing now: the orchestrator's current focus if it applies, else the
-      // latest stride kind (e.g. "review", "testing") — a quiet truthful one-liner.
-      const action = p.focus ?? (p.latest ? p.latest.kindLabel : null);
-      m.set(id, { agents: p.agents, live: model.task.status === "in_progress", label: p.agents[0]?.label ?? p.label, action });
+      if (!p || !p.agents.length || !p.agents[0]) continue;
+      // never reads like plan progress (e.g. subtasks 0/8) or an ambiguous fraction.
+      const action = p.focus
+        ? `focus · ${p.focus}`
+        : p.latest
+          ? `stride · ${p.latest.kindLabel}`
+          : null;
+      m.set(id, {
+        agents: p.agents,
+        live: model.task.status === "in_progress" && !staleActiveTaskIds.has(id),
+        label: p.agents[0]?.label ?? p.label,
+        action,
+        stale: staleActiveTaskIds.has(id),
+      });
     }
     return demoOn ? rotatePresenceForDemo(m, demoTick) : m;
-  }, [lookups.taskModelById, demoOn, demoTick]);
-  // Floating presence pins: budget-bounded + viewport-culled → constant pin count on
+  }, [lookups.taskModelById, demoOn, demoTick, staleActiveTaskIds]);
   // a 20k board, recomputed only when camera/visibility/swarm change (no per-frame O(N)).
   const presenceOverlays = useMemo(
-    () => buildPresenceOverlays({ presenceByTask, nodeById: lookups.nodeById, visibleIds: nodeIds, worldByNode, transform, maxActive: MAX_ACTIVE_PRESENCE_OVERLAYS }),
-    [presenceByTask, lookups.nodeById, nodeIds, worldByNode, transform],
+    () => {
+      bumpCanvasChurn("presenceOverlayBuilds");
+      return buildPresenceOverlays({ presenceByTask, nodeById: lookups.nodeById, visibleIds: nodeIds, worldByNode, cameraScale: transform.scale, maxActive: MAX_ACTIVE_PRESENCE_OVERLAYS });
+    },
+    [presenceByTask, lookups.nodeById, nodeIds, worldByNode, transform.scale],
   );
-  // EMERGENCE top-right cluster: the WHOLE swarm deduped to one circle per distinct
-  // agent. Camera-DECOUPLED (no transform dep) so the screen-space faces stay put
-  // while you fly; recomputed only when the swarm/task data changes.
   const swarmRoster = useMemo(
-    () => buildSwarmRoster({ presenceByTask, taskById: lookups.taskById }),
+    () => {
+      bumpCanvasChurn("swarmRosterBuilds");
+      return buildSwarmRoster({ presenceByTask, taskById: lookups.taskById });
+    },
     [presenceByTask, lookups.taskById],
   );
 

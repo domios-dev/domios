@@ -66,7 +66,6 @@ impl MemManager {
             } else {
                 item.body.clone()
             };
-            // Only embed when the body carries real content. Empty/thin items would
             // otherwise index a title-only vector — pure noise in vector search.
             if super::body_is_embeddable(&body_text) {
                 let embed_text = compose_embed_text(
@@ -127,7 +126,6 @@ impl MemManager {
                 let conn = self.conn.lock();
                 if let Ok(Some(item)) = store::get(&conn, id, &self.blobs_dir) {
                     drop(conn);
-                    // Re-embed only meaningful bodies; vectors left stale by a body
                     // that shrank below the bar are swept by the dreamer's cleanup.
                     if super::body_is_embeddable(&item.body) {
                         let embed_text = compose_embed_text(

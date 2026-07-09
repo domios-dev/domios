@@ -39,13 +39,19 @@ test("plansForLayout overlays fetched spec sections for layout", () => {
   assert(merged[0].sections[0].id === "spec-a", "spec tree");
 });
 
-test("layout bounds grow when tasks are added to the same plan id", () => {
+test("layoutInputRevision ignores task status churn (layout stays stable)", () => {
   const sections = [section("s")];
-  const small = plan("p", "o", 1, sections, [task("t1", ["s"])]);
-  const large = plan("p", "o", 2, sections, [
+  const pending = plan("p", "o", 1, sections, [task("t1", ["s"], { status: "pending", body: "small" })]);
+  const live = plan("p", "o", 1, sections, [task("t1", ["s"], { status: "in_progress", body: "small" })]);
+  assert(layoutInputRevision([pending]) === layoutInputRevision([live]), "status-only diff does not affect layout revision");
+});
+
+test("layout bounds grow when tasks are added to the same plan id", () => {
+  const small = plan("p", "o", 1, [section("s")], [task("t1", ["s"])]);
+  const large = plan("p", "o", 2, [section("s"), section("s2")], [
     task("t1", ["s"]),
-    task("t2", ["s"]),
-    task("t3", ["s"], { body: "z".repeat(500) }),
+    task("t2", ["s2"]),
+    task("t3", ["s2"], { body: "z".repeat(500) }),
     task("t4", ["s"], { milestones: [milestone("m1", "testing"), milestone("m2", "review")] }),
   ]);
   const b0 = layoutWorkspace([small]).bounds;

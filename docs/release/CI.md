@@ -70,6 +70,13 @@ Each workflow:
    - `latest-rc.json` for `*-rc*` tags
    - `latest-nightly.json` for `*-nightly*` tags
 
+Linux deb updates are the exception: the default manifest keeps the
+`linux-x86_64` AppImage entry, while deb-installed apps read
+`latest-deb.json` / `latest-rc-deb.json` / `latest-nightly-deb.json`.
+The split is required because Tauri uses the same platform key for
+AppImage and deb, but the deb installer validates that downloaded bytes
+are a deb package before invoking `dpkg`.
+
 The merge step is eventually consistent: the last workflow to finish
 publishes the fully-merged manifest. Intermediate runs may publish a
 manifest containing only the platforms that have completed so far —

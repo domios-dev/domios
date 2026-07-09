@@ -1064,7 +1064,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm"
-version = "1.6.0"
+version = "1.6.2"
 dependencies = [
  "aes-gcm",
  "annembed",
@@ -1076,6 +1076,7 @@ dependencies = [
  "chrono-tz",
  "clipboard-win",
  "codeterm-mem-store",
+ "codeterm-paths",
  "codeterm-plugins",
  "conpty",
  "crash-context",
@@ -1153,6 +1154,13 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "codeterm-paths"
+version = "0.1.0"
+dependencies = [
+ "dirs 6.0.0",
 ]
 
 [[package]]

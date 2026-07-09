@@ -1,5 +1,3 @@
-// Git plugin — CodeTerm's local-git presence, authored in TypeScript against
-// @codeterm/plugin-sdk and compiled to QuickJS-compatible plugin.js by
 import type {
   ExecOpts,
   ExecResult,

@@ -64,6 +64,9 @@ fn test_create_tab() {
     assert!(!tab_id.is_empty());
     assert!(!pane_id.is_empty());
     assert!(state.get_pane(&pane_id).is_some());
+    let pane = state.get_pane(&pane_id).unwrap();
+    assert_eq!(pane.role, None, "user-created tab must start roleless");
+    assert!(!pane.can_spawn, "roleless tab must not inherit can_spawn");
 
     let ws = state.get_workspace(&ws_id).unwrap();
     assert_eq!(ws.tabs.len(), 2);
@@ -75,6 +78,59 @@ fn test_create_tab_invalid_workspace() {
     let (mut state, _) = MultiplexerState::new();
     let result = state.create_tab("nonexistent");
     assert!(result.is_err());
+}
+
+#[test]
+fn test_claim_existing_tab_reuses_blank_pane_in_place() {
+    let (mut state, _) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let (tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
+    let tabs_before = state.get_workspace(&ws_id).unwrap().tabs.len();
+
+    let (claimed_tab_id, claimed_pane_id) = state.claim_existing_tab(&ws_id, &tab_id).unwrap();
+    assert_eq!(claimed_tab_id, tab_id, "claim must not mint a new tab id");
+    assert_eq!(
+        claimed_pane_id, pane_id,
+        "claim must not mint a new pane id"
+    );
+    assert_eq!(
+        state.get_workspace(&ws_id).unwrap().tabs.len(),
+        tabs_before,
+        "claim must not create a stray tab"
+    );
+}
+
+#[test]
+fn test_claim_existing_tab_rejects_tab_with_agent_already_attached() {
+    let (mut state, _) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let (tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
+    state.get_pane_mut(&pane_id).unwrap().agent_type = Some("claude".into());
+
+    let result = state.claim_existing_tab(&ws_id, &tab_id);
+    assert!(
+        result.is_err(),
+        "an already-spawned tab must not be claimable"
+    );
+}
+
+#[test]
+fn test_claim_existing_tab_rejects_unknown_tab() {
+    let (mut state, _) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let result = state.claim_existing_tab(&ws_id, "nonexistent-tab");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_claim_existing_tab_rejects_protected_pane() {
+    let (mut state, _) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let (tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
+    state.get_pane_mut(&pane_id).unwrap().protected = true;
+
+    let result = state.claim_existing_tab(&ws_id, &tab_id);
+    assert!(result.is_err(), "a protected pane must not be claimable");
 }
 
 #[test]
@@ -636,7 +692,6 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
         SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
     };
 
-    // Legacy snapshot path: agent_type is None (saved before reliable tracking), but the title preserved when the snapshot was captured carries
     // the provider name. Restore must recover agent_type so tab-bar icons show.
     for (title, expected) in [
         ("codex", "codex"),
@@ -670,6 +725,7 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
                         agent_type_locked: false,
                         claude_session_id: None,
                         role: None,
+                        role_profile: None,
                         parent_pane_id: None,
                         spawned_by_pane_id: None,
                         report_target_pane_id: None,
@@ -730,6 +786,7 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
                     agent_type_locked: false,
                     claude_session_id: None,
                     role: None,
+                    role_profile: None,
                     parent_pane_id: None,
                     spawned_by_pane_id: None,
                     report_target_pane_id: None,
@@ -768,7 +825,6 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
     use crate::session::store::{
         SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
     };
-    // Snapshot saved BEFORE agent_type_locked existed: only agent_type populated. Restore code must treat it as locked — pre-lock snapshots only
     // persisted agent_type via a real spawn or detection, both qualify as explicit intent.
     let snap = SessionSnapshot {
         version: "test".to_string(),
@@ -796,6 +852,7 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
                     agent_type_locked: false,
                     claude_session_id: None,
                     role: None,
+                    role_profile: None,
                     parent_pane_id: None,
                     spawned_by_pane_id: None,
                     report_target_pane_id: None,

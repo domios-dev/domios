@@ -111,7 +111,6 @@ pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
         }
     }
 
-    // 4. Area distribution
     let mut stmt = conn.prepare(
         "SELECT COALESCE(area, '(none)'), COUNT(*) FROM mem_items GROUP BY area ORDER BY COUNT(*) DESC LIMIT 10"
     ).map_err(|e| e.to_string())?;
@@ -199,7 +198,6 @@ pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
         }
     }
 
-    // 7. Graph stats
     let entity_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM entities", [], |r| r.get(0))
         .unwrap_or(0);
@@ -219,7 +217,6 @@ pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
         entity_count, relation_count, orphan_entities
     ));
 
-    // 8. Kind distribution
     let mut stmt = conn
         .prepare("SELECT kind, COUNT(*) FROM mem_items GROUP BY kind ORDER BY COUNT(*) DESC")
         .map_err(|e| e.to_string())?;

@@ -69,9 +69,6 @@ test("@golden @canvas-section-agent section rows show their live agents; click j
   // The indicator carries an avatar stack (same language as the swarm).
   expect(await indicators.first().locator('[data-testid="canvas-agent-stack"]').count(), "indicator uses the agent avatar stack").toBeGreaterThan(0);
 
-  // Click it → jump to the section's live work + record a nav hop (breadcrumb appears).
-  // dispatchEvent (not .click()) fires the handler regardless of the deep-zoom scroll
-  // position of the header row in the plan's document column.
   await indicators.first().dispatchEvent("click");
   await page.waitForTimeout(900);
   await shot(page, "secagent-jumped");

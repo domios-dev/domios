@@ -53,7 +53,7 @@ export function responseKeysForIndex(optionIndex: number, screen: string): strin
 }
 
 export function parseMenuOptions(screen: string): MenuOption[] {
-  const lines = String(screen || "").split("\n");
+  const lines = normalizeLines(screen);
   const options: MenuOption[] = [];
   for (let i = 0; i < lines.length; i++) {
     const m = MENU_OPTION_RE.exec(lines[i]);
@@ -70,7 +70,7 @@ function parseCodexPromptShape(screen: string): PromptShape | null {
 }
 
 function parseCodexNumberedMenu(screen: string): PromptShape | null {
-  const lines = String(screen || "").split("\n");
+  const lines = normalizeLines(screen);
   const options = activeMenuOptions(screen);
   if (options.length < 2) return null;
   const hasSelector = options.some((o) => o.highlighted);

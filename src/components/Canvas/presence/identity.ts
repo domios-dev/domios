@@ -1,7 +1,3 @@
-// EMERGENCE (north-star #2): a swarm reads as ALIVE only if every agent keeps the
-// SAME color + initials wherever it appears — on a task card now, free-floating
-// between tasks (iter-11), in the top-right cluster (iter-12). These pure helpers
-// are that shared identity contract; the React tokens in AgentCircle.tsx consume it.
 
 export interface PresenceAgent {
   /** Stable identity key — same agent → same color/initials everywhere. */
@@ -13,9 +9,6 @@ export interface PresenceAgent {
   isPeer?: boolean;
 }
 
-// Curated multiplayer palette: ten well-separated hues, each tuned for white
-// glyph contrast. A hash indexes it so identity is deterministic, never a muddy
-// hash-to-hue accident. Deliberately NOT the templated terracotta/cream default.
 export const PRESENCE_PALETTE = [
   "#e8643c", // vermilion
   "#2f9e7e", // teal
@@ -35,7 +28,6 @@ export function presenceColor(key: string): string {
   return PRESENCE_PALETTE[h % PRESENCE_PALETTE.length];
 }
 
-// Initials from a handle/role/title: two-word → first letters, one-word → first
 // two chars. Splits on the separators agent handles actually use.
 export function agentInitials(label: string): string {
   const parts = label.trim().split(/[\s_\-./:]+/).filter(Boolean);

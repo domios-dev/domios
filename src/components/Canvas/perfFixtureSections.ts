@@ -1,11 +1,5 @@
 import type { Section, SpecLink } from "./types";
 
-// Dev harness only: a rich multi-section PLAN (the HOW) + the SPEC it derives from
-// (the WHAT), so the plan-as-document reading experience and the per-section spec-
-// reference bubbles can be developed and tested without a live daemon. Bodies are
-// real markdown prose (approaches / integrations / libraries), each section carries
-// its own facet tags, and spec_links bind every plan section to the spec section(s)
-// it was written from. Off unless a perf/real fixture flag is set (see perfFixture).
 
 export const PERF_SPEC_ID = "spec_canvas_substrate";
 
@@ -19,7 +13,6 @@ const sec = (id: string, title: string, body: string, tags: string[] = [], subse
   canvas,
 });
 
-// ── PLAN sections: HOW we build the canvas substrate (prose, not an index) ────────
 export const PERF_PLAN_SECTIONS: Section[] = [
   sec(
     "pl_layout",
@@ -110,7 +103,6 @@ export const PERF_PLAN_SECTIONS: Section[] = [
 
 export const PERF_PLAN_SECTION_IDS: string[] = PERF_PLAN_SECTIONS.map((s) => s.id);
 
-// ── SPEC sections: WHAT the product must do (distinct from the HOW above) ─────────
 export const PERF_SPEC_SECTIONS: Section[] = [
   sec(
     "sp_scale",

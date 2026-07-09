@@ -47,7 +47,6 @@ pub struct PluginManifest {
     #[serde(default)]
     pub host_api: Option<u32>,
 
-    // Documentation surface (shown in the Extensions detail pane). `readme` is a
     // relative markdown path the snapshot loads into a bounded field.
     #[serde(default)]
     pub description: Option<String>,
@@ -61,7 +60,6 @@ pub struct PluginManifest {
     #[serde(default)]
     pub agent_doc: Option<String>,
 
-    // Identity / UI
     #[serde(default)]
     pub icon_hint: Option<String>,
     #[serde(default)]
@@ -73,7 +71,6 @@ pub struct PluginManifest {
     #[serde(default)]
     pub cli_binary: Option<String>,
 
-    // Spawn semantics. Required for agent providers; capability-only plugins
     // (transcriber, secret backend) leave it defaulted.
     #[serde(default)]
     pub spawn: SpawnConfig,
@@ -100,7 +97,6 @@ pub struct PluginManifest {
     #[serde(default)]
     pub installer: std::collections::HashMap<String, String>,
 
-    // Slash commands / control literals
     #[serde(default)]
     pub commands: CommandsConfig,
 

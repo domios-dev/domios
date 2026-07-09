@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 use crate::args::orchestrator::{OrchestratorAction, OrchestratorHeartbeatAction};
-use crate::client::SocketClient;
+use crate::client::{SocketCallError, SocketClient};
 use crate::cmd::plan::{call_plan_rpc, owner_from_env, resolve_text};
 use crate::resolve_pane;
 
@@ -11,6 +11,7 @@ pub fn handle(
     action: OrchestratorAction,
 ) -> Result<Option<Value>, String> {
     match action {
+        OrchestratorAction::Status { plan, pane } => status(client, json_output, plan, pane),
         OrchestratorAction::Learn { text, plan, tag } => {
             learn(client, json_output, text, plan, tag)
         }
@@ -99,6 +100,124 @@ fn learn(
     Ok(None)
 }
 
+fn status(
+    client: &mut SocketClient,
+    json_output: bool,
+    plan: Option<String>,
+    pane: Option<String>,
+) -> Result<Option<Value>, String> {
+    let plan_id = plan.ok_or("--plan or CODETERM_PLAN_ID is required")?;
+    let pane_id = resolve_pane(client, pane);
+    let reports = client
+        .call_detailed(
+            "agent.reports",
+            Some(json!({
+                "pane_id": pane_id,
+                "clear": false,
+            })),
+        )
+        .map_err(|err| render_reports_error(&pane_id, err))?;
+    let state = call_plan_rpc(client, "plan.state", json!({ "plan_id": plan_id }))?;
+    let out = json!({
+        "plan_id": plan_id,
+        "pane_id": pane_id,
+        "reports": reports,
+        "live_lanes": {
+            "open": state.get("open_lanes").cloned().unwrap_or_else(|| json!([])),
+            "blocked": state.get("blocked_lanes").cloned().unwrap_or_else(|| json!([])),
+            "agents": state.get("live_agents").cloned().unwrap_or_else(|| json!([])),
+            "heartbeat": state.get("heartbeat").cloned().unwrap_or_else(|| json!({})),
+        },
+        "drift": state.get("drift").cloned().unwrap_or_else(|| json!({})),
+        "next_actions": state.get("next_actions").cloned().unwrap_or_else(|| json!([])),
+    });
+    if json_output {
+        return Ok(Some(out));
+    }
+    print!("{}", render_status(&out));
+    Ok(None)
+}
+
+fn render_status(value: &Value) -> String {
+    let plan_id = value.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
+    let pane_id = value.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
+    let reports = value
+        .get("reports")
+        .and_then(|v| v.as_array())
+        .map_or(0, Vec::len);
+    let drift = value
+        .get("drift")
+        .and_then(|v| v.get("total"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or_else(|| {
+            value
+                .get("drift")
+                .and_then(|v| v.get("items"))
+                .and_then(|v| v.as_array())
+                .map_or(0, |items| items.len() as u64)
+        });
+    let actions = value
+        .get("next_actions")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let live_agents = value
+        .get("live_lanes")
+        .and_then(|v| v.get("agents"))
+        .and_then(|v| v.as_array())
+        .map_or(0, Vec::len);
+    let open = value
+        .get("live_lanes")
+        .and_then(|v| v.get("open"))
+        .and_then(|v| v.as_array())
+        .map_or(0, Vec::len);
+    let blocked = value
+        .get("live_lanes")
+        .and_then(|v| v.get("blocked"))
+        .and_then(|v| v.as_array())
+        .map_or(0, Vec::len);
+
+    let mut out = format!("Orchestrator status for {plan_id} (pane {pane_id})\n");
+    out.push_str(&format!("reports: {reports}\n"));
+    out.push_str(&format!(
+        "live_lanes: open={open} blocked={blocked} agents={live_agents}\n"
+    ));
+    out.push_str(&format!("drift: {drift}\n"));
+    if actions.is_empty() {
+        out.push_str("next_actions: none\n");
+    } else {
+        out.push_str("next_actions:\n");
+        for action in actions {
+            let message = action
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            let command = action_command(plan_id, &action);
+            out.push_str(&format!("- {message}\n  {command}\n"));
+        }
+    }
+    out
+}
+
+fn action_command(plan_id: &str, action: &Value) -> String {
+    let kind = action.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+    let task_id = action.get("task_id").and_then(|v| v.as_str());
+    match (kind, task_id) {
+        ("gate", Some(task)) => {
+            format!("codeterm task show {task} && codeterm plan task close {plan_id} {task}")
+        }
+        ("advance", Some(task)) => {
+            format!("codeterm task show {task} && codeterm plan record {plan_id} --task {task} --step decision:<next-instruction>")
+        }
+        ("dispatch", Some(task)) => format!("codeterm task show {task}"),
+        ("reconcile", _) => format!("codeterm plan reconcile {plan_id}"),
+        ("consider_stop", _) => {
+            format!("codeterm plan record {plan_id} --step decision:<loop-decision>")
+        }
+        _ => format!("codeterm plan get {plan_id}"),
+    }
+}
+
 fn heartbeat_show(
     client: &mut SocketClient,
     json_output: bool,
@@ -123,6 +242,18 @@ fn heartbeat_set(
     clear_lanes: bool,
     clear_rules: bool,
 ) -> Result<Option<Value>, String> {
+    if clear_lanes && !lanes.is_empty() {
+        return Err(
+            "pass either --clear-lanes or --lane, not both; use a second heartbeat set command after clearing"
+                .into(),
+        );
+    }
+    if clear_rules && !rules.is_empty() {
+        return Err(
+            "pass either --clear-rules or --rule, not both; use a second heartbeat set command after clearing"
+                .into(),
+        );
+    }
     let mut params = heartbeat_params(plan);
     if let Some(focus) = focus {
         params["focus"] = json!(focus);
@@ -298,7 +429,9 @@ fn handoff(
 }
 
 fn pane_session_id(client: &mut SocketClient, pane_id: &str) -> Result<String, String> {
-    let panes = client.call("pane.list", None)?;
+    let panes = client
+        .call_detailed("pane.list", None)
+        .map_err(|err| render_reseed_pane_lookup_error(pane_id, err))?;
     let pane = panes
         .as_array()
         .and_then(|items| {
@@ -306,9 +439,131 @@ fn pane_session_id(client: &mut SocketClient, pane_id: &str) -> Result<String, S
                 .iter()
                 .find(|item| item.get("id").and_then(|v| v.as_str()) == Some(pane_id))
         })
-        .ok_or_else(|| format!("pane {pane_id} not found"))?;
+        .ok_or_else(|| render_reseed_pane_session_error(pane_id))?;
     pane.get("agent_session_id")
         .and_then(|v| v.as_str())
         .map(str::to_string)
-        .ok_or_else(|| format!("pane {pane_id} has no source session id"))
+        .ok_or_else(|| render_reseed_pane_session_error(pane_id))
+}
+
+fn render_reports_error(pane_id: &str, err: SocketCallError) -> String {
+    format!(
+        "cannot read orchestrator reports for pane {pane_id}.\nfix: run `codeterm pane list`\ncause: {}",
+        concise_socket_error(err)
+    )
+}
+
+fn render_reseed_pane_lookup_error(pane_id: &str, err: SocketCallError) -> String {
+    format!(
+        "cannot inspect pane {pane_id} for handoff reseed.\nfix: run `codeterm pane list --agents` and pass an agent pane with `--pane <pane_id>`.\ncause: {}",
+        concise_socket_error(err)
+    )
+}
+
+fn render_reseed_pane_session_error(pane_id: &str) -> String {
+    format!(
+        "cannot reseed because pane {pane_id} is not an agent or has no session.\nfix: run `codeterm pane list --agents` and pass an agent pane with `--pane <pane_id>`."
+    )
+}
+
+fn concise_socket_error(err: SocketCallError) -> String {
+    match err {
+        SocketCallError::Rpc(rpc) => rpc.message,
+        SocketCallError::Transport(message) => message,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{
+        action_command, render_reports_error, render_reseed_pane_lookup_error,
+        render_reseed_pane_session_error, render_status,
+    };
+    use crate::client::{RpcError, SocketCallError};
+
+    #[test]
+    fn status_renderer_includes_exact_commands() {
+        let rendered = render_status(&json!({
+            "plan_id": "pl_1",
+            "pane_id": "pane1",
+            "reports": [{"message": "done"}],
+            "live_lanes": {
+                "open": [{"task_id": "task_a"}],
+                "blocked": [],
+                "agents": [{"pane_id": "worker1"}],
+                "heartbeat": {"active_lanes": ["L2"]}
+            },
+            "drift": {"total": 2, "items": []},
+            "next_actions": [
+                {"kind": "gate", "task_id": "task_a", "message": "gate task_a"},
+                {"kind": "reconcile", "message": "reconcile"}
+            ]
+        }));
+
+        assert!(rendered.contains("reports: 1"));
+        assert!(rendered.contains("live_lanes: open=1 blocked=0 agents=1"));
+        assert!(rendered.contains("drift: 2"));
+        assert!(
+            rendered.contains("codeterm task show task_a && codeterm plan task close pl_1 task_a")
+        );
+        assert!(rendered.contains("codeterm plan reconcile pl_1"));
+    }
+
+    #[test]
+    fn action_commands_cover_task_and_plan_context() {
+        assert_eq!(
+            action_command("pl_1", &json!({"kind": "dispatch", "task_id": "task_b"})),
+            "codeterm task show task_b"
+        );
+        assert_eq!(
+            action_command("pl_1", &json!({"kind": "reconcile"})),
+            "codeterm plan reconcile pl_1"
+        );
+    }
+
+    #[test]
+    fn report_fetch_error_is_orchestrator_specific() {
+        let msg = render_reports_error(
+            "pane1",
+            SocketCallError::Rpc(RpcError {
+                code: -32603,
+                message: "Pane not found".into(),
+                data: None,
+            }),
+        );
+
+        assert!(msg.contains("cannot read orchestrator reports for pane pane1"));
+        assert!(msg.contains("codeterm pane list"));
+        assert!(!msg.contains("RPC error"));
+        assert!(!msg.contains("-32603"));
+    }
+
+    #[test]
+    fn reseed_pane_lookup_error_includes_agent_recovery_command() {
+        let msg = render_reseed_pane_lookup_error(
+            "pane1",
+            SocketCallError::Rpc(RpcError {
+                code: -32603,
+                message: "Pane not found".into(),
+                data: None,
+            }),
+        );
+
+        assert!(msg.contains("cannot inspect pane pane1 for handoff reseed"));
+        assert!(msg.contains("codeterm pane list --agents"));
+        assert!(msg.contains("--pane <pane_id>"));
+        assert!(!msg.contains("RPC error"));
+        assert!(!msg.contains("-32603"));
+    }
+
+    #[test]
+    fn reseed_session_error_includes_agent_recovery_command() {
+        let msg = render_reseed_pane_session_error("pane1");
+
+        assert!(msg.contains("cannot reseed because pane pane1 is not an agent or has no session"));
+        assert!(msg.contains("codeterm pane list --agents"));
+        assert!(msg.contains("--pane <pane_id>"));
+    }
 }

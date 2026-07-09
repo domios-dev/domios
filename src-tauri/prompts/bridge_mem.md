@@ -10,6 +10,7 @@ You have a persistent vector + keyword memory store accessed via `codeterm mem`.
 6. **"Remember" → save now.** When the user says remember / "запомни" → `codeterm mem save` immediately, in English. A background worker does area classification, entity extraction, graph linking, dedup — you don't worry about schema.
 7. **Facts change → save the new one.** Old version stays in history. `codeterm mem delete` only when explicitly outdated.
 8. **No dates in the body.** `created_at` / `updated_at` are tracked automatically; duplicating them pollutes vector search.
+9. **Skill lookup before "missing".** The provider's injected skill list is a subset only — mem is the source of truth for folder skills (`kind=skill`). Before saying a capability/skill is absent, run `codeterm mem search "<capability> skill"` (and `codeterm mem skill list` if needed); read the returned source `SKILL.md` before acting.
 
 ## Invariants
 
@@ -23,4 +24,4 @@ You have a persistent vector + keyword memory store accessed via `codeterm mem`.
 
 For the full command reference (kinds, filters, graph queries, search-strategy fallbacks, sessions API, skill-folder workflow, keepawake, dreaming), use the provider skill named `codeterm` from the synced skills directory. Do not rely on the short mem seed item named "codeterm skill"; that search result is only a stub. The provider skill triggers on terminal / pane / agent / workspace / mesh / cron / **mem** / **remember** / **recall** / **save fact** / **memory** / **session** / **keepawake** keywords.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

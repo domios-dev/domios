@@ -45,7 +45,6 @@ test("@golden pasting a screenshot into the chat composer attaches it", async ({
     await composer.waitFor({ timeout: 60_000 });
     await composer.focus();
 
-    // Synthetic paste of an image File → handler captures it, storeBlob →
     // /api/upload → attachment chip.
     await page.evaluate((b64) => {
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));

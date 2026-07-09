@@ -10,7 +10,7 @@ import type { ApiConfig, GraphWorkerInfo } from "../../lib/types";
 import type { MemNode } from "./types";
 import { colorForKind } from "./nodeKind";
 import type { MemActivityEvent } from "./useActivityPulses";
-import { baseUrl, authHeaders, isTauriEnv } from "./memoryApi";
+import { baseUrl, authHeaders } from "./memoryApi";
 import { useGraphWorkers } from "./useGraphWorkers";
 import { MemorySpawnWorkerDialog } from "./MemorySpawnWorkerDialog";
 import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
@@ -92,25 +92,23 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
   useEffect(() => {
     let active = true;
     let unlisten: (() => void) | null = null;
-    if (isTauriEnv()) {
-      listen<MemActivityEvent>("mem-activity", (ev) => {
-        if (!active) return;
-        setEvents((prev) => {
-          const next = [ev.payload, ...prev];
-          if (next.length > MAX_EVENTS) next.length = MAX_EVENTS;
-          return next;
-        });
-        if (!autoScroll) {
-          newCountRef.current++;
-          setNewCount(newCountRef.current);
-        }
+    listen<MemActivityEvent>("mem-activity", (ev) => {
+      if (!active) return;
+      setEvents((prev) => {
+        const next = [ev.payload, ...prev];
+        if (next.length > MAX_EVENTS) next.length = MAX_EVENTS;
+        return next;
+      });
+      if (!autoScroll) {
+        newCountRef.current++;
+        setNewCount(newCountRef.current);
+      }
+    })
+      .then((fn) => {
+        if (!active) { fn(); return; }
+        unlisten = fn;
       })
-        .then((fn) => {
-          if (!active) { fn(); return; }
-          unlisten = fn;
-        })
-        .catch(() => {});
-    }
+      .catch(() => {});
     return () => { active = false; if (unlisten) unlisten(); };
   }, [api, autoScroll]);
 

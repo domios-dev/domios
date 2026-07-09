@@ -29,8 +29,13 @@ pub fn render_reconcile(val: &Value) -> String {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         let suffix = if not_mine { " [not-mine]" } else { "" };
+        let command = reconcile_command(
+            item.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?"),
+            task,
+            item.get("kind").and_then(|v| v.as_str()).unwrap_or(""),
+        );
         out.push_str(&format!(
-            "  - {task}: {kind}{suffix} - {detail}; fix: {fix}\n"
+            "  - {task}: {kind}{suffix} - {detail}; fix: {fix}; command: {command}\n"
         ));
     }
     let fixed = val
@@ -55,4 +60,52 @@ pub fn render_reconcile(val: &Value) -> String {
         out.push_str("Accepted-but-not-done: skipped; no unambiguous acceptance signal exists in the task model.\n");
     }
     out
+}
+
+fn reconcile_command(plan_id: &str, task_id: &str, kind: &str) -> String {
+    match kind {
+        "stale_in_review" | "accepted_but_not_done" => {
+            format!("codeterm task show {task_id} && codeterm plan task close {plan_id} {task_id}")
+        }
+        "in_progress_pane_gone" | "bound_to_closed_pane" => {
+            format!("codeterm task show {task_id} && codeterm plan task update {plan_id} {task_id} --status blocked --status-label needs-reassign")
+        }
+        _ => format!("codeterm task show {task_id} && codeterm plan reconcile {plan_id} --fix"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::render_reconcile;
+
+    #[test]
+    fn render_reconcile_includes_exact_plan_and_task_commands() {
+        let rendered = render_reconcile(&json!({
+            "drift": [
+                {
+                    "plan_id": "pl_1",
+                    "task_id": "task_a",
+                    "kind": "stale_in_review",
+                    "detail": "stale",
+                    "suggested_fix": "review"
+                },
+                {
+                    "plan_id": "pl_1",
+                    "task_id": "task_b",
+                    "kind": "bound_to_closed_pane",
+                    "detail": "closed",
+                    "suggested_fix": "clear"
+                }
+            ]
+        }));
+
+        assert!(
+            rendered.contains("codeterm task show task_a && codeterm plan task close pl_1 task_a")
+        );
+        assert!(rendered.contains(
+            "codeterm task show task_b && codeterm plan task update pl_1 task_b --status blocked --status-label needs-reassign"
+        ));
+    }
 }

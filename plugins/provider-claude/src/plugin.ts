@@ -1,4 +1,3 @@
-// Claude Code provider plugin runtime logic, compiled to QuickJS-compatible
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
 import type { LaunchParams, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
@@ -88,7 +87,6 @@ const TUI_FRAGMENTS = [
   "for shortcuts",
   "ctrl+l",
   "esc to interrupt",
-  // v2.1+ idle footer
   "bypass permissions",
   "shift+tab to cycle",
 ];
@@ -157,7 +155,6 @@ const plugin: PluginModule = {
     if (c.indexOf("Esc to cancel") !== -1) return true;
     if (c.indexOf("Tab to amend") !== -1) return true;
     if (c.indexOf("1.") !== -1 && c.indexOf("2.") !== -1) return true;
-    // "for 0..9" — task completion footers
     for (let i = 0; i < 10; i++) {
       if (c.indexOf(" for " + i) !== -1) return true;
     }
@@ -177,7 +174,6 @@ const plugin: PluginModule = {
     const t = String(text || "");
     const events: string[] = [];
     if (parseClaudeWizardPrompt(t)) events.push("permission_request");
-    // PermissionRequest: numbered list + "Esc to cancel" or "❯ N." selector
     const numLines = (t.match(/^\s*\d+\.\s+/gm) || []).length;
     const hasEscFooter = t.indexOf("Esc to cancel") !== -1 || t.indexOf("Tab to amend") !== -1;
     const hasSelector = t.indexOf("❯") !== -1;
@@ -287,7 +283,6 @@ const plugin: PluginModule = {
     return null;
   },
 
-  // Anthropic exposes live API models only for API-key users. Claude Pro/Max
   // OAuth accounts do not expose a cheap CLI model-list probe, so they use seed.
   discoverModels() {
     return discoverAnthropicModels() || manifestModels();

@@ -21,7 +21,6 @@ function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
-// Set both mod keys so the assertion holds whether IS_MAC resolves true or false
 // in the test runtime (matchesBinding reads metaKey on mac, ctrlKey elsewhere).
 function key(code: string, shift: boolean): KeyboardEvent {
   return { code, metaKey: true, ctrlKey: true, shiftKey: shift, altKey: false, key: code } as unknown as KeyboardEvent;

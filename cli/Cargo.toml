@@ -1,6 +1,6 @@
 [package]
 name = "codeterm-cli"
-version = "1.6.1"
+version = "1.6.2"
 edition = "2021"
 
 [[bin]]
@@ -34,3 +34,12 @@ codeterm-plugins = { path = "../crates/codeterm-plugins" }
 
 [dev-dependencies]
 tempfile = "3"
+
+# CLI ships release (agents exec it constantly — startup latency matters),
+# but incremental makes iterative release rebuilds cheap on dev restarts.
+[profile.release]
+incremental = true
+
+[profile.dev]
+split-debuginfo = "unpacked"
+debug = "line-tables-only"

@@ -47,7 +47,7 @@ fn implicit_key(plan_id: &str, seed: &Value) -> String {
 #[allow(clippy::too_many_arguments)]
 pub fn record(
     client: &mut SocketClient,
-    plan_id: String,
+    plan_id: Option<String>,
     task: Option<String>,
     upsert_task: Option<String>,
     name: Option<String>,
@@ -155,16 +155,19 @@ pub fn record(
     }
 
     let ops_value = Value::Array(ops);
-    let stable_key = key.unwrap_or_else(|| implicit_key(&plan_id, &ops_value));
-    let mut result = call_plan_rpc(
-        client,
-        "plan.batch",
-        json!({
-            "plan_id": plan_id,
-            "key": stable_key,
-            "ops": ops_value,
-        }),
-    )?;
+    let stable_key =
+        key.unwrap_or_else(|| implicit_key(plan_id.as_deref().unwrap_or(""), &ops_value));
+    let mut params = json!({
+        "key": stable_key,
+        "ops": ops_value,
+    });
+    if let Ok(pane_id) = std::env::var("CODETERM_PANE_ID") {
+        params["caller_pane_id"] = json!(pane_id);
+    }
+    if let Some(plan_id) = plan_id {
+        params["plan_id"] = json!(plan_id);
+    }
+    let mut result = call_plan_rpc(client, "plan.batch", params)?;
     if let Some(hint) = maybe_orchestration_reminder() {
         push_hints(&mut result, vec![hint]);
     }

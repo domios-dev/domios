@@ -227,13 +227,11 @@ fn main() {
 fn run() -> Result<(), String> {
     let args = Args::parse()?;
 
-    // 1. Load fixture
     let fixture_raw = fs::read_to_string(&args.fixture)
         .map_err(|e| format!("read fixture {}: {}", args.fixture.display(), e))?;
     let fixture: Fixture =
         serde_json::from_str(&fixture_raw).map_err(|e| format!("parse fixture: {}", e))?;
 
-    // 2. Set up offline mem store
     let db_dir = match args.db.as_ref() {
         Some(p) => p.clone(),
         None => std::env::temp_dir().join(format!(
@@ -276,7 +274,6 @@ fn run() -> Result<(), String> {
         fixture.test_cases.len()
     );
 
-    // 4. Run test cases
     let wall_start = Instant::now();
     let mut results: Vec<QueryResult> = Vec::with_capacity(fixture.test_cases.len());
 
@@ -320,10 +317,8 @@ fn run() -> Result<(), String> {
     }
     let total_wall_ms = wall_start.elapsed().as_secs_f64() * 1000.0;
 
-    // 5. Metrics
     let metrics = compute_metrics(&results, total_wall_ms);
 
-    // 6. Build report
     let commit = git_commit();
     let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
     let report = BenchReport {
@@ -336,7 +331,6 @@ fn run() -> Result<(), String> {
         per_query: results.clone(),
     };
 
-    // 7. Write JSON
     fs::create_dir_all(&args.output_dir).map_err(|e| format!("create output dir: {}", e))?;
     let json_path = args.output_dir.join(format!("{}.json", timestamp));
     let json_body =
@@ -345,7 +339,6 @@ fn run() -> Result<(), String> {
         .map_err(|e| format!("write {}: {}", json_path.display(), e))?;
     println!("wrote {}", json_path.display());
 
-    // 8. Load baseline if any
     let baseline: Option<BenchReport> = match args.baseline.as_ref() {
         Some(p) => {
             let raw = fs::read_to_string(p)
@@ -357,14 +350,12 @@ fn run() -> Result<(), String> {
         None => None,
     };
 
-    // 9. Write HTML report
     fs::create_dir_all(&args.report_dir).map_err(|e| format!("create report dir: {}", e))?;
     let html_path = args.report_dir.join(format!("{}.html", timestamp));
     let html = render_html(&report, baseline.as_ref());
     fs::write(&html_path, html).map_err(|e| format!("write {}: {}", html_path.display(), e))?;
     println!("wrote {}", html_path.display());
 
-    // 10. Save baseline copy
     if args.save_baseline {
         let baselines_dir = args
             .output_dir
@@ -378,7 +369,6 @@ fn run() -> Result<(), String> {
         println!("wrote {}", baseline_path.display());
     }
 
-    // 11. Print summary
     print_summary(&metrics, &results);
 
     Ok(())
@@ -500,7 +490,6 @@ fn render_html(report: &BenchReport, baseline: Option<&BenchReport>) -> String {
     }
     out.push_str("</header>");
 
-    // Metrics table
     out.push_str("<section><h2>Metrics</h2><table class=\"metrics\"><thead><tr>");
     out.push_str("<th>metric</th><th>value</th>");
     if baseline.is_some() {
@@ -548,7 +537,6 @@ fn render_html(report: &BenchReport, baseline: Option<&BenchReport>) -> String {
     }
     out.push_str("</tbody></table></section>");
 
-    // Per-query table
     out.push_str("<section><h2>Per-query results</h2><table class=\"queries\"><thead><tr>");
     out.push_str("<th>id</th><th>cat</th><th>query</th><th>expected</th><th>got (top 10)</th><th>rank</th><th>ms</th>");
     out.push_str("</tr></thead><tbody>");

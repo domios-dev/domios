@@ -60,13 +60,17 @@ pub(super) fn dispatch(
                     message: e,
                     data: None,
                 })?;
-            Ok(serde_json::json!({
+            let mut resp = serde_json::json!({
                 "id": handle.pane_id,
                 "pane_id": handle.pane_id,
                 "workspace_id": handle.workspace_id,
                 "tab_id": handle.tab_id,
                 "pty_id": handle.pty_id
-            }))
+            });
+            if let Some(ref notice) = handle.budget_notice {
+                resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
+            }
+            Ok(resp)
         }
 
         "pane.focus" => {
@@ -149,6 +153,10 @@ pub(super) fn dispatch(
                     message: e,
                     data: None,
                 })?;
+                if !raw_text.trim().is_empty() {
+                    svc.as_ref()
+                        .maybe_send_owned_plan_reminder(&resolved_target);
+                }
             } else {
                 svc.as_ref()
                     .send_text(&resolved_target, &raw_text, enter)
@@ -157,6 +165,10 @@ pub(super) fn dispatch(
                         message: e,
                         data: None,
                     })?;
+                if !raw_text.trim().is_empty() {
+                    svc.as_ref()
+                        .maybe_send_owned_plan_reminder(&resolved_target);
+                }
             }
             Ok(serde_json::json!({"ok": true}))
         }

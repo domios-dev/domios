@@ -32,7 +32,6 @@ pub fn active_question_prompt(messages: &[RichMessage]) -> Option<PendingPrompt>
         let Some(first) = questions.first() else {
             continue;
         };
-        // All questions emitted by one AskUserQuestion share a tool_use id and
         // are answered together by a single tool_result.
         if answered.contains(first.tool_use_id.as_str()) {
             continue;

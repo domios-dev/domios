@@ -1,8 +1,5 @@
 import { useRef } from "react";
 
-// Compare-and-reuse: if `next` has identical members to the previously returned
-// Set, hand back the PRIOR reference. Kills the per-frame identity churn where a
-// freshly built visible-id Set (same members) invalidates every downstream memo.
 export function useStableSet<T>(next: Set<T>): Set<T> {
   const ref = useRef(next);
   const prev = ref.current;

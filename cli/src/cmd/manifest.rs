@@ -57,7 +57,11 @@ fn walk(cmd: &Command) -> ManifestCommand {
         .collect();
     args.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let mut subcommands: Vec<ManifestCommand> = cmd.get_subcommands().map(walk).collect();
+    let mut subcommands: Vec<ManifestCommand> = cmd
+        .get_subcommands()
+        .filter(|c| c.get_name() != "help" && c.get_name() != "version" && !c.is_hide_set())
+        .map(walk)
+        .collect();
     subcommands.sort_by(|a, b| a.name.cmp(&b.name));
 
     let mut aliases: Vec<String> = cmd.get_visible_aliases().map(|s| s.to_string()).collect();
@@ -128,7 +132,11 @@ fn repo_path(rel: &str) -> std::path::PathBuf {
         .join(rel)
 }
 
-pub fn handle(write: bool) {
+pub fn handle(write: bool, markdown: bool) {
+    if markdown {
+        print!("{}", to_markdown());
+        return;
+    }
     if !write {
         print!("{}", to_json());
         return;
@@ -155,19 +163,51 @@ mod tests {
     }
 
     const MANIFEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/cli-manifest.json");
+    const CLI_MD_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/CLI.md");
+
+    fn codeterm_exe() -> Option<std::path::PathBuf> {
+        if let Ok(path) = std::env::var("CARGO_BIN_EXE_codeterm") {
+            return Some(path.into());
+        }
+        let exe = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug/codeterm");
+        exe.is_file().then_some(exe)
+    }
+
+    fn run_codeterm(args: &[&str]) -> std::process::Output {
+        if let Some(exe) = codeterm_exe() {
+            return std::process::Command::new(&exe)
+                .args(args)
+                .output()
+                .unwrap_or_else(|e| panic!("spawn {}: {e}", exe.display()));
+        }
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let mut command =
+            std::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
+        command.args(["run", "--quiet", "--manifest-path"]);
+        command.arg(manifest);
+        command.args(["--bin", "codeterm", "--"]);
+        command.args(args);
+        command.output().expect("spawn cargo run --bin codeterm")
+    }
 
     #[test]
     fn cli_manifest_is_fresh() {
         let committed = std::fs::read_to_string(MANIFEST_PATH)
             .expect("docs/cli-manifest.json missing — run `codeterm cli-manifest --write`");
+        let output = run_codeterm(&["cli-manifest"]);
+        assert!(
+            output.status.success(),
+            "codeterm cli-manifest failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let generated =
+            String::from_utf8(output.stdout).expect("codeterm cli-manifest stdout is utf-8");
         assert_eq!(
             normalize_newlines(&committed),
-            normalize_newlines(&to_json()),
+            normalize_newlines(&generated),
             "docs/cli-manifest.json is stale — run `codeterm cli-manifest --write`"
         );
     }
-
-    const CLI_MD_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/CLI.md");
 
     #[test]
     fn docs_cli_md_is_fresh() {
@@ -175,7 +215,15 @@ mod tests {
         let start = md.find(MD_START).expect("missing cli:auto-start marker") + MD_START.len();
         let end = md.find(MD_END).expect("missing cli:auto-end marker");
         let block = &md[start..end];
-        let expected = format!("\n{}\n", to_markdown());
+        let output = run_codeterm(&["cli-manifest", "--markdown"]);
+        assert!(
+            output.status.success(),
+            "codeterm cli-manifest --markdown failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let markdown =
+            String::from_utf8(output.stdout).expect("codeterm cli-manifest --markdown is utf-8");
+        let expected = format!("\n{markdown}\n");
         assert_eq!(
             normalize_newlines(block),
             normalize_newlines(&expected),
@@ -199,8 +247,6 @@ mod tests {
         Some(cur)
     }
 
-    // Every `codeterm <subcmd...>` head referenced in the prompt must resolve in
-    // the clap tree. Conservative: only flags a line whose command head matches
     #[test]
     fn prompt_cli_commands_exist() {
         let root = build();
@@ -211,7 +257,6 @@ mod tests {
             let Some(rest) = line.strip_prefix("codeterm ") else {
                 continue;
             };
-            // `codeterm --version` / `--help` etc. is the root + a global flag,
             // not a subcommand — valid, skip.
             if rest.trim_start().starts_with('-') {
                 continue;
@@ -242,7 +287,6 @@ mod tests {
         );
     }
 
-    // Every non-hidden leaf command (one with no subcommands) must carry an
     // `about` string so docs/CLI.md and chat cards never render a blank line.
     #[test]
     fn every_leaf_command_has_about() {

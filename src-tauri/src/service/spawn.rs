@@ -10,6 +10,10 @@ use crate::agent::registry::AgentRegistry;
 pub(crate) use super::spawn_cli::{cli_binary_on_path, provider_cli_install_warning};
 pub(crate) use super::spawn_params::chatbackend_spawn_config;
 
+#[path = "spawn_hidden_delivery.rs"]
+mod spawn_hidden_delivery;
+use spawn_hidden_delivery::deliver_hidden_pty_task;
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SpawnPaneSpec {
     #[serde(default)]
@@ -65,6 +69,8 @@ pub struct AgentSpawnSpec {
     pub extra_args: Vec<String>,
     #[serde(default)]
     pub role: Option<String>,
+    #[serde(default)]
+    pub role_profile: Option<String>,
     #[serde(default)]
     pub can_spawn: Option<bool>,
     #[serde(default = "default_true")]
@@ -135,6 +141,10 @@ pub struct PaneHandle {
     pub worker_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    /// Advisory workspace pane-budget nudge (task_4d649dfd). Set once the
+    /// post-create workspace pane count crosses the soft budget. Never blocks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget_notice: Option<super::pane_budget::PaneBudgetNotice>,
 }
 
 impl ServiceContext {
@@ -310,12 +320,6 @@ impl ServiceContext {
             self.create_notification(model_fallback_notice_title(notice), None, Some("warning"));
         }
 
-        let title = spec
-            .title
-            .clone()
-            .or_else(|| agent.agent_name.clone())
-            .unwrap_or_else(|| agent_cmd.clone());
-
         let (ws_id, ws_cwd) = {
             let mux = self.mux.write();
             let id = resolve_spawn_workspace_id(
@@ -363,6 +367,9 @@ impl ServiceContext {
                     pane.cwd = Some(dir.clone());
                 }
             }
+            if let Some(pane) = mux.get_pane_mut(&result.1) {
+                pane.role_profile = agent.role_profile.clone();
+            }
             if let Some(ref description) = spec.description {
                 let _ = mux.set_pane_description(&result.1, Some(description.clone()));
             }
@@ -393,8 +400,14 @@ impl ServiceContext {
                     pane.chat_view = true;
                 }
             }
-            if let Err(e) = mux.rename_pane(&result.1, &title) {
-                log::warn!("[spawn] rename_pane failed: {}", e);
+            // real agent name was supplied — the raw provider id is never a title.
+            if let Some((title, level)) = super::spawn_title::creation_title_override(
+                spec.title.as_deref(),
+                agent.agent_name.as_deref(),
+            ) {
+                if let Err(e) = mux.rename_pane_at_level(&result.1, &title, level) {
+                    log::warn!("[spawn] rename_pane failed: {}", e);
+                }
             }
             if agent.activate.unwrap_or(false) {
                 let _ = mux.set_active_tab(&ws_id, &result.0);
@@ -402,7 +415,6 @@ impl ServiceContext {
             result
         };
 
-        // Apply role + can_spawn after the tab is created. Done outside the create-tab lock so set_pane_role's full validation runs and emits state
         // changes; `can_spawn` is only forced when the caller explicitly passed --can-spawn (Some), preserving role defaults (Orchestrator defaults true, Worker false).
         if let Some(ref role_str) = agent.role {
             if let Err(e) = self.set_pane_role(
@@ -428,6 +440,14 @@ impl ServiceContext {
         // Pin agent_type before launch so detect_from_output has a durable session-id source.
         // Missing this tag leaves Codex/OpenCode panes unresumable after restart.
         self.set_and_lock_pane_agent_type(&pane_id, agent_cmd.clone());
+        if agent
+            .role
+            .as_deref()
+            .and_then(|role| Self::parse_role(role).ok())
+            == Some(crate::multiplexer::types::AgentRole::Orchestrator)
+        {
+            self.maybe_deliver_orchestrator_promotion_onboarding(&pane_id, false);
+        }
         let launch_session_id = if agent.resume_session_id.is_none() {
             self.agent_registry
                 .with_provider(&agent_cmd, |p| p.session_id_injection())
@@ -448,24 +468,18 @@ impl ServiceContext {
         }
         self.emit_state_changed();
 
-        let role_suffixed_task = agent.task.as_ref().map(|t| {
-            let preamble_wrapped = if let Some(ref preamble) = agent.task_preamble {
+        let preamble_wrapped_task = agent.task.as_ref().map(|t| {
+            if let Some(ref preamble) = agent.task_preamble {
                 format!("{}{}", preamble, t)
             } else {
                 t.clone()
-            };
-            match agent.role.as_deref() {
-                Some("Worker") => format!("{}{}", preamble_wrapped, crate::prompts::WORKER_SUFFIX),
-                Some("Orchestrator") => {
-                    format!(
-                        "{}{}",
-                        preamble_wrapped,
-                        crate::prompts::ORCHESTRATOR_SUFFIX
-                    )
-                }
-                _ => preamble_wrapped,
             }
         });
+        let role_suffixed_task = super::orchestrator::role_onboarding_task(
+            preamble_wrapped_task.as_deref(),
+            agent.role.as_deref(),
+            agent.role_profile.as_deref(),
+        );
         // Tag with the spawner's origin prefix uniformly for every provider; delivery handles the marker per provider (TUI-typed for PtyInput, positional after `--` for inline-flag).
         let role_suffixed_task =
             role_suffixed_task.map(|t| match self.spawn_task_prefix(&pane_id) {
@@ -500,6 +514,7 @@ impl ServiceContext {
             ready_tx,
         );
 
+        let budget_notice = self.workspace_pane_budget_notice(&ws_id);
         Ok(PaneHandle {
             pane_id,
             tab_id,
@@ -508,6 +523,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: agent.worker_id.clone(),
             warning,
+            budget_notice,
         })
     }
 
@@ -559,6 +575,7 @@ impl ServiceContext {
             None
         };
 
+        let budget_notice = self.workspace_pane_budget_notice(&ws_id);
         Ok(PaneHandle {
             pane_id,
             tab_id,
@@ -567,6 +584,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: None,
             warning,
+            budget_notice,
         })
     }
 
@@ -658,6 +676,7 @@ impl ServiceContext {
             });
         });
 
+        let budget_notice = self.workspace_pane_budget_notice(&ws_id);
         Ok(PaneHandle {
             pane_id,
             tab_id,
@@ -666,6 +685,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: None,
             warning: None,
+            budget_notice,
         })
     }
 
@@ -724,6 +744,7 @@ impl ServiceContext {
             if let Some(pane) = mux.get_pane_mut(&result.1) {
                 pane.hidden = true;
                 pane.show_in_tabbar = false;
+                pane.role_profile = agent.role_profile.clone();
                 if let Some(ref wid) = agent.worker_id {
                     pane.worker_id = Some(wid.clone());
                 }
@@ -747,6 +768,21 @@ impl ServiceContext {
             }
             result
         };
+
+        self.set_and_lock_pane_agent_type(&pane_id, agent.provider.clone());
+        let launch_session_id = if agent.resume_session_id.is_none() {
+            self.agent_registry
+                .with_provider(&agent.provider, |p| p.session_id_injection())
+                .filter(|mode| !matches!(mode, crate::agent::provider::SessionIdInjection::None))
+                .map(|_| uuid::Uuid::new_v4().to_string())
+        } else {
+            None
+        };
+        if let Some(ref sid) = agent.resume_session_id {
+            self.set_agent_session_id(&pane_id, Some(sid.clone()));
+        } else if let Some(ref sid) = launch_session_id {
+            self.set_agent_session_id(&pane_id, Some(sid.clone()));
+        }
 
         let mut env_vars: HashMap<String, String> = HashMap::new();
         env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
@@ -791,10 +827,8 @@ impl ServiceContext {
         self.agent_run_pty_map
             .lock()
             .insert(pane_id.clone(), pty_id.clone());
-        // Register run for auto-complete via the standard agent rails: `mem worker report` / Stop hook / idle / timeout backstop. Cron kind is resolved
         // later (after the cron registry links pane→run).
         if let Some(ref worker_id) = agent.worker_id {
-            // Dreamer (REM phase) needs a longer timeout than the default worker — hub decomposition + diary + classification all in one session takes a
             // while. Pick by intent: any worker whose intent starts with "dreaming:" gets the dreaming-specific timeout.
             let mem_cfg = crate::config::memory_config();
             let intent = self
@@ -808,7 +842,6 @@ impl ServiceContext {
             } else {
                 mem_cfg.worker_timeout_seconds
             };
-            // Surface the timeout choice so reports of "dreaming worker died at 150s" (= worker_timeout_seconds, not dreaming_timeout_seconds=1800) can
             // diagnosed: either intent lookup returned empty, or is_dreaming_intent didn't match.
             log::info!(
                 "[run-watcher] register worker={} intent='{}' dreaming={} timeout={}s",
@@ -849,7 +882,17 @@ impl ServiceContext {
         let pane_id_outer = pane_id.clone();
         let pty_id_outer = pty_id.clone();
         let provider = agent.provider.clone();
+        let launch_session_id = launch_session_id.clone();
         let task_for_thread = wrapped_task.clone();
+        // PtyInput providers (codex/opencode) don't embed the task in the launch command — it must be typed into the TUI after boot. InlineFlag (claude) bakes it in, so PtyInput delivery is skipped there.
+        let task_delivery = self
+            .agent_registry
+            .with_provider(&provider, |p| p.task_delivery())
+            .unwrap_or(crate::agent::provider::TaskDelivery::PtyInput);
+        let pty_input_task = match task_delivery {
+            crate::agent::provider::TaskDelivery::PtyInput => wrapped_task.clone(),
+            crate::agent::provider::TaskDelivery::InlineFlag => None,
+        };
         std::thread::spawn(move || {
             let svc_reader = svc_outer.clone();
             let pty_reader = pty_id_outer.clone();
@@ -878,7 +921,6 @@ impl ServiceContext {
                 std::time::Duration::from_secs(10),
             );
 
-            // headless:false → ordinary interactive claude, task delivered as a positional after `--` (same launch a visible agent gets). Completion comes
             // from the standard agent rails, not a stream-json result event.
             let hidden_cwd = svc_outer
                 .mux
@@ -895,7 +937,7 @@ impl ServiceContext {
                     Some(model_args)
                 },
                 skip_permissions: true,
-                session_id: None,
+                session_id: launch_session_id,
                 structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
                     &svc_outer,
                     &provider,
@@ -912,6 +954,14 @@ impl ServiceContext {
                 Ok(pty_id) => {
                     if let Err(e) = svc_outer.send_shell_spawn(&pty_id, &launch_cmd) {
                         log::error!("[spawn.hidden] shell spawn failed: {}", e);
+                    } else if let Some(ref task_text) = pty_input_task {
+                        deliver_hidden_pty_task(
+                            &svc_outer,
+                            &pty_id,
+                            &pane_id_outer,
+                            &provider,
+                            task_text,
+                        );
                     }
                 }
                 Err(e) => log::error!("[spawn.hidden] no pty for pane {}: {}", pane_id_outer, e),
@@ -923,6 +973,7 @@ impl ServiceContext {
             );
         });
 
+        let budget_notice = self.workspace_pane_budget_notice(&ws_id);
         Ok(PaneHandle {
             pane_id,
             tab_id,
@@ -931,6 +982,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: agent.worker_id.clone(),
             warning: cli_warning,
+            budget_notice,
         })
     }
 }

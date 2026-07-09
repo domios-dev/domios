@@ -72,7 +72,6 @@ impl SemanticMarkerParser {
                         self.state = State::InOsc;
                         self.buf.clear();
                     } else if b == 0x1b {
-                        // consecutive ESC — stay armed for the introducer
                     } else {
                         self.state = State::Normal;
                     }
@@ -98,7 +97,6 @@ impl SemanticMarkerParser {
                         }
                         self.reset();
                     } else {
-                        // ESC not followed by `\` aborts the OSC; reprocess the
                         // byte so a fresh ESC still arms the next introducer.
                         self.reset();
                         if b == 0x1b {

@@ -8,11 +8,48 @@
  * from real DOM bounding boxes. No app-internal hooks — pure UI driving.
  */
 import { expect, type Page } from "@playwright/test";
+import type { Browser } from "@playwright/test";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import type { ApiClient } from "./api-client";
+import { closeCanvasWebSession, openCanvasWebPage } from "./canvas-web-page";
 import { CANVAS_ZOOM_INTENSITY } from "../../../src/components/Canvas/useCanvasViewport";
 
 export const CANVAS_ART_DIR = path.resolve(__dirname, "..", "artifacts", "canvas");
+
+export const PERF_FIXTURE_KEY = "canvas.perfFixtureN";
+export const SUBSTRATE_V2_KEY = "canvas.substrateV2";
+export const CARD_METADATA_PROFILE_KEY = "canvas.perfFixtureProfile";
+export const CARD_METADATA_PROFILE = "card-metadata";
+
+/** Board is ready when the mission-control stage or plan shell is visible. */
+export const MISSION_CONTROL_LIVE_SEL = '[data-testid="mission-control-live"]';
+export const MISSION_CONTROL_PLAN_SURFACE_SEL = '[data-testid="mission-control-plan-surface"]';
+/** Visible plan canvas is always mission control. */
+export const PLAN_CANVAS_VISIBLE_SEL = MISSION_CONTROL_LIVE_SEL;
+
+export const CANVAS_BOARD_SEL =
+  '[data-testid="canvas-plan-node"], [data-testid="canvas-world-canvas"], [data-testid="mission-control-live"], [data-testid="plan-river"]';
+
+export const CANVAS_BOARD_OR_EMPTY_SEL =
+  `${CANVAS_BOARD_SEL}, [data-testid="canvas-empty"], [data-testid="mission-control-empty"]`;
+
+const PLAN_SURFACE_OR_EMPTY_SEL =
+  `[data-testid="plan-view-shell"], ${CANVAS_BOARD_OR_EMPTY_SEL}, ${MISSION_CONTROL_LIVE_SEL}`;
+
+/** Scope queries to the visible mission-control canvas. */
+export function visibleCanvasScope(page: Page) {
+  return page.locator(`${PLAN_CANVAS_VISIBLE_SEL}:visible`).first();
+}
+
+export async function waitForVisiblePlanCanvas(page: Page, timeoutMs = 30_000): Promise<void> {
+  await page.locator(PLAN_CANVAS_VISIBLE_SEL).first().waitFor({ state: "visible", timeout: timeoutMs });
+}
+
+async function planCanvasPanContainer(page: Page) {
+  return page.locator(`${MISSION_CONTROL_LIVE_SEL} .mc-live-viewport`).first();
+}
 
 // Must match useCanvasViewport.ts CANVAS_ZOOM_INTENSITY; scale = exp(-deltaY * INTENSITY).
 const ZOOM_INTENSITY = CANVAS_ZOOM_INTENSITY;
@@ -42,120 +79,303 @@ function ensureArtDir(): void {
   fs.mkdirSync(CANVAS_ART_DIR, { recursive: true });
 }
 
-export async function openPanePlanCanvas(page: Page, paneId?: string): Promise<void> {
-  const scope = paneId ? page.locator(`[data-pane-id="${paneId}"]`) : page;
-  const toggle = scope.locator('[data-testid="pane-mode-switch"][data-plan-toggle="true"]');
-  if ((await toggle.count()) > 0) {
-    if ((await toggle.getAttribute("aria-pressed")) !== "true") {
-      await toggle.click();
-    }
-  } else {
-    const planTabs = scope.locator('[data-testid="pane-mode-switch"] [role="tab"]').filter({ hasText: /Plan|Tasks/ });
-    const count = await planTabs.count();
-    for (let i = 0; i < count; i++) {
-      await planTabs.nth(i).click({ force: true }).catch(() => {});
-      if (await page.locator('[data-testid="pane-plan-overlay"] [data-testid="canvas-view"]').isVisible({ timeout: 1_000 }).catch(() => false)) {
-        break;
-      }
+export interface RenderReadbackNode {
+  id: string;
+  kind: string;
+  title: string;
+}
+
+interface MuxTabState {
+  workspaces: Array<{ id: string; tabs: Array<{ id: string }> }>;
+  active_workspace_id?: string;
+}
+
+export async function openSidebarIfNeeded(page: Page): Promise<void> {
+  const toggle = page.locator('[data-testid="web-sidebar-open"]');
+  if (await toggle.isVisible().catch(() => false)) await toggle.click();
+}
+
+export async function expandWorkspaceSidebar(page: Page, workspaceId?: string): Promise<void> {
+  const scope = workspaceId
+    ? page.locator(`[data-testid="workspace-item"][data-workspace-id="${workspaceId}"]`)
+    : page.locator('[data-testid="workspace-item"]').first();
+  if (!(await scope.isVisible().catch(() => false))) return;
+  const expand = scope.locator('button[title="Expand"]');
+  if (await expand.isVisible().catch(() => false)) await expand.click().catch(() => {});
+}
+
+export async function closeWorkspaceTabs(api: ApiClient, workspaceId: string): Promise<void> {
+  for (let pass = 0; pass < 8; pass++) {
+    const mux = await api.get<MuxTabState>("/mux/state");
+    const ws = mux.workspaces.find((w) => w.id === workspaceId);
+    const tabs = [...(ws?.tabs ?? [])];
+    if (tabs.length === 0) return;
+    for (const tab of tabs) {
+      await api.post(`/workspaces/${workspaceId}/tabs/${tab.id}/close`);
     }
   }
-  await page.locator('[data-testid="pane-plan-overlay"] [data-testid="canvas-view"]').waitFor({ state: "visible", timeout: 30_000 });
-  await page
-    .locator('[data-testid="pane-plan-overlay"] [data-testid="canvas-plan-node"], [data-testid="pane-plan-overlay"] [data-testid="canvas-empty"]')
-    .first()
-    .waitFor({ state: "visible", timeout: 30_000 });
+  const mux = await api.get<MuxTabState>("/mux/state");
+  const remaining = mux.workspaces.find((w) => w.id === workspaceId)?.tabs.length ?? 0;
+  expect(remaining, "workspace tabs closed for inline canvas").toBe(0);
+}
+
+export async function closeActiveWorkspaceTabs(api: ApiClient): Promise<void> {
+  const mux = await api.get<MuxTabState>("/mux/state");
+  const activeId =
+    mux.active_workspace_id ?? mux.workspaces.find((w) => (w as { is_active?: boolean }).is_active)?.id;
+  if (activeId) await closeWorkspaceTabs(api, activeId);
+}
+
+async function focusWorkspaceForCanvas(api: ApiClient, page: Page, workspaceId: string): Promise<void> {
+  await api.focusWorkspace(workspaceId);
+  await expect
+    .poll(async () => {
+      const mux = await api.get<MuxTabState>("/mux/state");
+      return mux.active_workspace_id ?? mux.workspaces.find((w) => (w as { is_active?: boolean }).is_active)?.id ?? null;
+    }, { timeout: 30_000 })
+    .toBe(workspaceId);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+}
+
+export async function clearCanvasHarnessFlags(page: Page): Promise<void> {
+  await page.addInitScript(([perfKey, subKey]) => {
+    try {
+      window.localStorage.removeItem(perfKey);
+      window.localStorage.removeItem(subKey);
+    } catch {
+      /* non-fatal */
+    }
+  }, [PERF_FIXTURE_KEY, SUBSTRATE_V2_KEY]);
+}
+
+export async function seedPerfFixture(page: Page, taskCount = 24): Promise<void> {
+  await page.addInitScript(([perfKey, subKey, n]: Array<string | number>) => {
+    try {
+      window.localStorage.setItem(String(perfKey), String(n));
+      window.localStorage.setItem(String(subKey), "true");
+    } catch {
+      /* surfaced by wait helpers */
+    }
+  }, [PERF_FIXTURE_KEY, SUBSTRATE_V2_KEY, taskCount]);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+}
+
+export async function seedPerfFixtureAndOpenInlineCanvas(
+  browser: Browser,
+  api: ApiClient,
+  taskCount = 24,
+): Promise<{ page: Page; workspaceId: string; close: () => Promise<void> }> {
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-canvas-perf-"));
+  await api.createWorkspace("canvas perf gate", projectPath);
+  const workspace = (await api.workspaces()).find((w) => w.cwd === projectPath);
+  if (!workspace) throw new Error("perf workspace was not listed");
+  await api.focusWorkspace(workspace.id);
+  await closeWorkspaceTabs(api, workspace.id);
+  const session = await openCanvasWebPage(browser, { perfFixtureN: taskCount });
+  await focusWorkspaceForCanvas(api, session.page, workspace.id);
+  await openInlineWorkspaceCanvas(session.page, workspace.id);
+  return {
+    page: session.page,
+    workspaceId: workspace.id,
+    close: () => closeCanvasWebSession(session),
+  };
+}
+
+async function waitForBoardSurface(page: Page): Promise<void> {
+  await page.locator(PLAN_SURFACE_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
+  await waitForVisiblePlanCanvas(page).catch(() => {});
+  await page.locator(CANVAS_BOARD_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
   await page.waitForTimeout(450);
 }
 
-export async function closePanePlanCanvas(page: Page, paneId?: string): Promise<void> {
+async function switchPlanSurfaceToCanvas(page: Page): Promise<void> {
+  const shell = page.locator('[data-testid="plan-view-shell"]').first();
+  if (!(await shell.isVisible().catch(() => false))) return;
+  const canvasTab = shell.locator('[data-testid="plan-view-mode-switch"]').getByRole("tab", { name: /canvas/i });
+  if (await canvasTab.isVisible().catch(() => false)) await canvasTab.click();
+}
+
+export async function readbackRenderNodes(page: Page): Promise<RenderReadbackNode[]> {
+  return page.evaluate(
+    () => (window as unknown as { __codetermCanvasRender?: { nodes: RenderReadbackNode[] } }).__codetermCanvasRender?.nodes ?? [],
+  );
+}
+
+export async function waitForReadbackCounts(
+  page: Page,
+  plans: number,
+  tasks: number,
+  timeoutMs = 30_000,
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const render = await readbackRenderNodes(page);
+        let planCount = render.filter((n) => n.kind === "plan").length;
+        let taskCount = render.filter((n) => n.kind === "task").length;
+        if (planCount < plans || taskCount < tasks) {
+          const sceneCounts = await page.evaluate(() => {
+            const reg = (window as unknown as {
+              __codetermCanvasScene?: { list: () => string[]; get: (slot: string) => { scene?: { nodes: Array<{ kind: string }> } } | null };
+            }).__codetermCanvasScene;
+            for (const slot of reg?.list() ?? []) {
+              const nodes = reg?.get(slot)?.scene?.nodes ?? [];
+              return {
+                plans: nodes.filter((n) => n.kind === "plan").length,
+                tasks: nodes.filter((n) => n.kind === "task").length,
+              };
+            }
+            return { plans: 0, tasks: 0 };
+          });
+          planCount = Math.max(planCount, sceneCounts.plans);
+          taskCount = Math.max(taskCount, sceneCounts.tasks);
+        }
+        return { plans: planCount, tasks: taskCount };
+      },
+      { timeout: timeoutMs },
+    )
+    .toEqual({ plans, tasks });
+}
+
+export async function assertReadbackNodesOnScreen(page: Page, minPx = 8): Promise<void> {
+  await expect
+    .poll(async () => {
+      return page.evaluate((min) => {
+        const registry = (window as unknown as {
+          __codetermCanvasScene?: {
+            list: () => string[];
+            get: (slot: string) => { projectedBoxes: () => Array<{ screenBox: { width: number; height: number } }> } | null;
+          };
+        }).__codetermCanvasScene;
+        let visible = 0;
+        for (const slot of registry?.list() ?? []) {
+          for (const box of registry?.get(slot)?.projectedBoxes() ?? []) {
+            if (box.screenBox.width >= min && box.screenBox.height >= min) visible++;
+          }
+        }
+        return visible;
+      }, minPx);
+    })
+    .toBeGreaterThan(0);
+}
+
+export async function openPanePlanCanvas(page: Page, paneId?: string): Promise<void> {
   const scope = paneId ? page.locator(`[data-pane-id="${paneId}"]`) : page;
-  const toggle = scope.locator('[data-testid="pane-mode-switch"][data-plan-toggle="true"]');
-  if ((await toggle.count()) > 0) {
-    if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
-    return;
+  const taskStrip = scope.locator('[data-testid="worker-task-strip"]').first();
+  await taskStrip.click({ force: true });
+  await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
+  await waitForVisiblePlanCanvas(page);
+  await page.locator(CANVAS_BOARD_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
+  await page.waitForTimeout(450);
+}
+
+export async function closePanePlanCanvas(page: Page, _paneId?: string): Promise<void> {
+  const btn = page.locator('[data-testid="canvas-toolbar-button"]');
+  if ((await btn.count()) > 0 && (await btn.getAttribute("aria-pressed")) === "true") {
+    await btn.click({ force: true }).catch(() => {});
   }
-  const terminalTab = scope.locator('[data-testid="pane-mode-switch"] [role="tab"]').filter({ hasText: /Terminal|Chat/ }).first();
-  if ((await terminalTab.count()) > 0) await terminalTab.click({ force: true }).catch(() => {});
   await page.waitForTimeout(150);
+  await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
 }
 
 // Inline workspace canvas (mode=workspace) mounts when the active workspace has no tab.
-export async function openInlineWorkspaceCanvas(page: Page): Promise<void> {
+export async function openInlineWorkspaceCanvas(page: Page, workspaceId?: string): Promise<void> {
+  await openSidebarIfNeeded(page);
   await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
-  await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 30_000 });
-  await page
-    .locator('[data-testid="canvas-plan-node"], [data-testid="canvas-empty"]')
-    .first()
-    .waitFor({ state: "visible", timeout: 30_000 });
-  await page.waitForTimeout(450);
+  const visible = page.locator(`${PLAN_CANVAS_VISIBLE_SEL}:visible`).first();
+  if (!(await visible.isVisible().catch(() => false))) {
+    if (workspaceId) await expandWorkspaceSidebar(page, workspaceId);
+    const entry = workspaceId
+      ? page.locator(`div:has([data-workspace-id="${workspaceId}"]) [data-testid="workspace-plan-entry"]`)
+      : page.locator('[data-testid="workspace-plan-entry"]').first();
+    if (await entry.isVisible().catch(() => false)) {
+      await entry.click({ timeout: 1_500 }).catch(async () => {
+        await entry.click({ force: true });
+      });
+    } else {
+      const btn = page.locator('[data-testid="canvas-toolbar-button"]');
+      if ((await btn.count()) > 0 && (await btn.getAttribute("aria-pressed")) !== "true") {
+        await btn.click().catch(() => {});
+      }
+    }
+  }
+  await page.locator(PLAN_SURFACE_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
+  await switchPlanSurfaceToCanvas(page);
+  await waitForVisiblePlanCanvas(page);
+  await waitForBoardSurface(page);
 }
 
 export async function openWorkspaceCanvasOverlay(page: Page): Promise<void> {
+  await openSidebarIfNeeded(page);
   const btn = page.locator('[data-testid="canvas-toolbar-button"]');
   await btn.waitFor({ state: "visible", timeout: 10_000 });
   if ((await btn.getAttribute("aria-pressed")) !== "true") await btn.click();
-  await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 30_000 });
-  await page.waitForTimeout(450);
+  await waitForVisiblePlanCanvas(page);
+  await waitForBoardSurface(page);
 }
 
-// Robust board-open for unattended gates (perf/ux). The WORKSPACE/inline canvas
-// self-mounts with no pane, so we use ONLY that path: if a canvas-view isn't already
-// up, toggle it on via the always-present titlebar workspace-canvas button. We never
-// touch the pane-plan-overlay path (openPanePlanCanvas needs an existing plan pane and
-// times out from a cold/no-pane dev — the failure this fixes).
+// then fall back to the titlebar canvas button.
 export async function ensureCanvasBoard(page: Page): Promise<void> {
-  const view = page.locator('[data-testid="canvas-view"]').first();
-  if (!(await view.isVisible().catch(() => false))) {
-    const btn = page.locator('[data-testid="canvas-toolbar-button"]');
-    if ((await btn.count()) > 0 && (await btn.getAttribute("aria-pressed")) !== "true") {
-      await btn.click().catch(() => {});
+  await openSidebarIfNeeded(page);
+  const visible = page.locator(`${PLAN_CANVAS_VISIBLE_SEL}:visible`).first();
+  if (!(await visible.isVisible().catch(() => false))) {
+    const workspaces = page.locator('[data-testid="workspace-item"]');
+    const wsCount = await workspaces.count();
+    for (let i = 0; i < wsCount; i++) {
+      const expand = workspaces.nth(i).locator('button[title="Expand"]');
+      if (await expand.isVisible().catch(() => false)) await expand.click().catch(() => {});
+    }
+    const row = page.locator('[data-testid="workspace-plan-entry"]').first();
+    if (await row.isVisible().catch(() => false)) {
+      await row.click().catch(async () => {
+        await row.click({ force: true }).catch(() => {});
+      });
+    } else {
+      const btn = page.locator('[data-testid="canvas-toolbar-button"]');
+      if ((await btn.count()) > 0 && (await btn.getAttribute("aria-pressed")) !== "true") {
+        await btn.click().catch(() => {});
+      }
     }
   }
-  await view.waitFor({ state: "visible", timeout: 30_000 });
-  await page
-    .locator('[data-testid="canvas-plan-node"], [data-testid="canvas-empty"]')
-    .first()
-    .waitFor({ state: "visible", timeout: 30_000 });
-  await page.waitForTimeout(450);
+  await waitForVisiblePlanCanvas(page);
+  await waitForBoardSurface(page);
 }
 
 export async function openCanvas(page: Page): Promise<void> {
-  const overlayView = page.locator('[data-testid="pane-plan-overlay"] [data-testid="canvas-view"]');
-  const inlineView = page.locator('[data-testid="canvas-view"]').first();
-  if (await overlayView.isVisible().catch(() => false)) {
-    await overlayView.waitFor({ state: "visible", timeout: 30_000 });
-  } else if (await inlineView.isVisible().catch(() => false)) {
-    await inlineView.waitFor({ state: "visible", timeout: 30_000 });
+  const inlineView = page.locator(`${PLAN_CANVAS_VISIBLE_SEL}:visible`).first();
+  if (await inlineView.isVisible().catch(() => false)) {
+    await waitForVisiblePlanCanvas(page);
   } else {
-    await openPanePlanCanvas(page);
+    await ensureCanvasBoard(page);
     return;
   }
-  await page
-    .locator('[data-testid="canvas-plan-node"], [data-testid="canvas-empty"]')
-    .first()
-    .waitFor({ state: "visible", timeout: 30_000 });
-  await page.waitForTimeout(450);
+  await waitForBoardSurface(page);
 }
 
 export async function isEmpty(page: Page): Promise<boolean> {
-  return (await page.locator('[data-testid="canvas-empty"]').count()) > 0;
+  return (
+    (await page.locator('[data-testid="canvas-empty"]').count()) > 0 ||
+    (await page.locator('[data-testid="mission-control-empty"]').count()) > 0
+  );
 }
 
 // Plain wheel = two-finger pan in the v2 viewport hook.
 export async function panBy(page: Page, dx: number, dy: number): Promise<void> {
-  const box = await page.locator('[data-testid="canvas-view"]').first().boundingBox();
+  const box = await (await planCanvasPanContainer(page)).boundingBox();
   if (!box) return;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.wheel(dx, dy);
   await page.waitForTimeout(140);
 }
 
-// Cmd/Ctrl + wheel = zoom-around-pointer. Playwright's mouse.wheel can't set
 // modifiers, so dispatch a real WheelEvent with ctrlKey on the pan container.
 export async function zoomBy(page: Page, deltaY: number): Promise<void> {
   await page.evaluate((dy) => {
-    const view = document.querySelector('[data-testid="canvas-view"]');
-    const target = view?.querySelector("div");
+    const target = document.querySelector(
+      '[data-testid="mission-control-live"] .mc-live-viewport',
+    ) as HTMLElement | null;
     if (!target) return;
     const r = target.getBoundingClientRect();
     target.dispatchEvent(
@@ -172,14 +392,11 @@ export async function zoomBy(page: Page, deltaY: number): Promise<void> {
   await page.waitForTimeout(140);
 }
 
-// Dispatch a cmd-wheel zoom anchored on the center of the first element matching
-// `anchorSel` (so it stays under the pointer); fall back to the viewport center
-// when nothing matches. worlds-v3 puts tasks in a cloud RIGHT of the plan, so a
-// plain viewport-center zoom drifts content off-screen and culls it.
 async function dispatchZoom(page: Page, anchorSel: string | null, deltaY: number): Promise<void> {
   await page.evaluate(({ anchorSel, deltaY }) => {
-    const view = document.querySelector('[data-testid="canvas-view"]');
-    const target = view?.querySelector("div");
+    const target = document.querySelector(
+      '[data-testid="mission-control-live"] .mc-live-viewport',
+    ) as HTMLElement | null;
     if (!target) return;
     const anchor = anchorSel ? (document.querySelector(anchorSel) as HTMLElement | null) : null;
     const r = (anchor ?? target).getBoundingClientRect();
@@ -201,7 +418,6 @@ export async function zoomTowardTask(page: Page, taskId: string, deltaY: number)
   await dispatchZoom(page, `[data-testid="canvas-task-card"][data-task-id="${taskId}"]`, deltaY);
 }
 
-// Absolute-scale zoom anchored on the first element matching `anchorSel`, keeping
 // it on-screen across the dive. Falls back to viewport center while it is culled.
 export async function setCanvasScaleOn(page: Page, anchorSel: string, targetScale: number): Promise<void> {
   for (let i = 0; i < 5; i++) {
@@ -217,10 +433,6 @@ export async function setCanvasScaleOnTask(page: Page, taskId: string, targetSca
   return setCanvasScaleOn(page, `[data-testid="canvas-task-card"][data-task-id="${taskId}"]`, targetScale);
 }
 
-// Drive the PRODUCT navigation method: POST /api/canvas/focus to land the camera
-// on a node by id (centered + blink). Deterministic — no pan/zoom heuristics. The
-// page already holds the dev token (connectUi seeds it). Optional scale lands at an
-// exact zoom (needs backend scale passthrough; auto-fits otherwise).
 export async function focusTaskById(page: Page, taskId: string, scale?: number): Promise<void> {
   await page.evaluate(async ({ id, scale }) => {
     const token = localStorage.getItem(`codeterm-web-token:${window.location.origin}`) || "";
@@ -233,7 +445,6 @@ export async function focusTaskById(page: Page, taskId: string, scale?: number):
   await page.waitForTimeout(700);
 }
 
-// Read the rendered plan node's id, fetch its tasks, return an in_progress task id
 // (else the first) — a stable probe without needing a card already on-screen.
 export async function pickProbeTaskId(page: Page): Promise<string | null> {
   const planId = await page.getAttribute('[data-testid="canvas-plan-node"]', "data-plan-id").catch(() => null);
@@ -249,15 +460,9 @@ export async function pickProbeTaskId(page: Page): Promise<string | null> {
   }, planId);
 }
 
-// worlds-v3 places the task cloud spatially to the RIGHT of the plan (triptych:
-// spec-left, plan-center, tasks-right). Fit-to-view frames the plan, so the cloud
-// sits off-screen and its cards are culled. Mount them by PANNING toward the cloud
-// at a mid zoom (where cards cross into a card LOD band), not by zooming. Returns
-// the mounted cards (empty if none after the sweep).
 export async function panToMountTaskCards(page: Page, midScale = 1.6): Promise<NodeBox[]> {
   await setCanvasScaleOn(page, '[data-testid="canvas-plan-node"]', midScale);
   let cards = await collectBoxes(page, "canvas-task-card");
-  // The cloud spreads UP-RIGHT of the plan (phyllotaxis disk); sweep diagonally,
   // panning content down-left so the cloud scrolls into view, with vertical bands.
   const dyBands = [-160, -320, 0];
   for (const dy of dyBands) {
@@ -272,15 +477,13 @@ export async function panToMountTaskCards(page: Page, midScale = 1.6): Promise<N
   return cards;
 }
 
-// No fit-to-view button; toggle the pane out of and back into Plan mode to remount
-// the focus canvas, which re-runs fit-to-view.
+// focus canvas, which re-runs fit-to-view.
 export async function fitToView(page: Page): Promise<void> {
-  const tabs = page.locator('[data-testid="pane-mode-switch"] [role="tab"]');
-  if ((await tabs.count()) < 2) return;
-  await tabs.filter({ hasText: /Terminal|Chat/ }).first().click({ force: true }).catch(() => {});
-  await page.waitForTimeout(150);
-  await tabs.filter({ hasText: /Plan|Tasks/ }).first().click({ force: true }).catch(() => {});
-  await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 15_000 });
+  const strip = page.locator('[data-testid="worker-task-strip"]').first();
+  if ((await strip.count()) === 0) return;
+  await closePanePlanCanvas(page);
+  await strip.click({ force: true });
+  await waitForVisiblePlanCanvas(page, 15_000);
   await page.waitForTimeout(400);
 }
 
@@ -395,7 +598,7 @@ export async function findOverflows(page: Page, tolerancePx = 2): Promise<Overfl
 export async function captureBoard(page: Page, label: string): Promise<string> {
   ensureArtDir();
   const file = path.join(CANVAS_ART_DIR, `${label}.png`);
-  await page.locator('[data-testid="canvas-view"]').first().screenshot({ path: file }).catch(async () => {
+  await visibleCanvasScope(page).screenshot({ path: file }).catch(async () => {
     await page.screenshot({ path: file });
   });
   return file;
@@ -415,11 +618,16 @@ export async function captureRegions(page: Page, label: string): Promise<string[
 }
 
 export async function canvasScale(page: Page): Promise<number> {
+  const mcLabel = page.locator('[data-testid="mission-control-scale"]');
+  if (await mcLabel.isVisible().catch(() => false)) {
+    const text = await mcLabel.textContent();
+    const pct = text?.match(/(\d+)\s*%/);
+    if (pct) return Number(pct[1]) / 100;
+  }
   return page.evaluate(() => {
-    const view = document.querySelector('[data-testid="canvas-view"]');
-    const world = Array.from(view?.querySelectorAll<HTMLElement>("div") ?? []).find((el) =>
-      (el.getAttribute("style") ?? "").includes("transform: translate"),
-    );
+    const world = document.querySelector(
+      '[data-testid="mission-control-live"] .mc-live-stage-wrap',
+    ) as HTMLElement | null;
     const transform = world ? getComputedStyle(world).transform : null;
     if (!transform || transform === "none") return 1;
     const matrix = transform.match(/^matrix\(([^)]+)\)$/);
@@ -437,8 +645,9 @@ export async function setCanvasScale(page: Page, targetScale: number): Promise<v
     const current = await canvasScale(page);
     if (Math.abs(current - targetScale) < 0.015) return;
     await page.evaluate(({ currentScale, nextScale, intensity }) => {
-      const view = document.querySelector('[data-testid="canvas-view"]');
-      const target = view?.querySelector("div");
+      const target = document.querySelector(
+        '[data-testid="mission-control-live"] .mc-live-viewport',
+      ) as HTMLElement | null;
       if (!target) return;
       const r = target.getBoundingClientRect();
       const deltaY = -Math.log(nextScale / currentScale) / intensity;
@@ -523,7 +732,6 @@ export async function findContentBoundsIssues(page: Page, tolerancePx = 2): Prom
 }
 
 export async function findUnderfilledNodes(page: Page, minRatio = 0.004): Promise<FillHit[]> {
-  // §22.2/§23.1: the plan node is intentionally compact in Tile/Card (a section
   // index, not an empty shell) — only task cards must carry visible content.
   return page.$$eval(
     '[data-testid="canvas-task-card"]',
@@ -566,9 +774,6 @@ export async function findEdgeEndpointIssues(page: Page, tolerancePx = 3): Promi
     (paths, tolerance) => {
       const anchors = Array.from(
         document.querySelectorAll<HTMLElement>(
-          // §23.1: section→task edges run from a rail OUTPUT dot (inside the plan
-          // node) to a task card; the spec→plan link runs node-center to node-center.
-          // Both ends of every edge must land inside one of these nodes.
           '[data-testid="canvas-plan-node"], [data-testid="canvas-spec-node"], [data-testid="canvas-task-card"], [data-testid="canvas-milestone-bubble"]',
         ),
       ).map((el) => {
@@ -593,7 +798,6 @@ export async function findEdgeEndpointIssues(page: Page, tolerancePx = 3): Promi
       const inside = (x: number, y: number) => boxes.some((b) => x >= b.left && x <= b.right && y >= b.top && y <= b.bottom);
       const hits: EdgeEndpointHit[] = [];
       for (const path of paths as SVGPathElement[]) {
-        // Orchestrator→plan connectors start at the FLOATING orchestrator avatar (not a
         // node anchor) by design — they aren't node-to-node edges, so skip them.
         if (path.getAttribute("data-testid") === "canvas-orchestrator-link") continue;
         const length = path.getTotalLength();
@@ -648,170 +852,9 @@ export function assertClean(result: AuditResult): void {
   expect(result.edgeEndpoints, `edge endpoints outside anchors: ${JSON.stringify(result.edgeEndpoints)}`).toHaveLength(0);
 }
 
-export async function findVisibleOverflows(page: Page, rootSelector?: string, tolerancePx = 2): Promise<OverflowHit[]> {
-  return page.evaluate(
-    ({ rootSelector, tolerancePx }) => {
-      const visible = (el: Element) => {
-        const html = el as HTMLElement;
-        const rect = html.getBoundingClientRect();
-        if (rect.width < 2 || rect.height < 2) return false;
-        const cs = getComputedStyle(html);
-        return cs.display !== "none" && cs.visibility !== "hidden" && Number(cs.opacity) >= 0.05;
-      };
-      const roots = rootSelector
-        ? Array.from(document.querySelectorAll(rootSelector))
-        : Array.from(document.querySelectorAll('[data-testid="canvas-view"]'));
-      const out: OverflowHit[] = [];
-      for (const root of roots) {
-        if (!visible(root)) continue;
-        for (const testid of ["canvas-plan-node", "canvas-task-card"]) {
-          for (const el of root.querySelectorAll(`[data-testid="${testid}"]`)) {
-            if (!visible(el)) continue;
-            const host = el as HTMLElement;
-            const overflowY = host.scrollHeight - host.clientHeight;
-            const overflowX = host.scrollWidth - host.clientWidth;
-            if (overflowY > tolerancePx || overflowX > tolerancePx) {
-              out.push({
-                testid,
-                id: host.getAttribute("data-plan-id") ?? host.getAttribute("data-task-id"),
-                overflowY,
-                overflowX,
-              });
-            }
-          }
-        }
-      }
-      return out;
-    },
-    { rootSelector, tolerancePx },
-  );
-}
-
-export async function findVisibleContentBoundsIssues(
-  page: Page,
-  rootSelector?: string,
-  tolerancePx = 2,
-): Promise<ContentBoundsHit[]> {
-  return page.evaluate(
-    ({ rootSelector, tolerancePx }) => {
-      const visible = (el: Element) => {
-        const html = el as HTMLElement;
-        const rect = html.getBoundingClientRect();
-        if (rect.width < 2 || rect.height < 2) return false;
-        const cs = getComputedStyle(html);
-        return cs.display !== "none" && cs.visibility !== "hidden" && Number(cs.opacity) >= 0.05;
-      };
-      const within = (a: DOMRect, b: DOMRect) =>
-        a.left + tolerancePx >= b.left &&
-        a.top + tolerancePx >= b.top &&
-        a.right - tolerancePx <= b.right &&
-        a.bottom - tolerancePx <= b.bottom;
-      const visibleRect = (el: HTMLElement, host: HTMLElement) => {
-        const r = el.getBoundingClientRect();
-        const out = { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
-        for (let p = el.parentElement; p && p !== host; p = p.parentElement) {
-          const cs = getComputedStyle(p);
-          const clipsX = /(auto|scroll|hidden|clip)/.test(cs.overflowX) && p.scrollWidth > p.clientWidth;
-          const clipsY = /(auto|scroll|hidden|clip)/.test(cs.overflowY) && p.scrollHeight > p.clientHeight;
-          if (!clipsX && !clipsY) continue;
-          const pr = p.getBoundingClientRect();
-          out.left = Math.max(out.left, pr.left);
-          out.top = Math.max(out.top, pr.top);
-          out.right = Math.min(out.right, pr.right);
-          out.bottom = Math.min(out.bottom, pr.bottom);
-          out.width = Math.max(0, out.right - out.left);
-          out.height = Math.max(0, out.bottom - out.top);
-        }
-        return out;
-      };
-      const roots = rootSelector
-        ? Array.from(document.querySelectorAll(rootSelector))
-        : Array.from(document.querySelectorAll('[data-testid="canvas-view"]'));
-      const hits: ContentBoundsHit[] = [];
-      for (const root of roots) {
-        if (!visible(root)) continue;
-        for (const node of root.querySelectorAll('[data-testid="canvas-spec-section"], [data-testid="canvas-task-card"]')) {
-          if (!visible(node)) continue;
-          const host = node as HTMLElement;
-          const hostRect = host.getBoundingClientRect();
-          const id = host.getAttribute("data-section-id") ?? host.getAttribute("data-task-id");
-          for (const child of host.querySelectorAll<HTMLElement>(
-            '[data-testid="canvas-spec-section-body"], [data-testid="canvas-task-body"], [data-testid="canvas-task-intent"], [data-testid="canvas-task-why"]',
-          )) {
-            if (!visible(child)) continue;
-            if ((child.textContent ?? "").trim().length === 0) continue;
-            const rect = visibleRect(child, host);
-            if (rect.height <= 0 || rect.width <= 0) {
-              hits.push({ testid: host.dataset.testid ?? "", id, childTestid: child.dataset.testid ?? "", reason: "zero-size-text-block" });
-              continue;
-            }
-            if (!within(rect, hostRect)) {
-              hits.push({ testid: host.dataset.testid ?? "", id, childTestid: child.dataset.testid ?? "", reason: "content-outside-node" });
-            }
-          }
-        }
-      }
-      return hits;
-    },
-    { rootSelector, tolerancePx },
-  );
-}
-
-export async function findVisibleOverlaps(page: Page, rootSelector?: string, tolerancePx = 2): Promise<OverlapHit[]> {
-  const groups = await Promise.all(
-    ["canvas-plan-node", "canvas-spec-node", "canvas-task-card"].map(async (testid) =>
-      page.evaluate(
-        ({ testid, rootSelector }) => {
-          const visible = (el: Element) => {
-            const html = el as HTMLElement;
-            const rect = html.getBoundingClientRect();
-            if (rect.width < 2 || rect.height < 2) return false;
-            const cs = getComputedStyle(html);
-            return cs.display !== "none" && cs.visibility !== "hidden" && Number(cs.opacity) >= 0.05;
-          };
-          const roots = rootSelector
-            ? Array.from(document.querySelectorAll(rootSelector))
-            : Array.from(document.querySelectorAll('[data-testid="canvas-view"]'));
-          const out: NodeBox[] = [];
-          for (const root of roots) {
-            if (!visible(root)) continue;
-            for (const el of root.querySelectorAll(`[data-testid="${testid}"]`)) {
-              if (!visible(el)) continue;
-              const r = el.getBoundingClientRect();
-              out.push({
-                testid,
-                id:
-                  el.getAttribute("data-plan-id") ??
-                  el.getAttribute("data-task-id") ??
-                  el.getAttribute("data-milestone-id") ??
-                  el.getAttribute("data-owner-key"),
-                box: { x: r.x, y: r.y, width: r.width, height: r.height },
-              });
-            }
-          }
-          return out;
-        },
-        { testid, rootSelector },
-      ),
-    ),
-  );
-  const all = groups.flat();
-  const hits: OverlapHit[] = [];
-  const minArea = tolerancePx * tolerancePx;
-  for (let i = 0; i < all.length; i++) {
-    for (let j = i + 1; j < all.length; j++) {
-      const area = overlapArea(all[i].box, all[j].box);
-      if (area > minArea) hits.push({ a: all[i], b: all[j], area });
-    }
-  }
-  return hits;
-}
-
-export async function assertVisibleCanvasGeometryClean(page: Page, label: string, rootSelector?: string): Promise<void> {
-  const overlaps = await findVisibleOverlaps(page, rootSelector);
-  const overflows = await findVisibleOverflows(page, rootSelector);
-  const contentBounds = await findVisibleContentBoundsIssues(page, rootSelector);
-  expect(overlaps, `${label}: overlapping cards ${JSON.stringify(overlaps.map((h) => [h.a.testid, h.b.testid]))}`).toHaveLength(0);
-  expect(overflows, `${label}: clipped cards ${JSON.stringify(overflows)}`).toHaveLength(0);
-  expect(contentBounds, `${label}: bad content bounds ${JSON.stringify(contentBounds)}`).toHaveLength(0);
-}
+export {
+  assertVisibleCanvasGeometryClean,
+  findVisibleContentBoundsIssues,
+  findVisibleOverflows,
+  findVisibleOverlaps,
+} from "./canvas-visible-geometry";

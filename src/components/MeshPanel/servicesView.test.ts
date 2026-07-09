@@ -46,7 +46,6 @@ function view(partial: Partial<PeerServicesView>): PeerServicesView {
 
 console.log("servicesView tests");
 
-// Regression #119: keep cached services for offline peers in merged list,
 // flagged with stale/peer_offline instead of dropping them.
 {
   const merged = mergeServicesView(

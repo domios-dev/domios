@@ -1,8 +1,3 @@
-// Run: npx tsx src/components/Canvas/nodeRegistry.test.tsx
-//
-// The plugin seam: registerCanvasNode({kind, painter, footprint}) registers a CANVAS
-// painter (drawn + hit-tested by drawScene — see painterRegistry.test) and a layout
-// footprint. Confirms the extensibility path compiles + forwards both halves.
 
 import { registerCanvasNode } from "./nodeRegistry";
 import { __unregisterCanvasPainterForTest, getCanvasPainter, isCanvasNodeExpandable } from "./canvasRender/painterRegistry";
@@ -27,9 +22,9 @@ ok("registerCanvasNode forwards the painter to the canvas registry", getCanvasPa
 ok("a kind with no painter is undefined (plugins opt in)", getCanvasPainter("never-registered") === undefined);
 
 // capabilities.expandable flows to the registry so drawCard can honor an opt-out.
-ok("a node is expandable by default (Open pill shows)", isCanvasNodeExpandable("burndown") === true);
+ok("a node is expandable by default (View pill shows)", isCanvasNodeExpandable("burndown") === true);
 registerCanvasNode({ kind: "static-widget", painter, capabilities: { expandable: false } });
-ok("a plugin can opt out of expand (no Open pill)", isCanvasNodeExpandable("static-widget") === false);
+ok("a plugin can opt out of expand (no View pill)", isCanvasNodeExpandable("static-widget") === false);
 
 __unregisterCanvasPainterForTest("burndown");
 __unregisterCanvasPainterForTest("static-widget");

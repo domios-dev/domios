@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
-use tauri::Emitter;
 
 use super::probe::UsageProbe;
 use super::store::UsageStoreHandle;
@@ -155,9 +154,6 @@ async fn tick(inner: &Arc<UsagePollerInner>) -> Result<(), String> {
 
     for provider in &providers {
         let visible_panes = visible_panes_for_provider(&inner.svc, provider);
-        // Fetch-based providers (e.g. cursor) source usage from a CLI/API with no
-        // terminal — probe them whenever tracking is on, no pane required. TUI
-        // providers still need a visible pane to drive the `/usage` screen.
         let fetch_based = provider_is_fetch_based(&inner.svc, provider);
         if !provider_pollable(visible_panes.is_empty(), fetch_based) {
             continue;
@@ -215,7 +211,6 @@ fn activity_gate(
     if state.in_flight {
         return false;
     }
-    // A crossed reset boundary collapses the long backoff to a short floor so a
     // fresh cycle shows up promptly; otherwise honour the adaptive backoff.
     let interval = if reset_due {
         RESET_PROBE_MIN_INTERVAL
@@ -488,9 +483,7 @@ fn emit_event(svc: &ServiceContext, key: &AccountKey, snapshot_id: i64) {
         "account_id": key.account_id,
         "snapshot_id": snapshot_id,
     });
-    let _ = svc
-        .app_handle
-        .emit("usage-snapshot-updated", payload.clone());
+    crate::api::events::emit_everywhere(&svc.app_handle, "usage-snapshot-updated", &payload);
     svc.events.broadcast("usage-snapshot-updated", payload);
 }
 

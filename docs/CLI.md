@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 11 -->
+<!-- revision: 15 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -70,17 +70,18 @@ List available agent providers (claude, codex, ...) with their display names, de
 
 Send a report to your parent in the hierarchy
 
+- `--attachments` — File to attach to the report milestone; repeat for multiple files
 - `--branch` — Git branch the work landed on
 - `--changed_files` — Changed files (comma-separated or repeat the flag)
 - `--doc` — Markdown document to append to the report milestone
 - `--kind` — Milestone kind when writing to --plan/--task
 - `<message>` — Report message (also accepts --message alias)
 - `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
-- `--plan` — Plan id to append this report to
+- `--plan` — Plan id to append this report to (if available)
 - `--sha` — Commit SHA produced
 - `--skipped` — Anything deliberately skipped
-- `--status` — Task outcome: done | in_review | blocked | partial
-- `--task` — Task id to append this report to
+- `--status` — Task outcome: in_review | blocked | partial | done
+- `--task` — Task id to append this report to (if available)
 - `--test_cmd` — Test command that was run
 - `--test_result` — Result of the test command (e.g. "42 passed")
 - `--text` — Report message as a flag, useful when paired with --doc
@@ -109,18 +110,19 @@ Mark a pane as orchestrator (top-level, can spawn workers)
 
 #### `codeterm agent spawn`
 
-Spawn a new agent (creates tab in workspace, linked in hierarchy)
+Spawn a new agent; roleless unless --role is provided
 
 - `<agent>` — Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude
 - `--args` — Extra args for the agent
-- `--can_spawn` — Allow spawning children
+- `--can_spawn` — Override whether an explicit Orchestrator may spawn children
 - `--cwd` — Working directory
 - `--description` — Short pane description (max 200 chars)
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
 - `--parent` — Parent pane ID (for Workers)
+- `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
 - `--report_to` — Where this worker's `agent report` should land. A pane id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own pane
-- `--role` — Role: Orchestrator, Worker
+- `--role` — Role: Worker, Orchestrator, or Planner profile sugar
 - `--system_prompt` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts
 - `--task_file` — Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task
@@ -201,6 +203,7 @@ List all available API methods
 
 Dump the CLI command tree as JSON (source of truth for docs/prompts/cards)
 
+- `--markdown` — Emit the docs/CLI.md auto-block markdown instead of JSON
 - `--write` — Regenerate committed artifacts (docs/cli-manifest.json + docs/CLI.md)
 
 #### `codeterm config`
@@ -407,6 +410,8 @@ Start keeping the system awake
 
 - `--display` — Also prevent display sleep
 - `--duration_secs` — Duration in seconds (omit for indefinite)
+- `--gnome_policy` — On Linux/GNOME, explicitly apply current-user power policy overrides (disable inactive sleep, idle blanking, lid-close and power-button suspend)
+- `--system_block` — Print system-level sudo mask commands in the status response. CodeTerm never runs these commands silently
 
 #### `codeterm keepawake status`
 
@@ -494,6 +499,7 @@ Flush a pane's PTY scrollback as a kind=conversation mem_item (called by PreComp
 Batch-delete every item in an area (use sparingly)
 
 - `<area>` — Area name (e.g. auth, deploy, billing)
+- `--yes` — Confirm the batch delete (refused without it)
 
 #### `codeterm mem get`
 
@@ -812,6 +818,22 @@ Save a new mem item
 - `--title` — Title (will be slugified into id). If omitted, first line of body
 - `--workspace` — Convenience: scope this item to workspace ID. Maps to scope="workspace:<ws>"
 
+#### `codeterm mem save-preference`
+
+Save a stable user/machine preference for wake-up context
+
+- `--area` — Area tag (planning | orchestration | machine | ...)
+- `<body>` — Preference body. Use `-` (or omit with piped stdin) to read stdin
+- `--body_file` — Read body from a file instead of the positional arg
+- `--importance` — Importance 1-5 (default 4.0). Higher = more likely in L1 wake-up
+- `--pin` — Pin the item for L1 wake-up (always loaded)
+- `--replace` — Overwrite an existing row with the same id (upsert)
+- `--scope` — Scope: global (default) or workspace:<id>
+- `--summary` — Optional summary (~50-200 chars)
+- `--tags` — Comma-separated tags
+- `--title` — Title (will be slugified into id). If omitted, first line of body
+- `--workspace` — Convenience: scope this item to workspace ID. Maps to scope="workspace:<ws>"
+
 #### `codeterm mem search`
 
 Search across mem_items (FTS5 + hybrid scoring)
@@ -1116,6 +1138,19 @@ Send a notification
 - `--level` — Notification level: info, warning, error
 - `<title>` — Notification title
 
+#### `codeterm orchestration`
+
+Paired creation — spawn an Orchestrator + Planner bound to a fresh plan
+
+#### `codeterm orchestration new`
+
+Create an Orchestrator + Planner pair bound to a fresh plan in one action
+
+- `--orchestrator` — Orchestrator provider, optionally with a model (`provider[:model]`)
+- `--planner` — Planner provider, optionally with a model (`provider[:model]`)
+- `--title`
+- `--workspace`
+
 #### `codeterm orchestrator`
 
 Orchestrator helpers
@@ -1163,6 +1198,13 @@ Append a persistent learning to this orchestrator's heartbeat
 - `--plan`
 - `--tag`
 - `<text>`
+
+#### `codeterm orchestrator status`
+
+Show orchestration status as reports, live lanes, drift, and next actions
+
+- `--pane`
+- `--plan`
 
 #### `codeterm pane`
 
@@ -1311,6 +1353,21 @@ Explicit delete
 
 Canvas plans — persistent orchestration boards
 
+#### `codeterm plan adopt`
+
+Adopt an existing plan sidecar directory into this project
+
+- `--dry_run`
+- `--overwrite`
+- `--project`
+- `<source>`
+
+#### `codeterm plan approve`
+
+Mark the plan approved for task generation
+
+- `<plan_id>`
+
 #### `codeterm plan archive`
 
 Archive a plan
@@ -1340,11 +1397,50 @@ Create a new plan
 - `--spec_file`
 - `--title`
 
+#### `codeterm plan decision`
+
+Decision gates — structured blocking questions routed to the planner
+
+#### `codeterm plan decision answer`
+
+Answer an open gate (immutable audit record, unparks blocked tasks)
+
+- `--answer`
+- `--answered_by_pane`
+- `<gate_id>`
+- `<plan_id>`
+
+#### `codeterm plan decision ask`
+
+Create a decision gate, park blocking tasks, and route the question to the planner
+
+- `--asked_by_pane`
+- `--blocking_task_ids` — Task ids (or handles) to park until this gate is answered
+- `--context`
+- `<plan_id>`
+- `--question`
+
+#### `codeterm plan decision escalate`
+
+Escalate a stale open gate
+
+- `<gate_id>`
+- `--note`
+- `<plan_id>`
+
+#### `codeterm plan decision list`
+
+List decision gates for a plan
+
+- `--open` — Show only open gates
+- `<plan_id>`
+
 #### `codeterm plan delete`
 
 Delete a plan
 
 - `<plan_id>`
+- `--yes` — Confirm permanent deletion
 
 #### `codeterm plan disown`
 
@@ -1381,11 +1477,29 @@ List generic canvas elements
 - `--kind`
 - `<plan_id>`
 
+#### `codeterm plan element rm`
+
+Remove a generic canvas element
+
+- `<element_id>`
+- `<plan_id>`
+
 #### `codeterm plan element show`
 
 Show one generic canvas element
 
 - `<element_id>`
+- `<plan_id>`
+
+#### `codeterm plan element update`
+
+Update a generic canvas element's content, kind, or links
+
+- `--content`
+- `--content_file`
+- `<element_id>`
+- `--kind`
+- `--link`
 - `<plan_id>`
 
 #### `codeterm plan facets`
@@ -1551,13 +1665,6 @@ List plans
 
 Self-improving loops
 
-#### `codeterm plan loop advance`
-
-Advance a loop one iteration, recording whether it made progress
-
-- `<loop_id>`
-- `--progress`
-
 #### `codeterm plan loop create`
 
 Declare a self-improving loop with a target and iteration budget
@@ -1566,6 +1673,15 @@ Declare a self-improving loop with a target and iteration budget
 - `<plan_id>`
 - `--stop_when`
 - `--target`
+
+#### `codeterm plan loop record`
+
+Record one loop iteration and leave a stride
+
+- `<loop_id>`
+- `--note`
+- `--stop`
+- `--task`
 
 #### `codeterm plan loop set`
 
@@ -1622,6 +1738,23 @@ Update a milestone's kind or text
 - `--text`
 - `--text_file`
 
+#### `codeterm plan mode`
+
+Set explicit effort mode: planning | approved | execution | complete
+
+- `<plan_id>`
+- `--set`
+
+#### `codeterm plan move`
+
+Move a plan sidecar from another project or data dir into this project
+
+- `--dry_run`
+- `--from`
+- `--overwrite`
+- `<plan_id>`
+- `--to`
+
 #### `codeterm plan next`
 
 Prioritized, advisory next-action guidance computed from plan state
@@ -1642,12 +1775,74 @@ Add a free-form canvas note, optionally linked to a task or section
 - `--text`
 - `--text_file`
 
+#### `codeterm plan note rm`
+
+Remove a free-form canvas note
+
+- `<note_id>`
+- `<plan_id>`
+
+#### `codeterm plan note update`
+
+Update a free-form canvas note
+
+- `<note_id>`
+- `<plan_id>`
+- `--text`
+- `--text_file`
+
+#### `codeterm plan planning-state`
+
+Advance planner-owned planning state: drafting | structure_ready | approved
+
+- `--note`
+- `--pane` — Planner pane id advancing the state (records author as planner; omit = user)
+- `<plan_id>`
+- `--set`
+
 #### `codeterm plan prune`
 
 Preview or delete smoke/empty project-local plan files (dry-run by default)
 
 - `--apply`
 - `--project`
+
+#### `codeterm plan qa`
+
+Serialized QA queue for in_review tasks
+
+#### `codeterm plan qa fail`
+
+Mark QA failed, bounce to in_progress, and nudge the implementer
+
+- `--note`
+- `<plan_id>`
+- `<task_id>`
+
+#### `codeterm plan qa next`
+
+Show the next queued QA task, claim it, or record a group's full-gate regression run
+
+- `--claim`
+- `--group` — Record ONE group-scoped regression working point instead of claiming a task
+- `--note`
+- `<plan_id>`
+
+#### `codeterm plan qa pass`
+
+Mark QA passed and close the task
+
+- `--note`
+- `<plan_id>`
+- `<task_id>`
+
+#### `codeterm plan qa queue`
+
+Show the plan QA queue, or enqueue one in_review task with --task
+
+- `--note`
+- `<plan_id>`
+- `--task`
 
 #### `codeterm plan reconcile`
 
@@ -1664,7 +1859,7 @@ Record task progress with one atomic plan write
 - `--key`
 - `--links`
 - `--name`
-- `<plan_id>`
+- `<plan_id>` — Plan id (if available from pane binding or env)
 - `--sections`
 - `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
 - `--steps`
@@ -1684,6 +1879,26 @@ Show structural neighbors for a plan/spec/task/section unit
 - `--depth`
 - `--id`
 
+#### `codeterm plan retrospective`
+
+Write the plan completion retrospective (plan-level stride, kind retrospective)
+
+- `--body`
+- `--body_file`
+- `<plan_id>`
+
+#### `codeterm plan search`
+
+Search synced plan/spec/task/stride history for this project
+
+- `--active`
+- `--all`
+- `--archived`
+- `--kind`
+- `--limit`
+- `--project`
+- `<query>`
+
 #### `codeterm plan section`
 
 Plan sections
@@ -1700,6 +1915,14 @@ Add a plan section (execution phase), optionally nested under --parent
 - `--primary`
 - `--tags`
 - `--title`
+
+#### `codeterm plan section attach`
+
+Attach a file to a plan section
+
+- `<file>`
+- `<plan_id>`
+- `<section_id>`
 
 #### `codeterm plan section rm`
 
@@ -1727,6 +1950,44 @@ Update a plan section's title, body, tags, or handle
 - `<section_id>`
 - `--tags`
 - `--title`
+
+#### `codeterm plan skill`
+
+Plan-scoped reusable skills (folder-on-disk, ledgered, mem-indexed)
+
+#### `codeterm plan skill edit`
+
+Record a keep|discard|superseded ledger entry; --body-file replaces SKILL.md
+
+- `--body_file`
+- `--plan`
+- `--rationale`
+- `<slug>`
+- `--verdict`
+
+#### `codeterm plan skill list`
+
+List plan skills with their latest ledger verdict
+
+- `--plan`
+
+#### `codeterm plan skill new`
+
+Create a new plan skill folder (SKILL.md + scripts/)
+
+- `--area`
+- `--check` — Optional verification command persisted in SKILL.md frontmatter
+- `--plan` — Plan id (omit to use $CODETERM_PLAN_ID or the single active plan)
+- `--rationale` — One-line ledger rationale (default: "created")
+- `<slug>`
+- `--title`
+
+#### `codeterm plan skill show`
+
+Print a plan skill's SKILL.md and ledger history
+
+- `--plan`
+- `<slug>`
 
 #### `codeterm plan spec`
 
@@ -1764,6 +2025,8 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--correctness`
 - `--criterion`
 - `--destination`
+- `--executor_role`
+- `--force`
 - `--group`
 - `--handle`
 - `--intent`
@@ -1776,6 +2039,8 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `<plan_id>`
 - `--primary`
 - `--priority`
+- `--role_guidance`
+- `--role_guidance_file`
 - `--sections`
 - `--tags`
 - `--test_plan`
@@ -1791,6 +2056,29 @@ Assign a task to a pane (exports CODETERM_TASK_ID to that pane)
 
 - `--mesh`
 - `--pane`
+- `<plan_id>`
+- `<task_id>`
+
+#### `codeterm plan task attach`
+
+Attach a file to a plan task
+
+- `<file>`
+- `<plan_id>`
+- `<task_id>`
+
+#### `codeterm plan task attempt`
+
+Show one execution attempt for a plan task
+
+- `<attempt_id>`
+- `<plan_id>`
+- `<task_id>`
+
+#### `codeterm plan task attempts`
+
+List execution attempts for a plan task
+
 - `<plan_id>`
 - `<task_id>`
 
@@ -1819,12 +2107,33 @@ List a plan's tasks, optionally filtered by status
 - `<plan_id>`
 - `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
 
+#### `codeterm plan task park`
+
+Park a task (defers it out of the heartbeat open-work set; requires --reason)
+
+- `<plan_id>`
+- `--reason`
+- `<task_id>`
+
 #### `codeterm plan task relink`
 
 Preview or apply automatic section links for unlinked tasks (--apply)
 
 - `--apply`
 - `<plan_id>`
+
+#### `codeterm plan task respawn`
+
+Respawn a worker from one prior execution attempt
+
+- `--attempt`
+- `--model`
+- `--parent`
+- `<plan_id>`
+- `--provider`
+- `<task_id>`
+- `--title`
+- `--workspace`
 
 #### `codeterm plan task retag`
 
@@ -1837,7 +2146,16 @@ Replace facet/topic tags and regenerate the task handle
 
 #### `codeterm plan task rm`
 
-Remove a task from the plan
+Remove a task from the plan, or --all to reset generated tasks
+
+- `--all`
+- `<plan_id>`
+- `<task_id>`
+- `--yes`
+
+#### `codeterm plan task unpark`
+
+Unpark a task (returns it to pending)
 
 - `<plan_id>`
 - `<task_id>`
@@ -1855,6 +2173,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--correctness`
 - `--criterion`
 - `--destination`
+- `--executor_role`
 - `--group`
 - `--handle`
 - `--intent`
@@ -1867,6 +2186,8 @@ Update task metadata, status, quality fields, or lane assignment
 - `<plan_id>`
 - `--primary`
 - `--priority`
+- `--role_guidance`
+- `--role_guidance_file`
 - `--sections`
 - `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
 - `--status_label`
@@ -1887,6 +2208,12 @@ Transfer plan ownership
 - `--reason`
 - `--to`
 
+#### `codeterm plan unapprove`
+
+Return an approved/execution plan to planning mode
+
+- `<plan_id>`
+
 #### `codeterm plan unarchive`
 
 Restore an archived plan to active
@@ -1904,7 +2231,10 @@ Remove a plan link
 
 Update plan metadata
 
+- `--mode`
+- `--note` — Waiver note (required when --planner none)
 - `<plan_id>`
+- `--planner` — Set attached Planner: <pane_id> to bind, or "none" to waive (requires --note)
 - `--spec`
 - `--spec_file`
 - `--status`
@@ -2001,13 +2331,33 @@ Update bundled system provider plugins from the official plugin channel
 
 - `<id>`
 
+#### `codeterm report`
+
+Report worker progress to the owning orchestrator or plan
+
+- `--attachments` — File to attach to the report milestone; repeat for multiple files
+- `--branch` — Git branch the work landed on
+- `--changed_files` — Changed files (comma-separated or repeat the flag)
+- `--doc` — Markdown document to append to the report milestone
+- `--kind` — Milestone kind when writing to --plan/--task
+- `<message>` — Report message (also accepts --message alias)
+- `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `--plan` — Plan id to append this report to (if available)
+- `--sha` — Commit SHA produced
+- `--skipped` — Anything deliberately skipped
+- `--status` — Task outcome: in_review | blocked | partial | done
+- `--task` — Task id to append this report to (if available)
+- `--test_cmd` — Test command that was run
+- `--test_result` — Result of the test command (e.g. "42 passed")
+- `--text` — Report message as a flag, useful when paired with --doc
+
 #### `codeterm send`
 
 Send text to a pane (default: current pane)
 
-- `--actions` — Terminal actions to run after optional text, comma-separated. Examples: enter, esc, up, down, left, right, tab, backspace, ctrl-c, delay:250ms. With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it
+- `--actions` — Terminal actions to run after optional text, comma-separated. Full key set: enter, esc, tab, backspace, delete, up, down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3). With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it
 - `--at` — Queue for an absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
-- `--delay` — Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes
+- `--delay` — Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes. NOT the normal send path: use only for future delivery the user asked for — plain send is immediate and must never be buffered
 - `--from_file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting
 - `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
 - `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF

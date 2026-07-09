@@ -1,6 +1,3 @@
-// Canvas 2D needs literal colors — CSS var(--ct-*) can't be used in fillStyle. We
-// resolve the theme tokens to concrete strings once (and on theme change) from the
-// document root, with fallbacks so jsdom/headless still produce a usable palette.
 
 export interface CanvasPalette {
   bg: string;

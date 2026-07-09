@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ViewportBox, ViewportTransform } from "../useCanvasViewport";
+import { CANVAS_MIN_SCALE, CANVAS_MAX_SCALE } from "../useCanvasViewport";
 import { resolveFlyToNodeId } from "../flyToTarget";
 import type { SectionNavArgs } from "../nodeRegistry";
 import type { Plan } from "../types";
@@ -18,10 +19,6 @@ interface FlyToDeps {
   recordNav?: (entry: NavEntry) => void;
 }
 
-// After a spec-section bubble flies to the spec node, scroll that node's internal
-// document column to the referenced section and pulse it — so "fly to the spec
-// section" lands ON the section, not merely on the node. Imperative + best-effort
-// (the camera ease + band reveal settle first); guarded so it no-ops headlessly.
 function revealSpecSection(planCtx: string, sectionId: string): void {
   if (typeof document === "undefined") return;
   const attempt = (): boolean => {
@@ -45,10 +42,6 @@ function revealSpecSection(planCtx: string, sectionId: string): void {
   setTimeout(tick, 620);
 }
 
-// Fly/focus/section-navigation primitives + transient blink & highlight state.
-// Camera math (the SINGLE transform) lives in useCanvasViewport — this only frames
-// node sets and wires the delegated fly-to click. Behavior-identical to the inline
-// CanvasViewInner callbacks it replaces.
 export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToView, animateTo, setTransform, recordNav }: FlyToDeps) {
   const [blinkIds, setBlinkIds] = useState<Set<string>>(() => new Set());
 
@@ -62,7 +55,6 @@ export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToVi
     (id: string, kind: NavKind, flyIds: string[], label?: string) => recordNav?.({ id, kind, label: label ?? labelFor(id), flyIds }),
     [recordNav, labelFor],
   );
-  // The arrival blink is transient: the ring pulses then fades so it never leaves a
   // permanent halo, and a later fly to the same node re-mounts → re-triggers it.
   useEffect(() => {
     if (!blinkIds.size) return;
@@ -82,7 +74,6 @@ export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToVi
       const minY = Math.min(...boxes.map((b) => b.y));
       const maxX = Math.max(...boxes.map((b) => b.x + b.width));
       const maxY = Math.max(...boxes.map((b) => b.y + b.height));
-      // Inflate the framed bbox so a focused node sits fully inside the viewport
       // with margin (no title/edge clipped at the viewport border).
       const w = maxX - minX;
       const h = maxY - minY;
@@ -95,7 +86,6 @@ export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToVi
     [lookups, fitToView, animateToView],
   );
 
-  // Center the camera on a node set at an EXPLICIT scale (vs fit-to-bbox). The
   // product "go to node id at zoom Z" primitive: deterministic landing point.
   const centerCameraOnNodes = useCallback(
     (ids: string[], scale: number, animate = false) => {
@@ -109,7 +99,7 @@ export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToVi
       const maxY = Math.max(...boxes.map((b) => b.y + b.height));
       const cx = (minX + maxX) / 2;
       const cy = (minY + maxY) / 2;
-      const s = Math.max(0.05, Math.min(10, scale));
+      const s = Math.max(CANVAS_MIN_SCALE, Math.min(CANVAS_MAX_SCALE, scale));
       const t = { x: size.width / 2 - cx * s, y: size.height / 2 - cy * s, scale: s };
       if (animate) animateTo(t);
       else setTransform(t);
@@ -117,9 +107,6 @@ export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToVi
     [lookups, setTransform, animateTo, size.width, size.height],
   );
 
-  // Camera + blink onto a set of node ids (shared by canvas-focus + Plan-on-pane).
-  // scale given → land centered at that exact zoom; omitted → fit the bbox.
-  // `animate` flies the camera (user fly-to) instead of an instant jump.
   const focusOnNodes = useCallback(
     (ids: string[], scale?: number, animate = false) => {
       if (scale != null) centerCameraOnNodes(ids, scale, animate);
@@ -129,7 +116,6 @@ export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToVi
     [fitCameraToNodes, centerCameraOnNodes],
   );
 
-  // A presence pin → fly to the task its agent is executing (eased + blink), reusing
   // the shared fly primitive. The literal "click an agent, go to its work" gesture.
   const onFlyToTask = useCallback(
     (taskId: string) => {
@@ -151,7 +137,6 @@ export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToVi
     [planById],
   );
 
-  // §32.7 section highlight: single-click a section row → highlight its outgoing
   // task edges + connected task nodes (NO camera move). Auto-clears.
   const [highlight, setHighlight] = useState<{ sectionId: string; taskIds: Set<string> } | null>(null);
   const onSectionClick = useCallback(
@@ -167,7 +152,6 @@ export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToVi
     return () => clearTimeout(h);
   }, [highlight]);
 
-  // Double-click / row-action → FRAME the connected tasks (fly+blink). Empty
   // section → frame the plan (user can then compose against it).
   const onSectionFrame = useCallback(
     (a: SectionNavArgs) => {
@@ -180,11 +164,6 @@ export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToVi
     [sectionTaskIds, focusOnNodes, fitCameraToNodes, record, lookups],
   );
 
-  // Fly-to navigation (north-star liveness): ONE delegated click across BOTH the
-  // world layer and the rich-overlay layer. A swarm-roster row flies to its task; a
-  // spec/lineage chip flies to the linked node (or its ghost); a task's section
-  // control flies to the plan section it's bound to + highlights it. All eased +
-  // blink-on-arrival via focusOnNodes(…, animate) — no camera math reinvented here.
   const onCanvasFlyClick = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement | null;
@@ -209,7 +188,6 @@ export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToVi
         if (nodeId) {
           focusOnNodes([nodeId], undefined, true);
           record(nodeId, kind.startsWith("spec") ? "spec" : "node", [nodeId]);
-          // A spec-section bubble lands on the spec node, then scrolls/pulses the
           // exact section it derives from (provenance reads on the section itself).
           if (kind === "spec-section" && planCtx && rawId.trim()) revealSpecSection(planCtx, rawId.trim());
         }

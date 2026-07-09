@@ -2,6 +2,7 @@ import { resolveEdgeEnds } from "./edges";
 import type { Box, LaidOutEdge, Point, WorkspaceLayout } from "./layout";
 import type { ViewportTransform } from "./useCanvasViewport";
 import type { Plan, TaskStatus } from "./types";
+import { bumpCanvasChurn } from "./canvasChurn";
 
 export type SceneRecordKind = "node" | "edge" | "group";
 
@@ -216,7 +217,6 @@ export function createCanvasSceneReadback(
   scene: CanvasScene,
   transform: ViewportTransform,
 ): CanvasSceneReadback {
-  // Lazy: the O(N) id→box index only materializes when a debug/test consumer reads
   // it — publish itself stays O(1), off the per-frame gesture path.
   let worldBoxes: Map<string, Box> | null = null;
   const boxes = () => (worldBoxes ??= new Map(scene.nodes.map((node) => [node.id, node.worldBox])));
@@ -240,6 +240,7 @@ export function publishCanvasSceneReadback(
   slot = DEFAULT_SCENE_SLOT,
 ): () => void {
   if (typeof window === "undefined") return () => {};
+  bumpCanvasChurn("sceneReadbackPublishes");
   const readback = createCanvasSceneReadback(scene, transform);
   debugEntries.set(slot, readback);
   window.__codetermCanvasScene = {

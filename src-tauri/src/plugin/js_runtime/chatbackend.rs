@@ -480,7 +480,6 @@ mod tests {
 
     #[test]
     fn poll_bare_list_has_no_cursor() {
-        // A legacy/cursorless plugin returning a bare array maps to messages with
         // cursor None (the loop keeps its prior cursor).
         let vm = vm_with(
             r#"module.exports.default = {

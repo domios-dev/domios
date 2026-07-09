@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import QRCode from "qrcode";
 import { Check, ChevronUp, ChevronDown, Copy, ExternalLink, Info, Loader2, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
+import { BusySpinner } from "../shared/BusyState";
 import { IS_WEB, webJson } from "../../lib/webApi";
 import logoUrl from "../../assets/logo.png";
 import type { ApiConfig, AppConfig } from "../../lib/types";
@@ -359,7 +360,7 @@ function WebUiModal({
                   disabled={busy}
                   className={`${UI_BUTTON.accent} ${UI_BUTTON.lg} w-full gap-1.5 disabled:opacity-50`}
                 >
-                  {busy ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                  {busy ? <BusySpinner icon={Loader2} size={14} /> : <ShieldCheck size={14} />}
                   {busy ? "Enabling HTTPS…" : "Enable HTTPS (Tailscale Serve)"}
                 </button>
               )}
@@ -566,7 +567,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
             style={{ borderRadius: "9999px" }}
             title="Refresh"
           >
-            <RefreshCw size={touchUi ? 16 : 13} className={data.loading ? "animate-spin" : ""} />
+            <BusySpinner icon={RefreshCw} size={touchUi ? 16 : 13} spinning={data.loading} />
           </button>
         </div>
         <div className="flex items-center gap-1 border-l border-[var(--ct-border)] pl-3">

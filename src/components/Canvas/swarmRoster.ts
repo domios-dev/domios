@@ -2,12 +2,6 @@ import type { PresenceSource } from "./presenceOverlays";
 import type { PresenceAgent } from "./presence/identity";
 import type { Task } from "./types";
 
-// EMERGENCE (north-star #2): the top-right multiplayer cluster shows the WHOLE
-// swarm as ONE circle per DISTINCT agent — deduped across the many tasks an agent
-// may touch (that's the cluster's job; per-task pins are the floating layer). Pure
-// + CAMERA-DECOUPLED: depends only on the swarm + task data, never pan/zoom, so the
-// screen-space cluster is stable while you fly around. Bounded like the pin budget
-// so a 100-agent fleet collapses to a capped roster + an honest +N overflow.
 export const MAX_SWARM_ROSTER = 32;
 
 export interface SwarmMember {
@@ -48,7 +42,6 @@ interface Acc {
   taskCount: number;
 }
 
-// A live task wins the "current task" slot; among equal liveness the lowest id wins
 // so the fly-to target is deterministic (no flicker between equally-valid tasks).
 function prefers(taskId: string, live: boolean, prev: Acc): boolean {
   if (live !== prev.taskLive) return live;
@@ -91,7 +84,6 @@ export function buildSwarmRoster({
     });
   }
 
-  // Live agents first (the swarm you watch), leads before peers, then by label —
   // a stable, scannable order; agent id is the final deterministic tiebreak.
   members.sort(
     (a, b) =>

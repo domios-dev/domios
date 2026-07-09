@@ -1,7 +1,3 @@
-// One text-measuring source of truth so the footprint (layout, no live ctx) and
-// drawCard (live ctx) wrap/ellipsize titles IDENTICALLY — the fix for title overflow
-// is making sizing and rendering agree on metrics. measure() is a width fn: drawCard
-// passes ctx.measureText; the footprint passes the offscreen-canvas measurer below.
 
 export type Measure = (text: string) => number;
 
@@ -44,9 +40,6 @@ export function ellipsize(measure: Measure, text: string, maxW: number): string 
   return lo > 0 ? text.slice(0, lo) + "…" : "…";
 }
 
-// Greedy word-wrap to at most `maxLines`; every line clamped to `maxW` with a real
-// ellipsis (overflowing word, or the dumped remainder on the last line) so text NEVER
-// exceeds the box in either axis.
 export function wrapLines(measure: Measure, text: string, maxW: number, maxLines: number): string[] {
   const words = text.split(/\s+/).filter(Boolean);
   if (!words.length) return [];

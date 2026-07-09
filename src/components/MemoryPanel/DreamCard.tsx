@@ -23,7 +23,6 @@ function dreamDate(iso: string): { day: string; month: string; year: string } {
 
 export function DreamCard({ entry, onOpen }: { entry: DreamDiaryEntry; onOpen: () => void }) {
   const parsed = parseDream(entry.body);
-  // Dreamer-picked icon / mood take priority over derived ones — the LLM gets to label its own dream. Falls back to keyword heuristics when no
   // explicit `<icon>` / `<mood>` block is present.
   const Icon =
     iconBySlug(parsed.icon) ??

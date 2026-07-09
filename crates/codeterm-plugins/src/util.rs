@@ -66,10 +66,30 @@ pub(super) fn local_path_from_url(value: &str) -> Option<PathBuf> {
 }
 
 pub(super) fn clone_git_channel(source: &ChannelSource, cache_path: &Path) -> Result<(), String> {
-    let tmp = cache_path.with_extension("git-clone");
+    // Unique scratch dir per clone. A fixed path (e.g. "<cache>.git-clone") lets
+    // concurrent clones of the SAME channel — which happen when several snapshot
+    // builds race to ensure/refresh a channel under rapid UI polling — write into the
+    // same working tree and corrupt each other's git metadata ("could not lock",
+    // "BUG: refs/files-backend", "shallow file has data we cannot read").
+    let tmp = cache_path.with_extension(format!("git-clone-{}", uuid::Uuid::new_v4()));
     if tmp.exists() {
         fs::remove_dir_all(&tmp).map_err(|e| format!("clear {}: {e}", tmp.display()))?;
     }
+    let result = clone_git_channel_into(source, cache_path, &tmp);
+    // Always drop the scratch clone. On the success/no-subdir path it was renamed into
+    // place (so this is a no-op); on the subdir or any error path it must be removed so
+    // failed clones never accumulate under the channels dir.
+    if tmp.exists() {
+        let _ = fs::remove_dir_all(&tmp);
+    }
+    result
+}
+
+fn clone_git_channel_into(
+    source: &ChannelSource,
+    cache_path: &Path,
+    tmp: &Path,
+) -> Result<(), String> {
     let tmp_string = tmp.to_string_lossy().to_string();
     let mut clone_args = vec![
         "clone".to_string(),
@@ -87,7 +107,7 @@ pub(super) fn clone_git_channel(source: &ChannelSource, cache_path: &Path) -> Re
     run_git(clone_args)?;
     if let Some(git_ref) = &source.git_ref {
         run_git_in(
-            &tmp,
+            tmp,
             vec![
                 "fetch".to_string(),
                 "--depth".to_string(),
@@ -96,12 +116,12 @@ pub(super) fn clone_git_channel(source: &ChannelSource, cache_path: &Path) -> Re
                 git_ref.clone(),
             ],
         )?;
-        run_git_in(&tmp, vec!["checkout".to_string(), "FETCH_HEAD".to_string()])?;
+        run_git_in(tmp, vec!["checkout".to_string(), "FETCH_HEAD".to_string()])?;
     }
     if let Some(subdir) = &source.subdir {
         validate_relative_path(subdir)?;
         run_git_in(
-            &tmp,
+            tmp,
             vec![
                 "sparse-checkout".to_string(),
                 "set".to_string(),
@@ -110,9 +130,8 @@ pub(super) fn clone_git_channel(source: &ChannelSource, cache_path: &Path) -> Re
             ],
         )?;
         copy_dir_filtered(&tmp.join(subdir), cache_path)?;
-        fs::remove_dir_all(&tmp).map_err(|e| format!("remove {}: {e}", tmp.display()))?;
     } else {
-        fs::rename(&tmp, cache_path).map_err(|e| format!("rename channel cache: {e}"))?;
+        fs::rename(tmp, cache_path).map_err(|e| format!("rename channel cache: {e}"))?;
     }
     Ok(())
 }
@@ -229,7 +248,6 @@ pub(super) fn compat_reason(min: &str, app: Option<&str>) -> String {
     }
 }
 
-// Fail-open when min is absent or the running version is unknown (raw CLI with
 // no daemon); only block when we positively know app < min.
 pub(super) fn compat_check(min: Option<&str>) -> Result<(), String> {
     let Some(min) = min else { return Ok(()) };
@@ -243,7 +261,6 @@ pub(super) fn compat_check(min: Option<&str>) -> Result<(), String> {
     }
 }
 
-// Best-effort version for a system plugin not on disk: read the system channel
 // cache manifest if it has already been fetched. Never triggers a network call.
 pub(super) fn system_channel_version(id: &str) -> Option<String> {
     let reg = read_channel_registry().ok()?;

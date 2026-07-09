@@ -24,11 +24,16 @@ dev_alive || fail "dev daemon not on port 7686; start it with ./build.sh dev --w
 
 echo "== loop-deviation eval =="
 
+PLAN_BASELINE="$(mktemp -t loopdev-plans.XXXXXX)"
+plan_snapshot "$PLAN_BASELINE" || fail "could not snapshot plan baseline"
+
 PLAN_ID="$(jq -r '.plan_id' <<<"$(dc --json plan create --title "LOOP-DEVIATION-$RUN_ID")")"
 [ -n "$PLAN_ID" ] && [ "$PLAN_ID" != "null" ] || fail "plan create did not return plan_id"
 pass "created scratch plan $PLAN_ID"
 
-cleanup() { dc plan delete "$PLAN_ID" >/dev/null 2>&1 || true; }
+# Sweep by id-diff on ANY exit — deletes the scratch plan plus any loop
+# side-effect plan, even if PLAN_ID extraction had failed above.
+cleanup() { plan_sweep_new "${PLAN_BASELINE:-}" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 dc plan goal set "$PLAN_ID" --vector "$GOAL" >/dev/null
@@ -74,5 +79,9 @@ if dc --json plan loop advance "$LID3" --progress false >/dev/null 2>&1; then
   fail "exhausted loop advanced past budget"
 fi
 pass "budget guard: exhausted loop refuses further advance"
+
+# Plan hygiene gate: sweep + assert before == after (leak fails the bench).
+plan_sweep_new "$PLAN_BASELINE" >/dev/null 2>&1 || true
+plan_assert_clean "$PLAN_BASELINE" loop-deviation || fail "loop-deviation leaked plans (before != after)"
 
 echo "== loop-deviation eval passed =="

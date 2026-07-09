@@ -1,26 +1,35 @@
 import { RichMarkdown } from "@codeterm/chat-ui";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import type { ApiConfig, Pane } from "../../../lib/types";
 import { TASK_STATUS_COLORS } from "../settings";
 import type { Plan, Section, Task } from "../types";
-import type { LaidOutNode } from "../layout";
 import type { SectionNavArgs } from "../nodeRegistry";
+import type { PlanDetailKind } from "../planView/PlanDetailOverlay";
+import { canonicalTaskStatusLabel } from "../planView/taskStatusLabel";
+import { AttachmentGallery } from "../planView/attachments";
+import { PlanRecentActivityRail } from "../planView/PlanRecentActivityRail.tsx";
+import { PlanRetrospectiveBlock } from "../planView/PlanRetrospectiveBlock.tsx";
+import { PlanSkillsSection } from "../planView/PlanSkillsSection.tsx";
+import { TaskActivityTimeline } from "../planView/TaskActivityTimeline.tsx";
+import { GLYPH_ACCENT } from "./cardContent";
 
-// The READ surface body for the detail overlay. Plain (no section tint) — structure
-// + rendered markdown only. Task: description + structured fields. Plan/spec: progress
-// (plan) + the SECTIONS as the hero, each body rendered as markdown; meta is a compact
-// secondary strip, never the headline.
 
 export interface DetailContentProps {
-  node: LaidOutNode;
-  model: unknown;
+  kind: PlanDetailKind;
+  planId?: string;
+  api?: ApiConfig;
+  task?: Task;
+  plan?: Plan;
+  spec?: Plan;
+  specSections?: Section[];
+  panes?: Record<string, Pane>;
   onOpenPane?: (paneId: string) => void;
+  onOpenTask?: (taskId: string) => void;
   onSectionClick?: (a: SectionNavArgs) => void;
   onSectionFrame?: (a: SectionNavArgs) => void;
+  renderTaskAttachmentThumbnails?: (task: Task) => ReactNode;
 }
 
-// Natural-height content; the overlay BODY wrapper is the scroll container (overflow-y
-// auto + min-height:0). The content must NOT be height:100% — it has to grow past the
-// body so the body actually scrolls (the iter3 centering trap clipped it otherwise).
 const wrap: CSSProperties = {
   padding: "20px 24px 28px",
   display: "flex",
@@ -35,9 +44,9 @@ const labelStyle: CSSProperties = { fontSize: 11, fontWeight: 700, letterSpacing
 const sectionTitle: CSSProperties = { fontSize: 15, fontWeight: 700, color: "var(--ct-fg)" };
 const muted: CSSProperties = { fontSize: 13, fontStyle: "italic", color: "color-mix(in srgb, var(--ct-fg) 50%, transparent)" };
 
-function Chip({ label, value, color }: { label: string; value: string; color?: string }) {
+function Chip({ label, value, color, testId }: { label: string; value: string; color?: string; testId?: string }) {
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 9px", borderRadius: 999, border: "1px solid var(--ct-border-subtle)", fontSize: 12, background: "color-mix(in srgb, var(--ct-fg) 5%, transparent)" }}>
+    <span data-testid={testId} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 9px", borderRadius: 999, border: "1px solid var(--ct-border-subtle)", fontSize: 12, background: "color-mix(in srgb, var(--ct-fg) 5%, transparent)" }}>
       <span style={{ ...labelStyle, fontSize: 10 }}>{label}</span>
       <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 600 }}>
         {color && <span style={{ width: 7, height: 7, borderRadius: "50%", background: color }} />}
@@ -47,9 +56,32 @@ function Chip({ label, value, color }: { label: string; value: string; color?: s
   );
 }
 
-function Block({ label, children }: { label: string; children: React.ReactNode }) {
+function RelationChip({ children, onClick, testId }: { children: ReactNode; onClick?: () => void; testId: string }) {
+  const style: CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    minWidth: 0,
+    maxWidth: 240,
+    padding: "2px 8px",
+    borderRadius: 999,
+    border: "1px solid var(--ct-border-subtle)",
+    background: "color-mix(in srgb, var(--ct-accent) 9%, transparent)",
+    color: "var(--ct-fg)",
+    fontSize: 11.5,
+    fontWeight: 600,
+    cursor: onClick ? "pointer" : "default",
+  };
+  if (!onClick) return <span data-testid={testId} style={style}>{children}</span>;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <button type="button" data-testid={testId} onClick={onClick} style={style}>
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{children}</span>
+    </button>
+  );
+}
+
+function Block({ label, children, testId }: { label: string; children: ReactNode; testId?: string }) {
+  return (
+    <div data-testid={testId} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={labelStyle}>{label}</div>
       {children}
     </div>
@@ -64,19 +96,110 @@ function Markdown({ text }: { text: string }) {
   );
 }
 
-function TaskDetail({ task }: { task: Task }) {
+function flattenSections(sections: Section[]): Section[] {
+  return sections.flatMap((section) => [section, ...flattenSections(section.subsections ?? [])]);
+}
+
+function linkedTaskSections(task: Task, plan?: Plan): Section[] {
+  if (!plan || task.section_ids.length === 0) return [];
+  const byId = new Map(flattenSections(plan.sections).map((section) => [section.id, section]));
+  return task.section_ids.map((id) => byId.get(id)).filter((section): section is Section => Boolean(section));
+}
+
+function TaskSectionLinks({
+  task,
+  plan,
+  planId,
+  onSection,
+}: {
+  task: Task;
+  plan?: Plan;
+  planId?: string;
+  onSection?: (a: SectionNavArgs) => void;
+}) {
+  const sections = linkedTaskSections(task, plan);
+  if (sections.length === 0) return null;
+  const navPlanId = planId ?? plan?.id;
+  return (
+    <Block label="Plan sections">
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {sections.map((section) => (
+          <button
+            key={section.id}
+            type="button"
+            data-testid="plan-detail-task-section-link"
+            data-section-id={section.id}
+            onClick={() => navPlanId && onSection?.({ planId: navPlanId, sectionId: section.id, variant: "plan" })}
+            style={{
+              padding: "5px 9px",
+              borderRadius: "var(--ct-radius-sm)",
+              border: "1px solid var(--ct-border-subtle)",
+              background: "color-mix(in srgb, var(--ct-accent) 9%, transparent)",
+              color: "var(--ct-accent)",
+              fontSize: 12,
+              fontWeight: 650,
+              cursor: onSection && navPlanId ? "pointer" : "default",
+              textAlign: "left",
+            }}
+          >
+            {section.title}
+          </button>
+        ))}
+      </div>
+    </Block>
+  );
+}
+
+function TaskDetail({
+  api,
+  task,
+  plan,
+  planId,
+  panes = {},
+  onOpenPane,
+  onSection,
+  renderTaskAttachmentThumbnails,
+}: {
+  api?: ApiConfig;
+  task: Task;
+  plan?: Plan;
+  planId?: string;
+  panes?: Record<string, Pane>;
+  onOpenPane?: (paneId: string) => void;
+  onSection?: (a: SectionNavArgs) => void;
+  renderTaskAttachmentThumbnails?: (task: Task) => ReactNode;
+}) {
   const body = task.body?.trim();
+  const paneId = task.assigned_pane_id?.trim() || null;
+  const attachmentThumbnails = renderTaskAttachmentThumbnails?.(task);
+  const statusLabel = canonicalTaskStatusLabel(task);
   return (
     <div style={wrap} data-testid="canvas-detail-content">
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-        <Chip label="status" value={task.status_label?.trim() || task.status.replace(/_/g, " ")} color={TASK_STATUS_COLORS[task.status]} />
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        <Chip label="status" value={statusLabel} color={TASK_STATUS_COLORS[task.status]} testId="status-chip" />
         {task.priority && <Chip label="priority" value={task.priority.toUpperCase()} />}
         {task.type && <Chip label="type" value={task.type} />}
-        {(task.assigned_pane_id || task.lane?.pane_id) && <Chip label="assignee" value={(task.assigned_pane_id || task.lane?.pane_id)!} />}
+        {onOpenPane && paneId && (
+          <button
+            type="button"
+            data-testid="plan-detail-open-pane"
+            onClick={() => onOpenPane(paneId)}
+            style={{ marginLeft: "auto", padding: "4px 10px", borderRadius: "var(--ct-radius-sm)", border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg)", color: "var(--ct-accent)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+          >
+            Show agent
+          </button>
+        )}
       </div>
-      <Block label="Description">
+      <TaskSectionLinks task={task} plan={plan} planId={planId} onSection={onSection} />
+      {attachmentThumbnails && (
+        <Block label="Attachments">
+          <div data-testid="plan-detail-attachment-thumbnails">{attachmentThumbnails}</div>
+        </Block>
+      )}
+      <Block label="Description" testId="canvas-detail-description">
         {body ? <Markdown text={body} /> : <span style={muted} data-testid="canvas-detail-empty-body">No description</span>}
       </Block>
+      <AttachmentGallery api={api} planId={planId} attachments={task.attachments} />
       {task.acceptance_criteria?.length ? (
         <Block label="Acceptance criteria">
           <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, lineHeight: 1.5, display: "flex", flexDirection: "column", gap: 3 }}>
@@ -93,73 +216,239 @@ function TaskDetail({ task }: { task: Task }) {
           </div>
         </Block>
       ) : null}
-      {task.milestones.length ? (
-        <Block label={`Strides (${task.milestones.length})`}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {task.milestones.map((m) => (
-              <div key={m.id} style={{ fontSize: 13, lineHeight: 1.45 }}>
-                <span style={{ ...labelStyle, fontSize: 10, marginRight: 6 }}>{m.kind.replace(/[_-]+/g, " ")}</span>
-                {m.text}
-              </div>
-            ))}
-          </div>
-        </Block>
-      ) : null}
+      <TaskActivityTimeline task={task} plan={plan} planId={planId} api={api} panes={panes} />
     </div>
   );
 }
 
-function SectionTree({ sections, depth = 0, onSection }: { sections: Section[]; depth?: number; onSection?: (sectionId: string) => void }) {
+function SectionCoverageGlyph({ glyph }: { glyph: "done" | "progress" | "uncovered" }) {
+  const color = GLYPH_ACCENT[glyph];
+  const title = glyph === "done" ? "All tasks done" : glyph === "progress" ? "Tasks in progress" : "No tasks yet";
+  return (
+    <span
+      title={title}
+      style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0, marginTop: 2 }}
+    />
+  );
+}
+
+function sectionTaskGlyph(linked: Task[]): "done" | "progress" | "uncovered" {
+  if (linked.length === 0) return "uncovered";
+  if (linked.every((t) => t.status === "done" || t.status === "cancelled")) return "done";
+  return "progress";
+}
+
+function flattenSectionTree(sections: Section[]): Section[] {
+  return sections.flatMap((section) => [section, ...flattenSectionTree(section.subsections ?? [])]);
+}
+
+interface RelationContext {
+  variant: "plan" | "spec";
+  planId: string;
+  tasks: Task[];
+  planSections: Section[];
+  specSections: Section[];
+  specLinks: Plan["spec_links"];
+  onSection?: (sectionId: string, variant: "plan" | "spec") => void;
+  onOpenTask?: (taskId: string) => void;
+}
+
+function sectionTitleById(sections: Section[]): Map<string, string> {
+  return new Map(flattenSectionTree(sections).map((section) => [section.id, section.title]));
+}
+
+function relationTasksForSection(sectionId: string, ctx?: RelationContext): Task[] {
+  if (!ctx) return [];
+  if (ctx.variant === "plan") return ctx.tasks.filter((task) => (task.section_ids ?? []).includes(sectionId));
+  const planSectionIds = new Set((ctx.specLinks ?? [])
+    .filter((link) => link.spec_section_id === sectionId)
+    .map((link) => link.plan_section_id));
+  return ctx.tasks.filter((task) => (task.section_ids ?? []).some((id) => planSectionIds.has(id)));
+}
+
+function SectionRelations({ section, ctx }: { section: Section; ctx?: RelationContext }) {
+  if (!ctx) return null;
+  const linkedTasks = relationTasksForSection(section.id, ctx);
+  const specTitles = sectionTitleById(ctx.specSections);
+  const planTitles = sectionTitleById(ctx.planSections);
+  const specLinks = ctx.specLinks ?? [];
+  const sectionLinks = ctx.variant === "plan"
+    ? specLinks.filter((link) => link.plan_section_id === section.id).map((link) => ({
+      id: link.spec_section_id,
+      label: specTitles.get(link.spec_section_id) ?? link.spec_section_id,
+      variant: "spec" as const,
+      testId: "canvas-detail-spec-section-chip",
+    }))
+    : specLinks.filter((link) => link.spec_section_id === section.id).map((link) => ({
+      id: link.plan_section_id,
+      label: planTitles.get(link.plan_section_id) ?? link.plan_section_id,
+      variant: "plan" as const,
+      testId: "canvas-detail-plan-section-chip",
+    }));
+  if (sectionLinks.length === 0 && linkedTasks.length === 0) return null;
+  return (
+    <div data-testid="canvas-detail-section-relations" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginLeft: ctx.tasks.length ? 16 : 0 }}>
+      {sectionLinks.map((link) => (
+        <RelationChip
+          key={`${link.variant}:${link.id}`}
+          testId={link.testId}
+          onClick={ctx.onSection ? () => ctx.onSection?.(link.id, link.variant) : undefined}
+        >
+          {link.variant === "spec" ? "Spec: " : "Plan: "}{link.label}
+        </RelationChip>
+      ))}
+      {linkedTasks.map((task) => (
+        <RelationChip
+          key={task.id}
+          testId="canvas-detail-task-chip"
+          onClick={ctx.onOpenTask ? () => ctx.onOpenTask?.(task.id) : undefined}
+        >
+          {task.handle || task.name}
+        </RelationChip>
+      ))}
+    </div>
+  );
+}
+
+function SectionTree({ sections, depth = 0, ctx }: { sections: Section[]; depth?: number; ctx?: RelationContext }) {
   return (
     <>
-      {sections.map((s) => (
-        <div key={s.id} data-testid="canvas-detail-section" data-section-id={s.id} style={{ display: "flex", flexDirection: "column", gap: 6, marginLeft: depth * 16, paddingTop: depth ? 4 : 0 }}>
-          <button
-            type="button"
-            data-testid="canvas-detail-section-nav"
-            title="Go to this section's tasks"
-            onClick={() => onSection?.(s.id)}
-            style={{ ...sectionTitle, fontSize: depth ? 13.5 : 15, display: "flex", alignItems: "center", gap: 7, padding: 0, border: "none", background: "transparent", color: "var(--ct-fg)", cursor: onSection ? "pointer" : "default", textAlign: "left" }}
-          >
-            <span>{s.title}</span>
-            {onSection && <span style={{ fontSize: 11, fontWeight: 600, color: "var(--ct-accent)", opacity: 0.85 }}>→ tasks</span>}
-          </button>
-          {s.tags?.length ? (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-              {s.tags.map((t) => <span key={t} style={{ fontSize: 11, padding: "1px 7px", borderRadius: 999, background: "color-mix(in srgb, var(--ct-fg) 7%, transparent)" }}>{t.includes(":") ? t.slice(t.indexOf(":") + 1).replace(/-/g, " ") : t}</span>)}
+      {sections.map((s) => {
+        const linkedTasks = relationTasksForSection(s.id, ctx);
+        const glyph = ctx ? sectionTaskGlyph(linkedTasks) : "uncovered";
+        const taskCount = linkedTasks.length;
+        return (
+          <div key={s.id} data-testid="canvas-detail-section" data-section-id={s.id} style={{ display: "flex", flexDirection: "column", gap: 6, marginLeft: depth * 16, paddingTop: depth ? 4 : 0 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+              {ctx && <SectionCoverageGlyph glyph={glyph} />}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    data-testid="canvas-detail-section-nav"
+                    title={taskCount > 0 ? `Go to ${taskCount} task${taskCount > 1 ? "s" : ""} in this section` : "No tasks in this section"}
+                    onClick={() => ctx?.onSection?.(s.id, ctx.variant)}
+                    style={{ ...sectionTitle, fontSize: depth ? 13.5 : 15, display: "inline", padding: 0, border: "none", background: "transparent", color: "var(--ct-fg)", cursor: ctx?.onSection ? "pointer" : "default", textAlign: "left" }}
+                  >
+                    {s.title}
+                  </button>
+                  {taskCount > 0 && (
+                    <span
+                      data-testid="canvas-detail-section-task-count"
+                      style={{ fontSize: 11, fontWeight: 600, color: GLYPH_ACCENT[glyph], flexShrink: 0 }}
+                    >
+                      {taskCount} task{taskCount > 1 ? "s" : ""}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
-          ) : null}
-          {s.body?.trim() ? <Markdown text={s.body} /> : null}
-          {s.subsections?.length ? <SectionTree sections={s.subsections} depth={depth + 1} onSection={onSection} /> : null}
-        </div>
-      ))}
+            <SectionRelations section={s} ctx={ctx} />
+            {s.tags?.length ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginLeft: ctx ? 16 : 0 }}>
+                {s.tags.map((t) => <span key={t} style={{ fontSize: 11, padding: "1px 7px", borderRadius: 999, background: "color-mix(in srgb, var(--ct-fg) 7%, transparent)" }}>{t.includes(":") ? t.slice(t.indexOf(":") + 1).replace(/-/g, " ") : t}</span>)}
+              </div>
+            ) : null}
+            {s.body?.trim() ? <div style={{ marginLeft: ctx ? 16 : 0 }}><Markdown text={s.body} /></div> : null}
+            {s.subsections?.length ? <SectionTree sections={s.subsections} depth={depth + 1} ctx={ctx} /> : null}
+          </div>
+        );
+      })}
     </>
   );
 }
 
-function PlanDetail({ plan, variant, onSection }: { plan: Plan; variant: "plan" | "spec"; onSection?: (sectionId: string) => void }) {
+function SpecCoverageHeader({ plan }: { plan: Plan }) {
+  const activeTasks = plan.tasks.filter((task) => task.status !== "cancelled");
+  const total = activeTasks.length;
+  if (total === 0) return null;
+  const done = activeTasks.filter((task) => task.status === "done").length;
+  const active = activeTasks.filter((task) => task.status !== "done").length;
+  const pct = Math.round((done / total) * 100);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }} data-testid="canvas-detail-spec-coverage">
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+        <span data-testid="canvas-detail-spec-total" style={{ fontSize: 28, fontWeight: 800, lineHeight: 1 }}>{done}/{total}</span>
+        <span style={{ fontSize: 13, color: "color-mix(in srgb, var(--ct-fg) 60%, transparent)" }}>
+          tasks done
+        </span>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {done > 0 && (
+          <span data-testid="canvas-detail-spec-covered" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: GLYPH_ACCENT.done }} />
+            {done} done
+          </span>
+        )}
+        {active > 0 && (
+          <span data-testid="canvas-detail-spec-partial" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: GLYPH_ACCENT.progress }} />
+            {active} active
+          </span>
+        )}
+        <span data-testid="canvas-detail-spec-percent" style={{ fontSize: 12, color: "color-mix(in srgb, var(--ct-fg) 45%, transparent)" }}>{pct}% done</span>
+      </div>
+      <div style={{ height: 5, borderRadius: 999, background: "color-mix(in srgb, var(--ct-fg) 10%, transparent)", overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: GLYPH_ACCENT.done }} />
+      </div>
+    </div>
+  );
+}
+
+function PlanDetail({
+  plan,
+  variant,
+  planSections,
+  specSections = [],
+  panes = {},
+  planId,
+  api,
+  onSection,
+  onOpenTask,
+}: {
+  plan: Plan;
+  variant: "plan" | "spec";
+  planSections: Section[];
+  specSections?: Section[];
+  panes?: Record<string, Pane>;
+  planId?: string;
+  api?: ApiConfig;
+  onSection?: (sectionId: string, variant: "plan" | "spec") => void;
+  onOpenTask?: (taskId: string) => void;
+}) {
   const sections = plan.sections;
-  const total = plan.tasks.length;
-  const done = plan.tasks.filter((t) => t.status === "done" || t.status === "cancelled").length;
+  const activeTasks = plan.tasks.filter((task) => task.status !== "cancelled");
+  const total = activeTasks.length;
+  const done = activeTasks.filter((task) => task.status === "done").length;
   const pct = total ? Math.round((done / total) * 100) : 0;
   const metaBits = [
-    plan.status === "active" ? "Active" : plan.status,
+    plan.mode === "paused" ? "Parked" : plan.status === "active" ? "Active" : plan.status,
     plan.owner.title || plan.owner.pane_id ? `owner ${plan.owner.title ?? plan.owner.pane_id}` : null,
     plan.primary_spec_id ? "linked spec" : null,
     plan.loops?.length ? `${plan.loops.length} loop${plan.loops.length > 1 ? "s" : ""}` : null,
   ].filter(Boolean) as string[];
+  const relationCtx: RelationContext = {
+    variant,
+    planId: plan.id,
+    tasks: plan.tasks,
+    planSections,
+    specSections,
+    specLinks: plan.spec_links,
+    onSection,
+    onOpenTask,
+  };
 
   return (
     <div style={wrap} data-testid="canvas-detail-content">
+      {variant === "plan" && <PlanRetrospectiveBlock plan={plan} />}
       {variant === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {total > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }} data-testid="canvas-detail-progress">
-              <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-                <span style={{ fontSize: 28, fontWeight: 800, lineHeight: 1 }}>{pct}%</span>
-                <span style={{ fontSize: 13, color: "color-mix(in srgb, var(--ct-fg) 60%, transparent)" }}>{done} / {total} tasks done</span>
-              </div>
-              <div style={{ height: 7, borderRadius: 999, background: "color-mix(in srgb, var(--ct-fg) 10%, transparent)", overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }} data-testid="canvas-detail-progress">
+              <span style={{ fontSize: 12, fontWeight: 650, color: "color-mix(in srgb, var(--ct-fg) 68%, transparent)" }}>
+                {done} / {total} tasks done
+              </span>
+              <div style={{ width: 92, height: 5, borderRadius: 999, background: "color-mix(in srgb, var(--ct-fg) 10%, transparent)", overflow: "hidden" }}>
                 <div style={{ width: `${pct}%`, height: "100%", background: "var(--ct-accent)" }} />
               </div>
             </div>
@@ -168,23 +457,64 @@ function PlanDetail({ plan, variant, onSection }: { plan: Plan; variant: "plan" 
           {metaBits.length > 0 && <div style={{ fontSize: 12, color: "color-mix(in srgb, var(--ct-fg) 55%, transparent)" }}>{metaBits.join("  ·  ")}</div>}
         </div>
       )}
+      {variant === "spec" && <SpecCoverageHeader plan={plan} />}
+      {variant === "plan" && <PlanRecentActivityRail plan={plan} panes={panes} onOpenTask={onOpenTask} />}
+      {variant === "plan" && planId && api && (
+        <PlanSkillsSection planId={planId} plan={plan} api={api} />
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={labelStyle}>{variant === "spec" ? "Specification" : "Sections"}</div>
-        {sections.length ? <SectionTree sections={sections} onSection={onSection} /> : <span style={muted}>No sections.</span>}
+        {sections.length
+          ? <SectionTree sections={sections} ctx={relationCtx} />
+          : <span style={muted}>No sections.</span>}
       </div>
     </div>
   );
 }
 
-export function DetailContent({ node, model, onSectionFrame }: DetailContentProps) {
-  if (model == null) return null;
-  if (node.kind === "task") {
-    const m = model as { task: Task };
-    return m.task ? <TaskDetail task={m.task} /> : null;
+function resolvePlanModel(kind: PlanDetailKind, plan?: Plan, spec?: Plan, specSections?: Section[]): Plan | null {
+  if (kind === "plan") return plan ?? null;
+  if (kind !== "spec") return null;
+  if (!spec) return null;
+  if (specSections) return { ...spec, sections: specSections, tasks: spec.tasks ?? [] };
+  return spec;
+}
+
+export function DetailContent({ kind, planId, api, task, plan, spec, specSections, panes, onOpenPane, onOpenTask, onSectionClick, onSectionFrame, renderTaskAttachmentThumbnails }: DetailContentProps) {
+  if (kind === "task") {
+    const onSection = onSectionFrame ?? onSectionClick;
+    return task ? (
+      <TaskDetail
+        api={api}
+        task={task}
+        plan={plan}
+        planId={planId}
+        panes={panes}
+        onOpenPane={onOpenPane}
+        onSection={onSection}
+        renderTaskAttachmentThumbnails={renderTaskAttachmentThumbnails}
+      />
+    ) : null;
   }
-  // Click a section → fly/focus its tasks on the canvas (the overlay closes first).
-  const variant = node.kind === "spec" ? "spec" : "plan";
-  const onSection = onSectionFrame ? (sectionId: string) => onSectionFrame({ planId: node.planId, sectionId, variant }) : undefined;
-  if (node.kind === "spec" || node.kind === "plan") return <PlanDetail plan={model as Plan} variant={variant} onSection={onSection} />;
-  return null;
+  const displayPlan = resolvePlanModel(kind, plan, spec, specSections);
+  if (!displayPlan) return null;
+  const variant = kind === "spec" ? "spec" : "plan";
+  const navPlanId = planId ?? displayPlan.id;
+  const onSectionNav = onSectionFrame ?? onSectionClick;
+  const onSection = onSectionNav
+    ? (sectionId: string, targetVariant: "plan" | "spec") => onSectionNav({ planId: navPlanId, sectionId, variant: targetVariant })
+    : undefined;
+  return (
+    <PlanDetail
+      plan={displayPlan}
+      variant={variant}
+      planSections={kind === "spec" ? (spec?.sections ?? []) : displayPlan.sections}
+      specSections={specSections ?? (kind === "spec" ? displayPlan.sections : [])}
+      panes={panes}
+      planId={navPlanId}
+      api={api}
+      onSection={onSection}
+      onOpenTask={onOpenTask}
+    />
+  );
 }

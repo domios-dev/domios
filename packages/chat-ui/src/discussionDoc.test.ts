@@ -1,4 +1,3 @@
-// Run: npx tsx packages/chat-ui/src/discussionDoc.test.ts
 import { parseAttachedDiscussionDoc } from "./discussionDoc";
 
 let passed = 0;

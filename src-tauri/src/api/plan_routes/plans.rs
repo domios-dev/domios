@@ -7,13 +7,26 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::api::routes::{check_auth, AppState};
-use crate::plan::{OrchestratorRef, PlanStatus};
+use crate::plan::{
+    OrchestratorRef, PlanMode, PlanStatus, PlannerRef, PlanningAuthor, PlanningState,
+};
 use crate::service::plan::PlanError;
 
 use super::{
     emit_plan_changed, epoch_ms, kinds_from_csv, plan_err, tag_facets_from_body, text_err,
     PlanRouteResult,
 };
+
+fn push_hints(value: &mut Value, hints: Vec<String>) {
+    let hints: Vec<String> = hints
+        .into_iter()
+        .filter(|hint| !hint.trim().is_empty())
+        .collect();
+    if hints.is_empty() {
+        return;
+    }
+    value["_hints"] = serde_json::json!(hints);
+}
 
 #[derive(Deserialize, Default)]
 pub(crate) struct CreatePlanBody {
@@ -105,6 +118,12 @@ pub async fn list(
                 .to_string(),
         )
     } else {
+        if !state.svc.plans_startup_loaded() {
+            return Err(text_err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "plans are still loading; retry shortly",
+            ));
+        }
         None
     };
     let mut entries = state.svc.plan_store.list_index();
@@ -220,6 +239,10 @@ pub(crate) struct UpdatePlanBody {
     title: Option<String>,
     #[serde(default)]
     status: Option<String>,
+    #[serde(default)]
+    mode: Option<String>,
+    #[serde(default)]
+    planner: Option<serde_json::Value>,
 }
 
 pub async fn update(
@@ -239,8 +262,72 @@ pub async fn update(
     state
         .svc
         .plan_store
-        .update_plan(&id, body.title.as_deref(), status, now)
+        .update_plan(
+            &id,
+            body.title.as_deref(),
+            status,
+            body.mode.as_deref(),
+            now,
+        )
         .map_err(plan_err)?;
+    if let Some(planner_val) = body.planner {
+        let planner_ref: Option<PlannerRef> = serde_json::from_value(planner_val)
+            .map_err(|e| text_err(StatusCode::UNPROCESSABLE_ENTITY, e))?;
+        state
+            .svc
+            .plan_store
+            .set_planner_ref(&id, planner_ref, now)
+            .map_err(plan_err)?;
+    }
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ModeBody {
+    mode: String,
+}
+
+pub async fn mode_set(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<ModeBody>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let mode = serde_json::from_value::<PlanMode>(serde_json::Value::String(body.mode))
+        .map_err(|_| plan_err(PlanError::BadMode))?;
+    let now = epoch_ms();
+    // are lifecycle. Keeps the single execution-task gate authoritative.
+    match mode {
+        PlanMode::Approved => state
+            .svc
+            .plan_store
+            .set_planning_state(
+                &id,
+                PlanningState::Approved,
+                PlanningAuthor::User,
+                None,
+                now,
+            )
+            .map_err(plan_err)?,
+        PlanMode::Planning => state
+            .svc
+            .plan_store
+            .set_planning_state(
+                &id,
+                PlanningState::StructureReady,
+                PlanningAuthor::User,
+                None,
+                now,
+            )
+            .map_err(plan_err)?,
+        PlanMode::Execution | PlanMode::Paused | PlanMode::Complete => state
+            .svc
+            .plan_store
+            .set_mode(&id, mode, now)
+            .map_err(plan_err)?,
+    }
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -272,7 +359,17 @@ pub async fn archive(
         .archive(&id, epoch_ms())
         .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    let mut resp = serde_json::json!({ "ok": true });
+    if let Some(plan) = state.svc.plan_store.get(&id) {
+        let cleanup = crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(&plan, |pane| {
+            state.svc.pane_probe(pane).exists
+        });
+        push_hints(
+            &mut resp,
+            crate::service::plan::cleanup_debt::cleanup_debt_hints(&cleanup),
+        );
+    }
+    Ok(Json(resp))
 }
 
 pub async fn unarchive(
@@ -288,6 +385,46 @@ pub async fn unarchive(
         .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct PauseBody {
+    reason: String,
+    #[serde(default)]
+    from: OrchestratorRef,
+}
+
+pub async fn pause(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<PauseBody>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let stride_id = state
+        .svc
+        .plan_store
+        .pause_plan(&id, &body.reason, body.from, epoch_ms())
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(
+        serde_json::json!({ "ok": true, "stride_id": stride_id }),
+    ))
+}
+
+pub async fn resume(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let mode = state
+        .svc
+        .plan_store
+        .resume_plan(&id, epoch_ms())
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({ "ok": true, "mode": mode })))
 }
 
 #[derive(Deserialize)]

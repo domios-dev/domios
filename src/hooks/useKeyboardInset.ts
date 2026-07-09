@@ -28,7 +28,6 @@ export function useKeyboardInset(): KeyboardState {
     }
     const vv = window.visualViewport;
     const update = () => {
-      // Standalone #root tracks --vv-height (see index.html), so measure the gap against the
       // actual shell height — measuring against innerHeight would double-subtract the keyboard.
       document.documentElement.style.setProperty(
         "--vv-height",
@@ -37,10 +36,7 @@ export function useKeyboardInset(): KeyboardState {
       const rootHeight =
         document.getElementById("root")?.clientHeight ?? window.innerHeight;
       const gap = rootHeight - vv.height - vv.offsetTop;
-      // Ignore sub-100px gaps: iPadOS with an external keyboard fires viewport events on input
-      // focus (for cursor scroll) without showing the software keyboard, producing a small gap
       setInset(Math.max(0, Math.round(gap > 100 ? gap : 0)));
-      // The layout viewport (innerHeight) stays full under the keyboard on iOS in BOTH standalone and
       // browser, so this detects the keyboard even when the shell-inset above reads 0 (standalone).
       const keyboardGap = window.innerHeight - vv.height - vv.offsetTop;
       setKeyboardOpen(keyboardGap > 100);

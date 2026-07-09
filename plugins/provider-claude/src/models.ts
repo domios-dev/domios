@@ -1,4 +1,3 @@
-// Model discovery for the Claude provider. API-key users get the live
 // /v1/models list mapped ONTO the curated aliases (opus/sonnet/haiku/fable):
 import type { ModelInfo } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
@@ -45,8 +44,6 @@ function fetchLiveModels(key: string): AnthropicModel[] | null {
   return out.length ? out : null;
 }
 
-// For each curated alias, find its matching live model: present → version label
-// from live + available; absent → keep the curated label and mark unavailable
 function mapAliasesToLive(aliases: ModelInfo[], live: AnthropicModel[]): ModelInfo[] {
   const out: ModelInfo[] = [];
   for (let i = 0; i < aliases.length; i++) {
@@ -91,7 +88,6 @@ function liveDisplay(m: AnthropicModel): string {
   return "";
 }
 
-// "4.8" / "5" — prefer the display name, fall back to the id whose version
 // segments are dash-separated (claude-opus-4-8 → 4.8).
 function versionOf(m: AnthropicModel): string {
   const fromName = matchVersion(liveDisplay(m));
@@ -115,7 +111,6 @@ function versionKey(v: string): number {
   return major * 1000 + minor;
 }
 
-// Substitute the live version into the curated label, preserving the family
 // word and any suffix like "(1M context)"; append if there's no version token.
 function withVersion(displayName: string, version: string): string {
   if (!version) return displayName;

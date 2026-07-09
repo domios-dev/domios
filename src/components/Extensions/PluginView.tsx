@@ -49,7 +49,6 @@ export function PluginView({
   cwd?: string | null;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  // Embedded views size to their content (the iframe reports its height via the
   // bridge's __ctResize). Fullscreen views fill their container instead.
   const [contentHeight, setContentHeight] = useState<number | null>(null);
 
@@ -75,7 +74,6 @@ export function PluginView({
       }
       if (m.__ctInvoke != null) {
         try {
-          // Stamp the pane cwd into args that don't carry one, so confined
           // iframes (e.g. Git) never need to know their own path.
           const args =
             cwd && m.args && typeof m.args === "object" && (m.args as { cwd?: unknown }).cwd == null
@@ -139,8 +137,6 @@ export function PluginView({
     );
   }
 
-  // No host chrome: the plugin owns its own header + close (the iframe calls
-  // window.ct.close() → __ctClose). Esc is the universal escape for plugins
   return (
     <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: "var(--ct-bg)" }}>
       {frame}

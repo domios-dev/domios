@@ -1,5 +1,14 @@
 use clap::Subcommand;
 
+mod canvas;
+mod task;
+
+pub use canvas::{
+    PlanDecisionAction, PlanElementAction, PlanHandoffAction, PlanLayoutAction,
+    PlanMilestoneAction, PlanNoteAction, PlanQaAction,
+};
+pub use task::PlanTaskAction;
+
 #[derive(Subcommand)]
 #[allow(
     clippy::large_enum_variant,
@@ -46,7 +55,7 @@ pub enum PlanAction {
     },
     /// Render the whole plan as markdown (goal + sections + tasks); --sections for the tree only
     Get {
-        plan_id: String,
+        plan_id: Option<String>,
         #[arg(long)]
         sections: bool,
     },
@@ -57,7 +66,7 @@ pub enum PlanAction {
     /// Show tag facets, counts, topics, and duplicate warnings
     Tags { plan_id: String },
     /// One read-only state snapshot (counts, coverage, drift, loops, lanes, strides)
-    State { plan_id: String },
+    State { plan_id: Option<String> },
     /// Prioritized, advisory next-action guidance computed from plan state
     Next { plan_id: String },
     /// Show section coverage (% + gaps)
@@ -85,6 +94,29 @@ pub enum PlanAction {
         #[arg(long)]
         apply: bool,
     },
+    /// Adopt an existing plan sidecar directory into this project
+    Adopt {
+        #[arg(value_name = "SOURCE_PLAN_DIR")]
+        source: String,
+        #[arg(long, alias = "to", value_name = "PATH")]
+        project: String,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        overwrite: bool,
+    },
+    /// Move a plan sidecar from another project or data dir into this project
+    Move {
+        plan_id: String,
+        #[arg(long, value_name = "PROJECT_OR_DATA_DIR")]
+        from: String,
+        #[arg(long, value_name = "PATH")]
+        to: String,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        overwrite: bool,
+    },
     /// Plan north-star goal
     Goal {
         #[command(subcommand)]
@@ -96,6 +128,22 @@ pub enum PlanAction {
         id: String,
         #[arg(long, default_value = "1")]
         depth: usize,
+    },
+    /// Search synced plan/spec/task/stride history for this project
+    Search {
+        query: String,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long, default_value = "10")]
+        limit: usize,
+        #[arg(long, conflicts_with_all = ["archived", "all"])]
+        active: bool,
+        #[arg(long, conflicts_with_all = ["active", "all"])]
+        archived: bool,
+        #[arg(long, conflicts_with_all = ["active", "archived"])]
+        all: bool,
     },
     /// Rebuild the project-local plan recall index
     Reindex {
@@ -135,13 +183,56 @@ pub enum PlanAction {
         spec_file: Option<String>,
         #[arg(long)]
         status: Option<String>,
+        #[arg(long)]
+        mode: Option<String>,
+        /// Set attached Planner: <pane_id> to bind, or "none" to waive (requires --note).
+        #[arg(long)]
+        planner: Option<String>,
+        /// Waiver note (required when --planner none).
+        #[arg(long, allow_hyphen_values = true)]
+        note: Option<String>,
     },
+    /// Mark the plan approved for task generation
+    Approve { plan_id: String },
+    /// Return an approved/execution plan to planning mode
+    Unapprove { plan_id: String },
+    /// Advance planner-owned planning state: drafting | structure_ready | approved
+    PlanningState {
+        plan_id: String,
+        #[arg(long)]
+        set: String,
+        /// Planner pane id advancing the state (records author as planner; omit = user).
+        #[arg(long)]
+        pane: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        note: Option<String>,
+    },
+    /// Set explicit effort mode: planning | approved | execution | complete
+    Mode {
+        plan_id: String,
+        #[arg(long)]
+        set: String,
+    },
+    /// Park the whole effort without changing task state or executor bindings
+    #[command(visible_alias = "park")]
+    Pause {
+        plan_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        reason: String,
+    },
+    /// Resume a paused effort, restoring its previous mode
+    Resume { plan_id: String },
     /// Archive a plan
     Archive { plan_id: String },
     /// Restore an archived plan to active
     Unarchive { plan_id: String },
     /// Delete a plan
-    Delete { plan_id: String },
+    Delete {
+        plan_id: String,
+        /// Confirm permanent deletion.
+        #[arg(long, alias = "confirm")]
+        yes: bool,
+    },
     /// Transfer plan ownership
     Transfer {
         plan_id: String,
@@ -156,8 +247,10 @@ pub enum PlanAction {
     Claim { plan_id: String },
     /// Record task progress with one atomic plan write
     Record {
-        plan_id: String,
-        #[arg(long)]
+        /// Plan id (if available from pane binding or env)
+        #[arg(env = "CODETERM_PLAN_ID")]
+        plan_id: Option<String>,
+        #[arg(long, env = "CODETERM_TASK_ID")]
         task: Option<String>,
         #[arg(long)]
         upsert_task: Option<String>,
@@ -178,6 +271,14 @@ pub enum PlanAction {
         links: Vec<String>,
         #[arg(long)]
         key: Option<String>,
+    },
+    /// Write the plan completion retrospective (plan-level stride, kind retrospective)
+    Retrospective {
+        plan_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        body: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        body_file: Option<String>,
     },
     /// Ingest markdown headings as plan sections
     Ingest {
@@ -215,6 +316,11 @@ pub enum PlanAction {
         #[command(subcommand)]
         action: PlanMilestoneAction,
     },
+    /// Serialized QA queue for in_review tasks
+    Qa {
+        #[command(subcommand)]
+        action: PlanQaAction,
+    },
     /// Canvas layout overrides
     Layout {
         #[command(subcommand)]
@@ -229,6 +335,60 @@ pub enum PlanAction {
     Element {
         #[command(subcommand)]
         action: PlanElementAction,
+    },
+    /// Decision gates — structured blocking questions routed to the planner
+    Decision {
+        #[command(subcommand)]
+        action: PlanDecisionAction,
+    },
+    /// Plan-scoped reusable skills (folder-on-disk, ledgered, mem-indexed)
+    Skill {
+        #[command(subcommand)]
+        action: PlanSkillAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PlanSkillAction {
+    /// Create a new plan skill folder (SKILL.md + scripts/)
+    New {
+        slug: String,
+        /// Plan id (omit to use $CODETERM_PLAN_ID or the single active plan)
+        #[arg(long)]
+        plan: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        title: Option<String>,
+        #[arg(long)]
+        area: Option<String>,
+        /// Optional verification command persisted in SKILL.md frontmatter
+        #[arg(long, allow_hyphen_values = true)]
+        check: Option<String>,
+        /// One-line ledger rationale (default: "created")
+        #[arg(long, allow_hyphen_values = true)]
+        rationale: Option<String>,
+    },
+    /// List plan skills with their latest ledger verdict
+    List {
+        #[arg(long)]
+        plan: Option<String>,
+    },
+    /// Print a plan skill's SKILL.md and ledger history
+    Show {
+        slug: String,
+        #[arg(long)]
+        plan: Option<String>,
+    },
+    /// Record a keep|discard|superseded ledger entry; --body-file replaces SKILL.md
+    Edit {
+        slug: String,
+        #[arg(long)]
+        plan: Option<String>,
+        #[arg(long, default_value = "keep")]
+        verdict: String,
+        #[arg(long, allow_hyphen_values = true)]
+        rationale: String,
+        #[arg(long, value_name = "PATH")]
+        body_file: Option<String>,
     },
 }
 
@@ -293,6 +453,13 @@ pub enum PlanSectionAction {
     },
     /// Show one plan section's title, body, tags, and subsections
     Show { plan_id: String, section_id: String },
+    /// Attach a file to a plan section
+    Attach {
+        plan_id: String,
+        section_id: String,
+        #[arg(value_name = "PATH")]
+        file: String,
+    },
     /// Remove a plan section and its subsections
     Rm { plan_id: String, section_id: String },
 }
@@ -351,325 +518,14 @@ pub enum PlanLoopAction {
     Status { loop_id: String },
     /// Stop a loop (marks it complete)
     Stop { loop_id: String },
-    /// Advance a loop one iteration, recording whether it made progress
-    Advance {
+    /// Record one loop iteration and leave a stride
+    Record {
         loop_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        note: String,
         #[arg(long, action = clap::ArgAction::Set, default_value_t = false)]
-        progress: bool,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum PlanTaskAction {
-    /// List a plan's tasks, optionally filtered by status
-    List {
-        plan_id: String,
-        #[arg(
-            long,
-            help = "Task status: pending | in_progress | in_review | blocked | done | cancelled"
-        )]
-        status: Option<String>,
-    },
-    /// Add a task to a plan (carries model/why routing + quality fields)
-    Add {
-        plan_id: String,
-        #[arg(long, allow_hyphen_values = true)]
-        name: String,
-        #[arg(long = "type", allow_hyphen_values = true)]
-        kind: Option<String>,
-        #[arg(long)]
-        sections: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        model: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        why: Option<String>,
-        #[arg(long, value_name = "PATH")]
-        why_file: Option<String>,
-        #[arg(long = "criterion", allow_hyphen_values = true)]
-        criterion: Vec<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        test_plan: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        correctness: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        body: Option<String>,
-        #[arg(long, value_name = "PATH")]
-        body_file: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        intent: Option<String>,
-        #[arg(long, value_name = "PATH")]
-        intent_file: Option<String>,
-        #[arg(long)]
-        parent: Option<String>,
-        #[arg(long)]
-        assign_pane: Option<String>,
-        #[arg(long)]
-        workspace_id: Option<String>,
-        #[arg(long)]
-        workspace_name: Option<String>,
-        #[arg(long)]
-        worktree: Option<String>,
-        #[arg(long)]
-        branch: Option<String>,
-        #[arg(long)]
-        base: Option<String>,
-        #[arg(long)]
-        destination: Option<String>,
-        #[arg(long)]
-        cleanup_status: Option<String>,
-        #[arg(long = "cleanup-hint", allow_hyphen_values = true)]
-        cleanup_hints: Vec<String>,
-        #[arg(long)]
-        group: Option<String>,
-        #[arg(long)]
-        priority: Option<String>,
-        #[arg(long = "tag")]
-        tags: Vec<String>,
-        #[arg(long)]
-        primary: Option<String>,
-        #[arg(long)]
-        handle: Option<String>,
-        #[arg(long)]
-        loop_from: Option<String>,
-    },
-    /// Update task metadata, status, quality fields, or lane assignment
-    Update {
-        plan_id: String,
-        task_id: String,
-        #[arg(long, allow_hyphen_values = true)]
-        name: Option<String>,
-        #[arg(long = "type", allow_hyphen_values = true)]
-        kind: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        model: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        why: Option<String>,
-        #[arg(long, value_name = "PATH")]
-        why_file: Option<String>,
-        #[arg(
-            long,
-            help = "Task status: pending | in_progress | in_review | blocked | done | cancelled"
-        )]
-        status: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        status_label: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        body: Option<String>,
-        #[arg(long, value_name = "PATH")]
-        body_file: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        intent: Option<String>,
-        #[arg(long, value_name = "PATH")]
-        intent_file: Option<String>,
-        #[arg(long)]
-        sections: Option<String>,
-        #[arg(long = "criterion", allow_hyphen_values = true)]
-        criterion: Vec<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        test_plan: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        correctness: Option<String>,
-        #[arg(long)]
-        parent: Option<String>,
-        #[arg(long)]
-        pane: Option<String>,
-        #[arg(long)]
-        workspace_id: Option<String>,
-        #[arg(long)]
-        workspace_name: Option<String>,
-        #[arg(long)]
-        worktree: Option<String>,
-        #[arg(long)]
-        branch: Option<String>,
-        #[arg(long)]
-        base: Option<String>,
-        #[arg(long)]
-        destination: Option<String>,
-        #[arg(long)]
-        cleanup_status: Option<String>,
-        #[arg(long = "cleanup-hint", allow_hyphen_values = true)]
-        cleanup_hints: Vec<String>,
-        #[arg(long)]
-        group: Option<String>,
-        #[arg(long)]
-        priority: Option<String>,
-        #[arg(long = "tag")]
-        tags: Vec<String>,
-        #[arg(long)]
-        primary: Option<String>,
-        #[arg(long)]
-        handle: Option<String>,
-    },
-    /// Replace facet/topic tags and regenerate the task handle
-    Retag {
-        plan_id: String,
-        task_id: String,
-        #[arg(long = "tag")]
-        tags: Vec<String>,
-        #[arg(long)]
-        primary: Option<String>,
-    },
-    /// Close a task (records a result; rejects if subtasks are open)
-    Close {
-        plan_id: String,
-        task_id: String,
-        #[arg(long, allow_hyphen_values = true)]
-        result: Option<String>,
-        #[arg(long, value_name = "PATH")]
-        result_file: Option<String>,
-        #[arg(long)]
-        mesh: Option<String>,
-    },
-    /// Assign a task to a pane (exports CODETERM_TASK_ID to that pane)
-    Assign {
-        plan_id: String,
-        task_id: String,
-        #[arg(long)]
-        pane: String,
-        #[arg(long, alias = "peer")]
-        mesh: Option<String>,
-    },
-    /// Link a task to one or more plan sections (CSV)
-    Link {
-        plan_id: String,
-        task_id: String,
-        #[arg(long)]
-        sections: String,
-    },
-    /// Preview or apply automatic section links for unlinked tasks (--apply)
-    Relink {
-        plan_id: String,
-        #[arg(long)]
-        apply: bool,
-    },
-    /// Remove a task from the plan
-    Rm { plan_id: String, task_id: String },
-}
-
-#[derive(Subcommand)]
-pub enum PlanMilestoneAction {
-    /// Add a milestone (stride) to a task; --add-kind declares a new kind inline
-    Add {
-        plan_id: String,
-        task_id: String,
-        #[arg(long)]
-        kind: String,
-        #[arg(long)]
-        add_kind: bool,
-        #[arg(long, allow_hyphen_values = true)]
-        text: Option<String>,
-        #[arg(long, value_name = "PATH")]
-        text_file: Option<String>,
-        #[arg(long)]
-        from: Option<String>,
-    },
-    /// Update a milestone's kind or text
-    Update {
-        plan_id: String,
-        task_id: String,
-        milestone_id: String,
-        #[arg(long)]
-        kind: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        text: Option<String>,
-        #[arg(long, value_name = "PATH")]
-        text_file: Option<String>,
-    },
-    /// Remove a milestone from a task
-    Rm {
-        plan_id: String,
-        task_id: String,
-        milestone_id: String,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum PlanLayoutAction {
-    /// Set a canvas element's x/y layout override
-    Set {
-        plan_id: String,
-        #[arg(long)]
-        element: String,
-        #[arg(long)]
-        x: Option<f64>,
-        #[arg(long)]
-        y: Option<f64>,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum PlanNoteAction {
-    /// Add a free-form canvas note, optionally linked to a task or section
-    Add {
-        plan_id: String,
-        #[arg(long, allow_hyphen_values = true)]
-        text: Option<String>,
-        #[arg(long, value_name = "PATH")]
-        text_file: Option<String>,
-        #[arg(long)]
-        link_task: Option<String>,
-        #[arg(long)]
-        link_section: Option<String>,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum PlanElementAction {
-    /// List generic canvas elements
-    List {
-        plan_id: String,
-        #[arg(long)]
-        kind: Option<String>,
-    },
-    /// Show one generic canvas element
-    Show { plan_id: String, element_id: String },
-    /// Add a generic canvas element of an arbitrary kind, optionally linked
-    Add {
-        plan_id: String,
-        #[arg(long)]
-        kind: String,
-        #[arg(long, allow_hyphen_values = true)]
-        content: Option<String>,
-        #[arg(long, value_name = "PATH")]
-        content_file: Option<String>,
-        #[arg(long)]
-        link: Option<String>,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum PlanHandoffAction {
-    /// Create a durable, goal-anchored handoff attached to the plan
-    Create {
-        plan_id: String,
-        #[arg(long, default_value = "record")]
-        mode: String,
-        #[arg(long)]
+        stop: bool,
+        #[arg(long, hide = true, env = "CODETERM_TASK_ID")]
         task: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        goal: Option<String>,
-        #[arg(long = "next", allow_hyphen_values = true)]
-        next_actions: Vec<String>,
-        #[arg(long = "rule", allow_hyphen_values = true)]
-        foundational_rules: Vec<String>,
-        #[arg(long = "decision", allow_hyphen_values = true)]
-        open_decisions: Vec<String>,
-        #[arg(long, value_name = "PATH")]
-        from_file: Option<String>,
-        #[arg(long)]
-        stdin: bool,
     },
-    /// Show a handoff (--latest or --seq N), optionally as markdown
-    Show {
-        plan_id: String,
-        selector: Option<String>,
-        #[arg(long)]
-        seq: Option<String>,
-        #[arg(long)]
-        latest: bool,
-        #[arg(long)]
-        markdown: bool,
-    },
-    /// List the handoffs attached to a plan
-    List { plan_id: String },
 }

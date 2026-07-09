@@ -54,7 +54,6 @@ export function usePlanDrift(api: ApiConfig | undefined, planIds: string[]): Map
   );
 
   useEffect(() => {
-    // Drift is a non-critical badge — defer the initial fetch to idle so it never
     // competes with first paint / the load-time layout passes.
     const w = window as unknown as {
       requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;

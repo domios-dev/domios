@@ -5,7 +5,7 @@ use super::{PlanError, PlanStore};
 use crate::plan::{EffortLink, EffortLinkRel, PlanStatus, Section, Spec, SpecLink};
 
 fn gen_id(prefix: &str) -> String {
-    format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
+    crate::plan::ids::short_id(prefix)
 }
 
 impl PlanStore {
@@ -48,6 +48,7 @@ impl PlanStore {
                         body: String::new(),
                         subsections: mirrored_subsections,
                         canvas: Default::default(),
+                        attachments: vec![],
                     }
                 })
                 .collect()
@@ -71,6 +72,9 @@ impl PlanStore {
                 .display()
                 .to_string();
         let mut spec = Spec::new(title, project_path);
+        if self.id_taken(&spec.id) {
+            spec.id = self.mint_id("sp");
+        }
         self.save_spec(&mut spec, now_ms)
             .map_err(|e| PlanError::Io(e.to_string()))?;
         Ok(spec)
@@ -107,6 +111,9 @@ impl PlanStore {
         let mut guard = arc.lock();
         let out = f(&mut guard)?;
         guard.updated_at = now_ms;
+        if guard.canonical_project_path.trim().is_empty() {
+            guard.canonical_project_path = guard.project_path.clone();
+        }
         super::tag_model::normalize_sections_for_spec(&mut guard.sections);
         let path = Self::write_spec_atomic(&guard).map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_spec_write(&guard, &path);
@@ -129,7 +136,7 @@ impl PlanStore {
         handle: Option<&str>,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        let sid = gen_id("sec");
+        let sid = self.mint_id("sec");
         let mut section_tags = tags.to_vec();
         super::tag_model::apply_tags(&mut section_tags, &[], primary);
         let section = Section {
@@ -140,6 +147,7 @@ impl PlanStore {
             body: body.into(),
             subsections: vec![],
             canvas: Default::default(),
+            attachments: vec![],
         };
         self.with_spec(spec_id, now_ms, |spec| match parent {
             None => {
@@ -322,7 +330,7 @@ mod tests {
             .join("sections")
             .join("login.md");
         assert!(json_path.exists());
-        assert_eq!(std::fs::read_to_string(&body_path).unwrap(), "body text");
+        assert_eq!(std::fs::read_to_string(&body_path).unwrap(), "body text\n");
         assert!(!std::fs::read_to_string(&json_path)
             .unwrap()
             .contains("body text"));
@@ -331,7 +339,7 @@ mod tests {
         reloaded.scan_project(&root).unwrap();
         let spec = reloaded.get_spec(&spec.id).unwrap();
         assert_eq!(spec.sections[0].id, sid);
-        assert_eq!(spec.sections[0].body, "body text");
+        assert_eq!(spec.sections[0].body, "body text\n");
     }
 
     #[test]
@@ -357,6 +365,7 @@ mod tests {
                     name: "Do it".into(),
                     kind: "implement".into(),
                     section_ids: vec![plan_sec.clone()],
+                    competition: None,
                     ..Default::default()
                 },
                 14,
@@ -371,6 +380,7 @@ mod tests {
                 None,
                 None,
                 Some("done"),
+                None,
                 None,
                 None,
                 None,

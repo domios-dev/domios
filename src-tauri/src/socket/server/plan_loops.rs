@@ -42,7 +42,9 @@ fn emit_loop_plan_changed(app: &AppHandle, svc: &ServiceState, lid: &str) {
 }
 
 pub(super) fn handles(method: &str) -> bool {
-    method.starts_with("plan.loop.") || method.starts_with("plan.milestone.")
+    method.starts_with("plan.loop.")
+        || method.starts_with("plan.milestone.")
+        || method.starts_with("plan.stride.")
 }
 
 pub(super) fn dispatch(
@@ -57,8 +59,7 @@ pub(super) fn dispatch(
 
     match method {
         "plan.milestone.add" => {
-            let id = get_string_param(params, "plan_id")?;
-            let tid = get_string_param(params, "task_id")?;
+            let (id, tid) = super::plan_refs::resolve_task(store, params)?;
             let kind = get_string_param(params, "kind")?;
             let text = p
                 .and_then(|x| x.get("text"))
@@ -80,9 +81,7 @@ pub(super) fn dispatch(
         }
 
         "plan.milestone.update" => {
-            let id = get_string_param(params, "plan_id")?;
-            let tid = get_string_param(params, "task_id")?;
-            let ms_id = get_string_param(params, "milestone_id")?;
+            let (id, tid, ms_id) = super::plan_refs::resolve_milestone(store, params)?;
             store
                 .update_milestone(
                     &id,
@@ -94,36 +93,47 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "milestone_id": ms_id }))
         }
 
         "plan.milestone.rm" => {
-            let id = get_string_param(params, "plan_id")?;
-            let tid = get_string_param(params, "task_id")?;
-            let ms_id = get_string_param(params, "milestone_id")?;
+            let (id, tid, ms_id) = super::plan_refs::resolve_milestone(store, params)?;
             store
                 .rm_milestone(&id, &tid, &ms_id, now)
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "milestone_id": ms_id }))
+        }
+
+        "plan.stride.add" => {
+            let id = super::plan_refs::resolve_plan(store, params)?;
+            let kind = get_string_param(params, "kind")?;
+            let text = p
+                .and_then(|x| x.get("text"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let from = p
+                .and_then(|x| x.get("from"))
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_else(|| AgentRef::from_pane("unknown"));
+            let mid = store
+                .add_plan_stride(&id, &kind, text, from, now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "stride_id": mid }))
         }
 
         "plan.loop.create" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = super::plan_refs::resolve_plan(store, params)?;
             let target = get_string_param(params, "target")?;
             let budget = p
                 .and_then(|x| x.get("budget"))
                 .and_then(|v| v.as_u64())
                 .unwrap_or(1) as u32;
-            let stages = p
-                .and_then(|x| x.get("stages"))
-                .and_then(|v| serde_json::from_value(v.clone()).ok())
-                .unwrap_or_default();
             let lid = store
                 .create_loop(
                     &id,
                     &target,
-                    stages,
                     budget,
                     p.and_then(|x| x.get("stop_when")).and_then(|v| v.as_str()),
                     now,
@@ -134,7 +144,7 @@ pub(super) fn dispatch(
         }
 
         "plan.loop.set" => {
-            let lid = get_string_param(params, "loop_id")?;
+            let lid = super::plan_refs::resolve_loop(store, params)?;
             store
                 .set_loop(
                     &lid,
@@ -146,35 +156,40 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_loop_plan_changed(app, svc, &lid);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "loop_id": lid }))
         }
 
         "plan.loop.status" => {
-            let lid = get_string_param(params, "loop_id")?;
+            let lid = super::plan_refs::resolve_loop(store, params)?;
             let spec = store
                 .loop_status(&lid)
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
             Ok(serde_json::to_value(spec).unwrap_or_default())
         }
 
-        "plan.loop.advance" => {
-            let lid = get_string_param(params, "loop_id")?;
-            let made_progress = p
-                .and_then(|x| x.get("made_progress"))
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let spec = store
-                .advance_loop(&lid, made_progress, now)
+        "plan.loop.record" => {
+            let lid = super::plan_refs::resolve_loop(store, params)?;
+            let note = get_string_param(params, "note")?;
+            let result = store
+                .record_loop(
+                    &lid,
+                    &note,
+                    p.and_then(|x| x.get("stop"))
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    p.and_then(|x| x.get("task_id")).and_then(|v| v.as_str()),
+                    now,
+                )
                 .map_err(plan_rpc_err)?;
             emit_loop_plan_changed(app, svc, &lid);
-            Ok(serde_json::to_value(spec).unwrap_or_default())
+            Ok(serde_json::to_value(result).unwrap_or_default())
         }
 
         "plan.loop.stop" => {
-            let lid = get_string_param(params, "loop_id")?;
+            let lid = super::plan_refs::resolve_loop(store, params)?;
             store.stop_loop(&lid, now).map_err(plan_rpc_err)?;
             emit_loop_plan_changed(app, svc, &lid);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "loop_id": lid }))
         }
 
         _ => Err(JsonRpcError {

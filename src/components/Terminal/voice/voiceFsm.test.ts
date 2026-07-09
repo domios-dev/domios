@@ -17,7 +17,6 @@ function assertEqual<T>(actual: T, expected: T, label: string) {
   if (actual !== expected) throw new Error(`FAIL: ${label} — got ${String(actual)}, want ${String(expected)}`);
 }
 
-// Helper: apply a sequence of actions
 function apply(actions: VoiceAction[]): VoiceState {
   return actions.reduce((s, a) => voiceReducer(s, a), initVoiceState());
 }
@@ -29,7 +28,6 @@ const BASE = { x: 100, y: 300 };
 
 assert(isDragUpGesture(100, 300, 100, 300 - DRAG_UP_PX - 1), "drag up over threshold detected");
 assert(!isDragUpGesture(100, 300, 100, 300 - DRAG_UP_PX), "drag up at threshold not triggered (strict >)");
-// up=49 > 48, but left=60 > up → drag-up condition fails
 assert(!isDragUpGesture(100, 300, 40, 300 - 49), "drag-left dominates → not drag-up");
 assert(isCancelGesture(100, 100 - DRAG_LEFT_PX - 1, false), "drag left over threshold is cancel");
 assert(!isCancelGesture(100, 100 - DRAG_LEFT_PX, false), "drag left at threshold not cancel (strict >)");
@@ -65,9 +63,6 @@ assert(isCancelGesture(100, 100, true), "overCancelZone flag forces cancel");
 // ---------- THE BUG: drag-up-lock-then-release must STAY locked ----------
 
 {
-  // Case A: drag-up happens WHILE IN HOLD, then pointer releases
-  // Old bug: voiceModeRef was render-stale so POINTER_UP saw "hold" → finished instead of staying locked.
-  // New FSM: stateRef is synchronous, so POINTER_UP sees "locked" → no-op.
   const dragY = BASE.y - (DRAG_UP_PX + 12); // 60px up, well above threshold
 
   const sMoved = apply([
@@ -84,7 +79,6 @@ assert(isCancelGesture(100, 100, true), "overCancelZone flag forces cancel");
 }
 
 {
-  // Case B: drag-up happens DURING WARMUP (before START_OK), then release before start
   const dragY = BASE.y - (DRAG_UP_PX + 12);
 
   const s = apply([
@@ -97,7 +91,6 @@ assert(isCancelGesture(100, 100, true), "overCancelZone flag forces cancel");
 }
 
 {
-  // Case C: drag-up happens DURING WARMUP, pointer still held when START_OK arrives
   const dragY = BASE.y - (DRAG_UP_PX + 12);
 
   const s = apply([
@@ -135,7 +128,6 @@ assert(isCancelGesture(100, 100, true), "overCancelZone flag forces cancel");
   assertEqual(sMoved.phase, "hold", "drag left stays in hold");
   assert(sMoved.cancelArmed, "cancelArmed set on drag left");
 
-  // POINTER_UP in hold with cancelArmed — reducer marks busy; caller fires cancel
   const sUp = voiceReducer(sMoved, { type: "POINTER_UP", pointerId: PID });
   assertEqual(sUp.phase, "hold", "POINTER_UP in hold → still hold (caller decides cancel/finish)");
   assert(sUp.busy, "busy=true signals caller to act");
@@ -159,7 +151,6 @@ assert(isCancelGesture(100, 100, true), "overCancelZone flag forces cancel");
   const sUp = apply([
     { type: "POINTER_DOWN", pointerId: PID, ...BASE },
     { type: "START_OK" },
-    // slight move that doesn't hit any threshold
     { type: "POINTER_MOVE", pointerId: PID, x: BASE.x - 5, y: BASE.y - 5, overCancelZone: false },
     { type: "POINTER_UP", pointerId: PID },
   ]);

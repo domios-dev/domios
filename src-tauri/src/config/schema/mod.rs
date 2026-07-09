@@ -32,6 +32,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub orchestration: OrchestrationConfig,
     #[serde(default)]
+    pub usage: UsageConfig,
+    #[serde(default)]
     pub integrations: IntegrationsConfig,
     #[serde(default)]
     pub mesh: MeshConfig,
@@ -39,6 +41,8 @@ pub struct AppConfig {
     pub updater: UpdaterConfig,
     #[serde(default)]
     pub ui: UiConfig,
+    #[serde(default)]
+    pub runaway: RunawayConfig,
 }
 
 impl Default for AppConfig {
@@ -57,10 +61,12 @@ impl Default for AppConfig {
             general_agent: GeneralAgentConfig::default(),
             memory: MemoryConfig::default(),
             orchestration: OrchestrationConfig::default(),
+            usage: UsageConfig::default(),
             integrations: IntegrationsConfig::default(),
             mesh: MeshConfig::default(),
             updater: UpdaterConfig::default(),
             ui: UiConfig::default(),
+            runaway: RunawayConfig::default(),
         }
     }
 }
@@ -109,8 +115,6 @@ impl Default for ApiConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            // 0.0.0.0 by default because mesh peers connect directly to this
-            // host's Tailscale/LAN IP (transport.rs builds http://<ip>:<port>) —
             host: "0.0.0.0".to_string(),
             #[cfg(debug_assertions)]
             port: std::env::var("CODETERM_API_PORT")
@@ -153,7 +157,6 @@ pub struct ThemeConfig {
 
 impl Default for ThemeConfig {
     fn default() -> Self {
-        // GitHub Dark as default
         Self {
             name: "github-dark".to_string(),
             background: "#0d1117".to_string(),
@@ -324,6 +327,13 @@ pub struct GeneralAgentConfig {
     pub auto_restart: bool,
     pub max_restart_attempts: u32,
     pub restart_delay_s: u32,
+    /// False until the user confirms a provider on the first-run picker.
+    #[serde(default = "default_first_run_complete_for_deserialize")]
+    pub first_run_complete: bool,
+}
+
+fn default_first_run_complete_for_deserialize() -> bool {
+    true
 }
 
 impl Default for GeneralAgentConfig {
@@ -334,6 +344,7 @@ impl Default for GeneralAgentConfig {
             auto_restart: true,
             max_restart_attempts: 5,
             restart_delay_s: 5,
+            first_run_complete: false,
         }
     }
 }
@@ -371,6 +382,10 @@ fn default_file_sync_interval() -> u64 {
 pub struct OrchestrationConfig {
     pub plan_reminders: bool,
     pub nudge_after_turns: u32,
+    pub nudge_interval_secs: u64,
+    pub idle_poke: IdlePokeConfig,
+    pub reflect: ReflectConfig,
+    pub digests: OrchestrationDigestsConfig,
 }
 
 impl Default for OrchestrationConfig {
@@ -378,6 +393,181 @@ impl Default for OrchestrationConfig {
         Self {
             plan_reminders: true,
             nudge_after_turns: 12,
+            nudge_interval_secs: 1800,
+            idle_poke: IdlePokeConfig::default(),
+            reflect: ReflectConfig::default(),
+            digests: OrchestrationDigestsConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DigestCondition {
+    #[default]
+    InReviewGt,
+    InProgressPressure,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DigestRuleConfig {
+    pub id: String,
+    pub enabled: bool,
+    pub condition: DigestCondition,
+    pub threshold: u32,
+    pub stalled_threshold: u32,
+    pub rate_limit_secs: u64,
+    pub template: String,
+}
+
+impl Default for DigestRuleConfig {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            enabled: false,
+            condition: DigestCondition::InReviewGt,
+            threshold: 3,
+            stalled_threshold: 1,
+            rate_limit_secs: 3600,
+            template: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OrchestrationDigestsConfig {
+    pub enabled: bool,
+    pub rules: Vec<DigestRuleConfig>,
+}
+
+fn default_in_review_digest_template() -> String {
+    "{count} reports await your verdict, oldest {oldest_h}h — judge with `codeterm plan task close {plan_id} <task_id>` or route to QA with `codeterm plan qa queue {plan_id} --task <task_id>`".into()
+}
+
+fn default_in_progress_digest_template() -> String {
+    "{in_progress} lanes in flight ({stalled} stalled) — run `codeterm plan in-progress {plan_id}` then `codeterm plan reconcile {plan_id}`".into()
+}
+
+pub fn default_digest_rules() -> Vec<DigestRuleConfig> {
+    vec![
+        DigestRuleConfig {
+            id: "in_review_pressure".into(),
+            enabled: true,
+            condition: DigestCondition::InReviewGt,
+            threshold: 3,
+            stalled_threshold: 0,
+            rate_limit_secs: 3600,
+            template: default_in_review_digest_template(),
+        },
+        DigestRuleConfig {
+            id: "in_progress_pressure".into(),
+            enabled: true,
+            condition: DigestCondition::InProgressPressure,
+            threshold: 8,
+            stalled_threshold: 1,
+            rate_limit_secs: 3600,
+            template: default_in_progress_digest_template(),
+        },
+    ]
+}
+
+impl Default for OrchestrationDigestsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            rules: default_digest_rules(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UsageConfig {
+    pub enabled: bool,
+    pub heartbeat: bool,
+    pub freshness_secs: u64,
+    pub high_pct_threshold: f32,
+    pub standalone_cadence_secs: u64,
+}
+
+impl Default for UsageConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            heartbeat: true,
+            freshness_secs: 180,
+            high_pct_threshold: 80.0,
+            standalone_cadence_secs: 0,
+        }
+    }
+}
+
+fn default_reflect_every_gates() -> u32 {
+    crate::service::plan::reflection::DEFAULT_REFLECT_EVERY_GATES
+}
+
+/// Cadence for the orchestrator reflection loop. Section `[orchestration.reflect]`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ReflectConfig {
+    /// Emit a self-review block every N gate/bounce events. 0 disables the cadence trigger.
+    #[serde(default = "default_reflect_every_gates")]
+    pub every_gates: u32,
+}
+
+impl Default for ReflectConfig {
+    fn default() -> Self {
+        Self {
+            every_gates: default_reflect_every_gates(),
+        }
+    }
+}
+
+fn default_idle_poke_enabled() -> bool {
+    true
+}
+
+fn default_idle_poke_threshold_secs() -> u64 {
+    150
+}
+
+fn default_idle_poke_live_lane_cap() -> u32 {
+    3
+}
+
+fn default_idle_poke_max_per_day() -> u32 {
+    4
+}
+
+fn default_idle_poke_backoff_base_secs() -> u64 {
+    90
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IdlePokeConfig {
+    #[serde(default = "default_idle_poke_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_idle_poke_threshold_secs")]
+    pub idle_threshold_secs: u64,
+    #[serde(default = "default_idle_poke_live_lane_cap")]
+    pub live_lane_cap: u32,
+    #[serde(default = "default_idle_poke_max_per_day")]
+    pub max_per_day: u32,
+    #[serde(default = "default_idle_poke_backoff_base_secs")]
+    pub backoff_base_secs: u64,
+}
+
+impl Default for IdlePokeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_idle_poke_enabled(),
+            idle_threshold_secs: default_idle_poke_threshold_secs(),
+            live_lane_cap: default_idle_poke_live_lane_cap(),
+            max_per_day: default_idle_poke_max_per_day(),
+            backoff_base_secs: default_idle_poke_backoff_base_secs(),
         }
     }
 }
@@ -708,110 +898,38 @@ impl Default for MeshConfig {
     }
 }
 
-/// Built-in theme definitions loaded at compile time.
-pub struct BuiltinTheme {
-    pub id: &'static str,
-    pub toml_str: &'static str,
+fn default_runaway_enabled() -> bool {
+    true
 }
 
-pub const BUILTIN_THEMES: &[BuiltinTheme] = &[
-    BuiltinTheme {
-        id: "github-dark",
-        toml_str: include_str!("../../../themes/github-dark.toml"),
-    },
-    BuiltinTheme {
-        id: "dracula",
-        toml_str: include_str!("../../../themes/dracula.toml"),
-    },
-    BuiltinTheme {
-        id: "catppuccin-mocha",
-        toml_str: include_str!("../../../themes/catppuccin-mocha.toml"),
-    },
-    BuiltinTheme {
-        id: "one-dark",
-        toml_str: include_str!("../../../themes/one-dark.toml"),
-    },
-    BuiltinTheme {
-        id: "nord",
-        toml_str: include_str!("../../../themes/nord.toml"),
-    },
-    BuiltinTheme {
-        id: "github-light",
-        toml_str: include_str!("../../../themes/github-light.toml"),
-    },
-    BuiltinTheme {
-        id: "solarized-light",
-        toml_str: include_str!("../../../themes/solarized-light.toml"),
-    },
-    BuiltinTheme {
-        id: "pip-boy",
-        toml_str: include_str!("../../../themes/pip-boy.toml"),
-    },
-];
-
-/// Parse a built-in theme TOML string into a ThemeConfig.
-pub fn parse_builtin_theme(toml_str: &str) -> Result<ThemeConfig, String> {
-    toml::from_str(toml_str).map_err(|e| format!("Failed to parse theme: {}", e))
+fn default_test_binary_max_secs() -> u64 {
+    900
 }
 
-/// Get a built-in theme by name. Returns None if not found.
-pub fn get_builtin_theme(name: &str) -> Option<ThemeConfig> {
-    BUILTIN_THEMES
-        .iter()
-        .find(|t| t.id == name)
-        .and_then(|t| parse_builtin_theme(t.toml_str).ok())
+/// Config for the daemon runaway-test-binary sweeper.
+/// Section `[runaway]` in config.toml.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RunawayConfig {
+    /// Enable the background sweeper. Default true.
+    #[serde(default = "default_runaway_enabled")]
+    pub enabled: bool,
+    /// Kill test binaries (*/target/*/deps/*) that have been alive longer than this.
+    #[serde(default = "default_test_binary_max_secs")]
+    pub test_binary_max_secs: u64,
 }
 
-/// List all available built-in theme IDs.
-pub fn list_builtin_theme_ids() -> Vec<String> {
-    BUILTIN_THEMES.iter().map(|t| t.id.to_string()).collect()
-}
-
-/// Directory for user custom themes.
-pub fn user_themes_dir() -> Option<std::path::PathBuf> {
-    Some(crate::paths::data_dir().join("themes"))
-}
-
-/// Load a custom theme from the user themes directory.
-pub fn get_custom_theme(name: &str) -> Option<ThemeConfig> {
-    let dir = user_themes_dir()?;
-    let path = dir.join(format!("{}.toml", name));
-    if path.exists() {
-        let content = std::fs::read_to_string(&path).ok()?;
-        parse_builtin_theme(&content).ok()
-    } else {
-        None
+impl Default for RunawayConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_runaway_enabled(),
+            test_binary_max_secs: default_test_binary_max_secs(),
+        }
     }
 }
 
-/// List all custom theme IDs from the user themes directory.
-pub fn list_custom_theme_ids() -> Vec<String> {
-    let Some(dir) = user_themes_dir() else {
-        return vec![];
-    };
-    let Ok(entries) = std::fs::read_dir(&dir) else {
-        return vec![];
-    };
-    entries
-        .filter_map(|e| e.ok())
-        .filter_map(|e| {
-            let name = e.file_name().to_string_lossy().to_string();
-            name.strip_suffix(".toml").map(|s| s.to_string())
-        })
-        .collect()
-}
-
-/// Get a theme by name — checks builtins first, then user custom themes.
-pub fn get_any_theme(name: &str) -> Option<ThemeConfig> {
-    get_builtin_theme(name).or_else(|| get_custom_theme(name))
-}
-
-/// List all theme IDs (builtins + custom).
-pub fn list_all_theme_ids() -> Vec<String> {
-    let mut ids = list_builtin_theme_ids();
-    ids.extend(list_custom_theme_ids());
-    ids
-}
+mod theme;
+pub use theme::{get_any_theme, list_all_theme_ids, parse_builtin_theme, user_themes_dir};
 
 #[cfg(test)]
 mod tests;

@@ -26,15 +26,14 @@ fn goal_persists_and_reloads_from_sidecar() {
 
     let goal_path = dir
         .path()
-        .join(format!(".codeterm/plans/{}/goal.md", plan.id));
+        .join(format!(".codeterm/plans/active/{}/goal.md", plan.id));
     let json_path = dir
         .path()
-        .join(".codeterm/plans")
-        .join(format!("{}.json", plan.id));
-    assert_eq!(
-        std::fs::read_to_string(&goal_path).unwrap(),
-        "Long markdown\n\n- detail"
-    );
+        .join(format!(".codeterm/plans/active/{}/plan.json", plan.id));
+    let markdown = std::fs::read_to_string(&goal_path).unwrap();
+    assert!(markdown.contains(&format!("plan_id: {}", plan.id)));
+    assert!(markdown.contains("kind: goal"));
+    assert!(markdown.ends_with("Long markdown\n\n- detail\n"));
     let raw_json = std::fs::read_to_string(&json_path).unwrap();
     assert!(raw_json.contains("\"goal\""));
     assert!(!raw_json.contains("Long markdown"));

@@ -2,19 +2,24 @@
 // match the JSON wire shape (serde snake_case; Task.type via serde rename).
 
 export type PlanStatus = "active" | "archived";
-export type TaskStatus = "pending" | "in_progress" | "in_review" | "blocked" | "done" | "cancelled";
-// Value-level mirror of the TaskStatus union — use these in comparisons/switches
+export type TaskStatus = "pending" | "in_progress" | "in_review" | "blocked" | "parked" | "done" | "cancelled";
 // instead of bare string literals (type + value namespaces merge by design).
 export const TaskStatus = {
   Pending: "pending",
   InProgress: "in_progress",
   InReview: "in_review",
   Blocked: "blocked",
+  Parked: "parked",
   Done: "done",
   Cancelled: "cancelled",
 } as const satisfies Record<string, TaskStatus>;
 export type LoopStatus = "running" | "done" | "exhausted" | "stopped";
-export type DriftKind = "in_progress_pane_gone" | "stale_in_review" | "bound_to_closed_pane" | "accepted_but_not_done";
+export type DriftKind =
+  | "in_progress_pane_gone"
+  | "stale_in_review"
+  | "stale_pending_unstaffed"
+  | "bound_to_closed_pane"
+  | "accepted_but_not_done";
 
 export interface DriftItem {
   task_id: string;
@@ -37,6 +42,13 @@ export interface OrchestratorRef {
   title: string | null;
 }
 export type AgentRef = OrchestratorRef;
+
+export type PlannerRef =
+  | { kind: "pane"; pane_id: string; session_id?: string | null; title?: string | null }
+  | { kind: "waived"; note: string };
+
+export type PlanMode = "planning" | "approved" | "execution" | "paused" | "complete";
+export type PlanningState = "drafting" | "structure_ready" | "approved";
 
 export interface TaskLaneMetadata {
   pane_id?: string | null;
@@ -63,6 +75,12 @@ export interface MilestoneKind {
   color: string | null;
 }
 
+export interface TaskGroup {
+  key: string;
+  label: string;
+  color?: string | null;
+}
+
 export interface TagFacetValue {
   v: string;
   label?: string | null;
@@ -83,6 +101,7 @@ export interface Section {
   tags?: string[];
   subsections: Section[];
   canvas: ElementCanvas;
+  attachments?: PlanAttachment[];
 }
 
 export interface Milestone {
@@ -95,10 +114,52 @@ export interface Milestone {
   loop_id: string | null;
   iteration: number | null;
   canvas: ElementCanvas;
+  attachments?: PlanAttachment[];
+}
+
+export interface PlanAttachment {
+  id: string;
+  name: string;
+  path: string;
+  media_type: string;
+  size_bytes: number;
+  created_at: number;
 }
 
 export type TaskPriority = "p0" | "p1" | "p2" | "p3"; // p0 = highest
 export const TaskPriority = { P0: "p0", P1: "p1", P2: "p2", P3: "p3" } as const satisfies Record<string, TaskPriority>;
+export type ReviewStage = "review" | "qa";
+export type QaState = "queued" | "running";
+
+export interface TaskCompetitionMetadata {
+  enabled?: boolean;
+  attempts?: number | null;
+  models?: string[];
+  judge_hint?: string | null;
+}
+
+export interface TaskExecutionAttempt {
+  id?: string;
+  pane_id: string | null;
+  pane_title?: string | null;
+  agent_type?: string | null;
+  model?: string | null;
+  session_id?: string | null;
+  role?: string | null;
+  branch?: string | null;
+  worktree_path?: string | null;
+  report_status?: string | null;
+  assigned_at?: number;
+  reported_at?: number;
+  closed_at?: number;
+  outcome?: string | null;
+  competition_group_id?: string | null;
+  competition_lane?: number | null;
+  judge_verdict?: string | null;
+  judge_reason?: string | null;
+  judged_at?: number;
+  winner?: boolean;
+}
 
 export interface Task {
   id: string;
@@ -107,6 +168,8 @@ export interface Task {
   model: string | null;
   model_rationale: string | null;
   status: TaskStatus;
+  review_stage?: ReviewStage;
+  qa_state?: QaState | null;
   status_label: string | null;
   priority?: TaskPriority;
   created_at?: number;
@@ -117,6 +180,7 @@ export interface Task {
   group?: string | null;
   section_ids: string[];
   body: string;
+  role_guidance?: string | null;
   acceptance_criteria?: string[];
   test_plan?: string;
   /** Correctness vector — what "done right" means (rendered in the READ detail). */
@@ -129,8 +193,12 @@ export interface Task {
   lane?: TaskLaneMetadata;
   taken_by_role?: string | null;
   peer: string | null;
+  competition?: TaskCompetitionMetadata | null;
+  execution_attempts?: TaskExecutionAttempt[];
+  park_reason?: string | null;
   canvas: ElementCanvas;
   milestones: Milestone[];
+  attachments?: PlanAttachment[];
 }
 
 export interface LoopStage {
@@ -144,11 +212,14 @@ export interface LoopStage {
 export interface LoopSpec {
   id: string;
   target: string;
-  stages: LoopStage[];
+  stages?: LoopStage[];
   budget: number;
   count: number;
   stop_when: string | null;
   status: LoopStatus;
+  stagnation?: number;
+  deviation?: string | null;
+  last_iteration_at?: number | null;
 }
 
 export interface CanvasElement {
@@ -208,11 +279,15 @@ export interface Plan {
   title: string;
   sections: Section[];
   status: PlanStatus;
+  mode?: PlanMode;
+  planning_state?: PlanningState;
   owner: OrchestratorRef;
+  planner?: PlannerRef | null;
   project_path: string;
   created_at: number;
   updated_at: number;
   milestone_kinds: MilestoneKind[];
+  task_groups?: TaskGroup[];
   tag_facets?: TagFacet[];
   loops: LoopSpec[];
   elements: CanvasElement[];
@@ -225,4 +300,29 @@ export interface Plan {
   spec_links?: SpecLink[];
   links?: string[];
   lineage?: EffortLink[];
+  strides?: Milestone[];
+  gates?: DecisionGate[];
+}
+
+export type GateStatus = "open" | "answered" | "escalated";
+
+export interface GateAnswer {
+  text: string;
+  by_pane_id?: string | null;
+  at: number;
+}
+
+/** Structured decision request that parks blocking tasks until answered. */
+export interface DecisionGate {
+  id: string;
+  question: string;
+  context?: string;
+  blocking_task_ids?: string[];
+  routed_to_pane_id?: string | null;
+  asked_by_pane_id?: string | null;
+  asked_at: number;
+  status: GateStatus;
+  answer?: GateAnswer | null;
+  escalated_at?: number | null;
+  escalation_note?: string | null;
 }

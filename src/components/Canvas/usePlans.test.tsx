@@ -73,6 +73,12 @@ function emitPlanChanged(planId: string) {
   }
 }
 
+function emitPlansLoaded() {
+  for (const handler of listenHandlers.get("plans-loaded") ?? []) {
+    handler({ payload: {} });
+  }
+}
+
 async function renderProbe(
   usePlans: (api: ApiConfig) => UsePlansResult,
   onUpdate: (state: UsePlansResult) => void,
@@ -140,6 +146,25 @@ async function main() {
     await act(async () => root.unmount());
   });
 
+  test("usePlans refetches full plans on plans-loaded", async () => {
+    fetchCalls = 0;
+    const holder: { current: UsePlansResult | null } = { current: null };
+    const { root } = await renderProbe(usePlans, (state) => {
+      holder.current = state;
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    const callsAfterLoad = fetchCalls;
+    await act(async () => {
+      emitPlansLoaded();
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    assert(fetchCalls > callsAfterLoad, "plans-loaded refetches full plans");
+    assert(holder.current?.plans[0]?.id === FIXTURE_PLAN.id, "plan still present");
+    await act(async () => root.unmount());
+  });
+
   test("usePlans passes project filter to full fetch", async () => {
     fetchCalls = 0;
     let seenProject: string | null = null;
@@ -167,6 +192,36 @@ async function main() {
     });
     assert(seenProject === "/tmp/project-a", "project query param sent");
     assert(fetchCalls === 1, "one fetch on load");
+    globalThis.fetch = prevFetch;
+    await act(async () => root.unmount());
+  });
+
+  test("usePlans recovers after transient fetch failure", async () => {
+    fetchCalls = 0;
+    let fail = true;
+    const prevFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      fetchCalls++;
+      if (fail) throw new TypeError("Load failed");
+      return prevFetch(input, init);
+    };
+
+    const holder: { current: UsePlansResult | null } = { current: null };
+    const { root } = await renderProbe(usePlans, (state) => {
+      holder.current = state;
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    assert(holder.current?.error?.includes("Reconnecting"), "friendly error on failure");
+    assert(!holder.current?.error?.includes("TypeError"), "no raw TypeError");
+
+    fail = false;
+    await act(async () => {
+      await holder.current!.refetch();
+    });
+    assert(holder.current?.plans.length === 1, "plans loaded after recovery");
+    assert(holder.current?.error === null, "error cleared");
     globalThis.fetch = prevFetch;
     await act(async () => root.unmount());
   });

@@ -8,7 +8,122 @@ use crate::cmd::hints::{
 };
 use crate::cmd::plan_linking::render_relink_report;
 
-use super::{call, lane_params, resolve_text};
+use super::{call, lane_params, maybe_inject_caller_pane, resolve_text};
+
+/// Parent-free addressing: with one positional the ref is the task and the plan is inferred
+/// daemon-side; with two, the first is the plan ref and the second the task ref.
+fn split_task_ref(first: Option<String>, second: Option<String>) -> (Option<String>, String) {
+    match (first, second) {
+        (Some(task), None) => (None, task),
+        (Some(plan), Some(task)) => (Some(plan), task),
+        (None, Some(task)) => (None, task),
+        (None, None) => unreachable!("split_task_ref requires at least one task reference"),
+    }
+}
+
+fn render_attempts(value: &Value) -> String {
+    let attempts = value
+        .get("attempts")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if attempts.is_empty() {
+        return "No attempts.\n".into();
+    }
+    let mut out = String::new();
+    for attempt in attempts {
+        let id = attempt
+            .get("attempt_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        let pane = attempt
+            .get("executor_pane_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
+        let status = attempt
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
+        let provider = attempt
+            .get("provider")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
+        let model = attempt.get("model").and_then(|v| v.as_str()).unwrap_or("-");
+        let when = attempt
+            .get("reported_at")
+            .or_else(|| attempt.get("assigned_at"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        out.push_str(&format!(
+            "{:<24} {:<24} {:<10} {:<10} {:<18} at={}\n",
+            id, pane, status, provider, model, when
+        ));
+    }
+    out
+}
+
+fn render_attempt(value: &Value) -> String {
+    let attempt = value.get("attempt").unwrap_or(value);
+    let mut out = String::new();
+    for key in [
+        "attempt_id",
+        "executor_pane_id",
+        "executor_title",
+        "status",
+        "provider",
+        "agent_type",
+        "model",
+        "session_id",
+        "role",
+        "parent_pane_id",
+        "orchestrator_pane_id",
+        "mesh_peer",
+        "branch",
+        "worktree_path",
+        "base",
+        "destination",
+        "assigned_at",
+        "reported_at",
+        "reviewed_at",
+        "closed_at",
+        "competition_group_id",
+        "competition_lane",
+        "judge_verdict",
+        "judge_reason",
+        "judged_at",
+        "winner",
+        "last_report_status",
+    ] {
+        if let Some(v) = attempt.get(key).filter(|v| !v.is_null()) {
+            let rendered = v
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| v.to_string());
+            out.push_str(&format!("{key}: {rendered}\n"));
+        }
+    }
+    if let Some(command) = attempt.get("report_command").and_then(|v| v.as_str()) {
+        out.push_str("\nreport_command:\n");
+        out.push_str(command);
+        out.push('\n');
+    }
+    if let Some(report) = attempt.get("report").filter(|v| !v.is_null()) {
+        out.push_str("\nreport:\n");
+        out.push_str(&report.to_string());
+        out.push('\n');
+    }
+    if let Some(report) = attempt.get("last_report").and_then(|v| v.as_str()) {
+        out.push_str("\nlast_report:\n");
+        out.push_str(report);
+        out.push('\n');
+    }
+    if let Some(prompt) = attempt.get("prompt").and_then(|v| v.as_str()) {
+        out.push_str("\nprompt:\n");
+        out.push_str(prompt);
+        out.push('\n');
+    }
+    out
+}
 
 pub(super) fn run_task(
     client: &mut SocketClient,
@@ -21,8 +136,12 @@ pub(super) fn run_task(
                 "active": status.is_none(),
                 "mine": false,
                 "unassigned": false,
-                "plan_id": plan_id,
             });
+            maybe_inject_caller_pane(&mut params);
+            params["require_plan_id"] = json!(true);
+            if let Some(plan_id) = plan_id {
+                params["plan_id"] = json!(plan_id);
+            }
             if let Some(project) = std::env::current_dir()
                 .ok()
                 .map(|path| path.display().to_string())
@@ -47,6 +166,9 @@ pub(super) fn run_task(
             correctness,
             body,
             body_file,
+            role_guidance,
+            role_guidance_file,
+            executor_role,
             intent,
             intent_file,
             parent,
@@ -64,10 +186,12 @@ pub(super) fn run_task(
             tags,
             primary,
             handle,
+            force,
             loop_from: _,
         } => {
             let why_text = resolve_text(why, why_file)?;
             let body_text = resolve_text(body, body_file)?;
+            let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
             let intent_text = resolve_text(intent, intent_file)?;
             let has_sections = sections
                 .as_deref()
@@ -79,6 +203,9 @@ pub(super) fn run_task(
             let has_test_plan = test_plan.as_deref().is_some_and(|s| !s.trim().is_empty());
             let has_correctness = correctness.as_deref().is_some_and(|s| !s.trim().is_empty());
             let mut params = json!({ "plan_id": plan_id.clone(), "name": name });
+            if force {
+                params["force"] = json!(true);
+            }
             if let Some(k) = kind {
                 params["type"] = json!(k);
             }
@@ -102,6 +229,12 @@ pub(super) fn run_task(
             }
             if let Some(b) = body_text {
                 params["body"] = json!(b);
+            }
+            if let Some(guidance) = role_guidance_text {
+                params["role_guidance"] = json!(guidance);
+            }
+            if let Some(role) = executor_role {
+                params["executor_role"] = json!(role);
             }
             if let Some(i) = intent_text {
                 params["intent"] = json!(i);
@@ -143,6 +276,7 @@ pub(super) fn run_task(
             if let Some(handle) = handle {
                 params["handle"] = json!(handle);
             }
+            maybe_inject_caller_pane(&mut params);
             let mut val = call(client, "plan.task.add", params)?;
             if let Some(task_id) = val
                 .get("task_id")
@@ -188,6 +322,9 @@ pub(super) fn run_task(
             status_label,
             body,
             body_file,
+            role_guidance,
+            role_guidance_file,
+            executor_role,
             intent,
             intent_file,
             sections,
@@ -209,42 +346,48 @@ pub(super) fn run_task(
             tags,
             primary,
             handle,
-        } => crate::cmd::plan_task_update::run(
-            client,
-            plan_id,
-            task_id,
-            name,
-            kind,
-            model,
-            why,
-            why_file,
-            status,
-            status_label,
-            body,
-            body_file,
-            intent,
-            intent_file,
-            sections,
-            criterion,
-            test_plan,
-            correctness,
-            parent,
-            pane,
-            workspace_id,
-            workspace_name,
-            worktree,
-            branch,
-            base,
-            destination,
-            cleanup_status,
-            cleanup_hints,
-            group,
-            priority,
-            tags,
-            primary,
-            handle,
-        )
-        .map(Some),
+        } => {
+            let (plan_ref, task_ref) = split_task_ref(plan_id, task_id);
+            crate::cmd::plan_task_update::run(
+                client,
+                plan_ref,
+                task_ref,
+                name,
+                kind,
+                model,
+                why,
+                why_file,
+                status,
+                status_label,
+                body,
+                body_file,
+                role_guidance,
+                role_guidance_file,
+                executor_role,
+                intent,
+                intent_file,
+                sections,
+                criterion,
+                test_plan,
+                correctness,
+                parent,
+                pane,
+                workspace_id,
+                workspace_name,
+                worktree,
+                branch,
+                base,
+                destination,
+                cleanup_status,
+                cleanup_hints,
+                group,
+                priority,
+                tags,
+                primary,
+                handle,
+            )
+            .map(Some)
+        }
         PlanTaskAction::Retag {
             plan_id,
             task_id,
@@ -258,12 +401,43 @@ pub(super) fn run_task(
             result_file,
             mesh: _,
         } => {
+            let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
             let result_text = resolve_text(result, result_file)?;
-            let mut params = json!({ "plan_id": plan_id, "task_id": task_id });
+            let mut params = json!({ "task_id": task_ref });
+            if let Some(pid) = plan_ref {
+                params["plan_id"] = json!(pid);
+            }
             if let Some(r) = result_text {
                 params["result"] = json!(r);
             }
             call(client, "plan.task.close", params).map(Some)
+        }
+        PlanTaskAction::Park {
+            plan_id,
+            task_id,
+            reason,
+        } => {
+            let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
+            let mut params = json!({
+                "task_id": task_ref,
+                "reason": reason,
+                "from": crate::cmd::plan::owner_from_env(),
+            });
+            if let Some(pid) = plan_ref {
+                params["plan_id"] = json!(pid);
+            }
+            call(client, "plan.task.park", params).map(Some)
+        }
+        PlanTaskAction::Unpark { plan_id, task_id } => {
+            let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
+            let mut params = json!({
+                "task_id": task_ref,
+                "from": crate::cmd::plan::owner_from_env(),
+            });
+            if let Some(pid) = plan_ref {
+                params["plan_id"] = json!(pid);
+            }
+            call(client, "plan.task.unpark", params).map(Some)
         }
         PlanTaskAction::Assign {
             plan_id,
@@ -271,15 +445,104 @@ pub(super) fn run_task(
             pane,
             mesh,
         } => {
+            let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
             let mut params = json!({
-                "plan_id": plan_id,
-                "task_id": task_id,
+                "task_id": task_ref,
                 "pane": pane,
             });
+            if let Some(pid) = plan_ref {
+                params["plan_id"] = json!(pid);
+            }
             if let Some(p) = mesh {
                 params["peer"] = json!(p);
             }
             call(client, "plan.task.assign", params).map(Some)
+        }
+        PlanTaskAction::Attempts { plan_id, task_id } => {
+            let val = call(
+                client,
+                "plan.task.attempts",
+                json!({ "plan_id": plan_id, "task_id": task_id }),
+            )?;
+            if json {
+                return Ok(Some(val));
+            }
+            print!("{}", render_attempts(&val));
+            Ok(None)
+        }
+        PlanTaskAction::Attempt {
+            plan_id,
+            task_id,
+            attempt_id,
+        } => {
+            let val = call(
+                client,
+                "plan.task.attempt.show",
+                json!({ "plan_id": plan_id, "task_id": task_id, "attempt_id": attempt_id }),
+            )?;
+            if json {
+                return Ok(Some(val));
+            }
+            print!("{}", render_attempt(&val));
+            Ok(None)
+        }
+        PlanTaskAction::Attach {
+            plan_id,
+            task_id,
+            file,
+        } => call(
+            client,
+            "plan.task.attach",
+            json!({ "plan_id": plan_id, "task_id": task_id, "path": file }),
+        )
+        .map(Some),
+        PlanTaskAction::Respawn {
+            plan_id,
+            task_id,
+            attempt,
+            provider,
+            model,
+            parent,
+            workspace,
+            title,
+        } => {
+            let mut params = json!({
+                "plan_id": plan_id,
+                "task_id": task_id,
+                "attempt_id": attempt,
+            });
+            if let Some(provider) = provider {
+                params["provider"] = json!(provider);
+            }
+            if let Some(model) = model {
+                params["model"] = json!(model);
+            }
+            if let Some(parent) = parent {
+                params["parent_pane_id"] = json!(parent);
+            } else if let Ok(parent) = std::env::var("CODETERM_PANE_ID") {
+                if !parent.trim().is_empty() {
+                    params["parent_pane_id"] = json!(parent);
+                }
+            }
+            if let Some(workspace) = workspace {
+                params["workspace_id"] = json!(workspace);
+            }
+            if let Some(title) = title {
+                params["title"] = json!(title);
+            }
+            let val = call(client, "plan.task.respawn", params)?;
+            if json {
+                return Ok(Some(val));
+            }
+            let pane = val.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
+            let attempt_id = val
+                .get("attempt")
+                .and_then(|v| v.get("attempt_id"))
+                .or_else(|| val.get("attempt").and_then(|v| v.get("id")))
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            println!("Respawned worker pane {pane} (attempt {attempt_id})");
+            Ok(None)
         }
         PlanTaskAction::Link {
             plan_id,
@@ -303,11 +566,29 @@ pub(super) fn run_task(
             print!("{}", render_relink_report(&val));
             Ok(None)
         }
-        PlanTaskAction::Rm { plan_id, task_id } => call(
-            client,
-            "plan.task.rm",
-            json!({ "plan_id": plan_id, "task_id": task_id }),
-        )
-        .map(Some),
+        PlanTaskAction::Rm {
+            plan_id,
+            task_id,
+            all,
+            yes,
+        } => {
+            if all && !yes {
+                return Err(
+                    "refusing to remove all tasks without --yes; this resets the plan to planning mode"
+                        .into(),
+                );
+            }
+            let mut params = json!({ "all": all });
+            if all {
+                params["plan_id"] = json!(plan_id);
+            } else {
+                let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
+                params["task_id"] = json!(task_ref);
+                if let Some(pid) = plan_ref {
+                    params["plan_id"] = json!(pid);
+                }
+            }
+            call(client, "plan.task.rm", params).map(Some)
+        }
     }
 }

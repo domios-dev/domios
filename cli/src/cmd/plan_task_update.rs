@@ -1,11 +1,11 @@
 use crate::client::SocketClient;
-use crate::cmd::plan::{call_plan_rpc, resolve_text};
+use crate::cmd::plan::{call_plan_rpc, maybe_inject_caller_pane, resolve_text};
 use serde_json::{json, Value};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
     client: &mut SocketClient,
-    plan_id: String,
+    plan_id: Option<String>,
     task_id: String,
     name: Option<String>,
     kind: Option<String>,
@@ -16,6 +16,9 @@ pub(crate) fn run(
     status_label: Option<String>,
     body: Option<String>,
     body_file: Option<String>,
+    role_guidance: Option<String>,
+    role_guidance_file: Option<String>,
+    executor_role: Option<String>,
     intent: Option<String>,
     intent_file: Option<String>,
     sections: Option<String>,
@@ -40,8 +43,12 @@ pub(crate) fn run(
 ) -> Result<Value, String> {
     let why_text = resolve_text(why, why_file)?;
     let body_text = resolve_text(body, body_file)?;
+    let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
     let intent_text = resolve_text(intent, intent_file)?;
-    let mut params = json!({ "plan_id": plan_id, "task_id": task_id });
+    let mut params = json!({ "task_id": task_id });
+    if let Some(pid) = plan_id {
+        params["plan_id"] = json!(pid);
+    }
     if let Some(n) = name {
         params["name"] = json!(n);
     }
@@ -62,6 +69,12 @@ pub(crate) fn run(
     }
     if let Some(b) = body_text {
         params["body"] = json!(b);
+    }
+    if let Some(guidance) = role_guidance_text {
+        params["role_guidance"] = json!(guidance);
+    }
+    if let Some(role) = executor_role {
+        params["executor_role"] = json!(role);
     }
     if let Some(i) = intent_text {
         params["intent"] = json!(i);
@@ -109,5 +122,6 @@ pub(crate) fn run(
     if let Some(handle) = handle {
         params["handle"] = json!(handle);
     }
+    maybe_inject_caller_pane(&mut params);
     call_plan_rpc(client, "plan.task.update", params)
 }

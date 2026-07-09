@@ -11,6 +11,17 @@ pub enum PlanStatus {
     Archived,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanMode {
+    #[default]
+    Planning,
+    Approved,
+    Execution,
+    Paused,
+    Complete,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
@@ -18,8 +29,41 @@ pub enum TaskStatus {
     InProgress,
     InReview,
     Blocked,
+    Parked,
     Done,
     Cancelled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewStage {
+    #[default]
+    Review,
+    Qa,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum QaState {
+    Queued,
+    Running,
+}
+
+impl TaskStatus {
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, TaskStatus::Done | TaskStatus::Cancelled)
+    }
+
+    // counts as open work only while it is non-terminal AND not parked.
+    pub fn counts_as_open_work(&self) -> bool {
+        matches!(
+            self,
+            TaskStatus::Pending
+                | TaskStatus::InProgress
+                | TaskStatus::InReview
+                | TaskStatus::Blocked
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -67,6 +111,22 @@ impl OrchestratorRef {
 
 pub type AgentRef = OrchestratorRef;
 
+/// Planner binding on a plan. None = unset; Waived = explicitly solo.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PlannerRef {
+    Pane {
+        pane_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+    },
+    Waived {
+        note: String,
+    },
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct TaskLaneMetadata {
     #[serde(default)]
@@ -87,6 +147,91 @@ pub struct TaskLaneMetadata {
     pub cleanup_status: Option<String>,
     #[serde(default)]
     pub cleanup_hints: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TaskCompetitionMetadata {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub attempts: Option<u32>,
+    #[serde(default)]
+    pub models: Vec<String>,
+    #[serde(default)]
+    pub judge_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TaskExecutionReportSnapshot {
+    pub id: String,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub changed_files: Vec<String>,
+    #[serde(default)]
+    pub test_cmd: Option<String>,
+    #[serde(default)]
+    pub test_result: Option<String>,
+    #[serde(default)]
+    pub skipped: Option<String>,
+    #[serde(default)]
+    pub attachments: Vec<AttachmentRef>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TaskExecutionAttempt {
+    pub id: String,
+    pub executor_pane_id: String,
+    #[serde(default)]
+    pub executor_title: Option<String>,
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub agent_type: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub parent_pane_id: Option<String>,
+    #[serde(default)]
+    pub orchestrator_pane_id: Option<String>,
+    #[serde(default)]
+    pub mesh_peer: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub worktree_path: Option<String>,
+    #[serde(default)]
+    pub base: Option<String>,
+    #[serde(default)]
+    pub destination: Option<String>,
+    #[serde(default)]
+    pub report: Option<TaskExecutionReportSnapshot>,
+    #[serde(default)]
+    pub assigned_at: Option<u64>,
+    #[serde(default)]
+    pub reported_at: Option<u64>,
+    #[serde(default)]
+    pub reviewed_at: Option<u64>,
+    #[serde(default)]
+    pub closed_at: Option<u64>,
+    #[serde(default)]
+    pub competition_group_id: Option<String>,
+    #[serde(default)]
+    pub competition_lane: Option<u32>,
+    #[serde(default)]
+    pub judge_verdict: Option<String>,
+    #[serde(default)]
+    pub judge_reason: Option<String>,
+    #[serde(default)]
+    pub judged_at: Option<u64>,
+    #[serde(default)]
+    pub winner: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -259,6 +404,18 @@ pub struct Section {
     pub subsections: Vec<Section>,
     #[serde(default)]
     pub canvas: ElementCanvas,
+    #[serde(default)]
+    pub attachments: Vec<AttachmentRef>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct AttachmentRef {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub media_type: String,
+    pub size_bytes: u64,
+    pub created_at: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -275,6 +432,8 @@ pub struct Milestone {
     pub iteration: Option<u32>,
     #[serde(default)]
     pub canvas: ElementCanvas,
+    #[serde(default)]
+    pub attachments: Vec<AttachmentRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -290,6 +449,10 @@ pub struct Task {
     pub test_plan: Option<String>,
     pub correctness: Option<String>,
     pub status: TaskStatus,
+    #[serde(default)]
+    pub review_stage: ReviewStage,
+    #[serde(default)]
+    pub qa_state: Option<QaState>,
     pub status_label: Option<String>,
     #[serde(default)]
     pub priority: TaskPriority,
@@ -307,6 +470,12 @@ pub struct Task {
     pub section_ids: Vec<String>,
     #[serde(default)]
     pub body: String,
+    #[serde(default)]
+    pub role_guidance: Option<String>,
+    #[serde(default)]
+    pub executor_role: Option<String>,
+    #[serde(default)]
+    pub competition: Option<TaskCompetitionMetadata>,
     pub intent: Option<String>,
     #[serde(default)]
     pub parent_task_id: Option<String>,
@@ -322,23 +491,18 @@ pub struct Task {
     pub canvas: ElementCanvas,
     #[serde(default)]
     pub milestones: Vec<Milestone>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct LoopStage {
-    pub key: String,
-    pub role: String,
-    pub model: Option<String>,
-    pub why: Option<String>,
-    pub prompt: Option<String>,
+    #[serde(default)]
+    pub execution_attempts: Vec<TaskExecutionAttempt>,
+    #[serde(default)]
+    pub park_reason: Option<String>,
+    #[serde(default)]
+    pub attachments: Vec<AttachmentRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LoopSpec {
     pub id: String,
     pub target: String,
-    #[serde(default)]
-    pub stages: Vec<LoopStage>,
     pub budget: u32,
     #[serde(default)]
     pub count: u32,
@@ -348,6 +512,8 @@ pub struct LoopSpec {
     pub stagnation: u32,
     #[serde(default)]
     pub deviation: Option<String>,
+    #[serde(default)]
+    pub last_iteration_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -399,6 +565,8 @@ pub struct Spec {
     pub id: String,
     pub title: String,
     pub project_path: String,
+    #[serde(default)]
+    pub canonical_project_path: String,
     pub status: PlanStatus,
     #[serde(default)]
     pub sections: Vec<Section>,
@@ -415,8 +583,14 @@ pub struct Plan {
     #[serde(default)]
     pub sections: Vec<Section>,
     pub status: PlanStatus,
+    #[serde(default)]
+    pub mode: PlanMode,
+    #[serde(default)]
+    pub paused_from_mode: Option<PlanMode>,
     pub owner: OrchestratorRef,
     pub project_path: String,
+    #[serde(default)]
+    pub canonical_project_path: String,
     pub created_at: u64,
     pub updated_at: u64,
     #[serde(default)]
@@ -449,18 +623,32 @@ pub struct Plan {
     pub canvas: PlanCanvas,
     #[serde(default)]
     pub owner_history: Vec<TransferRecord>,
+    #[serde(default)]
+    pub planner: Option<PlannerRef>,
+    #[serde(default)]
+    pub planning_state: crate::plan::planning_state::PlanningState,
+    #[serde(default)]
+    pub planning_log: Vec<crate::plan::planning_state::PlanningTransition>,
+    #[serde(default)]
+    pub gates: Vec<crate::plan::gates::DecisionGate>,
+    // Plan-level, task-less working points (e.g. skill ledger entries). Append-only.
+    #[serde(default)]
+    pub strides: Vec<Milestone>,
 }
 
 impl Plan {
     pub fn new(title: String, project_path: String, owner: OrchestratorRef) -> Self {
-        let id = format!("pl_{}", uuid::Uuid::new_v4().simple());
+        let id = super::ids::short_id("pl");
         Self {
             id,
             title,
             sections: vec![],
             status: PlanStatus::Active,
+            mode: PlanMode::Planning,
+            paused_from_mode: None,
             owner,
-            project_path,
+            project_path: project_path.clone(),
+            canonical_project_path: project_path,
             created_at: 0,
             updated_at: 0,
             milestone_kinds: vec![],
@@ -478,16 +666,31 @@ impl Plan {
             heartbeat: OrchestratorHeartbeat::default(),
             canvas: PlanCanvas::default(),
             owner_history: vec![],
+            planner: None,
+            planning_state: crate::plan::planning_state::PlanningState::default(),
+            planning_log: vec![],
+            gates: vec![],
+            strides: vec![],
         }
+    }
+
+    /// Single source of truth for whether execution (non-planning) tasks may be
+    /// created. planning_state is authoritative going forward; an Approved/Execution
+    /// lifecycle mode bridges plans predating planning_state. Complete never unlocks.
+    pub fn execution_tasks_unlocked(&self) -> bool {
+        !matches!(self.mode, PlanMode::Complete | PlanMode::Paused)
+            && (self.planning_state.allows_execution_tasks()
+                || matches!(self.mode, PlanMode::Approved | PlanMode::Execution))
     }
 }
 
 impl Spec {
     pub fn new(title: String, project_path: String) -> Self {
         Self {
-            id: format!("sp_{}", uuid::Uuid::new_v4().simple()),
+            id: super::ids::short_id("sp"),
             title,
-            project_path,
+            project_path: project_path.clone(),
+            canonical_project_path: project_path,
             status: PlanStatus::Active,
             sections: vec![],
             created_at: 0,
@@ -514,6 +717,7 @@ mod tests {
         let back: Plan = serde_json::from_str(&json).unwrap();
         assert_eq!(back.id, p.id);
         assert_eq!(back.title, "Voice UX");
+        assert_eq!(back.canonical_project_path, "/repo");
     }
 
     #[test]
@@ -552,6 +756,7 @@ mod tests {
         }"#;
         let p: Plan = serde_json::from_str(raw).unwrap();
         assert_eq!(p.id, "pl_old");
+        assert!(p.canonical_project_path.is_empty());
         assert!(p.task_groups.is_empty());
         assert!(p.tag_facets.is_empty());
         assert!(p.links.is_empty());
@@ -564,7 +769,38 @@ mod tests {
         assert_eq!(p.tasks[0].handle, None);
         assert!(p.tasks[0].tags.is_empty());
         assert_eq!(p.tasks[0].taken_by_role, None);
+        assert_eq!(p.tasks[0].executor_role, None);
         assert_eq!(p.tasks[0].parent_task_id, None);
+    }
+
+    #[test]
+    fn executor_role_roundtrips() {
+        let raw = r#"{
+            "id": "pl_exec",
+            "title": "Exec",
+            "status": "active",
+            "owner": {},
+            "project_path": "/repo",
+            "created_at": 1,
+            "updated_at": 2,
+            "tasks": [
+                {"id":"task_1","name":"n","type":"implement","model":null,
+                 "model_rationale":null,"status":"pending","status_label":null,
+                 "section_ids":[],"body":"","intent":null,"assigned_pane_id":null,
+                 "peer":null,"executor_role":"rust-backend-dev"}
+            ]
+        }"#;
+        let p: Plan = serde_json::from_str(raw).unwrap();
+        assert_eq!(
+            p.tasks[0].executor_role.as_deref(),
+            Some("rust-backend-dev")
+        );
+        let json = serde_json::to_string(&p).unwrap();
+        let back: Plan = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            back.tasks[0].executor_role.as_deref(),
+            Some("rust-backend-dev")
+        );
     }
 
     #[test]
@@ -583,5 +819,86 @@ mod tests {
         assert!(bad.is_err(), "unknown priority must reject");
         let ok: TaskPriority = serde_json::from_str("\"p1\"").unwrap();
         assert_eq!(ok, TaskPriority::P1);
+    }
+
+    #[test]
+    fn planner_ref_pane_roundtrips() {
+        let mut p = Plan::new("P".into(), "/r".into(), Default::default());
+        p.planner = Some(PlannerRef::Pane {
+            pane_id: "pane_plan".into(),
+            session_id: Some("sid".into()),
+            title: None,
+        });
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(json.contains("\"kind\":\"pane\""));
+        assert!(json.contains("\"pane_id\":\"pane_plan\""));
+        let back: Plan = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.planner, p.planner);
+    }
+
+    #[test]
+    fn planner_ref_waived_roundtrips() {
+        let mut p = Plan::new("P".into(), "/r".into(), Default::default());
+        p.planner = Some(PlannerRef::Waived {
+            note: "solo — no review pairing needed".into(),
+        });
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(json.contains("\"kind\":\"waived\""));
+        assert!(json.contains("solo"));
+        let back: Plan = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.planner, p.planner);
+    }
+
+    #[test]
+    fn planner_ref_defaults_none_on_old_plan() {
+        let raw = r#"{
+            "id": "pl_old2",
+            "title": "Old",
+            "status": "active",
+            "owner": {},
+            "project_path": "/repo",
+            "created_at": 1,
+            "updated_at": 2
+        }"#;
+        let p: Plan = serde_json::from_str(raw).unwrap();
+        assert_eq!(p.planner, None);
+    }
+
+    #[test]
+    fn planning_state_defaults_drafting_on_old_plan() {
+        let raw = r#"{
+            "id": "pl_old3",
+            "title": "Old",
+            "status": "active",
+            "owner": {},
+            "project_path": "/repo",
+            "created_at": 1,
+            "updated_at": 2
+        }"#;
+        let p: Plan = serde_json::from_str(raw).unwrap();
+        assert_eq!(
+            p.planning_state,
+            crate::plan::planning_state::PlanningState::Drafting
+        );
+        assert!(p.planning_log.is_empty());
+    }
+
+    #[test]
+    fn planning_state_roundtrips() {
+        use crate::plan::planning_state::{PlanningAuthor, PlanningState, PlanningTransition};
+        let mut p = Plan::new("P".into(), "/r".into(), Default::default());
+        p.planning_state = PlanningState::Approved;
+        p.planning_log = vec![PlanningTransition {
+            from: PlanningState::StructureReady,
+            to: PlanningState::Approved,
+            by: PlanningAuthor::User,
+            note: None,
+            at: 9,
+        }];
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(json.contains("\"planning_state\":\"approved\""));
+        let back: Plan = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.planning_state, PlanningState::Approved);
+        assert_eq!(back.planning_log, p.planning_log);
     }
 }

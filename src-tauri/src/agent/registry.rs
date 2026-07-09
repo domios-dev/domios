@@ -151,8 +151,6 @@ impl AgentRegistry {
         log::info!("[agent-registry] registered provider: {}", id);
         let mut guard = self.providers.write();
         if let Some(prev) = guard.remove(&id) {
-            // Only a genuine native impl is a valid capability fallback. A JS
-            // provider displaced by re-registration of the same id (hot-reload of
             if prev.is_native() {
                 self.native_fallbacks
                     .write()
@@ -376,7 +374,6 @@ impl AgentRegistry {
         if opts.terms.is_empty() {
             return Vec::new();
         }
-        // Use ASCII-lowercase so the lowered string stays byte-for-byte aligned with the original. `str::to_lowercase` can change byte AND char count
         // (`ß → ss`, `İ → i̇`), which would misalign snippet windows when we translate a lowercased-string position back into the original.
         let lowered_terms: Vec<String> =
             opts.terms.iter().map(|t| t.to_ascii_lowercase()).collect();
@@ -545,7 +542,6 @@ mod tests {
     #[test]
     fn js_only_provider_never_becomes_native_fallback() {
         let reg = AgentRegistry::new();
-        // First registration (authoritative pass), then re-registration
         // (hot-reload seeding tick) — the second displaces the first.
         reg.register_provider(Box::new(FallbackStub {
             id: "drop-in",

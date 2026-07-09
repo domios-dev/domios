@@ -70,7 +70,6 @@ impl ServiceContext {
     }
 
     pub fn cron_cancel_running(&self, cron: &CronState, id: &str) -> Result<usize, String> {
-        // drop cron lock before close_pane — different lock order
         let to_close: Vec<String> =
             {
                 let mut store = cron.lock();
@@ -167,7 +166,6 @@ impl ServiceContext {
             cwd: None,
         };
 
-        // suffix must come after task; task_preamble prepends
         let mut task_text = task;
         if creator_pane_id.is_some() {
             task_text.push_str(crate::prompts::CRON_REPORT_HINT);
@@ -334,10 +332,9 @@ impl ServiceContext {
     }
 
     fn emit_cron_changed(&self) {
-        use tauri::Emitter;
         let handle = self.app_handle.clone();
         std::thread::spawn(move || {
-            let _ = handle.emit("cron-state-changed", ());
+            crate::api::events::emit_everywhere(&handle, "cron-run-finished", ());
         });
     }
 }

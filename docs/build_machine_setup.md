@@ -113,6 +113,9 @@ compile and the OOM killer otherwise SIGKILLs `rustc`.
 - **x86_64 AppImage cannot be built on an arm64 host** — `linuxdeploy-x86_64` is an x86_64 binary
   that can't run here. x86_64 → `.deb` only; AppImage only natively (arm64) or on a real x86_64 box.
   Hence `latest.json`'s `linux-x86_64` (an AppImage URL) needs a real x86_64 Linux runner.
+- **Deb and AppImage need separate updater manifests** — Tauri's Linux platform key is only
+  `linux-x86_64`, but a deb-installed app rejects AppImage bytes as `invalid updater binary
+  format`. Keep AppImage in `latest.json`; publish deb packages through `latest-deb.json`.
 - **AppImage in Docker** needs `APPIMAGE_EXTRACT_AND_RUN=1` (no FUSE in containers).
 
 ---
@@ -125,13 +128,14 @@ Driven by the `github-release` skill. Summary:
 2. Build all engines (orchestrator, or per-engine).
 3. macOS: signed + notarized DMGs + `.app.tar.gz` updater bundles (minisign).
 4. Windows/Linux installers pulled to the Mac, updater-signed there.
-5. Upload source artifacts to private **`rollacode/codeterm`**; mirror artifacts + a signed
-   **`latest.json`** to public **`rollacode/codeterm-releases`** (the GUI updater endpoint baked
+5. Upload source artifacts to private **`rollacode/codeterm`**; mirror artifacts + signed
+   updater manifests to public **`rollacode/codeterm-releases`** (the GUI updater endpoint baked
    into `tauri.conf.json` points at the public mirror — private-repo assets aren't anonymously
    reachable).
 6. `latest.json` covers `darwin-aarch64`, `darwin-x86_64`, `windows-x86_64` (+ `linux-x86_64`
-   only when a real x86_64 Linux AppImage exists). Verify anon `HTTP 200` on every updater URL and
-   that `codeterm update check` sees the new version.
+   only when a real x86_64 Linux AppImage exists). `latest-deb.json` covers deb-installed Linux.
+   Verify anon `HTTP 200` on every updater URL and that `codeterm update check` sees the new
+   version.
 
 ## Tag-driven CI (implemented) + persistence
 

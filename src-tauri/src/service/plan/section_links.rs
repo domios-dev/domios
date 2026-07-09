@@ -322,6 +322,7 @@ mod tests {
                     name: "Implement route".into(),
                     kind: "implement".into(),
                     group: Some("backend".into()),
+                    competition: None,
                     ..Default::default()
                 },
                 3,
@@ -341,6 +342,7 @@ mod tests {
                 NewTask {
                     name: "Backend follow-up".into(),
                     kind: "implement".into(),
+                    competition: None,
                     ..Default::default()
                 },
                 3,
@@ -350,6 +352,7 @@ mod tests {
             .update_task(
                 &plan_id,
                 &task_id,
+                None,
                 None,
                 None,
                 None,

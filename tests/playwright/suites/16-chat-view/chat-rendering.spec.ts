@@ -59,7 +59,6 @@ test("@smoke ChatView PTY provider pane shows no inline option card without a pe
   api,
   ui,
 }) => {
-  // Reconnect to get a fresh browser session — previous suites (extensions) can
   // leave the worker-scoped session in a broken state after a dev-server restart.
   await ui.reconnect();
 
@@ -74,7 +73,6 @@ test("@smoke ChatView PTY provider pane shows no inline option card without a pe
   const chat = ui.page.locator(`[data-testid="pane-session-chat"]`).first();
   await expect(chat).toBeVisible({ timeout: 30_000 });
 
-  // PTY providers must never show an inline option card unless a pending_prompt
   // is explicitly set via hook — card_frames=0 invariant from detection replays.
   await expect(ui.page.locator('[data-testid="pane-pending-prompt"]')).toHaveCount(0);
 });
@@ -84,8 +82,6 @@ test("@golden ChatView message DOM order matches chronological push order", asyn
   ui,
   paneCleanup,
 }) => {
-  // window.__codetermTestChat is injected by VITE_CODETERM_TEST=1 (dev-build
-  // only). On macOS the web mirror serves dist/ without the test flag; skip
   const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
   test.skip(!hasTestHook, "window.__codetermTestChat not available in this build (macOS web mirror without VITE_CODETERM_TEST=1 build)");
 

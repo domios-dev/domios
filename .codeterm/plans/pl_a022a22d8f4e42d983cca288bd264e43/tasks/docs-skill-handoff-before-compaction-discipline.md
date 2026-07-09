@@ -1,1 +1,0 @@
-Document the discipline in ORCHESTRATION.md AND the orchestrator skill (mem ~/.codeterm/skills): when ready to compact, author your OWN handoff (--mode new preferred) instead of the provider /compact, continue exactly from it, PAIR with a delayed self-message (heartbeat). Fix the skill line that says no need to compact.

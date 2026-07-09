@@ -1,1 +1,0 @@
-Merge plan-node + spec-node into ONE sectioned node: header + section blocks each showing title AND markdown body (per view mode) + a per-section OUTPUT anchor; tasks attach to outputs. So the plan reads as a full structured plan, not a bare title list. Depends on §23 layout synthesis.

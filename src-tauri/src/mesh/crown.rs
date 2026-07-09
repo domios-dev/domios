@@ -99,7 +99,6 @@ pub fn verify_signed_request(
         return Err("Invalid signed request format".to_string());
     }
 
-    // Decode payload to get instance_id
     let payload_bytes = B64
         .decode(parts[0])
         .map_err(|e| format!("Bad payload: {}", e))?;
@@ -118,12 +117,10 @@ pub fn verify_signed_request(
         return Err("Request timestamp too far in the future".to_string());
     }
 
-    // Find public key for this instance
     let pubkey_b64 = known_keys
         .get(&req.from_instance_id)
         .ok_or_else(|| format!("Unknown peer: {}", req.from_instance_id))?;
 
-    // Verify signature
     let vk = verifying_key_from_b64(pubkey_b64)?;
     let sig_bytes = B64
         .decode(parts[1])
@@ -213,7 +210,6 @@ mod tests {
         let token = sign_request(&priv_key, "peer-abc").unwrap();
         let nonce = nonce_from_token(&token).unwrap();
         assert!(!nonce.is_empty(), "nonce should be a non-empty UUID");
-        // Two different tokens have different nonces
         let token2 = sign_request(&priv_key, "peer-abc").unwrap();
         let nonce2 = nonce_from_token(&token2).unwrap();
         assert_ne!(nonce, nonce2, "each sign produces a unique nonce");

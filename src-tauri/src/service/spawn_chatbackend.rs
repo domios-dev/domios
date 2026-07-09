@@ -136,6 +136,7 @@ impl ServiceContext {
             history_meta,
         );
 
+        let budget_notice = self.workspace_pane_budget_notice(&ws_id);
         Ok(PaneHandle {
             pane_id,
             tab_id,
@@ -144,6 +145,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: None,
             warning: None,
+            budget_notice,
         })
     }
 

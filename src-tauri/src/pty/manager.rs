@@ -407,7 +407,6 @@ impl PtyManager {
             }
             Err(e) => log::warn!("PTY {} child mutex poisoned during kill: {}", pty_id, e),
         }
-        // Reap in background — wait() can block indefinitely if descendants ignore SIGKILL or zombie isn't reaped promptly. Move session ownership to
         // background thread so PTY lock is released immediately.
         let id = pty_id.to_string();
         std::thread::spawn(move || {
@@ -512,6 +511,45 @@ fn which_exe(name: &str) -> Option<String> {
 mod tests {
     use super::*;
 
+    /// Load-bearing contract for the reader-race guard in read_pty_core: once a
+    /// backend channel is claimed, has_backend_reader flips true and the rx side
+    /// exists — frontends must consume the channel instead of cloning a second
+    /// raw reader (two readers on one master fd split the byte stream).
+    #[test]
+    fn backend_channel_claim_is_visible_and_idempotent() {
+        let mut manager = PtyManager::new();
+        let (pty_id, session) = manager
+            .spawn(None, None, 80, 24, HashMap::new())
+            .expect("spawn default shell");
+
+        assert!(
+            !manager.has_backend_reader(&pty_id),
+            "fresh session must not report a backend reader"
+        );
+
+        let tx1 = manager
+            .setup_backend_channel(&pty_id)
+            .expect("first claim succeeds");
+        assert!(
+            manager.has_backend_reader(&pty_id),
+            "claim must be visible immediately (read_pty guard keys on this)"
+        );
+        assert!(
+            session.backend_reader_rx.lock().unwrap().is_some(),
+            "rx side must exist for the frontend to consume"
+        );
+
+        let tx2 = manager
+            .setup_backend_channel(&pty_id)
+            .expect("second claim returns the existing channel");
+        assert!(
+            tx1.same_channel(&tx2),
+            "re-claim must NOT create a new channel (would orphan the rx)"
+        );
+
+        manager.kill(&pty_id).expect("cleanup");
+    }
+
     #[test]
     fn kill_terminates_child_and_removes_session() {
         let mut manager = PtyManager::new();
@@ -578,6 +616,74 @@ mod tests {
             !got.is_empty(),
             "ConPTY cmd.exe produced no output within 8s — CREATE_NO_WINDOW likely re-added to the pseudoconsole spawn"
         );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn conpty_shell_does_not_spawn_legacy_child_conhost() {
+        use std::io::Read;
+        use std::sync::mpsc;
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: 30,
+                cols: 100,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("openpty");
+        let mut reader = pair.master.try_clone_reader().expect("clone reader");
+        let child = pair
+            .slave
+            .spawn_command(CommandBuilder::new("cmd.exe"))
+            .expect("spawn cmd.exe");
+        drop(pair.slave);
+
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut buf = vec![0u8; 4096];
+            let n = reader.read(&mut buf).unwrap_or(0);
+            buf.truncate(n);
+            let _ = tx.send(buf);
+        });
+        let got = rx
+            .recv_timeout(std::time::Duration::from_secs(8))
+            .unwrap_or_default();
+        assert!(!got.is_empty(), "ConPTY child produced no output");
+
+        let child_pid = child.process_id().expect("child pid");
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let legacy = legacy_conhost_children(child_pid);
+        assert!(
+            legacy.is_empty(),
+            "ConPTY child {} spawned legacy conhost children {:?}; only the headless ConPTY host should exist",
+            child_pid,
+            legacy
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    fn legacy_conhost_children(parent_pid: u32) -> Vec<u32> {
+        let script = format!(
+            "$p={}; Get-CimInstance Win32_Process -Filter \"Name = 'conhost.exe' AND ParentProcessId = $p\" | Where-Object {{ $_.CommandLine -like '*conhost.exe 0x4*' }} | ForEach-Object {{ $_.ProcessId }}",
+            parent_pid
+        );
+        let mut cmd = std::process::Command::new("powershell.exe");
+        cmd.args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ]);
+        crate::process_util::no_window_std(&mut cmd);
+        let Ok(output) = cmd.output() else {
+            return Vec::new();
+        };
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.trim().parse::<u32>().ok())
+            .collect()
     }
 
     #[test]

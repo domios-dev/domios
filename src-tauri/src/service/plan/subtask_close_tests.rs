@@ -16,6 +16,7 @@ fn store_with_task() -> (PlanStore, String, String) {
             NewTask {
                 name: "parent".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -32,6 +33,7 @@ fn add_child(store: &PlanStore, plan_id: &str, parent_id: &str) -> String {
                 name: "child".into(),
                 kind: "implement".into(),
                 parent_task_id: Some(parent_id.into()),
+                competition: None,
                 ..Default::default()
             },
             10,
@@ -116,6 +118,7 @@ fn update_task_status_done_with_open_subtask_errors() {
             None,
             None,
             None,
+            None,
             &[],
             None,
             None,
@@ -138,6 +141,7 @@ fn update_task_accepts_in_review_and_rejects_generic_done_after_review() {
             None,
             None,
             Some("in_review"),
+            None,
             None,
             None,
             None,
@@ -168,6 +172,7 @@ fn update_task_accepts_in_review_and_rejects_generic_done_after_review() {
             None,
             None,
             None,
+            None,
             &[],
             None,
             None,
@@ -190,6 +195,7 @@ fn close_task_promotes_in_review_to_done() {
             None,
             None,
             Some("in_review"),
+            None,
             None,
             None,
             None,

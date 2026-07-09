@@ -36,6 +36,9 @@ pub enum MemAction {
     Forget {
         /// Area name (e.g. auth, deploy, billing).
         area: String,
+        /// Confirm the batch delete (refused without it).
+        #[arg(long, alias = "confirm")]
+        yes: bool,
     },
     /// Print the full audit trail for one item (create/update/promote/delete).
     History {
@@ -172,6 +175,43 @@ pub enum MemAction {
         /// Skip auto-extraction worker for this save.
         #[arg(long)]
         skip_extract: bool,
+    },
+    /// Save a stable user/machine preference for wake-up context.
+    #[clap(name = "save-preference")]
+    SavePreference {
+        /// Title (will be slugified into id). If omitted, first line of body.
+        #[arg(long, allow_hyphen_values = true)]
+        title: Option<String>,
+        /// Preference body. Use `-` (or omit with piped stdin) to read stdin.
+        #[arg(allow_hyphen_values = true)]
+        body: Option<String>,
+        /// Read body from a file instead of the positional arg.
+        #[arg(long, value_name = "PATH")]
+        body_file: Option<String>,
+        /// Optional summary (~50-200 chars)
+        #[arg(long, allow_hyphen_values = true)]
+        summary: Option<String>,
+        /// Comma-separated tags
+        #[arg(long)]
+        tags: Option<String>,
+        /// Area tag (planning | orchestration | machine | ...)
+        #[arg(long)]
+        area: Option<String>,
+        /// Importance 1-5 (default 4.0). Higher = more likely in L1 wake-up.
+        #[arg(long, default_value = "4.0")]
+        importance: f64,
+        /// Scope: global (default) or workspace:<id>
+        #[arg(long)]
+        scope: Option<String>,
+        /// Convenience: scope this item to workspace ID. Maps to scope="workspace:<ws>".
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Pin the item for L1 wake-up (always loaded).
+        #[arg(long)]
+        pin: bool,
+        /// Overwrite an existing row with the same id (upsert).
+        #[arg(long)]
+        replace: bool,
     },
     /// Print L0+L1 wake-up context (GA init injection)
     WakeUp {

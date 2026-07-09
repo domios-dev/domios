@@ -40,6 +40,37 @@ impl MultiplexerState {
         Ok((tab_id, pane_id))
     }
 
+    /// Claim an existing blank tab for a spawn instead of creating a new one
+    /// — used by the new-session picker's in-place pair spawn so confirming
+    /// the picker transforms that same tab rather than leaving an orphan
+    /// empty tab behind. Only claimable while the pane has no agent/backend
+    /// attached yet (still the picker's blank placeholder). Returns the same
+    /// (tab_id, pane_id) pair `create_tab` would have minted fresh.
+    pub fn claim_existing_tab(
+        &mut self,
+        workspace_id: &str,
+        tab_id: &str,
+    ) -> Result<(String, String), String> {
+        let pane_id = self
+            .get_workspace(workspace_id)
+            .and_then(|ws| ws.tabs.iter().find(|t| t.id == tab_id))
+            .map(|t| t.pane_id.clone())
+            .ok_or_else(|| format!("Tab not found in workspace {}: {}", workspace_id, tab_id))?;
+        let pane = self
+            .panes
+            .get(&pane_id)
+            .ok_or_else(|| format!("Pane not found: {}", pane_id))?;
+        if pane.agent_type.is_some()
+            || !matches!(pane.backing, crate::multiplexer::types::PaneBacking::Pty)
+        {
+            return Err(format!("Tab {} is not a blank picker tab", tab_id));
+        }
+        if pane.protected {
+            return Err(format!("Tab {} is protected and cannot be claimed", tab_id));
+        }
+        Ok((tab_id.to_string(), pane_id))
+    }
+
     /// Close a tab and return PTY IDs that need to be killed.
     pub fn close_tab(&mut self, workspace_id: &str, tab_id: &str) -> Result<Vec<String>, String> {
         // Record into the closed-history store while the pane still exists.

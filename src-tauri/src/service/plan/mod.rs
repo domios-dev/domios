@@ -1,229 +1,89 @@
+pub mod adopt;
+pub mod atomic_write;
+pub mod attachments;
 pub mod batch;
 pub mod body_files;
+pub mod canvas_elements;
+pub mod cleanup_debt;
+pub mod competition;
+pub mod complete_wrapup;
+pub mod digest_rules;
 pub mod element_queries;
+pub mod gates;
 pub mod handoff;
 pub mod heartbeat;
 pub mod hints;
 pub mod ingest;
+mod lane_metadata;
+pub mod lifecycle;
 pub mod loop_mutations;
+pub mod milestone_gates;
 pub mod mutations;
 pub mod next_actions;
 pub mod paths;
+pub mod peer_mandate;
+pub mod plan_skills;
+pub mod qa;
+mod readback;
+mod reconcile_fixes;
+pub mod reflection;
 pub mod reminders;
+pub mod resolve;
+pub mod retrospective;
 pub mod search_index;
 pub mod section_links;
 pub mod section_queries;
+pub mod skill_registry;
 pub mod spec;
 pub mod spec_files;
 pub mod state;
 pub mod stride_log;
 pub mod tag_model;
+pub mod task_attempts;
 pub mod task_queries;
+mod task_remove;
+mod types;
+pub mod usage_digest;
 pub mod watcher;
 pub mod worker_charter;
 
 #[cfg(test)]
+mod adopt_tests;
+#[cfg(test)]
 mod body_file_tests;
+#[cfg(test)]
+mod canonical_path_tests;
+#[cfg(test)]
+mod core_tests;
 #[cfg(test)]
 mod goal_tests;
 #[cfg(test)]
 mod heartbeat_tests;
 #[cfg(test)]
+mod readback_tests;
+#[cfg(test)]
+mod reminder_tests;
+#[cfg(test)]
 mod subtask_close_tests;
+#[cfg(test)]
+mod task_attempt_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod timestamp_tests;
+#[cfg(test)]
+mod watch_reconcile_tests;
 
-use crate::plan::reconcile::{
-    DriftItem, DriftKind, NEEDS_REASSIGN_LABEL, PANE_GONE_LABEL, STALE_REVIEW_LABEL,
-};
-use crate::plan::{
-    OrchestratorRef, Plan, PlanStatus, Spec, TaskLaneMetadata, TaskStatus, INBOX_PLAN_FILE_STEM,
-    INBOX_PLAN_ID,
-};
+use crate::plan::{Plan, PlanMode, PlanStatus, Spec, TaskStatus};
 use parking_lot::{Mutex, RwLock};
-use serde::Serialize;
 use std::collections::HashMap;
-use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-#[derive(Debug)]
-pub enum PlanError {
-    NotFound,
-    ElementNotFound,
-    TaskNotFound,
-    OpenSubtasks { subtasks: Vec<OpenSubtask> },
-    TransitionDenied { from: TaskStatus, to: TaskStatus },
-    UndeclaredKind { declared: Vec<String> },
-    BudgetExhausted { count: u32, budget: u32 },
-    BadStatus,
-    BadPriority,
-    Io(String),
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct OpenSubtask {
-    pub id: String,
-    pub name: String,
-    pub status: TaskStatus,
-    pub handle: Option<String>,
-}
-
-impl fmt::Display for PlanError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PlanError::NotFound => write!(f, "plan not found"),
-            PlanError::ElementNotFound => write!(f, "element not found"),
-            PlanError::TaskNotFound => write!(f, "task not found"),
-            PlanError::OpenSubtasks { subtasks } => {
-                let listed = subtasks
-                    .iter()
-                    .map(|task| {
-                        let name = if task.name.is_empty() {
-                            task.id.as_str()
-                        } else {
-                            task.name.as_str()
-                        };
-                        format!("{name} ({})", task.id)
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "task has open subtasks: {listed}")
-            }
-            PlanError::TransitionDenied { from, to } => {
-                write!(
-                    f,
-                    "task status transition {from:?} -> {to:?} is not allowed"
-                )
-            }
-            PlanError::UndeclaredKind { declared } => {
-                write!(
-                    f,
-                    "undeclared milestone kind; declared: {}",
-                    declared.join(", ")
-                )
-            }
-            PlanError::BudgetExhausted { count, budget } => {
-                write!(f, "loop budget {count}/{budget} reached")
-            }
-            PlanError::BadStatus => write!(f, "invalid status"),
-            PlanError::BadPriority => write!(f, "invalid priority"),
-            PlanError::Io(e) => write!(f, "io error: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for PlanError {}
-
-impl PlanError {
-    pub fn to_json(&self) -> serde_json::Value {
-        match self {
-            PlanError::NotFound => serde_json::json!({ "type": "not_found" }),
-            PlanError::ElementNotFound => serde_json::json!({ "type": "element_not_found" }),
-            PlanError::TaskNotFound => serde_json::json!({ "type": "task_not_found" }),
-            PlanError::OpenSubtasks { subtasks } => {
-                serde_json::json!({ "type": "open_subtasks", "subtasks": subtasks })
-            }
-            PlanError::TransitionDenied { from, to } => {
-                serde_json::json!({ "type": "transition_denied", "from": from, "to": to })
-            }
-            PlanError::UndeclaredKind { declared } => {
-                serde_json::json!({ "type": "undeclared_kind", "declared": declared })
-            }
-            PlanError::BudgetExhausted { count, budget } => {
-                serde_json::json!({ "type": "budget_exhausted", "count": count, "budget": budget })
-            }
-            PlanError::BadStatus => serde_json::json!({ "type": "bad_status" }),
-            PlanError::BadPriority => serde_json::json!({ "type": "bad_priority" }),
-            PlanError::Io(message) => serde_json::json!({ "type": "io", "message": message }),
-        }
-    }
-}
-
-#[derive(Default)]
-pub struct NewTask {
-    pub name: String,
-    pub kind: String,
-    pub section_ids: Vec<String>,
-    pub model: Option<String>,
-    pub model_rationale: Option<String>,
-    pub acceptance_criteria: Vec<String>,
-    pub test_plan: Option<String>,
-    pub correctness: Option<String>,
-    pub body: String,
-    pub intent: Option<String>,
-    pub parent_task_id: Option<String>,
-    pub assigned_pane_id: Option<String>,
-    pub lane: TaskLaneMetadata,
-    pub group: Option<String>,
-    pub priority: Option<crate::plan::TaskPriority>,
-    pub handle: Option<String>,
-    pub tags: Vec<String>,
-}
-
-#[derive(Default)]
-pub struct TaskLaneUpdate {
-    pub pane_id: Option<Option<String>>,
-    pub workspace_id: Option<Option<String>>,
-    pub workspace_name: Option<Option<String>>,
-    pub worktree_path: Option<Option<String>>,
-    pub branch: Option<Option<String>>,
-    pub base: Option<Option<String>>,
-    pub destination: Option<Option<String>>,
-    pub cleanup_status: Option<Option<String>>,
-    pub cleanup_hints: Option<Vec<String>>,
-}
-
-impl TaskLaneUpdate {
-    pub fn is_empty(&self) -> bool {
-        self.pane_id.is_none()
-            && self.workspace_id.is_none()
-            && self.workspace_name.is_none()
-            && self.worktree_path.is_none()
-            && self.branch.is_none()
-            && self.base.is_none()
-            && self.destination.is_none()
-            && self.cleanup_status.is_none()
-            && self.cleanup_hints.is_none()
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct IndexEntry {
-    pub plan_id: String,
-    pub file_path: PathBuf,
-    pub owner: OrchestratorRef,
-    pub title: String,
-    pub status: PlanStatus,
-    pub updated_at: u64,
-    pub assigned_pane_ids: Vec<String>,
-    pub task_count: usize,
-    pub section_count: usize,
-    pub element_count: usize,
-    pub loop_count: usize,
-    pub has_goal: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SpecIndexEntry {
-    pub spec_id: String,
-    pub file_path: PathBuf,
-    pub title: String,
-    pub status: PlanStatus,
-    pub updated_at: u64,
-    pub project_path: String,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct ReconcileFixResult {
-    pub plan_id: String,
-    pub task_id: String,
-    pub kind: DriftKind,
-    pub action: String,
-}
+pub use types::{
+    IndexEntry, NewTask, OpenSubtask, PlanError, ReconcileFixResult, SpecIndexEntry, TaskLaneUpdate,
+};
 
 #[derive(Default)]
 pub struct PlanStore {
@@ -248,53 +108,64 @@ impl PlanStore {
     }
 
     fn file_path(plan: &Plan) -> std::io::Result<PathBuf> {
-        let dir = paths::plans_dir(Path::new(&plan.project_path))?;
-        let stem = if plan.id == INBOX_PLAN_ID {
-            INBOX_PLAN_FILE_STEM
-        } else {
-            &plan.id
-        };
-        Ok(dir.join(format!("{stem}.json")))
+        paths::plan_json_path(paths::plan_sidecar_root(plan), &plan.status, &plan.id)
     }
 
     fn write_atomic(plan: &Plan) -> std::io::Result<PathBuf> {
         let path = Self::file_path(plan)?;
-        let tmp = path.with_extension("json.tmp");
         let mut normalized = plan.clone();
+        if normalized.canonical_project_path.trim().is_empty() {
+            normalized.canonical_project_path = normalized.project_path.clone();
+        }
         tag_model::normalize_plan(&mut normalized);
         body_files::persist_bodies(&normalized)?;
         let json_plan = body_files::strip_bodies(&normalized);
         let json = serde_json::to_string_pretty(&json_plan)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        std::fs::write(&tmp, json)?;
-        std::fs::rename(&tmp, &path)?;
+        atomic_write::write_atomic(&path, json)?;
+        Self::remove_other_status_dir(plan, &path)?;
         Ok(path)
     }
 
+    fn remove_other_status_dir(plan: &Plan, written_path: &Path) -> std::io::Result<()> {
+        let project = paths::plan_sidecar_root(plan);
+        for status in [PlanStatus::Active, PlanStatus::Archived] {
+            if paths::plan_bucket(&status) == paths::plan_bucket(&plan.status) {
+                continue;
+            }
+            let dir = paths::plan_dir(project, &status, &plan.id)?;
+            if !written_path.starts_with(&dir) && dir.is_dir() {
+                std::fs::remove_dir_all(dir)?;
+            }
+        }
+        Ok(())
+    }
+
     fn spec_file_path(spec: &Spec) -> std::io::Result<PathBuf> {
-        Ok(paths::specs_dir(Path::new(&spec.project_path))?.join(format!("{}.json", spec.id)))
+        Ok(paths::specs_dir(paths::spec_sidecar_root(spec))?.join(format!("{}.json", spec.id)))
     }
 
     fn write_spec_atomic(spec: &Spec) -> std::io::Result<PathBuf> {
         let path = Self::spec_file_path(spec)?;
-        let tmp = path.with_extension("json.tmp");
         let mut normalized = spec.clone();
+        if normalized.canonical_project_path.trim().is_empty() {
+            normalized.canonical_project_path = normalized.project_path.clone();
+        }
         tag_model::normalize_sections_for_spec(&mut normalized.sections);
         spec_files::persist_bodies(&normalized)?;
         let json_spec = spec_files::strip_bodies(&normalized);
         let json = serde_json::to_string_pretty(&json_spec)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        std::fs::write(&tmp, json)?;
-        std::fs::rename(&tmp, &path)?;
+        atomic_write::write_atomic(&path, json)?;
         Ok(path)
     }
 
     fn note_write(&self, path: &Path) {
-        if let Ok(meta) = std::fs::metadata(path) {
+        // Canonicalize so the key is stable across \\?\ vs plain-drive representations on Windows.
+        let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        if let Ok(meta) = std::fs::metadata(&key) {
             if let Ok(modified) = meta.modified() {
-                self.last_writes
-                    .write()
-                    .insert(path.to_path_buf(), modified);
+                self.last_writes.write().insert(key, modified);
             }
         }
     }
@@ -318,7 +189,8 @@ impl PlanStore {
     }
 
     pub fn is_own_recent_write(&self, path: &Path) -> bool {
-        let Ok(meta) = std::fs::metadata(path) else {
+        let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let Ok(meta) = std::fs::metadata(&key) else {
             return false;
         };
         let Ok(modified) = meta.modified() else {
@@ -326,7 +198,7 @@ impl PlanStore {
         };
         self.last_writes
             .read()
-            .get(path)
+            .get(&key)
             .is_some_and(|last| *last == modified)
     }
 
@@ -341,9 +213,18 @@ impl PlanStore {
             assigned_pane_ids: plan
                 .tasks
                 .iter()
-                .filter_map(|t| t.assigned_pane_id.clone())
+                .filter(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
+                .filter_map(|t| {
+                    let pane_id = t.assigned_pane_id.as_deref()?.trim();
+                    (!pane_id.is_empty()).then(|| pane_id.to_string())
+                })
                 .collect(),
             task_count: plan.tasks.len(),
+            open_task_count: plan
+                .tasks
+                .iter()
+                .filter(|t| t.status.counts_as_open_work())
+                .count(),
             section_count: plan.sections.len(),
             element_count: plan.elements.len(),
             loop_count: plan.loops.len(),
@@ -446,10 +327,15 @@ impl PlanStore {
 
     pub(super) fn commit_loaded_plan(&self, plan: Plan) -> Result<(), PlanError> {
         let committed = self.upsert_plan_arc(plan);
-        self.mirror_plan_index(&committed)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
         let path = Self::write_atomic(&committed).map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_plan_write(&committed, &path);
+        if let Err(e) = self.mirror_plan_index(&committed) {
+            log::warn!(
+                "[plan.index] mirror lag in commit_loaded_plan for {}: {}",
+                committed.id,
+                e
+            );
+        }
         let entry = Self::index_entry(&committed, path);
         self.index.write().insert(committed.id.clone(), entry);
         self.reset_bound_panes(&committed);
@@ -458,10 +344,15 @@ impl PlanStore {
 
     pub(super) fn commit_loaded_spec(&self, spec: Spec) -> Result<(), PlanError> {
         let committed = self.upsert_spec_arc(spec);
-        self.mirror_spec_index(&committed)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
         let path = Self::write_spec_atomic(&committed).map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_spec_write(&committed, &path);
+        if let Err(e) = self.mirror_spec_index(&committed) {
+            log::warn!(
+                "[plan.index] mirror lag in commit_loaded_spec for {}: {}",
+                committed.id,
+                e
+            );
+        }
         let entry = Self::spec_index_entry(&committed, path);
         self.spec_index.write().insert(committed.id.clone(), entry);
         Ok(())
@@ -471,7 +362,7 @@ impl PlanStore {
         let json = std::fs::read_to_string(&path).map_err(|e| PlanError::Io(e.to_string()))?;
         let mut plan: Plan =
             serde_json::from_str(&json).map_err(|e| PlanError::Io(e.to_string()))?;
-        plan.project_path = project_root.display().to_string();
+        paths::normalize_plan_paths(&mut plan, project_root);
         let migrated =
             body_files::hydrate_and_migrate(&mut plan).map_err(|e| PlanError::Io(e.to_string()))?;
         tag_model::normalize_plan(&mut plan);
@@ -480,8 +371,6 @@ impl PlanStore {
             self.note_plan_write(&plan, &path);
         }
         let committed = self.upsert_plan_arc(plan);
-        self.mirror_plan_index(&committed)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_plan_write(&committed, &path);
         let entry = Self::index_entry(&committed, path);
         self.index.write().insert(committed.id.clone(), entry);
@@ -496,7 +385,7 @@ impl PlanStore {
         let json = std::fs::read_to_string(&path).map_err(|e| PlanError::Io(e.to_string()))?;
         let mut spec: Spec =
             serde_json::from_str(&json).map_err(|e| PlanError::Io(e.to_string()))?;
-        spec.project_path = project_root.display().to_string();
+        paths::normalize_spec_paths(&mut spec, project_root);
         let migrated =
             spec_files::hydrate_and_migrate(&mut spec).map_err(|e| PlanError::Io(e.to_string()))?;
         if migrated {
@@ -504,8 +393,6 @@ impl PlanStore {
             self.note_spec_write(&spec, &path);
         }
         let committed = self.upsert_spec_arc(spec);
-        self.mirror_spec_index(&committed)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_spec_write(&committed, &path);
         let entry = Self::spec_index_entry(&committed, path);
         self.spec_index.write().insert(committed.id.clone(), entry);
@@ -516,17 +403,22 @@ impl PlanStore {
         let project_root = paths::project_root(project_path);
         let plans_dir =
             paths::plans_dir(&project_root).map_err(|e| PlanError::Io(e.to_string()))?;
-        let entries = std::fs::read_dir(&plans_dir).map_err(|e| PlanError::Io(e.to_string()))?;
-        for entry in entries {
-            let Ok(entry) = entry else {
+        for bucket in ["active", "archive"] {
+            let bucket_dir = plans_dir.join(bucket);
+            let Ok(entries) = std::fs::read_dir(&bucket_dir) else {
                 continue;
             };
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                continue;
-            }
-            if let Err(e) = self.load_file_into_index(path.clone(), &project_root) {
-                log::warn!("[plan] skip malformed plan {}: {}", path.display(), e);
+            for entry in entries {
+                let Ok(entry) = entry else {
+                    continue;
+                };
+                let path = entry.path().join("plan.json");
+                if !path.is_file() {
+                    continue;
+                }
+                if let Err(e) = self.load_file_into_index(path.clone(), &project_root) {
+                    log::warn!("[plan] skip malformed plan {}: {}", path.display(), e);
+                }
             }
         }
         let specs_dir =
@@ -552,6 +444,9 @@ impl PlanStore {
         if plan.created_at == 0 {
             plan.created_at = now_ms;
         }
+        if plan.canonical_project_path.trim().is_empty() {
+            plan.canonical_project_path = plan.project_path.clone();
+        }
         plan.updated_at = now_ms;
         tag_model::normalize_plan(plan);
         let id = plan.id.clone();
@@ -572,8 +467,9 @@ impl PlanStore {
         *plan = guard.clone();
         let path = Self::write_atomic(&guard)?;
         self.note_plan_write(&guard, &path);
-        self.mirror_plan_index(&guard)
-            .map_err(std::io::Error::other)?;
+        if let Err(e) = self.mirror_plan_index(&guard) {
+            log::warn!("[plan.index] mirror lag in save for {}: {}", guard.id, e);
+        }
         self.index
             .write()
             .insert(guard.id.clone(), Self::index_entry(&guard, path));
@@ -583,6 +479,9 @@ impl PlanStore {
     pub fn save_spec(&self, spec: &mut Spec, now_ms: u64) -> std::io::Result<()> {
         if spec.created_at == 0 {
             spec.created_at = now_ms;
+        }
+        if spec.canonical_project_path.trim().is_empty() {
+            spec.canonical_project_path = spec.project_path.clone();
         }
         spec.updated_at = now_ms;
         tag_model::normalize_sections_for_spec(&mut spec.sections);
@@ -604,8 +503,13 @@ impl PlanStore {
         *spec = guard.clone();
         let path = Self::write_spec_atomic(&guard)?;
         self.note_spec_write(&guard, &path);
-        self.mirror_spec_index(&guard)
-            .map_err(std::io::Error::other)?;
+        if let Err(e) = self.mirror_spec_index(&guard) {
+            log::warn!(
+                "[plan.index] mirror lag in save_spec for {}: {}",
+                guard.id,
+                e
+            );
+        }
         self.spec_index
             .write()
             .insert(guard.id.clone(), Self::spec_index_entry(&guard, path));
@@ -708,7 +612,7 @@ impl PlanStore {
             )));
         }
         let project_root = paths::project_root(Path::new(&plan.project_path));
-        plan.project_path = project_root.display().to_string();
+        paths::normalize_plan_paths(&mut plan, &project_root);
         let migrated =
             body_files::hydrate_and_migrate(&mut plan).map_err(|e| PlanError::Io(e.to_string()))?;
         tag_model::normalize_plan(&mut plan);
@@ -744,6 +648,9 @@ impl PlanStore {
     }
 
     pub fn task_binding_for_pane(&self, pane_id: &str) -> Option<(String, String)> {
+        if pane_id.trim().is_empty() {
+            return None;
+        }
         for plan in self.plans.read().values() {
             let plan = plan.lock();
             if plan.status != PlanStatus::Active {
@@ -752,6 +659,7 @@ impl PlanStore {
             if let Some(task) = plan
                 .tasks
                 .iter()
+                .filter(|t| !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled))
                 .find(|t| t.assigned_pane_id.as_deref() == Some(pane_id))
             {
                 return Some((plan.id.clone(), task.id.clone()));
@@ -760,7 +668,83 @@ impl PlanStore {
         None
     }
 
+    pub fn report_pending_task_binding_for_pane(&self, pane_id: &str) -> Option<(String, String)> {
+        if pane_id.trim().is_empty() {
+            return None;
+        }
+        for plan in self.plans.read().values() {
+            let plan = plan.lock();
+            if plan.status != PlanStatus::Active || plan.mode != PlanMode::Execution {
+                continue;
+            }
+            if let Some(task) = plan
+                .tasks
+                .iter()
+                .filter(|t| {
+                    matches!(
+                        t.status,
+                        TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::Blocked
+                    )
+                })
+                .find(|t| t.assigned_pane_id.as_deref() == Some(pane_id))
+            {
+                return Some((plan.id.clone(), task.id.clone()));
+            }
+        }
+        None
+    }
+
+    pub fn active_owned_plan_with_open_work_for_pane(&self, pane_id: &str) -> Option<String> {
+        if pane_id.trim().is_empty() {
+            return None;
+        }
+        for plan in self.plans.read().values() {
+            let plan = plan.lock();
+            if plan.status != PlanStatus::Active
+                || plan.mode != PlanMode::Execution
+                || plan.owner.pane_id.as_deref() != Some(pane_id)
+            {
+                continue;
+            }
+            if plan.tasks.iter().any(|t| t.status.counts_as_open_work()) {
+                return Some(plan.id.clone());
+            }
+        }
+        None
+    }
+
+    pub fn active_owned_plan_frontier_for_pane(
+        &self,
+        pane_id: &str,
+    ) -> Option<(String, usize, usize)> {
+        if pane_id.trim().is_empty() {
+            return None;
+        }
+        for plan in self.plans.read().values() {
+            let plan = plan.lock();
+            if plan.status != PlanStatus::Active
+                || plan.mode != PlanMode::Execution
+                || plan.owner.pane_id.as_deref() != Some(pane_id)
+            {
+                continue;
+            }
+            let pending = plan
+                .tasks
+                .iter()
+                .filter(|task| task.status == TaskStatus::Pending)
+                .count();
+            if pending == 0 {
+                continue;
+            }
+            return Some((plan.id.clone(), pending, plan.heartbeat.active_lanes.len()));
+        }
+        None
+    }
+
     pub fn task_bindings_for_pane(&self, pane_id: &str) -> Vec<(String, String)> {
+        if pane_id.trim().is_empty() {
+            return Vec::new();
+        }
         self.list_full()
             .into_iter()
             .filter(|plan| plan.status == PlanStatus::Active)
@@ -768,88 +752,30 @@ impl PlanStore {
                 let plan_id = plan.id.clone();
                 plan.tasks
                     .into_iter()
+                    .filter(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
                     .filter(move |task| task.assigned_pane_id.as_deref() == Some(pane_id))
                     .map(move |task| (plan_id.clone(), task.id))
             })
             .collect()
     }
 
-    pub fn apply_reconcile_fixes(
-        &self,
-        plan_id: &str,
-        items: &[DriftItem],
-        now_ms: u64,
-    ) -> Result<Vec<ReconcileFixResult>, PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let mut changed = Vec::new();
-            for item in items.iter().filter(|item| !item.not_mine) {
-                let Some(task) = plan.tasks.iter_mut().find(|task| task.id == item.task_id) else {
-                    continue;
-                };
-                match item.kind {
-                    DriftKind::InProgressPaneGone => {
-                        task.assigned_pane_id = None;
-                        task.status_label = Some(NEEDS_REASSIGN_LABEL.into());
-                        task.updated_at = now_ms;
-                        changed.push(ReconcileFixResult {
-                            plan_id: plan_id.into(),
-                            task_id: task.id.clone(),
-                            kind: item.kind.clone(),
-                            action: "cleared_assignment_set_needs_reassign".into(),
-                        });
-                    }
-                    DriftKind::StaleInReview => {
-                        task.status_label = Some(STALE_REVIEW_LABEL.into());
-                        task.updated_at = now_ms;
-                        changed.push(ReconcileFixResult {
-                            plan_id: plan_id.into(),
-                            task_id: task.id.clone(),
-                            kind: item.kind.clone(),
-                            action: "set_stale_review_label".into(),
-                        });
-                    }
-                    DriftKind::BoundToClosedPane => {
-                        task.assigned_pane_id = None;
-                        task.updated_at = now_ms;
-                        changed.push(ReconcileFixResult {
-                            plan_id: plan_id.into(),
-                            task_id: task.id.clone(),
-                            kind: item.kind.clone(),
-                            action: "cleared_dead_assignment".into(),
-                        });
-                    }
-                    DriftKind::AcceptedButNotDone => {
-                        task.status = TaskStatus::Done;
-                        task.status_changed_at = now_ms;
-                        task.updated_at = now_ms;
-                        changed.push(ReconcileFixResult {
-                            plan_id: plan_id.into(),
-                            task_id: task.id.clone(),
-                            kind: item.kind.clone(),
-                            action: "set_done".into(),
-                        });
-                    }
-                }
-            }
-            Ok(changed)
-        })
-    }
-
-    pub fn flag_pane_gone(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        now_ms: u64,
-    ) -> Result<bool, PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let Some(task) = plan.tasks.iter_mut().find(|task| task.id == task_id) else {
-                return Ok(false);
-            };
-            task.assigned_pane_id = None;
-            task.status_label = Some(PANE_GONE_LABEL.into());
-            task.updated_at = now_ms;
-            Ok(true)
-        })
+    /// Like `task_bindings_for_pane` but also returns the task name for error messages.
+    pub fn task_bindings_with_name_for_pane(&self, pane_id: &str) -> Vec<(String, String, String)> {
+        if pane_id.trim().is_empty() {
+            return Vec::new();
+        }
+        self.list_full()
+            .into_iter()
+            .filter(|plan| plan.status == PlanStatus::Active)
+            .flat_map(|plan| {
+                let plan_id = plan.id.clone();
+                plan.tasks
+                    .into_iter()
+                    .filter(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
+                    .filter(move |task| task.assigned_pane_id.as_deref() == Some(pane_id))
+                    .map(move |task| (plan_id.clone(), task.id, task.name))
+            })
+            .collect()
     }
 
     pub fn list_index(&self) -> Vec<IndexEntry> {
@@ -869,18 +795,79 @@ impl PlanStore {
     }
 
     pub fn delete(&self, id: &str) -> std::io::Result<()> {
+        let (plan, entry_path) = self.forget_plan(id);
+        if let Some(path) = entry_path {
+            let _ = std::fs::remove_file(&path);
+        }
+        if let Some(plan) = plan {
+            let _ = body_files::remove_body_dir(&plan);
+        }
+        Ok(())
+    }
+
+    /// Drop a plan from the in-memory index + search units without touching disk.
+    fn forget_plan(&self, id: &str) -> (Option<Plan>, Option<PathBuf>) {
         let plan = self
             .plans
             .write()
             .remove(id)
             .map(|plan| plan.lock().clone());
-        if let Some(entry) = self.index.write().remove(id) {
-            let _ = std::fs::remove_file(&entry.file_path);
+        let entry_path = self.index.write().remove(id).map(|e| e.file_path);
+        if let Some(plan) = plan.as_ref() {
+            let _ = search_index::delete_plan_units(plan);
         }
-        if let Some(plan) = plan {
-            let _ = search_index::delete_plan_units(&plan);
-            let _ = body_files::remove_body_dir(&plan);
+        (plan, entry_path)
+    }
+
+    fn find_plan_json_on_disk(&self, project_root: &Path, plan_id: &str) -> Option<PathBuf> {
+        for status in [PlanStatus::Active, PlanStatus::Archived] {
+            let path = paths::plan_json_path_unchecked(project_root, &status, plan_id);
+            if path.is_file() {
+                return Some(path);
+            }
         }
-        Ok(())
+        None
+    }
+
+    /// Reconcile one plan against its on-disk sidecar after an external FS event.
+    /// Loaded=added/updated, Removed=external delete, Unchanged=own write, Absent=nothing.
+    pub fn reconcile_watched_plan(
+        &self,
+        project_root: &Path,
+        plan_id: &str,
+    ) -> Result<WatchOutcome, PlanError> {
+        match self.find_plan_json_on_disk(project_root, plan_id) {
+            Some(path) => {
+                if self.is_own_recent_write(&path) {
+                    return Ok(WatchOutcome::Unchanged);
+                }
+                self.load_file_into_index(path, project_root)?;
+                Ok(WatchOutcome::Loaded)
+            }
+            None => {
+                let known = self.plans.read().contains_key(plan_id)
+                    || self.index.read().contains_key(plan_id);
+                if known {
+                    self.forget_plan(plan_id);
+                    Ok(WatchOutcome::Removed)
+                } else {
+                    Ok(WatchOutcome::Absent)
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WatchOutcome {
+    Loaded,
+    Removed,
+    Unchanged,
+    Absent,
+}
+
+impl WatchOutcome {
+    pub fn should_emit(self) -> bool {
+        matches!(self, WatchOutcome::Loaded | WatchOutcome::Removed)
     }
 }

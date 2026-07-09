@@ -54,6 +54,9 @@ pub(super) fn dispatch(
             if let Some(ref warning) = result.warning {
                 resp["warning"] = serde_json::json!(warning);
             }
+            if let Some(ref notice) = result.budget_notice {
+                resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
+            }
             if let Some(hint) = crate::service::plan::hints::maybe_orchestration_reminder() {
                 resp["_hints"] = serde_json::json!([hint]);
             }
@@ -78,7 +81,6 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("kind"))
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
-            // Optional structured fields (status/branch/sha/...) ride alongside
             // the freeform message; absent keys deserialize to None.
             let details = params
                 .as_ref()
@@ -99,10 +101,14 @@ pub(super) fn dispatch(
                     message: e,
                     data: None,
                 })?;
-            Ok(serde_json::json!({
+            let mut resp = serde_json::json!({
                 "ok": true,
                 "report_id": result.report_id,
-            }))
+            });
+            if !result.notices.is_empty() {
+                resp["notices"] = serde_json::json!(result.notices);
+            }
+            Ok(resp)
         }
 
         "agent.reports" => {

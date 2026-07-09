@@ -56,7 +56,6 @@ fn classify_rate_limit_menu_round_trips_native_types() {
         resume.then_keys.as_deref(),
         Some(["enter".to_string()].as_slice())
     );
-    // resetAt + the resume's `at` are real RFC3339 instants the reactor can
     // hand straight to delayed-send (parse_iso_to_ms there).
     let reset_at = c.data.and_then(|d| d.reset_at).expect("data.resetAt set");
     let reset = chrono::DateTime::parse_from_rfc3339(&reset_at).expect("resetAt is RFC3339");
@@ -100,7 +99,6 @@ fn classify_normal_screen_is_not_actionable() {
 
 #[test]
 fn parse_interactive_events_native_js_parity() {
-    // No bundled-plugin dependency (inline JS + native impl), so this always
     // runs — the parity gate must not silently skip.
     let n = ClaudeProvider::new();
     let j = claude_interactive_js();
@@ -212,20 +210,17 @@ fn rich_flatten_parity_block_derivable_kinds() {
 
     let by_kind = |k: &str| msgs.iter().filter(|m| m.kind == k).collect::<Vec<_>>();
 
-    // user text
     let users = by_kind("user");
     assert!(
         users.iter().any(|m| m.content == "refactor please"),
         "user text lost: {users:#?}"
     );
 
-    // assistant text
     assert!(
         by_kind("assistant").iter().any(|m| m.content == "on it"),
         "assistant text lost"
     );
 
-    // thinking — truncated to 200 chars + ellipsis, collapsed
     let think = by_kind("thinking");
     assert_eq!(think.len(), 1, "exactly one thinking block");
     assert!(think[0].collapsed, "thinking must be collapsed");
@@ -259,7 +254,6 @@ fn rich_flatten_parity_block_derivable_kinds() {
         args.len()
     );
 
-    // tool_result — both assistant-turn (u1) and user-turn (u2), toolId + collapsed
     let results = by_kind("tool_result");
     assert_eq!(results.len(), 2, "both tool_results surfaced: {results:#?}");
     assert!(results
@@ -282,7 +276,6 @@ fn rich_flatten_parity_block_derivable_kinds() {
     assert_eq!(atts[0].mime_type, "image/png");
     assert_eq!(atts[0].data.as_deref(), Some("BASE64DATA"));
 
-    // assistant standalone image
     let images = by_kind("image");
     assert_eq!(images.len(), 1, "standalone image lost");
     assert_eq!(images[0].image_mime_type.as_deref(), Some("image/jpeg"));
@@ -302,19 +295,14 @@ fn rich_flatten_parity_system_meta_local_command() {
     let j = load_js("claude");
 
     let jsonl = concat!(
-        // plain system row with a subtype
         r#"{"type":"system","subtype":"hint","content":"heads up","uuid":"s1"}"#,
         "\n",
-        // isMeta user row → system, skill_context subtype via content prefix
         r#"{"type":"user","isMeta":true,"uuid":"m1","message":{"role":"user","content":"Base directory for this skill: /x/y"}}"#,
         "\n",
-        // isMeta user row → system, generic meta subtype
         r#"{"type":"user","isMeta":true,"uuid":"m2","message":{"role":"user","content":"<system reminder>be nice"}}"#,
         "\n",
-        // local-command echo in a user string turn → local_command + tagName
         r#"{"type":"user","uuid":"c1","message":{"role":"user","content":"<command-name>compact</command-name>"}}"#,
         "\n",
-        // a normal user turn must still be a user message, with its uuid as id base
         r#"{"type":"user","uuid":"u9","message":{"role":"user","content":"hi there"}}"#,
         "\n",
     );
@@ -350,7 +338,6 @@ fn rich_flatten_parity_system_meta_local_command() {
     assert_eq!(local.tag_name.as_deref(), Some("command-name"));
     assert_eq!(local.content, "compact");
 
-    // Normal user turn survives, and its id is uuid-derived (stable for
     // streaming mergeById, not a volatile delta index).
     let user =
         find(&|m| m.kind == "user" && m.content == "hi there").expect("normal user turn lost");
@@ -422,7 +409,6 @@ fn parse_session_delta_holds_back_partial_line() {
     std::fs::write(tmp.path(), jsonl).unwrap();
     let delta = j.parse_session_delta(tmp.path(), 0);
     assert_eq!(delta.messages.len(), 1, "partial line must be held back");
-    // new_offset = exactly the byte after the first \n
     let first_line_end = (jsonl.find('\n').unwrap() + 1) as u64;
     assert_eq!(delta.new_offset, first_line_end);
 }

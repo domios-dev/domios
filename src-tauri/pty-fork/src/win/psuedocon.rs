@@ -17,8 +17,7 @@ use winapi::shared::winerror::{HRESULT, S_OK};
 use winapi::um::handleapi::*;
 use winapi::um::processthreadsapi::*;
 use winapi::um::winbase::{
-    CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, STARTF_USESHOWWINDOW,
-    STARTF_USESTDHANDLES, STARTUPINFOEXW,
+    CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, STARTF_USESHOWWINDOW, STARTUPINFOEXW,
 };
 use winapi::um::wincon::COORD;
 use winapi::um::winnt::HANDLE;
@@ -44,18 +43,41 @@ shared_library!(ConPtyFuncs,
     pub fn ClosePseudoConsole(hpc: HPCON),
 );
 
+// Sideload conpty.dll (+ its sibling OpenConsole.exe) by ABSOLUTE path so
+// CreatePseudoConsole uses the windowless host, not the flashing in-box conhost.
+fn sideloaded_conpty() -> Option<ConPtyFuncs> {
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(d) = std::env::var_os("CODETERM_CONPTY_DIR") {
+        dirs.push(std::path::PathBuf::from(d));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            dirs.push(parent.to_path_buf());
+        }
+    }
+    for dir in dirs {
+        let dll = dir.join("conpty.dll");
+        if dll.exists() {
+            if let Ok(funcs) = ConPtyFuncs::open(&dll) {
+                eprintln!("[conpty] sideloaded host: {}", dll.display());
+                return Some(funcs);
+            }
+        }
+    }
+    None
+}
+
 fn load_conpty() -> ConPtyFuncs {
     // If the kernel doesn't export these functions then their system is too old and we cannot run.
     let kernel = ConPtyFuncs::open(Path::new("kernel32.dll")).expect(
         "this system does not support conpty.  Windows 10 October 2018 or newer is required",
     );
-
-    // We prefer to use a sideloaded conpty.dll and openconsole.exe host deployed alongside the application. We check for this after checking for
-    // kernel support so that we don't try to proceed and do something crazy.
-    if let Ok(sideloaded) = ConPtyFuncs::open(Path::new("conpty.dll")) {
-        sideloaded
-    } else {
-        kernel
+    match sideloaded_conpty() {
+        Some(funcs) => funcs,
+        None => {
+            eprintln!("[conpty] in-box conhost (no sideloaded conpty.dll found)");
+            kernel
+        }
     }
 }
 
@@ -142,15 +164,10 @@ impl PsuedoCon {
     pub fn spawn_command(&self, cmd: CommandBuilder) -> anyhow::Result<WinChild> {
         let mut si: STARTUPINFOEXW = unsafe { mem::zeroed() };
         si.StartupInfo.cb = mem::size_of::<STARTUPINFOEXW>() as u32;
-        // Reset stdio handles to INVALID_HANDLE to prevent children inheriting parent redirections.
-        // Without this, detached children may write output to a log file instead of PTY.
-        // SW_HIDE suppresses the transient console window without CREATE_NO_WINDOW, which would
-        // detach the child from the pseudoconsole and leave every terminal blank (see psuedocon notes).
-        si.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+        // The pseudoconsole attribute owns stdio. Passing INVALID std handles here makes
+        // console children allocate a legacy conhost.exe beside the real headless ConPTY host.
+        si.StartupInfo.dwFlags = STARTF_USESHOWWINDOW;
         si.StartupInfo.wShowWindow = SW_HIDE as u16;
-        si.StartupInfo.hStdInput = INVALID_HANDLE_VALUE;
-        si.StartupInfo.hStdOutput = INVALID_HANDLE_VALUE;
-        si.StartupInfo.hStdError = INVALID_HANDLE_VALUE;
 
         let mut attrs = ProcThreadAttributeList::with_capacity(1)?;
         attrs.set_pty(self.con)?;

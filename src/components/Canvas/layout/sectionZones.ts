@@ -1,16 +1,9 @@
 import type { Box, Point } from "./geometry";
 
-// Section TERRITORIES: an organic region that HUGS a section's task cluster —
-// deliberately NOT a circle or rectangle. We take the cluster's box corners, build
-// a convex hull, offset it outward along each vertex bisector, and (at render) smooth
-// it into a soft blob. All O(points); points = 4·tasks in the group, small.
 
 export const ZONE_PADDING = 24; // outward inflation from the hull (world px)
 export const ZONE_GAP = 16; // small breathing gap between adjacent section zones (world px)
 
-// Zone-label sizing — the SINGLE source of truth shared by the packer (reserves a
-// tile this size so cards pack around it) and the renderer (draws the pill this size).
-// The tile sizes to the FULL title (clamped), wrapping to ≤2 lines instead of ellipsis.
 export const ZONE_LABEL_FONT = 18;
 const LABEL_CHAR_W = ZONE_LABEL_FONT * 0.56;
 const LABEL_LINE_H = ZONE_LABEL_FONT * 1.28;
@@ -44,9 +37,6 @@ export function zoneLabelBox(title: string): ZoneLabelBox {
   return { width: LABEL_MAX_W, height: Math.round(lines.length * LABEL_LINE_H + LABEL_PAD_Y), lines };
 }
 
-// Points sampled around each task box's circumscribing circle (inflated by pad).
-// Hulling CIRCLE samples — not box corners — makes the silhouette hug arcs, so the
-// territory reads as a genuinely ROUND blob, not a polygon with long straight sides.
 const CIRCLE_SAMPLES = 16;
 
 function circleSamples(boxes: Box[], pad: number): Point[] {
@@ -84,7 +74,6 @@ export function convexHull(points: Point[]): Point[] {
   return lower.concat(upper);
 }
 
-// Chaikin corner-cutting: each pass replaces a vertex with points at ¼ and ¾ of its
 // two edges → sharp corners round off. Several passes turn the hull into a soft blob.
 export function roundPolygon(points: Point[], iterations = 3): Point[] {
   let pts = points;
@@ -101,7 +90,6 @@ export function roundPolygon(points: Point[], iterations = 3): Point[] {
   return pts;
 }
 
-// Closed Catmull-Rom → cubic-bézier path over a Chaikin-rounded outline. Soft
 // territory boundary, never a polygon with visible corners.
 export function smoothClosedPath(rawPoints: Point[]): string {
   const points = roundPolygon(rawPoints, 3);
@@ -125,15 +113,30 @@ export function smoothClosedPath(rawPoints: Point[]): string {
   return d + " Z";
 }
 
-// Deterministic, distinct hue per section id (no section-color source exists yet;
-// tag-facet wiring is a follow-up). Golden-angle hue spacing → adjacent sections
-// read as clearly different territories.
 export function zoneColor(sectionId: string): string {
   let h = 0;
   for (let i = 0; i < sectionId.length; i++) h = (h * 31 + sectionId.charCodeAt(i)) >>> 0;
   const hue = (h * 137.508) % 360;
   // Muted saturation — distinct hue per section but quiet, not loud.
   return `hsl(${hue.toFixed(1)} 38% 62%)`;
+}
+
+// Rounded-rect perimeter samples for v3 zone containers (clockwise from top-left).
+export function roundedRectHull(box: Box, radius: number): Point[] {
+  const r = Math.max(0, Math.min(radius, box.width / 2, box.height / 2));
+  const { x, y, width: w, height: h } = box;
+  const pts: Point[] = [];
+  const arc = (cx: number, cy: number, start: number, end: number) => {
+    for (let i = 0; i <= 4; i++) {
+      const a = start + ((end - start) * i) / 4;
+      pts.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+    }
+  };
+  arc(x + r, y + r, Math.PI, Math.PI * 1.5);
+  arc(x + w - r, y + r, Math.PI * 1.5, Math.PI * 2);
+  arc(x + w - r, y + h - r, 0, Math.PI * 0.5);
+  arc(x + r, y + h - r, Math.PI * 0.5, Math.PI);
+  return pts;
 }
 
 export interface ComputedZone {
@@ -151,17 +154,12 @@ export function zoneCentroid(boxes: Box[]): Point {
   return { x: x / boxes.length, y: y / boxes.length };
 }
 
-// Sutherland-Hodgman clip of a convex polygon to the half-plane of points closer to
-// `own` than to `other` (the perpendicular bisector). This is the Voronoi boundary
-// between two sections: clipping every zone against every other site's bisector makes
-// adjacent territories meet EXACTLY at a shared edge (flow together) and never overlap.
 function clipToBisector(poly: Point[], own: Point, other: Point, margin = 0): Point[] {
   if (poly.length < 3) return poly;
   const mx = (own.x + other.x) / 2;
   const my = (own.y + other.y) / 2;
   const nx = other.x - own.x;
   const ny = other.y - own.y;
-  // Pull the cut `margin` px toward the own site so neighbours leave a small gap
   // instead of sharing the exact bisector → zones breathe apart.
   const t = margin * Math.hypot(nx, ny);
   const side = (p: Point) => (p.x - mx) * nx + (p.y - my) * ny + t; // <= 0 → own side
@@ -180,10 +178,6 @@ function clipToBisector(poly: Point[], own: Point, other: Point, margin = 0): Po
   return out;
 }
 
-// One section's territory: the tight rounded hull HUGGING its own tasks (padded),
-// then clipped to its Voronoi cell (bisectors vs every other section centroid). It
-// hugs its tasks (never stretches to fill empty space), meets adjacent neighbours at
-// a shared bisector border (puzzle), and never overlaps. labelAnchor = topmost point.
 export function computeZonePolygon(boxes: Box[], ownSite: Point, otherSites: Point[], pad: number = ZONE_PADDING): ComputedZone {
   const hull = convexHull(circleSamples(boxes, pad));
   let poly = hull;

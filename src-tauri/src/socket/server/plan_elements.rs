@@ -9,7 +9,10 @@ use crate::service::ServiceState;
 use super::{get_string_param, JsonRpcError};
 
 pub(super) fn handles(method: &str) -> bool {
-    matches!(method, "plan.layout.set" | "plan.note.add") || method.starts_with("plan.element.")
+    matches!(
+        method,
+        "plan.layout.set" | "plan.note.add" | "plan.note.update"
+    ) || method.starts_with("plan.element.")
 }
 
 fn epoch_ms() -> u64 {
@@ -43,7 +46,7 @@ pub(super) fn dispatch(
 
     match method {
         "plan.layout.set" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = super::plan_refs::resolve_plan(store, params)?;
             let element = get_string_param(params, "element")?;
             store
                 .set_layout(
@@ -55,10 +58,10 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "plan_id": id }))
         }
         "plan.note.add" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = super::plan_refs::resolve_plan(store, params)?;
             let text = p
                 .and_then(|x| x.get("text"))
                 .and_then(|v| v.as_str())
@@ -81,7 +84,7 @@ pub(super) fn dispatch(
             Ok(json!({ "element_id": eid }))
         }
         "plan.element.add" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = super::plan_refs::resolve_plan(store, params)?;
             let kind = get_string_param(params, "kind")?;
             let content = p
                 .and_then(|x| x.get("content"))
@@ -105,8 +108,53 @@ pub(super) fn dispatch(
             emit_plan_changed(app, &id);
             Ok(json!({ "element_id": eid }))
         }
+        "plan.note.update" => {
+            let (id, element_id) = super::plan_refs::resolve_element(store, params)?;
+            let text = p
+                .and_then(|x| x.get("text"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            store
+                .update_element(
+                    &id,
+                    &element_id,
+                    Some("note"),
+                    Some(json!({ "text": text })),
+                    None,
+                    now,
+                )
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "element_id": element_id }))
+        }
+        "plan.element.update" => {
+            let (id, element_id) = super::plan_refs::resolve_element(store, params)?;
+            let links = p
+                .and_then(|x| x.get("links"))
+                .map(|v| serde_json::from_value(v.clone()).unwrap_or_default());
+            store
+                .update_element(
+                    &id,
+                    &element_id,
+                    p.and_then(|x| x.get("kind")).and_then(|v| v.as_str()),
+                    p.and_then(|x| x.get("content")).cloned(),
+                    links,
+                    now,
+                )
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "element_id": element_id }))
+        }
+        "plan.element.rm" => {
+            let (id, element_id) = super::plan_refs::resolve_element(store, params)?;
+            store
+                .rm_element(&id, &element_id, now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "element_id": element_id }))
+        }
         "plan.element.list" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = super::plan_refs::resolve_plan(store, params)?;
             let kind = p.and_then(|x| x.get("kind")).and_then(|v| v.as_str());
             let result = store.list_elements(&id, kind).map_err(plan_rpc_err)?;
             serde_json::to_value(result).map_err(|e| JsonRpcError {
@@ -116,8 +164,7 @@ pub(super) fn dispatch(
             })
         }
         "plan.element.show" => {
-            let id = get_string_param(params, "plan_id")?;
-            let element_id = get_string_param(params, "element_id")?;
+            let (id, element_id) = super::plan_refs::resolve_element(store, params)?;
             let result = store.show_element(&id, &element_id).map_err(plan_rpc_err)?;
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,

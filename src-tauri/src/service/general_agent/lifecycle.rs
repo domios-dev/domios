@@ -34,7 +34,6 @@ pub fn start_general_agent(
 
     let general_cwd = general_dir().to_string_lossy().to_string();
 
-    // Live PTY alone isn't enough: after snapshot rehydrate the frontend may race-spawn a bare shell into the pane while agent_type is
     // cosmetically restored — verify with screen markers and tear down the bare shell if no agent is running.
     {
         let (pane_id_opt, current_agent, current_pty_id) = {
@@ -54,8 +53,6 @@ pub fn start_general_agent(
                 if let Some(pty_id) = current_pty_id.clone() {
                     let alive = pty.lock().get_session(&pty_id).is_some();
                     if alive {
-                        // Grace-poll markers: after a daemon restart the live PTY
-                        // is up but the screen isn't rehydrated yet, so a one-shot
                         let mut agent_visible = false;
                         for _ in 0..10 {
                             let screen = screen_state.lock().get_screen_text(&pty_id);
@@ -68,8 +65,6 @@ pub fn start_general_agent(
                             std::thread::sleep(std::time::Duration::from_millis(300));
                         }
                         if agent_visible {
-                            // Reused PTY across a restart: if the in-memory binding didn't
-                            // survive, restore it from durable state so chat finds the
                             let unbound = mux
                                 .write()
                                 .get_pane(&pid)
@@ -157,8 +152,6 @@ pub fn start_general_agent(
         log::info!("[general-agent] Loaded durable session id: {}", stored);
         Some(stored)
     } else {
-        // If no session_id from snapshot or durable GA state, try detecting a GA-marked session from filesystem (covers first launch, new
-        // machine, or wiped session store). This is intentionally stricter than generic provider detection so worker JSONLs in the GA cwd
         let exclude = mux.write().other_session_ids(&pane_id);
         let detected = state::detect_owned_session_id(
             &svc.agent_registry,
@@ -178,7 +171,6 @@ pub fn start_general_agent(
         detected
     };
 
-    // Validate session_id: if provider can't resolve it to a file, it's stale/wrong-provider
     let session_id = if let Some(ref id) = session_id {
         let valid = svc
             .agent_registry
@@ -212,7 +204,6 @@ pub fn start_general_agent(
         session_id
     };
 
-    // 5. Spawn PTY
     let cols = 120u16;
     let rows = 40u16;
     let env_vars =
@@ -241,7 +232,6 @@ pub fn start_general_agent(
         svc.kill_ptys(&[orphan]);
     }
     svc.set_and_lock_pane_agent_type(&pane_id, provider_name.to_string());
-    // Emit state NOW so frontend picks up pty_id immediately — don't wait for agent detection. Without this, frontend auto-spawns its own PTY and
     // writes go to the wrong one.
     svc.emit_state_changed();
     log::info!("[general-agent] PTY {} linked to pane {}", pty_id, pane_id);
@@ -275,7 +265,6 @@ pub fn start_general_agent(
         pty_id
     );
 
-    // Wait for shell to be ready — same mechanism as regular pane resume in commands.rs. poll_shell_prompt polls screen_state (fed by the backend
     // reader we just started) every 300ms, returns true when a shell prompt appears on the last non-empty line.
     let ready = crate::service::pty_io::poll_shell_prompt(
         screen_state,
@@ -291,7 +280,6 @@ pub fn start_general_agent(
     }
     log::info!("[general-agent] Shell ready, building launch command...");
 
-    // Build launch command. Resume only when the provider preserves prior context across resume (Claude replays JSONL → true; Codex restarts fresh
     // → false). Single-source-of-truth comes from the AgentProvider trait.
     let preserves_context = svc
         .agent_registry
@@ -333,7 +321,6 @@ pub fn start_general_agent(
         } else {
             None
         };
-        // Capability-gated structured-prompt server via the shared chokepoint
         // (allocate+register+subscribe). No-op for providers that don't need it.
         let ga_cwd = svc
             .mux
@@ -370,8 +357,6 @@ pub fn start_general_agent(
     };
 
     log::info!("[general-agent] Launching on PTY {}: {}", pty_id, cmd);
-    // Windows ConPTY: writing the launch command before the shell prompt is
-    // rendered races the first byte (drop/duplicate → mangled command like
     #[cfg(windows)]
     crate::service::pty_io::poll_shell_prompt(
         screen_state,
@@ -419,7 +404,6 @@ pub fn start_general_agent(
         }
     }
 
-    // Persist whatever the session-start hook binds (Claude self-assigns its id; we
     // no longer inject --session-id), so the next restart can resume this exact session.
     if !use_resume {
         for _ in 0..20 {
@@ -456,7 +440,6 @@ pub fn restart_general_agent(
 ) {
     log::info!("[general-agent] Manual restart requested");
 
-    // Find general pane and kill its PTY
     {
         let m = mux.write();
         if let Some(pid) = m.resolve_pane_id(GENERAL_ALIAS) {
@@ -478,7 +461,6 @@ pub fn restart_general_agent(
 
     std::thread::sleep(std::time::Duration::from_millis(500));
 
-    // Re-generate instructions for potentially new provider in the background. Clone to avoid holding the config lock (deadlock with
     // start_general_agent). Same rationale as the lifecycle::start_general_agent path: do not block restart on mem.wake_up().
     {
         let mem = svc.mem.clone();

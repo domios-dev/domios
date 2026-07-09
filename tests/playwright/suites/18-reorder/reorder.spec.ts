@@ -134,7 +134,6 @@ test("@golden C2 a child reorders within its parent group and cannot leave it", 
     .poll(async () => (await childOrder(api, ws, parent.pane_id)).join(","), { timeout: 15_000 })
     .toBe([c2.tab_id, c1.tab_id].join(","));
 
-  // Negative: try to drag a child far up, out of its group. The cross-group drop
   // is rejected — the child must remain a child of the same parent.
   const topBefore = await topLevelOrder(api, ws);
   await keyboardDrag(page, childRow(parent.pane_id, c2.tab_id), "ArrowUp", 4);

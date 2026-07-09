@@ -34,7 +34,6 @@ function setupDom() {
   Object.defineProperty(globalThis, "HTMLInputElement", { value: window.HTMLInputElement, configurable: true });
 }
 
-// React tracks the input's value via a property setter; bypass it with the
 // native setter so onChange fires, mirroring a real keystroke.
 function typeInto(input: HTMLInputElement, value: string) {
   const proto = Object.getPrototypeOf(input);

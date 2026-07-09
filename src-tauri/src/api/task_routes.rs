@@ -16,15 +16,32 @@ type TaskRouteResult = Result<Json<Value>, (StatusCode, Json<Value>)>;
 
 fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
     let status = match e {
-        PlanError::NotFound | PlanError::ElementNotFound | PlanError::TaskNotFound => {
-            StatusCode::NOT_FOUND
-        }
+        PlanError::NotFound
+        | PlanError::ElementNotFound
+        | PlanError::TaskNotFound
+        | PlanError::GateNotFound
+        | PlanError::GroupNotFound => StatusCode::NOT_FOUND,
         PlanError::BadStatus
+        | PlanError::BadMode
         | PlanError::BadPriority
+        | PlanError::TaskCreationRequiresApproval
+        | PlanError::HeartbeatRequiresExecution
+        | PlanError::InProgressRequiresPane
+        | PlanError::BlockedRequiresLabel
+        | PlanError::ParkRequiresReason
+        | PlanError::PauseRequiresReason
+        | PlanError::QaNoteRequired
+        | PlanError::QaSlotUnavailable
+        | PlanError::QaNotRunning
+        | PlanError::GateAlreadyAnswered
+        | PlanError::GateRequiresQuestion
+        | PlanError::WaitingFocusRequiresOpenGate
         | PlanError::UndeclaredKind { .. }
         | PlanError::OpenSubtasks { .. }
         | PlanError::TransitionDenied { .. }
         | PlanError::BudgetExhausted { .. } => StatusCode::BAD_REQUEST,
+        PlanError::WritePending { .. } => StatusCode::SERVICE_UNAVAILABLE,
+        PlanError::ReadbackMismatch { .. } => StatusCode::CONFLICT,
         PlanError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     (status, Json(json!({ "plan_error": e.to_json() })))
@@ -219,6 +236,7 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
                 test_plan: body.test_plan,
                 correctness: body.correctness,
                 body: body.body.unwrap_or_default(),
+                competition: None,
                 intent: body.intent,
                 assigned_pane_id: body.assign_pane,
                 ..Default::default()

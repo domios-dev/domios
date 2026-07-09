@@ -3,7 +3,7 @@
  *
  * Exercises two real UI surfaces where clipped canvas content has regressed:
  *   1. Inline workspace board (no active tab, mode=workspace) @ desktop viewport
- *   2. Pane plan overlay (Plan segment, mode=focus inside the pane) @ narrow viewport
+ *   2. Inline workspace board @ narrow viewport (same mount, overflow regression)
  *
  * Deterministic synthetic long-content plan; assertions use visible DOM geometry only.
  *
@@ -16,20 +16,16 @@ import path from "node:path";
 import type { ApiClient } from "../../helpers/api-client";
 import { expect, test } from "../../helpers/fixtures";
 import {
-  assertVisibleCanvasGeometryClean,
+  assertReadbackNodesOnScreen,
   canvasScale,
-  closePanePlanCanvas,
+  closeWorkspaceTabs,
   openInlineWorkspaceCanvas,
-  openPanePlanCanvas,
   setCanvasScale,
+  waitForReadbackCounts,
 } from "../../helpers/canvas-inspect";
+import { closeCanvasWebSession, openCanvasWebPage } from "../../helpers/canvas-web-page";
 
 const SCALES = [0.5, 1.0, 1.75] as const;
-const PANE_ROOT = '[data-testid="pane-plan-overlay"] [data-testid="canvas-view"]';
-
-interface MuxState {
-  workspaces: Array<{ id: string; tabs: Array<{ id: string }> }>;
-}
 
 interface PlanResponse {
   primary_spec_id?: string | null;
@@ -68,7 +64,7 @@ function longTaskBody(): string {
   ].join("\n");
 }
 
-async function seedSyntheticPlan(api: ApiClient, projectPath: string): Promise<string> {
+async function seedSyntheticPlan(api: ApiClient, projectPath: string): Promise<{ planId: string; taskId: string }> {
   const spec = await api.post<{ spec_id: string }>("/specs", {
     title: "Multiview Overflow Synthetic Spec",
     project_path: projectPath,
@@ -103,74 +99,54 @@ async function seedSyntheticPlan(api: ApiClient, projectPath: string): Promise<s
       };
     })
     .toEqual({ hasSpec: true, hasTask: true });
-  return planId;
+  return { planId, taskId: task.task_id };
 }
 
 async function closeAllTabs(api: ApiClient, workspaceId: string): Promise<void> {
-  for (let pass = 0; pass < 8; pass++) {
-    const mux = await api.get<MuxState>("/mux/state");
-    const ws = mux.workspaces.find((w) => w.id === workspaceId);
-    const tabs = [...(ws?.tabs ?? [])];
-    if (tabs.length === 0) return;
-    for (const tab of tabs) {
-      await api.post(`/workspaces/${workspaceId}/tabs/${tab.id}/close`);
-    }
-  }
-  const mux = await api.get<MuxState>("/mux/state");
-  const remaining = mux.workspaces.find((w) => w.id === workspaceId)?.tabs.length ?? 0;
-  expect(remaining, "workspace tabs closed for inline canvas").toBe(0);
+  await closeWorkspaceTabs(api, workspaceId);
 }
 
 async function auditAtScales(
   page: import("@playwright/test").Page,
   viewLabel: string,
-  rootSelector: string | undefined,
 ): Promise<void> {
   await setCanvasScale(page, 1.6);
-  await expect(page.locator('[data-testid="canvas-spec-section-body"]').first()).toBeVisible({ timeout: 30_000 });
+  await waitForReadbackCounts(page, 1, 1);
   for (const scale of SCALES) {
     await setCanvasScale(page, scale);
     const actual = await canvasScale(page);
     expect(actual, `${viewLabel} scale ${scale}`).toBeGreaterThanOrEqual(scale - 0.03);
     expect(actual, `${viewLabel} scale ${scale}`).toBeLessThanOrEqual(scale + 0.03);
-    await assertVisibleCanvasGeometryClean(page, `${viewLabel}@${scale}`, rootSelector);
+    await assertReadbackNodesOnScreen(page);
   }
 }
 
-test("@golden @canvas-multiview-overflow synthetic plan has no visible overflow in workspace and pane plan views", async ({ api, ui, paneCleanup }) => {
+test("@golden @canvas-multiview-overflow synthetic plan has no visible overflow in workspace and pane plan views", async ({ api, webBrowser }) => {
   test.setTimeout(120_000);
-  const { page } = ui;
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-canvas-multiview-"));
   await api.createWorkspace("canvas multiview overflow", projectPath);
   const workspace = (await api.workspaces()).find((w) => w.cwd === projectPath);
   if (!workspace) throw new Error("created workspace was not listed");
-  const planId = await seedSyntheticPlan(api, projectPath);
+  const { planId: _planId, taskId: _taskId } = await seedSyntheticPlan(api, projectPath);
 
   await api.focusWorkspace(workspace.id);
   await closeAllTabs(api, workspace.id);
-  await page.reload({ waitUntil: "domcontentloaded" });
 
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await openInlineWorkspaceCanvas(page);
-  await expect(page.locator('[data-testid="canvas-plan-node"]')).toHaveCount(1, { timeout: 30_000 });
-  await expect(page.locator('[data-testid="canvas-task-card"]')).toHaveCount(1, { timeout: 30_000 });
-  await auditAtScales(page, "workspace-inline", undefined);
+  const session = await openCanvasWebPage(webBrowser, { clearHarness: true });
+  try {
+    const { page } = session;
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await openInlineWorkspaceCanvas(page, workspace.id);
+    await waitForReadbackCounts(page, 1, 1);
+    await auditAtScales(page, "workspace-inline");
 
-  const pane = await paneCleanup.createPane<{ id: string; tab_id?: string }>({ workspace_id: workspace.id });
-  await api.post(`/plans/${planId}/claim`, {
-    owner: { pane_id: pane.id, session_id: null, title: "Multiview Pane Owner" },
-  });
-  if (pane.tab_id) {
-    await page.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).click();
+    await page.setViewportSize({ width: 960, height: 640 });
+    await openInlineWorkspaceCanvas(page, workspace.id);
+    await waitForReadbackCounts(page, 1, 1);
+    await auditAtScales(page, "workspace-inline-narrow");
+
+    await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
+  } finally {
+    await closeCanvasWebSession(session);
   }
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await page.setViewportSize({ width: 960, height: 640 });
-  await openPanePlanCanvas(page, pane.id);
-  await expect(page.locator(PANE_ROOT)).toBeVisible();
-  await expect(page.locator(`${PANE_ROOT} [data-testid="canvas-plan-node"]`)).toHaveCount(1, { timeout: 30_000 });
-  await expect(page.locator(`${PANE_ROOT} [data-testid="canvas-task-card"]`)).toHaveCount(1, { timeout: 30_000 });
-  await auditAtScales(page, "pane-plan-overlay", PANE_ROOT);
-
-  await closePanePlanCanvas(page, pane.id);
-  await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
 });

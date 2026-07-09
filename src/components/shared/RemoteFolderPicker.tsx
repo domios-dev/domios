@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, Folder, FolderPlus, Home, Loader2, RefreshCw, X } from "lucide-react";
+import { ChevronLeft, Folder, FolderPlus, Home, RefreshCw, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
+import { BusyState } from "./BusyState";
 
 interface DirEntry {
   name: string;
@@ -107,7 +108,9 @@ export function RemoteFolderPicker({
           <Folder size={16} className="shrink-0 text-[var(--ct-accent,#58a6ff)]" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium">{title}</div>
-            <div className="truncate text-[11px] text-[var(--ct-muted-fg)]">{path || "Loading..."}</div>
+            <div className="truncate text-[11px] text-[var(--ct-muted-fg)]">
+              {path || <BusyState labelKey="pickerPending" inline />}
+            </div>
           </div>
           <button
             type="button"
@@ -237,9 +240,8 @@ export function RemoteFolderPicker({
 
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {loading && (
-            <div className="flex items-center justify-center gap-2 py-8 text-sm text-[var(--ct-muted-fg)]">
-              <Loader2 size={16} className="animate-spin" />
-              Loading folders
+            <div className="flex items-center justify-center py-8 text-sm text-[var(--ct-muted-fg)]">
+              <BusyState labelKey="pickerPending" label="Loading folders" inline />
             </div>
           )}
           {!loading && error && (

@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 const ORCHESTRATION_REMINDER: &str =
-    "hint: you work autonomously; if unsure how to orchestrate -> codeterm doc orchestration";
+    "hint: orchestrating? read `codeterm docs ORCHESTRATION`; before dispatch, run `codeterm plan doctor <plan> --kind quality`";
 const ORCHESTRATION_REMINDER_EVERY: u64 = 5;
 const ORCHESTRATION_REMINDER_STATE: &str = "orchestration-hint-count";
 
@@ -60,7 +60,7 @@ pub fn task_quality_guard_hint(
 }
 
 pub fn orchestration_reminder_for_count(count: u64) -> Option<String> {
-    if count == 1 || count % ORCHESTRATION_REMINDER_EVERY == 0 {
+    if count == 1 || count.is_multiple_of(ORCHESTRATION_REMINDER_EVERY) {
         Some(ORCHESTRATION_REMINDER.to_string())
     } else {
         None
@@ -121,9 +121,61 @@ pub fn print_hints(hints: &[String]) {
     }
 }
 
+pub fn print_hints_stderr(hints: &[String]) {
+    for hint in hints {
+        eprintln!("{hint}");
+    }
+}
+
+pub fn extract_hints_from_value(val: &serde_json::Value) -> Vec<String> {
+    val.get("_hints")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub(crate) fn worker_spawn_hints(
+    is_worker: bool,
+    has_report_target: bool,
+    has_task: bool,
+) -> Vec<String> {
+    let mut hints = Vec::new();
+    if !is_worker {
+        return hints;
+    }
+    if !has_report_target {
+        hints.push(
+            "hint: no --parent/--report-to — this worker's reports land in the spawning pane; pass --parent <orchestrator pane id> so they reach the orchestrator".to_string(),
+        );
+    }
+    if !has_task {
+        hints.push(
+            "hint: no --task/--task-file — the worker starts idle without a brief; pass the task so it knows what to do".to_string(),
+        );
+    }
+    hints
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn worker_spawn_hints_fire_only_for_workers_missing_bindings() {
+        assert!(worker_spawn_hints(false, false, false).is_empty());
+        assert!(worker_spawn_hints(true, true, true).is_empty());
+        let both = worker_spawn_hints(true, false, false);
+        assert_eq!(both.len(), 2);
+        assert!(both[0].contains("--parent"));
+        assert!(both[1].contains("--task"));
+        assert_eq!(worker_spawn_hints(true, true, false).len(), 1);
+        assert_eq!(worker_spawn_hints(true, false, true).len(), 1);
+    }
 
     #[test]
     fn section_hint_points_to_update_and_section_ids() {

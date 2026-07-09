@@ -1,8 +1,12 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 5 -->
+<!-- revision: 27 -->
 
-Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
+Full reference for the `codeterm plan` CLI and orchestration discipline. The *why* (when to spawn, model routing, role contracts) lives here and in your role prompt — this doc is the authority; machine-specific deltas live in mem preferences (kind=preference, area=orchestration).
+
+> **Doc entry:** `codeterm doc orchestration` (full doc). `codeterm docs ORCHESTRATION` is the same content via the list command.
+
+**Planning source of truth:** in this project, durable planning content lives in CodeTerm GOAL/Spec/Plan/Tasks/Strides. Do not create `docs/superpowers/plans/*` or standalone markdown implementation plans as the primary plan unless the user explicitly asks for an export. Markdown may guide style, but the authoritative state is the planner.
 
 ## Model — the EFFORT: GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides
 
@@ -49,6 +53,277 @@ plan create --from-spec <spec> --title ...   # 3. Plan (HOW), built FROM the spe
 
 Edit while work runs — `codeterm plan ...`/`spec ...` mutate a running effort safely. Re-orient with `plan get PLAN_ID` / `spec show SPEC_ID` (markdown) at any time.
 
+## Planning Method — state in CodeTerm, quality from Superpowers
+
+Use CodeTerm for durable state, and use the old Superpowers planning habits as
+a quality checklist. Do **not** export the plan to markdown just because a
+planning template says so; in CodeTerm the authoritative objects are GOAL,
+Spec, Plan, Tasks, and Strides.
+
+Correct authoring order:
+
+1. Set or refine the GOAL.
+2. Write Spec sections for requirements, evidence, gaps, constraints,
+   acceptance, non-goals, and decision vocabulary.
+3. Write Plan sections for execution phases, file ownership, decision flow,
+   verification, and approval.
+4. If the plan needs a dedicated Planner, create a `planning` task. Planning
+   tasks are allowed before approval and exist only to improve GOAL/Spec/Plan
+   structure. They are not execution work.
+5. Run a plan self-review / doctor pass.
+6. Approve the plan, then generate execution tasks.
+
+Good Plan sections include:
+
+- a file ownership map with exact paths and responsibilities;
+- an approval/self-review gate;
+- exact verification commands and expected results;
+- wave sequencing: discovery/research first, synthesis of the remaining task
+  graph, then implementation/review/verification tasks.
+
+Discovery/research tasks are **intermediate only**. Completing the first wave
+does not complete the plan. A discovery wave must record evidence, accepted
+gaps, decisions, and follow-up requirements; the Orchestrator then uses those
+results to autonomously generate the remaining execution/review/verification
+tasks and continues until the GOAL is satisfied. Stop only when the plan goal
+and acceptance gates are complete, or when the user explicitly blocks/changes
+the effort.
+
+Good Tasks include body, section links, routing model + why, acceptance
+criteria, test plan, correctness vector, exact commands, and report format.
+Tasks should be small enough that a Worker can execute and report cleanly.
+Execution tasks must not be created until planning_state is `approved`.
+Planning-kind tasks are the exception and are **first-class**: their job is to
+improve the GOAL / spec / plan / task-graph itself, so `codeterm plan task add
+--type planning` is allowed before approval **without `--force`**. Every
+other kind (implement/review/build/…) still hits the approval gate and requires
+an `approved` plan or an explicit `--force` draft.
+
+Use `codeterm plan doctor PLAN_ID --kind quality` before approval and again
+before dispatch. It is a structural approval gate: missing goal/spec link,
+task-quality gaps, heartbeat-before-execution state, and *non-planning* tasks
+created before approval (`tasks_before_approval`) are errors.
+Planning-kind tasks never trip `tasks_before_approval`; quality checks (missing
+body, criteria, section link) still apply to them. It deliberately does **not**
+infer quality from prose keywords; if a rule must be machine-enforced, model it
+as structured planner state instead of text heuristics.
+
+Heartbeat is runtime execution state, not a planning scratchpad. Plan-owned
+nudges are automatic once an assigned orchestrator owns an execution-mode plan
+with unfinished work. Manual heartbeat focus/lanes/rules are only overlays that
+make the automatic nudge more precise; they are not a prerequisite. Workers get
+task nudges only while their assigned task is still waiting for their report.
+
+## Long-running shell gates — completion contract, never polling
+
+Long-running shell commands (builds, soaks, remote regressions) are gates, not
+things to watch. Never wait by polling — sleep/get-text loops are
+implementer-mode waiting. Give the command a completion contract at launch:
+
+```bash
+<cmd>; codeterm send --pane $CODETERM_PANE_ID [--mesh <your-peer>] "GATE:<task_id> rc=$?"
+```
+
+Record the gate on the task and work other frontier items until the marker
+arrives. For an already-running command, start a companion watcher in that
+pane (`while pgrep -f <name> >/dev/null; do sleep 30; done; codeterm send ...;
+codeterm pane close $CODETERM_PANE_ID`): the wait runs remotely, never in your
+loop, and the watcher closes itself after sending its gate.
+
+## Worker Lanes — Git worktrees + task metadata
+
+The portable lane lifecycle contract is `codeterm docs LANES`. This section
+adds the orchestration mechanics around that standard.
+
+Each delegated lane should run in a real `git worktree` with its own branch.
+The Orchestrator's integration checkout stays separate from worker edits:
+
+```bash
+git worktree add -b lane/<handle> ../codeterm-<handle> HEAD
+codeterm agent spawn codex \
+  --parent <orchestrator-pane> --role Worker \
+  --cwd ../codeterm-<handle> \
+  --title <handle> \
+  --task-file /tmp/<task>.md
+codeterm plan task update PLAN_ID TASK_ID \
+  --pane <worker-pane> \
+  --branch lane/<handle> \
+  --worktree ../codeterm-<handle> \
+  --workspace-name <workspace>
+```
+
+This is durable task state, not only a chat convention. The task lane metadata
+must identify the worker pane, branch, worktree path, workspace, cleanup status,
+and any cleanup hints. Use that metadata for canvas presence, reports,
+reconciliation, handoffs, and cleanup.
+
+Worker lanes normally end this way:
+
+1. Worker reports `in_review`.
+2. Orchestrator enqueues QA when the lane needs serialized verification:
+   `codeterm plan qa queue PLAN_ID --task TASK_ID --note "<scope>"`.
+3. A tester claims exactly one queued item:
+   `codeterm plan qa next PLAN_ID --claim --note "<scope>"`. Claim output
+   includes the task test plan.
+4. The tester records the verdict with evidence:
+   `codeterm plan qa pass PLAN_ID TASK_ID --note "<evidence>"` closes the task;
+   `codeterm plan qa fail PLAN_ID TASK_ID --note "<failure>"` bounces it to
+   `in_progress` and nudges the implementing worker.
+5. Orchestrator integrates by merging or rebasing the unmerged lane branch into
+   the integration target. Cherry-pick is forbidden for orchestration lanes. If
+   a branch cannot be merged cleanly or has the wrong ancestry, create a new lane
+   and manually port the diff with a recorded reason.
+6. Orchestrator closes the worker pane, removes the clean
+   worktree, and sets `--cleanup-status done`.
+
+QA is still part of the `in_review` lifecycle. The persisted task keeps
+`review_stage=qa` plus `qa_state=queued|running` only while its status is
+`in_review`; leaving review clears both fields. Every enqueue, claim, pass, and
+fail writes a `qa` milestone in the same atomic plan write as the state change,
+so there is no stage-without-evidence state. `codeterm plan qa queue PLAN_ID`
+shows the serialized queue.
+
+Do not keep accepted branches around as visual memory. The task report, merge
+commit, and cleanup stride are the durable evidence.
+
+Never remove a worker worktree before its diff is integrated, bounced, or
+explicitly abandoned. Never keep a finished worker visually assigned just to
+remember who did the work; executor history and lane metadata are the memory,
+live assignment is only current work.
+
+### Milestone gates — three-tier testing ladder
+
+Regression cost scales with scope, so testing is tiered, not uniform.
+
+Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit + playwright golden, serialized in the warm checkout); per-release = the farm matrix across every platform.
+
+- **Per-task:** each lane runs the narrowest focused filter that proves its
+  change — never the whole suite. This is already the worker discipline.
+- **Per-group (milestone):** task groups are milestones. When the last task of a
+  group closes, next-actions and the heartbeat emit one regression-gate
+  suggestion. Run the full gate ONCE for the whole milestone, then record it as a
+  single group-scoped working point:
+  `codeterm plan qa next PLAN_ID --group GROUP_KEY --claim --note "<scope>"`.
+  The quality doctor (`--kind structure`) warns while a completed group has no
+  regression run on record since its last close; reopening a task re-arms the
+  gate. The suggestion is advisory pressure, not a hard lock.
+- **Per-release:** the full farm matrix (`release-X.Y.Z` tag) builds and tests
+  across every platform. That is the release pipeline, not per-milestone work.
+
+## Planner Profile
+
+Use a Planner when the Orchestrator needs high-reasoning help to create or
+repair CodeTerm planner GOAL/Spec/Plan/Task structure, not to execute the work.
+Planner is a profile on a structural Worker: it cannot spawn agents, assign
+panes, accept tasks, or judge final completion. Execution ownership and final
+acceptance stay with the Orchestrator.
+
+### Planning is a plan state, not a bootstrap task
+
+Every plan carries a **planning_state** the Planner advances:
+
+- `drafting` — GOAL/spec/plan skeleton being built.
+- `structure_ready` — structure complete, awaiting approval review.
+- `approved` — approved for execution; **only this state unlocks execution-task
+  creation** (the single gate — `codeterm plan task add` for a non-planning kind
+  is rejected until then; planning-kind tasks and `--force` drafts are exempt).
+
+Promotion and onboarding **do not create a planner bootstrap task** — planning
+progress lives in the plan's own state, advanced by the Planner (or the user):
+
+```bash
+codeterm plan planning-state PLAN_ID --set structure_ready --pane <planner-pane> --note "skeleton done"
+codeterm plan approve PLAN_ID          # user/orchestrator: advances to approved
+```
+
+Only the Planner pane or the user may advance the state; each advance records an
+author and note as a working point in `planning_log`. `codeterm plan approve`
+still runs the quality doctor first, which gates approval on a set GOAL, a linked
+spec, plan sections, and a verification hint. Nudges and `next_actions` derive
+the "delegate planning work to the attached Planner" prompt from planning_state
+plus the plan's `planner` binding — named by binding, never guessed.
+
+Preferred spawn shape:
+
+```bash
+codeterm agent spawn claude --model fable \
+  --parent <orch-pane> \
+  --role Planner \
+  --task-file <brief>
+```
+
+Use `fable` first for planning depth. If that model is unavailable in
+`codeterm agent models claude`, fall back to `opus` and keep the rest of the
+spawn shape unchanged. Put the brief in a task file so long planning context,
+backticks, and command snippets arrive byte-for-byte.
+
+The Planner must hand back:
+
+- the GOAL it created or refined;
+- Spec sections for WHAT/WHY, constraints, acceptance, and decision vocabulary;
+- Plan sections for HOW, sequencing waves, ownership, approval, and verification;
+- tasks with body, section links, model plus why, `executor_role` for execution
+  tasks (slug that names the agent personality — e.g. `rust-backend-dev`,
+  `frontend-dev`, `code-reviewer`), `role_guidance` where useful, acceptance
+  criteria, test plan, correctness vector, and report expectations;
+- `codeterm plan state <plan_id>` / quality-doctor status, known gaps, and the
+  next concrete Orchestrator action.
+
+`executor_role` is a free-form slug that lets the Orchestrator route agent
+personality per task declaratively, without hard-coding provider IDs in the
+dispatch loop. Execution tasks without `executor_role` are flagged as a quality
+WARNING by `codeterm plan doctor --kind quality`. Planning-kind tasks are exempt.
+
+Planner-authored `role_guidance` is worker onboarding text. When spawning a
+worker from a task, prepend that guidance to the task brief so the worker knows
+its stance and boundary, then add the task body, acceptance criteria, test
+plan, correctness vector, and report command. Do not turn `role_guidance` into
+a custom role registry or a third structural AgentRole.
+
+### Planner iteration loop
+
+Planner work is iterative when the result depends on taste, ambiguous UX, or
+new evidence from implementation. The Orchestrator owns execution, but can
+return to the Planner with the current board state, screenshots, failed gates,
+user feedback, and worker reports. The Planner then revises the GOAL/Spec/Plan
+and task graph instead of the Orchestrator improvising large changes inline.
+
+Use this loop:
+
+1. Orchestrator creates or updates the effort goal and assigns a Planner task.
+2. Planner writes/repairs Spec, Plan, task briefs, role guidance, and gates.
+3. Planner advances planning_state to `structure_ready`; the Orchestrator (or
+   user) runs the quality doctor and `plan approve` to reach `approved`, which
+   unlocks execution-task creation, then dispatches workers, gates their output,
+   and records what happened.
+4. If implementation exposes a blocker, weak UX, missing requirement, or the
+   user asks to iterate, Orchestrator creates a Planner replanning task with the
+   evidence and asks for a revised task graph.
+5. Repeat until the GOAL and acceptance gates are satisfied; discovery or the
+   first planning wave is never considered completion by itself.
+
+### Planning ownership
+
+The **Orchestrator is the single authority** for plan structure, execution, and
+acceptance. While planning_state is not `approved` and a Planner is bound, the
+Orchestrator delegates planning input to the Planner specialist — new
+requirements, discovered blockers, implementation evidence, user feedback —
+then accepts, revises, or rejects the draft. The Orchestrator dispatches
+workers, gates their output, integrates results, and may record facts (strides,
+heartbeat updates, lane metadata). It must **not** silently improvise graph
+nodes (GOAL edits, new spec/plan sections, new tasks) while the delegated
+planning lane is open. A waived planner (`plan update --planner none --note ...`)
+makes the Orchestrator explicitly solo and silences these nudges.
+
+Exceptions (Planner unreachable, emergency structural repair) must be recorded
+as a stride. The Planner may draft a correction on its next run, but the
+Orchestrator decides what stays.
+
+CLI mutation commands (`plan section add/update`, `plan task add/update`,
+`plan goal set`) emit a non-blocking stderr hint while planning_state is
+unapproved and a Planner is bound, naming the Planner so delegation is
+actionable.
+
 ## Handoffs
 
 A handoff is a durable, goal-anchored resume point attached to the plan — far sharper than a provider's generic `/compact` recap. Whoever wakes (you post-compaction, a reseeded session, or another orchestrator) pulls it first and continues from its `next_actions`.
@@ -79,11 +354,111 @@ When YOU sense you are ready to compact, do **not** rely on the provider's gener
 3. **Verify x3** — three independent passes: completeness, accuracy, executability. Check the handoff markdown against `plan get`, `spec show <SPEC_ID>`, `plan in-progress <plan_id>`, and `codeterm agent reports`. Any gap means amend, read back, and restart the 3-pass cycle. `plan handoff verify` is not implemented yet; this is manual.
 4. **Compact / reseed** — `codeterm orchestrator handoff --plan <plan_id> --reseed --mode new` (preferred; fresh zero-context session) or `--mode compact` (handoff seed then provider `/compact`). Preview sends with `--dry_run` first.
 5. Resume from the handoff's `next_actions` — never a generic recap.
-6. **(Optional, belt-and-suspenders)** A delayed self-message (`codeterm delayed create --pane <you> --delay 30m --from-file heartbeat.md`) can carry extra state, but it is no longer the primary persistence mechanism — the heartbeat below is auto-reinjected on every delayed delivery and nudge, so set it instead.
+## Heartbeat — automatic plan nudges
 
-## Heartbeat — auto-reinjected orchestrator state
+The orchestrator **heartbeat** is durable state attached to the plan (`current_focus`, `active_lanes`, `rules`, plus appended `learnings`). The daemon **auto-prepends** the state-reconciliation envelope to every plan nudge for an execution-mode plan with unfinished work, even if you never manually set focus/lanes. If focus and lane map exist, they are prepended too — so active orchestration survives compaction and idle drift without a manual self-ping.
 
-The orchestrator **heartbeat** is durable state attached to the plan (`current_focus`, `active_lanes`, `rules`, plus appended `learnings`). The daemon **auto-prepends** it to every delayed message delivered to your pane and to every plan nudge — so your focus and lane map survive compaction and idle drift without a manual self-ping.
+Plan nudges are automatic while an execution-mode plan has unfinished work:
+
+- **Owner orchestrator:** receives a timed reminder while the owned plan has any task that is not `done`, `cancelled`, or `parked`.
+- **Assigned worker:** receives a timed reminder while its task is `pending`, `in_progress`, or `blocked` and it has not reported back.
+- **Event nudges:** pane sends and agent reports still count as activity triggers, but they are not required for the timer to fire.
+- **Cadence:** `[orchestration].nudge_interval_secs` defaults to `1800` (30 minutes). `[orchestration].nudge_after_turns` remains the message-count fallback. `[orchestration].plan_reminders = false` disables both.
+
+### Task lifecycle — PARKED and the relentless nudge contract
+
+The open-work set and the heartbeat-stop condition are the **same predicate**:
+a task counts as open only while it is `pending`, `in_progress`, `in_review`,
+or `blocked`. `done` and `cancelled` are terminal; **`parked`** is a
+non-terminal deferral that is *also* excluded from the open-work set — parked
+tasks do not keep the heartbeat alive and are folded/de-emphasized in read
+models. So there is no nudge dead-zone: while any non-terminal, non-parked task
+is open, the nudge **repeats until every open task is dispatched, parked with a
+reason, or sent to replanning; silence is not an option.**
+
+Every open task must take exactly one of five exits: (1) dispatch it to a
+worker, (2) park with a reason, (3) judge an `in_review` task to done or bounce
+it, (4) send it to replanning, (5) escalate to a smarter model.
+
+- **Park:** `codeterm plan task park <plan> <task> --reason "<why>"` — requires a
+  reason, sets `parked`, clears the lane assignment, and records a working-point
+  stride. Parking with no reason is rejected; a task parked without a reason is a
+  **doctor error** (`parked_without_reason`).
+- **Unpark:** `codeterm plan task unpark <plan> <task>` — returns the task to
+  `pending`, clears `park_reason`, and records a stride.
+- **Age thresholds (drift):** a `pending` task that stays **unstaffed over 4h**,
+  or an `in_review` task that stays **unjudged over 2h**, is recorded as drift
+  and named explicitly in the escalated nudge so stalled work cannot hide. Doctor
+  warns on aged unstaffed open tasks (`aged_unstaffed_task`).
+
+### Event-driven orchestration: no manual wait loops
+
+Do not create manual `sleep`, polling, or "wait and check again" loops while
+orchestrating. The plan already owns wake-up delivery through timed heartbeats,
+worker reports, and state-reconciliation nudges. Manual wait loops make the
+orchestrator burn attention on one lane and can hide the fact that other tasks
+are ready to dispatch or review.
+
+Allowed checks:
+
+- Run one immediate sanity check after a concrete event: a worker report, a plan
+  reminder, a pane death, a user message, a gate finishing, or a command you just
+  started returning.
+- If no event happened, do not keep polling a worker. Keep the heartbeat lane map
+  accurate, leave the worker assigned, and advance another independent task if
+  one exists.
+- If a worker appears overdue only because a plan nudge told you so, check
+  `codeterm orchestrator status --plan PLAN_ID --pane ORCH_PANE --json` first.
+  Inspect a worker pane at most once, then either bounce it with a concrete next
+  instruction or record why the lane remains in progress.
+
+The correct idle posture is not "wait 30 seconds and poll again"; it is "the
+plan will nudge me when attention is due, and until then I either process another
+ready task or stop talking."
+
+### Focus discipline — the heartbeat amplifies what you write
+
+`current_focus` is prepended to every future nudge, so it must name an action
+YOU own and will execute ("dispatch t7; judge t0b report"), never a wait on
+another agent. A focus like "planner decides what to dispatch next" is an
+ownership inversion — dispatch is never delegable to a Planner — and it turns
+every subsequent nudge into a confirmation of idleness (a real 5-hour stall
+was traced to exactly this). If you are blocked on another agent, phrase the
+focus as the action you will take: "bounce/escalate <agent> about <thing> if
+unchanged at the next nudge."
+
+### Dispatch frontier — re-derive after every gate
+
+Every acceptance/close/integration changes which pending tasks are unblocked.
+Immediately after closing a task or accepting a lane, re-check the frontier:
+any task whose precondition just became true gets dispatched NOW, parked with
+a recorded reason, or routed to replanning. The most common stall: a gating
+task (review/verification) becomes dispatchable at the moment the last lane
+integrates, while the stale focus still describes the finished wave.
+
+A nudge is handled only if it ends in a state change for at least one open
+task: dispatch / park (or a decision stride) / judge a report / bounce a
+worker / hand to replanning. "Waiting" is a valid response only for tasks
+with a live assigned lane.
+
+### Parallel writers, serialized gates
+
+Parallelize independent implementation lanes freely on the same machine: a UI
+lane, a backend lane, a docs lane, and a review lane can all write at once when
+their file ownership is disjoint. The bottleneck is verification, not writing.
+
+Do **not** let every worker run broad verification in its own fresh worktree.
+Fresh worktrees rebuild caches, contend on CPU/IO, and make the machine feel
+stuck. Workers run the smallest meaningful focused checks for their lane and
+report exact commands. The orchestrator, or an explicit test-runner worker in a
+warm integration checkout, serializes broad gates: repo-wide compile, full test
+suites, UI/e2e sweeps, packaging, release, and any other expensive verification.
+If a lane needs a heavy gate, record it as pending central verification instead
+of making several worktrees verify the whole system at once.
+
+The QA queue is the enforcement mechanism for those central gates. Only one QA
+task runs per plan by default, so the warm checkout stays hot and the machine
+does not thrash across identical broad builds.
 
 ```bash
 codeterm orchestrator heartbeat set \
@@ -93,9 +468,87 @@ codeterm orchestrator heartbeat set \
 codeterm orchestrator heartbeat set --clear-lanes        # wipe lanes when a phase ends
 codeterm orchestrator heartbeat show                     # inspect current heartbeat
 codeterm orchestrator learn "QuickJS lacks console — guard host calls"   # append a learning
+codeterm --json orchestrator status --plan PLAN_ID       # reports + live_lanes + drift + next_actions
 ```
 
-`set` writes only the fields you pass (omitted fields are left intact); `--clear-lanes` / `--clear-rules` empty those lists. Plan is resolved from `--plan`/`CODETERM_PLAN_ID`, else the active plan owned by this pane/session. Re-arm one heartbeat after each state-reconciliation pass — the focus + lanes are what get reinjected.
+`set` writes only the fields you pass (omitted fields are left intact); `--clear-lanes` / `--clear-rules` empty those lists and cannot be combined with `--lane` / `--rule` in the same command. Plan is resolved from `--plan`/`CODETERM_PLAN_ID`, else the active plan owned by this pane/session. Keep the plan-owned heartbeat current after each state-reconciliation pass — the focus + lanes are what get reinjected.
+
+## Test plans — executable, not descriptive
+
+A task's `test_plan` is a contract with the executing worker, not a note to self.
+It starts from the **oracle**: the exact command or observation that PROVES the
+task done. Then it names the method by the work — TDD for code paths, fixtures
+for parsers and formats, live dev walkthrough for UX, seeded eval cases for
+prompt or behavior changes. If the oracle is expensive (full build, broad suite,
+e2e), route it through the QA queue instead of a per-lane gate. A criterion
+without an oracle is an opinion.
+
+Executable means the plan names:
+
+1. the exact command(s) to run,
+2. the exact surfaces touched (testids, selectors, files, endpoints),
+3. numbered steps, each with the observable pass condition.
+
+If the executing worker would have to invent a selector, a step, or an expected
+value, the plan is incomplete — write the scenario, not the intention.
+`"Component tests + manual check"` is not a test plan.
+
+The reference standard is the picker-v2 task
+(`task_234c14f04d9f4dbfb5a743d50486617d`): numbered Playwright scenarios, exact
+testids, exact pass conditions, cleanup rules, and the exact run command. That
+is the bar.
+
+This is enforced mechanically, not by exhortation:
+
+- **Doctor** emits a `test_plan_vague` warning when a non-planning task's
+  `test_plan` is under ~120 chars OR names no command-like token (backtick,
+  `npx`, `cargo`, `codeterm`, `bash`, `curl`). The predicate is structural
+  (length + command token) — it never judges the prose itself, consistent with
+  doctor philosophy. Planning-kind tasks are exempt.
+- **QA claim** (`codeterm plan qa next --claim`) prepends
+  `TEST PLAN IS VAGUE — bounce to the orchestrator for a concrete plan before
+  verifying.` when the same predicate fires. A vague test plan is itself a
+  bounce reason: return it for a concrete, executable plan before verifying.
+
+## Plan skills — the plan's own know-how
+
+A plan accumulates reusable procedure as it runs: a test recipe, a seeding
+script, a gotcha worked around once. Instead of leaving that in chat where the
+next worker cannot find it, record it as a **plan skill** — org-code that lives
+with the effort and every future lane inherits.
+
+```bash
+codeterm plan skill new <slug>     # scaffold a SKILL.md (+scripts/) in the plan sidecar
+codeterm plan skill list           # browse what earlier lanes proved out
+codeterm plan skill show <slug>    # read one; bodies are never inlined into prompts
+codeterm plan skill edit <slug>    # improve an existing skill before writing a new one
+```
+
+Skills live in the plan sidecar at
+`.codeterm/plans/<bucket>/<plan>/skills/<slug>/SKILL.md`. The registry surfaces
+as a single pointer line in the orchestrator heartbeat and worker charter — a
+count and slug list, never the bodies.
+
+Principles (encoded in the orchestrator and planner suffixes so the behavior
+emerges rather than being a checklist):
+
+- **Org-code, not chat.** Learned something reusable this effort? Record it.
+  Improve an existing skill before writing a new one.
+- **Separate harness from target.** A skill names what is FIXED — the oracle,
+  the command or observation that proves success — and what is MUTABLE. Never
+  edit the oracle to make results look better.
+- **Measurable over vibes.** Prefer a skill with a `--check` command; cite the
+  check when keeping or discarding an approach.
+- **Simplicity is a criterion.** A marginal gain that adds hacky steps is a
+  loss; a deletion that preserves results is a win. Applies to skills and code.
+- **Ledger honesty.** Every skill edit appends to the plan's
+  `skills/ledger.jsonl` — `keep | discard | superseded` plus a one-line why.
+  Discarded approaches are data, not embarrassment.
+
+**Promotion path.** A plan skill that proves generally useful — not specific to
+this effort — graduates to a machine-level mem skill via `codeterm mem skill`,
+so it is available across future plans. Suggest promotion at retrospective time,
+not mid-run.
 
 ## Command Reference
 
@@ -116,10 +569,62 @@ codeterm plan get PLAN_ID
 
 codeterm plan update PLAN_ID \
   [--title T] [--spec "..." | --spec-file PATH] \
-  [--status active|archived]
+  [--status active|archived] [--mode planning|approved|execution|complete]
 
+codeterm plan approve PLAN_ID
+codeterm plan unapprove PLAN_ID
+codeterm plan mode PLAN_ID --set planning|approved|execution|complete
+codeterm plan planning-state PLAN_ID --set drafting|structure_ready|approved \
+  [--pane PLANNER_PANE] [--note "..."]
+
+codeterm plan state PLAN_ID
+codeterm plan doctor [PLAN_ID] [--kind storage|structure|quality|all]
+codeterm plan search "query" [--kind plan|spec|plan_section|spec_section|task|stride] \
+  [--active | --archived | --all] [--project PATH] [--limit N]
 codeterm plan archive PLAN_ID
 codeterm plan delete PLAN_ID
+```
+
+### Recall Search
+
+`codeterm plan search` searches the synced planner corpus through the same FTS5
++ sqlite-vec hybrid engine used by `codeterm mem search`, but in a project-local
+derived index under the CodeTerm data dir (`~/.codeterm*/plan-indexes/...`), not
+inside the repository. The source of truth remains committed plan/spec files;
+deleting the sqlite index is safe because `codeterm plan reindex [--project
+PATH]` rebuilds it from those files.
+
+Plan files are bucketed by lifecycle:
+
+```
+.codeterm/plans/active/<plan_id>/plan.json
+.codeterm/plans/archive/<plan_id>/plan.json
+```
+
+All human-readable sidecars live beside that `plan.json`: `goal.md`,
+`INDEX.md`, `sections/*.md`, `tasks/*.md`, `tasks/<handle>/strides.jsonl`,
+`milestones/*.md`, `elements/*.md`, and `handoffs/*.md`. Archiving moves the
+whole plan folder from `active` to `archive`; unarchiving moves it back. There
+is no flat `.codeterm/plans/<plan_id>.json` layout.
+
+Markdown sidecars include YAML frontmatter with `plan_id`, `kind`, `id`,
+`handle`, and relevant `title`/`status` fields. The loader strips that
+frontmatter before hydrating the plan body, so the UI and JSON model see clean
+markdown. The metadata exists so a `mem search` hit or an `rg` hit inside a
+markdown file can be reverse-resolved to the exact plan, task, section,
+milestone, or element without opening every JSON file first.
+
+Indexed units are `plan`, `spec`, `plan_section`, `spec_section`, `task`, and
+`stride` (task report / working-point). Plan/spec writes update FTS and vectors;
+archive/unarchive updates the indexed status.
+
+Search defaults to active work only. Use `--archived` for completed historical
+plans, or `--all` when mining both current and historical work:
+
+```bash
+codeterm plan search "windows conpty flash" --active
+codeterm plan search "usage parser reset" --archived --kind task
+codeterm plan search "why did we remove crisp zoom wrapper" --all --kind stride
 ```
 
 ### Ownership
@@ -153,6 +658,11 @@ codeterm plan section rm PLAN_ID SECTION_ID
 
 ### Tasks
 
+`--name` is the human-readable title shown on board cards and in lists — write
+it as a short sentence ("QA pipeline: In-QA stage + serialized test queue"),
+never a kebab-case slug ("task-review-stage-qa"). Slugs belong to handles and
+branch names, which are derived separately.
+
 ```bash
 codeterm plan task add PLAN_ID --name NAME \
   [--type implement|research|review|prototype|docs|fix] \
@@ -162,7 +672,7 @@ codeterm plan task add PLAN_ID --name NAME \
   [--body "..." | --body-file PATH] \
   [--intent "..." | --intent-file PATH] \
   [--assign-pane PANE_ID] \
-  [--loop-from TASK_ID]
+  [--loop-from TASK_ID] [--force]
 
 codeterm plan task update PLAN_ID TASK_ID \
   [--name N] [--type T] [--model M] \
@@ -178,9 +688,12 @@ codeterm plan task close PLAN_ID TASK_ID \
 codeterm plan task assign PLAN_ID TASK_ID --pane PANE_ID [--mesh PEER]
 
 codeterm plan task rm PLAN_ID TASK_ID
+codeterm plan task rm PLAN_ID --all --yes
 ```
 
 `--type` is an open string — the listed values are hints for icon/color only. `--model` and `--why` record routing rationale on the task (not enforced, used for canvas display).
+`plan task add` refuses planning-mode plans. Run `plan doctor --kind quality` and
+`plan approve` first; use `--force` only for a deliberate draft task.
 
 ### Milestones
 
@@ -209,8 +722,20 @@ codeterm plan loop create PLAN_ID \
 
 codeterm plan loop set LOOP_ID [--budget N] [--stop-when "..."]
 codeterm plan loop status LOOP_ID
+codeterm plan loop record LOOP_ID --note "what changed this iteration" [--stop]
 codeterm plan loop stop LOOP_ID
 ```
+
+Loop iterations are recorded explicitly. `plan loop record` increments the loop
+count, stamps the iteration time, attaches a stride to the current task when one
+is available (otherwise the freshest open planning task, then the freshest open
+task), and flips the loop to `exhausted` at budget or `done` when `--stop` is
+set. This is the durable visibility path used by state/heartbeat/doctor.
+
+`LoopSpec.stages` was removed. It had no CLI surface, no runtime consumer, and
+was dead planner state. If stage-specific execution is needed later, add it back
+with a real command surface and task-routing behavior rather than carrying an
+unused field in persisted plans.
 
 ### Canvas layout
 
@@ -245,6 +770,7 @@ The plan is a live object edited while work runs. Every `codeterm plan ...` call
 | Content | Location |
 |---------|----------|
 | CLI mechanics (this doc) | `codeterm docs ORCHESTRATION` |
-| Orchestration principle (when to spawn, model routing, discipline) | mem skill `codeterm-orchestrator` |
+| Lane lifecycle standard | `codeterm docs LANES` |
+| Orchestration principle (when to spawn, model routing, discipline) | `codeterm docs ORCHESTRATION` + role prompts; machine deltas are mem preferences |
 | Full mem reference | `codeterm docs MEMORY` |
 | REST + socket API | `codeterm docs API` |

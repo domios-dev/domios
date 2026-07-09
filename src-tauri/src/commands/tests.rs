@@ -32,7 +32,6 @@ fn test_hook_commands_preserve_dollar_sign() {
     let notify_cmd = format!(
         "curl -s -X POST http://localhost:{port}/api/panes/$CODETERM_PANE_ID/hook/permission -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
     );
-    // The command string itself must have literal $
     assert!(
         notify_cmd.contains("$CODETERM_PANE_ID"),
         "Command must contain $CODETERM_PANE_ID"
@@ -42,7 +41,6 @@ fn test_hook_commands_preserve_dollar_sign() {
         "Command must NOT contain escaped \\$"
     );
 
-    // Verify serde_json does NOT escape $ in strings
     let json_val = serde_json::json!({"command": notify_cmd});
     let serialized = serde_json::to_string_pretty(&json_val).unwrap();
     assert!(
@@ -61,11 +59,9 @@ fn test_hook_commands_preserve_dollar_sign() {
 
 #[test]
 fn test_install_hooks_to_temp_file() {
-    // Test integration::install_integration logic against a temporary file
     let tmp = tempfile::tempdir().unwrap();
     let settings_path = tmp.path().join("settings.json");
 
-    // Write empty settings
     fs::write(&settings_path, "{}").unwrap();
 
     // Build hook commands (same logic as integration::install_integration)
@@ -90,7 +86,6 @@ fn test_install_hooks_to_temp_file() {
     let pretty = serde_json::to_string_pretty(&json).unwrap();
     fs::write(&settings_path, &pretty).unwrap();
 
-    // Read back and verify
     let content = fs::read_to_string(&settings_path).unwrap();
     assert!(
         content.contains("$CODETERM_PANE_ID"),
@@ -101,7 +96,6 @@ fn test_install_hooks_to_temp_file() {
         "Written file must NOT have escaped \\$"
     );
 
-    // Parse back and verify the command string
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
     let cmd = parsed["hooks"]["Notification"][0]["hooks"][0]["command"]
         .as_str()

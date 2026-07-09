@@ -3,11 +3,6 @@ import type { SectionZone } from "./layout";
 import { smoothClosedPath, zoneLabelBox, ZONE_LABEL_FONT } from "./layout/sectionZones";
 import { atLeast, type World } from "./worlds";
 
-// §zones: a section is a SEEN territory — a quiet translucent organic hull hugging its
-// cluster (drawn UNDER the cards) + a name pill at the region centre (drawn ABOVE the
-// cards, in space RESERVED by the pack so it never overlaps one). `part` selects which
-// layer renders; the caller paints hulls below the node list and labels above it. The
-// pill is sized by the SAME zoneLabelBox the packer reserved → full title, no clip.
 
 const MAX_ZONES = 64;
 

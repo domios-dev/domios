@@ -1,1 +1,0 @@
-Investigate why fit-all=5%: plan-node Document height truly fixed 640? task field hugging fixed rail-Y range? Add Playwright assert world-bbox height < bound, fail on km-strip.

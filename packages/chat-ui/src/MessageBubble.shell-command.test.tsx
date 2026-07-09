@@ -1,4 +1,3 @@
-// Run: npx tsx packages/chat-ui/src/MessageBubble.shell-command.test.tsx
 import { Window } from "happy-dom";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";

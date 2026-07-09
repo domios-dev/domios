@@ -3,10 +3,11 @@ use std::io::Read;
 use crate::args::task::{CanvasAction, TaskAction};
 use crate::client::SocketClient;
 use crate::cmd::hints::{
-    maybe_orchestration_reminder, print_hints, push_hints, task_model_hint,
-    task_quality_guard_hint, task_sections_hint,
+    extract_hints_from_value, maybe_orchestration_reminder, print_hints_stderr, push_hints,
+    task_model_hint, task_quality_guard_hint, task_sections_hint,
 };
 use crate::cmd::plan_errors::render_plan_call_error;
+use crate::cmd::plan_output::canonical_mutation_id;
 use crate::cmd::print::print_object;
 use serde_json::{json, Value};
 
@@ -52,7 +53,7 @@ fn cwd_project() -> Option<String> {
 
 pub fn handle_task(client: &mut SocketClient, json: bool, action: TaskAction) {
     match run_task(client, json, action) {
-        Ok(val) => print_task_result(json, &val),
+        Ok((val, show_opts)) => print_task_result(json, &val, show_opts),
         Err(e) => {
             println!("{}", e);
             std::process::exit(1);
@@ -78,7 +79,7 @@ pub fn handle_canvas(client: &mut SocketClient, json: bool, action: CanvasAction
         CanvasAction::Filter { facet } => call(client, "canvas.filter", json!({ "facet": facet })),
     };
     match result {
-        Ok(val) => print_task_result(json, &val),
+        Ok(val) => print_task_result(json, &val, None),
         Err(e) => {
             println!("{}", e);
             std::process::exit(1);
@@ -90,7 +91,7 @@ fn run_task(
     client: &mut SocketClient,
     _json_output: bool,
     action: TaskAction,
-) -> Result<Value, String> {
+) -> Result<(Value, Option<TaskShowOpts>), String> {
     match action {
         TaskAction::List {
             active,
@@ -118,9 +119,21 @@ fn run_task(
             if let Some(status) = status {
                 params["status"] = json!(status);
             }
-            call(client, "task.list", params)
+            call(client, "task.list", params).map(|val| (val, None))
         }
-        TaskAction::Show { task_id } => call(client, "task.show", json!({ "task_id": task_id })),
+        TaskAction::Show {
+            task_id,
+            siblings,
+            all,
+        } => call(client, "task.show", json!({ "task_id": task_id })).map(|val| {
+            (
+                val,
+                Some(TaskShowOpts {
+                    list_siblings: siblings,
+                    include_done_siblings: all,
+                }),
+            )
+        }),
         TaskAction::Take { task_id } => {
             let caller = caller_pane().ok_or("CODETERM_PANE_ID is required for task take")?;
             call(
@@ -128,8 +141,11 @@ fn run_task(
                 "task.take",
                 json!({ "task_id": task_id, "caller_pane_id": caller }),
             )
+            .map(|val| (val, None))
         }
-        TaskAction::Drop { task_id } => call(client, "task.drop", json!({ "task_id": task_id })),
+        TaskAction::Drop { task_id } => {
+            call(client, "task.drop", json!({ "task_id": task_id })).map(|val| (val, None))
+        }
         TaskAction::Add {
             name,
             kind,
@@ -213,27 +229,23 @@ fn run_task(
                 }
                 push_hints(&mut val, hints);
             }
-            Ok(val)
+            Ok((val, None))
         }
     }
 }
 
-fn print_task_result(json: bool, val: &Value) {
+pub(crate) struct TaskShowOpts {
+    pub list_siblings: bool,
+    pub include_done_siblings: bool,
+}
+
+fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskShowOpts>) {
     if json {
         println!("{}", serde_json::to_string_pretty(val).unwrap());
         return;
     }
 
-    let hints: Vec<String> = val
-        .get("_hints")
-        .and_then(|v| v.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default();
+    let hints = extract_hints_from_value(val);
 
     if let Some(tasks) = val.get("tasks").and_then(|v| v.as_array()) {
         if tasks.is_empty() {
@@ -256,20 +268,188 @@ fn print_task_result(json: bool, val: &Value) {
             .unwrap_or("?");
         println!("{id}\t{status}\t{plan}\t{name}");
         println!("plan: {plan_title} ({plan})");
+        print_competition(task, plan, id);
+        print_executor_role(task);
         print_task_quality(task);
+        print_attachments(task.get("attachments"));
         print_label_list("sections", val.get("sections"));
         print_single_label("parent", val.get("parent"));
-        print_label_list("siblings", val.get("siblings"));
+        let opts = show_opts.unwrap_or(TaskShowOpts {
+            list_siblings: false,
+            include_done_siblings: false,
+        });
+        print_siblings(val.get("siblings"), &opts);
         print_label_list("subtasks", val.get("subtasks"));
         println!("record: codeterm plan record {plan} --task {id} --step status_update:<text>");
-    } else if let Some(task_id) = val.get("task_id").and_then(|v| v.as_str()) {
-        println!("{task_id}");
+    } else if canonical_mutation_id(val).is_some() {
+        print_hints_stderr(&hints);
+        if let Some(id) = canonical_mutation_id(val) {
+            println!("{id}");
+        }
+        return;
     } else if val.get("ok").is_some() {
         println!("OK");
     } else {
         print_object(val);
     }
-    print_hints(&hints);
+    print_hints_stderr(&hints);
+}
+
+fn is_closed_sibling_status(status: &str) -> bool {
+    matches!(status, "done" | "cancelled")
+}
+
+pub(crate) fn short_display_id(id: &str) -> String {
+    if let Some((prefix, slug)) = id.split_once('_') {
+        let cut: String = slug.chars().take(8).collect();
+        format!("{prefix}_{cut}")
+    } else {
+        id.chars().take(12).collect()
+    }
+}
+
+fn truncate_label(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let truncated: String = text.chars().take(max_chars).collect();
+    format!("{truncated}…")
+}
+
+fn print_siblings(value: Option<&Value>, opts: &TaskShowOpts) {
+    let items = value
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if items.is_empty() {
+        println!("siblings: none");
+        return;
+    }
+    if opts.list_siblings {
+        let rendered = items
+            .iter()
+            .filter(|item| {
+                opts.include_done_siblings
+                    || !item
+                        .get("status")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(is_closed_sibling_status)
+            })
+            .map(|item| {
+                let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                let name = item
+                    .get("name")
+                    .or_else(|| item.get("title"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let status = item.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+                format!(
+                    "{} {} ({status})",
+                    short_display_id(id),
+                    truncate_label(name, 48)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        if rendered.is_empty() {
+            println!("siblings: none");
+        } else {
+            println!("siblings: {rendered}");
+        }
+        return;
+    }
+    let open = items
+        .iter()
+        .filter(|item| {
+            !item
+                .get("status")
+                .and_then(|v| v.as_str())
+                .is_some_and(is_closed_sibling_status)
+        })
+        .count();
+    let closed = items.len().saturating_sub(open);
+    if closed > 0 {
+        println!("siblings: {open} open (+ {closed} done/cancelled); use --siblings to list");
+    } else {
+        println!("siblings: {open} open; use --siblings to list");
+    }
+}
+
+fn print_attachments(value: Option<&Value>) {
+    let items = value
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if items.is_empty() {
+        println!("attachments: none");
+        return;
+    }
+    println!("attachments:");
+    for item in items {
+        let name = item
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("attachment");
+        let path = item.get("path").and_then(|v| v.as_str()).unwrap_or("?");
+        let media = item
+            .get("media_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
+        let size = item.get("size_bytes").and_then(|v| v.as_u64()).unwrap_or(0);
+        println!("- {name} ({media}, {size} bytes): {path}");
+    }
+}
+
+fn print_competition(task: &Value, plan: &str, task_id: &str) {
+    let Some(competition) = task.get("competition").filter(|v| !v.is_null()) else {
+        return;
+    };
+    if competition.get("enabled").and_then(|v| v.as_bool()) != Some(true) {
+        return;
+    }
+    let attempts = competition
+        .get("attempts")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(2)
+        .max(2);
+    let mut parts = vec![format!("{attempts} attempts")];
+    let models = competition
+        .get("models")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .unwrap_or_default();
+    if !models.is_empty() {
+        parts.push(format!("models {models}"));
+    }
+    if let Some(hint) = competition
+        .get("judge_hint")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        parts.push(format!("judge: {hint}"));
+    }
+    println!("competition: {}", parts.join("; "));
+    println!("compete: plan.task.compete RPC/API route for {plan} {task_id}");
+}
+
+fn executor_role_line(task: &Value) -> Option<String> {
+    task.get("executor_role")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|role| format!("executor_role: {role}"))
+}
+
+fn print_executor_role(task: &Value) {
+    if let Some(line) = executor_role_line(task) {
+        println!("{line}");
+    }
 }
 
 fn print_task_quality(task: &Value) {
@@ -337,5 +517,118 @@ fn print_single_label(label: &str, value: Option<&Value>) {
     match item.get("status").and_then(|v| v.as_str()) {
         Some(status) => println!("{label}: {name} ({id}, {status})"),
         None => println!("{label}: {name} ({id})"),
+    }
+}
+
+#[cfg(test)]
+mod siblings_render_tests {
+    use super::{is_closed_sibling_status, short_display_id, truncate_label, TaskShowOpts};
+    use serde_json::json;
+
+    fn render_siblings_line(items: &[serde_json::Value], opts: &TaskShowOpts) -> String {
+        if !opts.list_siblings {
+            let open = items
+                .iter()
+                .filter(|item| {
+                    !item
+                        .get("status")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(is_closed_sibling_status)
+                })
+                .count();
+            let closed = items.len().saturating_sub(open);
+            return if closed > 0 {
+                format!("siblings: {open} open (+ {closed} done/cancelled); use --siblings to list")
+            } else {
+                format!("siblings: {open} open; use --siblings to list")
+            };
+        }
+        let rendered = items
+            .iter()
+            .filter(|item| {
+                opts.include_done_siblings
+                    || !item
+                        .get("status")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(is_closed_sibling_status)
+            })
+            .map(|item| {
+                let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                let status = item.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+                format!(
+                    "{} {} ({status})",
+                    short_display_id(id),
+                    truncate_label(name, 48)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        if rendered.is_empty() {
+            "siblings: none".into()
+        } else {
+            format!("siblings: {rendered}")
+        }
+    }
+
+    #[test]
+    fn default_siblings_is_one_summary_line() {
+        let siblings: Vec<_> = (0..160)
+            .map(|i| {
+                json!({
+                    "id": format!("task_{i:03}"),
+                    "name": format!("Sibling {i}"),
+                    "status": if i % 3 == 0 { "done" } else { "pending" }
+                })
+            })
+            .collect();
+        let line = render_siblings_line(
+            &siblings,
+            &TaskShowOpts {
+                list_siblings: false,
+                include_done_siblings: false,
+            },
+        );
+        assert!(!line.contains("Sibling 0"));
+        assert!(line.contains("use --siblings to list"));
+    }
+
+    #[test]
+    fn siblings_flag_uses_short_ids_and_truncated_names() {
+        let line = render_siblings_line(
+            &[json!({
+                "id": "task_abcdef012345",
+                "name": "A very long sibling name that should be truncated for terminal display",
+                "status": "pending"
+            })],
+            &TaskShowOpts {
+                list_siblings: true,
+                include_done_siblings: false,
+            },
+        );
+        assert!(line.contains("task_abcdef"));
+        assert!(line.contains('…'));
+    }
+}
+
+#[cfg(test)]
+mod executor_role_render_tests {
+    use super::executor_role_line;
+    use serde_json::json;
+
+    #[test]
+    fn renders_line_when_set() {
+        let task = json!({ "id": "task_1", "executor_role": "qa" });
+        assert_eq!(
+            executor_role_line(&task).as_deref(),
+            Some("executor_role: qa")
+        );
+    }
+
+    #[test]
+    fn omits_line_when_absent_or_blank() {
+        assert!(executor_role_line(&json!({ "id": "task_1" })).is_none());
+        assert!(executor_role_line(&json!({ "executor_role": "  " })).is_none());
+        assert!(executor_role_line(&json!({ "executor_role": null })).is_none());
     }
 }

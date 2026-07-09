@@ -9,12 +9,14 @@ import { invoke } from "../../lib/bridge";
 import { mapCursorStyle, buildXtermTheme } from "../../components/Terminal/helpers";
 import type { ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { shouldEnableXtermA11yMode } from "./xtermTestMode";
+import { scheduleXtermInit } from "./xtermInitScheduler";
 
 // Playwright harness (`/?a11y=1`) can enable xterm screen-reader mode.
 // Production ignores VITE_CODETERM_TEST to avoid accidental renderer disable.
+const viteEnv = import.meta.env ?? {};
 const E2E_TEST_MODE = shouldEnableXtermA11yMode({
-  isViteDev: import.meta.env.DEV,
-  viteCodeTermTest: import.meta.env.VITE_CODETERM_TEST,
+  isViteDev: viteEnv.DEV,
+  viteCodeTermTest: viteEnv.VITE_CODETERM_TEST,
   locationSearch: typeof window !== "undefined" ? window.location.search : "",
 });
 
@@ -23,6 +25,8 @@ export interface UseXtermOptions {
   theme?: ThemeConfig;
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
+  // Visible/focused panes init ahead of backgrounded ones in the stagger queue.
+  priority?: boolean;
 }
 
 export interface UseXtermReturn {
@@ -38,6 +42,7 @@ export function useXterm({
   theme,
   fontConfig,
   terminalConfig,
+  priority = false,
 }: UseXtermOptions): UseXtermReturn {
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -48,93 +53,101 @@ export function useXterm({
   const [termReady, setTermReady] = useState(false);
   const [winBuildNumber, setWinBuildNumber] = useState<number>(19041);
 
-  // Fetch Windows build number once
   useEffect(() => {
     if (navigator.platform.startsWith("Win")) {
       invoke<number>("get_windows_build_number").then(setWinBuildNumber).catch(() => {});
     }
   }, []);
 
-  // Initialize xterm
+  // staggered one-per-frame so parallel pane mounts don't stack into one long task.
   useEffect(() => {
     if (!containerRef.current) return;
     if (initialized.current) return;
     initialized.current = true;
 
-    const term = new Terminal({
-      cursorBlink: terminalConfig?.cursor_blink ?? true,
-      cursorStyle: mapCursorStyle(terminalConfig?.cursor_style),
-      fontSize: fontConfig?.size ?? 14,
-      fontFamily: fontConfig?.family ??
-        "'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace",
-      scrollback: terminalConfig?.scrollback ?? 10000,
-      theme: buildXtermTheme(theme),
-      overviewRuler: { width: 4 },
-      allowProposedApi: true,
-      // DOM accessibility mirror for Playwright/e2e (`/?a11y=1`).
-      // It disables truecolor, so normal/dev sessions keep WebGL.
-      screenReaderMode: E2E_TEST_MODE,
-      windowsPty: {
-        backend: "conpty",
-        buildNumber: winBuildNumber,
-      },
-    });
+    let created: Terminal | null = null;
+    const cancel = scheduleXtermInit(() => {
+      if (!containerRef.current) {
+        initialized.current = false;
+        return;
+      }
 
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-    term.loadAddon(new WebLinksAddon((_event, uri) => {
-      invoke("open_url", { url: uri }).catch(() => {
-        window.open(uri, "_blank");
+      const term = new Terminal({
+        cursorBlink: terminalConfig?.cursor_blink ?? true,
+        cursorStyle: mapCursorStyle(terminalConfig?.cursor_style),
+        fontSize: fontConfig?.size ?? 14,
+        fontFamily: fontConfig?.family ??
+          "'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace",
+        scrollback: terminalConfig?.scrollback ?? 10000,
+        theme: buildXtermTheme(theme),
+        overviewRuler: { width: 4 },
+        allowProposedApi: true,
+        // DOM accessibility mirror for Playwright/e2e (`/?a11y=1`).
+        // It disables truecolor, so normal/dev sessions keep WebGL.
+        screenReaderMode: E2E_TEST_MODE,
+        windowsPty: {
+          backend: "conpty",
+          buildNumber: winBuildNumber,
+        },
       });
-    }));
 
-    const searchAddon = new SearchAddon();
-    term.loadAddon(searchAddon);
-    searchAddonRef.current = searchAddon;
+      const fitAddon = new FitAddon();
+      term.loadAddon(fitAddon);
+      term.loadAddon(new WebLinksAddon((_event, uri) => {
+        invoke("open_url", { url: uri }).catch(() => {
+          window.open(uri, "_blank");
+        });
+      }));
 
-    const unicode11 = new Unicode11Addon();
-    term.loadAddon(unicode11);
-    term.unicode.activeVersion = "11";
+      const searchAddon = new SearchAddon();
+      term.loadAddon(searchAddon);
+      searchAddonRef.current = searchAddon;
 
-    term.open(containerRef.current);
+      const unicode11 = new Unicode11Addon();
+      term.loadAddon(unicode11);
+      term.unicode.activeVersion = "11";
 
-    // Use WebGL for Opencode/Codex after term.open(), fall back to DOM.
-    // Report webgl status so runtime metrics can track renderer choice.
-    if (E2E_TEST_MODE) {
-      // E2E mode reads accessibility DOM text; skip WebGL to avoid conflicts.
-      invoke("report_webgl_status", { state: "skipped_test_mode", detail: null }).catch(() => {});
-    } else
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => {
-        webgl.dispose();
-        invoke("report_webgl_status", { state: "context_lost", detail: null }).catch(() => {});
+      term.open(containerRef.current);
+
+      // Use WebGL for Opencode/Codex after term.open(), fall back to DOM.
+      // Report webgl status so runtime metrics can track renderer choice.
+      if (E2E_TEST_MODE) {
+        // E2E mode reads accessibility DOM text; skip WebGL to avoid conflicts.
+        invoke("report_webgl_status", { state: "skipped_test_mode", detail: null }).catch(() => {});
+      } else
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => {
+          webgl.dispose();
+          invoke("report_webgl_status", { state: "context_lost", detail: null }).catch(() => {});
+        });
+        term.loadAddon(webgl);
+        invoke("report_webgl_status", { state: "loaded", detail: null }).catch(() => {});
+      } catch (e) {
+        const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+        console.warn("[useXterm] WebGL renderer unavailable, falling back to DOM:", e);
+        invoke("report_webgl_status", { state: "failed", detail }).catch(() => {});
+      }
+
+      // Copy-on-select is disabled to avoid overwriting the clipboard on highlight.
+      // Use Ctrl+Shift+C / Cmd+C / context menu Copy instead.
+
+      term.onBell(() => {
+        setBellFlash(true);
+        setTimeout(() => setBellFlash(false), 200);
       });
-      term.loadAddon(webgl);
-      invoke("report_webgl_status", { state: "loaded", detail: null }).catch(() => {});
-    } catch (e) {
-      const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-      console.warn("[useXterm] WebGL renderer unavailable, falling back to DOM:", e);
-      invoke("report_webgl_status", { state: "failed", detail }).catch(() => {});
-    }
 
-    // Copy-on-select is disabled to avoid overwriting the clipboard on highlight.
-    // Use Ctrl+Shift+C / Cmd+C / context menu Copy instead.
-
-    // Visual bell
-    term.onBell(() => {
-      setBellFlash(true);
-      setTimeout(() => setBellFlash(false), 200);
-    });
-
-    fitAddon.fit();
-    term.focus();
-    termRef.current = term;
-    fitAddonRef.current = fitAddon;
-    setTermReady(true);
+      fitAddon.fit();
+      term.focus();
+      created = term;
+      termRef.current = term;
+      fitAddonRef.current = fitAddon;
+      setTermReady(true);
+    }, { priority });
 
     return () => {
-      term.dispose();
+      cancel();
+      created?.dispose();
       termRef.current = null;
       fitAddonRef.current = null;
       searchAddonRef.current = null;
@@ -143,7 +156,6 @@ export function useXterm({
     };
   }, []);
 
-  // Hot-reload theme, font, terminal config
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;

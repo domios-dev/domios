@@ -2,7 +2,6 @@ import { authHeaders, baseUrl, jsonHeaders } from "../MemoryPanel/memoryApi";
 import type { ApiConfig } from "../../lib/types";
 import type { DriftItem, OrchestratorRef, Plan, PlanStatus, Section } from "./types";
 
-// Lightweight list row (GET /api/plans) — enough for PlanButton visibility/pulse
 // without fetching full plan bodies.
 export interface PlanIndexEntry {
   plan_id: string;
@@ -13,6 +12,7 @@ export interface PlanIndexEntry {
   updated_at: number;
   assigned_pane_ids: string[];
   task_count?: number;
+  open_task_count?: number;
   section_count?: number;
   element_count?: number;
   loop_count?: number;
@@ -42,9 +42,6 @@ export async function fetchPlan(api: ApiConfig, planId: string, signal?: AbortSi
   return res.json();
 }
 
-// The REAL Spec entity's hydrated section tree (GET /api/specs/{id} → {spec:{...}}).
-// The canvas spec node renders THESE, not the plan's sections (they are distinct
-// entities — Spec=WHAT ⊥ Plan=HOW).
 export async function fetchSpecSections(api: ApiConfig, specId: string, signal?: AbortSignal): Promise<Section[]> {
   const res = await fetch(`${baseUrl(api)}/api/specs/${encodeURIComponent(specId)}`, {
     headers: authHeaders(api),
@@ -150,6 +147,42 @@ export async function archivePlan(api: ApiConfig, planId: string): Promise<void>
     body: "{}",
   });
   if (!res.ok) throw new Error(`plan archive failed: ${res.status} ${await res.text()}`);
+}
+
+export async function unarchivePlan(api: ApiConfig, planId: string): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/unarchive`, {
+    method: "POST",
+    headers: jsonHeaders(api),
+    body: "{}",
+  });
+  if (!res.ok) throw new Error(`plan unarchive failed: ${res.status} ${await res.text()}`);
+}
+
+export async function parkPlan(api: ApiConfig, planId: string, reason: string): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/pause`, {
+    method: "POST",
+    headers: jsonHeaders(api),
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) throw new Error(`plan park failed: ${res.status} ${await res.text()}`);
+}
+
+export async function resumePlan(api: ApiConfig, planId: string): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/resume`, {
+    method: "POST",
+    headers: jsonHeaders(api),
+    body: "{}",
+  });
+  if (!res.ok) throw new Error(`plan resume failed: ${res.status} ${await res.text()}`);
+}
+
+export async function renamePlan(api: ApiConfig, planId: string, title: string): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}`, {
+    method: "PATCH",
+    headers: jsonHeaders(api),
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error(`plan rename failed: ${res.status} ${await res.text()}`);
 }
 
 export async function claimPlan(

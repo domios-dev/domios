@@ -299,7 +299,6 @@ mod tests {
         let s = slug(&long);
         assert!(s.len() <= 72, "slug must cap length, got {}", s.len());
         assert!(!s.ends_with('-'), "no trailing dash");
-        // short titles unaffected
         assert_eq!(slug("Pan Zoom"), "pan-zoom");
     }
 
@@ -316,6 +315,8 @@ mod tests {
             test_plan: None,
             correctness: None,
             status: crate::plan::TaskStatus::Pending,
+            review_stage: Default::default(),
+            qa_state: None,
             status_label: None,
             priority: Default::default(),
             created_at: 0,
@@ -325,6 +326,9 @@ mod tests {
             tags: vec!["area:nav".into(), "pan-zoom".into()],
             section_ids: vec![],
             body: String::new(),
+            role_guidance: None,
+            executor_role: None,
+            competition: None,
             intent: None,
             parent_task_id: None,
             assigned_pane_id: None,
@@ -334,6 +338,9 @@ mod tests {
             group: None,
             canvas: Default::default(),
             milestones: vec![],
+            execution_attempts: vec![],
+            park_reason: None,
+            attachments: vec![],
         });
         normalize_plan(&mut plan);
         assert_eq!(plan.tasks[0].handle.as_deref(), Some("nav-pan-zoom"));

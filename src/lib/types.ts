@@ -50,7 +50,6 @@ export interface ClosedPaneView extends ClosedPane {
 
 export interface Tab {
   id: string;
-  title?: string;
   description?: string | null;
   /** One pane per tab. Split layouts were removed. */
   pane_id: string;
@@ -109,6 +108,22 @@ export interface PaneAgentState {
     | "unknown";
 }
 
+/** Truthful pane-boot progress, emitted by the daemon at real launch
+ *  transitions (never timer-driven). Mirrors Rust `service::boot_stage::BootStage`. */
+export type BootStage =
+  | "pty_spawned"
+  | "shell_ready"
+  | "agent_launching"
+  | "agent_ready"
+  | "spawn_failed";
+
+/** Payload of the `pane-boot-stage` event. */
+export interface PaneBootStageEvent {
+  pane_id: string;
+  stage: BootStage;
+  reason?: string | null;
+}
+
 export interface Pane {
   id: string;
   pty_id: string | null;
@@ -119,11 +134,19 @@ export interface Pane {
   description?: string | null;
   cwd: string | null;
   title_level?: TitleLevel;
+  /** Frontend-only: true while `title` was set by a local optimistic rename
+   *  not yet confirmed by a backend snapshot. Distinguishes a genuine
+   *  in-flight rename (must survive a tied/stale backend snapshot) from a
+   *  stale title merely carried over from a prior snapshot or cache
+   *  hydration (must yield to the backend on the next tie). Cleared once a
+   *  backend SET_STATE reports a matching title. */
+  title_pending_local?: boolean;
   agent_type?: string | null;
   agent_session_id?: string | null;
   agent_session_name?: string | null;
   agent_session_model?: string | null;
   role?: AgentRole | null;
+  role_profile?: string | null;
   parent_pane_id?: string | null;
   can_spawn?: boolean;
   depth?: number;
@@ -137,6 +160,14 @@ export interface Pane {
   hidden?: boolean;
   show_in_tabbar?: boolean;
   worker_id?: string | null;
+  /** Current agent-boot stage for late attachers reading the live snapshot.
+   *  Absent once boot completes or before it begins. */
+  boot_stage?: BootStage | null;
+  /** Frontend-only: a UI-only "New session" picker pane that has NO backend
+   *  pane/PTY behind it. Never sent to the backend, never persisted, and never
+   *  present in a session snapshot — it exists purely so the picker can render
+   *  as a tab until the user confirms and a real pane is materialized. */
+  virtual?: boolean;
 }
 
 export interface MultiplexerState {
@@ -152,6 +183,10 @@ export interface MultiplexerState {
    *  Each entry carries its per-workspace reopen `index`, an `orphaned` flag,
    *  and group metadata. */
   recently_closed?: ClosedPaneView[];
+  /** Aggregate Idle/Working/Waiting/Dead per PTY-backed pane, mirrored from the
+   *  backend's live status tracker so the tab rail hydrates correctly on
+   *  reload instead of staying blank until the next status event. */
+  pane_statuses?: Record<string, PaneStatus>;
 }
 
 /** Result of the one atomic spawn command (`mux_spawn_pane`). */
@@ -368,9 +403,11 @@ export interface NotificationConfig {
 }
 
 export interface KeybindingsConfig {
-  /** Reopen the most-recently-closed tab in the active workspace — the sole
-   *  app-level keybinding. Everything else was removed deliberately. */
   reopen_tab?: string;
+  /** Cycle to the next sidebar item (plan entry or tab) in the active workspace. */
+  next_tab?: string;
+  /** Cycle to the previous sidebar item (plan entry or tab) in the active workspace. */
+  prev_tab?: string;
 }
 
 export interface SocketConfigSettings {
@@ -398,6 +435,7 @@ export interface GeneralAgentConfig {
   auto_restart: boolean;
   max_restart_attempts: number;
   restart_delay_s: number;
+  first_run_complete?: boolean;
 }
 
 export interface IntegrationsConfig {
@@ -525,7 +563,6 @@ export interface UiConfig {
   memory_tab_enabled?: boolean;
   mesh_tab_enabled?: boolean;
   default_new_agent_pane_chat?: boolean;
-  // Centralized client settings that used to live in localStorage. Extra keys
   // persist via the Rust UiConfig flatten map (mirrors ProviderConfig).
   chat_ui_default_prompted?: boolean;
   keepawake_display?: boolean;
@@ -557,8 +594,6 @@ export interface ModelInfo {
   id: string;
   display_name: string;
   description?: string;
-  // Whether the account can select this model right now. Omitted means "no
-  // info — treat as available"; `false` greys it out in the picker; `true` is
   available?: boolean | null;
 }
 
@@ -683,4 +718,31 @@ export interface ProviderDescriptor {
   /// with the selected ModelInfo id. Missing means the provider does not
   /// support arg-based live model switching.
   model_switch_format?: string | null;
+}
+
+/** Input for `createOrchestrationPair` — camelCase for ergonomic call sites;
+ *  translated to the snake_case wire shape shared by CLI/REST/Tauri. */
+export interface OrchestrationPairInput {
+  orchestratorAgent: string;
+  orchestratorModel?: string;
+  plannerAgent: string;
+  plannerModel?: string;
+  workspaceId?: string;
+  title?: string;
+  /** Blank picker tab to claim for the Orchestrator in place (task_e0ddee08) —
+   *  confirming the picker transforms that tab instead of leaving it behind. */
+  existingTabId?: string;
+}
+
+/** Mirrors Rust `OrchestrationPairResult` (task_7e5f9354) — plain snake_case,
+ *  same shape returned by the socket RPC, REST, and Tauri command. Success
+ *  only: a failed Planner spawn rejects with the exact recovery command
+ *  instead of resolving to a half-populated result. */
+export interface OrchestrationPairResult {
+  plan_id: string;
+  orchestrator_pane_id: string;
+  orchestrator_model?: string;
+  planner_pane_id: string;
+  planner_model?: string;
+  warning?: string;
 }

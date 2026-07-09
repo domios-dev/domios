@@ -197,7 +197,7 @@ impl Default for BatchResult {
 }
 
 fn gen_id(prefix: &str) -> String {
-    format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
+    crate::plan::ids::short_id(prefix)
 }
 
 fn parse_status(raw: &str) -> Result<TaskStatus, PlanError> {
@@ -335,6 +335,7 @@ impl PlanStore {
                                         &task_id,
                                         &working.tasks[task_index].status,
                                         next,
+                                        None,
                                     )?;
                                 }
                                 let task = &mut working.tasks[task_index];
@@ -352,6 +353,7 @@ impl PlanStore {
                                         task.status = status;
                                         task.status_changed_at = now_ms;
                                     }
+                                    super::qa::normalize_task_review_fields(task);
                                 }
                                 if let Some(body) = body {
                                     task.body = body;
@@ -386,6 +388,8 @@ impl PlanStore {
                                         .map(parse_status)
                                         .transpose()?
                                         .unwrap_or(TaskStatus::Pending),
+                                    review_stage: Default::default(),
+                                    qa_state: None,
                                     status_label: None,
                                     priority: priority
                                         .as_deref()
@@ -399,6 +403,9 @@ impl PlanStore {
                                     tags: vec![],
                                     section_ids: sections,
                                     body: body.unwrap_or_default(),
+                                    role_guidance: None,
+                                    executor_role: None,
+                                    competition: None,
                                     intent: None,
                                     parent_task_id: None,
                                     assigned_pane_id: None,
@@ -408,6 +415,9 @@ impl PlanStore {
                                     group,
                                     canvas: Default::default(),
                                     milestones: vec![],
+                                    execution_attempts: vec![],
+                                    park_reason: None,
+                                    attachments: vec![],
                                 };
                                 working.tasks.push(task);
                                 id
@@ -480,12 +490,14 @@ impl PlanStore {
                                 &task_id,
                                 &working.tasks[task_index].status,
                                 &parsed,
+                                None,
                             )?;
                             let task = &mut working.tasks[task_index];
                             if task.status != parsed {
                                 task.status = parsed;
                                 task.status_changed_at = now_ms;
                             }
+                            super::qa::normalize_task_review_fields(task);
                             task.updated_at = now_ms;
                             if let Some(client_id) = client_id {
                                 result.ids.insert(client_id, task.id.clone());
@@ -555,6 +567,7 @@ impl PlanStore {
                                     loop_id: None,
                                     iteration: None,
                                     canvas: Default::default(),
+                                    attachments: vec![],
                                 });
                                 task.updated_at = now_ms;
                                 id
@@ -612,9 +625,11 @@ impl PlanStore {
                             let seq = next_handoff_seq(&working);
                             let body_path = super::body_files::handoff_path(&working, &id)
                                 .map_err(|e| PlanError::Io(e.to_string()))?;
+                            let relative_body_path = body_path
+                                .strip_prefix(std::path::Path::new(&working.project_path))
+                                .map(|path| path.display().to_string())
+                                .unwrap_or_else(|_| body_path.display().to_string());
                             pending_markdown_writes.push((body_path, body));
-                            let relative_body_path =
-                                format!(".codeterm/plans/{}/handoffs/{}.md", working.id, id);
                             if !content.is_object() {
                                 content = serde_json::json!({});
                             }
@@ -667,6 +682,7 @@ impl PlanStore {
                                     loop_id: None,
                                     iteration: None,
                                     canvas: Default::default(),
+                                    attachments: vec![],
                                 });
                                 task.updated_at = now_ms;
                                 result.milestone_ids.push(milestone_id);
@@ -746,6 +762,7 @@ impl PlanStore {
                                     body: body.unwrap_or_default(),
                                     subsections: vec![],
                                     canvas: Default::default(),
+                                    attachments: vec![],
                                 });
                                 spec.updated_at = now_ms;
                                 id

@@ -61,9 +61,6 @@ fn supports_structured_prompts_from_manifest() {
     if require_plugins().is_none() {
         return;
     }
-    // opencode declares `supportsStructuredPrompts: true` in plugin.json — the
-    // host subscribes to its SSE bus rather than scraping the PTY picker. The
-    // descriptor must carry it so core gates on the capability, never the id.
     let j = opencode();
     assert!(j.supports_structured_prompts());
     assert!(j.describe().supports_structured_prompts);

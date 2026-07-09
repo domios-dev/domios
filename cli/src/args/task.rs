@@ -27,7 +27,13 @@ pub enum TaskAction {
         status: Option<String>,
     },
     /// Show one task with plan and section context
-    Show { task_id: String },
+    Show {
+        task_id: String,
+        #[arg(long, help = "List sibling tasks (open-only unless --all)")]
+        siblings: bool,
+        #[arg(long, help = "With --siblings, include done/cancelled tasks")]
+        all: bool,
+    },
     /// Assign the task to the caller's pane
     Take { task_id: String },
     /// Release the task assignment

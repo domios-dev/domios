@@ -7,6 +7,7 @@ pub(crate) const SEND_AGENT_BACKEND_COLS: u16 = 240;
 mod inject;
 mod lifecycle;
 mod send;
+mod wake;
 
 pub(crate) use send::build_spawn_dispatch;
 pub use send::{poll_bare_shell_prompt, poll_shell_prompt};

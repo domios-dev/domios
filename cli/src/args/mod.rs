@@ -6,6 +6,7 @@ pub mod delayed;
 pub mod effort;
 pub mod mem;
 pub mod misc;
+pub mod orchestration;
 pub mod orchestrator;
 pub mod plan;
 pub mod plugin;

@@ -103,7 +103,6 @@ pub fn read_api_config() -> (String, Option<String>) {
         }
     }
 
-    // Override port from env — CodeTerm sets this in spawned PTYs
     if let Ok(env_port) = std::env::var("CODETERM_API_PORT") {
         if let Ok(p) = env_port.parse::<i64>() {
             port = p;
@@ -123,17 +122,23 @@ pub fn read_api_config() -> (String, Option<String>) {
             })
     };
 
-    // Try Ed25519 signed token first, fall back to simple API token from config
     let signed_token = read_mesh_signed_token();
 
     let env_token = std::env::var("CODETERM_API_TOKEN")
         .ok()
         .filter(|s| !s.is_empty());
 
-    let token = if std::env::var("CODETERM_INSTANCE")
+    let targets_dev = std::env::var("CODETERM_INSTANCE")
         .map(|s| !s.trim().is_empty())
         .unwrap_or(false)
-    {
+        || std::env::var("CODETERM_SOCKET_PATH")
+            .map(|sp| sp.contains("codeterm-dev"))
+            .unwrap_or(false)
+        || std::env::var("CODETERM_API_PORT")
+            .map(|p| !p.trim().is_empty() && p.trim() != "7685")
+            .unwrap_or(false);
+
+    let token = if targets_dev {
         config_token().or(signed_token).or(env_token)
     } else {
         env_token.or(signed_token).or_else(config_token)
@@ -182,7 +187,6 @@ pub fn build_http(token: &Option<String>) -> Result<reqwest::blocking::Client, r
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(60))
         .build()
-    // No fallback — propagate the error so callers know auth headers were dropped
 }
 
 mod args;
@@ -226,6 +230,16 @@ fn main() {
         e.exit()
     });
 
+    if let Commands::Plan {
+        action: PlanAction::Delete { plan_id, yes },
+    } = &cli.command
+    {
+        if let Err(e) = cmd::plan::validate_plan_delete_confirmation(plan_id, *yes) {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    }
+
     // `plugin` is filesystem-local (no daemon) — handle before socket/mesh.
     if matches!(cli.command, Commands::Plugin { .. }) {
         match cli.command {
@@ -235,7 +249,6 @@ fn main() {
         return;
     }
 
-    // --mesh TARGET: proxy entire command to a remote peer via relay
     if let Some(ref mesh_target) = cli.mesh {
         // Secrets are local-only — refuse to proxy them across the mesh. Cross-mesh secret access needs a trust model we haven't designed yet.
         if matches!(
@@ -265,7 +278,6 @@ fn main() {
         return;
     }
 
-    // Config command uses HTTP API directly — no socket needed
     let json_output = cli.json;
     if let Commands::Config { ref action } = cli.command {
         let (base_url, token) = read_api_config();
@@ -317,7 +329,6 @@ fn main() {
                 if json_output {
                     println!("{}", serde_json::to_string_pretty(&value).unwrap());
                 } else if let Some(v) = value.get("value") {
-                    // For config get: print just the value
                     match v {
                         serde_json::Value::String(s) => println!("{}", s),
                         serde_json::Value::Null => println!("null"),
@@ -335,7 +346,6 @@ fn main() {
         return;
     }
 
-    // `mem run-worker` opens knowledge.db directly via --db-path and never talks to the daemon socket — short-circuit before discover_socket so a
     // stale CODETERM_SOCKET_PATH inherited from a previous daemon PID (e.g. after update install --auto restarts the binary) doesn't make the worker exit 1 before it can do any work.
     if let Commands::Mem {
         action: MemAction::RunWorker {
@@ -373,7 +383,6 @@ fn main() {
         }
     }
 
-    // `system` writes OS-level autostart triggers (schtasks / launchd / systemd). No daemon dependency — short-circuit so it works pre-install and
     // during recovery when the daemon is wedged.
     if matches!(cli.command, Commands::System { .. }) {
         let json_mode = cli.json;
@@ -387,7 +396,7 @@ fn main() {
     // `cli-manifest` introspects the clap tree — no daemon dependency.
     if matches!(cli.command, Commands::CliManifest { .. }) {
         match cli.command {
-            Commands::CliManifest { write } => cmd::manifest::handle(write),
+            Commands::CliManifest { write, markdown } => cmd::manifest::handle(write, markdown),
             _ => unreachable!(),
         }
         return;
@@ -433,6 +442,14 @@ fn main() {
 
         Commands::Orchestrator { action } => {
             match cmd::orchestrator::handle(&mut client, cli.json, action) {
+                Ok(Some(value)) => Ok(value),
+                Ok(None) => return,
+                Err(e) => Err(e),
+            }
+        }
+
+        Commands::Orchestration { action } => {
+            match cmd::orchestration::handle(&mut client, cli.json, action) {
                 Ok(Some(value)) => Ok(value),
                 Ok(None) => return,
                 Err(e) => Err(e),
@@ -522,11 +539,15 @@ fn main() {
                     KeepAwakeAction::Start {
                         duration_secs,
                         display,
+                        gnome_policy,
+                        system_block,
                     } => http
                         .post(format!("{}/api/keepawake/start", base))
                         .json(&serde_json::json!({
                             "duration_secs": duration_secs,
                             "display": display,
+                            "gnome_policy": gnome_policy,
+                            "system_block": system_block,
                         }))
                         .send()
                         .map_err(|e| e.to_string())
@@ -555,6 +576,11 @@ fn main() {
 
         Commands::Agent { action } => {
             cmd::agent::handle_agent(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::Report(args) => {
+            cmd::agent::handle_agent(&mut client, cli.json, AgentAction::Report(args));
             return;
         }
 
@@ -821,4 +847,20 @@ mod plan_cli_error_tests {
 }
 
 #[cfg(test)]
+mod attachment_contract_tests;
+#[cfg(test)]
+mod plan_planning_gate_tests;
+#[cfg(test)]
+mod plan_ref_contract_tests;
+#[cfg(test)]
+mod plan_skill_cli_tests;
+#[cfg(test)]
+mod plan_task_attempt_tests;
+#[cfg(test)]
+mod plan_task_role_guidance_tests;
+#[cfg(test)]
+mod plugin_cli_tests;
+#[cfg(test)]
 mod subcommand_contract_tests;
+#[cfg(test)]
+mod zero_flag_plan_context_tests;

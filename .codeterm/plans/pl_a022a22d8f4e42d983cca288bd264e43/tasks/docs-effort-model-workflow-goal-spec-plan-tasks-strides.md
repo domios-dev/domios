@@ -1,1 +1,0 @@
-ORCHESTRATION.md + CLI.md: a Planning workflow section — define GOAL (vector) first, then Spec(WHAT), then Plan(HOW) built FROM the spec, M:N spec_section↔plan_section, Tasks, Strides. Goal is mutable+recorded. Exact command sequence. Bump revisions.

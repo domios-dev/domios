@@ -19,6 +19,7 @@ fn update_task_retag_replaces_facet_and_regenerates_handle() {
             None,
             None,
             None,
+            None,
             &["area:nav".into(), "pan-zoom".into()],
             Some("area:nav"),
             None,
@@ -29,6 +30,7 @@ fn update_task_retag_replaces_facet_and_regenerates_handle() {
         .update_task(
             &id,
             &task_id,
+            None,
             None,
             None,
             None,

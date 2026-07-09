@@ -1,4 +1,4 @@
-//! Install bundled CLI binary to ~/.codeterm/bin/ + PATH integration.
+//! Install bundled CLI binary to the active data-dir bin/ + prod PATH integration.
 
 /// Compute hex-encoded sha256 of a file. Returns `None` on I/O error.
 pub(crate) fn file_sha256(path: &std::path::Path) -> Option<String> {
@@ -29,18 +29,22 @@ fn resolve_bundled_cli_src(app: &impl tauri::Manager<tauri::Wry>) -> Option<std:
         .filter(|p| p.exists())
 }
 
-/// Copy the bundled CLI (`src`) to `~/.codeterm/bin/` iff it differs by content
+/// Copy the bundled CLI (`src`) to the active data-dir `bin/` iff it differs by content
 /// (sha256, not size — same-size builds can differ, e.g. the v1.1.5→1.1.6
 /// incident that broke mesh signing). Repairs the `~/.local/bin` symlink on
-/// unix. Returns `Ok(true)` when it (re)installed, `Ok(false)` when already
+/// unix for prod installs only. Returns `Ok(true)` when it (re)installed, `Ok(false)` when already
 /// up-to-date. Pure filesystem logic so it is unit-testable without Tauri.
 pub(crate) fn refresh_installed_cli(
     src: &std::path::Path,
     home: &std::path::Path,
+    data_dir: &std::path::Path,
 ) -> std::io::Result<bool> {
     let bin_name = cli_bin_name();
-    let dest_dir = home.join(".codeterm").join("bin");
+    let dest_dir = data_dir.join("bin");
     let dest = dest_dir.join(bin_name);
+    let prod_dest_dir = home.join(".codeterm").join("bin");
+    let is_prod_dest = dest_dir == prod_dest_dir;
+    let mut needs_copy = true;
 
     if dest.exists() {
         match (file_sha256(src), file_sha256(&dest)) {
@@ -49,7 +53,7 @@ pub(crate) fn refresh_installed_cli(
                     "[cli-install] CLI already up-to-date (sha256={}), skipping",
                     &src_hash[..12.min(src_hash.len())]
                 );
-                return Ok(false);
+                needs_copy = false;
             }
             (Some(src_hash), Some(dest_hash)) => {
                 log::info!(
@@ -65,66 +69,74 @@ pub(crate) fn refresh_installed_cli(
     }
 
     std::fs::create_dir_all(&dest_dir)?;
-    let bytes = std::fs::copy(src, &dest)?;
-    let hash_short = file_sha256(&dest)
-        .map(|h| h[..12.min(h.len())].to_string())
-        .unwrap_or_else(|| "?".into());
-    log::info!(
-        "[cli-install] Installed CLI ({} bytes, sha256={}) to {}",
-        bytes,
-        hash_short,
-        dest.display()
-    );
+    if needs_copy {
+        let bytes = std::fs::copy(src, &dest)?;
+        let hash_short = file_sha256(&dest)
+            .map(|h| h[..12.min(h.len())].to_string())
+            .unwrap_or_else(|| "?".into());
+        log::info!(
+            "[cli-install] Installed CLI ({} bytes, sha256={}) to {}",
+            bytes,
+            hash_short,
+            dest.display()
+        );
+    }
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755));
-        // Repair stale ~/.local/bin symlinks (e.g. old launcher) so PATH calls hit this install.
-        // Otherwise PATH dispatch can no-op by re-entering the daemon launcher.
-        let local_bin = home.join(".local").join("bin");
-        let _ = std::fs::create_dir_all(&local_bin);
-        let link = local_bin.join("codeterm");
-        let needs_create = match std::fs::symlink_metadata(&link) {
-            Ok(meta) if meta.file_type().is_symlink() => match std::fs::read_link(&link) {
-                Ok(target) if target == dest => false,
-                Ok(stale) => {
+        if needs_copy {
+            let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755));
+        }
+        if is_prod_dest {
+            // Repair stale ~/.local/bin symlinks (e.g. old launcher) so PATH calls hit this install.
+            // Otherwise PATH dispatch can no-op by re-entering the daemon launcher.
+            let local_bin = home.join(".local").join("bin");
+            let _ = std::fs::create_dir_all(&local_bin);
+            let link = local_bin.join("codeterm");
+            let needs_create = match std::fs::symlink_metadata(&link) {
+                Ok(meta) if meta.file_type().is_symlink() => match std::fs::read_link(&link) {
+                    Ok(target) if target == dest => false,
+                    Ok(stale) => {
+                        log::warn!(
+                            "[cli-install] Replacing stale symlink {} -> {}",
+                            link.display(),
+                            stale.display()
+                        );
+                        let _ = std::fs::remove_file(&link);
+                        true
+                    }
+                    Err(_) => {
+                        let _ = std::fs::remove_file(&link);
+                        true
+                    }
+                },
+                Ok(_) => {
+                    // Regular file or directory — user/installer placed a real binary here. Don't clobber; log and skip.
                     log::warn!(
-                        "[cli-install] Replacing stale symlink {} -> {}",
-                        link.display(),
-                        stale.display()
+                        "[cli-install] {} exists and is not a symlink; refusing to replace",
+                        link.display()
                     );
-                    let _ = std::fs::remove_file(&link);
-                    true
+                    false
                 }
-                Err(_) => {
-                    let _ = std::fs::remove_file(&link);
-                    true
+                Err(_) => true,
+            };
+            if needs_create {
+                if let Err(e) = std::os::unix::fs::symlink(&dest, &link) {
+                    log::debug!("[cli-install] Symlink to ~/.local/bin failed: {}", e);
                 }
-            },
-            Ok(_) => {
-                // Regular file or directory — user/installer placed a real binary here. Don't clobber; log and skip.
-                log::warn!(
-                    "[cli-install] {} exists and is not a symlink; refusing to replace",
-                    link.display()
-                );
-                false
-            }
-            Err(_) => true,
-        };
-        if needs_create {
-            if let Err(e) = std::os::unix::fs::symlink(&dest, &link) {
-                log::debug!("[cli-install] Symlink to ~/.local/bin failed: {}", e);
             }
         }
     }
     #[cfg(windows)]
-    add_to_user_path(&dest_dir);
+    if is_prod_dest {
+        add_to_user_path(&dest_dir);
+    }
 
-    Ok(true)
+    Ok(needs_copy)
 }
 
-/// Install bundled CLI binary to ~/.codeterm/bin/ on startup (runs in background).
+/// Install bundled CLI binary to the active data-dir bin/ on startup (runs in background).
 pub(crate) fn install_bundled_cli(app: &tauri::App) {
     let Some(src) = resolve_bundled_cli_src(app) else {
         log::debug!("[cli-install] No bundled CLI found (dev mode?), skipping");
@@ -134,9 +146,10 @@ pub(crate) fn install_bundled_cli(app: &tauri::App) {
         log::error!("[cli-install] Cannot determine home directory");
         return;
     };
+    let data_dir = crate::paths::data_dir();
     // Run in background to not block app startup.
     std::thread::spawn(move || {
-        if let Err(e) = refresh_installed_cli(&src, &home) {
+        if let Err(e) = refresh_installed_cli(&src, &home, &data_dir) {
             log::error!("[cli-install] Failed to copy CLI: {}", e);
         }
     });
@@ -155,7 +168,8 @@ pub(crate) fn refresh_bundled_cli(app: &impl tauri::Manager<tauri::Wry>) {
         log::error!("[cli-install] post-update: cannot determine home directory");
         return;
     };
-    match refresh_installed_cli(&src, &home) {
+    let data_dir = crate::paths::data_dir();
+    match refresh_installed_cli(&src, &home, &data_dir) {
         Ok(true) => log::info!("[cli-install] post-update CLI refresh complete"),
         Ok(false) => log::debug!("[cli-install] post-update: CLI already current"),
         Err(e) => log::error!("[cli-install] post-update CLI refresh failed: {}", e),
@@ -259,6 +273,7 @@ mod tests {
     fn refresh_installs_then_skips_then_reinstalls_on_change() {
         use std::io::Write;
         let home = tempfile::tempdir().unwrap();
+        let data_dir = home.path().join(".codeterm");
         let srcdir = tempfile::tempdir().unwrap();
         let src = srcdir.path().join("codeterm");
         std::fs::File::create(&src)
@@ -267,23 +282,50 @@ mod tests {
             .unwrap();
 
         // First refresh installs the CLI.
-        assert!(super::refresh_installed_cli(&src, home.path()).unwrap());
-        let dest = home.path().join(".codeterm").join("bin").join("codeterm");
+        assert!(super::refresh_installed_cli(&src, home.path(), &data_dir).unwrap());
+        let dest = data_dir.join("bin").join(super::cli_bin_name());
         assert!(dest.exists());
         assert_eq!(std::fs::read(&dest).unwrap(), b"v1.5.6-binary");
 
         // Same content → up-to-date, no reinstall.
-        assert!(!super::refresh_installed_cli(&src, home.path()).unwrap());
+        assert!(!super::refresh_installed_cli(&src, home.path(), &data_dir).unwrap());
 
         // New release with same name but different content → reinstall.
         std::fs::File::create(&src)
             .unwrap()
             .write_all(b"v1.5.7-binary-with-report-to")
             .unwrap();
-        assert!(super::refresh_installed_cli(&src, home.path()).unwrap());
+        assert!(super::refresh_installed_cli(&src, home.path(), &data_dir).unwrap());
         assert_eq!(
             std::fs::read(&dest).unwrap(),
             b"v1.5.7-binary-with-report-to"
+        );
+    }
+
+    #[test]
+    fn refresh_dev_instance_installs_into_data_dir_not_prod() {
+        use std::io::Write;
+        let home = tempfile::tempdir().unwrap();
+        let data_dir = home.path().join(".codeterm-dev-phase-c-linux");
+        let srcdir = tempfile::tempdir().unwrap();
+        let src = srcdir.path().join("codeterm");
+        std::fs::File::create(&src)
+            .unwrap()
+            .write_all(b"dev-instance-binary")
+            .unwrap();
+
+        assert!(super::refresh_installed_cli(&src, home.path(), &data_dir).unwrap());
+
+        let dev_dest = data_dir.join("bin").join(super::cli_bin_name());
+        let prod_dest = home
+            .path()
+            .join(".codeterm")
+            .join("bin")
+            .join(super::cli_bin_name());
+        assert_eq!(std::fs::read(&dev_dest).unwrap(), b"dev-instance-binary");
+        assert!(
+            !prod_dest.exists(),
+            "dev/named instance CLI refresh must not write prod bin"
         );
     }
 

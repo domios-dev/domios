@@ -1,7 +1,3 @@
-// Pure card-content model: WHAT a node card shows, independent of geometry/paint.
-// Two levels — FAR (kicker + big title + tags) and NEAR (plan: tags + section
-// titles w/ per-section tags; spec: section titles + "→ tasks" buttons; task:
-// tags + status/priority/assignee fields). Unit-tested; drawCard renders it.
 
 import { TASK_STATUS_COLORS } from "../settings";
 import { flatSections, flattenSections, sectionRows, type SectionRowGlyph } from "../sectionRows";
@@ -51,6 +47,7 @@ type TaskModel = {
   childCount?: number;
   childDone?: number;
   presence?: TaskPresence | null;
+  historicalExecutor?: import("../taskExecutorHistory").HistoricalExecutorView | null;
 };
 
 const KICKER: Record<string, string> = { plan: "PLAN", spec: "SPEC", task: "TASK" };
@@ -65,7 +62,6 @@ function sectionTags(section: Section, colors: Map<string, string>): CardTag[] {
   return (section.tags ?? []).slice(0, 3).map((t) => chipFor(t, colors));
 }
 
-// The plan's tag taxonomy (legend chips from its color-lane facets) — a stable,
 // glanceable "what this plan is tagged by" row, capped so it never overflows.
 function planTopTags(plan: PlanModel, colors: Map<string, string>): CardTag[] {
   const out: CardTag[] = [];
@@ -94,43 +90,99 @@ function planContent(plan: PlanModel): CardContent {
   const tags = planTopTags(plan, colors);
   return {
     kind: "plan",
-    kicker: KICKER.plan,
+    kicker: plan.mode === "paused" ? "PARKED" : KICKER.plan,
     title: plan.title,
     accent: null,
     tags,
     sections,
     fields: [],
     body: plan.goal?.vector?.trim() || undefined,
-    hash: sig(["plan", plan.title, tags, sections.map((s) => [s.title, s.glyph, s.tags, s.body ?? ""]), plan.goal?.vector ?? ""]),
+    hash: sig(["plan", plan.mode, plan.title, tags, sections.map((s) => [s.title, s.glyph, s.tags, s.body ?? ""]), plan.goal?.vector ?? ""]),
   };
 }
 
+export interface SpecCoverage {
+  total: number;
+  covered: number;   // all tasks done/cancelled
+  partial: number;   // some tasks exist but not all done
+  unplanned: number; // zero tasks
+}
+
+export function specCoverage(plan: PlanModel): SpecCoverage {
+  const flat = flattenSections(plan.sections);
+  const byId = new Map<string, string[]>();
+  for (const s of flat) byId.set(s.id, []);
+  for (const t of (plan.tasks ?? [])) {
+    for (const sid of t.section_ids ?? []) {
+      const arr = byId.get(sid);
+      if (arr) arr.push(t.status);
+    }
+  }
+  let covered = 0, partial = 0, unplanned = 0;
+  for (const statuses of byId.values()) {
+    if (statuses.length === 0) unplanned++;
+    else if (statuses.every((s) => s === "done" || s === "cancelled")) covered++;
+    else partial++;
+  }
+  return { total: flat.length, covered, partial, unplanned };
+}
+
+function sectionGlyph(sectionId: string, plan: PlanModel): SectionRowGlyph {
+  const tasks = (plan.tasks ?? []).filter((t) => (t.section_ids ?? []).includes(sectionId));
+  if (tasks.length === 0) return "uncovered";
+  if (tasks.every((t) => t.status === "done" || t.status === "cancelled")) return "done";
+  return "progress";
+}
+
 function specContent(plan: PlanModel): CardContent {
-  const sections: CardSectionLine[] = flattenSections(plan.sections).map((s) => ({
-    sectionId: s.id,
-    title: s.title,
-    glyph: "uncovered",
-    tags: [],
-    button: "→ tasks",
-    body: s.body?.trim() || undefined,
-  }));
+  const cov = specCoverage(plan);
+  const sections: CardSectionLine[] = flattenSections(plan.sections).map((s) => {
+    const glyph = sectionGlyph(s.id, plan);
+    // Only add the nav button when the section has tasks to navigate to.
+    const taskCount = (plan.tasks ?? []).filter((t) => (t.section_ids ?? []).includes(s.id)).length;
+    return {
+      sectionId: s.id,
+      title: s.title,
+      glyph,
+      tags: [],
+      button: taskCount > 0 ? `${taskCount} task${taskCount > 1 ? "s" : ""}` : null,
+      body: s.body?.trim() || undefined,
+    };
+  });
+  // Compact coverage summary chips shown in the tag row.
+  const tags: CardTag[] = [];
+  if (cov.covered > 0) tags.push({ text: `${cov.covered} done`, color: GLYPH_ACCENT.done });
+  if (cov.partial > 0) tags.push({ text: `${cov.partial} active`, color: GLYPH_ACCENT.progress });
+  if (cov.unplanned > 0) tags.push({ text: `${cov.unplanned} open`, color: null });
+
   return {
     kind: "spec",
     kicker: KICKER.spec,
     title: plan.title,
     accent: null,
-    tags: [],
+    tags,
     sections,
     fields: [],
-    hash: sig(["spec", plan.title, sections.map((s) => [s.title, s.body ?? ""])]),
+    hash: sig(["spec", plan.title, sections.map((s) => [s.title, s.glyph, s.button ?? "", s.body ?? ""]), tags]),
   };
 }
 
-function assigneeLabel(m: TaskModel): string {
-  const lead = m.presence?.agents?.[0]?.label ?? m.presence?.label;
-  if (lead) return lead;
-  const pane = m.task.assigned_pane_id ?? m.task.lane?.pane_id;
-  return pane ? (pane.length > 12 ? pane.slice(0, 8) : pane) : "—";
+// Exported so drawCard can colour glyph dots consistently with the coverage chips.
+export const GLYPH_ACCENT: Record<SectionRowGlyph, string> = {
+  done: "rgba(82,180,145,0.95)",
+  progress: "rgba(129,140,248,0.95)",
+  uncovered: "rgba(148,163,184,0.55)",
+};
+
+function executorField(m: TaskModel): CardField {
+  const lead = m.presence?.agents?.[0];
+  if (lead) {
+    return { label: "executor", value: lead.label, color: lead.color };
+  }
+  if (m.historicalExecutor) {
+    return { label: "last executor", value: m.historicalExecutor.summary, color: null };
+  }
+  return { label: "assignee", value: "—", color: null };
 }
 
 function taskContent(m: TaskModel): CardContent {
@@ -143,8 +195,11 @@ function taskContent(m: TaskModel): CardContent {
   const fields: CardField[] = [
     { label: "status", value: task.status_label?.trim() || task.status.replace(/_/g, " "), color: TASK_STATUS_COLORS[task.status] ?? null },
     { label: "priority", value: (task.priority ?? "p2").toUpperCase(), color: null },
-    { label: "assignee", value: assigneeLabel(m), color: null },
+    executorField(m),
   ];
+  if (m.presence?.focus) {
+    fields.push({ label: "focus", value: m.presence.focus, color: null });
+  }
   if (m.childCount && m.childCount > 0) {
     fields.push({ label: "subtasks", value: `${m.childDone ?? 0}/${m.childCount}`, color: null });
   }
@@ -175,7 +230,6 @@ interface HandoffData {
   plan_snapshot?: { coverage_pct?: number };
 }
 
-// §27.4 handoff coin → a canvas card on the timeline lane (kicker + goal + a couple of
 // fields). Migrated to a painter so it stays VISIBLE under the canvas renderer.
 function handoffContent(model: unknown): CardContent {
   const c = ((model as { content?: HandoffData }).content ?? {}) as HandoffData;
@@ -206,7 +260,6 @@ export function buildCardContent(kind: string, model: unknown): CardContent | nu
   return null;
 }
 
-// NEAR is shown only when the card is physically big enough to fit ALL near content
 // at the reading font with no scroll (north-star: everything fits). Otherwise FAR.
 export interface FitMetrics {
   headerH: number;
@@ -218,9 +271,6 @@ export interface FitMetrics {
   padY: number;
 }
 
-// THE single source of near-card vertical metrics. drawCard renders against these and
-// taskFootprint sizes against them (via nearContentHeight) — so a change here moves the
-// footprint and the render together and titles can never overflow the box again.
 export const FIT: FitMetrics = { headerH: 34, titleLineH: 18, titleGap: 2, rowH: 19, tagRowH: 20, fieldH: 18, padY: 14 };
 
 export interface NearRows {
@@ -230,9 +280,6 @@ export interface NearRows {
   fields: number;
 }
 
-// On-screen height to fit ALL near content with no scroll — exactly drawNear's layout
-// (header band + wrapped title + gap + tags + section/field rows + bottom pad). The
-// footprint target, so footprint height == rendered near-content height.
 export function nearContentHeight(rows: NearRows): number {
   return FIT.headerH + rows.titleLines * FIT.titleLineH + FIT.titleGap
     + (rows.hasTags ? FIT.tagRowH : 0)
@@ -242,9 +289,6 @@ export function nearContentHeight(rows: NearRows): number {
 }
 
 export const MIN_NEAR_W = 150;
-// Enough on-screen height to show the header + tags + a couple of content rows. NEAR
-// becomes available here; drawCard renders the rows that fit and a "+N more" tail when
-// the card can't hold them all (the full list lives behind the ⤢ expand → detail).
 export const MIN_NEAR_H = 96;
 
 export function pickLevel(c: CardContent, screenW: number, screenH: number): CardLevel {

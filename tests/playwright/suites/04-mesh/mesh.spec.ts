@@ -30,7 +30,6 @@ async function pairedPeer(api: { get<T>(p: string): Promise<T> }, id: string): P
 
 test("@golden stub peer: pair → online → wedged → offline (hysteresis) → recovered, in API and Mesh-tab UI", async ({ api, ui }) => {
   // Liveness transitions ride the 15s health loop with a 2-miss threshold;
-  // the full cycle needs several loop rounds. The Mesh tab polls every 5s,
   test.setTimeout(420_000);
 
   const mesh = await api.get<{ enabled: boolean }>("/mesh/status");
@@ -42,7 +41,6 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
   try {
     await stub.start("happy");
 
-    // Manual discovery: the daemon assigns the stub a manual-<uuid> id,
     // which the stub must echo in its pair-accept (identity guard).
     const added = await api.post<{ instance_id: string }>("/mesh/peers/add-manual", {
       address: "127.0.0.1",
@@ -74,7 +72,6 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
     }, 60_000, 2_000, "healthy peer answers at least one ping");
     expect((await pairedPeer(api, peerId))?.online, "healthy peer flapped offline").toBe(true);
 
-    // Open the Mesh tab: peer row online, the stub's 3 services rendered
     // fresh (not stale) in the services drawer.
     await ui.page.locator('[data-testid="nav-mesh"]').click();
     await ui.page.locator('[data-testid="mesh-tab-network"]').click();
@@ -90,8 +87,6 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
     await expect(stubServices).toHaveCount(3, { timeout: 20_000 });
     await expect(stubServices.first()).toHaveAttribute("data-stale", "false");
 
-    // Wedge: TCP accepts, nothing answers — the #130 scenario. The flag
-    // must flip offline (2 consecutive missed rounds ≈ 30-45s), and must
     stub.mode = "wedged";
     await pollUntil(
       async () => (await pairedPeer(api, peerId!))?.online === false,
@@ -104,7 +99,6 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
     const health = await api.health();
     expect(health.status).toBe("ok");
 
-    // T3 #119 in the rendered UI: the unreachable peer's services must NOT
     // vanish — still listed, flagged stale, cached badge visible.
     await expect(stubServices).toHaveCount(3, { timeout: 30_000 });
     await expect(stubServices.first()).toHaveAttribute("data-stale", "true", {
@@ -114,7 +108,6 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
       stubServices.first().locator('[data-testid="service-stale-badge"]'),
     ).toBeVisible();
 
-    // Recovery: answering again brings it back online — and staleness
     // clears in the UI.
     stub.mode = "happy";
     await pollUntil(

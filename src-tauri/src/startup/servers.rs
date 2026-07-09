@@ -14,7 +14,6 @@ use super::states::AppStates;
 pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state: &ServiceState) {
     let app_handle = app.handle().clone();
 
-    // Start socket server
     if let Err(e) = socket::server::SocketServer::start(
         states.mux.clone(),
         states.pty.clone(),
@@ -26,7 +25,6 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         log::error!("Failed to start socket server: {}", e);
     }
 
-    // Initialize cron store and scheduler. Debug builds started with CODETERM_TEST_CLOCK=1 get a MockClock (driven via /api/debug/clock) so the
     // e2e suite can time-travel; release builds never do.
     let test_clock: Option<Arc<cron::clock::MockClock>> =
         if cfg!(debug_assertions) && std::env::var("CODETERM_TEST_CLOCK").as_deref() == Ok("1") {
@@ -50,7 +48,6 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             Ok(false) => log::debug!("[mem] dreaming cron already present"),
             Err(e) => log::warn!("[mem] failed to install dreaming cron: {}", e),
         }
-        // Librarian now runs as a CLI subprocess via the mem supervisor. Remove the legacy LLM-based cron from any older install so we don't keep
         // burning tokens to wrap a single bash command.
         if mem::dreaming::remove_legacy_librarian_cron(&mut cs) {
             log::info!("[mem] removed legacy librarian cron (replaced by direct loop)");
@@ -79,7 +76,6 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         });
     }
 
-    // Start REST API server in its own thread with Tokio runtime
     {
         let api_config = states.config.lock().api.clone();
         if api_config.enabled {
@@ -106,9 +102,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                      consider setting api.host = \"127.0.0.1\" in config for better security"
                 );
             }
-            // Set CODETERM_API_PORT so PTY children (and Claude hooks) know the correct port
             std::env::set_var("CODETERM_API_PORT", port.to_string());
-            // Capture the secrets handle so can run any one-time async init (e.g. Bitwarden auto-unlock from stored master password) BEFORE the listener
             // accepts connections. Without this gate, /api/secrets/status would briefly serve a stale "Locked" while init was still running on a parallel task.
             let secrets_for_init = service_state.secrets.clone();
             std::thread::spawn(move || {
@@ -147,14 +141,13 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
     // Start General Agent PTY + launch agent (workspace/pane already created in init_states)
     {
         let config = states.config.lock().general_agent.clone();
-        if config.enabled {
+        if config.enabled && config.first_run_complete {
             let svc = service_state.clone();
             let mux = states.mux.clone();
             let pty = states.pty.clone();
             let screen_state = states.screen_state.clone();
             let config_state = states.config.clone();
             let app_h = app_handle.clone();
-            // Watchdog: monitors General Agent, restarts if it exits
             let w_svc = svc.clone();
             let w_mux = mux.clone();
             let w_pty = pty.clone();
@@ -196,7 +189,6 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         }
     }
 
-    // Start messaging bridge (Telegram, etc.) if configured
     let integrations = states.config.lock().integrations.clone();
     if integrations.telegram_enabled {
         super::bridge::spawn_telegram_bridge(service_state.clone());

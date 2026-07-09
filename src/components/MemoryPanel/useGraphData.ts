@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "../../lib/bridge";
 import type { ApiConfig } from "../../lib/types";
-import { fetchGraphFull, isTauriEnv } from "./memoryApi";
+import { fetchGraphFull } from "./memoryApi";
 import type { MemEdge, MemNode } from "./types";
 
 interface State {
@@ -89,7 +89,6 @@ export function useGraphData(api: ApiConfig) {
           setState((prev) => {
             const next = new Map<string, MemNode>();
             for (const n of resp.nodes) {
-              // Preserve any local updates that haven't been persisted yet
               const prior = prev.nodes.get(n.id);
               next.set(n.id, prior ?? n);
             }
@@ -104,20 +103,18 @@ export function useGraphData(api: ApiConfig) {
       debounceTimer = setTimeout(refresh, 800);
     };
 
-    if (isTauriEnv()) {
-      listen<{ op: string }>("mem-activity", (ev) => {
-        if (!active) return;
-        const op = ev.payload?.op;
-        if (op === "write" || op === "update" || op === "delete") {
-          debouncedRefresh();
-        }
+    listen<{ op: string }>("mem-activity", (ev) => {
+      if (!active) return;
+      const op = ev.payload?.op;
+      if (op === "write" || op === "update" || op === "delete") {
+        debouncedRefresh();
+      }
+    })
+      .then((fn) => {
+        if (!active) { fn(); return; }
+        unlisten = fn;
       })
-        .then((fn) => {
-          if (!active) { fn(); return; }
-          unlisten = fn;
-        })
-        .catch(() => {});
-    }
+      .catch(() => {});
 
     return () => {
       active = false;

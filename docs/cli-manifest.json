@@ -202,6 +202,14 @@
           "aliases": [],
           "args": [
             {
+              "name": "attachments",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "File to attach to the report milestone; repeat for multiple files",
+              "aliases": []
+            },
+            {
               "name": "branch",
               "positional": false,
               "value_name": "BRANCH",
@@ -254,7 +262,7 @@
               "positional": false,
               "value_name": "PLAN",
               "default": null,
-              "help": "Plan id to append this report to",
+              "help": "Plan id to append this report to (if available)",
               "aliases": []
             },
             {
@@ -278,7 +286,7 @@
               "positional": false,
               "value_name": "STATUS",
               "default": null,
-              "help": "Task outcome: done | in_review | blocked | partial",
+              "help": "Task outcome: in_review | blocked | partial | done",
               "aliases": []
             },
             {
@@ -286,7 +294,7 @@
               "positional": false,
               "value_name": "TASK",
               "default": null,
-              "help": "Task id to append this report to",
+              "help": "Task id to append this report to (if available)",
               "aliases": []
             },
             {
@@ -398,7 +406,7 @@
         },
         {
           "name": "spawn",
-          "about": "Spawn a new agent (creates tab in workspace, linked in hierarchy)",
+          "about": "Spawn a new agent; roleless unless --role is provided",
           "aliases": [],
           "args": [
             {
@@ -422,7 +430,7 @@
               "positional": false,
               "value_name": "CAN_SPAWN",
               "default": null,
-              "help": "Allow spawning children",
+              "help": "Override whether an explicit Orchestrator may spawn children",
               "aliases": []
             },
             {
@@ -458,6 +466,14 @@
               "aliases": []
             },
             {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": "Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator",
+              "aliases": []
+            },
+            {
               "name": "preset",
               "positional": false,
               "value_name": "PRESET",
@@ -478,7 +494,7 @@
               "positional": false,
               "value_name": "ROLE",
               "default": null,
-              "help": "Role: Orchestrator, Worker",
+              "help": "Role: Worker, Orchestrator, or Planner profile sugar",
               "aliases": []
             },
             {
@@ -801,6 +817,14 @@
       "about": "Dump the CLI command tree as JSON (source of truth for docs/prompts/cards)",
       "aliases": [],
       "args": [
+        {
+          "name": "markdown",
+          "positional": false,
+          "value_name": "MARKDOWN",
+          "default": null,
+          "help": "Emit the docs/CLI.md auto-block markdown instead of JSON",
+          "aliases": []
+        },
         {
           "name": "write",
           "positional": false,
@@ -1545,6 +1569,22 @@
               "default": null,
               "help": "Duration in seconds (omit for indefinite)",
               "aliases": []
+            },
+            {
+              "name": "gnome_policy",
+              "positional": false,
+              "value_name": "GNOME_POLICY",
+              "default": null,
+              "help": "On Linux/GNOME, explicitly apply current-user power policy overrides (disable inactive sleep, idle blanking, lid-close and power-button suspend)",
+              "aliases": []
+            },
+            {
+              "name": "system_block",
+              "positional": false,
+              "value_name": "SYSTEM_BLOCK",
+              "default": null,
+              "help": "Print system-level sudo mask commands in the status response. CodeTerm never runs these commands silently",
+              "aliases": []
             }
           ],
           "subcommands": []
@@ -1798,6 +1838,14 @@
               "value_name": "AREA",
               "default": null,
               "help": "Area name (e.g. auth, deploy, billing)",
+              "aliases": []
+            },
+            {
+              "name": "yes",
+              "positional": false,
+              "value_name": "YES",
+              "default": null,
+              "help": "Confirm the batch delete (refused without it)",
               "aliases": []
             }
           ],
@@ -3075,6 +3123,102 @@
           "subcommands": []
         },
         {
+          "name": "save-preference",
+          "about": "Save a stable user/machine preference for wake-up context",
+          "aliases": [],
+          "args": [
+            {
+              "name": "area",
+              "positional": false,
+              "value_name": "AREA",
+              "default": null,
+              "help": "Area tag (planning | orchestration | machine | ...)",
+              "aliases": []
+            },
+            {
+              "name": "body",
+              "positional": true,
+              "value_name": "BODY",
+              "default": null,
+              "help": "Preference body. Use `-` (or omit with piped stdin) to read stdin",
+              "aliases": []
+            },
+            {
+              "name": "body_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read body from a file instead of the positional arg",
+              "aliases": []
+            },
+            {
+              "name": "importance",
+              "positional": false,
+              "value_name": "IMPORTANCE",
+              "default": "4.0",
+              "help": "Importance 1-5 (default 4.0). Higher = more likely in L1 wake-up",
+              "aliases": []
+            },
+            {
+              "name": "pin",
+              "positional": false,
+              "value_name": "PIN",
+              "default": null,
+              "help": "Pin the item for L1 wake-up (always loaded)",
+              "aliases": []
+            },
+            {
+              "name": "replace",
+              "positional": false,
+              "value_name": "REPLACE",
+              "default": null,
+              "help": "Overwrite an existing row with the same id (upsert)",
+              "aliases": []
+            },
+            {
+              "name": "scope",
+              "positional": false,
+              "value_name": "SCOPE",
+              "default": null,
+              "help": "Scope: global (default) or workspace:<id>",
+              "aliases": []
+            },
+            {
+              "name": "summary",
+              "positional": false,
+              "value_name": "SUMMARY",
+              "default": null,
+              "help": "Optional summary (~50-200 chars)",
+              "aliases": []
+            },
+            {
+              "name": "tags",
+              "positional": false,
+              "value_name": "TAGS",
+              "default": null,
+              "help": "Comma-separated tags",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": "Title (will be slugified into id). If omitted, first line of body",
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": "Convenience: scope this item to workspace ID. Maps to scope=\"workspace:<ws>\"",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "search",
           "about": "Search across mem_items (FTS5 + hybrid scoring)",
           "aliases": [],
@@ -4030,6 +4174,54 @@
       "subcommands": []
     },
     {
+      "name": "orchestration",
+      "about": "Paired creation — spawn an Orchestrator + Planner bound to a fresh plan",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "new",
+          "about": "Create an Orchestrator + Planner pair bound to a fresh plan in one action",
+          "aliases": [],
+          "args": [
+            {
+              "name": "orchestrator",
+              "positional": false,
+              "value_name": "ORCHESTRATOR",
+              "default": null,
+              "help": "Orchestrator provider, optionally with a model (`provider[:model]`)",
+              "aliases": []
+            },
+            {
+              "name": "planner",
+              "positional": false,
+              "value_name": "PLANNER",
+              "default": null,
+              "help": "Planner provider, optionally with a model (`provider[:model]`)",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "orchestrator",
       "about": "Orchestrator helpers",
       "aliases": [],
@@ -4228,6 +4420,30 @@
               "name": "text",
               "positional": true,
               "value_name": "TEXT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "status",
+          "about": "Show orchestration status as reports, live lanes, drift, and next actions",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
               "default": null,
               "help": null,
               "aliases": []
@@ -4715,6 +4931,62 @@
       "args": [],
       "subcommands": [
         {
+          "name": "adopt",
+          "about": "Adopt an existing plan sidecar directory into this project",
+          "aliases": [],
+          "args": [
+            {
+              "name": "dry_run",
+              "positional": false,
+              "value_name": "DRY_RUN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "overwrite",
+              "positional": false,
+              "value_name": "OVERWRITE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "source",
+              "positional": true,
+              "value_name": "SOURCE_PLAN_DIR",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "approve",
+          "about": "Mark the plan approved for task generation",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "archive",
           "about": "Archive a plan",
           "aliases": [],
@@ -4819,6 +5091,158 @@
           "subcommands": []
         },
         {
+          "name": "decision",
+          "about": "Decision gates — structured blocking questions routed to the planner",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "answer",
+              "about": "Answer an open gate (immutable audit record, unparks blocked tasks)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "answer",
+                  "positional": false,
+                  "value_name": "ANSWER",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "answered_by_pane",
+                  "positional": false,
+                  "value_name": "ANSWERED_BY_PANE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "gate_id",
+                  "positional": true,
+                  "value_name": "GATE_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "ask",
+              "about": "Create a decision gate, park blocking tasks, and route the question to the planner",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "asked_by_pane",
+                  "positional": false,
+                  "value_name": "ASKED_BY_PANE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "blocking_task_ids",
+                  "positional": false,
+                  "value_name": "BLOCKING_TASK_IDS",
+                  "default": null,
+                  "help": "Task ids (or handles) to park until this gate is answered",
+                  "aliases": []
+                },
+                {
+                  "name": "context",
+                  "positional": false,
+                  "value_name": "CONTEXT",
+                  "default": "",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "question",
+                  "positional": false,
+                  "value_name": "QUESTION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "escalate",
+              "about": "Escalate a stale open gate",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "gate_id",
+                  "positional": true,
+                  "value_name": "GATE_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "note",
+                  "positional": false,
+                  "value_name": "NOTE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List decision gates for a plan",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "open",
+                  "positional": false,
+                  "value_name": "OPEN",
+                  "default": null,
+                  "help": "Show only open gates",
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "delete",
           "about": "Delete a plan",
           "aliases": [],
@@ -4829,6 +5253,14 @@
               "value_name": "PLAN_ID",
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "yes",
+              "positional": false,
+              "value_name": "YES",
+              "default": null,
+              "help": "Confirm permanent deletion",
               "aliases": []
             }
           ],
@@ -4961,6 +5393,30 @@
               "subcommands": []
             },
             {
+              "name": "rm",
+              "about": "Remove a generic canvas element",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "element_id",
+                  "positional": true,
+                  "value_name": "ELEMENT_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "show",
               "about": "Show one generic canvas element",
               "aliases": [],
@@ -4969,6 +5425,62 @@
                   "name": "element_id",
                   "positional": true,
                   "value_name": "ELEMENT_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "update",
+              "about": "Update a generic canvas element's content, kind, or links",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "content",
+                  "positional": false,
+                  "value_name": "CONTENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "content_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "element_id",
+                  "positional": true,
+                  "value_name": "ELEMENT_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "kind",
+                  "positional": false,
+                  "value_name": "KIND",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "link",
+                  "positional": false,
+                  "value_name": "LINK",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -5577,30 +6089,6 @@
           "args": [],
           "subcommands": [
             {
-              "name": "advance",
-              "about": "Advance a loop one iteration, recording whether it made progress",
-              "aliases": [],
-              "args": [
-                {
-                  "name": "loop_id",
-                  "positional": true,
-                  "value_name": "LOOP_ID",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "progress",
-                  "positional": false,
-                  "value_name": "PROGRESS",
-                  "default": "false",
-                  "help": null,
-                  "aliases": []
-                }
-              ],
-              "subcommands": []
-            },
-            {
               "name": "create",
               "about": "Declare a self-improving loop with a target and iteration budget",
               "aliases": [],
@@ -5633,6 +6121,46 @@
                   "name": "target",
                   "positional": false,
                   "value_name": "TARGET",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "record",
+              "about": "Record one loop iteration and leave a stride",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "loop_id",
+                  "positional": true,
+                  "value_name": "LOOP_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "note",
+                  "positional": false,
+                  "value_name": "NOTE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "stop",
+                  "positional": false,
+                  "value_name": "STOP",
+                  "default": "false",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task",
+                  "positional": false,
+                  "value_name": "TASK",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -5867,6 +6395,78 @@
           ]
         },
         {
+          "name": "mode",
+          "about": "Set explicit effort mode: planning | approved | execution | complete",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "set",
+              "positional": false,
+              "value_name": "SET",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "move",
+          "about": "Move a plan sidecar from another project or data dir into this project",
+          "aliases": [],
+          "args": [
+            {
+              "name": "dry_run",
+              "positional": false,
+              "value_name": "DRY_RUN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "from",
+              "positional": false,
+              "value_name": "PROJECT_OR_DATA_DIR",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "overwrite",
+              "positional": false,
+              "value_name": "OVERWRITE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "to",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "next",
           "about": "Prioritized, advisory next-action guidance computed from plan state",
           "aliases": [],
@@ -5935,8 +6535,112 @@
                 }
               ],
               "subcommands": []
+            },
+            {
+              "name": "rm",
+              "about": "Remove a free-form canvas note",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "note_id",
+                  "positional": true,
+                  "value_name": "NOTE_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "update",
+              "about": "Update a free-form canvas note",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "note_id",
+                  "positional": true,
+                  "value_name": "NOTE_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "text",
+                  "positional": false,
+                  "value_name": "TEXT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "text_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
             }
           ]
+        },
+        {
+          "name": "planning-state",
+          "about": "Advance planner-owned planning state: drafting | structure_ready | approved",
+          "aliases": [],
+          "args": [
+            {
+              "name": "note",
+              "positional": false,
+              "value_name": "NOTE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Planner pane id advancing the state (records author as planner; omit = user)",
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "set",
+              "positional": false,
+              "value_name": "SET",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         },
         {
           "name": "prune",
@@ -5961,6 +6665,150 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "qa",
+          "about": "Serialized QA queue for in_review tasks",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "fail",
+              "about": "Mark QA failed, bounce to in_progress, and nudge the implementer",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "note",
+                  "positional": false,
+                  "value_name": "NOTE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "next",
+              "about": "Show the next queued QA task, claim it, or record a group's full-gate regression run",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "claim",
+                  "positional": false,
+                  "value_name": "CLAIM",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "group",
+                  "positional": false,
+                  "value_name": "GROUP",
+                  "default": null,
+                  "help": "Record ONE group-scoped regression working point instead of claiming a task",
+                  "aliases": []
+                },
+                {
+                  "name": "note",
+                  "positional": false,
+                  "value_name": "NOTE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "pass",
+              "about": "Mark QA passed and close the task",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "note",
+                  "positional": false,
+                  "value_name": "NOTE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "queue",
+              "about": "Show the plan QA queue, or enqueue one in_review task with --task",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "note",
+                  "positional": false,
+                  "value_name": "NOTE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task",
+                  "positional": false,
+                  "value_name": "TASK",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
         },
         {
           "name": "reconcile",
@@ -6028,7 +6876,7 @@
               "positional": true,
               "value_name": "PLAN_ID",
               "default": null,
-              "help": null,
+              "help": "Plan id (if available from pane binding or env)",
               "aliases": []
             },
             {
@@ -6115,6 +6963,102 @@
           "subcommands": []
         },
         {
+          "name": "retrospective",
+          "about": "Write the plan completion retrospective (plan-level stride, kind retrospective)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "body",
+              "positional": false,
+              "value_name": "BODY",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "body_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "search",
+          "about": "Search synced plan/spec/task/stride history for this project",
+          "aliases": [],
+          "args": [
+            {
+              "name": "active",
+              "positional": false,
+              "value_name": "ACTIVE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "all",
+              "positional": false,
+              "value_name": "ALL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "archived",
+              "positional": false,
+              "value_name": "ARCHIVED",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "value_name": "KIND",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "limit",
+              "positional": false,
+              "value_name": "LIMIT",
+              "default": "10",
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "query",
+              "positional": true,
+              "value_name": "QUERY",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "section",
           "about": "Plan sections",
           "aliases": [],
@@ -6185,6 +7129,38 @@
                   "name": "title",
                   "positional": false,
                   "value_name": "TITLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "attach",
+              "about": "Attach a file to a plan section",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "file",
+                  "positional": true,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "section_id",
+                  "positional": true,
+                  "value_name": "SECTION_ID",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -6305,6 +7281,158 @@
                   "name": "title",
                   "positional": false,
                   "value_name": "TITLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "skill",
+          "about": "Plan-scoped reusable skills (folder-on-disk, ledgered, mem-indexed)",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "edit",
+              "about": "Record a keep|discard|superseded ledger entry; --body-file replaces SKILL.md",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "body_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan",
+                  "positional": false,
+                  "value_name": "PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "rationale",
+                  "positional": false,
+                  "value_name": "RATIONALE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "slug",
+                  "positional": true,
+                  "value_name": "SLUG",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "verdict",
+                  "positional": false,
+                  "value_name": "VERDICT",
+                  "default": "keep",
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List plan skills with their latest ledger verdict",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan",
+                  "positional": false,
+                  "value_name": "PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "new",
+              "about": "Create a new plan skill folder (SKILL.md + scripts/)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "area",
+                  "positional": false,
+                  "value_name": "AREA",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "check",
+                  "positional": false,
+                  "value_name": "CHECK",
+                  "default": null,
+                  "help": "Optional verification command persisted in SKILL.md frontmatter",
+                  "aliases": []
+                },
+                {
+                  "name": "plan",
+                  "positional": false,
+                  "value_name": "PLAN",
+                  "default": null,
+                  "help": "Plan id (omit to use $CODETERM_PLAN_ID or the single active plan)",
+                  "aliases": []
+                },
+                {
+                  "name": "rationale",
+                  "positional": false,
+                  "value_name": "RATIONALE",
+                  "default": null,
+                  "help": "One-line ledger rationale (default: \"created\")",
+                  "aliases": []
+                },
+                {
+                  "name": "slug",
+                  "positional": true,
+                  "value_name": "SLUG",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "title",
+                  "positional": false,
+                  "value_name": "TITLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "show",
+              "about": "Print a plan skill's SKILL.md and ledger history",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan",
+                  "positional": false,
+                  "value_name": "PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "slug",
+                  "positional": true,
+                  "value_name": "SLUG",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -6454,6 +7582,22 @@
                   "aliases": []
                 },
                 {
+                  "name": "executor_role",
+                  "positional": false,
+                  "value_name": "EXECUTOR_ROLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "force",
+                  "positional": false,
+                  "value_name": "FORCE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "group",
                   "positional": false,
                   "value_name": "GROUP",
@@ -6550,6 +7694,22 @@
                   "aliases": []
                 },
                 {
+                  "name": "role_guidance",
+                  "positional": false,
+                  "value_name": "ROLE_GUIDANCE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "role_guidance_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "sections",
                   "positional": false,
                   "value_name": "SECTIONS",
@@ -6637,6 +7797,94 @@
                   "help": null,
                   "aliases": []
                 },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "attach",
+              "about": "Attach a file to a plan task",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "file",
+                  "positional": true,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "attempt",
+              "about": "Show one execution attempt for a plan task",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "attempt_id",
+                  "positional": true,
+                  "value_name": "ATTEMPT_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "attempts",
+              "about": "List execution attempts for a plan task",
+              "aliases": [],
+              "args": [
                 {
                   "name": "plan_id",
                   "positional": true,
@@ -6761,6 +8009,38 @@
               "subcommands": []
             },
             {
+              "name": "park",
+              "about": "Park a task (defers it out of the heartbeat open-work set; requires --reason)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reason",
+                  "positional": false,
+                  "value_name": "REASON",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "relink",
               "about": "Preview or apply automatic section links for unlinked tasks (--apply)",
               "aliases": [],
@@ -6777,6 +8057,78 @@
                   "name": "plan_id",
                   "positional": true,
                   "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "respawn",
+              "about": "Respawn a worker from one prior execution attempt",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "attempt",
+                  "positional": false,
+                  "value_name": "ATTEMPT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "model",
+                  "positional": false,
+                  "value_name": "MODEL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "parent",
+                  "positional": false,
+                  "value_name": "PARENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "provider",
+                  "positional": false,
+                  "value_name": "PROVIDER",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "title",
+                  "positional": false,
+                  "value_name": "TITLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "workspace",
+                  "positional": false,
+                  "value_name": "WORKSPACE",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -6826,7 +8178,47 @@
             },
             {
               "name": "rm",
-              "about": "Remove a task from the plan",
+              "about": "Remove a task from the plan, or --all to reset generated tasks",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "all",
+                  "positional": false,
+                  "value_name": "ALL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "yes",
+                  "positional": false,
+                  "value_name": "YES",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "unpark",
+              "about": "Unpark a task (returns it to pending)",
               "aliases": [],
               "args": [
                 {
@@ -6926,6 +8318,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "executor_role",
+                  "positional": false,
+                  "value_name": "EXECUTOR_ROLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "group",
                   "positional": false,
                   "value_name": "GROUP",
@@ -7017,6 +8417,22 @@
                   "name": "priority",
                   "positional": false,
                   "value_name": "PRIORITY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "role_guidance",
+                  "positional": false,
+                  "value_name": "ROLE_GUIDANCE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "role_guidance_file",
+                  "positional": false,
+                  "value_name": "PATH",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -7147,6 +8563,22 @@
           "subcommands": []
         },
         {
+          "name": "unapprove",
+          "about": "Return an approved/execution plan to planning mode",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "unarchive",
           "about": "Restore an archived plan to active",
           "aliases": [],
@@ -7192,11 +8624,35 @@
           "aliases": [],
           "args": [
             {
+              "name": "mode",
+              "positional": false,
+              "value_name": "MODE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "note",
+              "positional": false,
+              "value_name": "NOTE",
+              "default": null,
+              "help": "Waiver note (required when --planner none)",
+              "aliases": []
+            },
+            {
               "name": "plan_id",
               "positional": true,
               "value_name": "PLAN_ID",
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "planner",
+              "positional": false,
+              "value_name": "PLANNER",
+              "default": null,
+              "help": "Set attached Planner: <pane_id> to bind, or \"none\" to waive (requires --note)",
               "aliases": []
             },
             {
@@ -7522,6 +8978,134 @@
       ]
     },
     {
+      "name": "report",
+      "about": "Report worker progress to the owning orchestrator or plan",
+      "aliases": [],
+      "args": [
+        {
+          "name": "attachments",
+          "positional": false,
+          "value_name": "PATH",
+          "default": null,
+          "help": "File to attach to the report milestone; repeat for multiple files",
+          "aliases": []
+        },
+        {
+          "name": "branch",
+          "positional": false,
+          "value_name": "BRANCH",
+          "default": null,
+          "help": "Git branch the work landed on",
+          "aliases": []
+        },
+        {
+          "name": "changed_files",
+          "positional": false,
+          "value_name": "CHANGED_FILES",
+          "default": null,
+          "help": "Changed files (comma-separated or repeat the flag)",
+          "aliases": []
+        },
+        {
+          "name": "doc",
+          "positional": false,
+          "value_name": "PATH",
+          "default": null,
+          "help": "Markdown document to append to the report milestone",
+          "aliases": []
+        },
+        {
+          "name": "kind",
+          "positional": false,
+          "value_name": "KIND",
+          "default": null,
+          "help": "Milestone kind when writing to --plan/--task",
+          "aliases": []
+        },
+        {
+          "name": "message",
+          "positional": true,
+          "value_name": "MESSAGE",
+          "default": null,
+          "help": "Report message (also accepts --message alias)",
+          "aliases": []
+        },
+        {
+          "name": "pane",
+          "positional": false,
+          "value_name": "PANE",
+          "default": null,
+          "help": "Pane ID (default: $CODETERM_PANE_ID or focused pane)",
+          "aliases": []
+        },
+        {
+          "name": "plan",
+          "positional": false,
+          "value_name": "PLAN",
+          "default": null,
+          "help": "Plan id to append this report to (if available)",
+          "aliases": []
+        },
+        {
+          "name": "sha",
+          "positional": false,
+          "value_name": "SHA",
+          "default": null,
+          "help": "Commit SHA produced",
+          "aliases": []
+        },
+        {
+          "name": "skipped",
+          "positional": false,
+          "value_name": "SKIPPED",
+          "default": null,
+          "help": "Anything deliberately skipped",
+          "aliases": []
+        },
+        {
+          "name": "status",
+          "positional": false,
+          "value_name": "STATUS",
+          "default": null,
+          "help": "Task outcome: in_review | blocked | partial | done",
+          "aliases": []
+        },
+        {
+          "name": "task",
+          "positional": false,
+          "value_name": "TASK",
+          "default": null,
+          "help": "Task id to append this report to (if available)",
+          "aliases": []
+        },
+        {
+          "name": "test_cmd",
+          "positional": false,
+          "value_name": "TEST_CMD",
+          "default": null,
+          "help": "Test command that was run",
+          "aliases": []
+        },
+        {
+          "name": "test_result",
+          "positional": false,
+          "value_name": "TEST_RESULT",
+          "default": null,
+          "help": "Result of the test command (e.g. \"42 passed\")",
+          "aliases": []
+        },
+        {
+          "name": "text",
+          "positional": false,
+          "value_name": "TEXT",
+          "default": null,
+          "help": "Report message as a flag, useful when paired with --doc",
+          "aliases": []
+        }
+      ],
+      "subcommands": []
+    },
+    {
       "name": "send",
       "about": "Send text to a pane (default: current pane)",
       "aliases": [],
@@ -7531,7 +9115,7 @@
           "positional": false,
           "value_name": "ACTIONS",
           "default": null,
-          "help": "Terminal actions to run after optional text, comma-separated. Examples: enter, esc, up, down, left, right, tab, backspace, ctrl-c, delay:250ms. With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it",
+          "help": "Terminal actions to run after optional text, comma-separated. Full key set: enter, esc, tab, backspace, delete, up, down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3). With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it",
           "aliases": []
         },
         {
@@ -7547,7 +9131,7 @@
           "positional": false,
           "value_name": "DELAY",
           "default": null,
-          "help": "Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes",
+          "help": "Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes. NOT the normal send path: use only for future delivery the user asked for — plain send is immediate and must never be buffered",
           "aliases": []
         },
         {

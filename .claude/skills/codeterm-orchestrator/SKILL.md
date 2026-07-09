@@ -104,6 +104,56 @@ Coordinate verification carefully. Running Playwright against the same dev
 daemon the user is manually testing can cause focus fights and flakes. Either
 coordinate timing or use a separate dev instance when available.
 
+## Build And Test Discipline
+
+Build/test strategy depends on the host's capacity. Pick the mode that matches
+the machine; the universal rules apply in BOTH modes.
+
+### Machine Capacity Modes
+
+**Weak machine (e.g. Mac-Air) — single hot build, serialized through the
+Orchestrator.** There is ONE hot build checkout (the integration repo with a
+warm `target/`). ALL builds and tests happen there, serialized, incrementally.
+Workers write code and hand you a branch/diff — they do NOT build, do NOT run
+tests, do NOT `git worktree add` a fresh checkout (a cold target rebuilds every
+C dep — libgit2/libssh2 — from scratch and alone spikes the machine to load
+30+). You pull each worker's change into the hot checkout, build/test it warm,
+and bounce the result back. Slower per round-trip, but the only thing the
+machine survives.
+
+**Powerful machine (e.g. eight) — parallel builds/tests are allowed.** Workers
+MAY run their own gates (format/typecheck/unit/build) in their own worktrees,
+and the Orchestrator MAY run independent verification in parallel. You still own
+the final readiness claim and re-verify the integrated result yourself — a
+worker's green is an input, not the conclusion. The only thing to avoid is
+unsafe shared-target contention: two concurrent `cargo`/`build.sh` runs against
+the SAME checkout's `target/` share one `.cargo-lock` and serialize-hang rather
+than parallelize. Give each parallel lane its own checkout (or its own
+`CARGO_TARGET_DIR`) and per-lane dev instance (`CODETERM_INSTANCE` +
+`CODETERM_API_PORT`), then real parallelism is safe.
+
+### Universal rules (both modes)
+
+- **Wrap every gate test in a timeout.** A deadlock does not fail — it HANGS,
+  which reads as "still running" and slips through. Run with a hard timeout
+  (cargo-nextest per-test timeout, or `perl -e 'alarm 60; exec @ARGV' cargo test
+  ...`). A timeout = a failure = bounce back.
+- **Lock/concurrency changes get a deadlock check.** `grep` the diff for nested
+  same-lock acquisition; run the change's own test under a timeout BEFORE
+  merging; vary `--test-threads`. Never merge a concurrency fix on the worker's
+  self-report alone.
+- **One build/test at a time per checkout.** Runs sharing one
+  `target/.cargo-lock` queue, not parallelize. Across DIFFERENT checkouts they
+  run truly parallel — that is the lever the powerful-machine mode pulls.
+- **Never blind-retry on "database is locked".** The write may have SUCCEEDED
+  and still returned the error; retrying duplicates the row. Verify by reading
+  back, not by retrying.
+- **Direct binary to bypass output filters.** If a tool wrapper eats test
+  output, run the toolchain binary directly (`$(rustup which cargo) test ...`).
+- **One gate ledger per lane.** Keep the final accepted command list in the plan
+  close message: focused unit tests, typecheck/build wrapper, generated artifact
+  checks, and any skipped/residual risk.
+
 ## Review Discipline
 
 Use independent review on:

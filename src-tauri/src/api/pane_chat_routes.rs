@@ -164,7 +164,6 @@ pub async fn backfill(
     let start = body.before_offset.saturating_sub(max_bytes);
     let end = body.before_offset;
 
-    // Read the bounded slice directly so we don't re-ship messages past `before_offset`. parse_session_delta(path, from) reads to EOF — that's the
     // wrong semantics for backfill. Slice + temp file gives us a hard upper bound without changing the trait.
     let bytes = std::fs::read(&path)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "read jsonl failed"))?;

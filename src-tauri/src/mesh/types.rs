@@ -214,6 +214,9 @@ pub struct PairedPeer {
     /// Runtime-only miss counter; not persisted to disk or sent over API.
     #[serde(skip)]
     pub consecutive_misses: u8,
+    /// Learned from signed mesh gossip; not persisted to disk.
+    #[serde(default)]
+    pub last_active_ms: Option<u64>,
 }
 
 // ── Access levels ──────────────────────────────────────────────────
@@ -323,6 +326,8 @@ pub struct GossipPeerInfo {
     pub addresses: Vec<PeerAddress>,
     pub api_port: u16,
     pub dev: bool,
+    #[serde(default)]
+    pub last_active_ms: Option<u64>,
 }
 
 /// Mesh sync payload — exchanged between paired peers.
@@ -409,6 +414,10 @@ pub struct MeshPeersResponse {
     pub paired: Vec<PairedPeer>,
     pub discovered: Vec<DiscoveredPeer>,
     pub incoming_requests: Vec<PairingRequest>,
+    #[serde(default)]
+    pub local_last_active_ms: Option<u64>,
+    #[serde(default)]
+    pub local_dev: bool,
 }
 
 // ── Revocation ──────────────────────────────────────────────────────
@@ -653,7 +662,6 @@ mod tests {
 
     #[test]
     fn proactive_sync_handles_clock_skew_via_saturating_sub() {
-        // If now < last_sync (clock went backwards from system update or similar), saturating_sub yields 0 — interval comparison fails, we skip. Sane
         // behavior: don't blast sync requests after clock skew.
         assert!(!should_proactive_sync(true, true, 500, Some(1000), 60));
     }

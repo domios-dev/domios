@@ -1,6 +1,3 @@
-//! Map local CLI commands to relay `(method, path, body)` calls for peer dispatch.
-//! Update this match when new `super::Commands` variants are added.
-
 use crate::{
     cmd::{delayed::parse_schedule, send_text::resolve_send_text_input},
     Commands, ServiceAction, UpdateAction,
@@ -14,26 +11,17 @@ mod actions;
 pub(crate) use actions::send_text_to_api;
 use actions::{delayed_create_to_api, mem_to_api, now_ms};
 
-/// Sentinel `method` returned by [`cli_command_to_api`] for commands that have
-/// no meaningful remote form (PTY scrollback, local subprocess, on-disk skill
-/// folders, OS keychain). The mesh dispatcher turns this into a hard error
-/// instead of issuing a misleading fallback request; the `path` field carries
-/// the human-readable reason. Kept as a const so the dispatcher and the map
-/// agree on one token.
 pub const UNSUPPORTED_OVER_MESH: &str = "UNSUPPORTED";
 
 fn unsupported(reason: &str) -> (String, String, Option<String>) {
     (UNSUPPORTED_OVER_MESH.into(), reason.into(), None)
 }
 
-/// Map a CLI command to its corresponding API call.
 pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
     match cmd {
-        // `web link` is local-only: token must be generated on the same machine.
         Commands::Web { .. } => unsupported(
             "web link is local-only — each peer's link needs that peer's own token; run it there",
         ),
-        // `plugin` manages local on-disk plugin folders — no remote form.
         Commands::Plugin { .. } => {
             unsupported("plugin management is local-only — run it on the target machine")
         }
@@ -49,6 +37,40 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Orchestrator { .. } => {
             unsupported("orchestrator handoff is local-only — run it on the target machine")
         }
+        Commands::Orchestration { action } => match action {
+            crate::args::orchestration::OrchestrationAction::New {
+                orchestrator,
+                planner,
+                workspace,
+                title,
+            } => {
+                let (orchestrator_agent, orchestrator_model) =
+                    crate::cmd::orchestration::split_provider_model(orchestrator);
+                let (planner_agent, planner_model) =
+                    crate::cmd::orchestration::split_provider_model(planner);
+                let mut body = serde_json::json!({
+                    "orchestrator_agent": orchestrator_agent,
+                    "planner_agent": planner_agent,
+                });
+                if let Some(m) = orchestrator_model {
+                    body["orchestrator_model"] = serde_json::json!(m);
+                }
+                if let Some(m) = planner_model {
+                    body["planner_model"] = serde_json::json!(m);
+                }
+                if let Some(w) = workspace {
+                    body["workspace_id"] = serde_json::json!(w);
+                }
+                if let Some(t) = title {
+                    body["title"] = serde_json::json!(t);
+                }
+                (
+                    "POST".into(),
+                    "/api/orchestration/new".into(),
+                    Some(body.to_string()),
+                )
+            }
+        },
         Commands::Task { .. } => {
             unsupported("task management is local-only — run it on the target machine")
         }
@@ -375,6 +397,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ("DELETE".into(), format!("/api/pasteboard/{}", id), None)
             }
         },
+        Commands::Report(_) => ("GET".into(), "/api/panes".into(), None),
         Commands::Agent { action } => match action {
             crate::AgentAction::Spawn {
                 agent,
@@ -384,6 +407,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 task_file,
                 role,
                 parent,
+                plan,
                 report_to,
                 workspace,
                 can_spawn,
@@ -392,6 +416,8 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 model,
                 system_prompt,
                 preset,
+                allow_shared_checkout,
+                bound_task,
             } => {
                 let task = match crate::cmd::agent::resolve_spawn_task(
                     task.clone(),
@@ -420,9 +446,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 if let Some(p) = parent {
                     body["parent_pane_id"] = serde_json::json!(p);
                 }
-                // Remote worker report target on the ORIGIN peer (this machine).
-                // Default to the caller's pane so a spawned worker reports back to
-                // whoever ran the spawn; `--report-to main` targets General.
+                if let Some(pl) = plan {
+                    body["plan_id"] = serde_json::json!(pl);
+                }
                 let report_to = report_to.clone().or_else(|| {
                     std::env::var("CODETERM_PANE_ID")
                         .ok()
@@ -453,6 +479,12 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(preset) = preset {
                     body["preset"] = serde_json::json!(preset);
+                }
+                if *allow_shared_checkout {
+                    body["allow_shared_checkout"] = serde_json::json!(true);
+                }
+                if let Some(tid) = bound_task {
+                    body["task_id"] = serde_json::json!(tid);
                 }
                 (
                     "POST".into(),
@@ -749,6 +781,8 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             Some(crate::KeepAwakeAction::Start {
                 duration_secs,
                 display,
+                gnome_policy,
+                system_block,
             }) => (
                 "POST".into(),
                 "/api/keepawake/start".into(),
@@ -756,6 +790,8 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     serde_json::json!({
                         "duration_secs": duration_secs,
                         "display": display,
+                        "gnome_policy": gnome_policy,
+                        "system_block": system_block,
                     })
                     .to_string(),
                 ),

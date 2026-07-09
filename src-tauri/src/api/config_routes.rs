@@ -74,7 +74,6 @@ pub async fn patch_config_api(
     let mut new_cfg: crate::config::schema::AppConfig = serde_json::from_value(cfg_json)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid config value"))?;
 
-    // Mirror of the Tauri update_config theme handling: a name switch loads the
     // builtin fresh (clients send the old colors along with the new name).
     let current_theme_name = state.config.lock().theme.name.clone();
     if new_cfg.theme.name != current_theme_name {
@@ -100,7 +99,6 @@ pub async fn patch_config_api(
         log::error!("Config save failed: {}", e);
     }
 
-    // Live reload for every client: Tauri webview + web mirror SSE. Without
     // this, browser clients save the config but never see it applied.
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,

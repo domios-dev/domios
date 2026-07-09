@@ -1,8 +1,3 @@
-// Run: npx tsx src/components/Sidebar/WorkspacePlanEntry.test.tsx
-// EMERGENCE (north-star #2), sidebar side. The workspace plan(s) surface as a
-// DISTINCT pinned entry above the session tabs — its own glyph + accent, the plan
-// TITLE (not just "PLAN"), a task/progress hint, and a +N when a workspace owns
-// several plans. One click opens that plan's canvas. Empty index → renders nothing.
 
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -26,7 +21,7 @@ const PLAN_TITLE = "Canvas rendering substrate — Figma-grade migration";
 function mkEntry(over: Partial<PlanIndexEntry> = {}): PlanIndexEntry {
   return {
     plan_id: "plan-1",
-    file_path: "/repo/hub/.codeterm/plans/plan-1.json",
+    file_path: "/repo/hub/.codeterm/plans/active/plan-1/plan.json",
     owner: { pane_id: "orch-1", session_id: "sess-orch", title: "Orchestrator" },
     title: PLAN_TITLE,
     status: "active",
@@ -72,17 +67,60 @@ const slot = (planIndex: PlanIndexEntry[]) => (
   <WorkspacePlanTreeSlot workspace={workspace} panes={panes} planIndex={planIndex} canvasActive={false} />
 );
 
-test("present → distinct pinned entry carrying the plan title + task hint", async () => {
+test("present → tab-row plan entry with plan title + task hint", async () => {
   const { host, root } = await render(slot([mkEntry()]));
   const btn = host.querySelector('[data-testid="workspace-plan-entry"]');
   assert(btn, "entry renders for a matching plan");
   assert(btn.getAttribute("data-pinned") === "true", "entry is pinned, not a tab");
+  assert(btn.className.includes("sidebar-tab"), "uses tab row grammar");
+  assert(btn.className.includes("sidebar-tab-plan"), "keeps distinct plan identity");
+  assert(btn.getAttribute("data-active") === "false", "inactive until canvas opens");
   assert(btn.querySelector("svg"), "wears the plan/map glyph (visually distinct)");
   const title = host.querySelector('[data-testid="workspace-plan-title"]');
   assert(title?.textContent?.includes("Figma-grade"), `shows the real plan title (got ${title?.textContent})`);
+  assert(title?.className.includes("truncate"), "title uses ellipsis truncation");
+  assert(title?.className.includes("whitespace-nowrap"), "title avoids letter-shard wrapping");
   const hint = host.querySelector('[data-testid="workspace-plan-hint"]');
   assert(hint?.textContent === "12 tasks", `shows the task hint (got ${hint?.textContent})`);
   assert(!host.querySelector('[data-testid="workspace-plan-more"]'), "single plan → no +N");
+  await act(async () => root.unmount());
+});
+
+test("active plan entry sets data-active and shows selection pill", async () => {
+  const { host, root } = await render(
+    <WorkspacePlanEntry entries={[mkEntry()]} isActive onClick={() => {}} />,
+  );
+  const btn = host.querySelector('[data-testid="workspace-plan-entry"]');
+  assert(btn?.getAttribute("data-active") === "true", "active state exposed for sidebar tests");
+  assert(btn?.getAttribute("aria-pressed") === "true", "pressed for a11y");
+  const pill = btn?.querySelector(".pointer-events-none.absolute");
+  assert(pill, "active pill like session tabs");
+  await act(async () => root.unmount());
+});
+
+test("in-flight badge renders when count is positive", async () => {
+  const { host, root } = await render(
+    <WorkspacePlanEntry entries={[mkEntry()]} isActive={false} inflightCount={3} onClick={() => {}} />,
+  );
+  const badge = host.querySelector('[data-testid="sidebar-inflight-badge"]');
+  assert(badge?.textContent === "3", "badge shows inflight count");
+  await act(async () => root.unmount());
+});
+
+test("long plan title stays in a single truncated line", async () => {
+  const longTitle =
+    "Canvas rendering substrate — Figma-grade migration with extra words that should not shard";
+  const { host, root } = await render(
+    <WorkspacePlanEntry
+      entries={[mkEntry({ title: longTitle })]}
+      isActive={false}
+      onClick={() => {}}
+    />,
+  );
+  const title = host.querySelector('[data-testid="workspace-plan-title"]') as HTMLSpanElement | null;
+  assert(title?.textContent === longTitle, "full title in DOM for tooltip/ellipsis source");
+  assert(title?.className.includes("truncate"), "long title uses truncate");
+  assert(title?.className.includes("whitespace-nowrap"), "long title does not wrap per-letter");
   await act(async () => root.unmount());
 });
 
@@ -97,21 +135,41 @@ test("one click opens that plan's canvas", async () => {
   await act(async () => root.unmount());
 });
 
-test("multiple plans → +N badge and ambiguous (no single plan id)", async () => {
+test("multiple plans → no +N badge, still ambiguous (no single plan id)", async () => {
   canvasFocusStore.closeWorkspace();
   const index = [
     mkEntry({ plan_id: "quiet", title: "Quiet plan", updated_at: 1 }),
-    mkEntry({ plan_id: "busy", title: "Busy plan", file_path: "/repo/hub/.codeterm/plans/busy.json", updated_at: 999 }),
+    mkEntry({ plan_id: "busy", title: "Busy plan", file_path: "/repo/hub/.codeterm/plans/active/busy/plan.json", updated_at: 999 }),
   ];
   const { host, root } = await render(slot(index));
-  const more = host.querySelector('[data-testid="workspace-plan-more"]');
-  assert(more?.textContent === "+1", `+N badge for the extra plan (got ${more?.textContent})`);
+  assert(!host.querySelector('[data-testid="workspace-plan-more"]'), "+N badge removed from UI");
   const title = host.querySelector('[data-testid="workspace-plan-title"]');
   assert(title?.textContent === "Busy plan", `leads with the freshest plan (got ${title?.textContent})`);
   const btn = host.querySelector('[data-testid="workspace-plan-entry"]') as HTMLButtonElement;
   await act(async () => { btn.click(); });
   assert(canvasFocusStore.getWorkspaceTarget()?.planId === undefined, "multi-plan open stays plan-ambiguous");
   canvasFocusStore.closeWorkspace();
+  await act(async () => root.unmount());
+});
+
+test("plan entry shows open task count when available, falls back to total", async () => {
+  const { host: hostOpen, root: rootOpen } = await render(slot([mkEntry({ task_count: 12, open_task_count: 7 })]));
+  const hintOpen = hostOpen.querySelector('[data-testid="workspace-plan-hint"]');
+  assert(hintOpen?.textContent === "7 tasks", `open_task_count shown (got ${hintOpen?.textContent})`);
+  await act(async () => rootOpen.unmount());
+
+  const { host: hostFallback, root: rootFallback } = await render(slot([mkEntry({ task_count: 12 })]));
+  const hintFallback = hostFallback.querySelector('[data-testid="workspace-plan-hint"]');
+  assert(hintFallback?.textContent === "12 tasks", `falls back to task_count (got ${hintFallback?.textContent})`);
+  await act(async () => rootFallback.unmount());
+});
+
+test("plan entry does not show 'Plan' label text", async () => {
+  const { host, root } = await render(slot([mkEntry()]));
+  const entry = host.querySelector('[data-testid="workspace-plan-entry"]');
+  assert(entry, "entry present");
+  const kindSpan = entry?.querySelector(".sidebar-workspace-plan-kind");
+  assert(!kindSpan, "'Plan' kind label span removed from entry");
   await act(async () => root.unmount());
 });
 

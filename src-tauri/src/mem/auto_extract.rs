@@ -175,7 +175,6 @@ pub fn find_pending_items(
 ) -> Result<Vec<(String, String, String, MemKind)>, String> {
     use crate::mem::store::MemKind::*;
     svc.mem.with_conn(|conn| {
-        // "Pending" = eligible item with zero graph relations either direction. Any relation (uses/mentions/applies_to/extracted_from/…) means a
         // worker has already run against it — we don't need to re-queue.
         let mut stmt = conn
             .prepare(

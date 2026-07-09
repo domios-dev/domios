@@ -2,9 +2,14 @@ use std::collections::{BTreeMap, HashSet};
 
 use serde::Serialize;
 
+use crate::plan::cleanup_debt::CleanupDebtTask;
 use crate::plan::coverage::{compute_coverage_report, CoverageReport};
-use crate::plan::reconcile::DriftItem;
-use crate::plan::{Goal, LoopStatus, OrchestratorRef, Plan, PlanStatus, TaskStatus};
+use crate::plan::peer::{resolve_planner_ref, PeerResolution};
+use crate::plan::reconcile::{DriftItem, PaneProbe};
+use crate::plan::{
+    Goal, LoopStatus, OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef, PlanningState,
+    QaState, ReviewStage, TaskStatus,
+};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 
@@ -13,11 +18,24 @@ use super::next_actions::{compute_next_actions, NextAction};
 const RECENT_STRIDE_LIMIT: usize = 10;
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
+pub struct PlanningReadiness {
+    pub has_goal: bool,
+    pub has_spec_source: bool,
+    pub has_plan_sections: bool,
+    pub spec_link_coverage: f64,
+    pub linked_plan_sections: usize,
+    pub total_plan_sections: usize,
+    pub has_approval_gate_hint: bool,
+    pub has_verification_hint: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Default, PartialEq)]
 pub struct TaskCounts {
     pub pending: usize,
     pub in_progress: usize,
     pub in_review: usize,
     pub blocked: usize,
+    pub parked: usize,
     pub done: usize,
     pub cancelled: usize,
     pub total: usize,
@@ -40,12 +58,16 @@ pub struct LoopSnapshot {
     pub status: LoopStatus,
     pub stagnation: u32,
     pub deviation: Option<String>,
+    pub last_iteration_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
 pub struct HeartbeatSnapshot {
     pub current_focus: Option<String>,
     pub active_lanes: Vec<String>,
+    pub qa_queued: usize,
+    pub qa_running_task_id: Option<String>,
+    pub qa_running_age_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -53,6 +75,11 @@ pub struct OpenLane {
     pub task_id: String,
     pub name: String,
     pub status: TaskStatus,
+    pub executor_role: Option<String>,
+    pub competition: Option<String>,
+    pub live_competition_attempts: usize,
+    pub review_stage: ReviewStage,
+    pub qa_state: Option<QaState>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -65,7 +92,10 @@ pub struct LiveAgent {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct StrideSnapshot {
     pub id: String,
+    // Empty for plan-level (task-less) strides; see `plan_level`.
     pub task_id: String,
+    #[serde(default)]
+    pub plan_level: bool,
     pub kind: String,
     pub text: String,
     pub ts: u64,
@@ -78,18 +108,28 @@ pub struct PlanStateSnapshot {
     pub plan_id: String,
     pub title: String,
     pub status: PlanStatus,
+    pub mode: PlanMode,
+    pub planning_state: PlanningState,
+    pub execution_tasks_unlocked: bool,
+    pub planning_approval_blockers: Vec<String>,
+    pub canonical_project_path: String,
+    pub planning_readiness: PlanningReadiness,
     pub owner: OrchestratorRef,
+    pub planner: Option<PlannerRef>,
+    pub planner_resolution: PeerResolution,
     pub goal: Option<Goal>,
     pub task_counts: TaskCounts,
     pub percent_done: f64,
     pub coverage: CoverageReport,
     pub drift: DriftSummary,
+    pub cleanup_debt: Vec<CleanupDebtTask>,
     pub loops: Vec<LoopSnapshot>,
     pub heartbeat: HeartbeatSnapshot,
     pub open_lanes: Vec<OpenLane>,
     pub blocked_lanes: Vec<OpenLane>,
     pub live_agents: Vec<LiveAgent>,
     pub recent_strides: Vec<StrideSnapshot>,
+    pub pending_regression_gates: Vec<super::milestone_gates::RegressionGate>,
     pub next_actions: Vec<NextAction>,
 }
 
@@ -102,6 +142,7 @@ fn task_counts(plan: &Plan) -> TaskCounts {
             TaskStatus::InProgress => c.in_progress += 1,
             TaskStatus::InReview => c.in_review += 1,
             TaskStatus::Blocked => c.blocked += 1,
+            TaskStatus::Parked => c.parked += 1,
             TaskStatus::Done => c.done += 1,
             TaskStatus::Cancelled => c.cancelled += 1,
         }
@@ -109,9 +150,12 @@ fn task_counts(plan: &Plan) -> TaskCounts {
     c
 }
 
-// Completion over non-cancelled tasks: cancelled work is out of scope, not failed.
+// Completion over non-cancelled, non-parked tasks: both are out of active scope.
 fn percent_done(counts: &TaskCounts) -> f64 {
-    let denom = counts.total.saturating_sub(counts.cancelled);
+    let denom = counts
+        .total
+        .saturating_sub(counts.cancelled)
+        .saturating_sub(counts.parked);
     if denom == 0 {
         0.0
     } else {
@@ -143,6 +187,7 @@ fn recent_strides(plan: &Plan) -> Vec<StrideSnapshot> {
             task.milestones.iter().map(move |m| StrideSnapshot {
                 id: m.id.clone(),
                 task_id: task.id.clone(),
+                plan_level: false,
                 kind: m.kind.clone(),
                 text: m.text.clone(),
                 ts: m.ts,
@@ -151,28 +196,132 @@ fn recent_strides(plan: &Plan) -> Vec<StrideSnapshot> {
             })
         })
         .collect();
+    strides.extend(plan.strides.iter().map(|m| StrideSnapshot {
+        id: m.id.clone(),
+        task_id: String::new(),
+        plan_level: true,
+        kind: m.kind.clone(),
+        text: m.text.clone(),
+        ts: m.ts,
+        loop_id: m.loop_id.clone(),
+        iteration: m.iteration,
+    }));
     strides.sort_by(|a, b| b.ts.cmp(&a.ts));
     strides.truncate(RECENT_STRIDE_LIMIT);
     strides
+}
+
+fn section_count(sections: &[crate::plan::Section]) -> usize {
+    sections
+        .iter()
+        .map(|section| 1 + section_count(&section.subsections))
+        .sum()
+}
+
+fn section_text(sections: &[crate::plan::Section], out: &mut String) {
+    for section in sections {
+        out.push_str(&section.title.to_lowercase());
+        out.push('\n');
+        out.push_str(&section.body.to_lowercase());
+        out.push('\n');
+        section_text(&section.subsections, out);
+    }
+}
+
+fn planning_readiness(plan: &Plan) -> PlanningReadiness {
+    let total_plan_sections = section_count(&plan.sections);
+    let linked_plan_sections = plan
+        .spec_links
+        .iter()
+        .map(|link| link.plan_section_id.as_str())
+        .collect::<HashSet<_>>()
+        .len();
+    let spec_link_coverage = if total_plan_sections == 0 {
+        0.0
+    } else {
+        linked_plan_sections.min(total_plan_sections) as f64 / total_plan_sections as f64
+    };
+    let mut text = String::new();
+    section_text(&plan.sections, &mut text);
+    PlanningReadiness {
+        has_goal: plan
+            .goal
+            .as_ref()
+            .is_some_and(|goal| !goal.vector.trim().is_empty()),
+        has_spec_source: plan.primary_spec_id.is_some()
+            || !plan.spec_refs.is_empty()
+            || !plan.spec_links.is_empty(),
+        has_plan_sections: !plan.sections.is_empty(),
+        spec_link_coverage,
+        linked_plan_sections,
+        total_plan_sections,
+        has_approval_gate_hint: text.contains("approval")
+            || text.contains("self-review")
+            || text.contains("review gate"),
+        has_verification_hint: text.contains("verification")
+            || text.contains("test plan")
+            || text.contains("build.sh")
+            || text.contains("cargo test")
+            || text.contains("playwright"),
+    }
+}
+
+/// Readiness gate for advancing planning_state to approved. Empty = ready.
+/// The approval doctor and the planner's advance both consult this.
+pub fn planning_approval_blockers(readiness: &PlanningReadiness) -> Vec<String> {
+    let mut blockers = Vec::new();
+    if !readiness.has_goal {
+        blockers.push("no GOAL vector set".into());
+    }
+    if !readiness.has_plan_sections {
+        blockers.push("plan has no sections (HOW/execution phases)".into());
+    }
+    if !readiness.has_spec_source {
+        blockers.push("no spec source linked (WHAT/WHY)".into());
+    }
+    if !readiness.has_verification_hint {
+        blockers.push("no verification/test-plan hint in plan sections".into());
+    }
+    blockers
 }
 
 pub fn build_plan_state_snapshot(
     plan: &Plan,
     coverage: CoverageReport,
     drift: Vec<DriftItem>,
+    cleanup_debt: Vec<CleanupDebtTask>,
     live_agent_panes: &HashSet<String>,
+    now_ms: u64,
 ) -> PlanStateSnapshot {
+    let planner_resolution = resolve_planner_ref(&plan.planner, &plan.owner, |pane_id| PaneProbe {
+        exists: true,
+        live_agent: live_agent_panes.contains(pane_id),
+        role: None,
+        parent_pane_id: None,
+    });
     let counts = task_counts(plan);
     let pct = percent_done(&counts);
+    let readiness = planning_readiness(plan);
+    let approval_blockers = planning_approval_blockers(&readiness);
 
     let open_lanes = plan
         .tasks
         .iter()
-        .filter(|t| matches!(t.status, TaskStatus::Pending | TaskStatus::InReview))
+        .filter(|t| {
+            matches!(
+                t.status,
+                TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::InReview
+            )
+        })
         .map(|t| OpenLane {
             task_id: t.id.clone(),
             name: t.name.clone(),
             status: t.status.clone(),
+            executor_role: t.executor_role.clone(),
+            competition: super::competition::competition_summary(t),
+            live_competition_attempts: super::competition::live_competition_attempt_count(t),
+            review_stage: t.review_stage.clone(),
+            qa_state: t.qa_state.clone(),
         })
         .collect();
 
@@ -184,12 +333,32 @@ pub fn build_plan_state_snapshot(
             task_id: t.id.clone(),
             name: t.name.clone(),
             status: t.status.clone(),
+            executor_role: t.executor_role.clone(),
+            competition: super::competition::competition_summary(t),
+            live_competition_attempts: super::competition::live_competition_attempt_count(t),
+            review_stage: t.review_stage.clone(),
+            qa_state: t.qa_state.clone(),
         })
         .collect();
+    let qa_queued = plan
+        .tasks
+        .iter()
+        .filter(|task| {
+            task.status == TaskStatus::InReview
+                && task.review_stage == ReviewStage::Qa
+                && task.qa_state == Some(QaState::Queued)
+        })
+        .count();
+    let qa_running = plan.tasks.iter().find(|task| {
+        task.status == TaskStatus::InReview
+            && task.review_stage == ReviewStage::Qa
+            && task.qa_state == Some(QaState::Running)
+    });
 
     let live_agents = plan
         .tasks
         .iter()
+        .filter(|t| !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled))
         .filter_map(|t| {
             let pane = t.assigned_pane_id.as_deref()?;
             live_agent_panes.contains(pane).then(|| LiveAgent {
@@ -212,6 +381,7 @@ pub fn build_plan_state_snapshot(
             status: l.status.clone(),
             stagnation: l.stagnation,
             deviation: l.deviation.clone(),
+            last_iteration_at: l.last_iteration_at,
         })
         .collect();
 
@@ -219,21 +389,38 @@ pub fn build_plan_state_snapshot(
         plan_id: plan.id.clone(),
         title: plan.title.clone(),
         status: plan.status.clone(),
+        mode: plan.mode.clone(),
+        planning_state: plan.planning_state,
+        execution_tasks_unlocked: plan.execution_tasks_unlocked(),
+        planning_approval_blockers: approval_blockers,
+        canonical_project_path: if plan.canonical_project_path.trim().is_empty() {
+            plan.project_path.clone()
+        } else {
+            plan.canonical_project_path.clone()
+        },
+        planning_readiness: readiness,
         owner: plan.owner.clone(),
+        planner: plan.planner.clone(),
+        planner_resolution,
         goal: plan.goal.clone(),
         task_counts: counts,
         percent_done: pct,
         coverage,
         drift: drift_summary(drift),
+        cleanup_debt,
         loops,
         heartbeat: HeartbeatSnapshot {
             current_focus: plan.heartbeat.current_focus.clone(),
             active_lanes: plan.heartbeat.active_lanes.clone(),
+            qa_queued,
+            qa_running_task_id: qa_running.map(|task| task.id.clone()),
+            qa_running_age_ms: qa_running.map(|task| now_ms.saturating_sub(task.status_changed_at)),
         },
         open_lanes,
         blocked_lanes,
         live_agents,
         recent_strides: recent_strides(plan),
+        pending_regression_gates: super::milestone_gates::pending_regression_gates(plan),
         next_actions: vec![],
     };
     snapshot.next_actions = compute_next_actions(&snapshot);
@@ -250,7 +437,9 @@ impl ServiceContext {
     ) -> Result<PlanStateSnapshot, PlanError> {
         let plan = self.plan_store.get(plan_id).ok_or(PlanError::NotFound)?;
         let coverage = compute_coverage_report(&plan);
-        let drift = self.reconcile_plan(plan_id, false, None, now_ms)?.drift;
+        let reconcile = self.reconcile_plan(plan_id, false, None, now_ms)?;
+        let drift = reconcile.drift;
+        let cleanup_debt = reconcile.cleanup_debt;
 
         let mut live_panes: HashSet<String> = HashSet::new();
         let mut probed: HashSet<String> = HashSet::new();
@@ -261,12 +450,20 @@ impl ServiceContext {
                 }
             }
         }
+        // Probe the planner pane so its liveness is reflected in the snapshot.
+        if let Some(PlannerRef::Pane { pane_id, .. }) = &plan.planner {
+            if probed.insert(pane_id.clone()) && self.pane_probe(pane_id).live_agent {
+                live_panes.insert(pane_id.clone());
+            }
+        }
 
         Ok(build_plan_state_snapshot(
             &plan,
             coverage,
             drift,
+            cleanup_debt,
             &live_panes,
+            now_ms,
         ))
     }
 }
@@ -286,6 +483,7 @@ mod tests {
             body: String::new(),
             subsections: vec![],
             canvas: Default::default(),
+            attachments: vec![],
         }
     }
 
@@ -300,6 +498,7 @@ mod tests {
             loop_id: None,
             iteration: None,
             canvas: Default::default(),
+            attachments: vec![],
         }
     }
 
@@ -314,6 +513,8 @@ mod tests {
             test_plan: None,
             correctness: None,
             status,
+            review_stage: Default::default(),
+            qa_state: None,
             status_label: None,
             priority: Default::default(),
             created_at: 0,
@@ -323,6 +524,9 @@ mod tests {
             tags: vec![],
             section_ids: sections.iter().map(|s| s.to_string()).collect(),
             body: String::new(),
+            role_guidance: None,
+            executor_role: None,
+            competition: None,
             intent: None,
             parent_task_id: None,
             assigned_pane_id: None,
@@ -332,6 +536,9 @@ mod tests {
             group: None,
             canvas: Default::default(),
             milestones: vec![],
+            execution_attempts: vec![],
+            park_reason: None,
+            attachments: vec![],
         }
     }
 
@@ -347,13 +554,13 @@ mod tests {
         p.loops = vec![LoopSpec {
             id: "lp_1".into(),
             target: "harden".into(),
-            stages: vec![],
             budget: 5,
             count: 2,
             stop_when: Some("0 bugs".into()),
             status: LoopStatus::Running,
             stagnation: 0,
             deviation: None,
+            last_iteration_at: Some(300),
         }];
 
         let mut done = task("t_done", TaskStatus::Done, &["s1"]);
@@ -384,7 +591,7 @@ mod tests {
         }];
         let live: HashSet<String> = ["pane_live".to_string()].into_iter().collect();
 
-        let snap = build_plan_state_snapshot(&plan, coverage, drift, &live);
+        let snap = build_plan_state_snapshot(&plan, coverage, drift, vec![], &live, 1);
 
         assert_eq!(snap.task_counts.total, 5);
         assert_eq!(snap.task_counts.done, 1);
@@ -392,37 +599,32 @@ mod tests {
         assert_eq!(snap.task_counts.in_progress, 1);
         assert_eq!(snap.task_counts.pending, 1);
         assert_eq!(snap.task_counts.cancelled, 1);
-        // done / (total - cancelled) = 1 / 4
         assert!((snap.percent_done - 0.25).abs() < 1e-9);
 
         // coverage: s1 covered, s2 covered -> fraction 1.0 (both have tasks)
         assert!((snap.coverage.plan_covered_fraction - 1.0).abs() < 1e-9);
 
-        // open lanes: pending + in_review only (not in_progress / done / cancelled)
+        // open lanes: pending + in_review + in_progress (not done / cancelled / blocked)
         let lane_ids: Vec<&str> = snap.open_lanes.iter().map(|l| l.task_id.as_str()).collect();
-        assert_eq!(lane_ids.len(), 2);
+        assert_eq!(lane_ids.len(), 3);
         assert!(lane_ids.contains(&"t_review"));
         assert!(lane_ids.contains(&"t_pending"));
+        assert!(lane_ids.contains(&"t_prog"));
 
-        // live agents: only the task bound to a live pane
         assert_eq!(snap.live_agents.len(), 1);
         assert_eq!(snap.live_agents[0].task_id, "t_review");
         assert_eq!(snap.live_agents[0].pane_id, "pane_live");
 
-        // drift summary
         assert_eq!(snap.drift.total, 1);
         assert_eq!(snap.drift.by_kind.get("in_progress_pane_gone"), Some(&1));
 
-        // loops
         assert_eq!(snap.loops.len(), 1);
         assert_eq!(snap.loops[0].budget, 5);
         assert_eq!(snap.loops[0].count, 2);
 
-        // heartbeat
         assert_eq!(snap.heartbeat.current_focus.as_deref(), Some("foundation"));
         assert_eq!(snap.heartbeat.active_lanes, vec!["loop-state".to_string()]);
 
-        // strides: newest first across tasks
         let ids: Vec<&str> = snap.recent_strides.iter().map(|s| s.id.as_str()).collect();
         assert_eq!(ids, vec!["m2", "m3", "m1"]);
     }
@@ -437,10 +639,36 @@ mod tests {
             .map(|i| milestone(&format!("k{i}"), i as u64))
             .collect();
         let coverage = compute_coverage_report(&plan);
-        let snap = build_plan_state_snapshot(&plan, coverage, vec![], &HashSet::new());
+        let snap = build_plan_state_snapshot(&plan, coverage, vec![], vec![], &HashSet::new(), 1);
         assert_eq!(snap.recent_strides.len(), RECENT_STRIDE_LIMIT);
         assert_eq!(snap.recent_strides[0].id, "k14");
         assert_eq!(snap.recent_strides[9].id, "k5");
+    }
+
+    #[test]
+    fn plan_level_strides_surface_marked_and_task_less() {
+        let mut plan = fixture();
+        for task in &mut plan.tasks {
+            task.milestones.clear();
+        }
+        plan.tasks[0].milestones = vec![milestone("task_ms", 100)];
+        plan.strides = vec![milestone("plan_ms", 200)];
+        let coverage = compute_coverage_report(&plan);
+        let snap = build_plan_state_snapshot(&plan, coverage, vec![], vec![], &HashSet::new(), 1);
+        let plan_level: Vec<_> = snap
+            .recent_strides
+            .iter()
+            .filter(|s| s.plan_level)
+            .collect();
+        assert_eq!(plan_level.len(), 1);
+        assert_eq!(plan_level[0].id, "plan_ms");
+        assert!(plan_level[0].task_id.is_empty());
+        // Newest first: plan-level (ts 200) precedes the task milestone (ts 100).
+        assert_eq!(snap.recent_strides[0].id, "plan_ms");
+        assert!(snap
+            .recent_strides
+            .iter()
+            .any(|s| s.id == "task_ms" && !s.plan_level));
     }
 
     #[test]
@@ -448,7 +676,7 @@ mod tests {
         let plan = fixture();
         let before = plan.clone();
         let coverage = compute_coverage_report(&plan);
-        let _ = build_plan_state_snapshot(&plan, coverage, vec![], &HashSet::new());
+        let _ = build_plan_state_snapshot(&plan, coverage, vec![], vec![], &HashSet::new(), 1);
         assert_eq!(plan, before);
     }
 }
