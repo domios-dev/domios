@@ -25,9 +25,6 @@ Object.defineProperty(globalThis, "document", { value: window.document, configur
 Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
 Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
 
-// Stub confirm so archive tests work without real dialogs.
-(window as unknown as { confirm: (msg: string) => boolean }).confirm = () => true;
-
 async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div");
   document.body.appendChild(host);
