@@ -82,6 +82,65 @@ fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
         "codeterm agent report --plan {} --task {}",
         p.id, task_id
     )));
+    assert!(!draft.task_prompt.contains("--base "));
+}
+
+#[test]
+fn respawn_report_command_uses_attempt_base_not_task_lane_base() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Respawn".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    store.save(&mut p, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &p.id,
+            NewTask {
+                name: "retry lane".into(),
+                kind: "implement".into(),
+                lane: TaskLaneMetadata {
+                    base: Some("task-base".into()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .assign_task(&p.id, &task_id, "pane_old", None, 3)
+        .unwrap();
+    store
+        .with_plan(&p.id, 4, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            task.execution_attempts[0].base = Some("attempt-base".into());
+            Ok(())
+        })
+        .unwrap();
+
+    let draft = store
+        .build_task_respawn_draft(
+            &p.id,
+            &task_id,
+            task_attempts::TaskRespawnRequest {
+                attempt_id: store.list_task_attempts(&p.id, &task_id).unwrap()[0]
+                    .attempt_id
+                    .clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    assert!(draft.report_command.contains("codeterm agent report"));
+    assert!(!draft.report_command.contains("attempt-base"));
+    assert!(!draft.report_command.contains("task-base"));
 }
 
 #[test]
