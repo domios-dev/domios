@@ -102,7 +102,9 @@ fn split_provider_model(value: Option<&str>) -> (Option<String>, Option<String>)
 }
 
 pub fn task_report_command(plan_id: &str, task_id: &str) -> String {
-    format!("codeterm agent report --plan {plan_id} --task {task_id} --status in_review \"STATUS: in_review\\nCHANGES: ...\\nBUILD/TYPECHECK/TESTS: ...\\nFOLLOWUP: ...\"")
+    format!(
+        "codeterm agent report --plan {plan_id} --task {task_id} --status in_review \"STATUS: in_review\\nCHANGES: ...\\nBUILD/TYPECHECK/TESTS: ...\\nFOLLOWUP: ...\""
+    )
 }
 
 fn latest_milestone_report(task: &Task, pane_id: &str) -> Option<(String, Option<String>, u64)> {
