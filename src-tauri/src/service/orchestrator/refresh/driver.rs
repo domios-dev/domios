@@ -296,7 +296,7 @@ fn build_observation(
         RefreshPhase::VerifyResumption => {
             obs.resumption_observed = matches!(svc.pane_status(&ctx.pty_id), PaneStatus::Working);
         }
-        RefreshPhase::Compact | RefreshPhase::Resumed | RefreshPhase::Alerted => {}
+        RefreshPhase::Compact => {}
     }
     obs
 }
