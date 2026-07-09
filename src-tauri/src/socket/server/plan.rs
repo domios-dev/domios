@@ -147,6 +147,53 @@ pub(super) fn dispatch(
             Ok(response)
         }
 
+        "plan.adopt" => {
+            let body = p.ok_or(JsonRpcError {
+                code: -32602,
+                message: "params required".to_string(),
+                data: None,
+            })?;
+            let source = get_string_param(params, "source")?;
+            let target = body
+                .get("project")
+                .or_else(|| body.get("to"))
+                .and_then(|v| v.as_str())
+                .ok_or(JsonRpcError {
+                    code: -32602,
+                    message: "project required".into(),
+                    data: None,
+                })?;
+            let target_project = svc
+                .ensure_plan_project_loaded(std::path::Path::new(target))
+                .map_err(plan_rpc_err)?;
+            let result = store
+                .adopt_plan(
+                    crate::service::plan::adopt::AdoptPlanRequest {
+                        source: std::path::PathBuf::from(source),
+                        target_project,
+                        owner: owner_from_params(body),
+                        dry_run: body
+                            .get("dry_run")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
+                        overwrite: body
+                            .get("overwrite")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
+                        remove_source: body
+                            .get("remove_source")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
+                    },
+                    now,
+                )
+                .map_err(plan_rpc_err)?;
+            if !result.dry_run {
+                emit_plan_changed(app, &result.plan_id);
+            }
+            Ok(serde_json::to_value(result).unwrap_or_default())
+        }
+
         "plan.list" => {
             let want =
                 if let Some(project) = p.and_then(|x| x.get("project")).and_then(|v| v.as_str()) {
