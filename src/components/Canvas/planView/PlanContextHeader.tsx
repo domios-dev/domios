@@ -5,6 +5,7 @@ import type { BoardPlanSummary, BoardSpecSummary } from "./boardModel";
 import type { Plan } from "../types";
 import { PairAffordance } from "../../shared/PairAffordance";
 import { PlanSkillsSection } from "./PlanSkillsSection";
+import { isPlanParked, PlanModeControls } from "./PlanModeControls";
 import { useTouchOptimizedUi } from "../../../hooks/useTouchOptimizedUi";
 import { useNarrowPlanHeader, usePlanHeaderCollapse } from "./usePlanHeaderCollapse";
 
@@ -42,10 +43,11 @@ export function PlanContextHeader(props: PlanContextHeaderProps) {
 }
 
 export function PlanContextCompactHeader(props: PlanContextHeaderProps) {
-  const { summary, planId } = props;
+  const { summary, planId, plan } = props;
   const { collapsed, toggle } = usePlanHeaderCollapse("narrow", true, planId);
   const expanded = !collapsed;
   const stateLabel = planningStateLabel(summary.planningState);
+  const parked = isPlanParked(plan);
 
   return (
     <header
@@ -69,11 +71,12 @@ export function PlanContextCompactHeader(props: PlanContextHeaderProps) {
             {stateLabel}
           </span>
         )}
+        {parked && <span data-testid="plan-parked-chip" className="plan-context-chip plan-parked-chip">Parked</span>}
         <span data-testid="plan-context-compact-title" className="plan-context-compact-title">
           {summary.title}
         </span>
         <span data-testid="plan-context-compact-progress" className="plan-context-compact-progress">
-          {summary.done}/{summary.total}
+          {parked ? "parked" : `${summary.done}/${summary.total}`}
         </span>
         <ChevronDown
           size={16}
@@ -96,10 +99,11 @@ export function PlanContextCompactHeader(props: PlanContextHeaderProps) {
 }
 
 export function PlanContextWideHeader(props: PlanContextHeaderProps) {
-  const { summary, planId } = props;
+  const { summary, planId, plan } = props;
   const { collapsed, toggle } = usePlanHeaderCollapse("wide", false, planId);
   const expanded = !collapsed;
   const stateLabel = planningStateLabel(summary.planningState);
+  const parked = isPlanParked(plan);
 
   if (!expanded) {
     return (
@@ -124,11 +128,12 @@ export function PlanContextWideHeader(props: PlanContextHeaderProps) {
               {stateLabel}
             </span>
           )}
+          {parked && <span data-testid="plan-parked-chip" className="plan-context-chip plan-parked-chip">Parked</span>}
           <span data-testid="plan-context-compact-title" className="plan-context-compact-title">
             {summary.title}
           </span>
           <span data-testid="plan-context-compact-progress" className="plan-context-compact-progress">
-            {summary.done}/{summary.total}
+            {parked ? "parked" : `${summary.done}/${summary.total}`}
           </span>
           <ChevronDown
             size={16}
@@ -178,10 +183,16 @@ function PlanContextBody({
   const goal = summary.goalVector?.trim() ?? "";
   const stateLabel = planningStateLabel(summary.planningState);
   const plannerLabel = summary.plannerLabel ?? "No planner";
+  const parked = isPlanParked(plan);
 
   return (
     <>
       <div className="plan-context-header-chips" data-testid="plan-context-header-chips">
+        {parked && (
+          <span data-testid="plan-parked-chip" className="plan-context-chip plan-parked-chip" title="Plan is parked; reminders and heartbeat nudges are quiet">
+            Parked
+          </span>
+        )}
         {stateLabel && (
           <span
             data-testid="plan-state-chip"
@@ -227,7 +238,7 @@ function PlanContextBody({
           {summary.title}
         </button>
         <span data-testid="plan-board-plan-meta" className="plan-context-header-meta">
-          {summary.ownerLabel} · {progressLabel(summary.done, summary.total)}
+          {summary.ownerLabel} · {parked ? "parked" : progressLabel(summary.done, summary.total)}
           {summary.sectionCount > 0 ? ` · ${summary.sectionCount} sections` : ""}
         </span>
         {spec && onOpenSpec && (
@@ -247,14 +258,15 @@ function PlanContextBody({
           </button>
         )}
       </div>
-      {(goal || summary.focus) && (
+      {plan && <PlanModeControls plan={plan} api={api} />}
+      {(goal || (!parked && summary.focus)) && (
         <div className="plan-context-header-secondary">
           {goal && (
             <p data-testid="plan-board-plan-goal" className="plan-context-header-goal">
               <span className="plan-context-header-goal-text">{goal}</span>
             </p>
           )}
-          {summary.focus && (
+          {!parked && summary.focus && (
             <p data-testid="plan-board-plan-focus" className="plan-context-header-focus">
               {summary.focus}
             </p>

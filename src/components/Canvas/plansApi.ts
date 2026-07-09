@@ -158,6 +158,24 @@ export async function unarchivePlan(api: ApiConfig, planId: string): Promise<voi
   if (!res.ok) throw new Error(`plan unarchive failed: ${res.status} ${await res.text()}`);
 }
 
+export async function parkPlan(api: ApiConfig, planId: string, reason: string): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/pause`, {
+    method: "POST",
+    headers: jsonHeaders(api),
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) throw new Error(`plan park failed: ${res.status} ${await res.text()}`);
+}
+
+export async function resumePlan(api: ApiConfig, planId: string): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/resume`, {
+    method: "POST",
+    headers: jsonHeaders(api),
+    body: "{}",
+  });
+  if (!res.ok) throw new Error(`plan resume failed: ${res.status} ${await res.text()}`);
+}
+
 export async function renamePlan(api: ApiConfig, planId: string, title: string): Promise<void> {
   const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}`, {
     method: "PATCH",

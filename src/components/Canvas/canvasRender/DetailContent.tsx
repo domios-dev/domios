@@ -422,7 +422,7 @@ function PlanDetail({
   const done = activeTasks.filter((task) => task.status === "done").length;
   const pct = total ? Math.round((done / total) * 100) : 0;
   const metaBits = [
-    plan.status === "active" ? "Active" : plan.status,
+    plan.mode === "paused" ? "Parked" : plan.status === "active" ? "Active" : plan.status,
     plan.owner.title || plan.owner.pane_id ? `owner ${plan.owner.title ?? plan.owner.pane_id}` : null,
     plan.primary_spec_id ? "linked spec" : null,
     plan.loops?.length ? `${plan.loops.length} loop${plan.loops.length > 1 ? "s" : ""}` : null,

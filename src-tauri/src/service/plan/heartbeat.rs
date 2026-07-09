@@ -367,7 +367,7 @@ pub(super) fn prepend_plan_heartbeat_with_digests(
     text: &str,
     digest_lines: &[String],
 ) -> String {
-    if is_plan_complete(plan) {
+    if plan.mode == PlanMode::Paused || is_plan_complete(plan) {
         return text.to_string();
     }
     let block = render_heartbeat(plan, &plan.heartbeat, &plan.loops, digest_lines);
@@ -459,6 +459,9 @@ impl PlanStore {
                 continue;
             }
             let rank = heartbeat_resolution_rank(&plan);
+            if rank.0 == 0 {
+                continue;
+            }
             if best_match
                 .as_ref()
                 .is_none_or(|(_, best_rank)| rank > *best_rank)

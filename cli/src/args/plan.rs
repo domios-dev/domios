@@ -181,6 +181,15 @@ pub enum PlanAction {
         #[arg(long)]
         set: String,
     },
+    /// Park the whole effort without changing task state or executor bindings
+    #[command(visible_alias = "park")]
+    Pause {
+        plan_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        reason: String,
+    },
+    /// Resume a paused effort, restoring its previous mode
+    Resume { plan_id: String },
     /// Archive a plan
     Archive { plan_id: String },
     /// Restore an archived plan to active

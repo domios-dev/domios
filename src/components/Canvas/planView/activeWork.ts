@@ -115,6 +115,7 @@ export function selectActiveWork(
   const entries: ActiveWorkEntry[] = [];
   for (const plan of plans) {
     if (plan.status !== "active") continue;
+    if (plan.mode === "paused") continue;
     for (const task of plan.tasks) {
       if (!isActiveWorkStatus(task.status)) continue;
       entries.push(buildEntry(plan, task, panes, now));
