@@ -331,3 +331,39 @@ fn active_pane_lane_base_none_without_binding() {
 
     assert_eq!(active_pane_lane_base(&store, "unbound-pane"), None);
 }
+
+#[test]
+fn pane_task_env_uses_live_attempt_base_and_leaves_plain_pane_clean() {
+    let (_dir, store, plan_id, task_id) = store_with_bound_task();
+    store
+        .with_plan(&plan_id, 4, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            task.execution_attempts[0].base = Some("attempt-base".into());
+            Ok(())
+        })
+        .unwrap();
+
+    let bound = pane_task_env(&store, "pane-a");
+    assert_eq!(
+        bound.get("CODETERM_LANE_BASE").map(String::as_str),
+        Some("attempt-base")
+    );
+    assert_eq!(
+        bound.get("CODETERM_PLAN_ID").map(String::as_str),
+        Some(plan_id.as_str())
+    );
+    assert_eq!(
+        bound.get("CODETERM_TASK_ID").map(String::as_str),
+        Some(task_id.as_str())
+    );
+
+    let plain = pane_task_env(&store, "plain-pane");
+    assert!(
+        plain.is_empty(),
+        "unbound panes must not inherit plan/task/lane env"
+    );
+}
