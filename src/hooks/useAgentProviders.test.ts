@@ -78,8 +78,8 @@ test("models-updated listener refetches while mounted", () => {
     () => {
       refetches += 1;
     },
-    async (_event, handler) => {
-      trigger = () => handler({ payload: { provider: "codex" } });
+    async <T>(_event: string, handler: (event: { payload: T }) => void) => {
+      trigger = () => handler({ payload: { provider: "codex" } as T });
       return () => {
         trigger = undefined;
       };
