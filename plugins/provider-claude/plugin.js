@@ -904,7 +904,6 @@ var TUI_FRAGMENTS = [
   "for shortcuts",
   "ctrl+l",
   "esc to interrupt",
-  // v2.1+ idle footer
   "bypass permissions",
   "shift+tab to cycle"
 ];
@@ -1067,7 +1066,6 @@ var plugin = {
     }
     return null;
   },
-  // Anthropic exposes live API models only for API-key users. Claude Pro/Max
   // OAuth accounts do not expose a cheap CLI model-list probe, so they use seed.
   discoverModels() {
     return discoverAnthropicModels() || manifestModels();
