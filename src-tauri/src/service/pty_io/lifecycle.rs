@@ -30,6 +30,18 @@ pub(crate) fn active_pane_lane_base(plan_store: &PlanStore, pane_id: &str) -> Op
         .filter(|base| !base.trim().is_empty())
 }
 
+pub(crate) fn pane_task_env(plan_store: &PlanStore, pane_id: &str) -> HashMap<String, String> {
+    let mut env_vars = HashMap::new();
+    if let Some((plan_id, task_id)) = plan_store.task_binding_for_pane(pane_id) {
+        if let Some(base) = active_pane_lane_base(plan_store, pane_id) {
+            env_vars.insert("CODETERM_LANE_BASE".into(), base);
+        }
+        env_vars.insert("CODETERM_PLAN_ID".into(), plan_id);
+        env_vars.insert("CODETERM_TASK_ID".into(), task_id);
+    }
+    env_vars
+}
+
 impl ServiceContext {
     pub(crate) fn pane_env(&self, pane_id: &str) -> HashMap<String, String> {
         let mut env_vars = HashMap::new();
@@ -74,13 +86,7 @@ impl ServiceContext {
             }
         }
         drop(mux);
-        if let Some((plan_id, task_id)) = self.plan_store.task_binding_for_pane(pane_id) {
-            if let Some(base) = active_pane_lane_base(&self.plan_store, pane_id) {
-                env_vars.insert("CODETERM_LANE_BASE".into(), base);
-            }
-            env_vars.insert("CODETERM_PLAN_ID".into(), plan_id);
-            env_vars.insert("CODETERM_TASK_ID".into(), task_id);
-        }
+        env_vars.extend(pane_task_env(&self.plan_store, pane_id));
         env_vars
     }
 
