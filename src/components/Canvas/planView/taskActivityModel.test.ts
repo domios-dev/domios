@@ -75,13 +75,13 @@ assert(recent[0]?.milestone.id === "b1", "plan recent activity is newest first")
 assert(recent[0]?.taskLabel === "beta", "plan recent activity uses task handle");
 assert(recent.every((item) => plan.tasks.some((task) => task.id === item.taskId)), "recent activity scoped to plan tasks");
 
-const dayTs = 1_700_000_000_000;
-const sameDayNow = dayTs + 4 * 3_600_000;
+const dayTs = new Date(2024, 0, 15, 9, 30).getTime();
+const sameDayNow = new Date(2024, 0, 15, 13, 30).getTime();
 assert(
   milestoneTimestampLabel(dayTs, sameDayNow) === new Date(dayTs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
   "today entry shortens to time-only",
 );
-const otherDayNow = dayTs + 3 * 86_400_000;
+const otherDayNow = new Date(2024, 0, 18, 13, 30).getTime();
 assert(milestoneTimestampLabel(dayTs, otherDayNow) === formatTime(dayTs), "non-today entry shows absolute date+time");
 assert(milestoneTimestampLabel(dayTs, otherDayNow) !== milestoneTimestampLabel(dayTs, sameDayNow), "same-day and past-day stamps differ");
 
