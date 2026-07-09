@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Sidebar/sidebarSelection.test.ts
 
-import { isWorkspacePlanEntryActive, isWorkspaceTabActive } from "./sidebarSelection";
+import { isWorkspacePlanEntryActive, isWorkspaceTabActive, workspacePlanTabId } from "./sidebarSelection";
 
 type TestFn = () => void;
 const tests: Array<[string, TestFn]> = [];
@@ -16,6 +16,11 @@ test("plan active only when workspace is visual and canvas is open", () => {
   assert(!isWorkspacePlanEntryActive(false, true), "inactive workspace even if canvas flag set");
   assert(!isWorkspacePlanEntryActive(true, false), "workspace mode but canvas closed");
   assert(isWorkspacePlanEntryActive(true, true), "workspace mode with canvas open");
+});
+
+test("workspace plan tab id is stable and workspace-scoped", () => {
+  assert(workspacePlanTabId("ws-1") === "workspace-plan:ws-1", "uses virtual workspace plan namespace");
+  assert(workspacePlanTabId("workspace_abc") === "workspace-plan:workspace_abc", "does not derive from pane/tab ids");
 });
 
 test("tab active only when workspace visual, canvas closed, and tab matches", () => {
