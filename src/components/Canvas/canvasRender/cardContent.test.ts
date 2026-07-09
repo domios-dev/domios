@@ -21,6 +21,11 @@ const hasSection = (c: { sections: { title: string }[] }, title: string) => c.se
   ok("plan top tags from color-lane facet", c.tags.some((t) => t.text === "Navigation"));
 }
 
+{
+  const c = buildCardContent("plan", { ...FIXTURE_PLAN, mode: "paused" })!;
+  ok("parked plan kicker", c.kicker === "PARKED");
+}
+
 // when tasks exist; no fields; coverage chips in the tags row.
 {
   const specModel: Plan = { ...FIXTURE_PLAN, tasks: [] };

@@ -253,6 +253,46 @@ fn heartbeat_resolution_prefers_execution_plan_with_open_work() {
 }
 
 #[test]
+fn paused_plan_is_not_resolved_or_prepended_for_heartbeat() {
+    let (_dir, store, plan_id) = store_with_plan("orch-paused");
+    let task_id = store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "open work".into(),
+                kind: "implement".into(),
+                competition: None,
+                ..Default::default()
+            },
+            20,
+        )
+        .unwrap();
+    store
+        .assign_task(&plan_id, &task_id, "worker", None, 21)
+        .unwrap();
+    store
+        .pause_plan(
+            &plan_id,
+            "waiting on quota",
+            AgentRef::from_pane("orch-paused"),
+            22,
+        )
+        .unwrap();
+
+    assert_eq!(
+        store.prepend_heartbeat_for_orchestrator_pane("orch-paused", "continue"),
+        "continue"
+    );
+    assert_eq!(
+        store.prepend_heartbeat_for_plan(&plan_id, "continue"),
+        "continue"
+    );
+    assert!(store
+        .resolve_active_plan_for_orchestrator(None, Some("orch-paused"), None)
+        .is_err());
+}
+
+#[test]
 fn heartbeat_resolves_for_owner_pane_at_send_time() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
     let before = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");

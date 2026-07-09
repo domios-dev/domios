@@ -2466,6 +2466,49 @@ button,
   border-color: color-mix(in srgb, var(--ct-warning, #d29922) 55%, var(--ct-border));
   background: color-mix(in srgb, var(--ct-warning, #d29922) 12%, var(--ct-bg));
 }
+.plan-parked-chip {
+  font-weight: 700;
+  border-color: color-mix(in srgb, rgb(148, 163, 184) 65%, var(--ct-border));
+  background: color-mix(in srgb, rgb(148, 163, 184) 16%, var(--ct-bg));
+}
+.plan-mode-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.plan-mode-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 1.75rem;
+  padding: 0.18rem 0.55rem;
+  border: 1px solid var(--ct-border);
+  border-radius: 0.35rem;
+  background: color-mix(in srgb, var(--ct-bg) 90%, var(--ct-surface));
+  color: var(--ct-fg);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.plan-mode-button:hover:not(:disabled),
+.plan-mode-button:focus-visible {
+  border-color: color-mix(in srgb, var(--ct-accent) 50%, var(--ct-border));
+  outline: none;
+}
+.plan-mode-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.plan-mode-error {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  color: var(--ct-danger, #f85149);
+}
 button.plan-peer-chip {
   cursor: pointer;
 }
