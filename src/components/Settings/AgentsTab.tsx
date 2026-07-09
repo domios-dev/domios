@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from "react";
 import { invoke } from "../../lib/bridge";
-import { Bell, Bot, ChevronRight, FolderTree, Puzzle, Server, Eye } from "lucide-react";
-import type { AppConfig, ProviderConfig } from "../../lib/types";
+import { Bell, Bot, ChevronRight, FolderTree, Server, Eye, Timer } from "lucide-react";
+import type { AppConfig, OrchestrationConfig, ProviderConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
 import { ProviderInstallCard } from "./ProviderInstallCard";
@@ -14,13 +14,11 @@ export function AgentsOverview({
   config,
   onUpdate,
   onOpenProvider,
-  onOpenPlugins,
   onUpdateFullConfig,
 }: {
   config: AppConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
   onOpenProvider: (providerId: string) => void;
-  onOpenPlugins: () => void;
   onUpdateFullConfig: (next: AppConfig) => void;
 }) {
   const { providers, loading, error } = useAgentProviders();
@@ -80,6 +78,8 @@ export function AgentsOverview({
         )}
       </SettingsCard>
 
+      <OrchestrationGroup config={config} onUpdate={onUpdate} />
+
       <SettingsCard
         icon={<FolderTree size={16} />}
         title="Skills"
@@ -105,21 +105,7 @@ export function AgentsOverview({
       <SettingsCard
         icon={<Server size={16} />}
         title="Providers"
-        headerRight={
-          <Button
-            variant="accent"
-            size="compact"
-            type="button"
-            data-testid="settings-open-provider-plugins"
-            onClick={onOpenPlugins}
-            className="gap-1 text-[10px]"
-            title="Providers are installed and managed as plugins"
-          >
-            <Puzzle size={11} strokeWidth={2.2} />
-            managed by plugins
-            <ChevronRight size={11} className="opacity-70" />
-          </Button>
-        }
+        description="Providers are installed and managed as plugins — see the Extensions panel in the titlebar."
       >
         {error && (
           <div className="text-[10px] text-[var(--ct-red)]">
@@ -228,6 +214,93 @@ export function AgentProviderScreen({
         onChange={onProviderConfigChange}
       />
     </div>
+  );
+}
+
+// Mirrors OrchestrationConfig::default() in src-tauri/src/config/schema/mod.rs.
+const ORCHESTRATION_DEFAULTS: OrchestrationConfig = {
+  plan_reminders: true,
+  nudge_after_turns: 12,
+  nudge_interval_secs: 1800,
+  idle_poke: {
+    enabled: true,
+    idle_threshold_secs: 150,
+    live_lane_cap: 3,
+    max_per_day: 4,
+    backoff_base_secs: 90,
+  },
+};
+
+function NumberRow({
+  label,
+  value,
+  min,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <label className="flex items-center justify-between gap-3" data-testid="settings-number-row">
+      <span className="text-xs text-[var(--ct-muted-fg)]">{label}</span>
+      <input
+        type="number"
+        data-testid="settings-number-input"
+        value={value}
+        min={min}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          if (Number.isFinite(n)) onChange(Math.max(min, Math.round(n)));
+        }}
+        className="w-20 bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] text-right focus:border-[var(--ct-accent)] focus:outline-none"
+      />
+    </label>
+  );
+}
+
+function OrchestrationGroup({
+  config,
+  onUpdate,
+}: {
+  config: AppConfig;
+  onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
+}) {
+  const orch = config.orchestration ?? ORCHESTRATION_DEFAULTS;
+  return (
+    <SettingsCard
+      icon={<Timer size={16} />}
+      title="Orchestration nudges"
+      description="Plan-driven reminders for agent panes with open plan work. The silence nudge fires only after a pane has been completely inactive for the whole interval — any activity (turns, reports, plan updates) resets its timer."
+    >
+      <Toggle
+        label="Plan reminders & nudges"
+        checked={orch.plan_reminders}
+        onChange={(v) => onUpdate("orchestration", { plan_reminders: v })}
+      />
+      {orch.plan_reminders && (
+        <>
+          <NumberRow
+            label="Silence nudge after (minutes)"
+            value={Math.round(orch.nudge_interval_secs / 60)}
+            min={1}
+            onChange={(mins) => onUpdate("orchestration", { nudge_interval_secs: mins * 60 })}
+          />
+          <NumberRow
+            label="Turn-based nudge after (agent turns)"
+            value={orch.nudge_after_turns}
+            min={1}
+            onChange={(turns) => onUpdate("orchestration", { nudge_after_turns: turns })}
+          />
+          <Toggle
+            label="Idle pokes (suggest the next frontier task)"
+            checked={orch.idle_poke.enabled}
+            onChange={(v) => onUpdate("orchestration", { idle_poke: { ...orch.idle_poke, enabled: v } })}
+          />
+        </>
+      )}
+    </SettingsCard>
   );
 }
 

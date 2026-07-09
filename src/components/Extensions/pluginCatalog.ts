@@ -16,6 +16,7 @@ export interface CatalogEntry {
   /** Present in at least one registered channel. */
   inMarketplace: boolean;
   system: boolean;
+  verified: boolean;
   removable: boolean;
   /** Loaded from the workspace source tree (dev), not a marketplace install. */
   dev: boolean;
@@ -87,6 +88,7 @@ function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
     installed: true,
     inMarketplace: false,
     system: p.system === true,
+    verified: p.verified === true,
     removable: p.removable !== false && p.system !== true,
     dev: p.dev === true,
     version: p.version ?? null,
@@ -122,6 +124,7 @@ function mergeMarketplace(base: CatalogEntry | undefined, m: MarketplaceRow): Ca
     installed,
     inMarketplace: true,
     system: base?.system ?? false,
+    verified: base?.verified ?? false,
     removable: base?.removable ?? false,
     dev: base?.dev ?? false,
     version: base?.version ?? m.local_version ?? null,

@@ -5,10 +5,12 @@ use serde::Serialize;
 use super::ServiceContext;
 use crate::multiplexer::types::AgentRole;
 use crate::plan::cleanup_debt::CleanupDebtTask;
+use crate::plan::lane_liveness::LaneThresholds;
 use crate::plan::reconcile::{
-    detect_pane_gone, detect_plan_drift, DriftItem, DriftKind, PaneProbe, PaneRole,
-    ReconcileConfig, DEFAULT_STALE_REVIEW_MS,
+    detect_lane_demotions, detect_pane_gone, detect_plan_drift, DriftItem, DriftKind, PaneProbe,
+    PaneRole, ReconcileConfig, DEFAULT_STALE_REVIEW_MS,
 };
+use crate::plan::{PlanStatus, Task, TaskStatus};
 use crate::service::plan::{cleanup_debt, PlanError, ReconcileFixResult};
 
 #[derive(Debug, Clone, Serialize)]
@@ -90,6 +92,69 @@ impl ServiceContext {
         }
     }
 
+    /// Periodic watchdog: release in_progress lanes whose pane is gone past the
+    /// grace window back to pending so the Board stops showing phantom active
+    /// work. Runs on the reminder-scheduler cadence, not a busy loop.
+    pub fn run_lane_watchdog(&self) {
+        let now_ms = now_ms();
+        let thresholds = LaneThresholds::default();
+        let mut changed_plans = Vec::new();
+        for plan in self.plan_store.list_full() {
+            if plan.status != PlanStatus::Active {
+                continue;
+            }
+            let mut config = ReconcileConfig::new(now_ms);
+            config.current_orchestrator_pane_id = plan.owner.pane_id.clone();
+            let expected: HashMap<String, String> = plan
+                .tasks
+                .iter()
+                .filter(|task| task.status == TaskStatus::InProgress)
+                .filter_map(|task| {
+                    Some((task.assigned_pane_id.clone()?, live_attempt_session(task)?))
+                })
+                .collect();
+            let demotions = detect_lane_demotions(&plan, &config, &thresholds, |pane_id| {
+                self.lane_pane_probe(pane_id, expected.get(pane_id).map(String::as_str))
+            });
+            if demotions.is_empty() {
+                continue;
+            }
+            match self
+                .plan_store
+                .apply_lane_demotions(&plan.id, &demotions, now_ms)
+            {
+                Ok(fixed) if !fixed.is_empty() => changed_plans.push(plan.id.clone()),
+                Ok(_) => {}
+                Err(e) => log::warn!("[lane-watchdog] demotion failed for {}: {e}", plan.id),
+            }
+        }
+        for plan_id in changed_plans {
+            self.emit_plan_changed(&plan_id);
+        }
+    }
+
+    // Probe keyed off the lane's OWN session: a recycled pane id now hosting a
+    // different agent reads as gone, not live.
+    fn lane_pane_probe(&self, pane_id: &str, expected_session: Option<&str>) -> PaneProbe {
+        let mut probe = self.pane_probe(pane_id);
+        if probe.exists {
+            if let Some(expected) = expected_session {
+                let same = {
+                    let mux = self.mux.read();
+                    mux.get_pane(pane_id)
+                        .and_then(|pane| pane.agent_session_id.clone())
+                        .map(|actual| actual == expected)
+                        .unwrap_or(true)
+                };
+                if !same {
+                    probe.exists = false;
+                    probe.live_agent = false;
+                }
+            }
+        }
+        probe
+    }
+
     pub(crate) fn pane_probe(&self, pane_id: &str) -> PaneProbe {
         let (exists, role, parent_pane_id, agent_type, pty_id) = {
             let mux = self.mux.read();
@@ -135,9 +200,25 @@ impl ServiceContext {
     }
 }
 
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or_default()
+}
+
+fn live_attempt_session(task: &Task) -> Option<String> {
+    task.execution_attempts
+        .iter()
+        .rev()
+        .find(|attempt| attempt.closed_at.is_none())
+        .and_then(|attempt| attempt.session_id.clone())
+}
+
 fn map_role(role: AgentRole) -> PaneRole {
     match role {
         AgentRole::Orchestrator => PaneRole::Orchestrator,
+        AgentRole::Manager => PaneRole::Worker,
         AgentRole::Worker => PaneRole::Worker,
     }
 }

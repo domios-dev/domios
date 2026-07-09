@@ -8,10 +8,11 @@ use super::plan_fields::optional_string_field;
 use super::{get_string_param, JsonRpcError};
 
 pub(super) fn planner_role_for_pane(svc: &ServiceState, pane_id: &str) -> Option<&'static str> {
-    svc.mux
-        .read()
-        .get_pane(pane_id)
-        .and_then(|pane| (pane.role_profile.as_deref() == Some("planner")).then_some("planner"))
+    svc.mux.read().get_pane(pane_id).and_then(|pane| {
+        (pane.role == Some(crate::multiplexer::types::AgentRole::Manager)
+            && pane.role_profile.as_deref() == Some("planner"))
+        .then_some("planner")
+    })
 }
 
 fn plan_rpc_err(e: PlanError) -> JsonRpcError {
@@ -35,6 +36,26 @@ pub(super) fn update_role_guidance_if_present(
                 plan_id,
                 task_id,
                 optional_string_field(params, "role_guidance"),
+                now,
+            )
+            .map_err(plan_rpc_err)?;
+    }
+    Ok(())
+}
+
+pub(super) fn update_personality_if_present(
+    store: &PlanStore,
+    plan_id: &str,
+    task_id: &str,
+    params: Option<&Value>,
+    now: u64,
+) -> Result<(), JsonRpcError> {
+    if params.and_then(|x| x.get("personality")).is_some() {
+        store
+            .update_task_personality(
+                plan_id,
+                task_id,
+                optional_string_field(params, "personality"),
                 now,
             )
             .map_err(plan_rpc_err)?;

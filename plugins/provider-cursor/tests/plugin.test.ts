@@ -580,14 +580,15 @@ console.log("\n--- buildPromptResponse (vertical ↓ nav + Enter) ---\n");
 
 console.log("\n--- usage (dashboard API fetch + parse) ---\n");
 {
-  // Real api2.cursor.sh response shapes (values sanitized), captured live.
-  const invoiceFixture = readFixture("usage-invoice.json");
-  const aggFixture = readFixture("usage-aggregated.json");
+  // Real GetCurrentPeriodUsage response, captured live. planUsage values are CENTS.
   const currentFixture = readFixture("usage-current-period.json");
-  const PERIOD_END = 1782864000000;
-  const SPEND_CENTS = 125050;
-  const LIMIT_CENTS = 200000;
-  const REMAINING_CENTS = 74950;
+  const RESETS_AT = 1784473493000; // billingCycleEnd
+  const PERIOD_START = 1781881493000; // billingCycleStart
+  const SPEND_CENTS = 18856; // totalSpend, verbatim cents (NOT 1885600)
+  const LIMIT_CENTS = 2000; // limit as cents
+  const REMAINING_CENTS = 0; // max(0, limit - includedSpend) = max(0, 2000 - 2000)
+  const WEEKLY_PCT = 96.6974; // totalPercentUsed verbatim
+  const SESSION_PCT = 84.8444; // apiPercentUsed verbatim
   const nowMs = 1781000000000;
 
   const usageHost = (over: Record<string, unknown> = {}) =>
@@ -596,8 +597,6 @@ console.log("\n--- usage (dashboard API fetch + parse) ---\n");
       exec: () => JSON.stringify({ code: 0, stdout: "cursor-test-token\n" }),
       fetch: (optsJson: string) => {
         const url = String(JSON.parse(optsJson).url || "");
-        if (url.indexOf("GetMonthlyInvoice") !== -1) return JSON.stringify({ status: 200, body: invoiceFixture });
-        if (url.indexOf("GetAggregatedUsageEvents") !== -1) return JSON.stringify({ status: 200, body: aggFixture });
         if (url.indexOf("GetCurrentPeriodUsage") !== -1) return JSON.stringify({ status: 200, body: currentFixture });
         return JSON.stringify({ status: 404, body: "{}" });
       },
@@ -608,19 +607,25 @@ console.log("\n--- usage (dashboard API fetch + parse) ---\n");
   const raw = p.fetchUsage(nowMs);
   assert(typeof raw === "string", "fetchUsage returns a raw JSON string");
   const payload = JSON.parse(String(raw));
-  eq(payload.spendCents, SPEND_CENTS, "fetchUsage spend = current period planUsage.includedSpend");
-  eq(payload.limitCents, LIMIT_CENTS, "fetchUsage limit = current period planUsage.limit");
-  eq(payload.remainingCents, REMAINING_CENTS, "fetchUsage remaining = current period planUsage.remaining");
-  eq(payload.resetsAtMs, PERIOD_END, "fetchUsage reset = invoice periodEndMs");
+  eq(payload.spendCents, SPEND_CENTS, "fetchUsage spend = planUsage.totalSpend (cents, no x100)");
+  eq(payload.limitCents, LIMIT_CENTS, "fetchUsage limit = planUsage.limit (cents)");
+  eq(payload.remainingCents, REMAINING_CENTS, "fetchUsage remaining = max(0, limit - includedSpend)");
+  eq(payload.totalPct, WEEKLY_PCT, "fetchUsage totalPct = planUsage.totalPercentUsed verbatim");
+  eq(payload.apiPct, SESSION_PCT, "fetchUsage apiPct = planUsage.apiPercentUsed verbatim");
+  eq(payload.autoPct, 100, "fetchUsage autoPct = planUsage.autoPercentUsed verbatim");
+  eq(payload.resetsAtMs, RESETS_AT, "fetchUsage reset = billingCycleEnd");
+  eq(payload.periodStartMs, PERIOD_START, "fetchUsage periodStart = billingCycleStart");
 
   const snap = p.parseUsage(String(raw), nowMs) as Record<string, unknown>;
   eq(snap.provider, "cursor", "parseUsage provider is cursor");
-  eq(snap.spend_cents, SPEND_CENTS, "parseUsage spend_cents from payload");
-  eq(snap.spend_limit_cents, LIMIT_CENTS, "parseUsage spend_limit_cents from payload");
-  eq(snap.spend_remaining_cents, REMAINING_CENTS, "parseUsage spend_remaining_cents from payload");
-  eq(snap.spend_resets_at_ms, PERIOD_END, "parseUsage spend_resets_at_ms from payload");
-  eq(snap.session_pct, null, "parseUsage leaves session_pct null (spend-based)");
-  eq(snap.weekly_pct, null, "parseUsage leaves weekly_pct null (spend-based)");
+  eq(snap.weekly_pct, WEEKLY_PCT, "parseUsage weekly_pct = totalPercentUsed verbatim");
+  eq(snap.session_pct, SESSION_PCT, "parseUsage session_pct = apiPercentUsed verbatim");
+  eq(snap.weekly_resets_at_ms, RESETS_AT, "parseUsage weekly_resets_at_ms = billingCycleEnd");
+  eq(snap.session_resets_at_ms, RESETS_AT, "parseUsage session_resets_at_ms = billingCycleEnd");
+  eq(snap.spend_cents, SPEND_CENTS, "parseUsage spend_cents verbatim cents (18856, not 1885600)");
+  eq(snap.spend_limit_cents, LIMIT_CENTS, "parseUsage spend_limit_cents = limit as cents");
+  eq(snap.spend_remaining_cents, REMAINING_CENTS, "parseUsage spend_remaining_cents = max(0, limit - includedSpend)");
+  eq(snap.spend_resets_at_ms, RESETS_AT, "parseUsage spend_resets_at_ms = billingCycleEnd");
 
   // No token → no usage, honestly (not a fabricated zero).
   const noTokenHost = usageHost({ exec: () => JSON.stringify({ code: 127, error: "not found" }) });

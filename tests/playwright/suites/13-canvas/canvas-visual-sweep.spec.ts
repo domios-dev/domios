@@ -1,15 +1,7 @@
 /**
- * 13-canvas — VISUAL SWEEP (orchestrator looking-glass, NOT an assertion gate).
- *
- * Drives the real browser through every zoom band + the task-cloud region and dumps
- * screenshots to /tmp/sweep-*.png so a human (or the orchestrator) can LOOK at how
- * the canvas actually renders — broken labels, zone shapes, readability at distance —
- * instead of trusting algorithmic asserts. Run it, then open the PNGs.
- *
- *   CT_E2E_PORT=7686 npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=golden -g @canvas-visual-sweep --retries=0 --workers=1
- *
- * Override the fixture: CANVAS_SWEEP_PERF=24 (default) sets canvas.perfFixtureN.
+ * WHAT: canvas visual sweep covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
@@ -86,6 +78,7 @@ test("@golden @canvas-visual-sweep capture every band + task cloud for visual re
 
   // orchestrator chip + its connector (only present when owner groups exist).
   await page.locator('[data-testid="canvas-preset-overview"]').click().catch(() => {});
+  // PW_JUSTIFIED_SLEEP: fixed 500ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(500);
   await shot(page, "sweep-overview");
   const orch = await page.locator('[data-testid="canvas-orchestrator-group"]').count();

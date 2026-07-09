@@ -103,7 +103,9 @@ pub async fn mem_dream(
     // REM worker only fires on a full nightly run; targeted phase calls skip it.
     if phase == "all" {
         let svc = state.svc.clone();
-        std::thread::spawn(move || dreaming::spawn_rem_worker(&svc));
+        let mem_cfg = crate::config::memory_config();
+        let default_agent = crate::config::default_agent_provider();
+        std::thread::spawn(move || dreaming::spawn_rem_worker(&svc, &mem_cfg, &default_agent));
     }
 
     Ok(Json(serde_json::json!({ "phases": reports })))

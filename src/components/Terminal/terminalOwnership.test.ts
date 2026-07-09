@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { terminalOwnsLivePty } from "./terminalOwnership";
+import { terminalOwnsLivePty, terminalRenderEnabled } from "./terminalOwnership";
 
 assert.equal(
   terminalOwnsLivePty({
@@ -32,6 +32,12 @@ assert.equal(
   }),
   true,
   "hidden pane with an existing pty may keep its reader alive",
+);
+
+assert.equal(
+  terminalRenderEnabled({ terminalVisible: true, paneVisible: false }),
+  false,
+  "hidden pane must not render terminal output",
 );
 
 assert.equal(

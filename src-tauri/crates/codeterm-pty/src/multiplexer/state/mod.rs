@@ -1,0 +1,205 @@
+use std::collections::HashMap;
+use std::sync::atomic::AtomicU64;
+
+use serde::Serialize;
+use uuid::Uuid;
+
+use super::types::{AgentRole, Pane, PaneBacking, PaneType, Tab, TitleLevel, Workspace};
+
+mod alias;
+mod closed;
+pub mod names;
+mod pane;
+mod reorder;
+mod role;
+mod snapshot;
+mod tab;
+mod workspace;
+
+pub use closed::{
+    ClosedGroup, ClosedPaneView, ClosedPanesStore, GroupKind, CLOSED_GROUP_CAP,
+    RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
+};
+
+#[cfg(test)]
+mod tests;
+
+/// Generate a short 8-char hex ID (from UUID v4).
+fn short_id() -> String {
+    let uuid = Uuid::new_v4();
+    let bytes = uuid.as_bytes();
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}",
+        bytes[0], bytes[1], bytes[2], bytes[3]
+    )
+}
+
+/// Lightweight workspace summary for listing.
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkspaceInfo {
+    pub id: String,
+    pub name: String,
+    pub tab_count: usize,
+    pub is_active: bool,
+    pub cwd: Option<String>,
+    pub protected: bool,
+    pub pane_ids: Vec<String>,
+    /// Set to true when create_workspace deduped by cwd (no new ws was created).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub existing: Option<bool>,
+}
+
+/// Central multiplexer state: workspaces, tabs, panes, and their relationships.
+pub struct MultiplexerState {
+    workspaces: Vec<Workspace>,
+    panes: HashMap<String, Pane>,
+    active_workspace_id: Option<String>,
+    focused_pane_id: Option<String>,
+    /// Reverse lookup: pty_id -> pane_id for O(1) resolution.
+    pty_to_pane: HashMap<String, String>,
+    /// Alias registry: human-readable name -> pane_id.
+    pane_aliases: HashMap<String, String>,
+    /// Monotonic snapshot generation. Every `snapshot()` stamps a strictly
+    /// increasing value so the frontend reducer can ignore a stale snapshot
+    /// (older generation) that resolves after a newer one — kills the
+    /// spawn-then-blink race where a pre-pane `mux_get_state` clobbers the tab.
+    generation: AtomicU64,
+    /// Durable browser-style closed-tab history. Leaf lock (its own
+    /// `Mutex<Connection>`); only ever touched while the mux lock is held, never
+    /// across an await. Defaults to in-memory; production swaps in a file-backed
+    /// store at startup via [`MultiplexerState::attach_closed_store`].
+    pub(super) closed_store: ClosedPanesStore,
+}
+
+/// Full state snapshot for frontend hydration.
+#[derive(Debug, Clone, Serialize)]
+pub struct MultiplexerSnapshot {
+    pub workspaces: Vec<Workspace>,
+    pub panes: HashMap<String, Pane>,
+    pub active_workspace_id: Option<String>,
+    pub focused_pane_id: Option<String>,
+    /// Monotonic generation; the reducer drops any snapshot whose value is
+    /// `<=` the one already applied.
+    pub generation: u64,
+    /// Bounded newest-first view of the closed-tab history (across all
+    /// workspaces) for the sidebar. Sourced live from the sqlite store, NOT the
+    /// persisted session snapshot — keeps both lean.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recently_closed: Vec<ClosedPaneView>,
+    /// Aggregate Idle/Working/Waiting/Dead per PTY-backed pane, mirrored from
+    /// `PaneStatusTracker` so a fresh page load hydrates the same rail color a
+    /// live `pane-status-changed` event would have delivered. Only populated by
+    /// [`MultiplexerState::snapshot_with_status`] — plain `snapshot()` leaves it
+    /// empty since most internal callers don't need it.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub pane_statuses: HashMap<String, codeterm_types::pty::PaneStatus>,
+}
+
+impl MultiplexerState {
+    /// Create an empty state with no workspaces.
+    /// Used when General Agent will create its own workspace.
+    pub fn empty() -> Self {
+        Self {
+            workspaces: vec![],
+            panes: HashMap::new(),
+            active_workspace_id: None,
+            focused_pane_id: None,
+            pty_to_pane: HashMap::new(),
+            pane_aliases: HashMap::new(),
+            generation: AtomicU64::new(0),
+            closed_store: ClosedPanesStore::in_memory(),
+        }
+    }
+
+    /// Swap the in-memory closed-history store for a durable file-backed one.
+    /// Called once at startup so closed-tab history survives daemon restarts.
+    pub fn attach_closed_store(&mut self, store: ClosedPanesStore) {
+        self.closed_store = store;
+    }
+
+    /// Create a new state with a default "Main" workspace, one tab, and one pane.
+    /// Returns (state, initial_pane_id).
+    pub fn new() -> (Self, String) {
+        let pane_id = short_id();
+        let tab_id = short_id();
+        let workspace_id = short_id();
+
+        let pane = Pane {
+            id: pane_id.clone(),
+            pty_id: None,
+            backing: PaneBacking::default(),
+            pane_type: PaneType::Terminal,
+            title: names::generate_tab_name(),
+            description: None,
+            cwd: None,
+            url: None,
+            agent_type: None,
+            agent_type_locked: false,
+            agent_session_id: None,
+            agent_session_name: None,
+            agent_session_model: None,
+            session_binding_nonce: None,
+            shell_integration_nonce: None,
+            role: Some(AgentRole::Orchestrator),
+            role_profile: None,
+            watcher: None,
+            parent_pane_id: None,
+            pending_paired_planner_pane_id: None,
+            can_spawn: true,
+            depth: 1,
+            report_target_pane_id: None,
+            report_target_mesh_peer: None,
+            spawned_by_pane_id: None,
+            title_level: TitleLevel::Default,
+            chat_view: false,
+            pending_prompt: None,
+            agent_state: None,
+            auto_approve: false,
+            protected: false,
+            connected_services: vec![],
+            agent_set_at: None,
+            exit_suspected_at: None,
+            agent_booting: false,
+            hidden: false,
+            skip_snapshot: false,
+            show_in_tabbar: true,
+            worker_id: None,
+            restored_from_snapshot: false,
+            pending_greeting: None,
+            boot_stage: None,
+        };
+
+        let tab = Tab {
+            id: tab_id.clone(),
+            description: None,
+            pane_id: pane_id.clone(),
+            sort_order: 0,
+        };
+
+        let workspace = Workspace {
+            id: workspace_id.clone(),
+            name: "Main".to_string(),
+            tabs: vec![tab],
+            active_tab_id: Some(tab_id),
+            cwd: None,
+            protected: false,
+            sort_order: 0,
+        };
+
+        let mut panes = HashMap::new();
+        panes.insert(pane_id.clone(), pane);
+
+        let state = Self {
+            workspaces: vec![workspace],
+            panes,
+            active_workspace_id: Some(workspace_id),
+            focused_pane_id: Some(pane_id.clone()),
+            pty_to_pane: HashMap::new(),
+            pane_aliases: HashMap::new(),
+            generation: AtomicU64::new(0),
+            closed_store: ClosedPanesStore::in_memory(),
+        };
+
+        (state, pane_id)
+    }
+}

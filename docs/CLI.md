@@ -70,6 +70,7 @@ List available agent providers (claude, codex, ...) with their display names, de
 
 Send a report to your parent in the hierarchy
 
+- `--acknowledge_dirty` — Acknowledge unrelated dirty files in the worktree and proceed with the readiness report. Stride is recorded acknowledging the override
 - `--attachments` — File to attach to the report milestone; repeat for multiple files
 - `--branch` — Git branch the work landed on
 - `--changed_files` — Changed files (comma-separated or repeat the flag)
@@ -113,16 +114,24 @@ Mark a pane as orchestrator (top-level, can spawn workers)
 Spawn a new agent; roleless unless --role is provided
 
 - `<agent>` — Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude
+- `--allow_shared_checkout` — Allow a Worker to spawn into a shared/canonical checkout instead of an isolated worktree. Records a visible exception stride on the bound task
 - `--args` — Extra args for the agent
+- `--bound_task` — Bound task id for the shared-checkout exception stride
 - `--can_spawn` — Override whether an explicit Orchestrator may spawn children
+- `--charter` — Watcher charter text
+- `--charter_file` — Read watcher charter text from a file
 - `--cwd` — Working directory
 - `--description` — Short pane description (max 200 chars)
+- `--interval` — Watcher tick interval, e.g. 90s, 5m, 1h
+- `--max_actions` — Max watcher actions per tick
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
+- `--nudge_cooldown` — Watcher nudge cooldown, e.g. 10m
 - `--parent` — Parent pane ID (for Workers)
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
+- `--plan_task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
 - `--report_to` — Where this worker's `agent report` should land. A pane id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own pane
-- `--role` — Role: Worker, Orchestrator, or Planner profile sugar
+- `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
 - `--system_prompt` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts
 - `--task_file` — Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task
@@ -144,7 +153,7 @@ Send a message to an external service (Telegram, etc.)
 Migrate active bridge poller from this node to another mesh peer
 
 - `--announce` — Send a one-shot "now serving from <host>" message to the sentinel chat
-- `--announce_chat_id` — Sentinel chat id for --announce. Defaults to the maintainer's chat
+- `--announce_chat_id` — Sentinel chat id for --announce. Defaults to the target's first allow-listed bridge user
 - `--claim_timeout_ms` — How long target may take to claim the Telegram lock before the migration is considered failed (ms)
 - `--force` — Skip preflight target-state check (for force migrations)
 - `--no_rollback` — Skip auto-rollback if target claim fails (leave source disabled)
@@ -310,16 +319,6 @@ Manually trigger a cron job now
 
 - `<id>` — Cron job ID
 
-#### `codeterm debug`
-
-Internal diagnostics — verify crash reporter, etc. Dev-only; hidden from --help because the matching daemon endpoint is gated to debug builds. Calling against a prod daemon returns Method-not-found
-
-#### `codeterm debug crash`
-
-Trigger a synthetic crash to verify the crash-reporter writes files. Daemon dies (segv/abort) or just records a panic report (panic). Only available in dev builds
-
-- `--kind` — Kind of crash to trigger
-
 #### `codeterm delayed`
 
 Manage delayed Chat UI sends
@@ -372,7 +371,7 @@ Read one embedded CodeTerm document in full
 
 #### `codeterm docs`
 
-Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm panes; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING)
+Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm panes; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING, TEST-AUTHORING)
 
 - `--full` — Print the complete document even inside a CodeTerm pane
 - `--head` — Print at most N lines
@@ -1199,6 +1198,13 @@ Append a persistent learning to this orchestrator's heartbeat
 - `--tag`
 - `<text>`
 
+#### `codeterm orchestrator refresh`
+
+Run the daemon-side refresh cycle (handoff → compact → re-orient → verify resumption)
+
+- `--pane`
+- `--plan`
+
 #### `codeterm orchestrator status`
 
 Show orchestration status as reports, live lanes, drift, and next actions
@@ -1629,6 +1635,13 @@ Set the declared milestone kind columns (CSV)
 - `--kinds`
 - `<plan_id>`
 
+#### `codeterm plan lanes`
+
+Lane hygiene table: one row per open lane (task/status/pane/branch/worktree/cleanup)
+
+- `<plan_id>`
+- `--stale` — Only show stale lanes (dead pane / report-overdue / uncleaned)
+
 #### `codeterm plan layout`
 
 Canvas layout overrides
@@ -1660,6 +1673,15 @@ List plans
 - `--project`
 - `--unowned`
 - `--workspace`
+
+#### `codeterm plan locate`
+
+File + line range of a body block, for in-place edits with file tools
+
+- `<plan_id>`
+- `--section` — Plan section id or handle
+- `--spec_section` — Spec section id or handle (of the plan's spec)
+- `--task` — Task id or handle
 
 #### `codeterm plan loop`
 
@@ -1791,6 +1813,15 @@ Update a free-form canvas note
 - `--text`
 - `--text_file`
 
+#### `codeterm plan pause`
+
+Park the whole effort without changing task state or executor bindings
+
+Aliases: park
+
+- `<plan_id>`
+- `--reason`
+
 #### `codeterm plan planning-state`
 
 Advance planner-owned planning state: drafting | structure_ready | approved
@@ -1878,6 +1909,12 @@ Show structural neighbors for a plan/spec/task/section unit
 
 - `--depth`
 - `--id`
+
+#### `codeterm plan resume`
+
+Resume a paused effort, restoring its previous mode
+
+- `<plan_id>`
 
 #### `codeterm plan retrospective`
 
@@ -2025,7 +2062,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--correctness`
 - `--criterion`
 - `--destination`
-- `--executor_role`
+- `--executor_role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
 - `--force`
 - `--group`
 - `--handle`
@@ -2036,10 +2073,11 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--model`
 - `--name`
 - `--parent`
+- `--personality` — Executor persona name, e.g. Hopper, Dijkstra, Lamport
 - `<plan_id>`
 - `--primary`
 - `--priority`
-- `--role_guidance`
+- `--role_guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof."
 - `--role_guidance_file`
 - `--sections`
 - `--tags`
@@ -2091,6 +2129,18 @@ Close a task (records a result; rejects if subtasks are open)
 - `--result`
 - `--result_file`
 - `<task_id>`
+
+#### `codeterm plan task dispatch`
+
+Spawn a worker, assign the task, and deliver its brief in one atomic call
+
+- `--agent` — Agent provider to spawn (e.g. claude, codex, opencode)
+- `--cwd`
+- `--model`
+- `--parent` — Parent pane override (defaults to the caller pane)
+- `<plan_id>`
+- `<task_id>`
+- `--workspace`
 
 #### `codeterm plan task link`
 
@@ -2173,7 +2223,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--correctness`
 - `--criterion`
 - `--destination`
-- `--executor_role`
+- `--executor_role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
 - `--group`
 - `--handle`
 - `--intent`
@@ -2183,10 +2233,11 @@ Update task metadata, status, quality fields, or lane assignment
 - `--name`
 - `--pane`
 - `--parent`
+- `--personality` — Executor persona name, e.g. Hopper, Dijkstra, Lamport
 - `<plan_id>`
 - `--primary`
 - `--priority`
-- `--role_guidance`
+- `--role_guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof."
 - `--role_guidance_file`
 - `--sections`
 - `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
@@ -2335,6 +2386,7 @@ Update bundled system provider plugins from the official plugin channel
 
 Report worker progress to the owning orchestrator or plan
 
+- `--acknowledge_dirty` — Acknowledge unrelated dirty files in the worktree and proceed with the readiness report. Stride is recorded acknowledging the override
 - `--attachments` — File to attach to the report milestone; repeat for multiple files
 - `--branch` — Git branch the work landed on
 - `--changed_files` — Changed files (comma-separated or repeat the flag)
@@ -2467,11 +2519,12 @@ Create a new spec
 - `--project`
 - `--title`
 
-#### `codeterm spec files`
+#### `codeterm spec delete`
 
-List generated section body files
+Delete a spec (scrubs plan references, removes the yaml)
 
 - `<spec_id>`
+- `--yes` — Confirm permanent deletion
 
 #### `codeterm spec link`
 
@@ -2479,8 +2532,9 @@ Spec-to-plan links
 
 #### `codeterm spec link add`
 
-Link a spec section to a plan section (M:N coverage edge)
+Link spec section(s) to plan section(s) (M:N coverage edges)
 
+- `--edges` — Repeatable coverage edge; combine many in one call
 - `<plan_id>`
 - `--plan_section`
 - `--spec`
@@ -2622,6 +2676,8 @@ List tasks across active plans
 
 Show one task with plan and section context
 
+- `--all` — With --siblings, include done/cancelled tasks
+- `--siblings` — List sibling tasks (open-only unless --all)
 - `<task_id>`
 
 #### `codeterm task take`

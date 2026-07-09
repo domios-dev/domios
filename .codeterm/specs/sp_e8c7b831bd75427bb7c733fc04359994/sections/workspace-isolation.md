@@ -1,1 +1,0 @@
-One workspace = one project root (git toplevel of the cwd) = one .codeterm/plans directory. The canvas in a workspace shows ONLY plans whose project_path canonicalizes to that root. This fixes a real leak where plans from one project bled into another workspace's board. Verified: the dogfood appears in the codeterm project and is absent from a sibling project's canvas.

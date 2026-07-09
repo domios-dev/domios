@@ -1,8 +1,7 @@
 /**
- * 07-cron — scheduler semantics on a live dev console with a mocked cron
- * clock (CODETERM_TEST_CLOCK=1 + /api/debug/clock/advance). No wall-clock
- * waits for fire times: the suite time-travels, the scheduler is woken,
- * and the fire spawns a REAL agent (one trivial sonnet call).
+ * WHAT: cron covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 07-cron.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import { type ApiClient } from "../../helpers/api-client";

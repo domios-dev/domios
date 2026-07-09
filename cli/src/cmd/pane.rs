@@ -118,6 +118,19 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
             handle_result(json, final_result);
         }
         PaneAction::Current { last } => {
+            // The pane this command RUNS IN is the env var — the focused pane
+            // is whatever tab the human is looking at (an orchestrator once
+            // adopted a foreign focused pane as its own id and mis-parented
+            // eleven workers). Fall back to focus only outside pane context,
+            // loudly.
+            if !last {
+                if let Ok(own) = std::env::var("CODETERM_PANE_ID") {
+                    if !own.trim().is_empty() {
+                        println!("{}", own.trim());
+                        return;
+                    }
+                }
+            }
             let result = client.call("pane.list", None);
             match result {
                 Ok(value) => {
@@ -125,6 +138,9 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                         let pane = if last {
                             arr.last()
                         } else {
+                            eprintln!(
+                                "warning: no CODETERM_PANE_ID in this shell — falling back to the FOCUSED pane, which may not be yours"
+                            );
                             arr.iter()
                                 .find(|p| {
                                     p.get("focused").and_then(|v| v.as_bool()).unwrap_or(false)
@@ -147,7 +163,9 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
             handle_result(json, result);
         }
         PaneAction::Close { id } => {
-            let result = client.call("pane.close", Some(serde_json::json!({ "pane_id": id })));
+            let mut params = serde_json::json!({ "pane_id": id });
+            crate::cmd::plan::maybe_inject_caller_pane(&mut params);
+            let result = client.call("pane.close", Some(params));
             handle_result(json, result);
         }
         PaneAction::Rename { pane, title } => {
@@ -185,8 +203,11 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                 }
             };
             let url = format!(
-                "{}/api/panes/{}/text?formatted={}",
-                api_url, pane_id, formatted
+                "{}/api/panes/{}/text?formatted={}{}",
+                api_url,
+                pane_id,
+                formatted,
+                caller_query_suffix()
             );
             match http.get(url).send() {
                 Ok(resp) => {
@@ -358,7 +379,13 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                     std::process::exit(1);
                 }
             };
-            let url = format!("{}/api/panes/{}/chat?since={}", api_url, pane_id, since);
+            let url = format!(
+                "{}/api/panes/{}/chat?since={}{}",
+                api_url,
+                pane_id,
+                since,
+                caller_query_suffix()
+            );
             match http.get(url).send() {
                 // Non-JSON / empty body (e.g. pane not bound yet) -> {} so the renderer prints an honest "(no chat ...)" instead of a decode error.
                 Ok(resp) => {
@@ -434,6 +461,16 @@ fn strip_origin_marker(s: &str) -> (Option<String>, String) {
         }
     }
     (None, s.to_string())
+}
+
+/// `&caller=<pane>` from CODETERM_PANE_ID so the server can detect a coordinator
+/// polling a worker pane; empty when not running inside a pane.
+fn caller_query_suffix() -> String {
+    std::env::var("CODETERM_PANE_ID")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(|p| format!("&caller={}", p))
+        .unwrap_or_default()
 }
 
 /// One-line, length-capped view of a message body so a single huge blob

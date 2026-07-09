@@ -1,12 +1,7 @@
 /**
- * 20-new-session — the new-session picker (task_234c14f0), the orchestration-pair
- * spawn + sidebar group it drives (task_e0ddee08), and round-18: the picker is a
- * VIRTUAL tab (no backend pane/PTY until confirm) whose provider/model/workspace
- * controls use the shared DropdownMenu (no native <select>).
- *
- * Real dev console, web-mode (@golden). Each scenario opens its own fresh
- * picker via beforeEach; scenarios that actually spawn agents clean up their
- * panes/workspaces in afterEach so a failed run never leaks live processes.
+ * WHAT: picker covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 20-new-session.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -76,9 +71,7 @@ async function expandWorkspace(page: Page, wsId: string): Promise<void> {
   if (await expand.isVisible().catch(() => false)) await expand.click();
 }
 
-/** Clicks "New session" in the given workspace and waits for the VIRTUAL picker
- *  to render. There is deliberately no backend tab to diff — the picker adds no
- *  pane/PTY until confirm (round-18). */
+/** Opens the VIRTUAL picker; no backend pane/PTY exists until confirm. */
 async function openPicker(page: Page, wsId: string): Promise<void> {
   await expandWorkspace(page, wsId);
   await workspaceGroup(page, wsId).getByText("New session", { exact: true }).click();
@@ -197,9 +190,8 @@ test.describe("new-session picker", () => {
   test.describe.configure({ timeout: 30_000 });
 
   let ws: { id: string; name: string };
-  // Id-diff registry (NOT title-keyed): a plan that regresses to the bare
-  // "Orchestration"/"04:56" title is still swept. Closing a workspace does not
-  // cascade to its plans, so spawn scenarios would otherwise leak them.
+  // Id-diff registry catches bare "Orchestration"/timestamp title regressions.
+  // Closing a workspace does not cascade to plans, so spawn scenarios need this.
   const plans = new PlanRegistry();
 
   test.beforeAll(async () => {
@@ -488,7 +480,7 @@ test.describe("new-session picker", () => {
     }
   });
 
-  test("@golden GROUP CLOSE: children have no individual close; head close confirms and takes the whole group", async ({ api, ui }) => {
+  test("@golden GROUP CLOSE: manager row closes individually; head close confirms when group has members", async ({ api, ui }) => {
     test.setTimeout(180_000);
     const page = ui.page;
     await page.locator('[data-testid="picker-mode-orchestration"]').click();
@@ -505,29 +497,26 @@ test.describe("new-session picker", () => {
     const wsNow = state.workspaces.find((w) => w.id === ws.id)!;
     const plannerTab = wsNow.tabs.find((t) => t.id !== orchTab.id)!;
 
-    // Planner (child) row: open its menu, no enabled close action.
     const plannerRow = page.locator(`[data-tab-id="${plannerTab.id}"]`);
     await plannerRow.hover();
     await plannerRow.locator('button[title="Tab actions"]').click();
-    await expect(page.locator('[data-testid="tab-menu-close"]')).toHaveCount(0);
-    await page.keyboard.press("Escape");
-    await page.mouse.click(2, 2);
-    await expect(page.locator('[data-testid="tab-menu-close"]')).toHaveCount(0);
+    const plannerClose = page.locator('[data-testid="tab-menu-close"]');
+    await expect(plannerClose).toBeVisible({ timeout: 5_000 });
+    await plannerClose.click();
 
-    // Head (orchestrator) row: close asks for confirmation listing the group.
+    await expect
+      .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0, {
+        timeout: 60_000,
+      })
+      .toBe(1);
+
     const headRow = page.locator(`[data-tab-id="${orchTab.id}"]`);
     await expect(headRow).toBeVisible({ timeout: 15_000 });
     await headRow.hover();
     await headRow.locator('button[title="Tab actions"]').click();
-    const closeItem = page.locator('[data-testid="tab-menu-close"]');
-    await expect(closeItem).toBeVisible({ timeout: 5_000 });
-    await closeItem.click();
-
-    const dialog = page.locator('[data-testid="group-close-confirm"]');
-    await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText("Orchestrator");
-
-    await page.locator('[data-testid="group-close-confirm-button"]').click();
+    const headClose = page.locator('[data-testid="tab-menu-close"]');
+    await expect(headClose).toBeVisible({ timeout: 5_000 });
+    await headClose.click();
 
     await expect
       .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0, {

@@ -126,38 +126,25 @@ fn doctor_report(
     let mut checked = 0usize;
     for path in files {
         checked += 1;
-        match std::fs::read_to_string(&path) {
-            Ok(raw) => match serde_json::from_str::<Value>(&raw) {
-                Ok(plan) => {
-                    findings.extend(inspect_plan(&path, &plan, kind));
-                    if matches!(kind, "all" | "storage") {
-                        findings.extend(inspect_stray_sidecars(&project_root, &path, &plan));
-                    }
+        match crate::cmd::plan_local::load_plan_value(&path) {
+            Ok(plan) => {
+                findings.extend(inspect_plan(&path, &plan, kind));
+                if matches!(kind, "all" | "storage") {
+                    findings.extend(inspect_stray_sidecars(&project_root, &path, &plan));
                 }
-                Err(err) => findings.push(Finding {
-                    severity: "error",
-                    kind: "malformed_json",
-                    plan_id: path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .map(str::to_string),
-                    path: path.display().to_string(),
-                    task_id: None,
-                    detail: err.to_string(),
-                    fix: "open the JSON file, repair syntax, then rerun plan doctor".into(),
-                }),
-            },
+            }
             Err(err) => findings.push(Finding {
                 severity: "error",
-                kind: "unreadable_file",
+                kind: "malformed_plan",
                 plan_id: path
-                    .file_stem()
+                    .parent()
+                    .and_then(|d| d.file_name())
                     .and_then(|s| s.to_str())
                     .map(str::to_string),
                 path: path.display().to_string(),
                 task_id: None,
-                detail: err.to_string(),
-                fix: "check file permissions or remove the stale plan entry".into(),
+                detail: err,
+                fix: "open the yaml, repair syntax/indentation, then rerun plan doctor".into(),
             }),
         }
     }

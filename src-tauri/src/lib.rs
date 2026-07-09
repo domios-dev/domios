@@ -4,6 +4,7 @@ mod api;
 pub mod attachments;
 mod autostart;
 pub mod bridge;
+pub mod bridge_host;
 pub mod bubble;
 pub mod chatbackend;
 pub mod chatpipeline;
@@ -23,6 +24,7 @@ mod liveness;
 pub mod lock_hold;
 pub mod logs;
 pub mod mem;
+pub mod mem_host;
 pub mod mesh;
 pub mod message_markers;
 pub mod multiplexer;
@@ -44,6 +46,7 @@ pub mod shell;
 mod socket;
 mod startup;
 pub mod transcribe;
+pub mod transcribe_adapter;
 pub mod update;
 pub mod usage;
 pub mod user_last_activity;
@@ -194,34 +197,34 @@ pub fn run() {
             commands::test_notification,
             commands::get_autostart_enabled,
             commands::set_autostart_enabled,
-            multiplexer::commands::mux_get_state,
-            multiplexer::commands::mux_create_workspace,
-            multiplexer::commands::mux_set_active_workspace,
-            multiplexer::commands::mux_close_workspace,
-            multiplexer::commands::mux_rename_workspace,
-            multiplexer::commands::mux_move_tab,
-            multiplexer::commands::mux_reorder_tab,
-            multiplexer::commands::mux_reorder_child,
-            multiplexer::commands::mux_reorder_workspace,
-            multiplexer::commands::mux_create_tab,
-            multiplexer::commands::mux_close_tab,
-            multiplexer::commands::mux_set_active_tab,
-            multiplexer::commands::mux_set_active_tab_and_workspace,
-            multiplexer::commands::mux_rename_tab,
-            multiplexer::commands::mux_close_pane,
-            multiplexer::commands::mux_reopen_closed_pane,
-            multiplexer::commands::mux_reopen_closed_group,
-            multiplexer::commands::mux_restore_orphaned_pane,
-            multiplexer::commands::mux_set_focused_pane,
-            multiplexer::commands::mux_link_pty,
-            multiplexer::commands::mux_rename_pane,
-            multiplexer::commands::mux_update_pane_cwd,
-            multiplexer::commands::mux_set_pane_agent_type,
-            multiplexer::commands::mux_unlock_pane_agent_type,
-            multiplexer::commands::mux_set_chat_view,
-            multiplexer::commands::detect_claude_session_id,
-            multiplexer::commands::detect_pane_session_id,
-            multiplexer::commands::mux_set_claude_session_id,
+            commands::mux_commands::mux_get_state,
+            commands::mux_commands::mux_create_workspace,
+            commands::mux_commands::mux_set_active_workspace,
+            commands::mux_commands::mux_close_workspace,
+            commands::mux_commands::mux_rename_workspace,
+            commands::mux_commands::mux_move_tab,
+            commands::mux_commands::mux_reorder_tab,
+            commands::mux_commands::mux_reorder_child,
+            commands::mux_commands::mux_reorder_workspace,
+            commands::mux_commands::mux_create_tab,
+            commands::mux_commands::mux_close_tab,
+            commands::mux_commands::mux_set_active_tab,
+            commands::mux_commands::mux_set_active_tab_and_workspace,
+            commands::mux_commands::mux_rename_tab,
+            commands::mux_commands::mux_close_pane,
+            commands::mux_commands::mux_reopen_closed_pane,
+            commands::mux_commands::mux_reopen_closed_group,
+            commands::mux_commands::mux_restore_orphaned_pane,
+            commands::mux_commands::mux_set_focused_pane,
+            commands::mux_commands::mux_link_pty,
+            commands::mux_commands::mux_rename_pane,
+            commands::mux_commands::mux_update_pane_cwd,
+            commands::mux_commands::mux_set_pane_agent_type,
+            commands::mux_commands::mux_unlock_pane_agent_type,
+            commands::mux_commands::mux_set_chat_view,
+            commands::mux_commands::detect_claude_session_id,
+            commands::mux_commands::detect_pane_session_id,
+            commands::mux_commands::mux_set_claude_session_id,
             commands::chat_start,
             commands::session_transcript,
             commands::chat_stop,
@@ -243,15 +246,15 @@ pub fn run() {
             commands::plugin_glance,
             commands::plugin_bubble,
             commands::plugin_view_call,
-            multiplexer::commands::build_agent_launch_command,
-            multiplexer::commands::mux_spawn_pane,
-            multiplexer::commands::mux_create_orchestration_pair,
-            multiplexer::commands::mux_set_pane_role,
-            multiplexer::commands::mux_clear_pane_role,
-            multiplexer::commands::mux_make_orchestrator,
-            multiplexer::commands::mux_set_can_spawn,
-            multiplexer::commands::mux_respond_prompt,
-            multiplexer::commands::mux_batch,
+            commands::mux_commands::build_agent_launch_command,
+            commands::mux_commands::mux_spawn_pane,
+            commands::mux_commands::mux_create_orchestration_pair,
+            commands::mux_commands::mux_set_pane_role,
+            commands::mux_commands::mux_clear_pane_role,
+            commands::mux_commands::mux_make_orchestrator,
+            commands::mux_commands::mux_set_can_spawn,
+            commands::mux_commands::mux_respond_prompt,
+            commands::mux_commands::mux_batch,
             notification::notify,
             notification::list_notifications,
             notification::mark_notification_read,
@@ -361,7 +364,9 @@ pub fn run() {
                 Arc::new(crate::agent_commands::AgentCommandRegistry::new());
             // One bundle of registry handles, shared by the startup loop and the hot-reload watcher (same register_plugin path, no drift).
             let cap_registries = plugin::js_runtime::CapabilityRegistries {
-                secret: secret_registry.clone(),
+                secret: Some(std::sync::Arc::new(
+                    crate::secrets::js_backend::AppSecretBackendRegistrar::new(secret_registry.clone())
+                )),
                 transcribe: transcribe_registry.clone(),
                 glance: glance_registry.clone(),
                 bubble: bubble_registry.clone(),
@@ -373,8 +378,8 @@ pub fn run() {
             // VMs collected as they load, so the `ServiceContext` can be late-bound into each sandbox once it's built below.
             let mut plugin_vms: Vec<Arc<plugin::js_runtime::PluginVm>> = Vec::new();
             let mut plugin_manager = plugin::PluginManager::new();
-            plugin_manager.set_agent_registry(agent_registry.clone());
-            plugin_manager.set_event_broadcaster(states.event_broadcaster.clone());
+            plugin_manager.set_registrar(agent_registry.clone());
+            plugin_manager.set_event_sink(states.event_broadcaster.clone());
 
             // Bridge ContributionsChanged → frontend event + mem bridge rule refresh.
             {
@@ -422,7 +427,7 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     loop {
                         match sub.recv().await {
-                            Ok(ev) => pm.dispatch_event(&ev.event),
+                            Ok(ev) => pm.dispatch_event_type(ev.event.type_name()),
                             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                             Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                         }
@@ -530,7 +535,7 @@ pub fn run() {
                         }
                     } else {
                         // JS takes authority; the displaced native impl is preserved as a fallback for unexported methods.
-                        p.set_registry(agent_registry.clone());
+                        p.set_registrar(agent_registry.clone());
                         log::info!(
                             "[js-plugin] {id} registered as authoritative \
                             (set CODETERM_NATIVE_PROVIDERS={id} to rollback)"
@@ -617,13 +622,22 @@ pub fn run() {
                 agent_registry.clone(),
                 chatbackend_registry.clone(),
             ));
+            crate::service::plan::search_index::init_search_port(Arc::new(
+                crate::service::plan::search_port_impl::MemSearchPort,
+            ));
+            crate::service::plan::heartbeat::init_reflect_every(
+                crate::config::load_config().orchestration.reflect.every_gates,
+            );
             let plan_store = Arc::new(crate::service::plan::PlanStore::new());
             let plan_turn_counter =
                 Arc::new(crate::service::plan::reminders::TurnCounter::new());
             plan_store.bind_turn_counter(plan_turn_counter.clone());
 
             let user_last_activity = crate::user_last_activity::UserLastActivity::new();
-            states.mesh.lock().user_last_activity = user_last_activity.clone();
+            states.mesh.lock().build_hash = env!("BUILD_HASH").to_string();
+            states.mesh.lock().last_activity = Arc::new(
+                crate::mesh::UserLastActivityProvider(user_last_activity.clone()),
+            );
 
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),
@@ -721,11 +735,13 @@ pub fn run() {
                 }
             }
             // Late-bind the ServiceContext into every loaded plugin's sandbox. Weak so VMs never keep the service alive past teardown.
-            for vm in &plugin_vms {
-                vm.set_service(Arc::downgrade(&service_state));
+            {
+                let host: Arc<dyn codeterm_plugin::PluginHostCtx> = service_state.clone();
+                for vm in &plugin_vms {
+                    vm.set_service(Arc::downgrade(&host));
+                }
+                plugin::js_runtime::set_watcher_service(Arc::downgrade(&host));
             }
-            // Same late-bind for the hot-reload watcher, so plugins reloaded after startup get the service too.
-            plugin::js_runtime::set_watcher_service(Arc::downgrade(&service_state));
             app.manage(service_state.clone());
             crate::delayed_send::start_scheduler(service_state.clone());
             crate::service::start_plan_reminder_scheduler(service_state.clone());

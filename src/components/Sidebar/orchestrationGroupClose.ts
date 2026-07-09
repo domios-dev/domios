@@ -4,8 +4,7 @@ export interface OrchestrationGroupMember {
   paneId: string;
   title: string;
   role: string | null;
-  /** Specialization (e.g. "planner") — the discriminator the section taxonomy
-   *  keys off, since the structural `role` is only Orchestrator|Worker. */
+  /** Manager specialization, for badges and summaries. */
   roleProfile: string | null;
 }
 
@@ -19,12 +18,14 @@ export function collectOrchestrationGroupMembers(
   const visit = (parentId: string) => {
     for (const pane of Object.values(panes)) {
       if (pane.parent_pane_id === parentId) {
+        const isManager = pane.role === "Manager";
         members.push({
           paneId: pane.id,
           title: pane.title,
           role: pane.role ?? null,
           roleProfile: pane.role_profile ?? null,
         });
+        if (isManager) continue;
         visit(pane.id);
       }
     }

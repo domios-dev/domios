@@ -27,6 +27,9 @@ pub struct AtomicSpawnParams {
     /// chatBackend openSession config (systemPrompt/preset/model). Ignored for PTY.
     #[serde(default)]
     pub config: Option<serde_json::Value>,
+    /// Explicit model for the spawned agent (PTY launch args / chat session model).
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -55,6 +58,7 @@ pub struct TransportLaunchCtx<'a> {
     pub workspace_id: &'a str,
     pub skip_permissions: bool,
     pub config: serde_json::Value,
+    pub model: Option<&'a str>,
 }
 
 /// The runtime half of a provider. `launch` never blocks pane visibility: it
@@ -89,7 +93,7 @@ impl AgentTransport for PtyTransport {
         let model_args = crate::service::spawn::resolve_fresh_agent_model(
             &svc.agent_registry,
             ctx.provider_id,
-            None,
+            ctx.model.map(str::to_string),
             None,
         )
         .and_then(|model| {
@@ -130,11 +134,15 @@ impl AgentTransport for ChatTransport {
         svc: &ServiceContext,
         ctx: &TransportLaunchCtx<'_>,
     ) -> Result<Option<String>, String> {
-        let config = if ctx.config.is_null() {
+        let mut config = if ctx.config.is_null() {
             serde_json::Value::Object(Default::default())
         } else {
             ctx.config.clone()
         };
+        if let (Some(model), Some(obj)) = (ctx.model, config.as_object_mut()) {
+            obj.entry("model")
+                .or_insert_with(|| serde_json::Value::String(model.to_string()));
+        }
         // Stamp the connecting backing synchronously so the pane renders as chat at once, not briefly as a terminal with a stray PTY.
         {
             let mut mux = svc.mux.write();
@@ -265,6 +273,7 @@ impl ServiceContext {
                     workspace_id: &ws_id,
                     skip_permissions: params.skip_permissions,
                     config: params.config.clone().unwrap_or(serde_json::Value::Null),
+                    model: params.model.as_deref(),
                 },
             ),
             || {

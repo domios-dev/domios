@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { listen } from "../../lib/bridge";
-import { useMultiplexer } from "../../store/multiplexer";
+import { useMuxState } from "../../store/multiplexer";
 import { useSwarmCanvas } from "./useSwarmCanvas";
 import { computeTreeLayout } from "./layout";
 import type { SwarmState, SwarmNode, SwarmEdge, ReportParticle } from "./types";
@@ -35,7 +35,7 @@ interface SwarmOverlayProps {
 }
 
 export function SwarmOverlay({ visible, onClose }: SwarmOverlayProps) {
-  const { state } = useMultiplexer();
+  const state = useMuxState();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [animState, setAnimState] = useState<"entering" | "visible" | "exiting" | "hidden">(
     visible ? "entering" : "hidden"

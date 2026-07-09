@@ -1,8 +1,7 @@
 /**
- * 12-web — the web mirror in a REAL BROWSER (launched msedge, not the
- * Tauri WebView). Token gate, peer switching against a scripted stub
- * peer, mobile viewport, and a fully live LLM round-trip read from the
- * rendered terminal DOM (/?a11y=1 runtime opt-in).
+ * WHAT: web covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 12-web.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type Browser, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 import { MeshStub } from "../../helpers/mesh-stub";
@@ -47,7 +46,9 @@ test("@golden bad token is rejected with a rendered error, not a broken app", as
   await page.waitForSelector('[data-testid="web-token-input"]');
   await page.fill('[data-testid="web-token-input"]', "definitely-wrong-token");
   await page.click('[data-testid="web-token-submit"]');
-  await expect(page.locator('[data-testid="web-token-error"]')).toBeVisible({ timeout: 10_000 });
+  const tokenError = page.locator('[data-testid="web-token-error"]');
+  await expect(tokenError).toBeVisible({ timeout: 10_000 });
+  await expect(tokenError).toContainText(/token|auth|invalid|unauthorized/i);
   await page.context().close();
 });
 

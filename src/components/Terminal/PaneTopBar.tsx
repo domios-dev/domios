@@ -4,6 +4,7 @@ import { UsageBubble } from "../Usage/UsageBubble";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
 import type { ApiConfig } from "../../lib/types";
 import { PANE_BAR_CONTROL_H } from "./paneBarConstants";
+import { WatcherStatusBadge } from "./WatcherStatusBadge";
 
 /** Single height rhythm for every control in the bar (switch + pills). */
 export { PANE_BAR_CONTROL_H };
@@ -21,6 +22,9 @@ interface PaneTopBarProps {
   usageProvider?: string | null;
   usageVisible?: boolean;
   api?: ApiConfig;
+  /** Watcher panes surface health from `pane.watcher.last_status` in the header. */
+  watcherLastStatus?: string | null;
+  isWatcherPane?: boolean;
 }
 
 /**
@@ -40,6 +44,8 @@ export function PaneTopBar({
   chatDefaultPrompted,
   usageProvider,
   usageVisible,
+  watcherLastStatus,
+  isWatcherPane = false,
 }: PaneTopBarProps) {
   return (
     <div
@@ -70,6 +76,7 @@ export function PaneTopBar({
         )}
       </div>
       <div className="flex min-w-0 items-center gap-1.5">
+        {isWatcherPane && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
         <PluginBubbles cwd={cwd} paneId={paneId} />
         {usageProvider && <UsageBubble provider={usageProvider} trackingEnabled={!!usageVisible} />}
       </div>

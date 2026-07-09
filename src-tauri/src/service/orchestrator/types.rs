@@ -51,6 +51,8 @@ pub struct SpawnAgentParams {
     /// Bound task id (CODETERM_TASK_ID) — the shared-checkout exception stride
     /// lands here when `--allow-shared-checkout` is used.
     pub task_id: Option<String>,
+    /// Named plan task to bind when spawning `--role Worker` (`--plan-task`).
+    pub plan_task: Option<String>,
     /// Opt out of the Worker canonical-checkout guard, recording a visible
     /// exception stride on the bound task.
     pub allow_shared_checkout: Option<bool>,
@@ -84,6 +86,10 @@ pub struct SpawnAgentParams {
     pub system_prompt: Option<String>,
     pub preset: Option<String>,
     pub resume_session_id: Option<String>,
+    pub charter: Option<String>,
+    pub tick_interval_secs: Option<u64>,
+    pub nudge_cooldown_secs: Option<u64>,
+    pub max_actions_per_tick: Option<u32>,
     pub activate: Option<bool>,
     /// Host-set, never from the wire: the fixed structured-prompt server the
     /// host allocated for a `needs_structured_prompt_server` provider. Threaded
@@ -93,7 +99,7 @@ pub struct SpawnAgentParams {
 }
 
 impl SpawnAgentParams {
-    pub(crate) fn normalize_role_profile(&mut self) {
-        crate::service::role_profile::normalize_spawn_params(self);
+    pub(crate) fn normalize_role_profile(&mut self) -> Result<(), String> {
+        crate::service::role_profile::normalize_spawn_params(self)
     }
 }

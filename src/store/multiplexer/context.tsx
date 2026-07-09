@@ -6,7 +6,7 @@ import type {
   OrchestrationPairInput,
   OrchestrationPairResult,
 } from "../../lib/types";
-import type { ExtendedState } from "./tree";
+import type { MuxStateStore } from "./selectorStore";
 
 /** Ids returned by a successful spawn — enough to resolve + select the tab. */
 export interface SpawnedPane {
@@ -14,9 +14,8 @@ export interface SpawnedPane {
   paneId: string;
 }
 
-export interface MultiplexerContextType {
-  state: ExtendedState;
-  createWorkspace: (name: string, cwd?: string) => Promise<{ id: string; name: string } | undefined>;
+export interface MultiplexerActionsContextType {
+  createWorkspace: (name: string, cwd?: string, opts?: { activate?: boolean }) => Promise<{ id: string; name: string } | undefined>;
   setActiveWorkspace: (id: string) => void;
   closeWorkspace: (id: string) => void;
   renameWorkspace: (id: string, name: string) => void;
@@ -72,10 +71,15 @@ export interface MultiplexerContextType {
   createOrchestrationPair: (input: OrchestrationPairInput) => Promise<OrchestrationPairResult>;
 }
 
-export const MultiplexerContext = createContext<MultiplexerContextType | null>(null);
+/** @deprecated Use MultiplexerActionsContextType — state reads go through useMuxState/useMuxSelector. */
+export type MultiplexerContextType = MultiplexerActionsContextType;
 
-export function useMultiplexer(): MultiplexerContextType {
-  const ctx = useContext(MultiplexerContext);
+export const MultiplexerActionsContext = createContext<MultiplexerActionsContextType | null>(null);
+export const MuxStateStoreContext = createContext<MuxStateStore | null>(null);
+
+/** Stable action callbacks — identity does not change when mux state updates. */
+export function useMultiplexer(): MultiplexerActionsContextType {
+  const ctx = useContext(MultiplexerActionsContext);
   if (!ctx) throw new Error("useMultiplexer must be used within MultiplexerProvider");
   return ctx;
 }

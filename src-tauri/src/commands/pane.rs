@@ -386,11 +386,26 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     }
 
     let path_started = std::time::Instant::now();
-    let path = svc
+    let Some(path) = svc
         .agent_registry
         .with_provider(&provider_id, |p| p.session_jsonl_path(&cwd, &session_id))
         .flatten()
-        .ok_or("provider has no JSONL")?;
+    else {
+        log::warn!(
+            "[chat_start] pane={} provider={} session={} has no JSONL yet",
+            pane_id,
+            provider_id,
+            session_id
+        );
+        return Ok(ChatStartResult {
+            text: String::new(),
+            start_offset: 0,
+            offset: 0,
+            pending: true,
+            messages: None,
+            cursor: None,
+        });
+    };
     let total = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     let path_ms = path_started.elapsed().as_millis();
 
@@ -659,6 +674,9 @@ pub async fn open_chat_backend_pane(
         system_prompt.as_deref(),
         preset.as_deref(),
         model.as_deref(),
+        None,
+        None,
+        None,
     );
     if let (Some(base), Some(extra)) = (config.as_object_mut(), overrides.as_object()) {
         for (key, value) in extra {
@@ -667,10 +685,18 @@ pub async fn open_chat_backend_pane(
     } else if !overrides.as_object().map(|o| o.is_empty()).unwrap_or(true) {
         config = overrides;
     }
+    crate::service::spawn::reject_direct_watcher_chatbackend_config(&config)?;
     let handle = svc.spawn_pane(SpawnPaneSpec {
         workspace_id,
         visibility: PaneVisibility::Visible,
-        command: PaneCommand::ChatBackend { plugin_id, config },
+        command: PaneCommand::ChatBackend {
+            plugin_id,
+            config,
+            role: None,
+            role_profile: None,
+            can_spawn: None,
+            watcher: None,
+        },
         ..Default::default()
     })?;
     Ok(handle.pane_id)

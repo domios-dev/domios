@@ -55,14 +55,14 @@ Every paired peer has an Ed25519 keypair. Requests between peers are signed with
 
 ## Bridge migration
 
-External-service bridges (Telegram today; Discord/Slack/etc. later) hold an exclusive long-poll lock against their upstream API — only one poller per bot token can be active at a time. `codeterm bridge migrate --to PEER` hot-relocates that poller from the source machine to a paired mesh peer **without restarting either daemon**. This is the recovery story for "I'm shutting down BLACKSTAR for the night, please move the Telegram bot to mac-mini until I'm back."
+External-service bridges (Telegram today; Discord/Slack/etc. later) hold an exclusive long-poll lock against their upstream API — only one poller per bot token can be active at a time. `codeterm bridge migrate --to PEER` hot-relocates that poller from the source machine to a paired mesh peer **without restarting either daemon**. This is the recovery story for "I'm shutting this machine down for the night, please move the Telegram bot to another peer until I'm back."
 
 ### CLI
 
 ```bash
 codeterm bridge migrate --to PEER \
   [--service telegram] \
-  [--announce] [--announce-chat-id 186809246] \
+  [--announce] [--announce-chat-id <chat-id>] \
   [--no-rollback] [--force] [--claim-timeout-ms 10000]
 ```
 
@@ -82,7 +82,7 @@ Must run on the **source** machine. Running it through `--mesh PEER` is rejected
    ```
    codeterm config set integrations.telegram_enabled true && codeterm bridge restart
    ```
-10. **Optional `--announce`.** When `--announce` is set, post `[CodeTerm] Telegram bridge migrated to <to> from <from>` to `--announce-chat-id` (default `186809246`) via `POST /api/bridge/announce` on the target. Failures here are non-fatal — the migration is already done.
+10. **Optional `--announce`.** When `--announce` is set, post `[CodeTerm] Telegram bridge migrated to <to> from <from>` to `--announce-chat-id` (defaults to the target's first allow-listed bridge user) via `POST /api/bridge/announce` on the target. Failures here are non-fatal — the migration is already done.
 
 ### Secret locality guarantee
 
@@ -95,7 +95,7 @@ Each daemon resolves its own vault. The CLI never reads `telegram_bot_token` fro
 | `--to` | *(required)* | Target peer `instance_name` (or `instance_id`) as shown in `codeterm mesh peers`. |
 | `--service` | `telegram` | Which bridge to migrate. Only `telegram` today. |
 | `--announce` | `false` | Post a one-shot sentinel message after success. |
-| `--announce-chat-id` | `186809246` | Telegram chat id for `--announce`. Defaults to the maintainer's chat. |
+| `--announce-chat-id` | *(first allow-listed user)* | Telegram chat id for `--announce`. Defaults to the target's first allow-listed bridge user. |
 | `--no-rollback` | `false` | Skip the source-recovery step on failure (leaves source disabled). |
 | `--force` | `false` | Skip the target preflight (`token_present || has_secret_in_vault`) check. |
 | `--claim-timeout-ms` | `10000` | How long the target may take to claim the upstream lock before the migration is considered failed. |
@@ -220,4 +220,4 @@ services/
   smart_add.rs      — heuristic field-mapping suggestions for AddServiceWizard
 ```
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

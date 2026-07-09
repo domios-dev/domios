@@ -59,24 +59,24 @@ Custom git hooks live in `.githooks/` and are automatically wired via `git confi
 
 ```bash
 # Signing identity (required for release builds)
-APPLE_SIGNING_IDENTITY="Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)"
+APPLE_SIGNING_IDENTITY="Developer ID Application: <YOUR NAME> (<TEAM_ID>)"
 
 # Build signed DMG
-APPLE_SIGNING_IDENTITY="Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)" pnpm tauri build
-APPLE_SIGNING_IDENTITY="Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)" pnpm tauri build --target x86_64-apple-darwin
+APPLE_SIGNING_IDENTITY="Developer ID Application: <YOUR NAME> (<TEAM_ID>)" pnpm tauri build
+APPLE_SIGNING_IDENTITY="Developer ID Application: <YOUR NAME> (<TEAM_ID>)" pnpm tauri build --target x86_64-apple-darwin
 ```
 
 Add to `.env` in project root (gitignored) so `build.sh` picks it up automatically:
 ```
 UPDATER_TOKEN=<github PAT>
-APPLE_SIGNING_IDENTITY=Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)
+APPLE_SIGNING_IDENTITY=Developer ID Application: <YOUR NAME> (<TEAM_ID>)
 ```
 
 For notarization (optional, removes "downloaded from internet" warning):
 ```bash
 APPLE_ID=<apple-id-email>
 APPLE_PASSWORD=<app-specific-password>
-APPLE_TEAM_ID=JMMWQ9LWF7
+APPLE_TEAM_ID=<TEAM_ID>
 ```
 
 ## Build Output
@@ -106,7 +106,7 @@ No CI — all builds are local, coordinated via CodeTerm mesh between two machin
 
 The release is driven by one machine (Primary), the other builds in parallel (Support). Both machines are connected via CodeTerm mesh. The Primary handles version bump, tagging, draft creation, and publish. The Support machine pulls, builds, and uploads its platform installer.
 
-Typical setup: **MacBook Air** (Primary, macOS ARM) + **BLACKSTAR** (Support, Windows x64). Either machine can be Primary — just coordinate via mesh `send`.
+Typical setup: a macOS machine (Primary, ARM) + a Windows machine (Support, x64). Either machine can be Primary — just coordinate via mesh `send`.
 
 ### Steps
 
@@ -122,7 +122,7 @@ Typical setup: **MacBook Air** (Primary, macOS ARM) + **BLACKSTAR** (Support, Wi
    ```
 4. **Primary: tell Support to build** (via mesh):
    ```bash
-   codeterm send "git pull && ./build.sh build && gh release upload vX.Y.Z <installer-path> --clobber" --pane general --mesh BLACKSTAR
+   codeterm send "git pull && ./build.sh build && gh release upload vX.Y.Z <installer-path> --clobber" --pane general --mesh <support-peer>
    ```
 5. **Both machines build in parallel:**
    - **Primary** runs `./build.sh build` locally → uploads its installer
@@ -145,9 +145,11 @@ Typical setup: **MacBook Air** (Primary, macOS ARM) + **BLACKSTAR** (Support, Wi
 
 ### Machines
 
-- **BLACKSTAR** — Windows builds (RTX 4090, fast compile)
-- **MacBook Air** — macOS ARM builds (personal, `rollacode`)
-- **MacBook Pro** — macOS Intel/ARM builds if needed (`ainyiva`)
+One machine per target platform, all paired on the same mesh:
+
+- a Windows machine — Windows builds
+- a macOS ARM machine — macOS ARM builds
+- a macOS Intel machine — macOS Intel builds if needed
 
 ## Icons
 
@@ -227,4 +229,4 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

@@ -1,16 +1,7 @@
 /**
- * 13-canvas — mobile compact plan header (phone viewports).
- *
- * Covers task_b45b0a23:
- *  1. 390x844 default: header collapses to one bar (<=56px); tasks above the fold.
- *  2. Tap expands full context inline (goal/chips/skills); aria-expanded flips; persists.
- *  3. Desktop 1280x800: NO compact bar; full context header intact.
- *  4. Skills-registry error routes through the quiet ErrorState (no raw exception).
- *  5. A11y: bar is a button with a focus outline; chevron has an aria-label.
- *  6. Companion bubble (chat-bubble face) does not overlap the compact header/composer.
- *
- * PlanViewShell mounts BOTH list and board views (one `hidden`), so every plan
- * locator is scoped with `:visible` to hit the active surface only.
+ * WHAT: plan header mobile covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
@@ -300,6 +291,7 @@ test(
       const opener = page.locator('[data-testid="web-sidebar-open"]');
       if (await opener.count()) {
         await opener.first().click();
+        // PW_JUSTIFIED_SLEEP: fixed 500ms sampling/settle window; no app event exists for this probe.
         await page.waitForTimeout(500);
       }
 

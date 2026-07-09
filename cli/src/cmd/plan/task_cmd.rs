@@ -169,6 +169,7 @@ pub(super) fn run_task(
             role_guidance,
             role_guidance_file,
             executor_role,
+            personality,
             intent,
             intent_file,
             parent,
@@ -235,6 +236,9 @@ pub(super) fn run_task(
             }
             if let Some(role) = executor_role {
                 params["executor_role"] = json!(role);
+            }
+            if let Some(name) = personality {
+                params["personality"] = json!(name);
             }
             if let Some(i) = intent_text {
                 params["intent"] = json!(i);
@@ -325,6 +329,7 @@ pub(super) fn run_task(
             role_guidance,
             role_guidance_file,
             executor_role,
+            personality,
             intent,
             intent_file,
             sections,
@@ -364,6 +369,7 @@ pub(super) fn run_task(
                 role_guidance,
                 role_guidance_file,
                 executor_role,
+                personality,
                 intent,
                 intent_file,
                 sections,
@@ -457,6 +463,50 @@ pub(super) fn run_task(
                 params["peer"] = json!(p);
             }
             call(client, "plan.task.assign", params).map(Some)
+        }
+        PlanTaskAction::Dispatch {
+            plan_id,
+            task_id,
+            agent,
+            model,
+            parent,
+            workspace,
+            cwd,
+        } => {
+            let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
+            let mut params = json!({ "task_id": task_ref });
+            if let Some(pid) = plan_ref {
+                params["plan_id"] = json!(pid);
+            }
+            if let Some(agent) = agent {
+                params["agent"] = json!(agent);
+            }
+            if let Some(model) = model {
+                params["model"] = json!(model);
+            }
+            if let Some(parent) = parent {
+                params["parent_pane_id"] = json!(parent);
+            }
+            if let Some(workspace) = workspace {
+                params["workspace_id"] = json!(workspace);
+            }
+            if let Some(cwd) = cwd {
+                params["cwd"] = json!(cwd);
+            }
+            maybe_inject_caller_pane(&mut params);
+            let val = call(client, "plan.task.dispatch", params)?;
+            if json {
+                return Ok(Some(val));
+            }
+            if let Some(warnings) = val.get("warnings").and_then(|v| v.as_array()) {
+                for w in warnings.iter().filter_map(|v| v.as_str()) {
+                    eprintln!("warning: {w}");
+                }
+            }
+            let pane = val.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
+            let agent = val.get("agent").and_then(|v| v.as_str()).unwrap_or("agent");
+            println!("Dispatched {agent} worker pane {pane}");
+            Ok(None)
         }
         PlanTaskAction::Attempts { plan_id, task_id } => {
             let val = call(

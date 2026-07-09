@@ -12,13 +12,14 @@ pub async fn list_workspaces(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let result = crate::dispatch::dispatch(&crate::dispatch::Command::WorkspaceList, &state.svc)
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to list workspaces",
-            )
-        })?;
+    let result =
+        crate::dispatch::dispatch(&crate::dispatch::Command::WorkspaceList, state.svc.as_ref())
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to list workspaces",
+                )
+            })?;
     Ok(Json(result.into_json()))
 }
 
@@ -48,7 +49,7 @@ pub async fn create_workspace(
         cwd: body.cwd,
         activate: body.activate,
     };
-    let result = crate::dispatch::dispatch(&cmd, &state.svc).map_err(|_| {
+    let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref()).map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "Failed to create workspace",
@@ -94,7 +95,7 @@ pub async fn rename_workspace(
         workspace_id: id,
         name: body.name,
     };
-    let result = crate::dispatch::dispatch(&cmd, &state.svc).map_err(map_rename_error)?;
+    let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref()).map_err(map_rename_error)?;
     Ok(Json(result.into_json()))
 }
 
@@ -102,11 +103,15 @@ pub async fn close_workspace(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let cmd = crate::dispatch::Command::WorkspaceClose { workspace_id: id };
-    let result = crate::dispatch::dispatch(&cmd, &state.svc)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let caller_pane_id = crate::api::pane_routes::caller_pane_header(&headers);
+    let cmd = crate::dispatch::Command::WorkspaceClose {
+        workspace_id: id,
+        caller_pane_id,
+    };
+    let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref())
+        .map_err(crate::api::pane_routes::map_close_error)?;
     Ok(Json(result.into_json()))
 }
 
@@ -117,7 +122,7 @@ pub async fn list_recently_closed(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let cmd = crate::dispatch::Command::WorkspaceRecentlyClosed { workspace_id: id };
-    let result = crate::dispatch::dispatch(&cmd, &state.svc).map_err(|_| {
+    let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref()).map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "Failed to list recently closed",
@@ -144,7 +149,7 @@ pub async fn reopen_closed_pane(
         workspace_id: id,
         index,
     };
-    let result = crate::dispatch::dispatch(&cmd, &state.svc)
+    let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref())
         .map_err(|_| (StatusCode::NOT_FOUND, "No recently closed pane"))?;
     Ok(Json(result.into_json()))
 }
@@ -156,7 +161,7 @@ pub async fn reopen_closed_group(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let cmd = crate::dispatch::Command::WorkspaceReopenClosedGroup { group_id };
-    let result = crate::dispatch::dispatch(&cmd, &state.svc)
+    let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref())
         .map_err(|_| (StatusCode::NOT_FOUND, "No closed group"))?;
     Ok(Json(result.into_json()))
 }

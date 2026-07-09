@@ -1,6 +1,7 @@
 /**
- * 13-settings — Settings UI coverage for stable General-tab surfaces.
- * Excludes the model picker while that work is in flight on master.
+ * WHAT: settings covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 13-settings.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import type { AppConfig } from "../../../../src/lib/types";
 import { expect, test, type ManagedUiSession } from "../../helpers/fixtures";

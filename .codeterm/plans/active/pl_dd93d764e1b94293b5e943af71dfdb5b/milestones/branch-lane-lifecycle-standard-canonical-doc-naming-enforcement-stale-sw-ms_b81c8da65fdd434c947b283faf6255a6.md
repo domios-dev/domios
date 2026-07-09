@@ -1,9 +1,0 @@
----
-plan_id: pl_dd93d764e1b94293b5e943af71dfdb5b
-kind: milestone
-id: ms_b81c8da65fdd434c947b283faf6255a6
-handle: branch-lane-lifecycle-standard-canonical-doc-naming-enforcement-stale-sw-ms_b81c8da65fdd434c947b283faf6255a6
-title: decision
----
-
-PROCESS-WAVE CHARTER (round-71, binding for ALL process-wave lanes: 5a6d58c5, 46d7cc4c, 4fc2ae89, 540e7afa, 310d7e6b, d1450940, 3165f160, 7140a28c, 1d0572d0 — each gate checks conformance to this stride). THREE CORRECTIONS: (1) ONE-QA-GATE-PER-MACHINE is a GLOBAL PRODUCT INVARIANT, not a this-plan convention. Rationale goes into the embedded doc verbatim-in-spirit: multiple worktrees building on one machine cause cache churn, rebuild races, lock contention, and duplicate platform verification — therefore heavy gates (builds, clippy, suites, e2e) run in EXACTLY ONE registered QA lane per machine, owned by the orchestrator; simple workers are STRUCTURALLY UNABLE to run them (registry-keyed detection + report template that only REQUESTS gates), not merely forbidden by prose. Workers request via GATES REQUESTED; the orchestrator's queue executes. (2) NO REPO-SPECIFIC ASSUMPTIONS anywhere in the wave: no per-worker gates, no machine names, no repo paths/branch names in product code or embedded docs — the works-in-a-stranger's-repo check applies to every lane's gate. (3) INTEGRATION CHECKOUT BRANCH RULE (user correction, verbatim intent): the integration checkout stays on the ACTUAL target branch being integrated (e.g. the feature or develop branch itself) — never an ad-hoc 'integrate-*' staging branch UNLESS explicitly staging with a recorded reason. Lifecycle point 2 of the embedded doc updates accordingly: lanes fork from the integration head = the target branch's head; the spawn guard's canonical-checkout predicate is unaffected (it keys on checkout identity, not branch name), but plan lanes and auto-cleanup treat 'integration head' as the target branch tip.
