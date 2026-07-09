@@ -66,12 +66,12 @@ const INVENTORY: ForkSite[] = [
   { file: "src/lib/outputStream.ts", line: 94, cls: "transport-shim", note: "multiplexed PTY output over HTTP (web); relay target byte-piped via relay-stream" },
   { file: "src/store/multiplexer/index.tsx", line: 47, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
   { file: "src/store/multiplexer/index.tsx", line: 63, cls: "capability-gate", note: "lazy-init hydration from the boot snapshot cache is web-only" },
-  { file: "src/store/multiplexer/index.tsx", line: 101, cls: "capability-gate", note: "persist boot snapshot cache only where it can ever be read back (web)" },
-  { file: "src/store/multiplexer/index.tsx", line: 127, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
-  { file: "src/store/multiplexer/index.tsx", line: 131, cls: "capability-gate", note: "IndexedDB fallback hydration for the boot cache is web-only" },
-  { file: "src/store/multiplexer/index.tsx", line: 147, cls: "capability-gate", note: "cache-reconciled signal only fires where the boot cache exists (web)" },
-  { file: "src/store/multiplexer/index.tsx", line: 464, cls: "transport-shim", note: "spawn agent tab via webJson vs Tauri invoke" },
-  { file: "src/store/multiplexer/index.tsx", line: 522, cls: "transport-shim", note: "create orchestration pair via webJson vs Tauri invoke" },
+  { file: "src/store/multiplexer/index.tsx", line: 117, cls: "capability-gate", note: "persist boot snapshot cache only where it can ever be read back (web)" },
+  { file: "src/store/multiplexer/index.tsx", line: 143, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
+  { file: "src/store/multiplexer/index.tsx", line: 147, cls: "capability-gate", note: "IndexedDB fallback hydration for the boot cache is web-only" },
+  { file: "src/store/multiplexer/index.tsx", line: 163, cls: "capability-gate", note: "cache-reconciled signal only fires where the boot cache exists (web)" },
+  { file: "src/store/multiplexer/index.tsx", line: 480, cls: "transport-shim", note: "spawn agent tab via webJson vs Tauri invoke" },
+  { file: "src/store/multiplexer/index.tsx", line: 538, cls: "transport-shim", note: "create orchestration pair via webJson vs Tauri invoke" },
 ];
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");

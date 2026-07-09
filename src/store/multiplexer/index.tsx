@@ -91,14 +91,30 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   stateRef.current = state;
   // so one click = exactly one tab (no duplicate on double-fire).
   const spawnInFlight = useRef<Set<string>>(new Set());
+  const lastTabSwitchRef = useRef<Record<string, { tabId: string; time: number }>>({});
   // authoritative reconcile lands; native boots never lock (no cache path).
   const writeGateRef = useRef<WriteGate>(createWriteGate(webBootHasSyncCache()));
   const reconciledRef = useRef(false);
 
   const applyBackendState = useCallback((s: MultiplexerState) => {
-    // here silently dropped the closed-history on every reload.
-    dispatch({ type: "SET_STATE", state: s });
-    if (IS_WEB) saveStateSnapshot(s);
+    const now = Date.now();
+    const guarded = {
+      ...s,
+      workspaces: s.workspaces.map((ws) => {
+        const pending = lastTabSwitchRef.current[ws.id];
+        if (!pending) return ws;
+        if (ws.active_tab_id === pending.tabId) {
+          delete lastTabSwitchRef.current[ws.id];
+          return ws;
+        }
+        if (now - pending.time < 500 && ws.tabs.some((t) => t.id === pending.tabId)) {
+          return { ...ws, active_tab_id: pending.tabId };
+        }
+        return ws;
+      }),
+    };
+    dispatch({ type: "SET_STATE", state: guarded });
+    if (IS_WEB) saveStateSnapshot(guarded);
   }, []);
 
   // letting a cache-painted UI act on a target that may no longer exist.
@@ -560,6 +576,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   );
 
   const setActiveTab = useCallback((workspaceId: string, tabId: string) => {
+    lastTabSwitchRef.current[workspaceId] = { tabId, time: Date.now() };
     guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId, tabId }).catch(() => {});
     dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
     dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
