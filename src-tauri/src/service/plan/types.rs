@@ -40,6 +40,11 @@ pub enum PlanError {
     GateRequiresQuestion,
     GroupNotFound,
     WaitingFocusRequiresOpenGate,
+    DependencyTaskNotFound {
+        task_id: String,
+    },
+    DependencySelfReference,
+    DependencyCycle,
     WritePending {
         operation: String,
         committed: bool,
@@ -139,6 +144,15 @@ impl fmt::Display for PlanError {
                 f,
                 "waiting-focus requires naming an open gate id; use `codeterm plan decision list <plan>`"
             ),
+            PlanError::DependencyTaskNotFound { task_id } => {
+                write!(f, "dependency task '{task_id}' does not exist")
+            }
+            PlanError::DependencySelfReference => {
+                write!(f, "task cannot depend on itself")
+            }
+            PlanError::DependencyCycle => {
+                write!(f, "dependency graph would contain a cycle")
+            }
             PlanError::WritePending {
                 operation,
                 committed,
@@ -214,6 +228,15 @@ impl PlanError {
             PlanError::WaitingFocusRequiresOpenGate => {
                 serde_json::json!({ "type": "waiting_focus_requires_open_gate" })
             }
+            PlanError::DependencyTaskNotFound { task_id } => {
+                serde_json::json!({ "type": "dependency_task_not_found", "task_id": task_id })
+            }
+            PlanError::DependencySelfReference => {
+                serde_json::json!({ "type": "dependency_self_reference" })
+            }
+            PlanError::DependencyCycle => {
+                serde_json::json!({ "type": "dependency_cycle" })
+            }
             PlanError::WritePending {
                 operation,
                 committed,
@@ -257,6 +280,7 @@ pub struct NewTask {
     pub competition: Option<crate::plan::TaskCompetitionMetadata>,
     pub intent: Option<String>,
     pub parent_task_id: Option<String>,
+    pub depends_on: Vec<String>,
     pub assigned_pane_id: Option<String>,
     pub lane: TaskLaneMetadata,
     pub group: Option<String>,
