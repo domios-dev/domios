@@ -39,19 +39,14 @@ where
         Some(PlannerRef::Waived { note }) => PeerResolution::Waived { note: note.clone() },
         Some(PlannerRef::Pane { pane_id, .. }) => {
             let probe = pane_probe(pane_id);
-            if probe.live_agent {
+            if probe.exists {
                 PeerResolution::Planner {
                     pane_id: pane_id.clone(),
                 }
             } else {
-                let reason = if probe.exists {
-                    format!("planner pane {pane_id} not live")
-                } else {
-                    format!("planner pane {pane_id} gone")
-                };
                 PeerResolution::OrchestratorFallback {
                     bound_pane_id: pane_id.clone(),
-                    reason,
+                    reason: format!("planner pane {pane_id} absent"),
                 }
             }
         }
@@ -72,7 +67,7 @@ mod tests {
         }
     }
 
-    fn dead_probe(_: &str) -> PaneProbe {
+    fn idle_probe(_: &str) -> PaneProbe {
         PaneProbe {
             exists: true,
             live_agent: false,
@@ -97,6 +92,10 @@ mod tests {
         Some(PlannerRef::Waived { note: note.into() })
     }
 
+    fn resolution_json(resolution: &PeerResolution) -> String {
+        serde_json::to_string(resolution).unwrap()
+    }
+
     #[test]
     fn unbound_when_no_ref() {
         let r = resolve_planner_ref(&None, &Default::default(), gone_probe);
@@ -110,15 +109,27 @@ mod tests {
     }
 
     #[test]
-    fn fallback_when_planner_dead() {
-        let r = resolve_planner_ref(&pane("pane_x"), &Default::default(), dead_probe);
-        assert!(matches!(r, PeerResolution::OrchestratorFallback { .. }));
+    fn planner_when_pane_idle_but_present() {
+        let r = resolve_planner_ref(&pane("pane_x"), &Default::default(), idle_probe);
+        assert!(matches!(r, PeerResolution::Planner { pane_id } if pane_id == "pane_x"));
+        assert_eq!(
+            resolution_json(&r),
+            r#"{"kind":"planner","pane_id":"pane_x"}"#
+        );
     }
 
     #[test]
     fn fallback_when_planner_gone() {
         let r = resolve_planner_ref(&pane("pane_x"), &Default::default(), gone_probe);
-        assert!(matches!(r, PeerResolution::OrchestratorFallback { .. }));
+        assert!(matches!(
+            r,
+            PeerResolution::OrchestratorFallback { bound_pane_id, reason }
+            if bound_pane_id == "pane_x" && reason == "planner pane pane_x absent"
+        ));
+        assert_eq!(
+            resolution_json(&r),
+            r#"{"kind":"orchestrator_fallback","bound_pane_id":"pane_x","reason":"planner pane pane_x absent"}"#
+        );
     }
 
     #[test]
