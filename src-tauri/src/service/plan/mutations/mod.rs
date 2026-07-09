@@ -20,6 +20,7 @@ pub(super) fn plan_contains_id(plan: &Plan, id: &str) -> bool {
             .tasks
             .iter()
             .any(|t| t.milestones.iter().any(|m| m.id == id))
+        || plan.strides.iter().any(|m| m.id == id)
         || section_ids_contains(&plan.sections, id)
 }
 

@@ -1,4 +1,5 @@
 use crate::multiplexer::types::AgentRole;
+use crate::plan::Plan;
 use crate::service::plan::reminders::TimedPlanReminderKind;
 use crate::service::{ServiceContext, ServiceState};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -182,8 +183,6 @@ impl ServiceContext {
         let targets = crate::service::plan::reminders::timed_plan_reminder_targets(
             &self.plan_store.list_full(),
         );
-        let candidates = targets.len();
-        let mut due = 0usize;
         for timed in targets {
             if !self
                 .plan_turn_counter
@@ -191,7 +190,6 @@ impl ServiceContext {
             {
                 continue;
             }
-            due += 1;
             let target = PlanReminderTarget::from(timed.kind);
             let delivered = self.deliver_plan_reminder_target(
                 &timed.pane_id,
