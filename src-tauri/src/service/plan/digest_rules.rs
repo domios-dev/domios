@@ -49,9 +49,8 @@ pub fn evaluate_digest_rules<'a>(
     cfg.rules
         .iter()
         .filter(|rule| rule.enabled)
-        .filter_map(|rule| {
-            rule_fires(rule, counters).then(|| (rule, render_digest_template(rule, counters)))
-        })
+        .filter(|&rule| rule_fires(rule, counters))
+        .map(|rule| (rule, render_digest_template(rule, counters)))
         .collect()
 }
 
