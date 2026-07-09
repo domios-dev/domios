@@ -4,10 +4,17 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use crate::agent::usage_parser::UsageSnapshot;
 
+use super::suspicious::{
+    bounded_raw_excerpt, rejected_debug_json, suspicious_codex_reason, AcceptedUsageSnapshot,
+    UsageGuardSnapshot,
+};
+
 const SCHEMA: &str = include_str!("schema.sql");
+const MAX_ROWS_PER_PROVIDER: i64 = 10_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageSnapshotRow {
@@ -32,11 +39,14 @@ pub struct UsageSnapshotRow {
     pub failure_reason: Option<String>,
     #[serde(default)]
     pub probe_command: Option<String>,
+    #[serde(default)]
+    pub raw_excerpt: Option<String>,
+    #[serde(default)]
+    pub debug_json: Option<String>,
 }
 
 // Keep up to a 90-day baseline (~30 samples/day) per provider.
 // Storage is small (~80B per row).
-const MAX_ROWS_PER_PROVIDER: i64 = 10_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DailyRollup {
@@ -94,7 +104,11 @@ impl UsageStore {
     pub fn insert_snapshot(&self, snapshot: &UsageSnapshot) -> Result<i64, String> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction().map_err(|e| format!("begin tx: {}", e))?;
-        let id = insert_header(&tx, snapshot)?;
+        let id = if let Some(reason) = suspicious_snapshot_reason(&tx, snapshot)? {
+            insert_rejected_snapshot(&tx, snapshot, &reason, None)?
+        } else {
+            insert_header(&tx, snapshot)?
+        };
         trim_to_cap(&tx, &snapshot.provider)?;
         tx.commit().map_err(|e| format!("commit: {}", e))?;
         Ok(id)
@@ -104,7 +118,7 @@ impl UsageStore {
         &self,
         provider: &str,
         account_id: Option<&str>,
-        _raw_text: Option<&str>,
+        raw_text: Option<&str>,
         error: &str,
         probe_command: Option<&str>,
     ) -> Result<i64, String> {
@@ -113,9 +127,18 @@ impl UsageStore {
         let now_ms = chrono::Utc::now().timestamp_millis();
         tx.execute(
             r#"INSERT INTO usage_snapshots
-               (provider, account_id, captured_at, parsed_ok, failure_reason, probe_command)
-               VALUES (?1, ?2, ?3, 0, ?4, ?5)"#,
-            params![provider, account_id, now_ms, error, probe_command],
+               (provider, account_id, captured_at, parsed_ok, failure_reason, probe_command,
+                raw_excerpt, debug_json)
+               VALUES (?1, ?2, ?3, 0, ?4, ?5, ?6, ?7)"#,
+            params![
+                provider,
+                account_id,
+                now_ms,
+                error,
+                probe_command,
+                raw_text.map(bounded_raw_excerpt),
+                failure_debug_json(error, raw_text),
+            ],
         )
         .map_err(|e| format!("insert failure: {}", e))?;
         let id = tx.last_insert_rowid();
@@ -216,7 +239,7 @@ const SELECT_HEADER: &str = r#"SELECT id, provider, account_id, captured_at, par
         session_pct, session_resets_at,
         weekly_pct, weekly_resets_at,
         spend_cents, spend_limit_cents, spend_remaining_cents, spend_resets_at,
-        failure_reason, probe_command
+        failure_reason, probe_command, raw_excerpt, debug_json
         FROM usage_snapshots"#;
 
 fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<UsageSnapshotRow> {
@@ -236,6 +259,8 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<UsageSnapshotRow> {
         spend_resets_at: r.get(12)?,
         failure_reason: r.get(13)?,
         probe_command: r.get(14)?,
+        raw_excerpt: r.get(15)?,
+        debug_json: r.get(16)?,
     })
 }
 
@@ -280,6 +305,104 @@ fn insert_header(tx: &rusqlite::Transaction<'_>, snap: &UsageSnapshot) -> Result
     Ok(tx.last_insert_rowid())
 }
 
+fn insert_rejected_snapshot(
+    tx: &rusqlite::Transaction<'_>,
+    snap: &UsageSnapshot,
+    reason: &str,
+    probe_command: Option<&str>,
+) -> Result<i64, String> {
+    tx.execute(
+        r#"INSERT INTO usage_snapshots
+           (provider, account_id, captured_at, parsed_ok,
+            session_pct, session_resets_at, weekly_pct, weekly_resets_at,
+            spend_cents, spend_limit_cents, spend_remaining_cents, spend_resets_at,
+            failure_reason, probe_command, raw_excerpt, debug_json)
+           VALUES (?1, ?2, ?3, 0, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"#,
+        params![
+            &snap.provider,
+            &snap.account_id,
+            snap.captured_at_ms,
+            snap.session_pct.map(|v| v as f64),
+            snap.session_resets_at_ms,
+            snap.weekly_pct.map(|v| v as f64),
+            snap.weekly_resets_at_ms,
+            snap.spend_cents,
+            snap.spend_limit_cents,
+            snap.spend_remaining_cents,
+            snap.spend_resets_at_ms,
+            reason,
+            probe_command,
+            bounded_raw_excerpt(&snap.raw_text),
+            suspicious_debug_json(reason, snap),
+        ],
+    )
+    .map_err(|e| format!("insert rejected snapshot: {}", e))?;
+    Ok(tx.last_insert_rowid())
+}
+
+fn suspicious_snapshot_reason(
+    tx: &rusqlite::Transaction<'_>,
+    snap: &UsageSnapshot,
+) -> Result<Option<String>, String> {
+    if snap.provider != "codex" {
+        return Ok(None);
+    }
+    let current = UsageGuardSnapshot {
+        captured_at_ms: snap.captured_at_ms,
+        session_pct: snap.session_pct,
+        session_resets_at_ms: snap.session_resets_at_ms,
+        weekly_pct: snap.weekly_pct,
+        weekly_resets_at_ms: snap.weekly_resets_at_ms,
+    };
+    let previous = previous_accepted_snapshot(tx, snap)?.map(|prev| AcceptedUsageSnapshot {
+        captured_at_ms: prev.captured_at,
+        session_resets_at_ms: prev.session_resets_at,
+        weekly_resets_at_ms: prev.weekly_resets_at,
+    });
+    Ok(suspicious_codex_reason(current, previous).map(str::to_string))
+}
+
+fn previous_accepted_snapshot(
+    tx: &rusqlite::Transaction<'_>,
+    snap: &UsageSnapshot,
+) -> Result<Option<UsageSnapshotRow>, String> {
+    let sql = format!(
+        "{} WHERE provider = ?1 AND (?2 IS NULL OR account_id = ?2) AND parsed_ok = 1 AND captured_at < ?3 ORDER BY captured_at DESC LIMIT 1",
+        SELECT_HEADER
+    );
+    let mut stmt = tx
+        .prepare(&sql)
+        .map_err(|e| format!("prepare previous accepted: {}", e))?;
+    Ok(stmt
+        .query_row(
+            params![&snap.provider, &snap.account_id, snap.captured_at_ms],
+            row_to_header,
+        )
+        .ok())
+}
+
+fn suspicious_debug_json(reason: &str, snap: &UsageSnapshot) -> String {
+    rejected_debug_json(
+        reason,
+        UsageGuardSnapshot {
+            captured_at_ms: snap.captured_at_ms,
+            session_pct: snap.session_pct,
+            session_resets_at_ms: snap.session_resets_at_ms,
+            weekly_pct: snap.weekly_pct,
+            weekly_resets_at_ms: snap.weekly_resets_at_ms,
+        },
+        &snap.raw_text,
+    )
+}
+
+fn failure_debug_json(error: &str, raw_text: Option<&str>) -> String {
+    json!({
+        "reason": error,
+        "raw_excerpt_chars": raw_text.map(|raw| bounded_raw_excerpt(raw).chars().count()),
+    })
+    .to_string()
+}
+
 const LEGACY_COLUMNS: &[&str] = &[
     "weekly_sonnet_pct",
     "weekly_sonnet_resets_at",
@@ -304,6 +427,8 @@ const ADDED_COLUMNS: &[(&str, &str)] = &[
     ("spend_resets_at", "INTEGER"),
     ("failure_reason", "TEXT"),
     ("probe_command", "TEXT"),
+    ("raw_excerpt", "TEXT"),
+    ("debug_json", "TEXT"),
 ];
 
 fn add_missing_columns(conn: &Connection) -> Result<(), String> {
@@ -353,6 +478,21 @@ mod tests {
         s
     }
 
+    fn codex_snapshot(
+        ms: i64,
+        session_pct: f32,
+        weekly_pct: f32,
+        session_reset: i64,
+        weekly_reset: i64,
+    ) -> UsageSnapshot {
+        let mut s = UsageSnapshot::empty("codex", "OpenAI Codex\nraw usage screen", ms);
+        s.session_pct = Some(session_pct);
+        s.weekly_pct = Some(weekly_pct);
+        s.session_resets_at_ms = Some(session_reset);
+        s.weekly_resets_at_ms = Some(weekly_reset);
+        s
+    }
+
     #[test]
     fn add_missing_columns_migrates_pre_spend_db() {
         // Pre-spend schema: original columns only, no spend_* yet.
@@ -380,6 +520,8 @@ mod tests {
             "spend_remaining_cents added"
         );
         assert!(cols.contains("spend_resets_at"), "spend_resets_at added");
+        assert!(cols.contains("raw_excerpt"), "raw_excerpt added");
+        assert!(cols.contains("debug_json"), "debug_json added");
 
         // Idempotent: a second pass on an already-migrated DB is a no-op.
         add_missing_columns(&conn).unwrap();
@@ -451,6 +593,135 @@ mod tests {
         assert_eq!(hist.len(), 2, "history still contains the failure row");
         assert_eq!(hist[0].failure_reason.as_deref(), Some("regex panic"));
         assert_eq!(hist[0].probe_command.as_deref(), Some("/usage"));
+        assert_eq!(hist[0].raw_excerpt.as_deref(), Some("raw"));
+        assert!(hist[0]
+            .debug_json
+            .as_deref()
+            .unwrap_or("")
+            .contains("regex panic"));
+    }
+
+    #[test]
+    fn codex_zero_zero_with_backward_resets_is_rejected() {
+        let store = UsageStore::open_in_memory().unwrap();
+        let prev = codex_snapshot(
+            1_783_601_000_000,
+            6.0,
+            9.0,
+            1_783_609_680_000,
+            1_784_139_960_000,
+        );
+        store.insert_snapshot(&prev).unwrap();
+
+        let bad = codex_snapshot(
+            1_783_601_095_000,
+            0.0,
+            0.0,
+            1_783_608_240_000,
+            1_784_132_760_000,
+        );
+        store.insert_snapshot(&bad).unwrap();
+
+        let latest = store.get_latest("codex", None).unwrap().unwrap();
+        assert_eq!(latest.session_pct, Some(6.0));
+        let hist = store.get_history("codex", 0, 10, None).unwrap();
+        assert!(!hist[0].parsed_ok);
+        assert_eq!(hist[0].session_pct, Some(0.0));
+        assert_eq!(hist[0].weekly_pct, Some(0.0));
+        assert!(hist[0]
+            .failure_reason
+            .as_deref()
+            .unwrap_or("")
+            .contains("0%/0%"));
+        assert!(hist[0]
+            .raw_excerpt
+            .as_deref()
+            .unwrap_or("")
+            .contains("OpenAI Codex"));
+    }
+
+    #[test]
+    fn codex_hundred_hundred_with_identical_resets_is_rejected() {
+        let store = UsageStore::open_in_memory().unwrap();
+        let prev = codex_snapshot(
+            1_783_601_000_000,
+            6.0,
+            9.0,
+            1_783_609_680_000,
+            1_784_139_960_000,
+        );
+        store.insert_snapshot(&prev).unwrap();
+
+        let bad = codex_snapshot(
+            1_783_601_095_000,
+            100.0,
+            100.0,
+            1_783_700_000_000,
+            1_783_700_000_000,
+        );
+        store.insert_snapshot(&bad).unwrap();
+
+        let hist = store.get_history("codex", 0, 10, None).unwrap();
+        assert!(!hist[0].parsed_ok);
+        assert!(hist[0]
+            .failure_reason
+            .as_deref()
+            .unwrap_or("")
+            .contains("100%/100%"));
+    }
+
+    #[test]
+    fn codex_zero_after_supported_reset_is_accepted() {
+        let store = UsageStore::open_in_memory().unwrap();
+        let prev = codex_snapshot(
+            1_783_601_000_000,
+            98.0,
+            9.0,
+            1_783_609_680_000,
+            1_784_139_960_000,
+        );
+        store.insert_snapshot(&prev).unwrap();
+
+        let reset = codex_snapshot(
+            1_783_610_000_000,
+            0.0,
+            9.0,
+            1_783_628_000_000,
+            1_784_139_960_000,
+        );
+        store.insert_snapshot(&reset).unwrap();
+
+        let latest = store.get_latest("codex", None).unwrap().unwrap();
+        assert!(latest.parsed_ok);
+        assert_eq!(latest.session_pct, Some(0.0));
+        assert_eq!(latest.weekly_pct, Some(9.0));
+    }
+
+    #[test]
+    fn codex_exhaustion_with_distinct_resets_is_accepted() {
+        let store = UsageStore::open_in_memory().unwrap();
+        let prev = codex_snapshot(
+            1_783_601_000_000,
+            98.0,
+            99.0,
+            1_783_609_680_000,
+            1_784_139_960_000,
+        );
+        store.insert_snapshot(&prev).unwrap();
+
+        let full = codex_snapshot(
+            1_783_601_095_000,
+            100.0,
+            100.0,
+            1_783_609_680_000,
+            1_784_139_960_000,
+        );
+        store.insert_snapshot(&full).unwrap();
+
+        let latest = store.get_latest("codex", None).unwrap().unwrap();
+        assert!(latest.parsed_ok);
+        assert_eq!(latest.session_pct, Some(100.0));
+        assert_eq!(latest.weekly_pct, Some(100.0));
     }
 
     #[test]

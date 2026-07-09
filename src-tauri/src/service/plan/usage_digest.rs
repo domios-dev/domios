@@ -162,6 +162,8 @@ mod tests {
             spend_resets_at: None,
             failure_reason: None,
             probe_command: None,
+            raw_excerpt: None,
+            debug_json: None,
         }
     }
 
