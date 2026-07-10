@@ -635,6 +635,7 @@ case "$CMD" in
   check)
     require_integration_owner
     enter_build_gateway "$CMD ${*:2}"
+    prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     ct_configure_sccache
     cargo check --manifest-path src-tauri/Cargo.toml
@@ -642,6 +643,7 @@ case "$CMD" in
   test)
     require_integration_owner
     enter_build_gateway "$CMD ${*:2}"
+    prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     ct_configure_sccache
     scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
