@@ -610,7 +610,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     (paneId: string) => {
       const ctx = findContext(paneId);
       if (!ctx) return;
-      const { panes, workspaces } = stateRef.current;
+      const { workspaces } = stateRef.current;
       guardedInvoke("mux_close_pane", { paneId }).catch(() => {});
       const ws = workspaces.find((w) => w.id === ctx.workspaceId);
       const tab = ws?.tabs.find((t) => t.id === ctx.tabId);
