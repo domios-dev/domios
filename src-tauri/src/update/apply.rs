@@ -563,7 +563,10 @@ impl CommandRunner for RealCommandRunner {
     }
 
     fn run(&self, program: &str, args: &[&str]) -> CommandResult {
-        match std::process::Command::new(program).args(args).output() {
+        let mut command = std::process::Command::new(program);
+        command.args(args);
+        crate::process_util::no_window_std(&mut command);
+        match command.output() {
             Ok(out) => CommandResult {
                 success: out.status.success(),
                 code: out.status.code(),
