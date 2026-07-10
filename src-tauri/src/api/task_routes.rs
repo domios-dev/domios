@@ -39,6 +39,10 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::UndeclaredKind { .. }
         | PlanError::OpenSubtasks { .. }
         | PlanError::TransitionDenied { .. }
+        | PlanError::DependencyTaskNotFound { .. }
+        | PlanError::DependencyTaskReferenced { .. }
+        | PlanError::DependencySelfReference
+        | PlanError::DependencyCycle
         | PlanError::BudgetExhausted { .. } => StatusCode::BAD_REQUEST,
         PlanError::WritePending { .. } => StatusCode::SERVICE_UNAVAILABLE,
         PlanError::ReadbackMismatch { .. } => StatusCode::CONFLICT,

@@ -71,6 +71,7 @@ mod tests {
                 "Remove Dependency".into(),
                 "/repo".into(),
                 Default::default(),
+                vec![],
                 1,
             )
             .unwrap();
