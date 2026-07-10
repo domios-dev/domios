@@ -318,6 +318,18 @@ pub struct TransferRecord {
     pub reason: String,
 }
 
+/// Append-only audit record of an authorized Orchestrator waiving one or more
+/// pending regression gates so frontier dispatch may proceed. A waiver only
+/// applies while `ts >= group completion` — reopening/reclosing a group re-arms
+/// its gate past the waiver, so an override never silently outlives its scope.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RegressionGateOverride {
+    pub actor: AgentRef,
+    pub reason: String,
+    pub gates: Vec<String>,
+    pub ts: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MilestoneKind {
     pub key: String,
@@ -720,6 +732,9 @@ pub struct Plan {
     // Plan-level, task-less working points (e.g. skill ledger entries). Append-only.
     #[serde(default)]
     pub strides: Vec<Milestone>,
+    // Authorized waivers of pending regression gates. Append-only audit trail.
+    #[serde(default)]
+    pub regression_gate_overrides: Vec<RegressionGateOverride>,
 }
 
 impl Plan {
@@ -759,6 +774,7 @@ impl Plan {
             planner_requests: vec![],
             planner_inbox: vec![],
             strides: vec![],
+            regression_gate_overrides: vec![],
         }
     }
 

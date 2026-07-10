@@ -72,6 +72,16 @@ pub enum PlanQaAction {
         #[arg(long, allow_hyphen_values = true)]
         note: String,
     },
+    /// Authorized Orchestrator waiver of pending regression gates (owner-only, audited)
+    Override {
+        plan_id: Option<String>,
+        /// Gate keys to waive; defaults to every currently blocking gate
+        #[arg(long, value_delimiter = ',')]
+        gate: Vec<String>,
+        /// Why the frontier may advance past the gate — required
+        #[arg(long, allow_hyphen_values = true)]
+        reason: String,
+    },
 }
 
 #[derive(Subcommand)]

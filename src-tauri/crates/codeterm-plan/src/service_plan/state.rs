@@ -8,7 +8,7 @@ use crate::plan::peer::{resolve_planner_ref, PeerResolution};
 use crate::plan::reconcile::{DriftItem, PaneProbe};
 use crate::plan::{
     Goal, LoopStatus, OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef, PlanningState,
-    QaState, ReviewStage, TaskStatus,
+    QaState, RegressionGateOverride, ReviewStage, TaskStatus,
 };
 
 use super::next_actions::{compute_next_actions, NextAction};
@@ -144,6 +144,9 @@ pub struct PlanStateSnapshot {
     pub live_agents: Vec<LiveAgent>,
     pub recent_strides: Vec<StrideSnapshot>,
     pub pending_regression_gates: Vec<super::milestone_gates::RegressionGate>,
+    // Pending gates minus authorized waivers — the set that actually blocks dispatch.
+    pub blocking_regression_gates: Vec<super::milestone_gates::RegressionGate>,
+    pub regression_overrides: Vec<RegressionGateOverride>,
     pub next_actions: Vec<NextAction>,
 }
 
@@ -515,6 +518,8 @@ pub fn build_plan_state_snapshot(
         live_agents,
         recent_strides: recent_strides(plan),
         pending_regression_gates: super::milestone_gates::pending_regression_gates(plan),
+        blocking_regression_gates: super::milestone_gates::blocking_regression_gates(plan),
+        regression_overrides: plan.regression_gate_overrides.clone(),
         next_actions: vec![],
     };
     snapshot.next_actions = compute_next_actions(&snapshot);
