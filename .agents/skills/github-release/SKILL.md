@@ -10,44 +10,71 @@ description: >-
 
 # End-to-end CodeTerm release to GitHub
 
-**Default now = move a tag; the self-hosted build machine does the rest** (see "Default release
-path" right below). The pipeline: bump version → merge to master → tag → build signed+notarized
-macOS (arm64+x86_64) + Linux (arm64+x86_64) + Windows (arm64+x86_64) → upload to private repo
-(source) → mirror artifacts + signed `latest.json` to public repo (so the GUI updater works) →
-(optional) update Homebrew cask. The manual per-platform / multi-machine steps further down are
-the fallback for when the runner is down.
+**Default now = one `release-X.Y.Z` tag on master; the self-hosted runners do the rest** (see
+"Default release path" right below). The pipeline: bump version on a release branch/develop →
+sync versions → merge to master by PR → tag the master commit with `release-X.Y.Z` → build
+signed+notarized macOS (arm64+x86_64) + Linux (arm64+x86_64) + Windows (arm64+x86_64) → upload
+to private repo (source) → mirror artifacts + signed `latest.json` to public repo (so the GUI
+updater works) → (optional) update Homebrew cask. The manual per-platform / multi-machine steps
+further down are the fallback for when the runners are down.
 
 **Golden rule: all builds happen from the tagged commit on master. Never build release artifacts from develop.**
 
 ---
 
-## ⚡ Default release path: move a tag (automated, self-hosted CI)
+## ⚡ Default release path: single trigger tag (automated, self-hosted CI)
 
-As of v1.4.5 the whole pipeline runs itself on the **self-hosted build machine** (this Mac,
-runner label `codeterm-builder`) via `.github/workflows/release.yml`. **Self-hosted runner
-minutes are free** — this is how we release without burning GitHub-hosted minutes. You do NOT
-build by hand on multiple machines anymore (that's the fallback at the bottom).
+The whole pipeline runs itself on the **self-hosted runners**: Mac `codeterm-builder` via
+`.github/workflows/release.yml`, Windows `windows-build` via `release-windows.yml`, and WSL2
+Linux `linux-build` via `release-linux.yml`. **Self-hosted runner minutes are free** — this is
+how we release without burning GitHub-hosted minutes. You do NOT build by hand on multiple
+machines anymore (that's the fallback at the bottom).
 
-**Normal change flow:** open a PR into `master` and merge it (same as any change). Releases are
-cut from `master`.
+**Normal change flow:** first prove `develop` already contains `origin/master`, merge `master` into
+`develop` if needed, verify the UI from the main checkout on `develop`, clean old lane worktrees,
+then bump `package.json`, run `npm run sync:versions`, verify `npm run check:versions`, open a PR
+from `develop` into `master`, and merge it only after required checks are green. Releases are cut
+from the resulting `master` commit.
 
-**To cut a release — bump, tag, then push the trigger tag:**
+**Hard preflight before version bump / master PR:**
 
 ```bash
-# 1. bump version (PR develop -> master, or direct on master) and tag the build commit
-npm run sync:versions -- X.Y.Z && ./build.sh check && npm run check:versions
-git commit -am "release: vX.Y.Z" && git push origin master
-git tag vX.Y.Z       && git push origin vX.Y.Z          # the buildable tag
+git fetch origin --prune
+git checkout develop
+git pull --ff-only origin develop
+git merge-base --is-ancestor origin/master HEAD || {
+  git merge --no-ff origin/master --no-edit
+  # Resolve conflicts, run the gates below, commit, and push develop before bumping the version.
+}
 
-# 2. push the trigger tag — this fires the CI release
+git status --short                  # must be clean
+ls -la ../codeterm-worktrees         # should be empty or only explicitly preserved lanes
+curl -s http://127.0.0.1:7686/api/health
+```
+
+Start dev from this main checkout and visually inspect the release UI before opening the release
+PR. Do not cut a release from a lane worktree, a stale dev build, or a `develop` that is missing
+commits already present on `master`.
+
+**To cut a release — after the version bump PR lands on `master`, push only the trigger tag:**
+
+```bash
+# On master, at the merge commit from the release PR:
+git checkout master
+git pull --ff-only origin master
+git rev-parse --abbrev-ref HEAD   # must print master
 git tag release-X.Y.Z && git push origin release-X.Y.Z
 ```
 
-Pushing `release-X.Y.Z` triggers the runner, which **fully automatically**:
+Do **not** create or push a separate `vX.Y.Z` tag for the normal path. The workflows build from
+the `release-X.Y.Z` tag and publish/stamp/map the GitHub releases as `vX.Y.Z` themselves.
+
+Pushing `release-X.Y.Z` triggers the runners, which **fully automatically**:
 1. preflight (Developer ID, notary, minisign key, docker images, VM, gh) →
-2. builds **all 6 platforms** — macOS arm64+x64 (native), Linux arm64+x64 (Docker), Windows
-   arm64+x64 (SSH into the Windows-11-ARM VM) →
-3. **signs** (Developer ID + minisign updater sigs) + **notarizes** the macOS DMGs →
+2. builds **all platforms** across three self-hosted workflows: Mac `codeterm-builder` builds
+   macOS x64+arm64 plus arm64 Linux in Docker; ROG `windows-build` builds Windows x64+arm64;
+   ROG WSL2 `linux-build` builds x86_64 Linux natively →
+3. **signs** on each runner and **notarizes** the macOS DMGs on the Mac →
 4. **publishes** to private `rollacode/codeterm` + public mirror `rollacode/codeterm-releases`
    with a signed `latest.json`, marks `--latest` →
 5. verifies anon updater URLs return 200 and the manifest version is live.
@@ -56,18 +83,20 @@ End-to-end ≈ 25–30 min, hands-off. Watch it: `gh run watch --repo rollacode/
 
 **Prereqs for the automated path** (one-time, see `docs/build_machine_setup.md`):
 - self-hosted runner registered + running (`~/actions-runner`; `./svc.sh install` for always-on);
-- Docker images baked: `codeterm-build-linux-arm64`, `codeterm-build-linux-x64`;
-- repo secret `WIN_VM_SSHPASS` (Windows VM password) for the Windows engine;
+- Docker image baked for arm64 Linux: `codeterm-build-linux-arm64`;
+- ROG self-hosted runners provisioned (Windows `windows-build`, x86_64 Linux `linux-build`) — they
+  build + sign themselves via `TAURI_SIGNING_PRIVATE_KEY` / `PACKAGE_REPOS_TOKEN`, no SSH/QEMU;
 - macOS signing/notary + `~/.tauri/codeterm.key` on the build machine (secrets table below).
 
-If a stage fails: `gh run view <id> --log-failed`, fix, re-push the trigger tag (`git tag -f
-release-X.Y.Z && git push -f origin release-X.Y.Z`). The publish step is idempotent (upserts the
-release with `--clobber`) and bails before touching any release if an artifact is missing, so a
-failed run never half-publishes.
+If a stage fails before publishing: `gh run view <id> --log-failed`, fix the runner/build-farm issue,
+and rerun the same workflow/tag only when the tag still points at the intended master SHA. Do not
+move or overwrite a published release tag/artifact by default. If a public bad release was deleted
+intentionally, cut the correction as a new patch version through the normal PR flow, then push only
+the new `release-X.Y.Z` trigger tag.
 
 > **Everything below this line is the MANUAL FALLBACK** — only for when the runner/CI is down or
-> you're debugging a single platform. The full from-scratch build-machine setup (QEMU Windows VM,
-> Docker cross-compile, signing) lives in **`docs/build_machine_setup.md`**.
+> you're debugging a single platform. The full from-scratch build-machine setup (Docker arm64
+> Linux, the ROG Windows + x86_64-Linux runners, signing) lives in **`docs/build_machine_setup.md`**.
 
 ---
 
@@ -148,10 +177,17 @@ Rust builds share the target dir — concurrent `tauri build` + `tauri dev` figh
 ./build.sh kill
 ```
 
-### 1. Bump version on develop (one commit)
+### 1. Bump version on develop/release branch (one commit)
 
 ```bash
 git checkout develop
+git fetch origin --prune
+git pull --ff-only origin develop
+git merge-base --is-ancestor origin/master HEAD
+
+# If the merge-base check fails, merge origin/master into develop first and stop here until
+# develop is pushed, green, and visually checked from the main checkout.
+
 VER=1.2.0  # new
 npm run sync:versions -- "$VER"
 ./build.sh check                      # refreshes Cargo.lock
@@ -168,18 +204,65 @@ git commit -m "release: v$VER"
 git push origin develop
 ```
 
-### 2. Merge to master + tag + checkout tag
-
-**Always via PR on GitHub** — don't direct-push develop to master. This avoids merge-commit collisions when multiple machines operate on master.
+Run these on the exact release head before opening the master PR:
 
 ```bash
-# On GitHub: open PR develop → master, merge via "Create a merge commit"
-# Then locally:
+pnpm build
+CODETERM_API_PORT=7686 ./build.sh check
+bash scripts/check-file-sizes.sh --fail
+git diff --check
+```
+
+Then start dev from the main checkout and visually confirm the app:
+
+```bash
+./build.sh kill
+codeterm pane new --cmd "cd $(pwd) && ./build.sh dev"
+curl -s http://127.0.0.1:7686/api/health
+```
+
+Clean old orchestration state before the PR: close finished worker panes, remove merged lane
+worktrees under `../codeterm-worktrees/`, and leave only documented stashes/lane directories.
+
+### 2. Merge to master by PR + push the release trigger tag
+
+**Always via PR on GitHub** — don't direct-push develop to master. This avoids merge-commit
+collisions when multiple machines operate on master. The normal trigger is a single
+`release-$VER` tag on the master merge commit.
+
+```bash
+# On GitHub: open PR develop → master, watch checks, and merge via "Create a merge commit".
+gh pr checks <pr-number> --watch
+gh pr view <pr-number> --json mergeable,mergeStateStatus,statusCheckRollup,headRefOid
+
+# Then locally, tag the exact merged master commit:
 git checkout master
 git pull origin master --no-rebase   # get the merge commit GitHub created
-git tag -a v$VER -m "v$VER — <one-liner summary>"
-git push origin v$VER
+INTENDED_MASTER_SHA=$(git rev-parse HEAD)
+git ls-remote --tags origin "refs/tags/release-$VER" "refs/tags/v$VER"  # must be empty
+test "$(git rev-parse origin/master)" = "$INTENDED_MASTER_SHA"
+git tag "release-$VER" "$INTENDED_MASTER_SHA"
+git push origin "release-$VER"
 ```
+
+Do **not** create or push `v$VER` here. The release workflows create/update the private and
+public GitHub releases under `v$VER` and map the updater metadata there.
+
+### 2.1. Release closeout cleanup
+
+After the workflows publish successfully and before archiving the plan:
+
+```bash
+git worktree list
+find ../codeterm-worktrees -mindepth 1 -maxdepth 1 -type d -print
+cargo sweep --time 2
+```
+
+Remove merged lane worktrees and delete their merged `lane/*` branches. Close finished worker panes
+and stop lane-specific dev daemons. Keep only documented stashes or explicitly preserved scratch
+checkouts. Do not leave `src-tauri/target` or lane `target/` directories to grow silently between
+releases; `cargo sweep --time 2` is the default cleanup because active build artifacts are touched
+daily and stale layers otherwise accumulate into tens of GB.
 
 If you need to merge post-release develop commits to master (docs, skills, etc.) after the tag:
 ```bash
@@ -190,7 +273,9 @@ git push origin master
 
 If push to master is rejected: always `git pull origin master --no-rebase --no-edit` first — origin/master may already have a merge commit from a GitHub PR that your local doesn't have yet.
 
-### 3. Create GitHub release (draft)
+### 3. Manual fallback only: create GitHub release (draft)
+
+Skip this in the normal automated path. The `release-$VER` workflows create/update `v$VER`.
 
 ```bash
 gh release create v$VER --title "v$VER" --draft --notes "$(cat <<'NOTES'
@@ -202,12 +287,12 @@ NOTES
 
 Create as draft first. Publish after all assets are uploaded.
 
-### 4. Checkout tag for building
+### 4. Manual fallback only: checkout tag for building
 
 **Critical: build from the tag, not from a branch.**
 
 ```bash
-git checkout v$VER
+git checkout "release-$VER"
 ```
 
 You're now in detached HEAD on the exact tagged commit. All builds below use this tree.
@@ -450,22 +535,24 @@ Both repos are currently PRIVATE — `brew install codeterm` still won't work fo
 
 ### 12. Regenerate translated READMEs from README.md (agent pass) translations must not ship stale
 
-## Retag in-place (post-publish hotfix)
+## Retrigger in-place (post-publish hotfix)
 
-When a critical bug surfaces shortly after publish — **before users have widely auto-updated** — it's safe to force-move the tag and re-upload artifacts under the same version rather than bumping. Used for v1.1.15 (2026-05-05).
+When a critical bug surfaces shortly after publish — **before users have widely auto-updated** —
+it's safe to force-move the release trigger tag and re-upload artifacts under the same version
+rather than bumping. Used for v1.1.15 (2026-05-05).
 
 ```bash
-# 1. Commit fix on develop, merge --no-ff to master:
+# 1. Commit fix on develop, merge by PR to master:
 git checkout develop && git push origin develop
-git checkout master && git merge --no-ff develop -m "merge: v$VER hotfix"
-git push origin master
+# On GitHub: open PR develop -> master and merge it.
+git checkout master && git pull origin master --no-rebase
 
-# 2. Move the tag:
-git tag -f -a v$VER -m "v$VER — retag: <fix description>"
-git push origin v$VER --force
+# 2. Move the release trigger tag:
+git tag -f "release-$VER"
+git push origin "release-$VER" --force
 
-# 3. Checkout the new tag commit (now points at the merge):
-git checkout v$VER
+# 3. Checkout the new trigger tag commit (now points at the merge):
+git checkout "release-$VER"
 
 # 4. Rebuild + notarize + staple all 3 platforms (steps 5–8 above).
 

@@ -101,12 +101,24 @@ test("returns null for a plain terminal pane", () => {
   assert(resolvePaneProvider(pane({})) === null, "plain pty pane has no provider");
 });
 
-test("returns null when agent_type is unknown and backing is pty", () => {
+test("agent pane resolves before descriptor cache loads", () => {
   seed();
-  assert(
-    resolvePaneProvider(pane({ agent_type: "mystery" })) === null,
-    "unknown agent with no chat_backend backing resolves to null",
-  );
+  setAgentDescriptors([]);
+  const r = resolvePaneProvider(pane({ agent_type: "codex" }));
+  assert(r, "expected fallback provider");
+  assert(r.kind === "agent", `expected agent kind, got ${r.kind}`);
+  assert(r.id === "codex", `expected codex, got ${r.id}`);
+  assert(r.displayName === "Codex", `expected Codex, got ${r.displayName}`);
+  assert(r.iconHint === "</>", "codex fallback icon is immediate");
+});
+
+test("unknown agent still resolves as an agent identity", () => {
+  seed();
+  const r = resolvePaneProvider(pane({ agent_type: "mystery" }));
+  assert(r, "expected unknown agent fallback");
+  assert(r.kind === "agent", `expected agent kind, got ${r.kind}`);
+  assert(r.id === "mystery", `expected mystery, got ${r.id}`);
+  assert(r.iconHint === "MY", "unknown agent fallback uses id initials");
 });
 
 test("returns null for a missing pane", () => {

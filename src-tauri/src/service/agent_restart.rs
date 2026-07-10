@@ -43,6 +43,26 @@ pub struct RestartOutcome {
     pub session_id: Option<String>,
     pub session_was_stale: bool,
     pub force: bool,
+    pub auto_approve: bool,
+}
+
+impl RestartOutcome {
+    /// Explicit session contract: resume the recorded session, or start fresh.
+    pub fn session_action(&self) -> &'static str {
+        match (&self.session_id, self.session_was_stale) {
+            (Some(_), false) => "resume",
+            _ => "fresh",
+        }
+    }
+
+    /// Permission/sandbox profile the relaunch preserves from the pane.
+    pub fn permission_profile(&self) -> &'static str {
+        if self.auto_approve {
+            "yolo"
+        } else {
+            "sandboxed"
+        }
+    }
 }
 
 /// Snapshot of the bits of pane state we need to drive a restart.
@@ -80,6 +100,7 @@ impl ServiceContext {
             session_id: snap.session_id.clone(),
             session_was_stale,
             force,
+            auto_approve: snap.auto_approve,
         };
 
         let svc = self.clone();
@@ -556,6 +577,56 @@ mod tests {
         let reg = registry_with_claude();
         assert!(!screen_shows_agent_tui(&reg, "user@host:~/codeterm$ "));
         assert!(!screen_shows_agent_tui(&reg, "~/code on  master\n❯ "));
+    }
+
+    fn outcome(session_id: Option<&str>, stale: bool, auto_approve: bool) -> RestartOutcome {
+        RestartOutcome {
+            pane_id: "p1".to_string(),
+            provider: "codex".to_string(),
+            session_id: session_id.map(String::from),
+            session_was_stale: stale,
+            force: true,
+            auto_approve,
+        }
+    }
+
+    #[test]
+    fn session_action_resume_when_present_and_fresh() {
+        assert_eq!(outcome(Some("sid"), false, true).session_action(), "resume");
+    }
+
+    #[test]
+    fn session_action_fresh_when_stale_or_missing() {
+        assert_eq!(outcome(Some("sid"), true, true).session_action(), "fresh");
+        assert_eq!(outcome(None, false, true).session_action(), "fresh");
+    }
+
+    #[test]
+    fn permission_profile_reflects_auto_approve() {
+        assert_eq!(outcome(None, false, true).permission_profile(), "yolo");
+        assert_eq!(
+            outcome(None, false, false).permission_profile(),
+            "sandboxed"
+        );
+    }
+
+    #[test]
+    fn build_relaunch_preserves_yolo_profile_on_resume_and_fresh() {
+        let reg = registry_with_claude();
+        // auto_approve=true must keep the skip flag on BOTH the resume and fresh paths.
+        let resume =
+            build_relaunch_command_with_registry(&reg, "claude", Some("sid"), true, true, None)
+                .expect("resume cmd");
+        assert!(resume.contains("--dangerously-skip-permissions"));
+        let fresh =
+            build_relaunch_command_with_registry(&reg, "claude", Some("sid"), true, false, None)
+                .expect("fresh cmd");
+        assert!(fresh.contains("--dangerously-skip-permissions"));
+        // auto_approve=false must NOT leak the skip flag — sandboxed profile preserved.
+        let sandboxed =
+            build_relaunch_command_with_registry(&reg, "claude", Some("sid"), false, true, None)
+                .expect("sandboxed resume cmd");
+        assert!(!sandboxed.contains("--dangerously-skip-permissions"));
     }
 
     #[test]

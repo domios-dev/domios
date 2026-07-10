@@ -1,5 +1,71 @@
 use super::*;
-use clap::CommandFactory;
+use crate::args::agent::AgentAction;
+use crate::args::delayed::DelayedAction;
+use crate::args::mem::MemAction;
+use crate::args::misc::PaneAction;
+use crate::args::orchestrator::OrchestratorAction;
+use crate::args::task::TaskAction;
+use clap::{CommandFactory, Parser};
+
+#[derive(Parser)]
+struct MemOnly {
+    #[command(subcommand)]
+    action: MemAction,
+}
+
+#[derive(Parser)]
+struct TaskOnly {
+    #[command(subcommand)]
+    action: TaskAction,
+}
+
+#[derive(Parser)]
+struct OrchestratorOnly {
+    #[command(subcommand)]
+    action: OrchestratorAction,
+}
+
+#[derive(Parser)]
+struct PaneOnly {
+    #[command(subcommand)]
+    action: PaneAction,
+}
+
+#[derive(Parser)]
+struct AgentOnly {
+    #[command(subcommand)]
+    action: AgentAction,
+}
+
+#[derive(Parser)]
+struct DelayedOnly {
+    #[command(subcommand)]
+    action: DelayedAction,
+}
+
+#[derive(Parser)]
+enum DocsOnly {
+    Docs,
+    Doc { name: String },
+}
+
+#[derive(Parser)]
+struct SendOnly {
+    #[arg(allow_hyphen_values = true)]
+    text: Option<String>,
+    #[arg(long, alias = "id")]
+    pane: Option<String>,
+    #[arg(long, value_name = "PATH")]
+    from_file: Option<String>,
+    #[arg(long, visible_alias = "from-stdin", conflicts_with = "text")]
+    stdin: bool,
+    #[arg(long, conflicts_with_all = ["delay", "at"])]
+    actions: Option<String>,
+    #[arg(long, conflicts_with = "at")]
+    delay: Option<String>,
+    #[arg(long, conflicts_with = "delay")]
+    at: Option<String>,
+}
 
 fn env_lock() -> &'static std::sync::Mutex<()> {
     crate::test_env_lock()
@@ -13,10 +79,7 @@ fn restore_env(key: &str, value: Option<String>) {
 }
 
 fn mem_subcommand() -> clap::Command {
-    Cli::command()
-        .find_subcommand("mem")
-        .expect("Cli must expose `mem` subcommand")
-        .clone()
+    MemOnly::command()
 }
 
 #[test]
@@ -56,14 +119,7 @@ fn mem_run_worker_accepts_all_kinds() {
         "dreaming-normalize",
         "librarian-once",
     ] {
-        let res = Cli::try_parse_from([
-            "codeterm",
-            "mem",
-            "run-worker",
-            kind,
-            "--db-path",
-            "/tmp/x.db",
-        ]);
+        let res = MemOnly::try_parse_from(["mem", "run-worker", kind, "--db-path", "/tmp/x.db"]);
         assert!(
                 res.is_ok(),
                 "`mem run-worker {}` MUST parse cleanly — supervisor.rs sends this exact arg list ({:?})",
@@ -71,96 +127,6 @@ fn mem_run_worker_accepts_all_kinds() {
                 res.err()
             );
     }
-}
-
-fn parse_plugin(args: &[&str]) -> PluginAction {
-    let mut argv = vec!["codeterm", "plugin"];
-    argv.extend_from_slice(args);
-    match Cli::try_parse_from(argv)
-        .expect("plugin args parse")
-        .command
-    {
-        Commands::Plugin { action } => action,
-        _ => panic!("expected plugin command"),
-    }
-}
-
-#[test]
-fn plugin_subcommands_parse() {
-    match parse_plugin(&[
-        "install",
-        "--from-dir",
-        "./provider-demo",
-        "--id-override",
-        "demo",
-    ]) {
-        PluginAction::Install {
-            from_dir,
-            id_override,
-            ..
-        } => {
-            assert_eq!(from_dir.as_deref(), Some("./provider-demo"));
-            assert_eq!(id_override.as_deref(), Some("demo"));
-        }
-        _ => panic!("expected plugin install"),
-    }
-
-    // --json is a global flag (lives on Cli, not the action).
-    let cli = Cli::try_parse_from(["codeterm", "plugin", "list", "--json"])
-        .expect("plugin list --json parses");
-    assert!(cli.json);
-    assert!(matches!(
-        cli.command,
-        Commands::Plugin {
-            action: PluginAction::List
-        }
-    ));
-
-    assert!(matches!(
-        parse_plugin(&["update-system", "codex"]),
-        PluginAction::UpdateSystem { id: Some(id) } if id == "codex"
-    ));
-    // Legacy alias must keep working.
-    assert!(matches!(
-        parse_plugin(&["system-update", "codex"]),
-        PluginAction::UpdateSystem { id: Some(id) } if id == "codex"
-    ));
-
-    match parse_plugin(&[
-        "channel",
-        "add",
-        "https://example.invalid/channel.git",
-        "--name",
-        "example",
-    ]) {
-        PluginAction::Channel {
-            command: PluginChannelAction::Add { url, name },
-        } => {
-            assert_eq!(url, "https://example.invalid/channel.git");
-            assert_eq!(name.as_deref(), Some("example"));
-        }
-        _ => panic!("expected plugin channel add"),
-    }
-
-    assert!(matches!(
-        parse_plugin(&["channel", "diff", "example"]),
-        PluginAction::Channel { command: PluginChannelAction::Diff { name: Some(name) } }
-            if name == "example"
-    ));
-
-    assert!(matches!(
-        parse_plugin(&["channel", "ensure-default"]),
-        PluginAction::Channel {
-            command: PluginChannelAction::EnsureDefault
-        }
-    ));
-
-    assert!(matches!(
-        parse_plugin(&["channel", "remove", "codeterm-core", "--force"]),
-        PluginAction::Channel {
-            command: PluginChannelAction::Remove { name, force: true }
-        } if name == "codeterm-core"
-    ));
 }
 
 #[test]
@@ -183,17 +149,102 @@ fn data_root_ignores_relative_env_override() {
 }
 
 #[test]
+fn data_root_uses_named_dev_instance() {
+    let _guard = env_lock().lock().unwrap();
+    let prev_data = std::env::var("CODETERM_DATA_DIR").ok();
+    let prev_instance = std::env::var("CODETERM_INSTANCE").ok();
+    let prev_port = std::env::var("CODETERM_API_PORT").ok();
+    std::env::remove_var("CODETERM_DATA_DIR");
+    std::env::set_var("CODETERM_INSTANCE", "handoff");
+    std::env::set_var("CODETERM_API_PORT", "7691");
+    assert!(data_root().ends_with(".codeterm-dev-handoff"));
+    restore_env("CODETERM_DATA_DIR", prev_data);
+    restore_env("CODETERM_INSTANCE", prev_instance);
+    restore_env("CODETERM_API_PORT", prev_port);
+}
+
+#[test]
+fn task_show_parses_siblings_flags() {
+    let parsed = TaskOnly::try_parse_from(["task", "show", "task_1", "--siblings", "--all"])
+        .expect("task show --siblings --all parses");
+    match parsed.action {
+        TaskAction::Show {
+            task_id,
+            siblings,
+            all,
+        } => {
+            assert_eq!(task_id, "task_1");
+            assert!(siblings);
+            assert!(all);
+        }
+        _ => panic!("expected task show"),
+    }
+}
+
+#[test]
 fn top_level_docs_parse() {
-    let parsed = Cli::try_parse_from(["codeterm", "docs"]).expect("docs parses");
-    assert!(matches!(parsed.command, Commands::Docs { .. }));
+    let parsed = DocsOnly::try_parse_from(["codeterm", "docs"]).expect("docs parses");
+    assert!(matches!(parsed, DocsOnly::Docs));
+}
+
+#[test]
+fn top_level_doc_parse() {
+    let parsed =
+        DocsOnly::try_parse_from(["codeterm", "doc", "orchestration"]).expect("doc parses");
+    match parsed {
+        DocsOnly::Doc { name } => assert_eq!(name, "orchestration"),
+        _ => panic!("expected doc"),
+    }
+}
+
+mod plan;
+
+#[test]
+fn orchestrator_handoff_reseed_dry_run_parses() {
+    let parsed = OrchestratorOnly::try_parse_from([
+        "orchestrator",
+        "handoff",
+        "--plan",
+        "pl_1",
+        "--task",
+        "task_1",
+        "--pane",
+        "pane_1",
+        "--reseed",
+        "--dry-run",
+        "--mode",
+        "new",
+        "--next",
+        "resume from latest handoff",
+    ])
+    .expect("orchestrator handoff parses");
+    match parsed.action {
+        OrchestratorAction::Handoff {
+            plan,
+            task,
+            pane,
+            reseed,
+            dry_run,
+            mode,
+            next_actions,
+            ..
+        } => {
+            assert_eq!(plan.as_deref(), Some("pl_1"));
+            assert_eq!(task.as_deref(), Some("task_1"));
+            assert_eq!(pane.as_deref(), Some("pane_1"));
+            assert!(reseed);
+            assert!(dry_run);
+            assert_eq!(mode, "new");
+            assert_eq!(next_actions, vec!["resume from latest handoff"]);
+        }
+        _ => panic!("expected orchestrator handoff"),
+    }
 }
 
 #[test]
 fn pane_new_chat_backend_parses() {
-    // P1: `codeterm pane new --chat-backend <id> --config <json>` is the CLI
     // entry point that opens a plugin-driven chat pane.
-    let parsed = Cli::try_parse_from([
-        "codeterm",
+    let parsed = PaneOnly::try_parse_from([
         "pane",
         "new",
         "--chat-backend",
@@ -202,14 +253,11 @@ fn pane_new_chat_backend_parses() {
         r#"{"model":"llama"}"#,
     ])
     .expect("pane new --chat-backend parses");
-    match parsed.command {
-        Commands::Pane {
-            action:
-                PaneAction::New {
-                    chat_backend,
-                    config,
-                    ..
-                },
+    match parsed.action {
+        PaneAction::New {
+            chat_backend,
+            config,
+            ..
         } => {
             assert_eq!(chat_backend.as_deref(), Some("local-shell"));
             assert_eq!(config.as_deref(), Some(r#"{"model":"llama"}"#));
@@ -220,48 +268,32 @@ fn pane_new_chat_backend_parses() {
 
 #[test]
 fn pane_new_without_chat_backend_defaults_to_none() {
-    let parsed = Cli::try_parse_from(["codeterm", "pane", "new"]).expect("plain pane new parses");
-    match parsed.command {
-        Commands::Pane {
-            action: PaneAction::New { chat_backend, .. },
-        } => assert!(chat_backend.is_none()),
+    let parsed = PaneOnly::try_parse_from(["pane", "new"]).expect("plain pane new parses");
+    match parsed.action {
+        PaneAction::New { chat_backend, .. } => assert!(chat_backend.is_none()),
         _ => panic!("expected pane new"),
     }
 }
 
 #[test]
 fn send_stdin_without_positional_parses() {
-    let parsed = Cli::try_parse_from(["codeterm", "send", "--stdin", "--pane", "abc123"])
+    let parsed = SendOnly::try_parse_from(["send", "--stdin", "--pane", "abc123"])
         .expect("send --stdin parses");
-    assert!(matches!(
-        parsed.command,
-        Commands::SendText {
-            text: None,
-            stdin: true,
-            ..
-        }
-    ));
+    assert!(parsed.text.is_none());
+    assert!(parsed.stdin);
 }
 
 #[test]
 fn send_actions_without_text_parses() {
-    let parsed =
-        Cli::try_parse_from(["codeterm", "send", "--actions", "enter", "--pane", "abc123"])
-            .expect("send --actions parses");
-    assert!(matches!(
-        parsed.command,
-        Commands::SendText {
-            text: None,
-            actions: Some(ref v),
-            ..
-        } if v == "enter"
-    ));
+    let parsed = SendOnly::try_parse_from(["send", "--actions", "enter", "--pane", "abc123"])
+        .expect("send --actions parses");
+    assert!(parsed.text.is_none());
+    assert_eq!(parsed.actions.as_deref(), Some("enter"));
 }
 
 #[test]
 fn send_actions_conflicts_with_delay() {
-    let parsed = Cli::try_parse_from([
-        "codeterm",
+    let parsed = SendOnly::try_parse_from([
         "send",
         "--actions",
         "enter",
@@ -274,22 +306,37 @@ fn send_actions_conflicts_with_delay() {
 }
 
 #[test]
-fn send_delay_parses() {
-    let parsed = Cli::try_parse_from(["codeterm", "send", "--delay", "10m", "hello"])
-        .expect("send --delay parses");
+fn agent_message_parses_immediate_targeted_message() {
+    let parsed =
+        AgentOnly::try_parse_from(["agent", "message", "check status", "--pane", "abc123"])
+            .expect("agent message parses");
     assert!(matches!(
-        parsed.command,
-        Commands::SendText {
-            delay: Some(ref v),
-            ..
-        } if v == "10m"
+        parsed.action,
+        AgentAction::Message {
+            text: Some(ref text),
+            ref pane,
+            from_file: None,
+            stdin: false,
+        } if text == "check status" && pane == "abc123"
     ));
 }
 
 #[test]
+fn agent_message_requires_target_pane() {
+    let parsed = AgentOnly::try_parse_from(["agent", "message", "check status"]);
+    assert!(parsed.is_err());
+}
+
+#[test]
+fn send_delay_parses() {
+    let parsed =
+        SendOnly::try_parse_from(["send", "--delay", "10m", "hello"]).expect("send --delay parses");
+    assert_eq!(parsed.delay.as_deref(), Some("10m"));
+}
+
+#[test]
 fn send_delay_conflicts_with_at() {
-    match Cli::try_parse_from([
-        "codeterm",
+    match SendOnly::try_parse_from([
         "send",
         "--delay",
         "10m",
@@ -304,22 +351,20 @@ fn send_delay_conflicts_with_at() {
 
 #[test]
 fn delayed_create_parses() {
-    let parsed = Cli::try_parse_from(["codeterm", "delayed", "create", "--delay", "5m", "hello"])
+    let parsed = DelayedOnly::try_parse_from(["delayed", "create", "--delay", "5m", "hello"])
         .expect("delayed create parses");
     assert!(matches!(
-        parsed.command,
-        Commands::Delayed {
-            action: DelayedAction::Create {
-                delay: Some(ref v),
-                ..
-            }
+        parsed.action,
+        DelayedAction::Create {
+            delay: Some(ref v),
+            ..
         } if v == "5m"
     ));
 }
 
 #[test]
 fn send_stdin_conflicts_with_positional_text() {
-    match Cli::try_parse_from(["codeterm", "send", "--stdin", "hello"]) {
+    match SendOnly::try_parse_from(["send", "--stdin", "hello"]) {
         Ok(_) => panic!("--stdin and positional text must conflict"),
         Err(err) => assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict),
     }

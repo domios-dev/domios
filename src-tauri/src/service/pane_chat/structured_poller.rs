@@ -48,7 +48,6 @@ pub fn spawn_structured_poller(
                     p.read_structured_chat(&cfg.cwd, &cfg.session_id, cursor.as_deref())
                 })
                 .unwrap_or_default();
-            // Only emit when the cursor actually advanced — avoids re-pushing the
             // boundary message every tick.
             if !delta.messages.is_empty() && delta.cursor != last_emit_cursor {
                 log::debug!(

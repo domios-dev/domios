@@ -6,7 +6,7 @@ use tauri::{AppHandle, Emitter};
 use crate::multiplexer::commands::MuxState;
 use crate::service::ServiceState;
 
-use super::{get_string_param, JsonRpcError};
+use super::{get_string_param, opt_string_param, JsonRpcError};
 
 pub(super) fn dispatch(
     method: &str,
@@ -22,6 +22,7 @@ pub(super) fn dispatch(
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })
         }
 
@@ -54,6 +55,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e,
+                data: None,
             })
         }
 
@@ -69,13 +71,14 @@ pub(super) fn dispatch(
                     .map_err(|e| JsonRpcError {
                         code: -32602,
                         message: e,
+                        data: None,
                     })?;
-            let _ = svc.set_pane_role(&pane_id, "Orchestrator", None, Some(true));
             let pty_id = if eager {
                 svc.ensure_pane_pty_for_send(&pane_id)
                     .map_err(|e| JsonRpcError {
                         code: -32603,
                         message: e,
+                        data: None,
                     })?;
                 svc.mux
                     .write()
@@ -98,6 +101,7 @@ pub(super) fn dispatch(
                 mux.set_active_workspace(&id).map_err(|e| JsonRpcError {
                     code: -32602,
                     message: e,
+                    data: None,
                 })?;
             }
             {
@@ -120,19 +124,25 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
         "workspace.close" => {
             let workspace_id = get_string_param(params, "workspace_id")?;
+            let caller_pane_id = opt_string_param(params, "caller_pane_id");
             crate::dispatch::dispatch(
-                &crate::dispatch::Command::WorkspaceClose { workspace_id },
+                &crate::dispatch::Command::WorkspaceClose {
+                    workspace_id,
+                    caller_pane_id,
+                },
                 svc.as_ref(),
             )
             .map(|r| r.into_json())
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
@@ -146,6 +156,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e,
+                data: None,
             })
         }
 
@@ -167,6 +178,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
@@ -180,6 +192,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
@@ -187,26 +200,19 @@ pub(super) fn dispatch(
             let tab_id = get_string_param(params, "tab_id")?;
             let from_id = get_string_param(params, "from_workspace_id")?;
             let to_id = get_string_param(params, "to_workspace_id")?;
-            {
-                let mut mux = mux.write();
-                mux.move_tab(&tab_id, &from_id, &to_id)
-                    .map_err(|e| JsonRpcError {
-                        code: -32602,
-                        message: e,
-                    })?;
-            }
-            {
-                let h = app.clone();
-                std::thread::spawn(move || {
-                    let _ = h.emit("mux-state-changed", ());
-                });
-            }
+            svc.move_tab(&tab_id, &from_id, &to_id)
+                .map_err(|e| JsonRpcError {
+                    code: -32602,
+                    message: e,
+                    data: None,
+                })?;
             Ok(serde_json::json!({"ok": true}))
         }
 
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),
+            data: None,
         }),
     }
 }

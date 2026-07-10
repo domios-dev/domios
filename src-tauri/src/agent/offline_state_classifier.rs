@@ -9,6 +9,8 @@ pub use status::{
     extract_completion_summary, extract_status_line, has_active_turn_footer, StatusLine,
 };
 
+pub use codeterm_types::pty::{AgentLiveState, PaneVerdict, QuestionSubtype, TimelineState};
+
 pub const TICK_MS: u64 = 250;
 pub const WAIT_MS: u64 = 800;
 pub const DONE_MS: u64 = 800;
@@ -17,27 +19,6 @@ const BOTTOM_REGION_ROWS: u16 = 8;
 /// Upper bound on how long a Working verdict may persist with zero active-work
 /// evidence and total PTY silence before resolving to Idle (anti-stuck-Working).
 const STUCK_WORKING_IDLE_MS: u64 = 5000;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TimelineState {
-    Working,
-    Idle,
-    Question,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum QuestionSubtype {
-    ModelChoice,
-    ModelPicker,
-    Permission,
-    Auth,
-    RateLimit,
-    Update,
-    Error,
-    Unknown,
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClassifiedSegment {
@@ -67,61 +48,6 @@ pub struct CastTimelineInput {
     pub width: u16,
     pub height: u16,
     pub events: Vec<CastEvent>,
-}
-
-/// The per-tick classification result: the 3-state verdict plus, when in
-/// `Question`, its subtype. Produced by [`classify_state`] — the single source
-/// of truth shared by the offline cast replay and the live PTY path.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PaneVerdict {
-    pub state: TimelineState,
-    pub subtype: Option<QuestionSubtype>,
-}
-
-/// Persisted-to-frontend snapshot of a pane's live agent state. Stored on the
-/// pane (runtime-only, recomputed from output) and serialized into the mux
-/// snapshot so the chat view's state indicator renders it. Field names/casing
-/// mirror the frontend `AgentState` shape.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentLiveState {
-    pub state: TimelineState,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub subtype: Option<QuestionSubtype>,
-    /// The agent's live status/progress line, surfaced verbatim by the chat UI
-    /// while working (see [`extract_status_line`]). Only set in `Working`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status_line: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub phase: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub elapsed_ms: Option<u64>,
-    /// Completed-turn summary (e.g. "Churned for 1m 37s"), shown as a muted
-    /// secondary line while idle. Set only in `Idle`; distinct from the active
-    /// `status_line`. See [`extract_completion_summary`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_turn_summary: Option<String>,
-}
-
-impl From<AgentLiveState> for PaneVerdict {
-    fn from(s: AgentLiveState) -> Self {
-        PaneVerdict {
-            state: s.state,
-            subtype: s.subtype,
-        }
-    }
-}
-
-impl From<PaneVerdict> for AgentLiveState {
-    fn from(v: PaneVerdict) -> Self {
-        AgentLiveState {
-            state: v.state,
-            subtype: v.subtype,
-            status_line: None,
-            phase: None,
-            elapsed_ms: None,
-            last_turn_summary: None,
-        }
-    }
 }
 
 /// Minimal per-tick inputs the 3-state engine classifies. Both paths build this
@@ -226,13 +152,20 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
 
     let options_block = looks_like_options_block(input.screen_lines);
     let ready_prompt_visible = !options_block && ready_prompt_glyph(input.screen_lines);
+    let live_status_widget = extract_status_line(input.screen_lines).is_some();
+    let active_footer = active_turn_footer(input.screen_lines);
+    // A still-animating turn (fresh bytes, no completed-turn summary) is genuinely live:
+    // a long think repaints only the excluded status band, so semantic-idle keeps growing.
+    let live_turn = (live_status_widget || active_footer)
+        && input.byte_idle_ms < WORKING_GRACE_MS
+        && extract_completion_summary(input.screen_lines).is_none();
     let stale_working_status_at_prompt =
-        ready_prompt_visible && input.semantic_idle_ms >= WORKING_GRACE_MS;
+        ready_prompt_visible && input.semantic_idle_ms >= WORKING_GRACE_MS && !live_turn;
 
     // 2. Structurally active turn -> working. Do not treat raw PTY bytes as work:
     if !stale_working_status_at_prompt
-        && (extract_status_line(input.screen_lines).is_some()
-            || active_turn_footer(input.screen_lines)
+        && (live_status_widget
+            || active_footer
             || matches!(input.motion, Motion::Streaming | Motion::Animating))
     {
         return PaneVerdict {
@@ -241,7 +174,6 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         };
     }
 
-    // Working-grace BEFORE PTY-only questions and idle fast-paths: both terminal
     // menu parsing and prompt glyphs can false-fire on a single repaint frame.
     if previous.state == TimelineState::Working && input.semantic_idle_ms < WORKING_GRACE_MS {
         return PaneVerdict {
@@ -250,10 +182,6 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         };
     }
 
-    // Answered + idle: the claude mode-cycle ready footer plus a composer glyph
-    // means the agent is back at its ready prompt (an ACTIVE picker hides both). A
-    // resolved AskUserQuestion's options/footer can linger painted below the
-    // composer — clear to Idle so that stale echo is not read as a live question.
     if mode_switch_idle_footer(input.screen_lines) && ready_prompt_glyph_present(input.screen_lines)
     {
         return PaneVerdict {
@@ -270,7 +198,6 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         };
     }
 
-    // 3. QUIESCENT only: the two known console question states (rate_limit / auth),
     //    strict phrasings. Nothing generic is inferred from raw console text.
     if let Some(subtype) = classify_text_question(input.screen_lines) {
         return PaneVerdict {
@@ -287,7 +214,6 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         };
     }
 
-    // Weaker structural idle: a visible cursor parked in the bottom input region
     // (full-screen OR primary-screen TUI composer with no glyph, e.g. opencode).
     if input.composer_ready && !options_block {
         return PaneVerdict {
@@ -296,8 +222,6 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         };
     }
 
-    // Safety net against "stuck Working": reaching here means none of the active
-    // signals fired (no status widget, no active-turn footer, no motion, no
     if previous.state == TimelineState::Working
         && input.byte_idle_ms >= STUCK_WORKING_IDLE_MS
         && input.semantic_idle_ms >= STUCK_WORKING_IDLE_MS
@@ -419,8 +343,6 @@ pub fn classify_signals(
     signals: &StreamSignals,
     previous: PaneVerdict,
 ) -> PaneVerdict {
-    // Fidelity gate: live `recompute_agent_state` takes its picker question ONLY
-    // from a STRUCTURED handle (output.rs hard-restriction) — never from native
     let attributed = extractor.attributed_screen();
     let active_working_chrome = extract_status_line(&signals.screen.lines).is_some()
         || active_turn_footer(&signals.screen.lines);
@@ -437,8 +359,6 @@ pub fn classify_signals(
             tail: &signals.tail,
             byte_idle_ms: signals.quiescence.byte_idle_ms,
             semantic_idle_ms: signals.quiescence.semantic_idle_ms,
-            // Parity with the live path, which cannot compute motion and always
-            // passes `Still`: feeding the replay's real motion here would let the
             motion: Motion::Still,
             cursor_hidden: signals.input_mode.cursor_hidden,
             composer_ready: composer_cursor_ready(
@@ -481,8 +401,6 @@ pub fn classify_terminal_menu_question(
             checkbox += 1;
         }
     }
-    // A confirm-style key-hint footer (enter + esc + a nav/choose hint) is a strong
-    // active-choice signal on its own, so options + that footer classify Question
     let confirm_footer = confirm_style_footer(screen_lines);
     let has_options = numbered >= 2 || checkbox >= 2;
     if has_options && confirm_footer {
@@ -577,7 +495,6 @@ fn choice_key_footer(screen_lines: &[String]) -> bool {
 
 fn classify_question_subtype(_tail: &str, question: &str) -> QuestionSubtype {
     let question_text = question.to_lowercase();
-    // Subtype is keyed ONLY off the picker's QUESTION (never the tail): a structured
     // picker's tail often carries unrelated output ("failed", "error", "permissions:")
     if contains_any(
         &question_text,
@@ -626,7 +543,6 @@ fn classify_question_subtype(_tail: &str, question: &str) -> QuestionSubtype {
 }
 
 fn classify_text_question(screen_lines: &[String]) -> Option<QuestionSubtype> {
-    // HARD RESTRICTION: only the two console question states we are confident about,
     // with STRICT notice/prompt phrasings that do not occur in ordinary agent output.
     let text = screen_lines.join("\n").to_lowercase();
     if contains_any(
@@ -704,8 +620,6 @@ fn ready_prompt_glyph_present(screen_lines: &[String]) -> bool {
 }
 
 fn ready_prompt_glyph_row(screen_lines: &[String]) -> Option<u16> {
-    // Last 4 NON-EMPTY rows: a full-height grid leaves blank padding rows below
-    // the composer, so counting raw rows would push the prompt glyph out of the
     screen_lines
         .iter()
         .enumerate()

@@ -69,7 +69,6 @@ pub async fn mem_dream(
         reports.push(report);
     }
 
-    // Calibration sweep is now a server-side phase, not an LLM-driven stage. The dreamer used to be instructed to invoke it from STAGE D, but the
     // Run calibration directly in daemon to ensure results are real and history rows are durable.
     if phase == "all" {
         let svc = state.svc.clone();
@@ -104,7 +103,9 @@ pub async fn mem_dream(
     // REM worker only fires on a full nightly run; targeted phase calls skip it.
     if phase == "all" {
         let svc = state.svc.clone();
-        std::thread::spawn(move || dreaming::spawn_rem_worker(&svc));
+        let mem_cfg = crate::config::memory_config();
+        let default_agent = crate::config::default_agent_provider();
+        std::thread::spawn(move || dreaming::spawn_rem_worker(&svc, &mem_cfg, &default_agent));
     }
 
     Ok(Json(serde_json::json!({ "phases": reports })))

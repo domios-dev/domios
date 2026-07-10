@@ -46,6 +46,11 @@ pub enum WorkspaceAction {
 pub enum PaneAction {
     /// List all panes as a workspace-grouped tree. `--agents` filters to
     /// agent panes only.
+    ///
+    /// Each pane carries a `backing.kind`: `pty` panes (terminal agents,
+    /// shells) have a real shell — `send` injects text you can execute.
+    /// `chat_backend` panes (LLM chat via plugin) have NO shell: `send`
+    /// delivers a chat message; never instruct them to run shell commands.
     List {
         /// Show only panes running an agent (have an agent_type).
         #[arg(long)]
@@ -72,7 +77,7 @@ pub enum PaneAction {
         eager: bool,
         /// Open a non-PTY chat-backend pane driven by the given plugin id
         /// (a plugin declaring the `chatBackend` capability).
-        /// `codeterm send`/`get-output` then route to the plugin, not a shell.
+        /// `codeterm send`/`pane get-text` then route to the plugin, not a shell.
         #[arg(long, value_name = "PLUGIN_ID")]
         chat_backend: Option<String>,
         /// JSON config object passed to the chat-backend plugin's `openSession`
@@ -258,6 +263,14 @@ pub enum KeepAwakeAction {
         /// Also prevent display sleep
         #[arg(long)]
         display: bool,
+        /// On Linux/GNOME, explicitly apply current-user power policy overrides
+        /// (disable inactive sleep, idle blanking, lid-close and power-button suspend).
+        #[arg(long)]
+        gnome_policy: bool,
+        /// Print system-level sudo mask commands in the status response.
+        /// CodeTerm never runs these commands silently.
+        #[arg(long)]
+        system_block: bool,
     },
     /// Stop the current keep-awake session
     Stop,
@@ -347,9 +360,9 @@ pub enum BridgeAction {
         /// Send a one-shot "now serving from <host>" message to the sentinel chat.
         #[arg(long)]
         announce: bool,
-        /// Sentinel chat id for --announce. Defaults to the maintainer's chat.
-        #[arg(long, default_value_t = 186809246)]
-        announce_chat_id: i64,
+        /// Sentinel chat id for --announce. Defaults to the target's first allow-listed bridge user.
+        #[arg(long)]
+        announce_chat_id: Option<i64>,
         /// Skip auto-rollback if target claim fails (leave source disabled).
         #[arg(long)]
         no_rollback: bool,
@@ -372,7 +385,7 @@ pub enum ConfigAction {
 
 #[derive(clap::Subcommand)]
 pub enum WebAction {
-    /// Print a ready-to-open /web URL for THIS machine with the API token
+    /// Print a ready-to-open browser UI URL for THIS machine with the API token
     /// embedded in the URL fragment (use --query for ?token= instead).
     Link {
         /// Build a link for a paired mesh PEER (by instance name) instead of

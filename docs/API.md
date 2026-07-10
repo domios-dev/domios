@@ -141,7 +141,7 @@ Closed panes and workspaces are recorded in a persistent ring. Every close actio
 | POST | `/api/panes/{id}/prompt/clear` | — | Clear a pending permission prompt |
 | GET | `/api/agents/providers` | — | List registered agent providers **and open agent shells**. Each entry carries `id`, `display_name`, `available_models`, `default_model`, `settings_schema`, etc. plus a **`kind`** field: `"agent"` (PTY providers — claude/codex/opencode) or `"shell"` (installed `chatBackend` plugins, e.g. lmstudio). Shell entries also carry `presets` and `supports_chat_ui: true`. Single source of truth for "what agents and shells does this CodeTerm instance know about" — frontend dropdowns, CLI `agent providers/models`, and cron/mem job dialogs all read from here. |
 | GET | `/api/providers` | — | Public provider list alias for agent/provider selectors |
-| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?, model?, system_prompt? (alias `system`), preset?, report_to?, origin_peer?}` | One-call agent spawn (see below). `description` follows the same trim/empty-clear/200-char validation as pane describe. Routing is **by capability, not identity**: if `agent` matches a `chatBackend` shell id, the request opens an open agent shell (threading `system_prompt`/`preset`/`model` into the shell's `openSession` ctx); otherwise the PTY agent path. An unknown id errors with the available agent **and** shell ids. `report_to` sets where the worker's `agent report` lands (pane id or `main`/`general` alias). `origin_peer` is **never client-supplied** — the mesh relay stamps it from the authenticated sender so a worker spawned via `agent spawn --mesh PEER` reports back across the mesh; see *Remote mesh workers*. |
+| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, role_profile?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?, model?, system_prompt? (alias `system`), preset?, charter?, tick_interval_secs?, nudge_cooldown_secs?, max_actions_per_tick?, report_to?, origin_peer?}` | One-call agent spawn (see below). `description` follows the same trim/empty-clear/200-char validation as pane describe. Routing is **by capability, not identity**: if `agent` matches a `chatBackend` shell id, the request opens an open agent shell (threading `system_prompt`/`preset`/`model` and watcher `mode`/`engine` fields into the shell's `openSession` ctx); otherwise the PTY agent path. `role` accepts `Orchestrator`, `Manager`, `Worker`, plus `Planner`/`Watcher` sugar that maps to `Manager` with `role_profile`. Watcher spawns require a watcher-capable `chatBackend` shell and `charter`; policy fields are clamped by the host. An unknown id errors with the available agent **and** shell ids. `report_to` sets where the worker's `agent report` lands (pane id or `main`/`general` alias). `origin_peer` is **never client-supplied** — the mesh relay stamps it from the authenticated sender so a worker spawned via `agent spawn --mesh PEER` reports back across the mesh; see *Remote mesh workers*. |
 | GET | `/api/remote-workers` | `?pane=<id>` | Orchestrator-side view of remote (cross-mesh) workers, populated from inbound mesh reports. With `?pane=` returns that orchestrator's workers; otherwise the full `{ pane_id: RemoteWorker[] }` map. `RemoteWorker = {peer, remote_pane, title, model, status, last_message, last_seen_ms}`. Live updates via the `remote-workers-changed` event. |
 
 #### Interactive chat prompts (#162)
@@ -298,6 +298,8 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 | POST | `/api/mesh/broadcast/start` | — | Start local discovery broadcast |
 | POST | `/api/mesh/broadcast/stop` | — | Stop local discovery broadcast |
 | POST | `/api/mesh/relay` | `{method, path, body}` | Relay an API call to a remote peer |
+| GET | `/api/mesh/relay-stream` | `?peer=<id>&path=<streamable>&since=<cursor>` | Browser→local byte-pipe of a peer's own `/api/events/stream` or `/api/output/stream`, cursor-resumed and un-timed. Peer unreachable → `504` `peer-unreachable`. |
+| GET | `/api/mesh/relay-asset/{peer}/{*path}` | `?token=<LOCAL>` | Read-only, `plugins/{id}/ui/*`-scoped byte proxy for a peer's plugin-UI iframe. |
 | DELETE | `/api/mesh/peers/{id}` | — | Remove a peer (used internally by disconnect broadcast) |
 | POST | `/api/mesh/refresh` | — | Refresh local addresses and announce them to peers |
 | POST | `/api/mesh/peers/add-manual` | `{address, port}` | Inject a `Manual` discovered peer by Tailscale IP / port (skips mDNS / UDP scan). Returns `{ok, instance_id}` and emits `mesh-state-changed`. |
@@ -311,6 +313,8 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 **Mesh-disabled gate (503).** When `config.mesh.enabled = false`, the auth middleware short-circuits every `/api/mesh/*` path other than `/api/mesh/ping` with `503 Mesh networking is disabled`. The same 503 also fires for any caller authenticated via the mesh signed-token path (i.e. another peer relaying to us) — the local Bearer token still works. Toggle the config back on to restore mesh routing without restarting the daemon.
 
 **Peer-ping scheduler.** A background scheduler (`mesh::ping_scheduler`) pings each paired peer's `/api/mesh/ping` every 20 s with a 4 s timeout. On any online/offline transition, the peer record's `online` flag flips, `last_seen` updates on coming back, and `mesh-state-changed` fires so the UI re-renders without polling.
+
+**Relay streaming (`relay-stream` / `relay-asset`).** These let a browser reach a paired peer without knowing its address. `relay-stream` opens a signed mesh request to the peer's own `/api/events/stream` or `/api/output/stream` (the only two whitelisted paths) and copies response bytes straight through — never buffered, filtered, or reordered — so the cursor/overflow contract of the underlying stream carries over unmodified. `relay-asset` is scoped to read-only `plugins/{id}/ui/*` GETs (path traversal rejected) and exists because an `<iframe src>` can't send a `Bearer` header: the `.html` entry self-verifies the caller's LOCAL api token via the `?token=` query — exempted from the normal bearer middleware by an exact prefix allowlist in `auth.rs`'s `is_custom_auth` — and the daemon then reaches the peer with a server-minted signed mesh token that is never serialized back to the browser.
 
 **Tauri IPC (Mesh):**
 | Command | Params | Description |
@@ -407,7 +411,7 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level �
   "last_poll_ok": "2026-05-06T12:01:30Z",
   "last_poll_error": null,
   "error_count": 0,
-  "instance_name": "BLACKSTAR"
+  "instance_name": "workstation"
 }
 ```
 
@@ -684,14 +688,15 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 #### Web Mirror
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/web/` | — | The CodeTerm web mirror: the same React bundle as the desktop app, served static (public route; every API call it makes stays token-gated). Exact `/web` 308s to `/web/`. `?a11y=1` enables the screen-reader terminal DOM. |
+| GET | `/` | — | The CodeTerm web mirror: the same React bundle as the desktop app, served static at the daemon root (public route; every API call it makes stays token-gated). `?a11y=1` enables the screen-reader terminal DOM. |
 | GET | `/api/mux/state` | — | Full multiplexer snapshot (workspaces/tabs/panes + focus) — the browser bundle's `mux_get_state`. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Switch active tab. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |
 | POST | `/api/panes/{id}/chat-view` | `{enabled}` | Toggle a pane's chat view flag. |
 | GET | `/api/mesh/peers/{id}/services` | — | Peer services view (same cache+failover as the Mesh tab). |
 | GET | `/api/events/stream` | — | SSE of system events (`data: {event_type, data}`) — mux/mesh/pane-status changes; the web bundle's `listen()`. |
-| GET | `/api/pty/{id}/read` | — | Long-poll one chunk of PTY output (JSON byte array) — the browser terminal's read loop. |
+| GET | `/api/output/stream` | `?since=<b64url cursor>` | Multiplexed SSE: ONE connection carries every pane's PTY output as pane-tagged frames (`{pane_id, output, offset}`, plus per-pane `{truncated, from}` on ring eviction, `{ended}` on genuine PTY death, and a one-shot `{boot_changed, boot}` on daemon restart), replacing the per-pane long-poll below. `since` is a b64url `{boot, panes:{id:offset}}` cursor. Killswitch: browser localStorage `codeterm-web-output-stream=off` falls back to `/api/pty/{id}/read`. With a mesh relay target set, the browser instead streams via `/api/mesh/relay-stream?path=/api/output/stream` — same frames, same cursor. |
+| GET | `/api/pty/{id}/read` | — | Long-poll one chunk of PTY output (JSON byte array) — the browser terminal's read loop; fallback when the output-stream killswitch is off. |
 | POST | `/api/pty/{id}/write` | `{data}` | Write input to a PTY. |
 | POST | `/api/pty/{id}/resize` | `{cols, rows}` | Resize a PTY. |
 
@@ -834,6 +839,16 @@ Restart the agent in a pane. Default behaviour is graceful: send the provider-sp
 - `500` — internal restart failure (PTY spawn error, etc.)
 
 This is the same flow `codeterm agent restart --pane PANE_ID [--force] [--grace-secs N]` invokes from the CLI.
+
+### Plan Task Attempts
+
+Task execution attempts are append-only history on `Task.execution_attempts`. The CLI/API uses the canonical stable `TaskExecutionAttempt.id` as `attempt_id`; `executor_pane_id` remains the executor identity and is not the primary key. Respawning creates a new Worker pane and a new live attempt; it never reactivates the selected historical attempt.
+
+| Method | Path | Body / Query | Description |
+|--------|------|--------------|-------------|
+| GET | `/api/plans/{id}/tasks/{tid}/attempts` | — | List execution attempts recorded for one task |
+| GET | `/api/plans/{id}/tasks/{tid}/attempts/{attempt_id}` | — | Show one attempt by stable attempt id, including derived report command, derived prompt, and last report summary when present |
+| POST | `/api/plans/{id}/tasks/{tid}/respawn` | `{attempt_id, provider?, model?, parent_pane_id?, workspace_id?, title?}` | Build a Worker prompt from the task body, selected prior attempt, last report/status, lane branch/worktree hints, and exact `codeterm agent report --plan ... --task ...` command; spawn a new Worker and append a new `execution_attempts` entry |
 
 ### Keep-Awake (GET/POST /api/keepawake*)
 
@@ -1116,6 +1131,9 @@ Newline-delimited JSON:
 | `agent.report` | `{pane_id, message}` | Send report to direct parent |
 | `agent.reports` | `{pane_id, clear?}` | Read reports from children |
 | `agent.restart` | `{pane_id, force?, grace_secs?}` | Restart the agent in a pane; resumes only when the recorded session is valid. |
+| `plan.task.attempts` | `{plan_id, task_id}` | List execution attempts for one plan task |
+| `plan.task.attempt.show` | `{plan_id, task_id, attempt_id}` | Show one historical task attempt |
+| `plan.task.respawn` | `{plan_id, task_id, attempt_id, provider?, model?, parent_pane_id?, workspace_id?, title?}` | Spawn a new Worker from one prior task attempt and record a new live attempt |
 | `cron.list` | `{workspace_id?}` | List cron jobs |
 | `cron.get` | `{id}` | Get cron job by ID |
 | `cron.create` | `{name, schedule, task, workspace_id, agent?, model?, cwd?, description?, oneshot?, jitter_max_ms?}` | Create cron job |
@@ -1141,6 +1159,16 @@ Newline-delimited JSON:
 The complete CLI reference is auto-generated from the clap command tree:
 see **`docs/CLI.md`** (regenerated by `codeterm cli-manifest --write`). The
 machine-readable tree lives in `docs/cli-manifest.json`.
+
+### CLI JSON ID Contract
+
+For create/add/spawn-style commands, `--json` output exposes the newly created
+entity id as top-level `id`. Existing typed id fields remain present for context
+and compatibility, such as `plan_id`, `task_id`, `spec_id`, `section_id`,
+`pane_id`, and `workspace_id`. For compound responses, `id` names the primary
+entity created by the command: for example `plan create --json` returns
+`id == plan_id`, `plan task add --json` returns `id == task_id`, and
+`agent spawn --json` returns `id == pane_id`.
 
 ### Internal Tauri Commands
 
@@ -1207,6 +1235,13 @@ surfaces as agents:
   (or `POST /api/agents/spawn`) routes by capability to the shell. `--system`
   overrides the preset's system prompt for that session, `--preset` picks a preset,
   no flag → the plugin's `defaultPreset`.
+- **Watcher spawn:** `codeterm agent spawn <shell-id> --role Watcher --parent <orchestrator-pane> --charter <TEXT|charter:id> [--interval 30s] [--nudge-cooldown 10m] [--max-actions 3]`.
+  `--charter-file PATH` may be used instead of `--charter`. The REST body fields
+  are `charter`, `tick_interval_secs`, `nudge_cooldown_secs`, and
+  `max_actions_per_tick`. The host opens the shell with `mode: "watcher"` and
+  `engine: { kind: "machine", charter, tickIntervalSecs }`, rejects direct sends
+  into the watcher pane, schedules `watcherTick`, parses `watcher_verdict`
+  messages, and executes only host-allowlisted verdict actions.
 - **Open directly:** `POST /api/panes {chat_backend, system_prompt?, preset?, model?}`.
 - **Observe:** the shell emits a `system_prompt` marker message rendered as a
   collapsible "System prompt" card; tool-call / tool-result messages render via the
@@ -1244,4 +1279,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 67 -->
+<!-- revision: 74 -->

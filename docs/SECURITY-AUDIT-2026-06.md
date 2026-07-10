@@ -103,7 +103,7 @@ so lower priority under tailnet trust. **Recommended:** validate `cmd.path`
 starts with `/api/` and contains no `@`/`//`/scheme.
 
 ### Low — PWA manifest token in query string
-`WebGate/PwaSetup.tsx` requests `/web/manifest.webmanifest?token=…` — the rest of
+`WebGate/PwaSetup.tsx` requests `/manifest.webmanifest?token=…` — the rest of
 the flow correctly uses the URL `#fragment`; the manifest is the one place the
 token lands in a query string (logs/Referer/history). **Recommended:** deliver
 the manifest token via header or a one-time exchange.
@@ -134,4 +134,4 @@ restrictive ACL on Windows too.
 - CORS permissive but auth is header-bearer (not cookie), so no ambient-credential
   CSRF — though tighten origins as defense-in-depth given the open bind.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

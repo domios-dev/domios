@@ -3,6 +3,7 @@ import { Cog, Moon, RefreshCw } from "lucide-react";
 import type { AppConfig, CronJob } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { canonicalizeShort } from "../../lib/modelLabels";
+import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { Label, SettingsCard, SettingsPage, Toggle } from "../Settings/shared";
 
 type ScheduleFreq = "daily" | "every-2" | "every-3" | "weekly" | "off";
@@ -64,7 +65,6 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
   const { providers } = useAgentProviders();
   const inputClass = "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none";
 
-  // Pick default model from the first registered provider's descriptor — avoids hardcoding "haiku" (a Claude-specific id) and keeps the defaults
   // useful for whichever provider is the user's primary.
   const defaultProvider = config.general_agent?.agent_provider || providers[0]?.id || "";
   const defaultModel = providers.find(p => p.id === defaultProvider)?.default_model ?? "";
@@ -98,8 +98,9 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
   const [syncing, setSyncing] = useState(false);
 
   const api = config.api;
-  const apiBase = api ? `http://${api.host === "0.0.0.0" ? "127.0.0.1" : api.host}:${api.port}` : "";
-  const apiHeaders: HeadersInit = api?.token ? { Authorization: `Bearer ${api.token}` } : {};
+  const apiBase = api ? daemonHttpBase(api) : "";
+  const authToken = daemonAuthToken(api);
+  const apiHeaders: HeadersInit = authToken ? { Authorization: `Bearer ${authToken}` } : {};
 
   const [dreamCron, setDreamCron] = useState<CronJob | null>(null);
   const [scheduleSaving, setScheduleSaving] = useState(false);

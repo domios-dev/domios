@@ -1,3 +1,8 @@
+/**
+ * WHAT: Chat picker default settings honor prompted and explicit config states.
+ * WHY: New panes must not surprise the user by silently switching chat UI defaults.
+ * ORACLE: Config resets and picker interactions produce the expected persisted default flags.
+ */
 import { expect, test } from "../../helpers/fixtures";
 
 async function resetChatDefaultConfig(api: import("../../helpers/api-client").ApiClient) {

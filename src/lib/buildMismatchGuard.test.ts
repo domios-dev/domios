@@ -6,6 +6,7 @@ import {
   getMismatch,
   __resetForTest,
   __setFrontendHashForTest,
+  __setFrontendVersionForTest,
 } from "./buildMismatchGuard";
 
 let failed = 0;
@@ -23,11 +24,11 @@ function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
-function mockFetch(build: string | null, status = 200) {
+function mockFetch(build: string | null, status = 200, version?: string) {
   (globalThis as unknown as Record<string, unknown>).fetch = async (_url: unknown) => ({
     ok: status < 400,
     status,
-    json: async () => ({ status: "ok", build }),
+    json: async () => ({ status: "ok", build, version }),
   });
 }
 
@@ -52,6 +53,20 @@ async function main() {
     const result = await checkBuildMismatch("http://localhost:7686");
 
     assert(result === null, "no mismatch expected");
+  });
+
+  await test("stale packaged window: 1.7.2 UI attached to 1.6.2 daemon is classified", async () => {
+    __resetForTest();
+    __setFrontendHashForTest("packaged-172");
+    __setFrontendVersionForTest("1.7.2");
+    mockFetch("packaged-172", 200, "1.6.2");
+
+    const result = await checkBuildMismatch("http://localhost:7685");
+
+    assert(result !== null, "version skew should return mismatch");
+    assert(result.reason === "version", `reason: ${String(result?.reason)}`);
+    assert(result.frontendVersion === "1.7.2", `frontendVersion: ${String(result?.frontendVersion)}`);
+    assert(result.backendVersion === "1.6.2", `backendVersion: ${String(result?.backendVersion)}`);
   });
 
   await test("singleton: second call returns cached result, does not re-fetch", async () => {

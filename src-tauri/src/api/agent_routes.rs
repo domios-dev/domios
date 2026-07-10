@@ -6,6 +6,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::api::routes::{check_auth, resolve_pane, AppState};
+use crate::multiplexer::types::AgentRole;
 
 pub(crate) fn list_agent_provider_values(
     registry: &crate::provider::ProviderRegistry,
@@ -29,9 +30,16 @@ pub(crate) struct SpawnAgentBody {
     title: Option<String>,
     description: Option<String>,
     role: Option<String>,
+    role_profile: Option<String>,
     parent_pane_id: Option<String>,
+    #[serde(alias = "plan")]
+    plan_id: Option<String>,
     can_spawn: Option<bool>,
     task: Option<String>,
+    task_id: Option<String>,
+    #[serde(alias = "plan-task")]
+    plan_task: Option<String>,
+    allow_shared_checkout: Option<bool>,
     workspace_id: Option<String>,
     force_tab: Option<bool>,
     report_target_pane_id: Option<String>,
@@ -52,6 +60,10 @@ pub(crate) struct SpawnAgentBody {
     #[serde(alias = "system")]
     system_prompt: Option<String>,
     preset: Option<String>,
+    charter: Option<String>,
+    tick_interval_secs: Option<u64>,
+    nudge_cooldown_secs: Option<u64>,
+    max_actions_per_tick: Option<u32>,
     activate: Option<bool>,
 }
 
@@ -175,10 +187,7 @@ pub async fn spawn_agent(
     Json(body): Json<SpawnAgentBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    if let Some(ref role) = body.role {
-        crate::service::ServiceContext::parse_role(role)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    }
+    let role_probe = validate_spawn_role(body.role.clone(), body.role_profile.clone())?;
     let params = crate::service::SpawnAgentParams {
         agent: body.agent,
         agent_name: body.agent_name,
@@ -186,12 +195,19 @@ pub async fn spawn_agent(
         cwd: body.cwd,
         title: body.title,
         description: body.description,
-        role: body.role,
+        role: role_probe.role,
+        role_profile: role_probe.role_profile,
         parent_pane_id: body.parent_pane_id,
+        plan_id: body.plan_id,
         can_spawn: body.can_spawn,
         task: body.task,
+        task_id: body.task_id,
+        plan_task: body.plan_task,
+        allow_shared_checkout: body.allow_shared_checkout,
         workspace_id: body.workspace_id,
         force_tab: body.force_tab,
+        existing_tab_id: None,
+        skip_orchestrator_onboarding: None,
         report_target_pane_id: body.report_to.or(body.report_target_pane_id),
         report_target_mesh_peer: body.origin_peer,
         skip_permissions: body.skip_permissions,
@@ -200,6 +216,10 @@ pub async fn spawn_agent(
         system_prompt: body.system_prompt,
         preset: body.preset,
         resume_session_id: None,
+        charter: body.charter,
+        tick_interval_secs: body.tick_interval_secs,
+        nudge_cooldown_secs: body.nudge_cooldown_secs,
+        max_actions_per_tick: body.max_actions_per_tick,
         activate: body.activate,
         structured_prompt_server: None,
     };
@@ -215,14 +235,57 @@ pub async fn spawn_agent(
         "tab_id": result.tab_id,
         "pty_id": result.pty_id,
         "agent": result.agent,
+        "model": result.model,
         "title": result.title,
         "description": result.description,
         "role": result.role,
+        "role_profile": result.role_profile,
     });
     if let Some(ref warning) = result.warning {
         resp["warning"] = serde_json::json!(warning);
     }
+    if let Some(ref notice) = result.budget_notice {
+        resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
+    }
     Ok(Json(resp))
+}
+
+fn validate_spawn_role(
+    role: Option<String>,
+    role_profile: Option<String>,
+) -> Result<crate::service::SpawnAgentParams, (StatusCode, String)> {
+    let mut role_probe = crate::service::SpawnAgentParams {
+        role,
+        role_profile,
+        ..Default::default()
+    };
+    role_probe
+        .normalize_role_profile()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    if let Some(ref role) = role_probe.role {
+        crate::service::ServiceContext::parse_role(role)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    }
+    Ok(role_probe)
+}
+
+/// Paired creation (task_7e5f9354): create an Orchestrator + Planner in one
+/// action. The web-mirror twin of `codeterm orchestration new` — both call
+/// `ServiceContext::create_orchestration_pair`.
+pub async fn create_orchestration_pair(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<crate::service::OrchestrationPairParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let result = state
+        .svc
+        .create_orchestration_pair(body)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::to_value(result).map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?))
 }
 
 #[derive(Deserialize)]
@@ -261,6 +324,8 @@ pub async fn batch_commands(
 #[derive(Deserialize)]
 pub(crate) struct SetRoleBody {
     role: String,
+    #[serde(default)]
+    role_profile: Option<String>,
     parent_pane_id: Option<String>,
     can_spawn: Option<bool>,
 }
@@ -272,15 +337,38 @@ pub async fn set_pane_role(
     Json(body): Json<SetRoleBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let mut role_probe = crate::service::SpawnAgentParams {
+        role: Some(body.role),
+        role_profile: body.role_profile,
+        ..Default::default()
+    };
+    role_probe
+        .normalize_role_profile()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let role = role_probe.role.unwrap_or_else(|| "Worker".into());
+    let parsed_role = crate::service::ServiceContext::parse_role(&role)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let was_orchestrator = {
+        let mux = state.svc.mux.read();
+        mux.get_pane(&id)
+            .map(|p| p.role == Some(AgentRole::Orchestrator))
+            .unwrap_or(false)
+    };
     state
         .svc
-        .set_pane_role(
-            &id,
-            &body.role,
-            body.parent_pane_id.as_deref(),
-            body.can_spawn,
-        )
+        .set_pane_role(&id, &role, body.parent_pane_id.as_deref(), body.can_spawn)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    if let Some(profile) = role_probe.role_profile {
+        if let Some(pane) = state.svc.mux.write().get_pane_mut(&id) {
+            pane.role_profile = Some(profile);
+        }
+        state.svc.emit_state_changed();
+    }
+    if parsed_role == AgentRole::Orchestrator {
+        state
+            .svc
+            .maybe_deliver_orchestrator_promotion_onboarding(&id, was_orchestrator);
+    }
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -297,15 +385,29 @@ pub async fn clear_pane_role(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+pub async fn make_orchestrator(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    state
+        .svc
+        .make_orchestrator(&id)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
 pub async fn get_pane_status(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let pane_id = resolve_pane(&state, &id).map_err(|(s, m)| (s, m.to_string()))?;
     let info = state
         .svc
-        .get_pane_status(&id)
+        .get_pane_status(&pane_id)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     Ok(Json(serde_json::to_value(info).unwrap()))
 }
@@ -313,6 +415,9 @@ pub async fn get_pane_status(
 #[derive(Deserialize)]
 pub(crate) struct ReportBody {
     message: String,
+    plan_id: Option<String>,
+    task_id: Option<String>,
+    kind: Option<String>,
     #[serde(flatten)]
     details: crate::agent::reports::ReportDetails,
 }
@@ -326,7 +431,14 @@ pub async fn submit_report(
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let result = state
         .svc
-        .submit_report(&id, &body.message, body.details)
+        .submit_report(
+            &id,
+            &body.message,
+            body.details,
+            body.plan_id.as_deref(),
+            body.task_id.as_deref(),
+            body.kind.as_deref(),
+        )
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(
         serde_json::json!({"ok": true, "report_id": result.report_id}),
@@ -412,6 +524,9 @@ pub async fn agent_restart_handler(
                 "provider": outcome.provider,
                 "session_id": outcome.session_id,
                 "session_was_stale": outcome.session_was_stale,
+                "session_action": outcome.session_action(),
+                "auto_approve": outcome.auto_approve,
+                "permission_profile": outcome.permission_profile(),
                 "force": outcome.force,
             })),
         )
@@ -458,8 +573,6 @@ pub async fn respond_prompt(
         .and_then(|v| v.as_str())
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing 'value' field".to_string()))?
         .to_string();
-    // respond_prompt's structured reply uses a BLOCKING reqwest client (it drops an
-    // internal runtime), which panics if run on the async runtime. Send it off the
     let svc = state.svc.clone();
     let pid = pane_id.clone();
     tokio::task::spawn_blocking(move || svc.respond_prompt(&pid, &value))
@@ -524,6 +637,99 @@ pub async fn list_agent_providers_public(
     ))))
 }
 
+/// Web-mirror twin of the `restart_general_agent` Tauri command — kills the
+/// protected General Agent pane's PTY and relaunches it. Fire-and-forget,
+/// same as the desktop command.
+pub async fn restart_general_agent(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let svc = state.svc.clone();
+    let mux = svc.mux.clone();
+    let pty = svc.pty.clone();
+    let screen_state = svc.screen_state.clone();
+    let config = state.config.clone();
+    let app = svc.app_handle.clone();
+    std::thread::spawn(move || {
+        crate::service::general_agent::restart_general_agent(
+            &svc,
+            &mux,
+            &pty,
+            &screen_state,
+            &config,
+            &app,
+        );
+    });
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub async fn restart_general_agent_pane(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    axum::extract::Path(pane_id): axum::extract::Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let svc = state.svc.clone();
+    let mux = svc.mux.clone();
+    let should_restart =
+        crate::service::general_agent::claim_general_agent_pane_retry(&pane_id, &mux)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    if !should_restart {
+        return Ok(Json(serde_json::json!({"ok": true, "restarted": false})));
+    }
+    let pty = svc.pty.clone();
+    let screen_state = svc.screen_state.clone();
+    let config = state.config.clone();
+    let app = svc.app_handle.clone();
+    std::thread::spawn(move || {
+        crate::service::general_agent::restart_general_agent(
+            &svc,
+            &mux,
+            &pty,
+            &screen_state,
+            &config,
+            &app,
+        );
+    });
+    Ok(Json(serde_json::json!({"ok": true, "restarted": true})))
+}
+
+#[derive(serde::Deserialize)]
+pub struct CompleteFirstRunBody {
+    pub provider_id: String,
+}
+
+/// Web-mirror twin of `complete_general_agent_first_run`.
+pub async fn complete_general_agent_first_run(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CompleteFirstRunBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let app = state.svc.app_handle.clone();
+    crate::service::general_agent::complete_first_run_core(
+        &state.svc,
+        &state.config,
+        &app,
+        &body.provider_id,
+    )
+    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Web-mirror twin of `install_provider_in_pane`.
+pub async fn install_provider_in_pane(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(provider_id): Path<String>,
+) -> Result<Json<crate::commands::InstallPaneResult>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    crate::commands::install_provider_in_pane_core(&state.svc, provider_id)
+        .map(Json)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -538,6 +744,21 @@ mod tests {
     fn spawn_body_empty_object() {
         let body: SpawnAgentBody = serde_json::from_str("{}").unwrap();
         assert_eq!(body.agent, None);
+    }
+
+    #[test]
+    fn spawn_role_validation_treats_empty_strings_as_absent() {
+        let role_probe = validate_spawn_role(Some("  ".into()), Some("".into())).unwrap();
+        assert!(role_probe.role.is_none());
+        assert!(role_probe.role_profile.is_none());
+    }
+
+    #[test]
+    fn spawn_role_validation_rejects_unknown_role_with_body() {
+        let (status, body) = validate_spawn_role(Some("Lead".into()), None).unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("Invalid role: Lead"));
+        assert!(!body.is_empty());
     }
 
     struct ListingShell;
@@ -674,12 +895,12 @@ mod tests {
         );
         assert_eq!(shell["transport"], "chat_backend");
         assert_eq!(shell["display_name"], "Local Shell");
-        assert_eq!(shell["available_models"][0]["id"], "qwen");
+        // list_models() getter, so this stays empty by design.
+        assert_eq!(shell["available_models"].as_array().unwrap().len(), 0);
     }
 
     #[test]
     fn provider_listing_hides_non_spawnable_chatbackends() {
-        // Regression: the NPC backend (bare `chatBackend: true`) wrongly showed
         // in the new-session picker. Only spawnable shells are listed.
         let registry = facade_with(&[
             ("local-shell", std::sync::Arc::new(ListingShell)),

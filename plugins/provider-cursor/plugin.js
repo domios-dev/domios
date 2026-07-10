@@ -65,8 +65,6 @@ var plugin = {
     }
     return true;
   },
-  // Cheap incremental gate: a selector glyph, a keyboard footer, or a
-  // trust/approval keyword means a prompt frame might be on screen → let the
   hasEventMarkers(chunk) {
     return chunkHasPromptSignal(String(chunk || ""));
   },
@@ -74,13 +72,9 @@ var plugin = {
   detectEvents(text) {
     return parseCursorPrompt(String(text || "")) ? ["permission_request"] : [];
   },
-  // Read cursor's alt-screen menu (permission / workspace-trust / model picker)
-  // into {question, options}. Returns null on non-menu output so normal chat
   parsePrompt(text) {
     return parseCursorPrompt(String(text || ""));
   },
-  // Cursor menus are vertical lists navigated with ↑/↓ + Enter. The highlight is
-  // NOT the top row — the /model picker lands the → selector on the CURRENT model —
   buildPromptResponse(optionIndex, screen) {
     const DOWN = "G1tC";
     const UP = "G1tB";
@@ -99,7 +93,6 @@ var plugin = {
   discoverModels() {
     return discoverCursorModels() || manifestModels();
   },
-  // Pre-write cursor's workspace-trust marker to bypass its one-time trust prompt,
   // but only under skip-permissions — that's the user's intentional "trust everything" flow.
   buildLaunchCommand(params) {
     const p = params || {};
@@ -135,7 +128,6 @@ var plugin = {
     const ms = meta.createdAtMs;
     return typeof ms === "number" ? ms : null;
   },
-  // Re-attach a restarted cursor pane to its session. Identity-bound, never
   // "newest-for-cwd" (capability rule #3): with 2+ viable candidates, refuse rather than hand over a sibling's session.
   detectSessionId(cwd, exclude, maxAgeMs) {
     const dir = cursorChatsDir(cwd);
@@ -271,9 +263,50 @@ var plugin = {
     }
     return out;
   },
-  // Cursor's interactive TUI has no usage gauge screen, so there's nothing to parse → null.
-  parseUsage(_rawText, _nowMs) {
-    return null;
+  // GetCurrentPeriodUsage carries everything: ready percentages + spend (cents) + billing cycle.
+  fetchUsage(nowMs) {
+    const token = readCursorToken();
+    if (!token) return null;
+    const current = cursorApi("GetCurrentPeriodUsage", {}, token);
+    if (!current) return null;
+    const planUsage = typeof current.planUsage === "object" && current.planUsage ? current.planUsage : null;
+    if (!planUsage) return null;
+    const spendCents = numFrom(planUsage.totalSpend);
+    if (spendCents == null) return null;
+    const limitCents = numFrom(planUsage.limit);
+    const includedSpendCents = numFrom(planUsage.includedSpend);
+    const remainingCents = limitCents != null && includedSpendCents != null ? Math.max(0, limitCents - includedSpendCents) : null;
+    return JSON.stringify({
+      totalPct: numFrom(planUsage.totalPercentUsed),
+      apiPct: numFrom(planUsage.apiPercentUsed),
+      autoPct: numFrom(planUsage.autoPercentUsed),
+      spendCents,
+      limitCents,
+      remainingCents,
+      resetsAtMs: numFrom(current.billingCycleEnd),
+      periodStartMs: numFrom(current.billingCycleStart),
+      fetchedAtMs: nowMs
+    });
+  },
+  // Cursor's API returns ready percentages — map verbatim, never re-derive.
+  parseUsage(rawText, nowMs) {
+    const data = safeJson(String(rawText || ""));
+    if (!data || typeof data.spendCents !== "number") return null;
+    const resetsAt = typeof data.resetsAtMs === "number" ? data.resetsAtMs : null;
+    return {
+      provider: "cursor",
+      account_id: null,
+      captured_at_ms: nowMs,
+      session_pct: typeof data.apiPct === "number" ? data.apiPct : null,
+      session_resets_at_ms: resetsAt,
+      weekly_pct: typeof data.totalPct === "number" ? data.totalPct : null,
+      weekly_resets_at_ms: resetsAt,
+      spend_cents: data.spendCents,
+      spend_limit_cents: typeof data.limitCents === "number" ? data.limitCents : null,
+      spend_remaining_cents: typeof data.remainingCents === "number" ? data.remainingCents : null,
+      spend_resets_at_ms: resetsAt,
+      raw_text: String(rawText || "")
+    };
   }
 };
 var CURSOR_UNAVAILABLE_RE = /\s*\((?:unavailable|locked|disabled|coming soon|not available|requires [^)]+|pro only|upgrade required)\)\s*/i;
@@ -591,6 +624,58 @@ function firstField(s) {
   const m = /^(.*?)\s{2,}\S/.exec(s);
   const label = (m ? m[1] : s).trim();
   return label.replace(/\s*\(tab to [^)]*\)\s*$/i, "").trim();
+}
+var CURSOR_API_BASE = "https://api2.cursor.sh/aiserver.v1.DashboardService/";
+function readCursorToken() {
+  const platform = host.platform();
+  let opts = null;
+  if (platform === "macos") {
+    opts = {
+      bin: "security",
+      args: ["find-generic-password", "-s", "cursor-access-token", "-a", "cursor-user", "-w"],
+      timeoutMs: 4e3
+    };
+  } else if (platform === "linux") {
+    opts = {
+      bin: "secret-tool",
+      args: ["lookup", "service", "cursor-access-token", "account", "cursor-user"],
+      timeoutMs: 4e3
+    };
+  }
+  if (!opts) return null;
+  const r = safeJson(host.exec(JSON.stringify(opts)));
+  if (r && r.code === 0 && typeof r.stdout === "string") {
+    const tok = r.stdout.trim();
+    if (tok) return tok;
+  }
+  return null;
+}
+function cursorApi(method, body, token) {
+  const raw = host.fetch(
+    JSON.stringify({
+      url: CURSOR_API_BASE + method,
+      method: "POST",
+      timeoutMs: 6e3,
+      headers: {
+        Authorization: "Bearer " + token,
+        "Content-Type": "application/json",
+        "connect-protocol-version": "1"
+      },
+      body: JSON.stringify(body)
+    })
+  );
+  const resp = safeJson(raw);
+  if (!resp || resp.status !== 200 || typeof resp.body !== "string") return null;
+  const parsed = safeJson(resp.body);
+  return parsed && typeof parsed === "object" ? parsed : null;
+}
+function numFrom(v) {
+  if (typeof v === "number" && isFinite(v)) return v;
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v);
+    if (isFinite(n)) return n;
+  }
+  return null;
 }
 function toExcludeList(exclude) {
   if (Array.isArray(exclude)) return exclude;

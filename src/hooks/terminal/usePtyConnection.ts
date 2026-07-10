@@ -1,8 +1,9 @@
 import { useEffect, useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
-import { invoke, IS_WEB, resetWebPtyTail } from "../../lib/bridge";
-import { useMultiplexer } from "../../store/multiplexer";
+import { invoke, IS_WEB, isPtyDeadError, resetWebPtyTail, takePtyTruncation } from "../../lib/bridge";
+import { subscribePaneOutput, webOutputStreamActive, type PaneOutputSink } from "../../lib/outputStream";
+import { useMuxSelector } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
 
@@ -19,6 +20,7 @@ export interface UsePtyConnectionOptions {
   jiggleResize: (ptyId: string) => void;
   localFitEnabled?: boolean;
   ioEnabled?: boolean;
+  renderEnabled?: boolean;
   resizeClientId?: string;
 }
 
@@ -39,10 +41,16 @@ export function usePtyConnection({
   jiggleResize,
   localFitEnabled = true,
   ioEnabled = true,
+  renderEnabled = true,
   resizeClientId,
 }: UsePtyConnectionOptions): UsePtyConnectionReturn {
-  const { state } = useMultiplexer();
+  const paneCwd = useMuxSelector(
+    (s) => s.panes[paneId]?.cwd ?? null,
+    (a, b) => a === b,
+  );
   const localFitEnabledRef = useRef(localFitEnabled);
+  const renderEnabledRef = useRef(renderEnabled);
+  const hiddenPendingRef = useRef<Uint8Array[]>([]);
   // Web resets the tail cursor once per mount; toggles resume it.
   const webReplayedPtysRef = useRef<Set<string>>(new Set());
   // xterm instance is keep-alive (never destroyed on tab switch); replay scrollback only once per pane lifetime.
@@ -51,6 +59,17 @@ export function usePtyConnection({
   useEffect(() => {
     localFitEnabledRef.current = localFitEnabled;
   }, [localFitEnabled]);
+
+  useEffect(() => {
+    renderEnabledRef.current = renderEnabled;
+    if (!renderEnabled || hiddenPendingRef.current.length === 0) return;
+    const term = termRef.current;
+    if (!term) return;
+    for (const chunk of hiddenPendingRef.current) {
+      term.write(chunk);
+    }
+    hiddenPendingRef.current = [];
+  }, [renderEnabled, termRef]);
 
   const writePty = useCallback((data: string) => {
     const id = connectedPtyRef.current;
@@ -61,10 +80,8 @@ export function usePtyConnection({
     const term = termRef.current;
     if (!term || !termReady || !ioEnabled) return;
 
-    // Already connected to a PTY
     if (connectedPtyRef.current !== null) {
       if (ptyId && connectedPtyRef.current !== ptyId) {
-        // ptyId changed, will reconnect below
       } else {
         return;
       }
@@ -76,13 +93,16 @@ export function usePtyConnection({
     const setupAndConnect = async () => {
       const predictedId = ptyId || uid();
       connectedPtyRef.current = predictedId;
+      // user killswitched it back via localStorage `codeterm-web-output-stream=off`.
+      const useOutputStream = webOutputStreamActive();
 
-      // Replay scrollback only on first mount — xterm is keep-alive (never destroyed on tab switch),
       // so re-sending up to 2MB of ANSI on every tab activation is wasteful.
       if (ptyId && IS_WEB) {
         if (!webReplayedPtysRef.current.has(ptyId)) {
           webReplayedPtysRef.current.add(ptyId);
-          resetWebPtyTail(ptyId);
+          // Stream mode replays via its own pane-keyed offset tracking (outputStream.ts);
+          // the long-poll tail cursor only matters to the read_pty fallback transport.
+          if (!useOutputStream) resetWebPtyTail(ptyId);
         }
       } else if (ptyId) {
         if (!replayDoneRef.current.has(ptyId)) {
@@ -125,7 +145,6 @@ export function usePtyConnection({
         });
       }
 
-      // Read loop with flow control
       let reading = true;
       let firstData = true;
       let staleRespawnStarted = false;
@@ -136,6 +155,9 @@ export function usePtyConnection({
       let pendingWriteChunks: Uint8Array[] = [];
       let pendingWriteLength = 0;
       let writeFrame: number | null = null;
+      const TRANSIENT_RETRY_BASE_MS = 500;
+      const TRANSIENT_RETRY_MAX_MS = 8_000;
+      let transientRetryMs = TRANSIENT_RETRY_BASE_MS;
 
       const waitForDrain = (): Promise<void> => {
         if (!readPaused) return Promise.resolve();
@@ -170,22 +192,52 @@ export function usePtyConnection({
           }
         });
 
-        const tail = payload.length > 200 ? payload.slice(payload.length - 200) : payload;
-        try {
-          const text = new TextDecoder().decode(tail);
-          onOutputChunk(text);
-        } catch { /* ignore decode errors */ }
-
         if (firstData) {
           firstData = false;
         }
       };
 
       const enqueueTermWrite = (chunk: Uint8Array) => {
+        const tail = chunk.length > 200 ? chunk.slice(chunk.length - 200) : chunk;
+        try {
+          const text = new TextDecoder().decode(tail);
+          onOutputChunk(text);
+        } catch { /* ignore decode errors */ }
+
+        if (!renderEnabledRef.current) {
+          hiddenPendingRef.current.push(chunk);
+          if (firstData) firstData = false;
+          return;
+        }
+
         pendingWriteChunks.push(chunk);
         pendingWriteLength += chunk.length;
         if (writeFrame == null) {
           writeFrame = requestAnimationFrame(flushPendingWrites);
+        }
+      };
+
+      // multiplexed output stream's `{ended: true}` frame both mean the same thing.
+      const respawnStalePty = async () => {
+        if (staleRespawnStarted) return;
+        staleRespawnStarted = true;
+        reading = false;
+        connectedPtyRef.current = null;
+        term.writeln("\r\n\x1b[90m[PTY disappeared, reconnecting...]\x1b[0m");
+
+        try {
+          const cols = Math.max(term.cols, 80);
+          const rows = Math.max(term.rows, 24);
+          const paneData = paneCwd != null ? { cwd: paneCwd } : undefined;
+          const cwd = consumePendingCwd(paneId) || paneData?.cwd || undefined;
+          const spawnedId = await invoke<string>("spawn_pty", { cols, rows, cwd, paneId });
+          if (!disposed) {
+            onPtySpawned?.(paneId, spawnedId);
+            connectedPtyRef.current = null;
+          }
+        } catch (respawnError) {
+          console.warn("Failed to respawn stale PTY:", respawnError);
+          term.writeln("\r\n\x1b[31m[Failed to reconnect PTY]\x1b[0m");
         }
       };
 
@@ -195,6 +247,15 @@ export function usePtyConnection({
             if (readPaused) await waitForDrain();
 
             const data = await invoke<number[]>("read_pty", { ptyId: predictedId });
+            transientRetryMs = TRANSIENT_RETRY_BASE_MS;
+
+            const truncatedFrom = takePtyTruncation(predictedId);
+            if (truncatedFrom != null) {
+              term.writeln(
+                `\r\n\x1b[90m[output truncated — resuming from byte ${truncatedFrom}]\x1b[0m`,
+              );
+            }
+
             if (data && data.length > 0) {
               const chunk = new Uint8Array(data);
 
@@ -204,67 +265,46 @@ export function usePtyConnection({
               enqueueTermWrite(chunk);
             }
           } catch (e) {
-            if (reading) {
-              const message = e instanceof Error ? e.message : String(e);
-              const stalePty =
-                !!ptyId && (message.includes("PTY not found") || message.includes("PTY closed"));
+            if (!reading || disposed) break; // torn down mid-read — silent stop
 
-              if (stalePty && !staleRespawnStarted && !disposed) {
-                staleRespawnStarted = true;
-                reading = false;
-                connectedPtyRef.current = null;
-                term.writeln("\r\n\x1b[90m[PTY disappeared, reconnecting...]\x1b[0m");
-
-                try {
-                  const cols = Math.max(term.cols, 80);
-                  const rows = Math.max(term.rows, 24);
-                  const paneData = state.panes[paneId];
-                  const cwd = consumePendingCwd(paneId) || paneData?.cwd || undefined;
-                  const spawnedId = await invoke<string>("spawn_pty", {
-                    cols,
-                    rows,
-                    cwd,
-                    paneId,
-                  });
-                  if (!disposed) {
-                    onPtySpawned?.(paneId, spawnedId);
-                    connectedPtyRef.current = null;
-                  }
-                } catch (respawnError) {
-                  console.warn("Failed to respawn stale PTY:", respawnError);
-                  term.writeln("\r\n\x1b[31m[Failed to reconnect PTY]\x1b[0m");
-                }
-              } else {
-                term.writeln("\r\n\x1b[90m[Process exited]\x1b[0m");
-              }
+            if (isPtyDeadError(e)) {
+              await respawnStalePty();
+              break;
             }
-            break;
+
+            // only advances it on a successful response), nothing printed.
+            await new Promise((resolve) => setTimeout(resolve, transientRetryMs));
+            transientRetryMs = Math.min(transientRetryMs * 2, TRANSIENT_RETRY_MAX_MS);
           }
         }
       };
-      // Resize sync
       const onResizeDisposable = term.onResize(({ cols, rows }) => {
         invoke("resize_pty", { ptyId: predictedId, cols, rows, clientId: resizeClientId });
       });
       cleanupFns.push(() => onResizeDisposable.dispose());
 
-      // Spawn PTY if needed
+      if (IS_WEB && !useOutputStream) {
+        const onBootChanged = () => resetWebPtyTail(predictedId);
+        window.addEventListener("codeterm-web-boot-changed", onBootChanged);
+        cleanupFns.push(() =>
+          window.removeEventListener("codeterm-web-boot-changed", onBootChanged),
+        );
+      }
+
       if (!ptyId) {
         const cols = Math.max(term.cols, 80);
         const rows = Math.max(term.rows, 24);
-        const paneData = state.panes[paneId];
-        const cwd = consumePendingCwd(paneId) || paneData?.cwd || undefined;
+        const cwd = consumePendingCwd(paneId) || paneCwd || undefined;
         const spawnedId = await invoke<string>("spawn_pty", {
           cols, rows, predictedId, cwd, paneId,
         });
         if (disposed) {
-          // spawn_pty links the PTY to the pane before it resolves. If this component unmounts during a chat/terminal mode switch or tab remount,
           // killing here leaves backend pane state pointing at a dead PTY. Pane/tab close paths own real teardown.
           return;
         }
         onPtySpawned?.(paneId, spawnedId);
 
-        if (!paneData?.cwd) {
+        if (!cwd) {
           const defaultCwd = await invoke<string>("get_default_cwd").catch(() => null);
           if (defaultCwd) {
             invoke("mux_update_pane_cwd", { paneId, cwd: defaultCwd }).catch(() => {});
@@ -273,7 +313,6 @@ export function usePtyConnection({
 
         onShellReady();
 
-        // Sync PTY size with actual xterm dimensions
         requestAnimationFrame(() => {
           if (!localFitEnabledRef.current) return;
           try {
@@ -292,9 +331,26 @@ export function usePtyConnection({
         });
       }
 
-      readLoop();
+      let unsubscribeOutputStream: (() => void) | null = null;
+      if (useOutputStream) {
+        const sink: PaneOutputSink = {
+          onOutput: (text) => enqueueTermWrite(new TextEncoder().encode(text)),
+          onTruncated: (from) => {
+            term.writeln(
+              `\r\n\x1b[90m[output truncated — resuming from byte ${from}]\x1b[0m`,
+            );
+          },
+          onEnded: () => {
+            void respawnStalePty();
+          },
+        };
+        unsubscribeOutputStream = subscribePaneOutput(paneId, sink);
+      } else {
+        readLoop();
+      }
       cleanupFns.push(() => {
         reading = false;
+        unsubscribeOutputStream?.();
         if (writeFrame != null) {
           cancelAnimationFrame(writeFrame);
           writeFrame = null;
@@ -314,7 +370,7 @@ export function usePtyConnection({
       for (const fn of cleanupFns) fn();
       connectedPtyRef.current = null;
     };
-  }, [ptyId, paneId, termReady, ioEnabled, resizeClientId, onPtySpawned]);
+  }, [ptyId, paneId, paneCwd, termReady, ioEnabled, renderEnabled, resizeClientId, onPtySpawned]);
 
   return { writePty };
 }

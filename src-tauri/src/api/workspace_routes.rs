@@ -12,13 +12,14 @@ pub async fn list_workspaces(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let result = crate::dispatch::dispatch(&crate::dispatch::Command::WorkspaceList, &state.svc)
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to list workspaces",
-            )
-        })?;
+    let result =
+        crate::dispatch::dispatch(&crate::dispatch::Command::WorkspaceList, state.svc.as_ref())
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to list workspaces",
+                )
+            })?;
     Ok(Json(result.into_json()))
 }
 
@@ -48,7 +49,7 @@ pub async fn create_workspace(
         cwd: body.cwd,
         activate: body.activate,
     };
-    let result = crate::dispatch::dispatch(&cmd, &state.svc).map_err(|_| {
+    let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref()).map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "Failed to create workspace",
@@ -75,19 +76,26 @@ pub(crate) struct RenameWorkspaceBody {
     name: String,
 }
 
+fn map_rename_error(e: String) -> (StatusCode, String) {
+    if e.contains("not found") {
+        (StatusCode::NOT_FOUND, e)
+    } else {
+        (StatusCode::INTERNAL_SERVER_ERROR, e)
+    }
+}
+
 pub async fn rename_workspace(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<RenameWorkspaceBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let cmd = crate::dispatch::Command::WorkspaceRename {
         workspace_id: id,
         name: body.name,
     };
-    let result = crate::dispatch::dispatch(&cmd, &state.svc)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
+    let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref()).map_err(map_rename_error)?;
     Ok(Json(result.into_json()))
 }
 
@@ -95,11 +103,15 @@ pub async fn close_workspace(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let cmd = crate::dispatch::Command::WorkspaceClose { workspace_id: id };
-    let result = crate::dispatch::dispatch(&cmd, &state.svc)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let caller_pane_id = crate::api::pane_routes::caller_pane_header(&headers);
+    let cmd = crate::dispatch::Command::WorkspaceClose {
+        workspace_id: id,
+        caller_pane_id,
+    };
+    let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref())
+        .map_err(crate::api::pane_routes::map_close_error)?;
     Ok(Json(result.into_json()))
 }
 
@@ -110,7 +122,7 @@ pub async fn list_recently_closed(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let cmd = crate::dispatch::Command::WorkspaceRecentlyClosed { workspace_id: id };
-    let result = crate::dispatch::dispatch(&cmd, &state.svc).map_err(|_| {
+    let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref()).map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "Failed to list recently closed",
@@ -137,7 +149,7 @@ pub async fn reopen_closed_pane(
         workspace_id: id,
         index,
     };
-    let result = crate::dispatch::dispatch(&cmd, &state.svc)
+    let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref())
         .map_err(|_| (StatusCode::NOT_FOUND, "No recently closed pane"))?;
     Ok(Json(result.into_json()))
 }
@@ -149,7 +161,7 @@ pub async fn reopen_closed_group(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let cmd = crate::dispatch::Command::WorkspaceReopenClosedGroup { group_id };
-    let result = crate::dispatch::dispatch(&cmd, &state.svc)
+    let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref())
         .map_err(|_| (StatusCode::NOT_FOUND, "No closed group"))?;
     Ok(Json(result.into_json()))
 }
@@ -234,12 +246,12 @@ pub async fn rename_tab(
     headers: HeaderMap,
     Path((workspace_id, tab_id)): Path<(String, String)>,
     Json(body): Json<RenameTabBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     state
         .svc
         .rename_tab(&workspace_id, &tab_id, &body.title)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found"))?;
+        .map_err(map_rename_error)?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -254,9 +266,6 @@ pub async fn create_tab(
         .svc
         .create_tab_with_activate(&workspace_id, false)
         .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
-    let _ = state
-        .svc
-        .set_pane_role(&pane_id, "Orchestrator", None, Some(true));
     let eager = body.map(|Json(b)| b.eager).unwrap_or(false);
     let pty_id = if eager {
         state
@@ -272,14 +281,7 @@ pub async fn create_tab(
     } else {
         None
     };
-    let title = state
-        .svc
-        .mux
-        .write()
-        .get_workspace(&workspace_id)
-        .and_then(|ws| ws.tabs.iter().find(|tab| tab.id == tab_id))
-        .map(|tab| tab.title.clone())
-        .unwrap_or_else(|| "Tab".to_string());
+    let title = state.svc.mux.read().display_label_for_pane(&pane_id);
     Ok(Json(serde_json::json!({
         "id": tab_id.clone(),
         "title": title,

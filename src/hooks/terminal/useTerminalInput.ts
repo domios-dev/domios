@@ -35,7 +35,6 @@ export function useTerminalInput({
     if (selection) navigator.clipboard.writeText(selection).catch(() => {});
   }, [termRef]);
 
-  // Programmatic paste — called from the custom right-click menu and the Ctrl+Shift+V window-level handler. Funnels through the same unified
   // route as the keyboard path so file/image/text handling is consistent.
   const pasteFromClipboard = useCallback(() => {
     const term = termRef.current;
@@ -85,7 +84,6 @@ export function useTerminalInput({
       if (currentPty) invoke("write_pty_string", { ptyId: currentPty, data });
     });
 
-    // Safety net for paste events we didn't originate from the keydown path — WebView2 native context menu "Paste", programmatic
     // execCommand("paste"), etc. Capture phase + stopImmediatePropagation cancels xterm.js's own bubble-phase listener (#1803, #3516) so routeClipboardToTerm fires exactly once.
     const el = containerRef.current;
     const onPaste = (ev: Event) => {

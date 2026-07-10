@@ -1,15 +1,16 @@
 use super::*;
 
 #[test]
-fn usage_tracking_section_renders_off_by_default() {
+fn usage_tracking_section_defaults_on() {
     let section = usage_tracking_section("/usage");
     match section {
-        SettingField::Section { fields, .. } => {
+        SettingField::Section { fields, title, .. } => {
+            assert_eq!(title, "Usage Tracking");
             assert_eq!(fields.len(), 1);
             match &fields[0] {
                 SettingField::Toggle { key, default, .. } => {
                     assert_eq!(key, "usage_tracking_enabled");
-                    assert!(!default, "tracking must default to OFF");
+                    assert!(*default, "tracking must default to ON");
                 }
                 other => panic!("expected Toggle, got {:?}", other),
             }
@@ -94,9 +95,12 @@ fn provider_descriptor_round_trip() {
             cli_binary: Some("testcli".into()),
             install_command: Some("npm i -g testcli".into()),
             model_switch_format: Some("/model {model}".into()),
+            fresh_context_command: Some("/new".into()),
+            compact_command: Some("/compact".into()),
             supports_stop: true,
             supports_chat_ui: true,
             supports_structured_prompts: true,
+            supports_watcher: false,
             trust: ProviderTrust::System,
             transport: ProviderTransport::ChatBackend,
             behavior_config: BehaviorConfig::PresetsAndSystemPrompt,

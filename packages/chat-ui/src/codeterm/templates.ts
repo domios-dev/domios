@@ -4,15 +4,51 @@ export interface CardStatus {
   ok: boolean;
   label: string;
 }
+export interface PlanLink {
+  planId: string;
+  taskId?: string;
+}
 export interface RenderedCard {
   icon: string;
   title: string;
   detail?: string;
   status?: CardStatus;
+  link?: PlanLink;
 }
 
 /** Resolve a pane id/short-id to a human tab name. Returns undefined when unknown. */
 export type PaneNameResolver = (paneRef: string) => string | undefined;
+
+const TASK_RE = /task_[0-9a-f]{32}/;
+const PLAN_RE = /pl_[0-9a-f]{32}/;
+
+function strFlag(inv: CodetermInvocation, key: string): string | undefined {
+  const v = inv.flags[key];
+  return typeof v === "string" ? v : undefined;
+}
+
+function firstMatch(re: RegExp, ...texts: Array<string | undefined>): string | undefined {
+  for (const t of texts) {
+    if (!t) continue;
+    const m = t.match(re);
+    if (m) return m[0];
+  }
+  return undefined;
+}
+
+/** Recover the (planId, taskId) a plan-family invocation points at. */
+export function planLink(inv: CodetermInvocation, result?: string): PlanLink | undefined {
+  const planId =
+    strFlag(inv, "plan") ??
+    inv.positionals.find((p) => PLAN_RE.test(p)) ??
+    firstMatch(PLAN_RE, result, inv.raw);
+  if (!planId) return undefined;
+  const taskId =
+    strFlag(inv, "task") ??
+    inv.positionals.find((p) => /^task_[0-9a-f]{32}$/.test(p)) ??
+    firstMatch(TASK_RE, result);
+  return taskId ? { planId, taskId } : { planId };
+}
 
 function pane(inv: CodetermInvocation, resolve?: PaneNameResolver): string {
   const p = inv.flags.pane;
@@ -34,6 +70,33 @@ function deliveredStatus(result?: string): CardStatus | undefined {
   return undefined;
 }
 
+export interface SentMessage {
+  /** Resolved tab name, or `pane <ref>` / `current pane` fallback. */
+  recipient: string;
+  mesh?: string;
+  body: string;
+  status?: CardStatus;
+}
+
+/** Parse a `codeterm send` invocation into an outgoing-message descriptor. */
+export function parseSend(
+  inv: CodetermInvocation,
+  result?: string,
+  resolve?: PaneNameResolver,
+): SentMessage {
+  const p = inv.flags.pane;
+  let recipient: string;
+  if (typeof p !== "string") recipient = "current pane";
+  else recipient = resolve?.(p) ?? `pane ${p}`;
+  const mesh = typeof inv.flags.mesh === "string" ? inv.flags.mesh : undefined;
+  return { recipient, mesh, body: inv.positionals[0] ?? "", status: deliveredStatus(result) };
+}
+
+/** True when this invocation is an outgoing `codeterm send`. */
+export function isSend(inv: CodetermInvocation): boolean {
+  return inv.path.length === 1 && inv.path[0] === "send";
+}
+
 type TemplateFn = (inv: CodetermInvocation, result?: string, resolve?: PaneNameResolver) => RenderedCard;
 
 const sendTextTemplate: TemplateFn = (inv, result, resolve) => {
@@ -46,8 +109,43 @@ const sendTextTemplate: TemplateFn = (inv, result, resolve) => {
   };
 };
 
+const planTaskTemplate: TemplateFn = (inv, result) => {
+  const action = inv.positionals[0];
+  const link = planLink(inv, result);
+  if (action === "update") {
+    const status = strFlag(inv, "status");
+    return { icon: "🔄", title: status ? `Task status → ${status}` : "Task updated", link };
+  }
+  if (action === "add") {
+    const name = strFlag(inv, "title");
+    return { icon: "🗂", title: name ? `Task created: ${name}` : "Task created", link };
+  }
+  return { icon: "🗂", title: `Plan task ${action ?? ""}`.trim(), link };
+};
+
+const planRecordTemplate: TemplateFn = (inv, result) => {
+  const kind = strFlag(inv, "kind");
+  const note = inv.positionals[0] ?? strFlag(inv, "note");
+  const firstLine = note ? note.split("\n")[0] : undefined;
+  return {
+    icon: "📝",
+    title: kind ? `Plan updated: ${kind}` : "Plan updated",
+    detail: firstLine,
+    link: planLink(inv, result),
+  };
+};
+
+const planStateTemplate: TemplateFn = (inv, result) => ({
+  icon: "🗺",
+  title: "Plan state",
+  link: planLink(inv, result),
+});
+
 const TEMPLATES: Record<string, TemplateFn> = {
   send: sendTextTemplate,
+  "plan task": planTaskTemplate,
+  "plan record": planRecordTemplate,
+  "plan state": planStateTemplate,
   "agent spawn": (inv) => ({
     icon: "🤖",
     title: `Spawned ${inv.positionals[0] ?? "claude"}`,

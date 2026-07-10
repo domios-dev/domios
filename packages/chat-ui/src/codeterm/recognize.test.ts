@@ -1,4 +1,3 @@
-// Run: npx tsx packages/chat-ui/src/codeterm/recognize.test.ts
 import { recognize } from "./recognize";
 
 let passed = 0,
@@ -27,6 +26,12 @@ eq(inv?.positionals, ["Понял, буду"], "send positional payload");
 
 eq(recognize('codeterm agent spawn claude --task "go"')?.path, ["agent", "spawn"], "agent spawn path");
 eq(recognize("CODETERM_API_PORT=7686 codeterm pane list")?.path, ["pane", "list"], "env-prefix stripped");
+eq(recognize("cd frontend && codeterm agent reports")?.path, ["agent", "reports"], "cd-prefix chain strips to codeterm segment");
+eq(
+  recognize("env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm plan state pl_1")?.path,
+  ["plan", "state"],
+  "env wrapper stripped",
+);
 ok(recognize("~/.codeterm/bin/codeterm mem search foo") !== null, "abs path binary recognized");
 ok(recognize("ls -la") === null, "non-codeterm → null");
 ok(recognize('echo hi | codeterm send "x"') === null, "buried after pipe → null");

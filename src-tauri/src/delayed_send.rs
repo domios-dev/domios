@@ -7,7 +7,6 @@ use std::{
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tauri::Emitter;
 
 use crate::service::ServiceState;
 
@@ -409,12 +408,15 @@ pub fn start_scheduler(svc: ServiceState) {
 }
 
 async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), String> {
-    // Route through the storage-aware Messenger gateway at fire time: a PTY
-    // recipient gets the reminder text prefix, a chatBackend recipient gets a
     let envelope = reminder_envelope(&msg);
     let svc_for_deliver = svc.clone();
     let pane_id = msg.pane_id.clone();
-    let body = msg.text.clone();
+    let body = svc
+        .plan_store
+        .prepend_heartbeat_for_orchestrator_pane(&pane_id, &msg.text);
+    let body = svc
+        .plan_store
+        .prepend_worker_charter_for_pane(&pane_id, &body);
     let result = tokio::task::spawn_blocking(move || {
         crate::service::messenger::Messenger::deliver(&svc_for_deliver, &pane_id, envelope, &body)
     })
@@ -479,7 +481,8 @@ fn to_view(svc: &ServiceState, msg: DelayedMessage) -> DelayedMessageView {
 }
 
 fn emit_changed(svc: &ServiceState, pane_id: &str) {
-    let _ = svc.app_handle.emit(
+    crate::api::events::emit_everywhere(
+        &svc.app_handle,
         "delayed-send-changed",
         serde_json::json!({ "paneId": pane_id }),
     );

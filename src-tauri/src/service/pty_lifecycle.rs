@@ -9,11 +9,18 @@
 //! The loop exits gracefully on EOF (PTY closed) and marks the pane as Dead.
 
 use std::io::Read;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use tauri::Emitter;
 use tokio::task::JoinHandle;
 
 use super::ServiceState;
+
+fn epoch_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 /// Start a backend read loop for the given PTY.
 ///
@@ -25,51 +32,93 @@ use super::ServiceState;
 /// `headless` = no frontend xterm will attach (API/`ensure_pane_pty_for_send`
 /// spawns). Such panes have nobody to answer PowerShell's CSI 6n cursor query,
 /// so the reader must answer it itself or PowerShell blocks forever at init.
-pub fn start_backend_reader(
+pub struct PreparedBackendReader {
+    reader: Box<dyn Read + Send>,
+    frontend_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
+    lease: BackendReaderLease,
+}
+
+/// Synchronously claim the PTY stream: clone the reader AND register the
+/// frontend channel in one step. Doing this BEFORE the pane becomes visible
+/// closes the race where read_pty attaches first, clones a second raw reader,
+/// and the two readers split the byte stream (eaten prompts, blank terminals).
+/// Returns Ok(None) when a backend reader is already active.
+pub fn prepare_backend_reader(
     svc: &ServiceState,
     pty_id: &str,
-    headless: bool,
-) -> Result<JoinHandle<()>, String> {
-    // Clone a reader from the PTY master — independent from the primary reader. Also set up the frontend channel so read_pty can receive forwarded
-    // bytes.
-    let (reader, frontend_tx) = {
-        let manager = svc.pty.lock();
-        if manager.has_backend_reader(pty_id) {
-            let id = pty_id.to_string();
-            return Ok(tokio::spawn(async move {
-                log::debug!(
-                    "[backend-reader] already active for pty {}",
-                    &id[..id.len().min(8)]
-                );
-            }));
-        }
-        let session = manager
-            .get_session(pty_id)
-            .ok_or_else(|| format!("PTY not found: {}", pty_id))?;
-        let pair = session.pair.lock().unwrap();
-        let r = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
-        drop(pair);
-        let tx = manager
-            .setup_backend_channel(pty_id)
-            .ok_or_else(|| format!("Failed to set up backend channel for PTY: {}", pty_id))?;
-        (r, tx)
+) -> Result<Option<PreparedBackendReader>, String> {
+    let manager = svc.pty.lock();
+    if manager.has_backend_reader(pty_id) {
+        return Ok(None);
+    }
+    let session = manager
+        .get_session(pty_id)
+        .ok_or_else(|| format!("PTY not found: {}", pty_id))?;
+    let pair_guard = session.pair.lock().unwrap();
+    let Some(pair) = pair_guard.as_ref() else {
+        return Err(format!("PTY {} is closed", pty_id));
     };
+    let reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
+    drop(pair_guard);
+    let frontend_tx = manager
+        .setup_backend_channel(pty_id)
+        .ok_or_else(|| format!("Failed to set up backend channel for PTY: {}", pty_id))?;
+    session
+        .backend_reader_active
+        .store(true, std::sync::atomic::Ordering::Release);
+    Ok(Some(PreparedBackendReader {
+        reader,
+        frontend_tx,
+        lease: BackendReaderLease(session),
+    }))
+}
 
+/// Run the read loop for a stream claimed via `prepare_backend_reader`.
+pub fn spawn_prepared_backend_reader(
+    svc: &ServiceState,
+    pty_id: &str,
+    prepared: PreparedBackendReader,
+    headless: bool,
+) -> JoinHandle<()> {
     let svc = svc.clone();
     let pty_id = pty_id.to_string();
-
-    let handle = tokio::spawn(async move {
+    let PreparedBackendReader {
+        reader,
+        frontend_tx,
+        lease,
+    } = prepared;
+    tokio::spawn(async move {
+        let _lease = lease;
         log::info!(
             "[backend-reader] started for pty {}",
             &pty_id[..pty_id.len().min(8)]
         );
         backend_read_loop(reader, svc, pty_id, frontend_tx, true, headless).await;
-    });
+    })
+}
 
-    Ok(handle)
+pub fn start_backend_reader(
+    svc: &ServiceState,
+    pty_id: &str,
+    headless: bool,
+) -> Result<JoinHandle<()>, String> {
+    match prepare_backend_reader(svc, pty_id)? {
+        Some(prepared) => Ok(spawn_prepared_backend_reader(
+            svc, pty_id, prepared, headless,
+        )),
+        None => {
+            let id = pty_id.to_string();
+            Ok(tokio::spawn(async move {
+                log::debug!(
+                    "[backend-reader] already active for pty {}",
+                    &id[..id.len().min(8)]
+                );
+            }))
+        }
+    }
 }
 
 /// The actual read loop — runs until EOF or error.
@@ -83,11 +132,6 @@ async fn backend_read_loop(
 ) {
     let mut first_byte_logged = false;
     loop {
-        let ob = svc.output_buf.clone();
-        let ss = svc.screen_state.clone();
-        let svc_for_watcher = svc.clone();
-        let pid = pty_id.clone();
-
         // Blocking read in a dedicated thread — same pattern as read_pty.
         let result = tokio::task::spawn_blocking(move || {
             let mut buf = vec![0u8; 8192];
@@ -96,14 +140,6 @@ async fn backend_read_loop(
                 return Err("EOF".to_string());
             }
             buf.truncate(n);
-
-            // Feed data into shared buffers (same as read_pty).
-            ob.lock().append(&pid, &buf);
-            ss.lock().process(&pid, &buf);
-            // Auto-complete watcher: detects {"type":"result"} events, idle, or timeout.
-            svc_for_watcher
-                .run_watcher
-                .feed(&*svc_for_watcher, &pid, &buf);
 
             Ok((buf, reader))
         })
@@ -125,8 +161,6 @@ async fn backend_read_loop(
                     }
                 }
 
-                // Answer CSI 6n only for hidden/headless panes. Visible panes let
-                // xterm answer with the REAL cursor position — answering here with a
                 if data.windows(4).any(|w| w == b"\x1b[6n") {
                     let is_hidden = {
                         let mux = svc.mux.write();
@@ -141,28 +175,15 @@ async fn backend_read_loop(
                             .map(|ro| ro.lock().get(&pty_id).is_none())
                             .unwrap_or(true)
                     };
-                    if is_hidden || (headless && no_owner()) {
+                    if should_answer_cursor_query(is_hidden, headless, no_owner()) {
                         let _ = svc.pty.lock().write(&pty_id, b"\x1b[1;1R");
                     }
                 }
-
-                let (prev, now) = svc.process_pty_output(&pty_id, &data);
+                let (prev, now) = svc.feed_pty_output(&pty_id, &data);
 
                 let _ = frontend_tx.try_send(data.clone());
 
-                if now != prev {
-                    let pane_id = svc.mux.read().pane_id_for_pty(&pty_id);
-                    if let Some(ref pid) = pane_id {
-                        crate::api::events::emit_everywhere(
-                            &svc.app_handle,
-                            "pane-status-changed",
-                            serde_json::json!({
-                                "pane_id": pid,
-                                "status": format!("{:?}", now),
-                            }),
-                        );
-                    }
-                }
+                svc.emit_pane_status_if_changed(&pty_id, prev, now);
             }
             Ok(Err(_e)) => {
                 // EOF — PTY closed.
@@ -195,6 +216,7 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
     svc.shell_caps.lock().remove(pty_id);
 
     if let Some(ref pid) = pane_id {
+        svc.flag_bound_tasks_for_gone_pane(pid, epoch_ms());
         crate::api::events::emit_everywhere(
             &svc.app_handle,
             "pane-status-changed",
@@ -227,26 +249,84 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
                     job_id,
                     run_id
                 );
-                let _ = svc.app_handle.emit("cron-state-changed", ());
+                crate::api::events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
             }
         }
 
-        // Worker-death watchdog (parallel to the cron fallback): a hierarchy
-        // worker whose PTY dies WITHOUT having emitted a report leaves its
         let watchdog = {
             let mux = svc.mux.read();
             let store = svc.report_store.lock();
             crate::service::hierarchy::worker_death_report(&mux, &store, pid)
         };
         if let Some((target_id, msg)) = watchdog {
-            match svc.submit_report(pid, &msg, Default::default()) {
+            let role_tag = if msg.starts_with("MANAGER ") {
+                "manager-death"
+            } else {
+                "worker-death"
+            };
+            match svc.submit_report(pid, &msg, Default::default(), None, None, None) {
                 Ok(_) => log::info!(
-                    "[worker-death] synthesized dead-report for worker {} -> {}",
+                    "[{}] synthesized dead-report for {} -> {}",
+                    role_tag,
                     pid,
                     target_id
                 ),
-                Err(e) => log::warn!("[worker-death] synthetic report failed for {}: {}", pid, e),
+                Err(e) => log::warn!("[{}] synthetic report failed for {}: {}", role_tag, pid, e),
             }
         }
+
+        let leaf_role = svc
+            .mux
+            .read()
+            .get_pane(pid)
+            .and_then(|p| match p.role {
+                Some(crate::multiplexer::types::AgentRole::Manager) => Some("manager"),
+                Some(crate::multiplexer::types::AgentRole::Worker) => Some("worker"),
+                _ => None,
+            })
+            .map(str::to_string);
+        if let Some(role_label) = leaf_role {
+            if let Err(e) = svc.close_pane(pid) {
+                log::warn!(
+                    "[{}-death] prune of dead {} {} failed: {}",
+                    role_label,
+                    role_label,
+                    pid,
+                    e
+                );
+            }
+        }
+    }
+}
+
+struct BackendReaderLease(std::sync::Arc<crate::pty::manager::PtySession>);
+
+impl Drop for BackendReaderLease {
+    fn drop(&mut self) {
+        self.0
+            .backend_reader_active
+            .store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
+fn should_answer_cursor_query(is_hidden: bool, _headless: bool, no_owner: bool) -> bool {
+    is_hidden || no_owner
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn cursor_query_is_answered_for_visible_pane_before_renderer_owns_pty() {
+        assert!(super::should_answer_cursor_query(false, false, true));
+    }
+
+    #[test]
+    fn cursor_query_is_left_to_renderer_once_visible_pane_has_owner() {
+        assert!(!super::should_answer_cursor_query(false, false, false));
+    }
+
+    #[test]
+    fn cursor_query_is_answered_for_hidden_pane_even_with_owner_state_unknown() {
+        assert!(super::should_answer_cursor_query(true, false, false));
     }
 }

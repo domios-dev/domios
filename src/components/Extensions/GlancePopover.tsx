@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "../../lib/bridge";
+import { BusyState } from "../shared/BusyState";
 import { configureWithAI } from "../../lib/pluginConfigure";
 import type { DaemonApiConfig } from "../../lib/webApi";
 import { GearIcon } from "../Icons";
@@ -44,7 +45,6 @@ export function GlancePopover({
     async (action?: string) => {
       try {
         const v = await invoke<GlanceView>("plugin_glance", { pluginId, action, ctx: ctx ?? {} });
-        // Core auto-appends the universal "Configure with AI" button for every
         // plugin (Part D) — intercepted in onAction, never seen by the plugin.
         v.nodes = [
           ...(v.nodes ?? []),
@@ -96,7 +96,6 @@ export function GlancePopover({
         const help =
           configHelp || `Help the user configure and use the ${displayName} plugin.`;
         void (async () => {
-          // Free-function spawn needs the API base/token supplied by the caller
           // (M2); read it from the daemon config at click time.
           const cfg = await invoke<{ api?: DaemonApiConfig }>("get_config").catch(
             () => ({}) as { api?: DaemonApiConfig },
@@ -143,7 +142,7 @@ export function GlancePopover({
       ) : view ? (
         <GlanceBody view={view} onAction={onAction} />
       ) : (
-        <div style={{ fontSize: 12, color: "var(--ct-muted)" }}>Loading…</div>
+        <BusyState labelKey="settingsPending" inline style={{ fontSize: 12 }} />
       )}
     </div>,
     document.body,

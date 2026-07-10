@@ -24,21 +24,38 @@
 git clone <repo-url> codeterm && cd codeterm
 pnpm install
 ./build.sh dev          # development (hot-reload, foreground)
-./build.sh dev --wait   # same but backgrounds + blocks until new build is live at /api/health
 ./build.sh build        # production build
 ```
 
 ### Windows
 
 ```powershell
-# Git Bash:
-./build.cmd dev --wait
-
-# If you still use PowerShell, call build.sh through git-bash:
-git-bash -lc "./build.sh dev --wait"
+# Interactive foreground session:
+.\build.ps1 dev
 ```
 
-`./build.cmd dev --wait` already runs the dev process through the same script path that clears previous dev instances on port 7686.
+Do not use `dev --wait` for an interactive Windows session. It is reserved for
+automation that needs a detached health gate and does not prove a visible window.
+
+### Visible Windows dev session
+
+For interactive verification, do not use `dev --wait`. It is the detached
+readiness path for scripts and CI. Use one visible CodeTerm pane as the sole
+foreground owner:
+
+```powershell
+# Verify no previous dev listener/process remains, then open one visible pane.
+codeterm pane new --cmd "Set-Location '<checkout>'; .\build.ps1 dev"
+```
+
+Keep that pane open and require all of the following before reporting ready:
+
+- port 7686 is owned by the checkout's `target\debug\codeterm.exe`;
+- `/api/health` reports `status=ok`, the exact checkout `build_sha`, API 7686,
+  Vite 1420, CDP 9223, and identifier `com.codeterm.dev`;
+- the CodeTerm process has a responsive, nonzero `MainWindowHandle`;
+- exactly one Cargo process remains, the foreground `tauri dev` watcher owned
+  by the visible pane. Any second Cargo/build owner must be stopped and traced.
 
 ## Dev/Prod Isolation
 
@@ -59,24 +76,24 @@ Custom git hooks live in `.githooks/` and are automatically wired via `git confi
 
 ```bash
 # Signing identity (required for release builds)
-APPLE_SIGNING_IDENTITY="Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)"
+APPLE_SIGNING_IDENTITY="Developer ID Application: <YOUR NAME> (<TEAM_ID>)"
 
 # Build signed DMG
-APPLE_SIGNING_IDENTITY="Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)" pnpm tauri build
-APPLE_SIGNING_IDENTITY="Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)" pnpm tauri build --target x86_64-apple-darwin
+APPLE_SIGNING_IDENTITY="Developer ID Application: <YOUR NAME> (<TEAM_ID>)" pnpm tauri build
+APPLE_SIGNING_IDENTITY="Developer ID Application: <YOUR NAME> (<TEAM_ID>)" pnpm tauri build --target x86_64-apple-darwin
 ```
 
 Add to `.env` in project root (gitignored) so `build.sh` picks it up automatically:
 ```
 UPDATER_TOKEN=<github PAT>
-APPLE_SIGNING_IDENTITY=Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)
+APPLE_SIGNING_IDENTITY=Developer ID Application: <YOUR NAME> (<TEAM_ID>)
 ```
 
 For notarization (optional, removes "downloaded from internet" warning):
 ```bash
 APPLE_ID=<apple-id-email>
 APPLE_PASSWORD=<app-specific-password>
-APPLE_TEAM_ID=JMMWQ9LWF7
+APPLE_TEAM_ID=<TEAM_ID>
 ```
 
 ## Build Output
@@ -106,7 +123,7 @@ No CI — all builds are local, coordinated via CodeTerm mesh between two machin
 
 The release is driven by one machine (Primary), the other builds in parallel (Support). Both machines are connected via CodeTerm mesh. The Primary handles version bump, tagging, draft creation, and publish. The Support machine pulls, builds, and uploads its platform installer.
 
-Typical setup: **MacBook Air** (Primary, macOS ARM) + **BLACKSTAR** (Support, Windows x64). Either machine can be Primary — just coordinate via mesh `send`.
+Typical setup: a macOS machine (Primary, ARM) + a Windows machine (Support, x64). Either machine can be Primary — just coordinate via mesh `send`.
 
 ### Steps
 
@@ -122,7 +139,7 @@ Typical setup: **MacBook Air** (Primary, macOS ARM) + **BLACKSTAR** (Support, Wi
    ```
 4. **Primary: tell Support to build** (via mesh):
    ```bash
-   codeterm send "git pull && ./build.sh build && gh release upload vX.Y.Z <installer-path> --clobber" --pane general --mesh BLACKSTAR
+   codeterm send "git pull && ./build.sh build && gh release upload vX.Y.Z <installer-path> --clobber" --pane general --mesh <support-peer>
    ```
 5. **Both machines build in parallel:**
    - **Primary** runs `./build.sh build` locally → uploads its installer
@@ -145,9 +162,11 @@ Typical setup: **MacBook Air** (Primary, macOS ARM) + **BLACKSTAR** (Support, Wi
 
 ### Machines
 
-- **BLACKSTAR** — Windows builds (RTX 4090, fast compile)
-- **MacBook Air** — macOS ARM builds (personal, `rollacode`)
-- **MacBook Pro** — macOS Intel/ARM builds if needed (`ainyiva`)
+One machine per target platform, all paired on the same mesh:
+
+- a Windows machine — Windows builds
+- a macOS ARM machine — macOS ARM builds
+- a macOS Intel machine — macOS Intel builds if needed
 
 ## Icons
 
@@ -227,4 +246,4 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 3 -->
+<!-- revision: 5 -->

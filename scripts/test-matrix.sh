@@ -2,8 +2,7 @@
 # Cross-platform test matrix: runs all lanes concurrently.
 #   macos          — native host (Rust + TS unit tests)
 #   linux          — Docker container (Rust + TS unit tests)
-#   windows-cross  — Docker container (cargo check vs x86_64-pc-windows-msvc)
-# Full Windows test EXECUTION is delegated to a Windows mesh peer.
+# Windows builds/tests run natively on the ROG self-hosted runner (release-windows.yml).
 # Usage: scripts/test-matrix.sh [lane...]   (default: all lanes)
 set -uo pipefail
 
@@ -17,12 +16,11 @@ lane_script() {
   case "$1" in
     macos)         echo "$ROOT/scripts/test-macos-native.sh" ;;
     linux)         echo "$ROOT/scripts/test-linux-docker.sh" ;;
-    windows-cross) echo "$ROOT/scripts/test-windows-cross.sh" ;;
     *)             return 1 ;;
   esac
 }
 
-if [ $# -gt 0 ]; then LANES=("$@"); else LANES=(macos linux windows-cross); fi
+if [ $# -gt 0 ]; then LANES=("$@"); else LANES=(macos linux); fi
 
 PIDS=()
 START=$SECONDS

@@ -132,7 +132,6 @@ pub async fn resume_session_api(
         })
         .flatten();
 
-    // Idempotency: if a live pane already holds this session_id, return it as-is. Two concurrent resume calls (UI reconnect, CLI retry) must not
     // both spawn.
     {
         let mux = state.svc.mux.write();
@@ -162,7 +161,6 @@ pub async fn resume_session_api(
     let ws_id = match body.workspace_id {
         Some(id) => id,
         None => {
-            // Reuse existing workspace at this cwd if there is one. Going through `WorkspaceCreate` here would spawn an extra empty Terminal tab as a side
             // Ignore extra effect for programmatic resume; it should only create the single resumed agent tab.
             let existing_id = state
                 .svc
@@ -189,7 +187,7 @@ pub async fn resume_session_api(
                     cwd: Some(cwd.clone()),
                     activate: Some(true),
                 };
-                let result = crate::dispatch::dispatch(&cmd, &state.svc)
+                let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref())
                     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
                 result
                     .into_json()
@@ -216,11 +214,18 @@ pub async fn resume_session_api(
         }),
         description: None,
         role: None,
+        role_profile: None,
         parent_pane_id: None,
+        plan_id: None,
         can_spawn: None,
         task: None,
+        task_id: None,
+        plan_task: None,
+        allow_shared_checkout: None,
         workspace_id: Some(ws_id.clone()),
         force_tab: None,
+        existing_tab_id: None,
+        skip_orchestrator_onboarding: None,
         report_target_pane_id: None,
         report_target_mesh_peer: None,
         skip_permissions: Some(true),
@@ -229,6 +234,10 @@ pub async fn resume_session_api(
         system_prompt: None,
         preset: None,
         resume_session_id: Some(meta.session_id.clone()),
+        charter: None,
+        tick_interval_secs: None,
+        nudge_cooldown_secs: None,
+        max_actions_per_tick: None,
         activate: None,
         structured_prompt_server: None,
     };

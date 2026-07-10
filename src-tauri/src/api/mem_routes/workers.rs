@@ -4,7 +4,6 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use tauri::Emitter;
 
 use crate::api::routes::{check_auth, AppState};
 use crate::mem::workers::{self, GraphWorkerInfo, WorkerStatus};
@@ -113,7 +112,7 @@ pub async fn workers_progress(
             .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     }
     if let Some(info) = state.svc.workers.get(&id) {
-        let _ = state.svc.app_handle.emit("graph-worker-progress", &info);
+        crate::api::events::emit_everywhere(&state.svc.app_handle, "graph-worker-progress", &info);
     }
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -165,7 +164,6 @@ pub async fn workers_report(
                 Err(e) => log::warn!("[graph-workers] save log: {}", e),
             }
         }
-        // Disarm the run-watcher so the post-report 30s of PTY silence (claude can take that long to clean up after the report tool returned,
         // especially on haiku) does not trip the idle reaper and overwrite the just-set "done" status with a Failed.
         state.svc.run_watcher.mark_completed_externally(pty_id);
     }
@@ -175,7 +173,7 @@ pub async fn workers_report(
         .workers
         .complete(&id, b.summary)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    let _ = state.svc.app_handle.emit("graph-worker-reported", &info);
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "graph-worker-reported", &info);
 
     let svc = state.svc.clone();
     let pane_id = info.pane_id.clone();
@@ -203,7 +201,7 @@ pub async fn workers_kill(
     if let Err(e) = state.svc.close_pane(&info.pane_id) {
         log::warn!("[graph-workers] kill pane {}: {}", info.pane_id, e);
     }
-    let _ = state.svc.app_handle.emit("graph-worker-done", &info);
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "graph-worker-done", &info);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -241,7 +239,7 @@ pub async fn workers_log(
                 .lock()
                 .get_full_text(&pty_id)
                 .unwrap_or_default();
-            let clean = crate::pty::ansi::clean_terminal_output_sized(&output, 500, 120);
+            let clean = codeterm_util::terminal::clean_terminal_output_sized(&output, 500, 120);
             return Ok((
                 StatusCode::OK,
                 [(

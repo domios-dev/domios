@@ -341,6 +341,27 @@ mod tests {
         assert_eq!(status.line, "Composing");
     }
 
+    // counter + a trailing "thinking with high effort" phase word.
+    #[test]
+    fn current_gen_thinking_footer_is_status_line() {
+        let screen = lines(&[
+            "⏺ Write(fib.py)",
+            "✽ Inferring… (58s · ↓ 797 tokens · thinking with high effort)",
+        ]);
+        let status = extract_status_line(&screen).expect("status line");
+        assert_eq!(status.phase.as_deref(), Some("work"));
+        assert_eq!(status.elapsed_ms, Some(58_000));
+        assert!(status.line.starts_with("Inferring…"), "{}", status.line);
+    }
+
+    // Novel/unseen verb must still parse as a working widget purely by structure.
+    #[test]
+    fn novel_verb_footer_is_status_line_by_structure() {
+        let screen = lines(&["✽ Xyzzying… (2s · ↓ 5 tokens)"]);
+        let status = extract_status_line(&screen).expect("status line");
+        assert_eq!(status.elapsed_ms, Some(2_000));
+    }
+
     #[test]
     fn status_line_drops_terminal_divider_tail() {
         let screen = lines(&[

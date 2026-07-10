@@ -3,41 +3,8 @@ use std::io::Write;
 use crate::args::misc::WorkspaceAction;
 use crate::client::SocketClient;
 
-pub(crate) fn strip_ansi(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            // Skip ESC sequences: ESC [ ... final_byte
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                while let Some(&nc) = chars.peek() {
-                    chars.next();
-                    if nc.is_ascii_alphabetic() || nc == '~' || nc == 'h' || nc == 'l' {
-                        break;
-                    }
-                }
-            } else if chars.peek() == Some(&']') {
-                // OSC sequence: ESC ] ... BEL or ST
-                chars.next();
-                while let Some(&nc) = chars.peek() {
-                    chars.next();
-                    if nc == '\x07' {
-                        break;
-                    }
-                    if nc == '\x1b' {
-                        chars.next();
-                        break;
-                    }
-                }
-            }
-        } else if c == '\r' {
-            // Skip carriage return
-        } else {
-            out.push(c);
-        }
-    }
-    out
+pub(crate) fn workspace_create_cwd_hint() -> String {
+    "hint: no --cwd — agents in this workspace inherit the daemon working directory; pass --cwd <project dir> for project work".to_string()
 }
 
 pub(crate) fn workspace_reuse_notice(
@@ -74,7 +41,6 @@ pub(crate) fn write_workspace_create_reuse_output<W: Write, E: Write>(
 }
 
 pub(crate) fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
-    // 1. Explicit --pane/--id arg
     if let Some(id) = id {
         return id;
     }
@@ -84,7 +50,6 @@ pub(crate) fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> Str
             return env_id;
         }
     }
-    // 3. Fallback: ask server for focused pane
     match client.call("pane.list", None) {
         Ok(value) => {
             if let Some(arr) = value.as_array() {
@@ -140,6 +105,8 @@ pub(crate) fn handle_workspace_action(
             let mut params = serde_json::json!({ "name": name });
             if let Some(cwd) = cwd {
                 params["cwd"] = serde_json::json!(cwd);
+            } else {
+                eprintln!("{}", workspace_create_cwd_hint());
             }
             match client.call("workspace.create", Some(params)) {
                 Ok(val) if workspace_reuse_notice(&val, &requested_name).is_some() => {
@@ -163,10 +130,11 @@ pub(crate) fn handle_workspace_action(
             "workspace.rename",
             Some(serde_json::json!({ "workspace_id": id, "name": name })),
         )),
-        WorkspaceAction::Close { id } => Some(client.call(
-            "workspace.close",
-            Some(serde_json::json!({ "workspace_id": id })),
-        )),
+        WorkspaceAction::Close { id } => {
+            let mut params = serde_json::json!({ "workspace_id": id });
+            crate::cmd::plan::maybe_inject_caller_pane(&mut params);
+            Some(client.call("workspace.close", Some(params)))
+        }
         WorkspaceAction::MoveTab { tab_id, from, to } => Some(client.call(
             "workspace.move_tab",
             Some(serde_json::json!({
@@ -178,35 +146,10 @@ pub(crate) fn handle_workspace_action(
     }
 }
 
-pub(crate) fn handle_get_output(
-    client: &mut SocketClient,
-    pane: Option<String>,
-    lines: u32,
-    json: bool,
-) {
-    let pane_id = resolve_pane(client, pane);
-    let max_bytes = (lines as u64) * 80;
-    let result = client.call(
-        "pane.get_output",
-        Some(serde_json::json!({ "pane_id": pane_id, "max_bytes": max_bytes })),
-    );
-    match result {
-        Ok(value) => {
-            if let Some(output) = value.get("output").and_then(|v| v.as_str()) {
-                if json {
-                    println!("{}", serde_json::to_string_pretty(&value).unwrap());
-                } else {
-                    print!("{}", strip_ansi(output));
-                }
-            }
-        }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
-    }
-}
-
+#[allow(
+    clippy::too_many_arguments,
+    reason = "CLI wrapper preserves send text argument surface."
+)]
 pub(crate) fn handle_send_text(
     client: &mut SocketClient,
     json: bool,
@@ -221,4 +164,16 @@ pub(crate) fn handle_send_text(
     crate::cmd::send_text::handle_send_text(
         client, json, pane, text, from_file, stdin, actions, delay, at,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::workspace_create_cwd_hint;
+
+    #[test]
+    fn workspace_cwd_hint_names_the_flag() {
+        let hint = workspace_create_cwd_hint();
+        assert!(hint.contains("--cwd"));
+        assert!(hint.contains("daemon working directory"));
+    }
 }

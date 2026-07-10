@@ -1,4 +1,3 @@
-// Run: npx tsx packages/chat-core/src/timeline.test.ts
 import { mergeTimelineMessages } from "./timeline";
 import type { NormalizedChatMessage } from "./types";
 

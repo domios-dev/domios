@@ -13,6 +13,10 @@ fn test_parse_role() {
         ServiceContext::parse_role("Worker"),
         Ok(AgentRole::Worker)
     ));
+    assert!(matches!(
+        ServiceContext::parse_role("Manager"),
+        Ok(AgentRole::Manager)
+    ));
     // Lead / SubWorker are gone — the hierarchy is 2-level (Orchestrator + Worker).
     assert!(ServiceContext::parse_role("SubWorker").is_err());
     assert!(ServiceContext::parse_role("Lead").is_err());
@@ -69,7 +73,7 @@ fn test_spawn_agent_params_from_json() {
     let params = SpawnAgentParams::from_json(&json).unwrap();
     assert_eq!(params.agent.as_deref(), Some("claude"));
     assert_eq!(params.agent_name.as_deref(), Some("architect"));
-    assert_eq!(params.role.as_deref(), Some("Conductor"));
+    assert_eq!(params.role.as_deref(), Some("Orchestrator"));
     assert_eq!(params.can_spawn, Some(true));
     assert_eq!(params.task.as_deref(), Some("do something"));
     assert_eq!(params.args.as_ref().unwrap().len(), 1);
@@ -82,6 +86,95 @@ fn test_spawn_agent_params_from_json_minimal() {
     assert!(params.agent.is_none());
     assert!(params.role.is_none());
     assert!(params.task.is_none());
+}
+
+#[test]
+fn spawn_agent_params_from_json_treats_empty_role_fields_as_absent() {
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "role": "  ",
+        "role_profile": "",
+    }))
+    .unwrap();
+    assert_eq!(params.agent.as_deref(), Some("claude"));
+    assert!(params.role.is_none());
+    assert!(params.role_profile.is_none());
+}
+
+#[test]
+fn spawn_agent_params_from_json_maps_planner_to_manager_profile() {
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "role": "Planner",
+        "plan_id": "pl_test",
+    }))
+    .unwrap();
+    assert_eq!(params.role.as_deref(), Some("Manager"));
+    assert_eq!(params.role_profile.as_deref(), Some("planner"));
+    assert_eq!(params.plan_id.as_deref(), Some("pl_test"));
+}
+
+#[test]
+fn spawn_agent_params_from_json_maps_watcher_to_manager_profile() {
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "lmstudio",
+        "role": "Watcher",
+        "charter": "Observe.",
+        "tick_interval_secs": 90,
+        "nudge_cooldown_secs": 300,
+        "max_actions_per_tick": 2,
+    }))
+    .unwrap();
+    assert_eq!(params.role.as_deref(), Some("Manager"));
+    assert_eq!(params.role_profile.as_deref(), Some("watcher"));
+    assert_eq!(params.charter.as_deref(), Some("Observe."));
+    assert_eq!(params.tick_interval_secs, Some(90));
+    assert_eq!(params.nudge_cooldown_secs, Some(300));
+    assert_eq!(params.max_actions_per_tick, Some(2));
+}
+
+#[test]
+fn spawn_agent_params_from_json_maps_plan_task() {
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "role": "Worker",
+        "plan_id": "pl_test",
+        "plan_task": "my-task",
+    }))
+    .unwrap();
+    assert_eq!(params.role.as_deref(), Some("Worker"));
+    assert_eq!(params.plan_id.as_deref(), Some("pl_test"));
+    assert_eq!(params.plan_task.as_deref(), Some("my-task"));
+}
+
+#[test]
+fn manager_requires_known_profile() {
+    let missing = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "role": "Manager",
+    }))
+    .unwrap_err();
+    assert!(missing.contains("Manager requires a known role_profile"));
+
+    let unknown = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "role": "Manager",
+        "role_profile": "reviewer",
+    }))
+    .unwrap_err();
+    assert!(unknown.contains("Manager requires a known role_profile"));
+}
+
+#[test]
+fn unknown_role_is_rejected() {
+    let err = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "role": "Lead",
+    }))
+    .unwrap_err();
+    assert!(err.contains("Invalid role: Lead"));
+    assert!(err.contains("Planner"));
+    assert!(err.contains("Watcher"));
 }
 
 #[test]
@@ -161,23 +254,30 @@ fn test_batch_op_no_id() {
     assert!(op.id.is_none());
 }
 
-// `emit_state_changed` coalesces emits over a 50ms window. The snapshot that
-// gets emitted MUST be read AFTER the window so a fast follow-up mutation that
 #[test]
 fn coalesce_snapshot_reflects_latest_mutation_in_window() {
+    use crate::agent::status::PaneStatusTracker;
+    use crate::lock_hold::{TimedMutex, TimedRwLock};
     use crate::multiplexer::state::MultiplexerState;
-    use parking_lot::RwLock;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
-    let mux: MuxState = Arc::new(RwLock::new(MultiplexerState::empty()));
+    let mux: MuxState = Arc::new(TimedRwLock::new("mux", MultiplexerState::empty()));
+    let agent_tracker: AgentTrackerState =
+        Arc::new(TimedMutex::new("agent_tracker", PaneStatusTracker::new()));
     let pending = Arc::new(AtomicBool::new(true));
 
     let mux_clone = mux.clone();
+    let agent_tracker_clone = agent_tracker.clone();
     let pending_clone = pending.clone();
     let handle = std::thread::spawn(move || {
-        ServiceContext::coalesce_snapshot(&mux_clone, &pending_clone, Duration::from_millis(80))
+        ServiceContext::coalesce_snapshot(
+            &mux_clone,
+            &agent_tracker_clone,
+            &pending_clone,
+            Duration::from_millis(80),
+        )
     });
 
     // Both mutations land well inside the single coalesce window.
@@ -186,7 +286,6 @@ fn coalesce_snapshot_reflects_latest_mutation_in_window() {
 
     let snapshot = handle.join().unwrap();
 
-    // Read happened AFTER the window, so the payload reflects BOTH mutations —
     // the latest being "second".
     assert_eq!(
         snapshot.workspaces.len(),
@@ -196,4 +295,37 @@ fn coalesce_snapshot_reflects_latest_mutation_in_window() {
     assert_eq!(snapshot.workspaces.last().unwrap().name, "second");
     // Pending flag cleared so a mutation after the window starts a fresh one.
     assert!(!pending.load(Ordering::Acquire));
+}
+
+#[test]
+fn focus_pane_hot_path_does_not_refresh_agent_model_inline() {
+    use crate::lock_hold::TimedRwLock;
+    use crate::multiplexer::state::MultiplexerState;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let mux: MuxState = Arc::new(TimedRwLock::new("mux", MultiplexerState::empty()));
+    let pane_id = mux.write().create_pane();
+    let emitted = Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
+    let scheduled = Arc::new(AtomicUsize::new(0));
+
+    crate::service::pane::focus_pane_hot_path(
+        &mux,
+        &pane_id,
+        {
+            let emitted = emitted.clone();
+            move |focused| emitted.lock().push(focused.to_string())
+        },
+        {
+            let scheduled = scheduled.clone();
+            move || {
+                scheduled.fetch_add(1, Ordering::SeqCst);
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(mux.read().get_focused_pane_id(), Some(pane_id.as_str()));
+    assert_eq!(*emitted.lock(), vec![pane_id.clone()]);
+    assert_eq!(scheduled.load(Ordering::SeqCst), 1);
 }

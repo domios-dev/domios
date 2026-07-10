@@ -1,8 +1,26 @@
 //! Pane lifecycle: close, rename, focus.
 
 use super::ServiceContext;
+use crate::multiplexer::types::{AgentRole, TitleLevel};
+use crate::plan::peer::{resolve_planner_ref, PeerResolution};
+use crate::service::session_persist::{self, SessionPersistUrgency};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const MAX_PANE_DESCRIPTION_CHARS: usize = 200;
+
+/// Prefix on every self-termination refusal so transports can classify it.
+pub(crate) const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
+
+/// A coordinator must not self-terminate: an Orchestrator role, an owner of a
+/// plan, or a bound Planner of a plan. There is no AgentRole::Planner — planner
+/// identity comes from the plan graph, not a pane role.
+pub(crate) fn is_coordinator(
+    role: Option<AgentRole>,
+    is_plan_owner: bool,
+    is_bound_planner: bool,
+) -> bool {
+    matches!(role, Some(AgentRole::Orchestrator)) || is_plan_owner || is_bound_planner
+}
 
 pub fn normalize_pane_description(value: &str) -> Result<Option<String>, String> {
     let trimmed = value.trim();
@@ -19,14 +37,73 @@ pub fn normalize_pane_description(value: &str) -> Result<Option<String>, String>
     }
 }
 
+fn epoch_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 impl ServiceContext {
+    /// True when `pane_id` is a coordinator (Orchestrator role, plan owner, or
+    /// bound Planner) and so must not close itself. Keys off caller identity in
+    /// the mux + plan graph, never a display name.
+    pub(crate) fn is_self_close_protected(&self, pane_id: &str) -> bool {
+        let role = self.mux.read().get_pane(pane_id).and_then(|p| p.role);
+        if is_coordinator(role, false, false) {
+            return true;
+        }
+        for plan in self.plan_store.list_full() {
+            let is_owner = plan.owner.pane_id.as_deref() == Some(pane_id);
+            let is_planner =
+                match resolve_planner_ref(&plan.planner, &plan.owner, |p| self.pane_probe(p)) {
+                    PeerResolution::Planner { pane_id: p } => p == pane_id,
+                    _ => false,
+                };
+            if is_coordinator(None, is_owner, is_planner) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Close a pane on behalf of `caller_pane_id`. Refuses a coordinator closing
+    /// its OWN pane; Workers self-close on report+exit and closing any other
+    /// pane is unaffected. Fail-safe: an absent caller against a coordinator
+    /// target is refused (we cannot prove it is not the target closing itself),
+    /// while non-coordinator targets close normally.
+    pub fn close_pane_guarded(
+        &self,
+        caller_pane_id: Option<&str>,
+        target_pane_id: &str,
+    ) -> Result<(), String> {
+        let (canon_target, canon_caller) = {
+            let mux = self.mux.read();
+            let target = mux
+                .resolve_pane_id(target_pane_id)
+                .unwrap_or_else(|| target_pane_id.to_string());
+            let caller = caller_pane_id.and_then(|c| mux.resolve_pane_id(c));
+            (target, caller)
+        };
+        // Absent (or unresolvable) caller is treated as self — fail-safe.
+        let is_self = canon_caller
+            .as_deref()
+            .map(|c| c == canon_target.as_str())
+            .unwrap_or(true);
+        if is_self && self.is_self_close_protected(&canon_target) {
+            return Err(format!(
+                "{SELF_CLOSE_REFUSAL_PREFIX}: a coordinator cannot close its own pane \
+                 ({canon_target}) — have your parent or another pane close it, or move first. \
+                 Workers self-close on report+exit."
+            ));
+        }
+        self.close_pane(target_pane_id)
+    }
+
     pub fn close_pane(&self, pane_id: &str) -> Result<(), String> {
-        // Tear down the chat tailer (if any) BEFORE pane state goes away — the tailer thread reads provider/cwd/session_id from the mux on its first
         // iteration; once close_pane drops the entry, future polls would see Provider::None and bail anyway, but explicit stop joins the thread cleanly and frees the JSONL handle.
         self.chat_registry.stop(pane_id);
 
-        // Tear down the plugin chatBackend session BEFORE the pane entry is
-        // dropped — otherwise `pane_chat_backing` can no longer resolve it and
         if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
             let _ = self.chatbackend_close(&plugin_id, &session_id);
         }
@@ -35,6 +112,7 @@ impl ServiceContext {
         let pty_ids = self.mux.write().close_pane(pane_id)?;
         let post_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
+        self.flag_bound_tasks_for_gone_pane(pane_id, epoch_ms());
         self.prompt_detector.lock().remove_pane(pane_id);
         crate::service::structured_prompt::clear_pane(pane_id);
         // Drop any remote-worker ghosts that reported to this (now-closed) pane.
@@ -49,33 +127,17 @@ impl ServiceContext {
     }
 
     pub fn rename_pane(&self, pane_id: &str, title: &str) -> Result<(), String> {
-        // Sync tab.title so the sidebar label matches.
-        let tab_sync = {
-            let mux = self.mux.read();
-            let mut sync = None;
-            'outer: for ws in mux.snapshot().workspaces.iter() {
-                for tab in &ws.tabs {
-                    if tab.pane_id == pane_id {
-                        sync = Some((ws.id.clone(), tab.id.clone()));
-                        break 'outer;
-                    }
-                }
-            }
-            sync
-        };
         self.mux.write().rename_pane(pane_id, title)?;
-        if let Some((ws_id, tab_id)) = tab_sync {
-            let _ = self.mux.write().rename_tab(&ws_id, &tab_id, title);
-        }
         self.emit_pane_title_pinned(pane_id, title);
         self.emit_state_changed();
+        session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt)?;
         Ok(())
     }
 
-    /// Label only the pane, leaving the tab's (auto-generated, unique) name untouched.
     pub fn set_pane_title(&self, pane_id: &str, title: &str) -> Result<(), String> {
-        self.mux.write().rename_pane(pane_id, title)?;
-        self.emit_pane_title_pinned(pane_id, title);
+        self.mux
+            .write()
+            .rename_pane_at_level(pane_id, title, TitleLevel::Agent)?;
         self.emit_state_changed();
         Ok(())
     }
@@ -90,10 +152,13 @@ impl ServiceContext {
     }
 
     pub fn focus_pane(&self, pane_id: &str) -> Result<(), String> {
-        self.mux.write().set_focused_pane(pane_id)?;
-        self.emit_pane_focus_changed(pane_id);
-        self.refresh_focused_pane_model();
-        Ok(())
+        self.user_last_activity.mark();
+        focus_pane_hot_path(
+            &self.mux,
+            pane_id,
+            |focused| self.emit_pane_focus_changed(focused),
+            || self.schedule_focused_pane_model_refresh(),
+        )
     }
 
     pub fn link_pty(&self, pane_id: &str, pty_id: String) {
@@ -155,6 +220,12 @@ impl ServiceContext {
             // Clearing agent_type also clears the lock — agent died/disconnected.
             if agent_type.is_none() {
                 pane.agent_type_locked = false;
+                pane.session_binding_nonce = None;
+                pane.reported_session_binding_nonce = None;
+                pane.agent_session_id = None;
+                pane.agent_state = None;
+                pane.pending_prompt = None;
+                pane.boot_stage = Some(codeterm_types::pty::BootStage::ShellReady);
             } else if lock {
                 pane.agent_type_locked = true;
             }
@@ -176,6 +247,7 @@ impl ServiceContext {
                 self.refresh_session_model_once(pane_id, &new_type);
             }
         } else {
+            self.clear_dead_planner_binding(pane_id);
             // Drop friendly name on agent clear; keep the last-seen model so the tab doesn't flicker blank between sessions.
             let mut mux = self.mux.write();
             if let Some(pane) = mux.get_pane_mut(pane_id) {
@@ -210,8 +282,6 @@ impl ServiceContext {
                     }
                 }
             }
-            // Invariant: every agent pane surfaces exactly idle|working|question,
-            // never null. A restored pane has no `agent_state` until its first
             let seeded = {
                 use crate::agent::offline_state_classifier::{
                     AgentLiveState, PaneVerdict, TimelineState,
@@ -279,6 +349,13 @@ impl ServiceContext {
         if let Some((pid, at)) = target {
             self.refresh_session_model_once(&pid, &at);
         }
+    }
+
+    fn schedule_focused_pane_model_refresh(&self) {
+        let svc = self.clone();
+        std::thread::spawn(move || {
+            svc.refresh_focused_pane_model();
+        });
     }
 
     fn refresh_session_model_once(&self, pane_id: &str, agent_id: &str) {
@@ -497,7 +574,10 @@ impl ServiceContext {
         }
         if let Some(pane) = mux.get_pane_mut(pane_id) {
             pane.agent_session_id = session_id;
+            pane.reported_session_binding_nonce = None;
         }
+        drop(mux);
+        self.bind_planner_session(pane_id);
     }
 
     /// Per-launch binding nonce for a pane, generated once and reused. Injected as CODETERM_SESSION_BINDING_NONCE so a provider's session-start report can prove it owns this pane; a report carrying a different nonce is a stale/foreign claim and gets rejected.
@@ -509,6 +589,7 @@ impl ServiceContext {
             }
             let nonce = uuid::Uuid::new_v4().to_string();
             pane.session_binding_nonce = Some(nonce.clone());
+            pane.reported_session_binding_nonce = None;
             nonce
         } else {
             uuid::Uuid::new_v4().to_string()
@@ -582,18 +663,14 @@ impl ServiceContext {
         // Transition PromptDetector to Cooldown — suppresses re-detection of the same prompt from PTY output that hasn't been cleared yet.
         self.prompt_detector.lock().mark_responded(pane_id);
 
-        // STRUCTURED handle (opencode SSE) answers over HTTP, not the PTY: the
-        // PTY is display-only for these prompt classes. When a structured route
         if let Some(result) = crate::service::structured_prompt::respond(self, pane_id, value) {
             self.emit_state_changed();
             return result;
         }
 
-        // Only send to PTY if there was an actual prompt — prevents phantom input
         if had_prompt {
             let pty_id = self.resolve_pty_id(pane_id)?;
 
-            // Verify prompt is on screen before sending keystrokes
             let screen = {
                 let buf = self.output_buf.lock();
                 buf.get_text(&pty_id).unwrap_or_default()
@@ -604,8 +681,6 @@ impl ServiceContext {
                 .read()
                 .get_pane(pane_id)
                 .and_then(|p| p.agent_type.clone());
-            // Providers whose prompts aren't the universal numbered-list shape
-            // (opencode's horizontal row, cursor overlays) verify via their own
             let prompt_on_screen = crate::agent::detector::detect_interactive_prompt(&clean)
                 || agent_type.as_deref().is_some_and(|at| {
                     crate::agent::prompt::parse_prompt_safely(|| {
@@ -643,5 +718,44 @@ impl ServiceContext {
 
         self.emit_state_changed();
         Ok(())
+    }
+}
+
+pub(crate) fn focus_pane_hot_path(
+    mux: &crate::multiplexer::commands::MuxState,
+    pane_id: &str,
+    emit_focus_changed: impl FnOnce(&str),
+    schedule_model_refresh: impl FnOnce(),
+) -> Result<(), String> {
+    mux.write().set_focused_pane(pane_id)?;
+    emit_focus_changed(pane_id);
+    schedule_model_refresh();
+    Ok(())
+}
+
+#[cfg(test)]
+mod self_close_tests {
+    use super::*;
+
+    #[test]
+    fn orchestrator_is_coordinator() {
+        assert!(is_coordinator(Some(AgentRole::Orchestrator), false, false));
+    }
+
+    #[test]
+    fn plan_owner_is_coordinator() {
+        assert!(is_coordinator(Some(AgentRole::Worker), true, false));
+        assert!(is_coordinator(None, true, false));
+    }
+
+    #[test]
+    fn bound_planner_is_coordinator() {
+        assert!(is_coordinator(Some(AgentRole::Worker), false, true));
+    }
+
+    #[test]
+    fn plain_worker_is_not_coordinator() {
+        assert!(!is_coordinator(Some(AgentRole::Worker), false, false));
+        assert!(!is_coordinator(None, false, false));
     }
 }

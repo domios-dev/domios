@@ -82,7 +82,6 @@ pub fn seed_bundled_skills() {
         }
         log::info!("[skills] Seeded {:?} to canonical dir", id);
 
-        // The `codeterm` skill SKILL.md is a template with a {codeterm_cli} placeholder. Substitute the shared CLI reference (single source of truth,
         // also injected into the GA prompt) so project agents and the GA see the same command surface.
         if id.to_string_lossy() == "codeterm" {
             if let Ok(body) = std::fs::read_to_string(&dst_skill) {
@@ -114,7 +113,9 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
     Ok(())
 }
 
-/// Mirror canonical `~/.codeterm/skills/` into provider dirs agents load from (#178).
+/// Mirror the `codeterm` skill into provider dirs and prune everything else.
+/// Provider dirs hold EXACTLY one skill — `codeterm`. All others are agents-only
+/// (discovered via `codeterm mem search`, not provider-dir injection).
 pub fn mirror_skills_to_providers() {
     let canonical = crate::paths::data_dir().join("skills");
     let Some(home) = dirs::home_dir() else {
@@ -124,31 +125,48 @@ pub fn mirror_skills_to_providers() {
         home.join(".claude").join("skills"),
         home.join(".agents").join("skills"),
     ];
+    mirror_into_providers(&canonical, &targets);
+}
 
-    let Ok(entries) = std::fs::read_dir(&canonical) else {
-        return;
-    };
-    let skill_dirs: Vec<_> = entries
-        .flatten()
-        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
-        .collect();
-
-    for target in &targets {
-        for entry in &skill_dirs {
-            let id = entry.file_name();
-            let dst_dir = target.join(&id);
-            if !should_mirror_skill(&entry.path().join("SKILL.md"), &dst_dir.join("SKILL.md")) {
-                continue;
-            }
-            let _ = std::fs::create_dir_all(&dst_dir);
-            match copy_dir_recursive(&entry.path(), &dst_dir) {
-                Ok(()) => log::info!("[skills] mirrored {:?} -> {}", id, dst_dir.display()),
+/// Pure inner implementation — injectable paths make this testable without touching real home dirs.
+fn mirror_into_providers(canonical: &std::path::Path, targets: &[std::path::PathBuf]) {
+    // Install / update the `codeterm` skill in every provider dir.
+    let codeterm_src = canonical.join("codeterm");
+    for target in targets {
+        let codeterm_dst = target.join("codeterm");
+        if should_mirror_skill(
+            &codeterm_src.join("SKILL.md"),
+            &codeterm_dst.join("SKILL.md"),
+        ) {
+            let _ = std::fs::create_dir_all(&codeterm_dst);
+            match copy_dir_recursive(&codeterm_src, &codeterm_dst) {
+                Ok(()) => log::info!("[skills] mirrored codeterm -> {}", codeterm_dst.display()),
                 Err(e) => log::warn!(
-                    "[skills] mirror {:?} -> {} failed: {}",
-                    id,
-                    dst_dir.display(),
+                    "[skills] mirror codeterm -> {} failed: {}",
+                    codeterm_dst.display(),
                     e
                 ),
+            }
+        }
+
+        // Remove every non-codeterm entry — provider dirs must be exactly {codeterm}.
+        let Ok(entries) = std::fs::read_dir(target) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            if entry.file_name() == "codeterm" {
+                continue;
+            }
+            let path = entry.path();
+            log::warn!(
+                "[skills] pruning non-codeterm entry from provider dir: {}",
+                path.display()
+            );
+            if let Err(e) = std::fs::remove_dir_all(&path) {
+                log::warn!("[skills] failed to remove {}: {}", path.display(), e);
             }
         }
     }
@@ -206,6 +224,42 @@ mod mirror_tests {
         assert!(
             !should_mirror_skill(&src, &dst),
             "provider newer -> never downgrade"
+        );
+    }
+
+    /// Restart-does-not-resurrect drill: calls the REAL mirror_into_providers against a
+    /// tempdir fixture. Plants a stray in the provider dir, runs the mirror, asserts the
+    /// provider dir ends up with exactly {codeterm}.
+    #[test]
+    fn mirror_installs_only_codeterm_and_prunes_strays() {
+        let tmp = tempfile::tempdir().unwrap();
+        let canonical = tmp.path().join("canonical");
+        let provider = tmp.path().join("provider");
+
+        // Canonical has codeterm + another skill (atlassian stays in canonical only).
+        write_skill(&canonical.join("codeterm"), "codeterm skill body");
+        write_skill(&canonical.join("atlassian"), "atlassian skill body");
+
+        // Provider starts with a stray that should be pruned on mirror.
+        write_skill(&provider.join("stray"), "orphan");
+
+        // Call the real inner function with injected paths.
+        mirror_into_providers(&canonical, &[provider.clone()]);
+
+        // codeterm must be installed.
+        assert!(
+            provider.join("codeterm").join("SKILL.md").exists(),
+            "codeterm SKILL.md must be present after mirror"
+        );
+        // stray must be gone — mirror actively prunes non-codeterm entries.
+        assert!(
+            !provider.join("stray").exists(),
+            "stray was not pruned by mirror"
+        );
+        // atlassian must NOT have been copied — it stays in canonical only.
+        assert!(
+            !provider.join("atlassian").exists(),
+            "non-codeterm canonical skill must not appear in provider dir"
         );
     }
 }

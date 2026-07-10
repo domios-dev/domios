@@ -1,44 +1,7 @@
 /**
- * Gate: after cursor /new, the chat view re-binds to the new session.
- *
- * Bug being fixed:
- *   After /new, cursor creates a new session directory on disk. The pane's
- *   agent_session_id is still set to the OLD session id. maybe_detect_agent_session
- *   was gated by `agent_session_id.is_some() → return`, so it NEVER re-detected
- *   the new session → chat stayed bound to the dead old session → new assistant
- *   replies never rendered.
- *
- * Fix:
- *   When agent_session_id.is_some() AND needs=true (hookless disk-polling provider,
- *   e.g. cursor), run a stale-session check: detect_session_id with max_age=30s,
- *   excluding the currently-pinned session and other panes' sessions. After /new,
- *   the new session dir is fresh (<30s), the old one is excluded → exactly 1
- *   candidate → re-bind. Steady-state: no other fresh session → 0 candidates → no
- *   eviction.
- *
- * RED (without fix): agent_session_id stays pinned to session-1 after session-2
- *   dir is created; polling loop times out.
- * GREEN (with fix): stale check fires on next PTY output chunk → finds session-2
- *   → evicts session-1 → binds session-2 → chat shows reply-2.
- *
- * Scenario:
- *   1. Spawn cursor in a unique testCwd (realpath-resolved to avoid macOS symlink
- *      drift between /var and /private/var).
- *   2. Wait for agent_session_id to be set by cursor's hook (cursor calls the
- *      CodeTerm session-start hook with its own session ID on startup).
- *      session-1 = that hook-reported ID.
- *   3. Write a JSONL assistant reply for session-1. Enable chat-view; assert reply-1
- *      appears (proves initial binding + JSONL path resolution both work).
- *   4. Simulate /new: create a fresh uuid2 dir in ~/.cursor/chats/<md5(realCwd)>/.
- *      The stale check sees session-1 as current (excluded), uuid2 as the only
- *      fresh non-excluded candidate → rebinds to uuid2.
- *   5. Type into cursor to produce PTY output, which triggers maybe_detect_agent_session.
- *      Assert agent_session_id changes to uuid2.
- *   6. Write JSONL for uuid2 with "pw-cursor-reply-2". Assert reply-2 visible.
- *
- * macOS web-mode:
- *   npx playwright test --config=tests/playwright/playwright.config.ts \
- *     --project=golden tests/playwright/suites/16-chat-view/cursor-new-rebinds-session.spec.ts
+ * WHAT: cursor new rebinds session covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 16-chat-view.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import crypto from "crypto";
 import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
@@ -97,10 +60,6 @@ test(
   async ({ api, ui, paneCleanup }) => {
     test.skip(!existsSync(CURSOR_AGENT_BIN), "cursor-agent not installed on this machine");
 
-    // Create a unique temp cwd. Use realpathSync to resolve macOS symlinks
-    // (/var → /private/var) so CodeTerm's path matches cursor-agent's `pwd -P` result.
-    // Without this, md5(pane.cwd) ≠ md5(cursor's pwd -P), and the chats dir scanned
-    // by detectSessionId is a different directory from where cursor writes its sessions.
     const nowMs = Date.now();
     const rawTestCwd = path.join(os.tmpdir(), `codeterm-cursor-pw-${nowMs}`);
     mkdirSync(rawTestCwd, { recursive: true });
@@ -116,9 +75,6 @@ test(
 
     await ui.reconnect();
 
-    // Spawn cursor. skip_permissions writes the workspace-trust marker and adds --force
-    // to bypass cursor's one-time trust prompt. Pass the realpath cwd so the daemon
-    // and cursor-agent agree on the path for chats dir lookups.
     const spawned = await api.post<{ pane_id: string; tab_id?: string }>("/agents/spawn", {
       agent: "cursor",
       cwd: testCwd,
@@ -128,9 +84,6 @@ test(
     paneCleanup.track(spawned.pane_id);
     const paneId = spawned.pane_id;
 
-    // Type 'x' then Backspace every second to reliably produce PTY output from the
-    // cursor TUI (a printable char + delete guarantees a redraw → maybe_detect_agent_session
-    // fires → stale check runs). Plain Esc can be a silent no-op in cursor's idle state.
     const tick = setInterval(async () => {
       await api
         .post(`/panes/${paneId}/send`, { text: "x", enter: false, raw: true })
@@ -145,13 +98,8 @@ test(
     }, 1_000);
 
     try {
-      // ── Phase 1: wait for agent_session_id to be set ─────────────────────────
-      // cursor-agent reports its session via CodeTerm's hook endpoint on startup.
-      // The hook fires within ~2s and sets agent_session_id to cursor's real session.
-      // We don't pre-create any chats dir — cursor's own hook sets session-1, so the
-      // stale check in steady-state finds 0 candidates (chats dir is empty until we
-      // create uuid2) → no premature eviction.
       for (let i = 0; i < 30; i++) {
+        // PW_JUSTIFIED_SLEEP: fixed 1_000ms sampling/settle window; no app event exists for this probe.
         await ui.page.waitForTimeout(1_000);
         const panes = await api.get<{ id: string; agent_session_id?: string | null }[]>("/panes");
         const pane = panes.find((p) => p.id === paneId);
@@ -169,10 +117,6 @@ test(
         ].join(" "),
       ).not.toBeNull();
 
-      // ── Phase 2: write reply-1 JSONL so chat shows session-1 content ────────
-      // The tailer watches jsonlPath(testCwd, session1). If the file exists at that
-      // path (or is created after the tailer starts), it reads and renders the content.
-      // We write the JSONL before enabling chat-view so the tailer finds it immediately.
       const jp1 = jsonlPath(testCwd, session1!);
       mkdirSync(path.dirname(jp1), { recursive: true });
       writeFileSync(jp1, assistantJsonl(REPLY_1), "utf8");
@@ -202,17 +146,6 @@ test(
         .first();
       await expect(msg1).toBeVisible({ timeout: 30_000 });
 
-      // ── Phase 3: simulate /new ───────────────────────────────────────────────
-      // Create session-2's chats dir entry with a fresh meta.json. This is what
-      // cursor does on disk when the user runs /new: creates a new session UUID dir.
-      //
-      // The stale check (fix) in maybe_detect_agent_session:
-      //   - current = session1 (set by hook) → stale path
-      //   - exclude = [session1, other panes' sessions]
-      //   - scan chatsDir: finds uuid2 (fresh, not excluded) → 1 candidate → returns uuid2
-      //   - evicts session1, binds uuid2
-      //
-      // Without the fix: is_some() guard returns early → stays session1 forever.
       const session2Dir = path.join(chatsDir, uuid2);
       mkdirSync(session2Dir, { recursive: true });
       writeFileSync(
@@ -221,11 +154,9 @@ test(
         "utf8",
       );
 
-      // ── Phase 4: wait for stale-session re-detection ─────────────────────────
-      // The tick keeps sending 'x'+Backspace → PTY output → maybe_detect_agent_session
-      // → stale check runs → finds uuid2 → evicts session1 → binds uuid2.
       let reboundSession: string | null = null;
       for (let i = 0; i < 40; i++) {
+        // PW_JUSTIFIED_SLEEP: fixed 1_000ms sampling/settle window; no app event exists for this probe.
         await ui.page.waitForTimeout(1_000);
         const panes = await api.get<{ id: string; agent_session_id?: string | null }[]>("/panes");
         const pane = panes.find((p) => p.id === paneId);
@@ -245,7 +176,6 @@ test(
         ].join(" "),
       ).toBe(uuid2);
 
-      // ── Phase 5: assert reply-2 appears in chat ──────────────────────────────
       const jp2 = jsonlPath(testCwd, uuid2);
       mkdirSync(path.dirname(jp2), { recursive: true });
       writeFileSync(jp2, assistantJsonl(REPLY_2), "utf8");

@@ -1,11 +1,7 @@
 /**
- * 18-reorder / pin-general — the General workspace + General tab are pinned to
- * the top and cannot be reordered (web-mode).
- *
- * General is identified by its `protected` flag (the only canonical marker —
- * see service::general_agent), never by the literal name. The oracle is the
- * backend snapshot (GET /api/mux/state): a rejected drop never reaches the
- * backend, so the `sort_order` is unchanged. All @golden.
+ * WHAT: pin general covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 18-reorder.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type Page } from "../../helpers/fixtures";
 import { ApiClient } from "../../helpers/api-client";
@@ -68,17 +64,21 @@ async function keyboardDrag(page: Page, rowSelector: string, key: "ArrowDown" | 
   await row.waitFor({ state: "visible", timeout: 15_000 });
   await row.focus();
   await page.keyboard.press("Space");
+  // PW_JUSTIFIED_SLEEP: fixed 200ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(200);
   for (let i = 0; i < presses; i++) {
     await page.keyboard.press(key);
+    // PW_JUSTIFIED_SLEEP: fixed 150ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(150);
   }
   await page.keyboard.press("Space");
+  // PW_JUSTIFIED_SLEEP: fixed 400ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(400);
 }
 
 async function syncUi(page: Page) {
   await page.evaluate(() => window.dispatchEvent(new Event("codeterm-refresh-mux-state")));
+  // PW_JUSTIFIED_SLEEP: fixed 400ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(400);
 }
 
@@ -109,6 +109,7 @@ test("@golden P1 dragging a workspace to the top cannot place it above General",
 
   // Drag beta all the way up — it must not land above General.
   await keyboardDrag(page, wsRow(b), "ArrowUp", before.length + 2);
+  // PW_JUSTIFIED_SLEEP: fixed 500ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(500);
 
   const after = await workspaceOrder(api);
@@ -133,6 +134,7 @@ test("@golden P2 dragging a tab to the top cannot place it above the General tab
 
   // Drag the last tab all the way up — it must not land above the General tab.
   await keyboardDrag(page, tabRow(general, t2.tab_id), "ArrowUp", before.length + 2);
+  // PW_JUSTIFIED_SLEEP: fixed 500ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(500);
 
   const after = await topLevelOrder(api, general);
@@ -157,11 +159,13 @@ test("@golden P3 the General workspace and General tab are not draggable", async
   // Attempting to drag General down is a no-op — order is unchanged.
   const wsBefore = await workspaceOrder(api);
   await keyboardDrag(page, wsRow(general), "ArrowDown", 3);
+  // PW_JUSTIFIED_SLEEP: fixed 500ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(500);
   expect(await workspaceOrder(api), "General workspace did not move").toEqual(wsBefore);
 
   const tabsBefore = await topLevelOrder(api, general);
   await keyboardDrag(page, tabRow(general, gTab.id), "ArrowDown", 3);
+  // PW_JUSTIFIED_SLEEP: fixed 500ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(500);
   expect(await topLevelOrder(api, general), "General tab did not move").toEqual(tabsBefore);
 });

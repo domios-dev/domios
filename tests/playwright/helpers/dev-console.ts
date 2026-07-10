@@ -13,10 +13,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { readDevToken } from "./api-client";
 
-export const API_BASE = "http://127.0.0.1:7686";
+export const E2E_PORT = process.env.CT_E2E_PORT ?? "7686";
+export const API_BASE = `http://127.0.0.1:${E2E_PORT}`;
 export const CDP_PORT = 9223;
 export const CDP_BASE = `http://127.0.0.1:${CDP_PORT}`;
-export const WEB_URL = `${API_BASE}/web/`;
+export const WEB_URL = `${API_BASE}/`;
 
 export const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 
@@ -40,7 +41,6 @@ export async function isCdpUp(): Promise<boolean> {
   }
 }
 
-// A bare "bash" resolves to WSL's System32 stub when the runner is launched
 // from PowerShell — build.sh then dies in a WSL world. Pin git-bash.
 const BASH_EXE =
   process.platform === "win32"
@@ -61,20 +61,21 @@ function bash(args: string[], timeoutMs: number): void {
     env: {
       ...process.env,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
-      // Harness-only terminal test mode: enables xterm screenReaderMode
-      // (the .xterm-accessibility DOM the suites read) and skips the
       VITE_CODETERM_TEST: "1",
-      // Debug builds run cron on a MockClock so 07-cron can time-travel
-      // via /api/debug/clock. Harmless elsewhere: only cron reads it, and
       CODETERM_TEST_CLOCK: "1",
     },
   });
 }
 
 export function killDevConsole(): void {
-  bash(["build.sh", "kill"], 60_000);
-  // build.sh kill only targets the 7686 listener; its vite child survives
-  // holding port 1420 and orphan dev binaries keep the exe locked — both
+  // A failing kill must not abort setup: on a fresh/CI runner there is nothing
+  // to kill, and Windows process enumeration can EPERM on the protected
+  // %USERPROFILE%\AppData junction. killDevLeftovers + `dev --wait` recover.
+  try {
+    bash(["build.sh", "kill"], 60_000);
+  } catch (e) {
+    console.warn(`[dev-console] build.sh kill failed (continuing): ${e}`);
+  }
   killDevLeftovers();
 }
 
@@ -87,18 +88,33 @@ export function killDevConsole(): void {
  */
 function killDevLeftovers(): void {
   if (process.platform !== "win32") return;
-  const script = [
-    "Get-Process codeterm -ErrorAction SilentlyContinue |",
-    "Where-Object { $_.Path -like '*target\\debug*' } |",
-    "ForEach-Object { Stop-Process -Id $_.Id -Force -Confirm:$false };",
-    "$vite = (netstat -ano | Select-String ':1420.*LISTENING') -replace '.*\\s(\\d+)$','$1' | Select-Object -Unique;",
-    "foreach ($p in $vite) { try { Stop-Process -Id $p -Force -Confirm:$false } catch {} }",
-  ].join(" ");
   try {
-    execFileSync("powershell", ["-NoProfile", "-Command", script], {
-      timeout: 30_000,
-      stdio: "inherit",
-    });
+    execFileSync(
+      "powershell",
+      [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        path.join(REPO_ROOT, "scripts", "windows-dev-cleanup.ps1"),
+        "-Root",
+        REPO_ROOT,
+        "-TargetDebug",
+        path.join(REPO_ROOT, "src-tauri", "target", "debug"),
+        "-Identifier",
+        "com.codeterm.dev",
+        "-VitePort",
+        "1420",
+        "-ApiPort",
+        E2E_PORT,
+        "-CdpPort",
+        String(CDP_PORT),
+      ],
+      {
+        timeout: 30_000,
+        stdio: "inherit",
+      },
+    );
   } catch {
     /* best effort — the dev --wait retry decides success */
   }
@@ -118,7 +134,6 @@ export async function ensureDevConsole(): Promise<void> {
   try {
     bash(["build.sh", "dev", "--wait"], 600_000);
   } catch {
-    // First start attempt can lose to crash leftovers (orphan dev exe
     // locking the binary, vite squatting 1420) — sweep and retry once.
     killDevLeftovers();
     bash(["build.sh", "dev", "--wait"], 600_000);
@@ -142,8 +157,30 @@ export interface UiSession {
   page: Page;
 }
 
-async function waitForShell(page: Page): Promise<void> {
+async function completeFirstRunPickerIfPresent(page: Page): Promise<void> {
+  const picker = page.locator('[data-testid="first-run-general-picker"]');
+  if (!(await picker.isVisible({ timeout: 1_000 }).catch(() => false))) return;
+
+  const confirm = page.locator('[data-testid="agent-picker-confirm"]');
+  await confirm.waitFor({ state: "visible", timeout: 30_000 });
+  await confirm.click({ timeout: 30_000 });
+  await picker.waitFor({ state: "detached", timeout: 30_000 });
+}
+
+async function waitForShellOnce(page: Page): Promise<void> {
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+  await page
+    .evaluate(() =>
+      "serviceWorker" in navigator
+        ? Promise.race([
+            navigator.serviceWorker.ready.then(() => undefined),
+            new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
+          ])
+        : undefined,
+    )
+    .catch(() => {
+      /* no SW in this context (desktop CDP) or registration still pending — non-fatal */
+    });
   await page.evaluate(() => {
     try {
       localStorage.removeItem("codeterm-chat-ui-default-enabled");
@@ -151,10 +188,22 @@ async function waitForShell(page: Page): Promise<void> {
       /* localStorage may be unavailable; tests that need it will surface it */
     }
   });
+  await completeFirstRunPickerIfPresent(page);
   await page
-    .locator('.xterm:visible, [data-testid="chat-composer"]')
-    .first()
-    .waitFor({ state: "visible", timeout: 90_000 });
+    .waitForSelector('.xterm:visible, [data-testid="chat-composer"]:visible', {
+      state: "visible",
+      timeout: 90_000,
+    });
+}
+
+async function waitForShell(page: Page): Promise<void> {
+  try {
+    await waitForShellOnce(page);
+  } catch (e) {
+    if (!/Execution context was destroyed|Target closed/.test(String(e))) throw e;
+    await page.waitForLoadState("domcontentloaded");
+    await waitForShellOnce(page);
+  }
 }
 
 async function connectDesktopUi(): Promise<UiSession> {

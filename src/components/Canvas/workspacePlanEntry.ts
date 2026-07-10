@@ -1,0 +1,183 @@
+import type { Pane, Workspace } from "../../lib/types";
+import { childPaneIdsInWorkspace, paneIdsInWorkspace } from "../Sidebar/workspaceTabs";
+import type { PlanIndexEntry } from "./plansApi";
+import { assignedTaskIdsForPane } from "./planOpenFocus";
+import { canvasFocusStore, type CanvasWorkspaceTarget } from "./canvasFocusStore";
+import type { Plan } from "./types";
+
+export function workspacePaneIds(workspace: Workspace, panes: Record<string, Pane>): Set<string> {
+  const ids = paneIdsInWorkspace(workspace.tabs, panes);
+  for (const pid of childPaneIdsInWorkspace(workspace.tabs, panes)) ids.add(pid);
+  return ids;
+}
+
+export function deriveWorkspacePlanEntries(
+  index: PlanIndexEntry[],
+  workspace: Workspace,
+  _panes: Record<string, Pane>,
+): PlanIndexEntry[] {
+  const active = index.filter((e) => e.status === "active");
+  const seen = new Set<string>();
+  const out: PlanIndexEntry[] = [];
+  for (const entry of active) {
+    if (!planBelongsToWorkspacePath(entry, workspace) || !hasWorkspacePlanContent(entry)) continue;
+    seen.add(entry.plan_id);
+    out.push(entry);
+  }
+  return out.sort((a, b) => b.updated_at - a.updated_at);
+}
+
+function planBelongsToWorkspacePath(entry: PlanIndexEntry, workspace: Workspace): boolean {
+  if (!workspace.cwd) return false;
+  const root = normalizePath(workspace.cwd);
+  const file = normalizePath(entry.file_path);
+  return file === `${root}/.codeterm/plans/active/${entry.plan_id}/plan.json`
+    || file === `${root}/.codeterm/plans/archive/${entry.plan_id}/plan.json`
+    || file.startsWith(`${root}/.codeterm/plans/`);
+}
+
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function hasWorkspacePlanContent(entry: PlanIndexEntry): boolean {
+  return (entry.task_count ?? 0) > 0
+    || (entry.section_count ?? 0) > 0
+    || (entry.element_count ?? 0) > 0
+    || (entry.loop_count ?? 0) > 0
+    || entry.has_goal === true
+    || entry.assigned_pane_ids.length > 0;
+}
+
+export function workspacePlanEntryKind(_entries: PlanIndexEntry[]): string {
+  return "Plan";
+}
+
+export function workspacePlanEntryLabel(_entries: PlanIndexEntry[]): string {
+  return "Plan";
+}
+
+export function workspacePlanEntryTitle(entries: PlanIndexEntry[]): string {
+  if (entries.length === 0) return "Open workspace plan";
+  if (entries.length === 1) {
+    const title = entries[0].title.trim();
+    return title ? `Open plan: ${title}` : "Open workspace plan";
+  }
+  const lead = entries[0]?.title.trim() || "Untitled plan";
+  const rest = entries.length - 1;
+  return `Open ${lead} (+${rest} more plan${rest === 1 ? "" : "s"})`;
+}
+
+// Freshest plan's name — the row's primary content, not just a tooltip.
+export function workspacePlanEntryPrimaryTitle(entries: PlanIndexEntry[]): string {
+  return entries[0]?.title.trim() || "Untitled plan";
+}
+
+export function workspacePlanEntryHint(entries: PlanIndexEntry[]): string | null {
+  const e = entries[0];
+  if (!e) return null;
+  const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+  const openTasks = typeof e.open_task_count === "number" ? e.open_task_count : (e.task_count ?? 0);
+  if (openTasks > 0) return count(openTasks, "task");
+  if ((e.section_count ?? 0) > 0) return count(e.section_count as number, "section");
+  if ((e.element_count ?? 0) > 0) return count(e.element_count as number, "item");
+  return null;
+}
+
+export function workspacePlanEntryExtraCount(entries: PlanIndexEntry[]): number {
+  return Math.max(0, entries.length - 1);
+}
+
+export function resolvePanePlanFocusTarget(
+  entries: PlanIndexEntry[],
+  paneId: string,
+): CanvasWorkspaceTarget | null {
+  if (entries.length === 0) return null;
+  return {
+    focusPaneId: paneId,
+    planId: entries.length === 1 ? entries[0].plan_id : undefined,
+  };
+}
+
+export function openWorkspacePlanCanvas(target?: CanvasWorkspaceTarget): void {
+  if (target?.planId) canvasFocusStore.clearPulse(target.planId);
+  canvasFocusStore.resetWorkspaceDismissed();
+  canvasFocusStore.openWorkspace(target ?? undefined);
+}
+
+export function openWorkspacePlanForEntries(entries: readonly PlanIndexEntry[]): void {
+  openWorkspacePlanCanvas({
+    planId: entries.length === 1 ? entries[0].plan_id : undefined,
+  });
+}
+
+/** Workspace whose cwd owns this plan's file path, or null when unknown. */
+export function findPlanOwnerWorkspace(
+  planId: string,
+  index: readonly PlanIndexEntry[],
+  workspaces: readonly Workspace[],
+): { workspace: Workspace; entry: PlanIndexEntry } | null {
+  const entry = index.find((e) => e.plan_id === planId);
+  if (!entry) return null;
+  for (const workspace of workspaces) {
+    if (planBelongsToWorkspacePath(entry, workspace)) return { workspace, entry };
+  }
+  return null;
+}
+
+export interface OpenPlanDeepLinkCtx {
+  index: readonly PlanIndexEntry[];
+  workspaces: readonly Workspace[];
+  activeWorkspaceId: string | null;
+  setActiveWorkspace: (id: string) => void;
+  onMissing?: (planId: string) => void;
+}
+
+/** Deep-link from chat: switch to the owning workspace and open the plan focused on a task. */
+export function openPlanDeepLink(planId: string, taskId: string | undefined, ctx: OpenPlanDeepLinkCtx): boolean {
+  const owner = findPlanOwnerWorkspace(planId, ctx.index, ctx.workspaces);
+  if (!owner) {
+    ctx.onMissing?.(planId);
+    return false;
+  }
+  if (owner.workspace.id !== ctx.activeWorkspaceId) ctx.setActiveWorkspace(owner.workspace.id);
+  openWorkspacePlanCanvas({ planId, nodeIds: taskId ? [taskId] : undefined });
+  return true;
+}
+
+export function resolveWorkspaceFocusNodeIds(
+  mode: "workspace" | "focus",
+  target: CanvasWorkspaceTarget | null | undefined,
+  plans: readonly Plan[],
+): string[] {
+  if (mode !== "workspace" || !target) return [];
+  if (target.nodeIds?.length) return target.nodeIds;
+  if (target.focusPaneId) {
+    const taskIds = assignedTaskIdsForPane(plans, target.focusPaneId);
+    if (taskIds.length) return taskIds;
+  }
+  if (target.planId) return [target.planId];
+  return [];
+}
+
+export function canvasFitContextKey(
+  mode: string,
+  focusPaneId: string | null | undefined,
+  workspaceTarget: CanvasWorkspaceTarget | null | undefined,
+): string {
+  const ws = workspaceTarget;
+  return `${mode}:${focusPaneId ?? ""}:${ws?.focusPaneId ?? ""}:${ws?.planId ?? ""}:${ws?.nodeIds?.join(",") ?? ""}`;
+}
+
+export function openPanePlanFocus(
+  entries: PlanIndexEntry[],
+  paneId: string,
+  nodeIds?: string[],
+): void {
+  const base = resolvePanePlanFocusTarget(entries, paneId);
+  if (!base) return;
+  openWorkspacePlanCanvas({
+    ...base,
+    nodeIds: nodeIds?.length ? nodeIds : undefined,
+  });
+}

@@ -58,6 +58,25 @@ impl UsageProbe {
             return Err(ProbeError::BinaryMissing(provider_owned));
         }
 
+        let svc_for_fetch = svc.clone();
+        let provider_for_fetch = provider_owned.clone();
+        let fetched = tokio::task::spawn_blocking(move || {
+            svc_for_fetch
+                .agent_registry
+                .with_provider(&provider_for_fetch, |p| p.fetch_usage())
+                .flatten()
+        })
+        .await
+        .map_err(|e| ProbeError::Internal(format!("fetch join: {}", e)))?;
+        if let Some(result) = fetched {
+            return result
+                .map(|raw_text| UsageProbeOutcome {
+                    raw_text,
+                    elapsed_ms: started.elapsed().as_millis() as u64,
+                })
+                .map_err(ProbeError::NotReady);
+        }
+
         let svc_for_spawn = svc.clone();
         let provider_for_spawn = provider_owned.clone();
         let handle = tokio::task::spawn_blocking(move || {
@@ -114,9 +133,10 @@ impl UsageProbe {
         let warmup = svc
             .agent_registry
             .with_provider(provider, |p| p.task_input_warmup())
-            .unwrap_or(Duration::ZERO);
+            .unwrap_or(Duration::ZERO)
+            .min(USAGE_PROBE_WARMUP_CAP);
 
-        wait_for_tui(&svc, pty_id, TUI_READY_TIMEOUT)
+        wait_for_tui(&svc, pty_id, provider, TUI_READY_TIMEOUT)
             .await
             .map_err(ProbeError::NotReady)?;
 
@@ -126,7 +146,6 @@ impl UsageProbe {
         }
         tokio::time::sleep(Duration::from_millis(800)).await;
 
-        // ESC clears any partial input / open menu and warms the ConPTY input
         // path before the real command write.
         let pty_owned = pty_id.to_string();
         let svc_for_send = svc.clone();
@@ -145,11 +164,7 @@ impl UsageProbe {
             .flatten()
             .unwrap_or_else(|| "/usage".to_string());
 
-        write_slash_command(&svc, pty_id, &probe_cmd).await?;
-
-        tokio::time::sleep(warmup).await;
-
-        let raw_text = wait_for_output(&svc, pty_id, provider).await?;
+        let raw_text = probe_usage_command(&svc, pty_id, provider, &probe_cmd, warmup).await?;
 
         let _ = write_slash_command(&svc, pty_id, "/exit").await;
 
@@ -191,7 +206,6 @@ async fn write_slash_command(
     .map_err(|e| ProbeError::Internal(format!("paste join: {}", e)))?
     .map_err(|e| ProbeError::Internal(format!("paste write: {}", e)))?;
 
-    // Submit twice with a settle between: a freshly-rendered TUI can swallow a
     // too-early `\r`, leaving the command typed-but-never-sent.
     for settle_ms in [150u64, 600] {
         tokio::time::sleep(Duration::from_millis(settle_ms)).await;
@@ -206,7 +220,16 @@ async fn write_slash_command(
     Ok(())
 }
 
-async fn wait_for_tui(svc: &ServiceContext, pty_id: &str, timeout: Duration) -> Result<(), String> {
+/// Slash-command probes don't type long prompts — cap the post-command settle so
+/// codex/claude don't burn 3s of task-delivery warmup on every `/status` poll.
+const USAGE_PROBE_WARMUP_CAP: Duration = Duration::from_millis(500);
+
+async fn wait_for_tui(
+    svc: &ServiceContext,
+    pty_id: &str,
+    provider: &str,
+    timeout: Duration,
+) -> Result<(), String> {
     let started = Instant::now();
     let poll = Duration::from_millis(250);
     let content_fallback_after = Duration::from_secs(25);
@@ -217,7 +240,11 @@ async fn wait_for_tui(svc: &ServiceContext, pty_id: &str, timeout: Duration) -> 
             .lock()
             .get_screen_text(pty_id)
             .unwrap_or_default();
-        if screen_has_tui_input(&text) {
+        let provider_tui = svc
+            .agent_registry
+            .with_provider(provider, |p| p.screen_has_tui(&text))
+            .unwrap_or(false);
+        if screen_has_tui_input(&text) || provider_tui {
             return Ok(());
         }
         if !text.trim().is_empty() {
@@ -264,36 +291,100 @@ const TUI_READY_TIMEOUT: Duration = Duration::from_secs(30);
 #[cfg(windows)]
 const TOTAL_BUDGET: Duration = Duration::from_secs(25);
 #[cfg(not(windows))]
-const TOTAL_BUDGET: Duration = Duration::from_secs(15);
+const TOTAL_BUDGET: Duration = Duration::from_secs(22);
 
 const POLL_INTERVAL: Duration = Duration::from_millis(400);
+const PROBE_COMMAND_ATTEMPTS: usize = 3;
 
-async fn wait_for_output(
+async fn probe_usage_command(
     svc: &ServiceContext,
     pty_id: &str,
     provider: &str,
+    probe_cmd: &str,
+    warmup: Duration,
+) -> Result<String, ProbeError> {
+    let mut last_err = ProbeError::NoOutput;
+    let min_accept_attempt = usize::from(probe_cmd.trim() == "/status");
+    for attempt in 0..PROBE_COMMAND_ATTEMPTS {
+        if attempt > 0 {
+            clear_probe_screen(svc, pty_id).await?;
+        }
+        let baseline = OutputEpoch::capture(svc, pty_id);
+        write_slash_command(svc, pty_id, probe_cmd).await?;
+        tokio::time::sleep(warmup).await;
+        if attempt < min_accept_attempt {
+            wait_for_epoch_activity(svc, pty_id, &baseline, Duration::from_secs(3)).await;
+            continue;
+        }
+        match wait_for_output_after(svc, pty_id, provider, &baseline).await {
+            Ok(text) => return Ok(text),
+            Err(err) => last_err = err,
+        }
+    }
+    Err(last_err)
+}
+
+async fn clear_probe_screen(svc: &ServiceContext, pty_id: &str) -> Result<(), ProbeError> {
+    let pty_owned = pty_id.to_string();
+    let svc_for_send = svc.clone();
+    tokio::task::spawn_blocking(move || {
+        let pty = svc_for_send.pty.lock();
+        pty.write(&pty_owned, b"\x1b")
+    })
+    .await
+    .map_err(|e| ProbeError::Internal(format!("esc join: {}", e)))?
+    .map_err(|e| ProbeError::Internal(format!("send esc: {}", e)))?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    Ok(())
+}
+
+async fn wait_for_epoch_activity(
+    svc: &ServiceContext,
+    pty_id: &str,
+    baseline: &OutputEpoch,
+    timeout: Duration,
+) {
+    let started = Instant::now();
+    while started.elapsed() < timeout {
+        if !epoch_text(svc, pty_id, baseline).trim().is_empty() {
+            return;
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
+#[derive(Debug, Clone)]
+struct OutputEpoch {
+    offset: u64,
+    screen_hash: Option<[u8; 32]>,
+}
+
+impl OutputEpoch {
+    fn capture(svc: &ServiceContext, pty_id: &str) -> Self {
+        let offset = svc.output_buf.lock().total_written(pty_id);
+        let screen_hash = svc.screen_state.lock().get_content_hash(pty_id, 0);
+        Self {
+            offset,
+            screen_hash,
+        }
+    }
+}
+
+async fn wait_for_output_after(
+    svc: &ServiceContext,
+    pty_id: &str,
+    provider: &str,
+    baseline: &OutputEpoch,
 ) -> Result<String, ProbeError> {
     let started = Instant::now();
     let mut last_text = String::new();
     while started.elapsed() < TOTAL_BUDGET {
-        let raw_bytes = {
-            let ob = svc.output_buf.lock();
-            ob.get_full(pty_id).map(|b| b.to_vec())
-        };
-        let text = match raw_bytes {
-            Some(b) if !b.is_empty() => render_tall(&b, 200, 120),
-            _ => svc
-                .screen_state
-                .lock()
-                .get_screen_text(pty_id)
-                .unwrap_or_default(),
-        };
+        let text = epoch_text(svc, pty_id, baseline);
         if !text.trim().is_empty() {
             last_text = text.clone();
             if output_is_parseable(&svc, provider, &text) {
                 return Ok(text);
             }
-            // "Loading usage data…" is normal progress, not a failure — keep
             // polling through the full budget instead of bailing early.
         }
         tokio::time::sleep(POLL_INTERVAL).await;
@@ -314,6 +405,36 @@ async fn wait_for_output(
     }
 }
 
+fn epoch_text(svc: &ServiceContext, pty_id: &str, baseline: &OutputEpoch) -> String {
+    let raw_bytes = {
+        let ob = svc.output_buf.lock();
+        let (bytes, _) = ob.read_since(pty_id, baseline.offset);
+        bytes
+    };
+    let (screen_changed, screen) = {
+        let ss = svc.screen_state.lock();
+        (
+            ss.get_content_hash(pty_id, 0) != baseline.screen_hash,
+            ss.get_screen_text(pty_id),
+        )
+    };
+    select_epoch_text(&raw_bytes, screen_changed, screen)
+}
+
+fn select_epoch_text(raw_bytes: &[u8], screen_changed: bool, screen: Option<String>) -> String {
+    if !raw_bytes.is_empty() {
+        let rendered = render_tall(raw_bytes, 200, 120);
+        if !rendered.trim().is_empty() {
+            return rendered;
+        }
+    }
+    if screen_changed {
+        screen.unwrap_or_default()
+    } else {
+        String::new()
+    }
+}
+
 fn output_is_parseable(svc: &ServiceContext, provider: &str, text: &str) -> bool {
     svc.agent_registry
         .with_provider(provider, |p| parser_accepts(p.usage_parser(), text))
@@ -324,9 +445,14 @@ fn parser_accepts(
     parser: Option<&dyn crate::agent::usage_parser::UsageParser>,
     text: &str,
 ) -> bool {
+    use crate::agent::usage_parser::UsageParseOutcome;
+
     parser
-        .and_then(|up| up.parse(text).ok())
-        .is_some_and(|s| s.has_any_field())
+        .and_then(|up| up.parse_outcome(text).ok())
+        .is_some_and(|outcome| match outcome {
+            UsageParseOutcome::Parsed(s) => s.has_any_field(),
+            UsageParseOutcome::Skip(_) => false,
+        })
 }
 
 fn only_loading_state(text: &str) -> bool {
@@ -345,8 +471,10 @@ fn render_tall(bytes: &[u8], rows: u16, cols: u16) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parser_accepts;
-    use crate::agent::usage_parser::{UsageParseError, UsageParser, UsageSnapshot};
+    use super::{parser_accepts, select_epoch_text};
+    use crate::agent::usage_parser::{
+        UsageParseError, UsageParseOutcome, UsageParser, UsageSnapshot,
+    };
 
     #[test]
     fn parser_accepts_none_is_not_ready() {
@@ -376,9 +504,33 @@ mod tests {
     }
 
     #[test]
+    fn nothing_found_is_a_skip_outcome() {
+        let outcome = StubParser.parse_outcome("Loading usage data…").unwrap();
+        assert!(matches!(outcome, UsageParseOutcome::Skip(_)));
+    }
+
+    #[test]
+    fn epoch_text_ignores_unchanged_stale_screen() {
+        let stale = Some("Codex status\n5h limit 78% left (resets 23:00)".to_string());
+        assert_eq!(select_epoch_text(&[], false, stale), "");
+    }
+
+    #[test]
+    fn epoch_text_prefers_bytes_written_after_baseline() {
+        let stale = Some("Codex status\n5h limit 78% left (resets 23:00)".to_string());
+        let text = select_epoch_text(
+            b"fresh status\n5h limit 64% left (resets 23:30)",
+            false,
+            stale,
+        );
+        assert!(text.contains("fresh status"));
+        assert!(!text.contains("78% left"));
+    }
+
+    #[test]
     fn real_claude_parser_gates_like_old_markers() {
         let parser = crate::plugin::agent_claude::usage_tui::ClaudeTuiUsageParser;
-        let fixture = include_str!("../plugin/agent_claude/fixtures/usage_v2_1.txt");
+        let fixture = include_str!("fixtures/usage_v2_1.txt");
         assert!(
             parser_accepts(Some(&parser), fixture),
             "captured /usage screen must be accepted"

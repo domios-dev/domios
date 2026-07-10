@@ -2,6 +2,7 @@ pub mod poller;
 pub mod probe;
 pub mod projection;
 pub mod store;
+mod suspicious;
 
 pub use poller::{PaneActivity, UsagePoller};
 pub use probe::{ProbeError, UsageProbe, UsageProbeOutcome};

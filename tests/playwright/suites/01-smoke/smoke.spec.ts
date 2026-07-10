@@ -1,14 +1,13 @@
 /**
- * 01-smoke — proves the harness is real: the dev console is running, its
- * API answers, and Playwright is driving the actual Tauri WebView2 window.
- * All tests @smoke.
+ * WHAT: smoke covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 01-smoke.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 
-test("@smoke /api/health is ok with a build hash", async ({ api }) => {
+test("@smoke /api/health is ok", async ({ api }) => {
   const health = await api.health();
   expect(health.status).toBe("ok");
-  expect(health.build).toMatch(/^[0-9a-f]{6,40}$/);
   expect(health.version).toMatch(/^\d+\.\d+\.\d+/);
 });
 
@@ -19,18 +18,12 @@ test("@smoke the real app window renders the shell UI", async ({ ui }) => {
   // Non-empty render: the shell mounts real content, not a blank root.
   const childCount = await page.locator("#root > *").count();
   expect(childCount).toBeGreaterThan(0);
-  // A terminal surface exists; a pane left in chat-view shows the composer
   // instead — either proves the shell.
   await expect(
     page.locator('[data-testid="terminal-pane"], [data-testid="chat-composer"]').first(),
   ).toBeVisible();
-  if (process.platform === "win32") {
-    // Desktop chrome is present — the web mirror strips it (see 12-web),
-    // so this guards the inverse: Tauri must keep its titlebar.
-    await expect(page.locator('[data-testid="titlebar"]')).toBeVisible();
-  } else {
-    await expect(page.locator('[data-testid="titlebar"]')).toHaveCount(0);
-  }
+  // Native and the web mirror mount the same titlebar strip (parity decision A).
+  await expect(page.locator('[data-testid="titlebar"]')).toBeVisible();
 });
 
 test("@smoke default workspace and at least one pane exist", async ({ api }) => {

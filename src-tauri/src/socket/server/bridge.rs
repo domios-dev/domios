@@ -27,6 +27,7 @@ pub(super) fn dispatch(
                 JsonRpcError {
                     code: -32602,
                     message: msg.to_string(),
+                    data: None,
                 }
             })?;
 
@@ -57,6 +58,7 @@ pub(super) fn dispatch(
                         return Err(JsonRpcError {
                             code: -32602,
                             message: format!("File not found: {}", file),
+                            data: None,
                         });
                     }
                     let caption = params
@@ -97,6 +99,7 @@ pub(super) fn dispatch(
                     return Err(JsonRpcError {
                         code: -32602,
                         message: format!("Unknown content type: {}", content_type),
+                        data: None,
                     });
                 }
             };
@@ -122,12 +125,14 @@ pub(super) fn dispatch(
                 tx.send(msg).map_err(|e| JsonRpcError {
                     code: -32603,
                     message: format!("Bridge send failed: {}", e),
+                    data: None,
                 })?;
                 Ok(serde_json::json!({"ok": true}))
             } else {
                 Err(JsonRpcError {
                     code: -32603,
                     message: "Bridge not active".to_string(),
+                    data: None,
                 })
             }
         }
@@ -140,6 +145,7 @@ pub(super) fn dispatch(
                 .ok_or(JsonRpcError {
                     code: -32602,
                     message: "chat_id required".into(),
+                    data: None,
                 })?;
             let message_id = params
                 .as_ref()
@@ -148,10 +154,13 @@ pub(super) fn dispatch(
                 .ok_or(JsonRpcError {
                     code: -32602,
                     message: "message_id required".into(),
+                    data: None,
                 })?;
             let emoji = get_string_param(params, "emoji")?;
 
-            let token = crate::bridge::telegram::read_token().unwrap_or_default();
+            let token =
+                crate::bridge::telegram::read_token(&crate::bridge_host::AppAttachmentStorePort)
+                    .unwrap_or_default();
             tokio::spawn(async move {
                 let client = reqwest::Client::new();
                 let resp = client
@@ -188,6 +197,7 @@ pub(super) fn dispatch(
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),
+            data: None,
         }),
     }
 }

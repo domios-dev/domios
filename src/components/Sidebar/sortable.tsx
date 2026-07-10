@@ -113,7 +113,6 @@ export function SidebarDnd({
       const to = ad.items.indexOf(String(over.id));
       if (from < 0 || to < 0) return;
       const reordered = arrayMove(ad.items, from, to);
-      // Reject (snap back) any drop that doesn't keep the pinned ids leading
       // the group in their original order — nothing reorders above General.
       const pinned = ad.pinnedIds ?? [];
       if (pinned.some((p, i) => reordered[i] !== p)) return;

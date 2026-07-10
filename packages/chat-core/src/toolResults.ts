@@ -58,7 +58,11 @@ export function attachToolResults<T extends NormalizedChatMessage>(messages: T[]
         const toolResult = existing.toolResult
           ? `${existing.toolResult}\n${resultText}`
           : resultText;
-        grouped[index] = { ...existing, toolResult };
+        grouped[index] = {
+          ...existing,
+          toolResult,
+          toolError: message.toolError === true ? true : existing.toolError,
+        };
         if (!message.toolId || message.toolId === existing.toolId) {
           lastUnresolvedToolIndex = null;
         }

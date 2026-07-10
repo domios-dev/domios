@@ -1,7 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
-import { ClaudeStreamParser, mergeAssistantMessages } from "./streamParser";
-import type { ClaudeStreamEvent, RawLine } from "./streamParser";
+import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
+import {
+  ClaudeStreamParser,
+  mergeAssistantMessages,
+  reconcileToolInvocations,
+  selectEffectiveToolInvocations,
+} from "./streamParser";
+import type {
+  ClaudeStreamEvent,
+  EffectiveToolInvocationState,
+  RawLine,
+} from "./streamParser";
 
 interface UseAgentRunStreamOpts {
   api: ApiConfig;
@@ -11,15 +21,11 @@ interface UseAgentRunStreamOpts {
 
 export interface UseAgentRunStreamResult {
   events: ClaudeStreamEvent[];
+  invocations: EffectiveToolInvocationState[];
   rawLines: RawLine[];
   connected: boolean;
   error: string | null;
   reload: () => void;
-}
-
-function baseUrl(api: ApiConfig): string {
-  const host = api.host === "0.0.0.0" ? "127.0.0.1" : api.host;
-  return `http://${host}:${api.port}`;
 }
 
 // Use fetch+ReadableStream so bearer token headers are sent.
@@ -81,16 +87,17 @@ export function useAgentRunStream({
       scheduleFlush();
     };
 
-    const url = `${baseUrl(api)}/api/panes/${encodeURIComponent(paneId)}/output/stream?from=0`;
-    const headers: HeadersInit = api.token
-      ? { Authorization: `Bearer ${api.token}` }
+    const url = `${daemonHttpBase(api)}/api/panes/${encodeURIComponent(paneId)}/output/stream?from=0`;
+    const token = daemonAuthToken(api);
+    const headers: HeadersInit = token
+      ? { Authorization: `Bearer ${token}` }
       : {};
 
     const fallbackToHistorical = async () => {
     // If daemon restarts, live streaming stops but on-disk logs remain.
     // Fetch once and parse historical log content.
       try {
-        const histUrl = `${baseUrl(api)}/api/agent-runs/${encodeURIComponent(paneId)}/log`;
+        const histUrl = `${daemonHttpBase(api)}/api/agent-runs/${encodeURIComponent(paneId)}/log`;
         const r = await fetch(histUrl, { headers, signal: ctrl.signal });
         if (cancelled) return;
         if (!r.ok) {
@@ -175,8 +182,14 @@ export function useAgentRunStream({
     };
   }, [api.host, api.port, api.token, paneId, enabled, reloadKey]);
 
+  const invocations = useMemo(
+    () => selectEffectiveToolInvocations(reconcileToolInvocations(events)),
+    [events],
+  );
+
   return {
     events,
+    invocations,
     rawLines,
     connected,
     error,

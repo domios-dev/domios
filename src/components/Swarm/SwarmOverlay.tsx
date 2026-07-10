@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { listen } from "../../lib/bridge";
-import { useMultiplexer } from "../../store/multiplexer";
+import { useMuxState } from "../../store/multiplexer";
 import { useSwarmCanvas } from "./useSwarmCanvas";
 import { computeTreeLayout } from "./layout";
 import type { SwarmState, SwarmNode, SwarmEdge, ReportParticle } from "./types";
@@ -35,13 +35,12 @@ interface SwarmOverlayProps {
 }
 
 export function SwarmOverlay({ visible, onClose }: SwarmOverlayProps) {
-  const { state } = useMultiplexer();
+  const state = useMuxState();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [animState, setAnimState] = useState<"entering" | "visible" | "exiting" | "hidden">(
     visible ? "entering" : "hidden"
   );
 
-  // Track previous visibility for transitions
   useEffect(() => {
     if (visible) {
       setAnimState("entering");
@@ -54,12 +53,10 @@ export function SwarmOverlay({ visible, onClose }: SwarmOverlayProps) {
     }
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Build swarm state from multiplexer panes
   const swarmState = useMemo<SwarmState>(() => {
     const nodes = new Map<string, SwarmNode>();
     const edges = new Map<string, SwarmEdge>();
 
-    // Filter panes that have an agent role
     for (const pane of Object.values(state.panes)) {
       if (!pane.role) continue;
 
@@ -83,7 +80,6 @@ export function SwarmOverlay({ visible, onClose }: SwarmOverlayProps) {
       });
     }
 
-    // Build edges from parent-child relationships
     for (const node of nodes.values()) {
       if (node.parentId && nodes.has(node.parentId)) {
         const edgeKey = `${node.parentId}->${node.id}`;
@@ -98,11 +94,9 @@ export function SwarmOverlay({ visible, onClose }: SwarmOverlayProps) {
     return { nodes, edges, viewport: { x: 0, y: 0, zoom: 1 } };
   }, [state.panes, (state as any).paneStatuses]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Stable ref for swarm state so rAF loop and event handlers share same object
   const swarmRef = useRef(swarmState);
   swarmRef.current = swarmState;
 
-  // Recompute layout whenever nodes change
   useEffect(() => {
     computeTreeLayout(
       swarmState.nodes,
@@ -111,20 +105,17 @@ export function SwarmOverlay({ visible, onClose }: SwarmOverlayProps) {
     );
   }, [swarmState.nodes]);
 
-  // Listen for agent-report events to spawn particles
   useEffect(() => {
     if (!visible) return;
 
     let cancelled = false;
 
-    // Listen for pane status changes
     const unsubs: (() => void)[] = [];
 
     listen<{ pane_id: string; parent_pane_id?: string }>("agent-report", (event) => {
       if (cancelled) return;
       const { pane_id, parent_pane_id } = event.payload;
 
-      // Find the edge from this child to its parent
       const sw = swarmRef.current;
       const childNode = sw.nodes.get(pane_id);
       if (!childNode) return;
@@ -150,7 +141,6 @@ export function SwarmOverlay({ visible, onClose }: SwarmOverlayProps) {
     };
   }, [visible]);
 
-  // Close on Escape
   useEffect(() => {
     if (!visible) return;
     const handleKey = (e: KeyboardEvent) => {
@@ -164,7 +154,6 @@ export function SwarmOverlay({ visible, onClose }: SwarmOverlayProps) {
     return () => window.removeEventListener("keydown", handleKey, { capture: true });
   }, [visible, onClose]);
 
-  // Canvas rendering hook
   useSwarmCanvas(canvasRef, swarmState, visible && animState !== "hidden");
 
   const handleBackdropClick = useCallback((e: React.MouseEvent) => {

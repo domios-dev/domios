@@ -251,9 +251,42 @@ export function buildYearBuckets(rows: UsageSnapshot[], now: number): Bucket[] {
   return buckets;
 }
 
+/** Soonest future reset timestamp across session/weekly/spend, or null when
+ * every timer is absent or already past. Drives the auto-refresh wake-up. */
+export function nextResetAt(snap: UsageSnapshot, nowMs: number): number | null {
+  const future = [snap.session_resets_at, snap.weekly_resets_at, snap.spend_resets_at].filter(
+    (r): r is number => r != null && r > nowMs,
+  );
+  return future.length > 0 ? Math.min(...future) : null;
+}
+
+/** Optimistically reset any metric whose timer has elapsed: a passed cycle
+ * boundary means the new cycle starts at zero. Returns a fresh object (no
+ * mutation) or the same reference when nothing expired. The real values land
+ * via the next probe; this only avoids showing a stale full bar at rollover. */
+export function zeroExpiredResets(snap: UsageSnapshot, nowMs: number): UsageSnapshot {
+  const passed = (r: number | null): boolean => r != null && r <= nowMs;
+  if (!passed(snap.session_resets_at) && !passed(snap.weekly_resets_at) && !passed(snap.spend_resets_at)) {
+    return snap;
+  }
+  const next = { ...snap };
+  if (passed(snap.session_resets_at)) {
+    next.session_pct = snap.session_pct == null ? null : 0;
+    next.session_resets_at = null;
+  }
+  if (passed(snap.weekly_resets_at)) {
+    next.weekly_pct = snap.weekly_pct == null ? null : 0;
+    next.weekly_resets_at = null;
+  }
+  if (passed(snap.spend_resets_at)) {
+    next.spend_cents = snap.spend_cents == null ? null : 0;
+    next.spend_resets_at = null;
+  }
+  return next;
+}
+
 export function activeWeeklyCycle(rows: UsageSnapshot[]): { start: number; end: number } {
   const now = Date.now();
-  // Only trust a reset timestamp if it's still in the future. Stale rows from a previous cycle would otherwise put us in a "cycle that already
   // ended" and future-day buckets would render off the chart's right edge.
   const withReset = rows.find(
     (r) => r.weekly_resets_at != null && r.weekly_resets_at > now,

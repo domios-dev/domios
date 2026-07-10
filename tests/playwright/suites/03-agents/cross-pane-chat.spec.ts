@@ -1,17 +1,7 @@
 /**
- * Cross-pane chat send — two live agent panes in chat UI exchange a message.
- *
- * This guards the full cross-pane pipeline the user relies on:
- *   sender pane → POST /send {source_pane} → server builds the
- *   `-=-codeterm:pane label=… pane=…-=-` prefix → injects into the
- *   recipient agent's PTY → the CLI logs the user turn to its JSONL →
- *   the chat UI tails it, parses the marker, and renders an origin header
- *   ("from <sender>") instead of the raw wire marker.
- *
- * Strategy (matches 03-agents): NO mocks. Real claude agents, real PTYs.
- * The ASSERTIONS key off the deterministic injected user turn (our exact
- * marker), never model output — so the only LLM dependency is that the
- * agents boot and accept input, not that they say anything in particular.
+ * WHAT: cross pane chat covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 03-agents.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type SpawnAgent } from "../../helpers/fixtures";
 import { type ApiClient } from "../../helpers/api-client";
@@ -78,7 +68,6 @@ test("@golden two chat panes exchange a cross-pane message, origin rendered", as
     expect(pane?.chat_view, `pane ${id} not in chat view`).toBe(true);
   }
 
-  // Wait until each agent has booted and logged a turn (READY) so the next
   // send lands on an input-ready CLI rather than a still-spawning PTY.
   await Promise.all([waitChatContains(api, paneA, "READY"), waitChatContains(api, paneB, "READY")]);
 
@@ -86,15 +75,12 @@ test("@golden two chat panes exchange a cross-pane message, origin rendered", as
   await api.post(`/panes/${paneB}/send`, { text: aToB, source_pane: paneA, enter: true });
   await api.post(`/panes/${paneA}/send`, { text: bToA, source_pane: paneB, enter: true });
 
-  // The injected user turns must land in each recipient's transcript carrying
   // the CodeTerm wire prefix — that is the cross-pane return-address.
   const onB = await waitChatContains(api, paneB, aToB);
   const onA = await waitChatContains(api, paneA, bToA);
   expect(onB.content, "recipient B lost the cross-pane wire prefix").toContain("-=-codeterm:pane");
   expect(onA.content, "recipient A lost the cross-pane wire prefix").toContain("-=-codeterm:pane");
 
-  // UI side: switch to each chat tab and assert the marker renders inside a
-  // chat message WITH an origin header ("from …") and WITHOUT the raw wire
   const tabIdOf = async (paneId: string): Promise<string> => {
     const pane = (await api.panes()).find((p) => p.id === paneId) as
       | { tab_id?: string }
@@ -113,8 +99,6 @@ test("@golden two chat panes exchange a cross-pane message, origin rendered", as
       state: "visible",
       timeout: 30_000,
     });
-    // Target the injected USER turn specifically — a reacting agent may emit
-    // its own tool_call cards that also echo the marker, so role-filter to the
     const msg = ui.page
       .locator('[data-testid="chat-message"][data-message-role="user"]')
       .filter({ hasText: marker })

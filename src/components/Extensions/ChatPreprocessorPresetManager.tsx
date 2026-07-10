@@ -49,7 +49,6 @@ function parseConfig(raw: string): Record<string, unknown> | undefined {
       return parsed as Record<string, unknown>;
     }
   } catch {
-    // Invalid JSON — ignore
   }
   return undefined;
 }

@@ -8,7 +8,23 @@ use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
 pub(crate) use super::spawn_cli::{cli_binary_on_path, provider_cli_install_warning};
-pub(crate) use super::spawn_params::chatbackend_spawn_config;
+#[cfg(test)]
+pub(crate) use super::spawn_params::validate_watcher_spawn_target;
+pub(crate) use super::spawn_params::{
+    chatbackend_spawn_config, reject_direct_watcher_chatbackend_config,
+};
+
+#[path = "spawn_model.rs"]
+mod spawn_model;
+#[cfg(test)]
+pub(crate) use spawn_model::ModelFallbackNotice;
+pub(crate) use spawn_model::{
+    model_fallback_notice_title, resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice,
+};
+
+#[path = "spawn_hidden_delivery.rs"]
+mod spawn_hidden_delivery;
+use spawn_hidden_delivery::deliver_hidden_pty_task;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SpawnPaneSpec {
@@ -49,6 +65,14 @@ pub enum PaneCommand {
         plugin_id: String,
         #[serde(default)]
         config: serde_json::Value,
+        #[serde(default)]
+        role: Option<String>,
+        #[serde(default)]
+        role_profile: Option<String>,
+        #[serde(default)]
+        can_spawn: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        watcher: Option<crate::multiplexer::types::WatcherSpec>,
     },
 }
 
@@ -65,6 +89,8 @@ pub struct AgentSpawnSpec {
     pub extra_args: Vec<String>,
     #[serde(default)]
     pub role: Option<String>,
+    #[serde(default)]
+    pub role_profile: Option<String>,
     #[serde(default)]
     pub can_spawn: Option<bool>,
     #[serde(default = "default_true")]
@@ -100,6 +126,21 @@ fn merge_warnings(a: Option<String>, b: Option<String>) -> Option<String> {
     }
 }
 
+/// Explicit `workspace_id` wins; `parent_pane_id` only picks a workspace when none was requested.
+pub(crate) fn resolve_spawn_workspace_id(
+    requested_workspace_id: Option<String>,
+    parent_pane_id: Option<&str>,
+    parent_workspace: impl FnOnce(&str) -> Option<String>,
+    active_workspace_id: Option<String>,
+    fallback_workspace_id: Option<String>,
+) -> Result<String, String> {
+    requested_workspace_id
+        .or_else(|| parent_pane_id.and_then(parent_workspace))
+        .or(active_workspace_id)
+        .or(fallback_workspace_id)
+        .ok_or_else(|| "No workspace found".to_string())
+}
+
 pub(crate) fn should_default_agent_pane_to_chat(
     default_enabled: bool,
     visibility: PaneVisibility,
@@ -120,6 +161,10 @@ pub struct PaneHandle {
     pub worker_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    /// Advisory workspace pane-budget nudge (task_4d649dfd). Set once the
+    /// post-create workspace pane count crosses the soft budget. Never blocks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget_notice: Option<super::pane_budget::PaneBudgetNotice>,
 }
 
 impl ServiceContext {
@@ -161,101 +206,6 @@ pub(crate) fn validate_agent_model(
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ModelFallbackNotice {
-    pub requested: String,
-    pub using: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FreshAgentModelResolution {
-    pub model: Option<String>,
-    pub fallback_notice: Option<ModelFallbackNotice>,
-}
-
-pub(crate) fn model_fallback_notice_title(notice: &ModelFallbackNotice) -> String {
-    format!(
-        "model {} unavailable -> using {}",
-        notice.requested, notice.using
-    )
-}
-
-pub(crate) fn resolve_fresh_agent_model(
-    registry: &AgentRegistry,
-    provider_id: &str,
-    requested: Option<String>,
-    resume_session_id: Option<&str>,
-) -> Option<String> {
-    resolve_fresh_agent_model_with_notice(registry, provider_id, requested, resume_session_id).model
-}
-
-pub(crate) fn resolve_fresh_agent_model_with_notice(
-    registry: &AgentRegistry,
-    provider_id: &str,
-    requested: Option<String>,
-    resume_session_id: Option<&str>,
-) -> FreshAgentModelResolution {
-    if resume_session_id.is_some() {
-        return FreshAgentModelResolution {
-            model: requested.and_then(non_empty_model),
-            fallback_notice: None,
-        };
-    }
-    if let Some(model) = requested.and_then(non_empty_model) {
-        let resolved = crate::agent::model_catalog::resolve_model(provider_id, Some(&model));
-        let fallback_notice = if resolved.fell_back {
-            log::warn!(
-                "[spawn] requested model '{}' unavailable for provider '{}'; using '{}'",
-                model,
-                provider_id,
-                resolved.id
-            );
-            Some(ModelFallbackNotice {
-                requested: model,
-                using: resolved.id.clone(),
-            })
-        } else {
-            None
-        };
-        return FreshAgentModelResolution {
-            model: non_empty_model(resolved.id),
-            fallback_notice,
-        };
-    }
-    if let Some(model) = crate::config::provider_config(provider_id)
-        .default_model
-        .and_then(non_empty_model)
-    {
-        let resolved = crate::agent::model_catalog::resolve_model(provider_id, Some(&model));
-        if !resolved.fell_back {
-            return FreshAgentModelResolution {
-                model: non_empty_model(resolved.id),
-                fallback_notice: None,
-            };
-        }
-        log::warn!(
-            "[spawn] ignoring stale default model '{}' for provider '{}'",
-            model,
-            provider_id
-        );
-    }
-    let provider_default = registry
-        .with_provider(provider_id, |p| p.default_model())
-        .flatten()
-        .and_then(non_empty_model);
-    let resolved =
-        crate::agent::model_catalog::resolve_model(provider_id, provider_default.as_deref());
-    FreshAgentModelResolution {
-        model: non_empty_model(resolved.id),
-        fallback_notice: None,
-    }
-}
-
-fn non_empty_model(model: String) -> Option<String> {
-    let trimmed = model.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
-}
-
 impl ServiceContext {
     pub(crate) fn spawn_visible_agent_impl(
         &self,
@@ -295,23 +245,15 @@ impl ServiceContext {
             self.create_notification(model_fallback_notice_title(notice), None, Some("warning"));
         }
 
-        let title = spec
-            .title
-            .clone()
-            .or_else(|| agent.agent_name.clone())
-            .unwrap_or_else(|| agent_cmd.clone());
-
         let (ws_id, ws_cwd) = {
             let mux = self.mux.write();
-            let from_parent = spec
-                .parent_pane_id
-                .as_ref()
-                .and_then(|pid| mux.find_workspace_for_pane(pid));
-            let id = from_parent
-                .or_else(|| spec.workspace_id.clone())
-                .or_else(|| mux.snapshot().active_workspace_id.clone())
-                .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-                .ok_or("No workspace found")?;
+            let id = resolve_spawn_workspace_id(
+                spec.workspace_id.clone(),
+                spec.parent_pane_id.as_deref(),
+                |pid| mux.find_workspace_for_pane(pid),
+                mux.get_active_workspace().map(|w| w.id.clone()),
+                mux.list_workspaces().first().map(|w| w.id.clone()),
+            )?;
             let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
             (id, cwd)
         };
@@ -336,16 +278,22 @@ impl ServiceContext {
         let (tab_id, pane_id) = {
             let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
-            // Apply explicit --title to tab.title up-front (mirrors REST path).
             if let Some(ref t) = spec.title {
                 if !t.trim().is_empty() {
-                    let _ = mux.rename_tab(&ws_id, &result.0, t);
+                    let _ = mux.rename_pane_at_level(
+                        &result.1,
+                        t,
+                        crate::multiplexer::types::TitleLevel::User,
+                    );
                 }
             }
             if let Some(ref dir) = resolved_cwd {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.cwd = Some(dir.clone());
                 }
+            }
+            if let Some(pane) = mux.get_pane_mut(&result.1) {
+                pane.role_profile = agent.role_profile.clone();
             }
             if let Some(ref description) = spec.description {
                 let _ = mux.set_pane_description(&result.1, Some(description.clone()));
@@ -377,8 +325,14 @@ impl ServiceContext {
                     pane.chat_view = true;
                 }
             }
-            if let Err(e) = mux.rename_pane(&result.1, &title) {
-                log::warn!("[spawn] rename_pane failed: {}", e);
+            // real agent name was supplied — the raw provider id is never a title.
+            if let Some((title, level)) = super::spawn_title::creation_title_override(
+                spec.title.as_deref(),
+                agent.agent_name.as_deref(),
+            ) {
+                if let Err(e) = mux.rename_pane_at_level(&result.1, &title, level) {
+                    log::warn!("[spawn] rename_pane failed: {}", e);
+                }
             }
             if agent.activate.unwrap_or(false) {
                 let _ = mux.set_active_tab(&ws_id, &result.0);
@@ -386,7 +340,6 @@ impl ServiceContext {
             result
         };
 
-        // Apply role + can_spawn after the tab is created. Done outside the create-tab lock so set_pane_role's full validation runs and emits state
         // changes; `can_spawn` is only forced when the caller explicitly passed --can-spawn (Some), preserving role defaults (Orchestrator defaults true, Worker false).
         if let Some(ref role_str) = agent.role {
             if let Err(e) = self.set_pane_role(
@@ -395,17 +348,31 @@ impl ServiceContext {
                 spec.parent_pane_id.as_deref(),
                 agent.can_spawn,
             ) {
-                log::warn!(
-                    "[spawn] set_pane_role({}, {}) failed: {}",
-                    pane_id,
-                    role_str,
-                    e
-                );
+                let _ = self.mux.write().close_tab(&ws_id, &tab_id);
+                self.emit_state_changed();
+                return Err(e);
+            }
+            if role_str == "Worker" || role_str == "Manager" {
+                if let Some(ref parent) = spec.parent_pane_id {
+                    if let Err(e) = self.expect_spawn_parent_link(&pane_id, parent) {
+                        let _ = self.mux.write().close_tab(&ws_id, &tab_id);
+                        self.emit_state_changed();
+                        return Err(e);
+                    }
+                }
             }
         }
         // Pin agent_type before launch so detect_from_output has a durable session-id source.
         // Missing this tag leaves Codex/OpenCode panes unresumable after restart.
         self.set_and_lock_pane_agent_type(&pane_id, agent_cmd.clone());
+        if agent
+            .role
+            .as_deref()
+            .and_then(|role| Self::parse_role(role).ok())
+            == Some(crate::multiplexer::types::AgentRole::Orchestrator)
+        {
+            self.maybe_deliver_orchestrator_promotion_onboarding(&pane_id, false);
+        }
         let launch_session_id = if agent.resume_session_id.is_none() {
             self.agent_registry
                 .with_provider(&agent_cmd, |p| p.session_id_injection())
@@ -426,24 +393,18 @@ impl ServiceContext {
         }
         self.emit_state_changed();
 
-        let role_suffixed_task = agent.task.as_ref().map(|t| {
-            let preamble_wrapped = if let Some(ref preamble) = agent.task_preamble {
+        let preamble_wrapped_task = agent.task.as_ref().map(|t| {
+            if let Some(ref preamble) = agent.task_preamble {
                 format!("{}{}", preamble, t)
             } else {
                 t.clone()
-            };
-            match agent.role.as_deref() {
-                Some("Worker") => format!("{}{}", preamble_wrapped, crate::prompts::WORKER_SUFFIX),
-                Some("Orchestrator") => {
-                    format!(
-                        "{}{}",
-                        preamble_wrapped,
-                        crate::prompts::ORCHESTRATOR_SUFFIX
-                    )
-                }
-                _ => preamble_wrapped,
             }
         });
+        let role_suffixed_task = super::orchestrator::role_onboarding_task(
+            preamble_wrapped_task.as_deref(),
+            agent.role.as_deref(),
+            agent.role_profile.as_deref(),
+        );
         // Tag with the spawner's origin prefix uniformly for every provider; delivery handles the marker per provider (TUI-typed for PtyInput, positional after `--` for inline-flag).
         let role_suffixed_task =
             role_suffixed_task.map(|t| match self.spawn_task_prefix(&pane_id) {
@@ -478,6 +439,7 @@ impl ServiceContext {
             ready_tx,
         );
 
+        let budget_notice = self.workspace_pane_budget_notice(&ws_id);
         Ok(PaneHandle {
             pane_id,
             tab_id,
@@ -486,6 +448,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: agent.worker_id.clone(),
             warning,
+            budget_notice,
         })
     }
 
@@ -495,15 +458,13 @@ impl ServiceContext {
     ) -> Result<PaneHandle, String> {
         let (ws_id, ws_cwd) = {
             let mux = self.mux.write();
-            let from_parent = spec
-                .parent_pane_id
-                .as_ref()
-                .and_then(|pid| mux.find_workspace_for_pane(pid));
-            let id = from_parent
-                .or_else(|| spec.workspace_id.clone())
-                .or_else(|| mux.snapshot().active_workspace_id.clone())
-                .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-                .ok_or("No workspace found")?;
+            let id = resolve_spawn_workspace_id(
+                spec.workspace_id.clone(),
+                spec.parent_pane_id.as_deref(),
+                |pid| mux.find_workspace_for_pane(pid),
+                mux.get_active_workspace().map(|w| w.id.clone()),
+                mux.list_workspaces().first().map(|w| w.id.clone()),
+            )?;
             let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
             (id, cwd)
         };
@@ -524,7 +485,6 @@ impl ServiceContext {
                 if let Err(e) = mux.rename_pane(&result.1, title) {
                     log::warn!("[spawn.shell] rename_pane failed: {}", e);
                 }
-                let _ = mux.rename_tab(&ws_id, &result.0, title);
             }
             result
         };
@@ -540,6 +500,7 @@ impl ServiceContext {
             None
         };
 
+        let budget_notice = self.workspace_pane_budget_notice(&ws_id);
         Ok(PaneHandle {
             pane_id,
             tab_id,
@@ -548,6 +509,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: None,
             warning,
+            budget_notice,
         })
     }
 
@@ -639,6 +601,7 @@ impl ServiceContext {
             });
         });
 
+        let budget_notice = self.workspace_pane_budget_notice(&ws_id);
         Ok(PaneHandle {
             pane_id,
             tab_id,
@@ -647,6 +610,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: None,
             warning: None,
+            budget_notice,
         })
     }
 
@@ -705,6 +669,7 @@ impl ServiceContext {
             if let Some(pane) = mux.get_pane_mut(&result.1) {
                 pane.hidden = true;
                 pane.show_in_tabbar = false;
+                pane.role_profile = agent.role_profile.clone();
                 if let Some(ref wid) = agent.worker_id {
                     pane.worker_id = Some(wid.clone());
                 }
@@ -728,6 +693,21 @@ impl ServiceContext {
             }
             result
         };
+
+        self.set_and_lock_pane_agent_type(&pane_id, agent.provider.clone());
+        let launch_session_id = if agent.resume_session_id.is_none() {
+            self.agent_registry
+                .with_provider(&agent.provider, |p| p.session_id_injection())
+                .filter(|mode| !matches!(mode, crate::agent::provider::SessionIdInjection::None))
+                .map(|_| uuid::Uuid::new_v4().to_string())
+        } else {
+            None
+        };
+        if let Some(ref sid) = agent.resume_session_id {
+            self.set_agent_session_id(&pane_id, Some(sid.clone()));
+        } else if let Some(ref sid) = launch_session_id {
+            self.set_agent_session_id(&pane_id, Some(sid.clone()));
+        }
 
         let mut env_vars: HashMap<String, String> = HashMap::new();
         env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
@@ -772,10 +752,8 @@ impl ServiceContext {
         self.agent_run_pty_map
             .lock()
             .insert(pane_id.clone(), pty_id.clone());
-        // Register run for auto-complete via the standard agent rails: `mem worker report` / Stop hook / idle / timeout backstop. Cron kind is resolved
         // later (after the cron registry links pane→run).
         if let Some(ref worker_id) = agent.worker_id {
-            // Dreamer (REM phase) needs a longer timeout than the default worker — hub decomposition + diary + classification all in one session takes a
             // while. Pick by intent: any worker whose intent starts with "dreaming:" gets the dreaming-specific timeout.
             let mem_cfg = crate::config::memory_config();
             let intent = self
@@ -789,7 +767,6 @@ impl ServiceContext {
             } else {
                 mem_cfg.worker_timeout_seconds
             };
-            // Surface the timeout choice so reports of "dreaming worker died at 150s" (= worker_timeout_seconds, not dreaming_timeout_seconds=1800) can
             // diagnosed: either intent lookup returned empty, or is_dreaming_intent didn't match.
             log::info!(
                 "[run-watcher] register worker={} intent='{}' dreaming={} timeout={}s",
@@ -830,7 +807,17 @@ impl ServiceContext {
         let pane_id_outer = pane_id.clone();
         let pty_id_outer = pty_id.clone();
         let provider = agent.provider.clone();
+        let launch_session_id = launch_session_id.clone();
         let task_for_thread = wrapped_task.clone();
+        // PtyInput providers (codex/opencode) don't embed the task in the launch command — it must be typed into the TUI after boot. InlineFlag (claude) bakes it in, so PtyInput delivery is skipped there.
+        let task_delivery = self
+            .agent_registry
+            .with_provider(&provider, |p| p.task_delivery())
+            .unwrap_or(crate::agent::provider::TaskDelivery::PtyInput);
+        let pty_input_task = match task_delivery {
+            crate::agent::provider::TaskDelivery::PtyInput => wrapped_task.clone(),
+            crate::agent::provider::TaskDelivery::InlineFlag => None,
+        };
         std::thread::spawn(move || {
             let svc_reader = svc_outer.clone();
             let pty_reader = pty_id_outer.clone();
@@ -859,7 +846,6 @@ impl ServiceContext {
                 std::time::Duration::from_secs(10),
             );
 
-            // headless:false → ordinary interactive claude, task delivered as a positional after `--` (same launch a visible agent gets). Completion comes
             // from the standard agent rails, not a stream-json result event.
             let hidden_cwd = svc_outer
                 .mux
@@ -876,7 +862,7 @@ impl ServiceContext {
                     Some(model_args)
                 },
                 skip_permissions: true,
-                session_id: None,
+                session_id: launch_session_id,
                 structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
                     &svc_outer,
                     &provider,
@@ -893,6 +879,14 @@ impl ServiceContext {
                 Ok(pty_id) => {
                     if let Err(e) = svc_outer.send_shell_spawn(&pty_id, &launch_cmd) {
                         log::error!("[spawn.hidden] shell spawn failed: {}", e);
+                    } else if let Some(ref task_text) = pty_input_task {
+                        deliver_hidden_pty_task(
+                            &svc_outer,
+                            &pty_id,
+                            &pane_id_outer,
+                            &provider,
+                            task_text,
+                        );
                     }
                 }
                 Err(e) => log::error!("[spawn.hidden] no pty for pane {}: {}", pane_id_outer, e),
@@ -904,6 +898,7 @@ impl ServiceContext {
             );
         });
 
+        let budget_notice = self.workspace_pane_budget_notice(&ws_id);
         Ok(PaneHandle {
             pane_id,
             tab_id,
@@ -912,6 +907,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: agent.worker_id.clone(),
             warning: cli_warning,
+            budget_notice,
         })
     }
 }
@@ -919,3 +915,7 @@ impl ServiceContext {
 #[cfg(test)]
 #[path = "spawn_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "spawn_tests_chatbackend.rs"]
+mod tests_chatbackend;

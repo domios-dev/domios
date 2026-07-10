@@ -1,6 +1,5 @@
-/// OS-level toast notification helpers.
-/// Used by other handlers to surface notifications to the user via tauri-plugin-notification.
-
+//! OS-level toast notification helpers.
+//! Used by other handlers to surface notifications to the user via tauri-plugin-notification.
 /// Send an OS-level toast notification if the CodeTerm window is not focused.
 pub fn _send_os_notification_if_unfocused(app: &tauri::AppHandle, title: &str, body: Option<&str>) {
     use tauri::Manager;

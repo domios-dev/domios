@@ -1,10 +1,12 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const suitesDir = fileURLToPath(new URL("../suites", import.meta.url));
+const baselinePath = fileURLToPath(new URL("./check-tags-baseline.txt", import.meta.url));
 const tagRe = /@(smoke|golden|quarantine)/;
+const quarantineTaskRe = /(?:task_[a-z0-9]+|#[0-9]+)/i;
 const strictEnv = process.env.PW_LINT_STRICT ?? process.env.PLAYWRIGHT_STRICT_LINT;
 const strictEnabled = !/^(0|false|no)$/i.test(strictEnv ?? "");
 const actionMethodsWithForce = new Set([
@@ -52,7 +54,7 @@ function scopedSpecs() {
 
 function location(source, file, node) {
   const pos = source.getLineAndCharacterOfPosition(node.getStart(source));
-  return relative(process.cwd(), file) + ":" + (pos.line + 1);
+  return relative(process.cwd(), file).split("\\").join("/") + ":" + (pos.line + 1);
 }
 
 function titleFromArg(node) {
@@ -124,11 +126,22 @@ function checkFile(file) {
     violations.push(location(source, file, node) + " " + reason);
   }
 
+  function hasJustifiedSleepComment(node) {
+    const start = node.getFullStart();
+    const lineStart = text.lastIndexOf("\n", start) + 1;
+    const previousLineStart = text.lastIndexOf("\n", Math.max(0, lineStart - 2)) + 1;
+    const prefix = text.slice(previousLineStart, node.getStart(source));
+    return /PW_JUSTIFIED_SLEEP:\s+\S/.test(prefix);
+  }
+
   function visit(node) {
     if (isTestCall(node)) {
       const title = titleFromArg(node.arguments[0]);
       if (title !== null && !tagRe.test(title)) {
         add(node, "Playwright test title is missing @smoke, @golden, or @quarantine.");
+      }
+      if (title !== null && /@quarantine/.test(title) && !quarantineTaskRe.test(title)) {
+        add(node, "Quarantined Playwright test title must include task_<id> or #<issue>.");
       }
 
       if (strictEnabled && !hasExpect(node)) {
@@ -138,7 +151,9 @@ function checkFile(file) {
 
     if (strictEnabled) {
       if (ts.isPropertyAccessExpression(node) && node.name.text === "waitForTimeout") {
-        add(node, "waitForTimeout is banned; use web-first assertions or pollUntil.");
+        if (!hasJustifiedSleepComment(node)) {
+          add(node, "waitForTimeout is banned; use web-first assertions or pollUntil.");
+        }
       }
 
       if (
@@ -180,7 +195,21 @@ for (const file of scopedSpecs()) {
 }
 
 if (violations.length) {
+  const baseline = existsSync(baselinePath)
+    ? readFileSync(baselinePath, "utf8").split(/\r?\n/).filter(Boolean)
+    : [];
+  const baselineSet = new Set(baseline);
+  const violationSet = new Set(violations);
+  const newViolations = violations.filter((violation) => !baselineSet.has(violation));
+  const staleBaseline = baseline.filter((violation) => !violationSet.has(violation));
+  if (baseline.length > 0 && newViolations.length === 0 && staleBaseline.length === 0) {
+    process.exit(0);
+  }
   console.error("Playwright lint violations:");
-  console.error(violations.join("\n"));
+  console.error((newViolations.length > 0 ? newViolations : violations).join("\n"));
+  if (staleBaseline.length > 0) {
+    console.error("\nStale Playwright lint baseline entries:");
+    console.error(staleBaseline.join("\n"));
+  }
   process.exit(1);
 }

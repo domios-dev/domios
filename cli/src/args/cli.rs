@@ -9,19 +9,25 @@ use clap::{Parser, Subcommand};
 
 use crate::mesh_cli::MeshAction;
 
-use super::agent::AgentAction;
+use super::agent::{AgentAction, ReportArgs};
 use super::cron::CronAction;
 use super::debug::DebugAction;
 use super::delayed::DelayedAction;
+use super::effort::EffortAction;
 use super::mem::MemAction;
 use super::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction, PasteAction,
     ThemeAction, WorkspaceAction,
 };
+use super::orchestration::OrchestrationAction;
+use super::orchestrator::OrchestratorAction;
+use super::plan::PlanAction;
 use super::plugin::PluginAction;
 use super::service::ServiceAction;
 use super::sessions::SessionsAction;
+use super::spec::SpecAction;
 use super::system::SystemAction;
+use super::task::{CanvasAction, TaskAction};
 use super::update::UpdateAction;
 use super::usage::UsageAction;
 
@@ -46,6 +52,10 @@ pub struct Cli {
 }
 
 #[derive(Subcommand)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "Clap command enums keep parsed options inline."
+)]
 pub enum Commands {
     /// Show CodeTerm version and system info
     Identify,
@@ -64,6 +74,9 @@ pub enum Commands {
         /// Regenerate committed artifacts (docs/cli-manifest.json + docs/CLI.md)
         #[arg(long)]
         write: bool,
+        /// Emit the docs/CLI.md auto-block markdown instead of JSON
+        #[arg(long, conflicts_with = "write")]
+        markdown: bool,
     },
 
     /// Workspace management
@@ -72,21 +85,22 @@ pub enum Commands {
         action: WorkspaceAction,
     },
 
+    /// Orchestrator helpers
+    Orchestrator {
+        #[command(subcommand)]
+        action: OrchestratorAction,
+    },
+
+    /// Paired creation — spawn an Orchestrator + Planner bound to a fresh plan
+    Orchestration {
+        #[command(subcommand)]
+        action: OrchestrationAction,
+    },
+
     /// Pane management
     Pane {
         #[command(subcommand)]
         action: PaneAction,
-    },
-
-    /// Get terminal output from a pane (default: current pane)
-    GetOutput {
-        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long, alias = "id")]
-        pane: Option<String>,
-
-        /// Maximum number of lines to return (approximate)
-        #[arg(long, default_value = "50")]
-        lines: u32,
     },
 
     /// Send text to a pane (default: current pane).
@@ -129,14 +143,18 @@ pub enum Commands {
         stdin: bool,
 
         /// Terminal actions to run after optional text, comma-separated.
-        /// Examples: enter, esc, up, down, left, right, tab, backspace,
-        /// ctrl-c, delay:250ms. With --actions, text is inserted first but
-        /// not auto-submitted; include enter when you want to submit it.
+        /// Full key set: enter, esc, tab, backspace, delete, up, down, left,
+        /// right, home, end, pageup, pagedown, space, ctrl-c, plus
+        /// delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3).
+        /// With --actions, text is inserted first but not auto-submitted;
+        /// include enter when you want to submit it.
         #[arg(long, conflicts_with_all = ["delay", "at"])]
         actions: Option<String>,
 
         /// Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d.
-        /// Bare number means minutes.
+        /// Bare number means minutes. NOT the normal send path: use only for
+        /// future delivery the user asked for — plain send is immediate and
+        /// must never be buffered.
         #[arg(long, conflicts_with = "at")]
         delay: Option<String>,
 
@@ -205,6 +223,9 @@ pub enum Commands {
         action: AgentAction,
     },
 
+    /// Report worker progress to the owning orchestrator or plan
+    Report(ReportArgs),
+
     /// Cron job management
     Cron {
         #[command(subcommand)]
@@ -256,6 +277,36 @@ pub enum Commands {
         action: MemAction,
     },
 
+    /// Canvas plans — persistent orchestration boards
+    Plan {
+        #[command(subcommand)]
+        action: PlanAction,
+    },
+
+    /// Requirements specs — first-class WHAT documents
+    Spec {
+        #[command(subcommand)]
+        action: SpecAction,
+    },
+
+    /// Complete work bundles and effort lineage
+    Effort {
+        #[command(subcommand)]
+        action: EffortAction,
+    },
+
+    /// Standalone and plan-backed tasks
+    Task {
+        #[command(subcommand)]
+        action: TaskAction,
+    },
+
+    /// Canvas control commands
+    Canvas {
+        #[command(subcommand)]
+        action: CanvasAction,
+    },
+
     /// Past agent sessions — search conversations across all providers
     Sessions {
         #[command(subcommand)]
@@ -282,7 +333,7 @@ pub enum Commands {
     /// without bloating the system prompt. `codeterm docs` lists, `codeterm
     /// docs <name>` prints a bounded preview inside CodeTerm panes; pass
     /// --full for the complete doc. Names are case-insensitive and match the
-    /// .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING).
+    /// .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING, TEST-AUTHORING).
     Docs {
         /// Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs.
         name: Option<String>,
@@ -294,6 +345,14 @@ pub enum Commands {
         /// Print at most N lines.
         #[arg(long)]
         head: Option<usize>,
+    },
+
+    /// Read one embedded CodeTerm document in full.
+    ///
+    /// Canonical recovery entry for agents: `codeterm doc orchestration`.
+    Doc {
+        /// Doc name (e.g. orchestration).
+        name: String,
     },
 
     /// Internal diagnostics — verify crash reporter, etc. Dev-only;

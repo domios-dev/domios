@@ -17,7 +17,6 @@ use codeterm_lib::plugin::js_runtime::{load_one, JsProvider};
 use serde::Deserialize;
 use serde_json::Value;
 
-// Reference liveness gate over the SignalExtractor two-clock quiescence. NOT a
 // lifecycle state — it stands in for today's coarse "is the turn done / parked"
 const TICK_MS: u64 = 250; // sample cadence injected into idle gaps to surface stalls
 const WAIT_MS: u64 = 800; // byte-idle past this with no settle => "Waiting"
@@ -427,8 +426,6 @@ fn agent_state_replay_eval() {
         root.display()
     );
 
-    // Real captures (gating:false) are MEASURED, never fatal. Their failures
-    // are the baseline findings (real classifier false-positives) — surfaced
     let baseline_findings: Vec<&FixtureResult> = results
         .iter()
         .filter(|r| !r.gating && !r.failures.is_empty())
@@ -538,8 +535,6 @@ fn print_scorecard(results: &[FixtureResult]) {
         );
         let _ = &r.source;
     }
-    // Convergence-latency summary over fixtures that DID settle on truth — the
-    // empirical basis for any future latency hard-gate (currently diagnostic
     let mut convs: Vec<u64> = results.iter().filter_map(|r| r.convergence_ms).collect();
     if !convs.is_empty() {
         convs.sort_unstable();

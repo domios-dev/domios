@@ -2,9 +2,12 @@ import { PaneModeSwitch } from "./PaneModeSwitch";
 import { ChatDefaultSuggestion } from "./ChatDefaultSuggestion";
 import { UsageBubble } from "../Usage/UsageBubble";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
+import type { ApiConfig } from "../../lib/types";
+import { PANE_BAR_CONTROL_H } from "./paneBarConstants";
+import { WatcherStatusBadge } from "./WatcherStatusBadge";
 
 /** Single height rhythm for every control in the bar (switch + pills). */
-export const PANE_BAR_CONTROL_H = 27;
+export { PANE_BAR_CONTROL_H };
 
 interface PaneTopBarProps {
   paneId: string;
@@ -18,6 +21,10 @@ interface PaneTopBarProps {
   /** Usage provider id, or null to omit the usage pill. */
   usageProvider?: string | null;
   usageVisible?: boolean;
+  api?: ApiConfig;
+  /** Watcher panes surface health from `pane.watcher.last_status` in the header. */
+  watcherLastStatus?: string | null;
+  isWatcherPane?: boolean;
 }
 
 /**
@@ -37,6 +44,8 @@ export function PaneTopBar({
   chatDefaultPrompted,
   usageProvider,
   usageVisible,
+  watcherLastStatus,
+  isWatcherPane = false,
 }: PaneTopBarProps) {
   return (
     <div
@@ -51,7 +60,12 @@ export function PaneTopBar({
       }}
     >
       <div className="flex min-w-0 items-center gap-2">
-        {showSwitch && <PaneModeSwitch paneId={paneId} height={PANE_BAR_CONTROL_H} chatFirst={chatFirst} />}
+        <PaneModeSwitch
+          paneId={paneId}
+          height={PANE_BAR_CONTROL_H}
+          chatFirst={chatFirst}
+          chatPty={showSwitch}
+        />
         {showSwitch && (
           <ChatDefaultSuggestion
             paneId={paneId}
@@ -62,6 +76,7 @@ export function PaneTopBar({
         )}
       </div>
       <div className="flex min-w-0 items-center gap-1.5">
+        {isWatcherPane && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
         <PluginBubbles cwd={cwd} paneId={paneId} />
         {usageProvider && <UsageBubble provider={usageProvider} trackingEnabled={!!usageVisible} />}
       </div>

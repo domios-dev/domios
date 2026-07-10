@@ -63,10 +63,8 @@ impl ShellSyntax {
     /// Quote a string for the current shell.
     pub fn quote(s: &str) -> String {
         if Self::IS_WINDOWS {
-            // PowerShell: double internal single quotes
             format!("'{}'", s.replace('\'', "''"))
         } else {
-            // bash/zsh: end-escape-reopen
             format!("'{}'", s.replace('\'', "'\\''"))
         }
     }
@@ -117,7 +115,6 @@ mod tests {
         if !ShellSyntax::IS_WINDOWS {
             return;
         }
-        // Defense-in-depth: explicit `Standard` argv-passing means a `-f`/ `--flag` token inside the task body never re-parses as a claude CLI option,
         // even on older pwsh versions whose default is Legacy.
         assert!(
             ShellSyntax::UNSET_CLAUDECODE.contains("$PSNativeCommandArgumentPassing = 'Standard'"),
@@ -164,7 +161,6 @@ mod tests {
         // Content was actually written to disk and matches.
         let bytes = std::fs::read(&path).expect("temp task file written");
         let body = if ShellSyntax::IS_WINDOWS {
-            // strip BOM
             assert!(
                 bytes.starts_with(&[0xEF, 0xBB, 0xBF]),
                 "expected UTF-8 BOM on Windows"

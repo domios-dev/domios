@@ -18,7 +18,6 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
   const [lastSent, setLastSent] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Hide chat when prompt appears
   useEffect(() => {
     if (pendingPrompt) setVisible(false);
   }, [pendingPrompt]);

@@ -4,8 +4,43 @@ use super::{
     restored_agent_materialization, RestoredAgentMaterialization, SEND_AGENT_BACKEND_COLS,
     SHELL_BACKEND_COLS,
 };
+use crate::service::plan::PlanStore;
 use crate::service::ServiceContext;
 use std::collections::HashMap;
+
+pub(crate) fn active_pane_lane_base(plan_store: &PlanStore, pane_id: &str) -> Option<String> {
+    let (plan_id, task_id) = plan_store.task_binding_for_pane(pane_id)?;
+    plan_store
+        .get(&plan_id)
+        .and_then(|plan| {
+            plan.tasks
+                .iter()
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id.as_str()))
+                .and_then(|task| {
+                    task.execution_attempts
+                        .iter()
+                        .rev()
+                        .find(|attempt| {
+                            attempt.executor_pane_id == pane_id && attempt.closed_at.is_none()
+                        })
+                        .and_then(|attempt| attempt.base.clone())
+                        .or_else(|| task.lane.base.clone())
+                })
+        })
+        .filter(|base| !base.trim().is_empty())
+}
+
+pub(crate) fn pane_task_env(plan_store: &PlanStore, pane_id: &str) -> HashMap<String, String> {
+    let mut env_vars = HashMap::new();
+    if let Some((plan_id, task_id)) = plan_store.task_binding_for_pane(pane_id) {
+        if let Some(base) = active_pane_lane_base(plan_store, pane_id) {
+            env_vars.insert("CODETERM_LANE_BASE".into(), base);
+        }
+        env_vars.insert("CODETERM_PLAN_ID".into(), plan_id);
+        env_vars.insert("CODETERM_TASK_ID".into(), task_id);
+    }
+    env_vars
+}
 
 impl ServiceContext {
     pub(crate) fn pane_env(&self, pane_id: &str) -> HashMap<String, String> {
@@ -50,6 +85,8 @@ impl ServiceContext {
                 env_vars.insert("CODETERM_WORKER_ID".into(), worker_id.clone());
             }
         }
+        drop(mux);
+        env_vars.extend(pane_task_env(&self.plan_store, pane_id));
         env_vars
     }
 
@@ -94,8 +131,6 @@ impl ServiceContext {
     }
 
     pub(crate) fn ensure_pane_pty_for_send(&self, pane_id: &str) -> Result<(), String> {
-        // [G] A chatBackend pane must NEVER spawn a shell PTY (B1.1#4). Its
-        // session is opened by the spawn path; on send there is nothing to
         if self.pane_chat_backing(pane_id).is_some() {
             return Ok(());
         }

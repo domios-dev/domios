@@ -1,3 +1,5 @@
+pub(crate) use crate::multiplexer::spawn_title::creation_title_override;
+
 const MSYS_ROOT_PREFIXES: &[&str] = &[
     "c:/program files/git/",
     "c:/program files (x86)/git/",
@@ -27,6 +29,7 @@ fn normalize_agent_title_value(title: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::multiplexer::types::TitleLevel;
 
     #[test]
     fn strips_git_bash_root_from_path_converted_title() {
@@ -54,5 +57,32 @@ mod tests {
             normalize_agent_title_value("C:/Projects/Git/web"),
             "C:/Projects/Git/web"
         );
+    }
+
+    #[test]
+    fn no_title_or_agent_name_yields_no_override() {
+        assert_eq!(creation_title_override(None, None), None);
+        assert_eq!(creation_title_override(Some("   "), Some("")), None);
+    }
+
+    #[test]
+    fn explicit_title_wins_at_user_level() {
+        assert_eq!(
+            creation_title_override(Some("my task"), Some("Watson")),
+            Some(("my task".to_string(), TitleLevel::User))
+        );
+    }
+
+    #[test]
+    fn agent_name_used_when_no_explicit_title() {
+        assert_eq!(
+            creation_title_override(None, Some("Watson")),
+            Some(("Watson".to_string(), TitleLevel::User))
+        );
+    }
+
+    #[test]
+    fn provider_id_is_never_returned_as_a_fallback_title() {
+        assert_eq!(creation_title_override(None, None), None);
     }
 }

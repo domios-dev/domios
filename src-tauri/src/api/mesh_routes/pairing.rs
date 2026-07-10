@@ -165,6 +165,7 @@ pub async fn do_approve(
             version: None,
             https_url: None,
             consecutive_misses: 0,
+            last_active_ms: None,
         };
         m.paired_peers
             .insert(request.from_instance_id.clone(), peer);
@@ -182,7 +183,6 @@ pub async fn do_approve(
     if let Some((new_peer, existing, our_id, token)) = intro_data {
         crate::mesh::broadcast_introductions(new_peer, existing, our_id, token).await;
     }
-    // Pair-time records start from the request's candidate addresses only. Push our authoritative full address list right away so apply_announce
     // on the new peer's side replaces any stub (issue #9 from 1.1.9 SMOKE).
     let mesh_arc = mesh.clone();
     let new_peer_id = request.from_instance_id.clone();
@@ -206,7 +206,6 @@ pub async fn mesh_pair_accept(
             .ok_or_else(|| (StatusCode::NOT_FOUND, "No pending request".to_string()))?
     };
 
-    // Guard: reject if the accepting peer isn't the one we sent the request to
     if accept.from_instance_id != b_instance_id {
         log::warn!(
             "[mesh/pair_accept] Identity mismatch: expected {}, got {}",
@@ -256,6 +255,7 @@ pub async fn mesh_pair_accept(
             version: None,
             https_url: None,
             consecutive_misses: 0,
+            last_active_ms: None,
         };
         mesh.paired_peers
             .insert(accept.from_instance_id.clone(), peer);
@@ -271,7 +271,6 @@ pub async fn mesh_pair_accept(
         serde_json::Value::Null,
     );
 
-    // Mirror of mesh_approve_peer: announce our full address list to the newly-paired peer so their pair-time single-IP stub gets replaced
     // immediately (issue #9). broadcast_sync still follows for gossip about other peers in our mesh.
     {
         let mesh_state = state.mesh.clone();
@@ -283,7 +282,6 @@ pub async fn mesh_pair_accept(
         });
     }
 
-    // Delayed introductions — wait for approver to finish storing us in paired_peers
     let intro_data = state
         .mesh
         .lock()
@@ -358,7 +356,6 @@ pub async fn mesh_unpair(
     let sender_id = crate::mesh::crown::verify_signed_request(token, &known_keys)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()))?;
 
-    // Replay prevention
     {
         let mut mesh = state.mesh.lock();
         if let Err(e) = mesh.check_and_record_nonce(token) {

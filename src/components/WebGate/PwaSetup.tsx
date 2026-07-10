@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { IS_WEB, selfHost, tokenFor } from "../../lib/webApi";
+import { registerServiceWorker } from "../../lib/serviceWorkerRegistration";
+import { OfflineIndicator } from "./OfflineIndicator";
 
 const HINT_DISMISSED_KEY = "codeterm-pwa-hint-dismissed";
+const INSTALL_DISMISSED_KEY = "codeterm-pwa-install-dismissed";
 
-/** Bootstrap the PWA manifest cookie so the manifest endpoint picks up the
- *  token from a cookie instead of a query string (which leaks via logs/Referer).
- *  Returns true if the cookie was set successfully. */
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+}
+
 async function bootstrapManifestCookie(token: string): Promise<boolean> {
   try {
-    const resp = await fetch("/web/manifest-bootstrap", {
+    const resp = await fetch("/manifest-bootstrap", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       credentials: "same-origin",
@@ -22,7 +27,6 @@ async function bootstrapManifestCookie(token: string): Promise<boolean> {
 function isIos(): boolean {
   return (
     /iPhone|iPad|iPod/.test(navigator.userAgent) ||
-    // iPadOS reports as Mac; touch points tell it apart.
     (navigator.userAgent.includes("Mac") && navigator.maxTouchPoints > 1)
   );
 }
@@ -54,66 +58,127 @@ function ShareGlyph() {
   );
 }
 
-/**
- * Web-mirror PWA glue: injects the manifest link with the self-host token
- * baked into start_url (installed iOS apps don't share Safari's storage)
- * and shows a dismissable add-to-home-screen hint on iOS browsers.
- */
 export function PwaSetup() {
-  const [showHint, setShowHint] = useState(false);
+  const [showIosHint, setShowIosHint] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [showInstall, setShowInstall] = useState(false);
 
   useEffect(() => {
-    if (!IS_WEB || !window.location.pathname.startsWith("/web")) return;
+    if (!IS_WEB) return;
+
+    registerServiceWorker();
+
     const token = tokenFor(selfHost());
     if (token && !document.querySelector('link[rel="manifest"]')) {
-      // Bootstrap an HttpOnly cookie so the manifest endpoint authenticates
-      // via cookie instead of a query-string token (which leaks in logs/Referer).
       bootstrapManifestCookie(token).then(() => {
-        // Always inject the manifest link — even if the cookie bootstrap failed,
-        // the backend still accepts the legacy ?token= fallback for backward compat.
         const link = document.createElement("link");
         link.rel = "manifest";
-        // No query param — the token is in the cookie (or we fall through to
-        // the unauthenticated manifest, which just shows the plain mirror).
-        link.href = "/web/manifest.webmanifest";
+        link.href = "/manifest.webmanifest";
         document.head.appendChild(link);
       });
     }
+
     if (isIos() && !isStandalone() && !localStorage.getItem(HINT_DISMISSED_KEY)) {
-      setShowHint(true);
+      setShowIosHint(true);
     }
   }, []);
 
-  const dismiss = useCallback(() => {
-    localStorage.setItem(HINT_DISMISSED_KEY, "1");
-    setShowHint(false);
+  useEffect(() => {
+    if (!IS_WEB || isStandalone()) return;
+
+    const onInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      if (localStorage.getItem(INSTALL_DISMISSED_KEY)) return;
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+      setShowInstall(true);
+    };
+
+    window.addEventListener("beforeinstallprompt", onInstallPrompt);
+    return () => window.removeEventListener("beforeinstallprompt", onInstallPrompt);
   }, []);
 
-  if (!showHint) return null;
+  const dismissIosHint = useCallback(() => {
+    localStorage.setItem(HINT_DISMISSED_KEY, "1");
+    setShowIosHint(false);
+  }, []);
+
+  const dismissInstall = useCallback(() => {
+    localStorage.setItem(INSTALL_DISMISSED_KEY, "1");
+    setShowInstall(false);
+    setInstallPrompt(null);
+  }, []);
+
+  const acceptInstall = useCallback(async () => {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    await installPrompt.userChoice;
+    setShowInstall(false);
+    setInstallPrompt(null);
+  }, [installPrompt]);
 
   return (
-    <div
-      data-testid="pwa-install-hint"
-      className="fixed inset-x-0 bottom-0 z-50 p-3 pb-[calc(0.75rem+var(--ct-safe-bottom,0px))] pointer-events-none"
-    >
-      <div className="mx-auto max-w-md rounded-lg border border-[var(--ct-border,#30363d)] bg-[var(--ct-titlebar-bg,#161b22)] text-[var(--ct-fg,#e6edf3)] p-3 shadow-xl flex items-start gap-3 pointer-events-auto">
-        <img src="./icons/pwa-192.png" alt="" className="w-9 h-9 rounded-lg shrink-0" />
-        <div className="flex-1 text-xs leading-relaxed">
-          <div className="font-semibold mb-0.5">Install CodeTerm</div>
-          <span className="opacity-80">
-            Tap <ShareGlyph /> Share, then &ldquo;Add to Home Screen&rdquo; — opens
-            fullscreen with its own icon, no address bar.
-          </span>
-        </div>
-        <button
-          data-testid="pwa-install-hint-dismiss"
-          onClick={dismiss}
-          aria-label="Dismiss"
-          className="shrink-0 -m-1 p-1 opacity-60 hover:opacity-100 text-sm leading-none"
+    <>
+      <OfflineIndicator />
+      {showInstall && installPrompt && (
+        <div
+          data-testid="pwa-chrome-install-hint"
+          className="fixed inset-x-0 bottom-0 z-50 p-3 pb-[calc(0.75rem+var(--ct-safe-bottom,0px))] pointer-events-none"
         >
-          ✕
-        </button>
-      </div>
-    </div>
+          <div className="mx-auto max-w-md rounded-lg border border-[var(--ct-border,#30363d)] bg-[var(--ct-titlebar-bg,#161b22)] text-[var(--ct-fg,#e6edf3)] p-3 shadow-xl flex items-start gap-3 pointer-events-auto">
+            <img src="./icons/pwa-192.png" alt="" className="w-9 h-9 rounded-lg shrink-0" />
+            <div className="flex-1 text-xs leading-relaxed">
+              <div className="font-semibold mb-0.5">Install CodeTerm</div>
+              <span className="opacity-80">
+                Add to your home screen or app dock for fullscreen access and faster
+                startup.
+              </span>
+              <button
+                data-testid="pwa-chrome-install-accept"
+                type="button"
+                onClick={() => void acceptInstall()}
+                className="mt-2 block w-full min-h-[36px] rounded bg-[var(--ct-accent,#1f6feb)] text-xs font-medium"
+              >
+                Install
+              </button>
+            </div>
+            <button
+              data-testid="pwa-chrome-install-dismiss"
+              type="button"
+              onClick={dismissInstall}
+              aria-label="Dismiss"
+              className="shrink-0 -m-1 p-1 opacity-60 hover:opacity-100 text-sm leading-none"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+      {showIosHint && (
+        <div
+          data-testid="pwa-install-hint"
+          className="fixed inset-x-0 bottom-0 z-50 p-3 pb-[calc(0.75rem+var(--ct-safe-bottom,0px))] pointer-events-none"
+        >
+          <div className="mx-auto max-w-md rounded-lg border border-[var(--ct-border,#30363d)] bg-[var(--ct-titlebar-bg,#161b22)] text-[var(--ct-fg,#e6edf3)] p-3 shadow-xl flex items-start gap-3 pointer-events-auto">
+            <img src="./icons/pwa-192.png" alt="" className="w-9 h-9 rounded-lg shrink-0" />
+            <div className="flex-1 text-xs leading-relaxed">
+              <div className="font-semibold mb-0.5">Install CodeTerm</div>
+              <span className="opacity-80">
+                Tap <ShareGlyph /> Share, then &ldquo;Add to Home Screen&rdquo; — opens
+                fullscreen with its own icon, no address bar.
+              </span>
+            </div>
+            <button
+              data-testid="pwa-install-hint-dismiss"
+              type="button"
+              onClick={dismissIosHint}
+              aria-label="Dismiss"
+              className="shrink-0 -m-1 p-1 opacity-60 hover:opacity-100 text-sm leading-none"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

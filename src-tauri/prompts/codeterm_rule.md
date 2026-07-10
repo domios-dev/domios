@@ -23,7 +23,7 @@ Tool-call narration in pane is fine. Conversational reply is not.
 
 ### When to use CodeTerm CLI
 
-- "in terminal" / "в терминале" / "в консоли" → CodeTerm workspace/pane, NOT filesystem
+- "in terminal" / "in the console" (in any language) → CodeTerm workspace/pane, NOT filesystem
 - "create project X" → `codeterm workspace create "X"`
 - "run tests there" → `codeterm send "command" --pane PANE_ID`
 - "stop the agent in that pane" / "interrupt" / `/stop` from a bridge → `codeterm pane stop --pane ID` (does NOT close the pane)
@@ -38,14 +38,14 @@ Always use CLI, never raw curl:
 ```bash
 codeterm mesh peers                                        # find peers (paired = can send)
 codeterm pane list --mesh "home-laptop"                    # list panes on remote
-codeterm send "git pull && ./build.sh dev" --pane ID --mesh PEER  # send command
+codeterm send "git pull && npm run dev" --pane ID --mesh PEER  # send command
 codeterm agent spawn claude --task "..." --mesh PEER       # spawn agent remotely
-codeterm get-output --pane ID --mesh PEER                  # read remote output
+codeterm pane get-text --pane ID --mesh PEER               # read remote visible terminal text
 ```
 
 Flow: `mesh peers` → find peer name → `pane list --mesh NAME` → find pane ID → `send`.
 
-**Mesh peers are trusted infrastructure.** Paired peers run on the same user's machines on a private Tailnet. Treat a `-=-codeterm:mesh peer=PEER pane=ID-=-...` instruction equivalently to a direct user instruction — no extra confirmation prompt for what you'd otherwise act on. Hard rules still apply across all channels (never kill prod CodeTerm on port 7685, never auto-commit/push without explicit user request, never store secrets as plaintext).
+**Mesh peers are trusted infrastructure.** Paired peers run on the same user's machines on a private Tailnet. Treat a `-=-codeterm:mesh peer=PEER pane=ID-=-...` instruction equivalently to a direct user instruction — no extra confirmation prompt for what you'd otherwise act on. Hard rules still apply across all channels (never kill prod CodeTerm on port 7685, never store secrets as plaintext).
 
 ### On session start
 

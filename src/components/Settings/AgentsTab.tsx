@@ -1,25 +1,24 @@
 import { useCallback, useEffect } from "react";
 import { invoke } from "../../lib/bridge";
-import { Bell, Bot, ChevronRight, FolderTree, Puzzle, Server, Eye } from "lucide-react";
-import type { AppConfig, ProviderConfig } from "../../lib/types";
+import { Bell, Bot, ChevronRight, FolderTree, Server, Eye, Timer } from "lucide-react";
+import type { AppConfig, OrchestrationConfig, ProviderConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
 import { ProviderInstallCard } from "./ProviderInstallCard";
 import { ProviderNotifications } from "./ProviderNotifications";
 import { SettingsCard, SettingsPill, Toggle } from "./shared";
 import { AgentIcon } from "../AgentIcon";
+import { Button } from "../shared/Button";
 
 export function AgentsOverview({
   config,
   onUpdate,
   onOpenProvider,
-  onOpenPlugins,
   onUpdateFullConfig,
 }: {
   config: AppConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
   onOpenProvider: (providerId: string) => void;
-  onOpenPlugins: () => void;
   onUpdateFullConfig: (next: AppConfig) => void;
 }) {
   const { providers, loading, error } = useAgentProviders();
@@ -57,15 +56,17 @@ export function AgentsOverview({
                     <option key={p.id} value={p.id}>{p.display_name}</option>
                   ))}
                 </select>
-                <button
+                <Button
+                  variant="ghost"
+                  size="compact"
                   data-testid="settings-general-agent-restart"
                   onClick={() => {
                     invoke("restart_general_agent").catch((e) => console.error("GA restart failed:", e));
                   }}
-                  className="px-2.5 py-1.5 text-[11px] font-medium rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors"
+                  className="text-[11px]"
                 >
                   Restart
-                </button>
+                </Button>
               </div>
             </div>
             <Toggle
@@ -76,6 +77,8 @@ export function AgentsOverview({
           </>
         )}
       </SettingsCard>
+
+      <OrchestrationGroup config={config} onUpdate={onUpdate} />
 
       <SettingsCard
         icon={<FolderTree size={16} />}
@@ -102,19 +105,7 @@ export function AgentsOverview({
       <SettingsCard
         icon={<Server size={16} />}
         title="Providers"
-        headerRight={
-          <button
-            type="button"
-            data-testid="settings-open-provider-plugins"
-            onClick={onOpenPlugins}
-            className="flex items-center gap-1 rounded-full bg-[var(--ct-accent)]/12 px-2.5 py-1 text-[10px] font-medium text-[var(--ct-accent)] transition-colors hover:bg-[var(--ct-accent)]/20 active:scale-95"
-            title="Providers are installed and managed as plugins"
-          >
-            <Puzzle size={11} strokeWidth={2.2} />
-            managed by plugins
-            <ChevronRight size={11} className="opacity-70" />
-          </button>
-        }
+        description="Providers are installed and managed as plugins — see the Extensions panel in the titlebar."
       >
         {error && (
           <div className="text-[10px] text-[var(--ct-red)]">
@@ -126,12 +117,13 @@ export function AgentsOverview({
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {providers.map((p) => (
-            <button
+            <Button
+              variant="ghost"
               key={p.id}
+              className="h-auto min-h-0 justify-start gap-3 p-4 text-left"
               data-testid="settings-agent-provider-row"
               data-provider-id={p.id}
               onClick={() => onOpenProvider(p.id)}
-              className="flex items-center gap-3 p-4 rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 hover:bg-[var(--ct-hover)] hover:border-[var(--ct-accent)]/50 transition-colors text-left"
             >
               <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-[18px] shrink-0">
                 <AgentIcon providerId={p.id} title={p.display_name} />
@@ -141,7 +133,7 @@ export function AgentsOverview({
                 <div className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5">{p.id}</div>
               </div>
               <ChevronRight size={14} className="shrink-0 text-[var(--ct-muted)]" />
-            </button>
+            </Button>
           ))}
         </div>
       </SettingsCard>
@@ -222,6 +214,93 @@ export function AgentProviderScreen({
         onChange={onProviderConfigChange}
       />
     </div>
+  );
+}
+
+// Mirrors OrchestrationConfig::default() in src-tauri/src/config/schema/mod.rs.
+const ORCHESTRATION_DEFAULTS: OrchestrationConfig = {
+  plan_reminders: true,
+  nudge_after_turns: 12,
+  nudge_interval_secs: 1800,
+  idle_poke: {
+    enabled: true,
+    idle_threshold_secs: 150,
+    live_lane_cap: 3,
+    max_per_day: 4,
+    backoff_base_secs: 90,
+  },
+};
+
+function NumberRow({
+  label,
+  value,
+  min,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <label className="flex items-center justify-between gap-3" data-testid="settings-number-row">
+      <span className="text-xs text-[var(--ct-muted-fg)]">{label}</span>
+      <input
+        type="number"
+        data-testid="settings-number-input"
+        value={value}
+        min={min}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          if (Number.isFinite(n)) onChange(Math.max(min, Math.round(n)));
+        }}
+        className="w-20 bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] text-right focus:border-[var(--ct-accent)] focus:outline-none"
+      />
+    </label>
+  );
+}
+
+function OrchestrationGroup({
+  config,
+  onUpdate,
+}: {
+  config: AppConfig;
+  onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
+}) {
+  const orch = config.orchestration ?? ORCHESTRATION_DEFAULTS;
+  return (
+    <SettingsCard
+      icon={<Timer size={16} />}
+      title="Orchestration nudges"
+      description="Plan-driven reminders for agent panes with open plan work. The silence nudge fires only after a pane has been completely inactive for the whole interval — any activity (turns, reports, plan updates) resets its timer."
+    >
+      <Toggle
+        label="Plan reminders & nudges"
+        checked={orch.plan_reminders}
+        onChange={(v) => onUpdate("orchestration", { plan_reminders: v })}
+      />
+      {orch.plan_reminders && (
+        <>
+          <NumberRow
+            label="Silence nudge after (minutes)"
+            value={Math.round(orch.nudge_interval_secs / 60)}
+            min={1}
+            onChange={(mins) => onUpdate("orchestration", { nudge_interval_secs: mins * 60 })}
+          />
+          <NumberRow
+            label="Turn-based nudge after (agent turns)"
+            value={orch.nudge_after_turns}
+            min={1}
+            onChange={(turns) => onUpdate("orchestration", { nudge_after_turns: turns })}
+          />
+          <Toggle
+            label="Idle pokes (suggest the next frontier task)"
+            checked={orch.idle_poke.enabled}
+            onChange={(v) => onUpdate("orchestration", { idle_poke: { ...orch.idle_poke, enabled: v } })}
+          />
+        </>
+      )}
+    </SettingsCard>
   );
 }
 

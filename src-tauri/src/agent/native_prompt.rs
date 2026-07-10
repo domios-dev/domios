@@ -1,12 +1,8 @@
-use crate::agent::attributed_screen::{detect_picker, AttributedColor, AttributedScreen};
 use crate::agent::signal_extractor::StreamSignals;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
+use codeterm_pty::attributed_screen::{detect_picker, AttributedColor, AttributedScreen};
 
-pub struct NativePromptInput {
-    pub screen: AttributedScreen,
-    pub cursor_hidden: bool,
-    pub alt_screen: bool,
-}
+pub use codeterm_pty::native_prompt::NativePromptInput;
 
 pub fn pending_prompt_from_input(input: &NativePromptInput) -> Option<PendingPrompt> {
     let detection = detect_picker(&input.screen)?;
@@ -28,7 +24,7 @@ pub fn pending_prompt_from_signals(
 }
 
 fn pending_prompt_from_detection(
-    detection: crate::agent::attributed_screen::PickerDetection,
+    detection: codeterm_pty::attributed_screen::PickerDetection,
 ) -> PendingPrompt {
     let selected_value = option_value(detection.selected_index);
     PendingPrompt {
@@ -283,7 +279,7 @@ mod tests {
             .map(|row| {
                 let mut cells = row
                     .chars()
-                    .map(|ch| crate::agent::attributed_screen::AttributedCell {
+                    .map(|ch| codeterm_pty::attributed_screen::AttributedCell {
                         ch: ch.to_string(),
                         fg: AttributedColor::Default,
                         bg: AttributedColor::Default,
@@ -292,7 +288,7 @@ mod tests {
                     })
                     .collect::<Vec<_>>();
                 cells.resize_with(cols as usize, || {
-                    crate::agent::attributed_screen::AttributedCell {
+                    codeterm_pty::attributed_screen::AttributedCell {
                         ch: String::new(),
                         fg: AttributedColor::Default,
                         bg: AttributedColor::Default,

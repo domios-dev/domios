@@ -1,8 +1,9 @@
-import { memo, useEffect, useRef, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SquareTerminal, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { IS_WEB, listen } from "../../lib/bridge";
-import { useMultiplexer } from "../../store/multiplexer";
+import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import { paneFieldsEqual, selectPane } from "../../store/multiplexer/selectors";
 import {
   useXterm,
   useTerminalResize,
@@ -38,6 +39,8 @@ import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { claimResizeOwner, getResizeClientId } from "../../lib/resizeOwner";
 import { shouldShowDropOverlay } from "./dropOverlay";
+import { terminalOwnsLivePty, terminalRenderEnabled } from "./terminalOwnership";
+import { PaneBootOverlay, paneBootOverlayView } from "./bootOverlay";
 
 interface TerminalPaneProps {
   paneId: string;
@@ -71,15 +74,12 @@ export const TerminalPane = memo(function TerminalPane({
   const fallbackShellRef = useRef<HTMLDivElement>(null);
   const connectedPtyRef = useRef<string | null>(null);
 
-  const { state, updatePaneStatus } = useMultiplexer();
-  const pane = state.panes[paneId];
+  const { updatePaneStatus } = useMultiplexer();
+  const paneSelector = useCallback((s: Parameters<typeof selectPane>[0]) => selectPane(s, paneId), [paneId]);
+  const pane = useMuxSelector(paneSelector, paneFieldsEqual);
   const agentType = pane?.agent_type;
-  // No session-readiness gate: PaneSessionChat renders an empty chat for fresh
   // panes and binds the session when the mux reports its id.
   const agentDescriptor = useAgentDescriptor(agentType);
-  // Optimistic while the descriptor is still loading: an agent pane is assumed
-  // chat-capable so a chat-default pane renders chat on the first frame (no
-  // terminal flash). Corrected to terminal only if the loaded descriptor says so.
   const chatCapable =
     pane?.backing?.kind === "chat_backend"
       ? true
@@ -100,16 +100,7 @@ export const TerminalPane = memo(function TerminalPane({
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
   }, []);
-  // --- Terminal lifecycle ---
-  const { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady } = useXterm({
-    containerRef, theme, fontConfig, terminalConfig,
-  });
-
-  // --- UI state ---
   const userModeOverrideRef = useRef<PaneUiMode | null>(null);
-  // Mode priority: explicit client-local choice > backend chat_view > global
-  // chat-default > terminal. Resolved synchronously (no descriptor await) so the
-  // pane opens in its final view with no flash, then settles on the same value.
   const computeMode = useCallback((): PaneUiMode => {
     if (userModeOverrideRef.current) {
       return userModeOverrideRef.current === "chat" && chatCapable ? "chat" : "terminal";
@@ -127,10 +118,23 @@ export const TerminalPane = memo(function TerminalPane({
   const [searchOpen, setSearchOpen] = useState(false);
   const terminalVisible = uiMode === "terminal" || terminalFallbackOpen;
   const wasTerminalVisibleRef = useRef(terminalVisible);
-  const terminalOwnsLivePty = !IS_WEB || terminalVisible;
+  const ownsLivePty = terminalOwnsLivePty({
+    terminalVisible,
+    paneVisible: isVisible,
+    ptyId,
+  });
+  const renderTerminal = terminalRenderEnabled({
+    terminalVisible,
+    paneVisible: isVisible,
+  });
+  const { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady } = useXterm({
+    containerRef, theme, fontConfig, terminalConfig,
+    priority: isVisible || isFocused,
+    renderEnabled: renderTerminal,
+  });
   const resizeClientId = useMemo(() => getResizeClientId(), []);
   const claimTerminalOwnership = useCallback((force = false) => {
-    if (!terminalOwnsLivePty && !force) return;
+    if (!ownsLivePty && !force) return;
     const term = termRef.current;
     const ptyIdNow = connectedPtyRef.current ?? ptyId ?? null;
     if (!term || !ptyIdNow || term.cols <= 0 || term.rows <= 0) return;
@@ -142,9 +146,8 @@ export const TerminalPane = memo(function TerminalPane({
         clientId: resizeClientId,
       }))
       .catch(() => {});
-  }, [paneId, ptyId, resizeClientId, terminalOwnsLivePty, termRef, connectedPtyRef]);
+  }, [paneId, ptyId, resizeClientId, ownsLivePty, termRef, connectedPtyRef]);
 
-  // --- Resize handling ---
   const { jiggleResize } = useTerminalResize({
     containerRef,
     termRef,
@@ -156,17 +159,14 @@ export const TerminalPane = memo(function TerminalPane({
     resizeClientId,
   });
 
-  // --- Shell integration (readiness, CWD, pending commands) ---
   const shell = useShellIntegration({
     termRef, connectedPtyRef, paneId, ptyId, termReady,
   });
 
-  // --- Tab completion ---
   const completion = useTabCompletion({
     termRef, containerRef, connectedPtyRef,
   });
 
-  // --- PTY connection ---
   const { writePty } = usePtyConnection({
     termRef, fitAddonRef, connectedPtyRef, paneId, ptyId, termReady,
     onPtySpawned,
@@ -177,14 +177,13 @@ export const TerminalPane = memo(function TerminalPane({
     },
     jiggleResize,
     localFitEnabled: terminalVisible,
-    ioEnabled: terminalOwnsLivePty,
+    ioEnabled: ownsLivePty,
+    renderEnabled: renderTerminal,
     resizeClientId,
   });
 
-  // --- Agent detection ---
   useAgentDetection({ termRef, paneId, termReady });
 
-  // --- Touch swipe scrolling (xterm has no native touch scroll) ---
   useTouchScroll({ containerRef, termRef, termReady });
 
   const touchUi = useTouchOptimizedUi();
@@ -195,7 +194,6 @@ export const TerminalPane = memo(function TerminalPane({
   const SHEET_TOP = "calc(var(--ct-safe-top, 0px) + 2.5rem)";
   const SHEET_HEADER = "2.5rem";
   const SHEET_FOOTER = "3.75rem";
-  // Desktop fallback flies out near-fullscreen but keeps margins + shadow so it
   // reads as a floating overlay above the chat, not an edge-to-edge takeover.
   const FB_TOP = "calc(var(--ct-safe-top, 0px) + 2.75rem)";
   const FB_SIDE = 16;
@@ -203,14 +201,11 @@ export const TerminalPane = memo(function TerminalPane({
   const FB_BOTTOM = "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem))";
   const FB_SHADOW = "0 24px 64px rgba(0,0,0,0.5)";
 
-  // chat_start/chat_stop are owned exclusively by useChatSession's mount/
-  // unmount (PaneSessionChat is mounted iff uiMode === "chat"). A second
-
   useEffect(() => {
-    if (isFocused && terminalOwnsLivePty) {
+    if (isFocused && ownsLivePty) {
       claimTerminalOwnership();
     }
-  }, [isFocused, terminalOwnsLivePty, claimTerminalOwnership]);
+  }, [isFocused, ownsLivePty, claimTerminalOwnership]);
 
   useEffect(() => {
     const desired = computeMode();
@@ -245,8 +240,6 @@ export const TerminalPane = memo(function TerminalPane({
     };
   }, [paneId]);
 
-  // The client-mode store records EXPLICIT choices only (user toggles, spawn
-  // default, bridge requests). Persisting every computed uiMode here used to
   useEffect(() => {
     publishCurrentPaneUiMode(paneId, uiMode);
   }, [paneId, uiMode]);
@@ -289,7 +282,6 @@ export const TerminalPane = memo(function TerminalPane({
     termReady,
   });
 
-  // --- Input handling ---
   const { copySelection, pasteFromClipboard } = useTerminalInput({
     termRef, connectedPtyRef, containerRef, termReady,
     terminalActive: terminalVisible,
@@ -359,7 +351,6 @@ export const TerminalPane = memo(function TerminalPane({
     termRef.current?.focus();
   }, [onFocus, paneId, termRef, claimTerminalOwnership]);
 
-  // --- Pane status events ---
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
@@ -370,7 +361,6 @@ export const TerminalPane = memo(function TerminalPane({
     return () => { cancelled = true; unlisten?.(); };
   }, [paneId, updatePaneStatus]);
 
-  // --- Search toggle ---
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -389,7 +379,6 @@ export const TerminalPane = memo(function TerminalPane({
     });
   }, [paneId, termRef]);
 
-  // --- Context menu ---
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY });
@@ -400,7 +389,6 @@ export const TerminalPane = memo(function TerminalPane({
     { label: "Paste", shortcut: "Ctrl+Shift+V", onClick: pasteFromClipboard },
   ];
 
-  // --- Style ---
   const topAccent = bellFlash
     ? "var(--ct-yellow, #d29922)"
     : hasSplits && isFocused
@@ -408,8 +396,13 @@ export const TerminalPane = memo(function TerminalPane({
       : "transparent";
   const terminalBackground = theme.background;
   const terminalKeyBar = <TerminalKeyBar onSendKey={writePty} className="w-full" />;
+  const bootOverlay = paneBootOverlayView(pane);
+  const retryGeneralAgent = useCallback(() => {
+    invoke("restart_general_agent_pane", { paneId }).catch((e) =>
+      console.warn("restart_general_agent_pane failed:", e),
+    );
+  }, [paneId]);
 
-  // --- Render ---
   return (
     <div
       ref={paneRootRef}
@@ -560,7 +553,6 @@ export const TerminalPane = memo(function TerminalPane({
             uiFontScale={uiFontScale}
             isVisible={isVisible}
             onError={() => {
-              // Automatic fallback, NOT a user choice: never write the
               // client-mode store here or the pane gets pinned to terminal.
               setUiMode("terminal");
             }}
@@ -709,23 +701,12 @@ export const TerminalPane = memo(function TerminalPane({
       </div>
 
       {/* Loading overlay */}
-      {shell.overlayVisible && (
-        <div
-          className={`absolute inset-0 ${!shell.shellReady ? "terminal-loading-overlay" : ""}`}
-          data-testid="terminal-loading-overlay"
-          style={{
-            background: "var(--ct-bg, #0d1117)",
-            opacity: shell.shellReady ? 0 : 1,
-            transition: "opacity 0.3s ease-out",
-          }}
-        >
-          {!shell.shellReady && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
-              <div className="terminal-breathing-bar" />
-            </div>
-          )}
-        </div>
-      )}
+      <PaneBootOverlay
+        view={bootOverlay}
+        shellReady={shell.shellReady}
+        overlayVisible={shell.overlayVisible}
+        onRetry={retryGeneralAgent}
+      />
 
       {/* Context menu */}
       {contextMenu && (

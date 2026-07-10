@@ -19,11 +19,17 @@
   },
   "include": [
     "src",
+    "packages/chat-ui/src",
     "packages/plugin-sdk/src",
     "plugins/provider-claude/src/plugin.ts",
     "plugins/provider-codex/src/plugin.ts",
     "plugins/provider-opencode/src/plugin.ts",
     "plugins/git/src"
+  ],
+  "exclude": [
+    "packages/chat-ui/src/**/*.test.ts",
+    "packages/chat-ui/src/**/*.test.tsx",
+    "packages/chat-ui/src/**/*.testdata.ts"
   ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

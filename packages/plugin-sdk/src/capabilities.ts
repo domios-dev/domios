@@ -68,7 +68,6 @@ export interface LaunchParams {
   [key: string]: unknown;
 }
 
-// A permission prompt the provider parsed itself when the host's universal
 // picker can't read its layout (e.g. opencode's single-row options).
 export interface ParsedPrompt {
   question: string;
@@ -101,6 +100,7 @@ export interface AgentProvider {
   detectSessionModel?(cwd: string, sessionId: string): string | null;
   enumerateSessions?(): unknown[];
   parseUsage?(rawText: string, nowMs: number): unknown;
+  fetchUsage?(nowMs: number): unknown;
   discoverModels?(): ModelInfo[];
   parseSessionMessages?(text: string): unknown[];
   usesStructuredChat?(): boolean;
@@ -124,7 +124,6 @@ export interface SecretCreds {
   [key: string]: unknown;
 }
 
-// Most secret ops return an envelope the JsSecretBackend adapter maps onto the
 // core SecretStore trait: `{ ok }` / `{ ok: <payload> }` / `{ error: <kind> }`.
 export type SecretError = { kind: string; message?: string; candidates?: string[] };
 export type SecretEnvelope<T = unknown> = { ok: T } | { error: SecretError };
@@ -199,6 +198,7 @@ export interface NormalizedChatMessage {
   fromModel?: string;
   fromMesh?: string;
   inboundKind?: "pane" | "report" | "reminder" | "mesh" | "telegram";
+  toolError?: boolean;
 }
 
 export interface ModelInfo {
@@ -219,12 +219,58 @@ export interface PresetInfo {
   description?: string;
 }
 
+export type SessionMode = "interactive" | "watcher";
+
+export interface ChatWindowConfig {
+  maxMessages?: number;
+  policy?: "top";
+}
+
+export interface ObservationConfig {
+  orchestration?: boolean;
+  chatTail?: number;
+  reports?: boolean;
+}
+
+export type ContextEngineConfig =
+  | { kind: "chat"; window?: ChatWindowConfig }
+  | {
+      kind: "machine";
+      charter: string;
+      observations?: ObservationConfig;
+      tickIntervalSecs?: number;
+    };
+
+export interface WatcherTickInput {
+  tick: number;
+  nowMs: number;
+  state: unknown;
+  observations?: unknown;
+}
+
+export type WatcherVerdictStatus = "ok" | "attention" | "stalled";
+
+export interface WatcherAction {
+  kind: "nudge" | "notify" | "report";
+  pane?: string;
+  message: string;
+}
+
+export interface WatcherVerdict {
+  status: WatcherVerdictStatus;
+  summary: string;
+  state?: unknown;
+  actions?: WatcherAction[];
+}
+
 export interface ChatBackendOpenSessionCtx {
   paneId: string;
   config: unknown;
   systemPrompt?: string;
   preset?: string;
   model?: string;
+  mode?: SessionMode;
+  engine?: ContextEngineConfig;
 }
 
 // Live state of an open session (mirrors Rust ChatSessionInfo). `model` absent ⇒ no per-session model.
@@ -232,9 +278,8 @@ export interface ChatSessionInfo {
   model?: string;
 }
 
-// Manifest form for `capabilities.chatBackend`. Bare `true` = registered but not
-// user-spawnable (host-/agent-driven); `{ spawnable: true }` = user-openable in the picker.
-export type ChatBackendCapability = boolean | { spawnable?: boolean };
+// `spawnable` makes the backend user-openable; `watcher` opts into host-driven watcher ticks.
+export type ChatBackendCapability = boolean | { spawnable?: boolean; watcher?: boolean };
 
 export interface ChatBackend {
   openSession(ctx: ChatBackendOpenSessionCtx): { sessionId: string };
@@ -252,6 +297,8 @@ export interface ChatBackend {
   sessionInfo?(sessionId: string): ChatSessionInfo;
   // Optional: switch the model used on the next turn; omit if the backend can't (host surfaces "unsupported").
   setModel?(sessionId: string, model: string): void;
+  // Enqueue one machine query; pump/poll streams the completion.
+  watcherTick?(sessionId: string, input: WatcherTickInput): void;
 }
 
 // ── chatPreprocessor (compose/send-time outbound stage) ──

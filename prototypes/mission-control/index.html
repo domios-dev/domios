@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Canvas mission control — concept gallery</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --fg: #c9d1d9;
+      --border: #30363d;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --warn: #d29922;
+      --ok: #3fb950;
+      --danger: #f85149;
+      --panel: #161b22;
+      --ease: cubic-bezier(0.16, 1, 0.3, 1);
+      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); min-height: 100vh; }
+    .shell { display: flex; flex-direction: column; min-height: 100vh; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
+    .toolbar h1 { margin: 0; font-size: 14px; }
+    .sub { font-size: 11px; color: var(--muted); }
+    .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pill { border: 1px solid var(--border); background: transparent; color: var(--fg); border-radius: 999px; padding: 5px 12px; font-size: 11px; cursor: pointer; }
+    .pill.active { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+    .stage-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px; overflow: auto; }
+    .stage { width: min(1120px, 100%); aspect-ratio: 16/10; border: 1px solid var(--border); border-radius: 12px; background: #121820; overflow: hidden; position: relative; transition: transform 320ms var(--ease); transform-origin: center; }
+    .stage.overview { transform: scale(0.52); }
+    .stage.overview .detail { display: none !important; }
+    .stage.overview .overview { display: inline !important; }
+    .overview { display: none; }
+    .variant { display: none; height: 100%; grid-template-rows: auto 1fr; }
+    .variant.active { display: grid; }
+    .hud { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
+    .metric { min-width: 72px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: color-mix(in srgb, var(--bg) 50%, transparent); }
+    .metric strong { display: block; font-size: 14px; }
+    .metric span { font-size: 9px; text-transform: uppercase; color: var(--muted); letter-spacing: 0.06em; }
+    .panel { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); min-height: 0; display: flex; flex-direction: column; }
+    .panel-title { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--border); }
+    .queue { display: flex; flex-direction: column; gap: 6px; padding: 8px; overflow: auto; }
+    .card { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 11px; background: #0d1117; }
+    .card.progress { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+    .card.review { border-color: color-mix(in srgb, var(--warn) 55%, var(--border)); }
+    .meta { font-size: 10px; color: var(--muted); margin-top: 2px; font-family: ui-monospace, monospace; }
+    .bay { border: 1px dashed color-mix(in srgb, var(--border) 90%, var(--accent)); border-radius: 8px; padding: 8px; }
+    .avatar { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--accent); display: grid; place-items: center; font-size: 9px; font-weight: 700; animation: pulse 2s ease-in-out infinite; }
+    .layout-hangar { display: grid; grid-template-columns: 180px 1fr 200px 160px; gap: 8px; padding: 8px; min-height: 0; height: 100%; }
+    .layout-control { display: grid; grid-template-columns: 1fr 280px 1fr; grid-template-rows: auto 1fr auto; gap: 8px; padding: 8px; height: 100%; }
+    .layout-control .ring { grid-column: 2; grid-row: 1 / 4; border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+    .layout-assembly { display: grid; grid-template-columns: 160px 1fr 180px 140px 120px; gap: 6px; padding: 8px; height: 100%; }
+    .lanes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 8px; }
+    .lanes-4 { grid-template-columns: repeat(4, minmax(100px, 1fr)); }
+    .done { display: flex; align-items: center; gap: 8px; padding: 8px; }
+    .done-count { font-size: 22px; font-weight: 700; color: var(--ok); }
+    .gate { animation: gate 2.4s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.06)} }
+    @keyframes gate { 0%,100%{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warn) 20%,transparent)} 50%{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warn) 45%,transparent)} }
+    .footer { padding: 8px 16px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="toolbar">
+      <div>
+        <h1>Canvas mission control · static gallery</h1>
+        <div class="sub">User gate artifact — open without dev server</div>
+      </div>
+      <div class="pills" id="variant-pills">
+        <button class="pill active" data-variant="assembly">A · Assembly line</button>
+        <button class="pill" data-variant="hangar">B · Hangar floor</button>
+        <button class="pill" data-variant="control">C · Control room</button>
+      </div>
+      <div class="pills" id="lod-pills">
+        <button class="pill active" data-lod="detail">100% LOD</button>
+        <button class="pill" data-lod="overview">Zoomed-out LOD</button>
+      </div>
+    </header>
+    <div class="stage-wrap">
+      <div class="stage" id="stage">
+        <!-- Variant B -->
+        <div class="variant" data-variant="hangar">
+          <div class="hud" id="hud-a"></div>
+          <div class="layout-hangar" id="body-a"></div>
+        </div>
+        <!-- Variant C -->
+        <div class="variant" data-variant="control">
+          <div class="hud" id="hud-b"></div>
+          <div class="layout-control" id="body-b"></div>
+        </div>
+        <!-- Variant A -->
+        <div class="variant active" data-variant="assembly">
+          <div class="hud" id="hud-c"></div>
+          <div class="layout-assembly" id="body-c"></div>
+        </div>
+      </div>
+    </div>
+    <footer class="footer">Fixture: pl_dd93d764 · 62% · 3 live lanes · QA depth 4 · See prototypes/mission-control/README.md for motion spec</footer>
+  </div>
+  <script>
+    const FIXTURE = {
+      hud: { progress: 62, lanes: 3, qa: 4, loops: 2, compete: 1, cleanup: 3 },
+      dispatch: ["Wire live lane bay updates", "Gate desk orchestrator actions", "Done shelf compression LOD", "Event particle HUD feed"],
+      lanes: [
+        { name: "Canvas", branch: "lane/canvas-mission-control-concepts", task: "Mission control concept design", agent: "Pu" },
+        { name: "Backend", branch: "lane/plan-canvas-api", task: "Canvas element sync API", agent: "Ve" },
+        { name: "Playwright", branch: "lane/canvas-pw-golden", task: null, agent: "Mo" },
+        { name: "Docs", branch: "lane/orchestration-docs", task: "Motion spec + artifact README", agent: "Ba" },
+      ],
+      qaRun: "Mission control layout variants",
+      qaQueue: ["Prototype gallery route", "Fixture unit tests", "Static HTML artifact"],
+      gate: ["User gate: pick layout variant", "Motion spec review"],
+      done: 18,
+      parked: ["Live canvas wiring", "Mesh presence avatars"],
+      blocked: ["Production screenshot pipeline", "Windows WebView2 particle perf"],
+    };
+
+    function hudHtml(compact) {
+      const h = FIXTURE.hud;
+      return `
+        <div class="metric" style="flex:1 1 140px"><strong>${h.progress}%</strong><span>Progress</span>
+          ${compact ? "" : '<div class="detail" style="margin-top:4px;font-size:11px;font-weight:600">Canvas mission control</div>'}
+        </div>
+        <div class="metric"><strong>${h.lanes}</strong><span>Live lanes</span></div>
+        <div class="metric"><strong>${h.qa}</strong><span>QA depth</span></div>
+        <div class="metric"><strong>${h.loops}</strong><span>Loops</span></div>
+        <div class="metric"><strong>${h.compete}</strong><span>Compete</span></div>
+        <div class="metric"><strong>${h.cleanup}</strong><span>Cleanup debt</span></div>`;
+    }
+
+    function card(title, cls, meta) {
+      return `<div class="card ${cls || ""}"><div>${title}</div><div class="meta detail">${meta || ""}</div><div class="meta overview">${cls || "task"}</div></div>`;
+    }
+
+    function dispatchPanel() {
+      return `<section class="panel"><div class="panel-title">Dispatch frontier</div><div class="queue">${FIXTURE.dispatch.map(t => card(t, "", "pending")).join("")}</div></section>`;
+    }
+
+    function lanesPanel(cols) {
+      const bays = FIXTURE.lanes.map(l => `
+        <div class="bay">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <div><div style="font-size:10px;font-weight:600">${l.name}</div><div class="meta detail">${l.branch}</div></div>
+            <div class="avatar">${l.agent}</div>
+          </div>
+          ${l.task ? card(l.task, "progress", "in progress") : '<div class="meta detail">Bay idle</div>'}
+        </div>`).join("");
+      return `<section class="panel"><div class="panel-title detail">Work floor · live lanes</div><div class="lanes ${cols === 4 ? "lanes-4" : ""}">${bays}</div></section>`;
+    }
+
+    function qaPanel() {
+      return `<section class="panel"><div class="panel-title">QA bay</div><div class="queue">
+        <div class="detail" style="font-size:9px;color:var(--muted);text-transform:uppercase">Running</div>
+        ${card(FIXTURE.qaRun, "progress", "in progress")}
+        <div class="detail" style="font-size:9px;color:var(--muted);text-transform:uppercase;margin-top:4px">Queue</div>
+        ${FIXTURE.qaQueue.map(t => card(t, "", "pending")).join("")}
+      </div></section>`;
+    }
+
+    function gatePanel() {
+      return `<section class="panel gate"><div class="panel-title">Gate desk · in review</div><div class="queue">${FIXTURE.gate.map(t => card(t, "review", "in review")).join("")}</div></section>`;
+    }
+
+    function sidePanel(title, items, warn) {
+      return `<section class="panel" style="${warn ? "border-color:color-mix(in srgb,var(--danger) 35%,var(--border))" : ""}"><div class="panel-title">${title}<span class="overview"> (${items.length})</span></div><div class="queue">${items.map(t => card(t, warn ? "review" : "", title.toLowerCase())).join("")}</div></section>`;
+    }
+
+    function donePanel() {
+      return `<section class="panel done"><div><div class="panel-title" style="border:none;padding:0">Done</div><div class="done-count">${FIXTURE.done}</div></div><div class="detail" style="flex:1">${card("Plan model TaskStatus mirror", "", "done")}</div><div class="overview">+16 more</div></section>`;
+    }
+
+    document.getElementById("hud-a").innerHTML = hudHtml(false);
+    document.getElementById("hud-b").innerHTML = hudHtml(true);
+    document.getElementById("hud-c").innerHTML = hudHtml(false);
+
+    document.getElementById("body-a").innerHTML = dispatchPanel() + lanesPanel(2) +
+      `<div style="display:flex;flex-direction:column;gap:8px">${qaPanel()}${gatePanel()}</div>` +
+      `<div style="display:flex;flex-direction:column;gap:8px">${donePanel()}${sidePanel("Parked", FIXTURE.parked)}${sidePanel("Blocked", FIXTURE.blocked, true)}</div>`;
+
+    document.getElementById("body-b").innerHTML =
+      `<div style="grid-row:2">${dispatchPanel()}</div>` +
+      `<section class="panel ring"><div class="panel-title" style="text-align:center">Ops ring · work floor</div><div class="queue">${FIXTURE.lanes.map(l => `<div class="bay"><div style="display:flex;justify-content:space-between"><strong style="font-size:10px">${l.name}</strong><div class="avatar">${l.agent}</div></div>${l.task ? card(l.task,"progress","") : ""}</div>`).join("")}${qaPanel()}</section>` +
+      `<div style="grid-row:2;display:flex;flex-direction:column;gap:8px">${gatePanel()}${donePanel()}</div>` +
+      `<div style="grid-column:1;grid-row:3;display:grid;grid-template-columns:1fr 1fr;gap:8px">${sidePanel("Parked", FIXTURE.parked)}${sidePanel("Blocked", FIXTURE.blocked, true)}</div>`;
+
+    document.getElementById("body-c").innerHTML = dispatchPanel() + lanesPanel(4) + qaPanel() + gatePanel() +
+      `<div style="display:flex;flex-direction:column;gap:6px">${donePanel()}${sidePanel("Parked", FIXTURE.parked)}${sidePanel("Blocked", FIXTURE.blocked, true)}</div>`;
+
+    const stage = document.getElementById("stage");
+    document.getElementById("variant-pills").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-variant]");
+      if (!btn) return;
+      document.querySelectorAll("#variant-pills .pill").forEach(p => p.classList.remove("active"));
+      btn.classList.add("active");
+      document.querySelectorAll(".variant").forEach(v => v.classList.toggle("active", v.dataset.variant === btn.dataset.variant));
+    });
+    document.getElementById("lod-pills").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-lod]");
+      if (!btn) return;
+      document.querySelectorAll("#lod-pills .pill").forEach(p => p.classList.remove("active"));
+      btn.classList.add("active");
+      stage.classList.toggle("overview", btn.dataset.lod === "overview");
+    });
+  </script>
+</body>
+</html>

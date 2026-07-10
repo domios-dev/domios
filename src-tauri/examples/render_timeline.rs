@@ -76,7 +76,6 @@ fn parse_cast(path: &Path) -> Cast {
     let header: Value = serde_json::from_str(lines.next().expect("header")).expect("header json");
     let width = header["width"].as_u64().unwrap_or(80) as u16;
     let height = header["height"].as_u64().unwrap_or(24) as u16;
-    // Tolerate partial/malformed rows: a cast captured live has a truncated final
     // line, and we must not die on it. Skip + count instead of panicking.
     let mut events = Vec::new();
     let mut skipped = 0usize;
@@ -210,7 +209,6 @@ fn detector_json(
     let elapsed_ms = working
         .then(|| status.as_ref().and_then(|s| s.elapsed_ms))
         .flatten();
-    // When idle, surface the completed-turn summary ("Churned for 1m 37s") as a
     // separate muted line — NOT the working line.
     let last_turn_summary = idle
         .then(|| extract_completion_summary(&sig.screen.lines).map(|s| s.line))
@@ -366,7 +364,6 @@ fn main() {
         eprintln!("--from-ms must be <= --to-ms");
         std::process::exit(2);
     }
-    // Geometry override: replay at a specific grid (e.g. to match the renderer that
     // produced a screen.txt oracle). Defaults to the cast header geometry.
     let rows = flag("--rows")
         .and_then(|s| s.parse().ok())
@@ -414,7 +411,6 @@ fn main() {
             }
         }
     }
-    // Tail: sample through the selected window. The final expected phase can be a
     // silent idle hold, so there may be no cast event inside it.
     let end = window_to_ms;
     sample_up_to(

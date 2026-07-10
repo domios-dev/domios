@@ -14,6 +14,8 @@
 
 pub mod activity;
 pub mod agent_restart;
+pub mod boot_stage;
+mod command_port_impl;
 pub mod cron;
 pub mod general_agent;
 pub mod health;
@@ -23,22 +25,34 @@ pub mod inject_verify;
 pub mod input_parser;
 pub mod messenger;
 pub mod notification;
+mod orchestration_pair;
 mod orchestrator;
+pub mod orchestrator_digests;
+mod orchestrator_onboard;
 mod output;
-mod pane;
+mod output_feed;
+pub(crate) mod pane;
+pub mod pane_budget;
 pub mod pane_chat;
 pub mod pane_transport;
 pub mod pane_transport_chat;
+pub mod plan;
+mod plan_reconcile;
+pub mod plugin_host;
 pub mod pty_io;
 pub mod pty_lifecycle;
 pub mod push;
 pub mod remote_workers;
+mod role_profile;
+pub mod session_persist;
 pub mod smart_add;
 pub mod spawn;
 mod spawn_chatbackend;
 mod spawn_cli;
+mod spawn_guard;
 mod spawn_params;
-mod spawn_title;
+mod spawn_plan_task;
+pub(crate) mod spawn_title;
 pub mod store;
 pub mod structured_prompt;
 pub mod sync_watcher;
@@ -46,6 +60,7 @@ pub mod sync_watcher;
 mod tests;
 pub mod tokens;
 pub mod transport;
+pub mod watcher;
 mod workspace;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -69,8 +84,13 @@ pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_echo, wait_for_submit_shell,
     wait_for_submit_tui_drained, InjectionError, InjectionResult, VerifyOpts,
 };
-pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnResult};
+pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
+pub use orchestrator::{
+    BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,
+    SpawnResult,
+};
 pub use pane::{normalize_pane_description, MAX_PANE_DESCRIPTION_CHARS};
+pub use pane_budget::{evaluate_pane_budget, PaneBudgetLevel, PaneBudgetNotice};
 
 /// Shared service context — all state needed for multiplexer operations.
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
@@ -98,7 +118,6 @@ pub struct ServiceContext {
     pub prompt_detector: PromptDetectorState,
     // Stable pane→pty map for hidden agent runs; survives close_pane so the unified AgentRun log endpoints can read closed-worker output.
     pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
-    // Auto-completes hidden agent runs from claude stream-json result events, idle silence, or hard timeout — replaces relying on claude calling
     // codeterm cron complete / mem worker report itself.
     pub run_watcher: Arc<crate::agent::run_watcher::RunWatcherRegistry>,
     /// Orchestrator-side view of remote (cross-mesh) workers, populated from
@@ -155,6 +174,8 @@ pub struct ServiceContext {
     pub agent_command_registry: crate::agent_commands::AgentCommandRegistryHandle,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
+    /// Coalesces debounced session snapshots — see `schedule_session_persist_debounced`.
+    pub session_persist_pending: Arc<AtomicBool>,
     pub services_store: Arc<crate::service::store::ServicesStore>,
     pub tokens: Arc<crate::service::tokens::TokenStore>,
     /// Ephemeral cross-mesh pastebin. In-memory only; daemon restart wipes
@@ -165,10 +186,29 @@ pub struct ServiceContext {
     pub input_parser: Arc<input_parser::InputParser>,
     pub usage_store: crate::usage::UsageStoreHandle,
     pub usage_activity: crate::usage::PaneActivity,
+    pub user_last_activity: Arc<crate::user_last_activity::UserLastActivity>,
     pub usage_poller: Arc<parking_lot::Mutex<Option<crate::usage::UsagePoller>>>,
+    /// Canvas plan store — per-project JSON plans + in-memory index. Sole writer.
+    pub plan_store: Arc<crate::service::plan::PlanStore>,
+    pub plan_watchers: Arc<
+        parking_lot::Mutex<
+            std::collections::HashMap<
+                std::path::PathBuf,
+                crate::service::plan::watcher::PlanWatcher,
+            >,
+        >,
+    >,
+    pub loaded_plan_projects:
+        Arc<parking_lot::Mutex<std::collections::HashSet<std::path::PathBuf>>>,
+    pub plan_startup_loaded: Arc<AtomicBool>,
+    pub plan_turn_counter: Arc<crate::service::plan::reminders::TurnCounter>,
 }
 
 pub type ServiceState = Arc<ServiceContext>;
+
+pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
+    hierarchy::start_plan_reminder_scheduler(svc);
+}
 
 impl ServiceContext {
     // ── Event helpers (used by all sub-modules) ─────────────────────
@@ -177,7 +217,6 @@ impl ServiceContext {
     /// One payload shape for every mutation site (spawn registration, UI relay
     /// hook, inbound report) so the sidebar refreshes consistently.
     pub(crate) fn emit_remote_workers_changed(&self, orchestrator_pane: &str) {
-        // emit_everywhere (not raw app.emit): reaches the native webview AND the
         // SSE bus, so the web mirror updates live too — not only on next remount.
         crate::api::events::emit_everywhere(
             &self.app_handle,
@@ -199,11 +238,14 @@ impl ServiceContext {
         let handle = self.app_handle.clone();
         let pending = self.mux_emit_pending.clone();
         let mux = self.mux.clone();
+        let agent_tracker = self.agent_tracker.clone();
         std::thread::spawn(move || {
-            // Snapshot is read AFTER the coalesce window so the emitted payload
-            // reflects the latest state — a fast follow-up mutation during the
-            let snapshot =
-                Self::coalesce_snapshot(&mux, &pending, std::time::Duration::from_millis(50));
+            let snapshot = Self::coalesce_snapshot(
+                &mux,
+                &agent_tracker,
+                &pending,
+                std::time::Duration::from_millis(50),
+            );
             let _ = handle.emit("mux-state-changed", &snapshot);
         });
     }
@@ -212,14 +254,22 @@ impl ServiceContext {
     /// flag is cleared BEFORE the read so any mutation landing after this point
     /// opens a new window (its own emit) rather than being swallowed; mutations
     /// that landed during the window are captured by reading last.
+    ///
+    /// Uses `snapshot_with_status` (not the plain `snapshot`) — this is the
+    /// ONLY path that keeps a browser tab's `paneStatuses` fresh between page
+    /// loads. Without it, `pane_statuses` here is always empty and the
+    /// reducer's merge (`incoming ?? keep-stale`) leaves a synthetic `Waiting`
+    /// (set by `/prompt/clear`'s pending_prompt-derived override) stuck
+    /// forever once the underlying PTY stops transitioning Idle/Working.
     fn coalesce_snapshot(
         mux: &MuxState,
+        agent_tracker: &AgentTrackerState,
         pending: &AtomicBool,
         delay: std::time::Duration,
     ) -> crate::multiplexer::state::MultiplexerSnapshot {
         std::thread::sleep(delay);
         pending.store(false, Ordering::Release);
-        mux.read().snapshot()
+        mux.read().snapshot_with_status(&agent_tracker.lock())
     }
 
     pub(crate) fn emit_pane_title_pinned(&self, pane_id: &str, title: &str) {
@@ -260,12 +310,53 @@ impl ServiceContext {
         }
     }
 
+    pub fn ensure_plan_project_loaded(
+        &self,
+        project_path: &std::path::Path,
+    ) -> Result<std::path::PathBuf, crate::service::plan::PlanError> {
+        let project_root = crate::service::plan::paths::project_root(project_path);
+        let should_scan = {
+            let loaded = self.loaded_plan_projects.lock();
+            !loaded.contains(&project_root)
+        };
+        if should_scan {
+            self.plan_store.scan_project(&project_root)?;
+            self.loaded_plan_projects
+                .lock()
+                .insert(project_root.clone());
+        }
+        let mut watchers = self.plan_watchers.lock();
+        if !watchers.contains_key(&project_root) {
+            match crate::service::plan::watcher::PlanWatcher::watch_project(
+                &project_root,
+                self.plan_store.clone(),
+                std::sync::Arc::new(crate::service::plan::sink_impl::TauriPlanEventSink::new(
+                    self.app_handle.clone(),
+                )),
+            ) {
+                Ok(watcher) => {
+                    watchers.insert(project_root.clone(), watcher);
+                }
+                Err(e) => log::warn!("[plan] failed to watch {}: {}", project_root.display(), e),
+            }
+        }
+        Ok(project_root)
+    }
+
+    pub fn plans_startup_loaded(&self) -> bool {
+        self.plan_startup_loaded.load(Ordering::Acquire)
+    }
+
+    pub fn mark_plans_startup_loaded(&self) {
+        self.plan_startup_loaded.store(true, Ordering::Release);
+        self.notify_event("plans-loaded", serde_json::json!({}));
+    }
+
     /// Unified event dispatch — sends to Tauri frontend and external webhooks.
     /// OS notifications are NOT sent here — use in-app toasts only.
     pub fn notify_event(&self, event_type: &str, payload: serde_json::Value) {
-        // 1. Tauri event to frontend (in-app toasts)
-        let _ = self.app_handle.emit(event_type, &payload);
-
+        // 1. Native webview + SSE bus (web mirror) through the single seam.
+        crate::api::events::emit_everywhere(&self.app_handle, event_type, &payload);
         // 2. External webhooks + websockets (Telegram, Discord, etc.)
         self.events.broadcast(event_type, payload);
     }
@@ -273,9 +364,10 @@ impl ServiceContext {
     pub(crate) fn parse_role(role_str: &str) -> Result<AgentRole, String> {
         match role_str {
             "Orchestrator" | "Conductor" => Ok(AgentRole::Orchestrator),
+            "Manager" => Ok(AgentRole::Manager),
             "Worker" => Ok(AgentRole::Worker),
             _ => Err(format!(
-                "Invalid role: {}. Use: Orchestrator, Worker",
+                "Invalid role: {}. Use: Orchestrator, Manager, Worker",
                 role_str
             )),
         }
@@ -288,6 +380,8 @@ impl ServiceContext {
 pub struct ReportResult {
     pub report_id: String,
     pub orchestrator_pane_id: String,
+    /// Non-fatal notices from plan/task resolution (stale env ids, auto-resolution).
+    pub notices: Vec<String>,
 }
 
 /// Helper: extract optional string from JSON value.

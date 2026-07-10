@@ -10,6 +10,22 @@ The runtime stores the role as `AgentRole`, with two variants:
 - `Orchestrator`
 - `Worker`
 
+Structural roles are deliberately closed. Behavioral specialization layers on
+top as a **role profile** — a free-form label on the spawn spec/pane that picks
+the onboarding prompt, default model routing, and presence label without
+changing hierarchy semantics. The first named profile is **Planner** (1.6.2): a
+high-reasoning Worker the Orchestrator spawns (`agent spawn claude --model
+fable --role Planner`) to author or refine GOAL/Spec/Plan/Tasks and sequencing
+in the CodeTerm planner, then report back with `in_review`. The Planner never
+spawns agents, assigns panes, or accepts work — execution and acceptance stay
+with the Orchestrator. Per-task free-form role guidance lives on the task
+(`role_guidance`) and is prepended to the worker brief at dispatch; there is no
+persistent custom role-template registry. Each task also carries an
+`executor_role` field — a short slug (e.g. `rust-backend-dev`, `frontend-dev`,
+`code-reviewer`) that lets the Orchestrator name the expected agent personality
+for that task without altering the two-value `AgentRole` hierarchy. Execution
+tasks without `executor_role` are flagged by `codeterm plan doctor --kind quality`.
+
 ## Role Model
 
 An **Orchestrator** is the top-level coordinator for a user request or an
@@ -75,6 +91,12 @@ BUILD/TYPECHECK/TESTS: result
 FOLLOWUP: anything the Orchestrator should know
 ```
 
+Blocked work uses the normal `blocked` status plus a label. Use
+`--status-label human-decision` when the unblocker is an escalated choice
+outside agent authority. Use `--status-label human-verify` when the unblocker is
+an external leg the agent cannot physically drive, such as OAuth, real
+email/payment, or a production side effect.
+
 Reports are designed to avoid active polling. A delayed heartbeat can be used as
 a fallback for long-running work, but normal progress should come from reports
 arriving naturally.
@@ -94,6 +116,15 @@ complete. Typical gates include:
 
 A lane is not complete just because its implementation compiles. The relevant
 behavior must be exercised at the layer where the user-visible bug occurs.
+Tests should assert the true end state of the user journey, not only the
+intermediate API or status response. `POST 200` and "email sent" are setup
+evidence; passing evidence is the observable far end, such as stable DOM,
+recipient landed on the right thread, or persisted visible state.
+
+Before an autonomous fix, ask whether it is small, well-understood, and
+low-risk. If yes, ship one logical fix with a regression test that fails before
+and passes after, then re-run the scenario and adjacent journeys. Otherwise
+escalate with what is broken, options plus trade-offs, and a recommendation.
 
 ## Worktrees And Branches
 
@@ -136,4 +167,4 @@ Prompt templates compiled into the binary live under `src-tauri/prompts/`:
 
 The Rust loader is `src-tauri/src/prompts.rs`.
 
-<!-- revision: 6 -->
+<!-- revision: 9 -->

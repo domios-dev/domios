@@ -1,15 +1,11 @@
 /**
- * 12-web / chat-image-paste — pasting an image into the chat composer attaches
- * it (instead of leaking to the terminal). Guards #152.
- *
- * Headless msedge's real/overridden Clipboard API hangs the page, so we dispatch
- * a synthetic paste ClipboardEvent carrying an image File — exercising the
- * handler's image-capture → storeBlob (→ /api/upload) → attach path. The async
- * Clipboard API branch (the WebView2 screenshot case) is covered by live verify.
+ * WHAT: chat image paste covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 12-web.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 
-const WEB_URL = `${API_BASE}/web/`;
+const WEB_URL = `${API_BASE}/`;
 
 // 1x1 transparent PNG.
 const PNG_B64 =
@@ -45,7 +41,6 @@ test("@golden pasting a screenshot into the chat composer attaches it", async ({
     await composer.waitFor({ timeout: 60_000 });
     await composer.focus();
 
-    // Synthetic paste of an image File → handler captures it, storeBlob →
     // /api/upload → attachment chip.
     await page.evaluate((b64) => {
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
@@ -56,7 +51,9 @@ test("@golden pasting a screenshot into the chat composer attaches it", async ({
       (document.activeElement ?? document.body).dispatchEvent(ev);
     }, PNG_B64);
 
-    await expect(page.locator('[data-testid="attachment-chip"]').first()).toBeVisible({ timeout: 10_000 });
+    const chip = page.locator('[data-testid="attachment-chip"]').first();
+    await expect(chip).toBeVisible({ timeout: 10_000 });
+    await expect(chip).toContainText(/screenshot\.png|image/i);
   } finally {
     if (agentPaneId) paneCleanup.track(agentPaneId);
     await ctx.close();

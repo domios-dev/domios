@@ -1,5 +1,68 @@
+use super::mem_post_request;
 use crate::{Cli, Commands, MemAction};
 use clap::Parser;
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::sync::mpsc;
+
+fn one_response_server(status: &'static str, body: &'static str) -> String {
+    let (url, _) = capture_response_server(status, body);
+    url
+}
+
+fn capture_response_server(
+    status: &'static str,
+    body: &'static str,
+) -> (String, mpsc::Receiver<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0; 4096];
+        let n = stream.read(&mut request).unwrap_or(0);
+        let _ = tx.send(String::from_utf8_lossy(&request[..n]).to_string());
+        let response = format!(
+            "HTTP/1.1 {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            status,
+            body.len(),
+            body
+        );
+        stream.write_all(response.as_bytes()).unwrap();
+    });
+    (format!("http://{}", addr), rx)
+}
+
+#[test]
+fn mem_post_request_reports_status_and_plain_text_body() {
+    let http = reqwest::blocking::Client::new();
+    let url = one_response_server("400 Bad Request", "text required");
+    let err = mem_post_request(&http, &url, &serde_json::json!({})).unwrap_err();
+    assert_eq!(err, "400 Bad Request text required");
+}
+
+#[test]
+fn append_action_posts_text_and_returns_result() {
+    let http = reqwest::blocking::Client::new();
+    let (base, rx) = capture_response_server("200 OK", r#"{"appended":"note_x","new_len":22}"#);
+    let out = super::item::handle_mem_items(
+        &http,
+        &base,
+        MemAction::Append {
+            id: "note_x".into(),
+            text: Some("append me".into()),
+            file: None,
+            changed_by: None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(out["appended"], "note_x");
+    assert_eq!(out["new_len"], 22);
+    let request = rx.recv().unwrap();
+    assert!(request.starts_with("POST /api/mem/items/note_x/append "));
+    assert!(request.contains(r#""text":"append me""#));
+}
 
 #[test]
 fn pin_subcommand_parses_id() {
@@ -81,6 +144,69 @@ fn save_accepts_workspace_flag() {
             assert_eq!(workspace.as_deref(), Some("W1"));
         }
         _ => panic!("expected Save"),
+    }
+}
+
+#[test]
+fn save_preference_accepts_shortcut_flags() {
+    let cli = Cli::try_parse_from([
+        "codeterm",
+        "mem",
+        "save-preference",
+        "--title",
+        "orchestration",
+        "--workspace",
+        "W1",
+        "--area",
+        "planning",
+        "--pin",
+        "--replace",
+        "Use CodeTerm planner as source of truth.",
+    ])
+    .unwrap();
+    match cli.command {
+        Commands::Mem {
+            action:
+                MemAction::SavePreference {
+                    title,
+                    body,
+                    workspace,
+                    area,
+                    pin,
+                    replace,
+                    ..
+                },
+        } => {
+            assert_eq!(title.as_deref(), Some("orchestration"));
+            assert_eq!(workspace.as_deref(), Some("W1"));
+            assert_eq!(area.as_deref(), Some("planning"));
+            assert_eq!(
+                body.as_deref(),
+                Some("Use CodeTerm planner as source of truth.")
+            );
+            assert!(pin);
+            assert!(replace);
+        }
+        _ => panic!("expected SavePreference"),
+    }
+}
+
+#[test]
+fn save_preference_accepts_dash_leading_body() {
+    let cli = Cli::try_parse_from([
+        "codeterm",
+        "mem",
+        "save-preference",
+        "--title",
+        "weak-machine",
+        "--do-not-run-two-builds",
+    ])
+    .unwrap();
+    match cli.command {
+        Commands::Mem {
+            action: MemAction::SavePreference { body, .. },
+        } => assert_eq!(body.as_deref(), Some("--do-not-run-two-builds")),
+        _ => panic!("expected SavePreference"),
     }
 }
 

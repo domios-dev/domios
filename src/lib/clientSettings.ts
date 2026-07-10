@@ -1,11 +1,6 @@
 import { invoke, listen } from "./bridge";
 import type { AppConfig, ProviderConfig } from "./types";
 
-// Centralized client settings. These used to live in each client's
-// localStorage, so they silently diverged between the desktop app and every
-// web client. They now persist in the backend AppConfig (config.ui.* via the
-// Rust flatten map, or config.agents.<provider>.*) — one source of truth for
-// all clients.
 
 let cached: AppConfig | null = null;
 let loadPromise: Promise<AppConfig> | null = null;

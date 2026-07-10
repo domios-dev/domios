@@ -1,14 +1,12 @@
 /**
- * 12-web / voice-warm-mic — the mic stream is acquired ONCE and reused across
- * recordings (warm), not re-acquired per record. Guards the iOS-PWA re-prompt
- * fix in useVoiceRecorder.ts: iOS standalone re-prompts on every getUserMedia,
- * so two consecutive recordings must trigger exactly ONE getUserMedia call.
+ * WHAT: voice warm mic covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 12-web.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 
-const WEB_URL = `${API_BASE}/web/`;
+const WEB_URL = `${API_BASE}/`;
 
-// Counts getUserMedia calls on window.__gumCalls; returns a stream whose audio
 // track stays "live" so acquireWarmStream() reuses it on the second record.
 const FAKE_MEDIA = `
   window.__gumCalls = 0;

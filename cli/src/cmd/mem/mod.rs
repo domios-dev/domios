@@ -1,6 +1,6 @@
 mod calibration;
 mod graph;
-mod item;
+pub(crate) mod item;
 mod skill;
 mod tail;
 mod worker;
@@ -24,12 +24,13 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
             kind: _,
             area: _,
             scope: _,
+            project: _,
             limit: _,
             rerank: _,
         }
         | MemAction::Get { id: _ }
         | MemAction::Delete { id: _ }
-        | MemAction::Forget { area: _ }
+        | MemAction::Forget { area: _, yes: _ }
         | MemAction::Update {
             id: _,
             title: _,
@@ -70,6 +71,19 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
             source_path: _,
             replace: _,
             skip_extract: _,
+        }
+        | MemAction::SavePreference {
+            title: _,
+            body: _,
+            body_file: _,
+            summary: _,
+            tags: _,
+            area: _,
+            importance: _,
+            scope: _,
+            workspace: _,
+            pin: _,
+            replace: _,
         }
         | MemAction::ExtractPending { limit: _ }
         | MemAction::WakeUp {
@@ -168,10 +182,11 @@ fn mem_post_request(
     let text = resp.text().unwrap_or_default();
     let val: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
     if !status.is_success() {
-        return Err(if text.is_empty() {
-            val.to_string()
+        let body = text.trim();
+        return Err(if body.is_empty() {
+            status.to_string()
         } else {
-            text
+            format!("{} {}", status, body)
         });
     }
     Ok(val)

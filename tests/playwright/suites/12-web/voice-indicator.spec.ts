@@ -1,19 +1,12 @@
 /**
- * 12-web / voice-indicator — a voice note shows an immediate "transcribing…"
- * bubble that morphs into the transcript, and an honest error bubble when
- * transcription fails — instead of a blank gap while the (possibly cold)
- * Whisper daemon works. See issue #158.
- *
- * MediaRecorder + getUserMedia are stubbed (deterministic >MIN_VOICE_BYTES blob,
- * no real mic), and /api/upload + /api/transcribe-voice are mocked so we control
- * the transcription latency and the success/failure outcome. Both phases run in
- * ONE spawned chat pane so there is exactly one composer in the DOM.
+ * WHAT: voice indicator covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 12-web.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 
-const WEB_URL = `${API_BASE}/web/`;
+const WEB_URL = `${API_BASE}/`;
 
-// Deterministic recorder: stop() emits one >5KB chunk then fires onstop, so the
 // composer's upload path runs without a real microphone.
 const FAKE_MEDIA = `
   navigator.mediaDevices = navigator.mediaDevices || {};
@@ -54,7 +47,6 @@ test("@golden voice note: transcribing placeholder morphs into transcript, and f
   // Mock the upload (fast) — transcribe is (re)routed per phase below.
   await mediaMocks.mockUpload(page);
 
-  // Close panes left by earlier runs (keep workspaces so an active workspace
   // remains) → exactly one chat composer once we spawn below.
   await paneCleanup.closeUnprotectedPanes();
 
@@ -80,7 +72,6 @@ test("@golden voice note: transcribing placeholder morphs into transcript, and f
     agentPaneId = spawned.pane_id;
     await page.locator('[data-testid="composer-voice-button"]').filter({ visible: true }).first().waitFor({ timeout: 60_000 });
 
-    // ── Phase 1: deliberate 2.5s latency (cold Whisper) → placeholder → transcript ──
     await mediaMocks.mockTranscription(page, { line: "hello from the transcript", delayMs: 2500 });
     await holdVoice(page);
     await expect(
@@ -93,7 +84,6 @@ test("@golden voice note: transcribing placeholder morphs into transcript, and f
       page.locator('[data-testid="chat-message"]', { hasText: "Transcribing voice note" }),
     ).toHaveCount(0);
 
-    // ── Phase 2: daemon down (500) → placeholder → honest error, nothing sent ──
     await page.unroute("**/api/transcribe-voice");
     await mediaMocks.mockTranscription(page, { status: 500, body: "transcribe daemon down" });
     await holdVoice(page);
