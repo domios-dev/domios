@@ -166,7 +166,7 @@ async fn check_and_apply_deb(
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<ApplyResult, String> {
     let plan = check_stage_deb_update(app, &opts, update_state.clone()).await?;
-    let (version, path) = match gate_staged_deb(plan, debian_preflight_status) {
+    let (version, path) = match gate_staged_deb_async(plan, debian_preflight_status).await? {
         DebianStageGate::NoUpdate => return Ok(ApplyResult::NoUpdate),
         DebianStageGate::Ready { path, version } => (version, path),
         DebianStageGate::NotReady(preflight) => {
@@ -244,18 +244,23 @@ pub async fn check_stage_deb_update(
     })
 }
 
-pub fn gate_staged_deb<F>(plan: DebianUpdatePlan, preflight: F) -> DebianStageGate
+pub async fn gate_staged_deb_async<F>(
+    plan: DebianUpdatePlan,
+    preflight: F,
+) -> Result<DebianStageGate, String>
 where
-    F: FnOnce() -> DebianPreflight,
+    F: FnOnce() -> DebianPreflight + Send + 'static,
 {
     match plan {
-        DebianUpdatePlan::NoUpdate => DebianStageGate::NoUpdate,
+        DebianUpdatePlan::NoUpdate => Ok(DebianStageGate::NoUpdate),
         DebianUpdatePlan::Staged { version, path } => {
-            let status = preflight();
+            let status = tokio::task::spawn_blocking(preflight)
+                .await
+                .map_err(|e| format!("elevation preflight worker failed: {}", e))?;
             if status.status == DebianElevationStatus::Ready {
-                DebianStageGate::Ready { version, path }
+                Ok(DebianStageGate::Ready { version, path })
             } else {
-                DebianStageGate::NotReady(status)
+                Ok(DebianStageGate::NotReady(status))
             }
         }
     }
@@ -714,18 +719,62 @@ mod debian_tests {
         assert_eq!(preflight.status, DebianElevationStatus::Blocked);
     }
 
-    #[test]
-    fn no_update_does_not_run_elevation_preflight() {
-        let called = std::cell::Cell::new(false);
-        let gate = gate_staged_deb(DebianUpdatePlan::NoUpdate, || {
-            called.set(true);
+    #[tokio::test(flavor = "current_thread")]
+    async fn no_update_does_not_run_elevation_preflight() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        let called = Arc::new(AtomicBool::new(false));
+        let flag = called.clone();
+        let gate = gate_staged_deb_async(DebianUpdatePlan::NoUpdate, move || {
+            flag.store(true, Ordering::SeqCst);
             DebianPreflight {
                 status: DebianElevationStatus::ElevationRequired,
                 reason: Some("should not be observed".to_string()),
             }
-        });
+        })
+        .await
+        .unwrap();
         assert!(matches!(gate, DebianStageGate::NoUpdate));
-        assert!(!called.get());
+        assert!(!called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn staged_runs_preflight_through_async_boundary() {
+        let gate = gate_staged_deb_async(
+            DebianUpdatePlan::Staged {
+                version: "1.7.1".to_string(),
+                path: std::path::PathBuf::from("/tmp/CodeTerm_1.7.1_amd64.deb"),
+            },
+            || DebianPreflight {
+                status: DebianElevationStatus::Ready,
+                reason: Some("passwordless sudo available".to_string()),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(matches!(gate, DebianStageGate::Ready { .. }));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn staged_not_ready_surfaces_structured_status() {
+        let gate = gate_staged_deb_async(
+            DebianUpdatePlan::Staged {
+                version: "1.7.1".to_string(),
+                path: std::path::PathBuf::from("/tmp/a.deb"),
+            },
+            || DebianPreflight {
+                status: DebianElevationStatus::ElevationRequired,
+                reason: Some("headless requires elevation".to_string()),
+            },
+        )
+        .await
+        .unwrap();
+        match gate {
+            DebianStageGate::NotReady(p) => {
+                assert_eq!(p.status, DebianElevationStatus::ElevationRequired)
+            }
+            _ => panic!("expected NotReady"),
+        }
     }
 
     #[test]
