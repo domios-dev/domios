@@ -115,7 +115,7 @@ mod tests {
             "Ada",
             4,
         )
-            .unwrap();
+        .unwrap();
         let task = store.show_task(&task_id).unwrap();
         let attempt = task
             .task

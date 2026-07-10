@@ -172,7 +172,9 @@ pub(crate) fn test_harness(root: &Path, provider_id: &'static str) -> TestHarnes
         ),
         tokens: Arc::new(crate::service::tokens::TokenStore::new()),
         pasteboard: crate::pasteboard::PasteboardState::new(),
-        input_parser: Arc::new(crate::service::input_parser::InputParser::new(agent_registry)),
+        input_parser: Arc::new(crate::service::input_parser::InputParser::new(
+            agent_registry,
+        )),
         usage_store: crate::usage::UsageStore::open(&temp_root).expect("usage"),
         usage_activity: crate::usage::PaneActivity::new(),
         user_last_activity: crate::user_last_activity::UserLastActivity::new(),
