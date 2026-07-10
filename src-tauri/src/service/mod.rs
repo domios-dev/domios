@@ -58,6 +58,8 @@ pub mod structured_prompt;
 pub mod sync_watcher;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod tokens;
 pub mod transport;
 pub mod watcher;

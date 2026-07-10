@@ -39,6 +39,7 @@ mod tests {
     use super::*;
     use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
     use crate::service::plan::NewTask;
+    use crate::service::test_support::test_harness;
 
     #[test]
     fn respawn_title_provenance_preserves_explicit_user_titles() {
@@ -55,7 +56,8 @@ mod tests {
     #[test]
     fn persist_attempt_executor_identity_updates_title_and_session() {
         let dir = tempfile::tempdir().unwrap();
-        let store = PlanStore::new_for_test(dir.path());
+        let harness = test_harness(dir.path(), "test-provider");
+        let store = harness.service.plan_store.clone();
         let mut plan = Plan::new(
             "Respawn".into(),
             dir.path().display().to_string(),
@@ -91,29 +93,38 @@ mod tests {
             task_prompt: "prompt".into(),
             report_command: "report".into(),
         };
+        let ws = harness
+            .service
+            .mux
+            .write()
+            .create_workspace("Respawn".into(), Some(dir.path().display().to_string()))
+            .id;
+        let (_tab_id, pane_id) = harness.service.mux.write().create_tab(&ws).unwrap();
         store
-            .record_task_respawn_attempt(&plan.id, &task_id, "pane-1", &draft, Some("worker"), 3)
+            .record_task_respawn_attempt(&plan.id, &task_id, &pane_id, &draft, Some("worker"), 3)
             .unwrap();
-        store
-            .update_attempt_executor_identity(
-                &plan.id,
-                &task_id,
-                "pane-1",
-                Some("Ada"),
-                Some("sess-1"),
-                4,
-            )
+        harness
+            .service
+            .set_agent_session_id(&pane_id, Some("sess-1".into()));
+        persist_attempt_executor_identity(
+            &store,
+            &harness.service,
+            &plan.id,
+            &task_id,
+            &pane_id,
+            "Ada",
+            4,
+        )
             .unwrap();
-        let attempt = store.show_task_attempt(&plan.id, &task_id, "pane-1").err();
-        assert!(attempt.is_some());
         let task = store.show_task(&task_id).unwrap();
         let attempt = task
             .task
             .execution_attempts
             .iter()
-            .find(|attempt| attempt.executor_pane_id == "pane-1")
+            .find(|attempt| attempt.executor_pane_id == pane_id)
             .unwrap();
         assert_eq!(attempt.executor_title.as_deref(), Some("Ada"));
         assert_eq!(attempt.session_id.as_deref(), Some("sess-1"));
+        std::mem::forget(harness);
     }
 }

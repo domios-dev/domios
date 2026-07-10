@@ -26,6 +26,38 @@ fn planner_role_for_pane(state: &AppState, pane_id: &str) -> Option<&'static str
     })
 }
 
+fn record_respawn_attempt_and_persist_identity(
+    state: &AppState,
+    plan_id: &str,
+    task_id: &str,
+    pane_id: &str,
+    draft: &crate::service::plan::task_attempts::TaskRespawnDraft,
+    title: &str,
+    now_ms: u64,
+) -> Result<
+    crate::service::plan::task_attempts::TaskAttemptCreated,
+    crate::service::plan::PlanError,
+> {
+    let created = state.svc.plan_store.record_task_respawn_attempt(
+        plan_id,
+        task_id,
+        pane_id,
+        draft,
+        planner_role_for_pane(state, pane_id).or(Some("worker")),
+        now_ms,
+    )?;
+    persist_attempt_executor_identity(
+        &state.svc.plan_store,
+        &state.svc,
+        plan_id,
+        task_id,
+        pane_id,
+        title,
+        now_ms,
+    )?;
+    Ok(created)
+}
+
 fn lane_update_field(body: &Value) -> Result<Option<TaskLaneUpdate>, String> {
     let Some(lane) = body.get("lane") else {
         return Ok(None);
@@ -477,24 +509,12 @@ pub async fn task_respawn(
         )
         .await
         .map_err(|e| text_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    let created = state
-        .svc
-        .plan_store
-        .record_task_respawn_attempt(
-            &id,
-            &tid,
-            &spawn.pane_id,
-            &draft,
-            planner_role_for_pane(&state, &spawn.pane_id).or(Some("worker")),
-            epoch_ms(),
-        )
-        .map_err(plan_err)?;
-    persist_attempt_executor_identity(
-        &state.svc.plan_store,
-        &state.svc,
+    let created = record_respawn_attempt_and_persist_identity(
+        &state,
         &id,
         &tid,
         &spawn.pane_id,
+        &draft,
         &spawn.title,
         epoch_ms(),
     )
@@ -524,4 +544,122 @@ pub async fn task_rm(
         .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
+    use crate::service::plan::NewTask;
+    use crate::service::test_support::test_harness;
+    #[test]
+    fn rest_respawn_persists_spawned_attempt_title_and_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let harness = test_harness(dir.path(), "test-provider");
+        let store = harness.service.plan_store.clone();
+        let mut plan = Plan::new(
+            "Respawn".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane("orch"),
+        );
+        store.save(&mut plan, 1).unwrap();
+        let task_id = store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "task".into(),
+                    kind: "code".into(),
+                    lane: TaskLaneMetadata {
+                        workspace_id: Some("ws-rest".into()),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        let source_draft = crate::service::plan::task_attempts::TaskRespawnDraft {
+            plan_id: plan.id.clone(),
+            task_id: task_id.clone(),
+            source_attempt: Default::default(),
+            provider: "test-provider".into(),
+            model: None,
+            parent_pane_id: None,
+            workspace_id: Some("ws-rest".into()),
+            title: None,
+            explicit_title: false,
+            cwd: dir.path().display().to_string(),
+            task_prompt: "prompt".into(),
+            report_command: "report".into(),
+        };
+        let created = store
+            .record_task_respawn_attempt(
+                &plan.id,
+                &task_id,
+                "source-pane",
+                &source_draft,
+                Some("worker"),
+                3,
+            )
+            .unwrap();
+        let ws = harness
+            .service
+            .mux
+            .write()
+            .create_workspace("REST".into(), Some(dir.path().display().to_string()))
+            .id;
+        let (_tab_id, pane_id) = harness.service.mux.write().create_tab(&ws).unwrap();
+        harness
+            .service
+            .set_agent_session_id(&pane_id, Some("rest-session".into()));
+
+        let state = AppState {
+            svc: harness.service.clone(),
+            cron: harness.cron.clone(),
+            cron_wake: harness.cron_wake.clone(),
+            api_port: 0,
+            update_state: harness.update.clone(),
+            config: harness.config.clone(),
+            mesh: harness.mesh.clone(),
+            keepawake: harness.keepawake.clone(),
+            resize_owner: harness.resize_owner.clone(),
+            test_clock: None,
+            events: harness.events.clone(),
+            web_dist: None,
+        };
+        let draft = store
+            .build_task_respawn_draft(
+                &plan.id,
+                &task_id,
+                crate::service::plan::task_attempts::TaskRespawnRequest {
+                    attempt_id: created.attempt.id.clone(),
+                    provider: None,
+                    model: None,
+                    parent_pane_id: None,
+                    workspace_id: Some("ws-rest".into()),
+                    title: Some("Exact User Title".into()),
+                },
+            )
+            .unwrap();
+        let persisted = record_respawn_attempt_and_persist_identity(
+            &state,
+            &plan.id,
+            &task_id,
+            &pane_id,
+            &draft,
+            "Exact User Title",
+            4,
+        )
+        .unwrap();
+        let task = store.show_task(&task_id).unwrap();
+        let attempt = task
+            .task
+            .execution_attempts
+            .iter()
+            .find(|attempt| attempt.id == persisted.attempt.id)
+            .unwrap();
+        assert_eq!(attempt.executor_title.as_deref(), Some("Exact User Title"));
+        assert_eq!(attempt.session_id.as_deref(), Some("rest-session"));
+        std::mem::forget(harness);
+    }
 }
