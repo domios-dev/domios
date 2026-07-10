@@ -15,7 +15,14 @@ pub fn is_shutting_down() -> bool {
 /// Mark the process as gracefully shutting down and drop the clean-exit
 /// sentinel. Idempotent — safe to call from every exit route.
 pub fn mark_shutting_down() {
-    SHUTTING_DOWN.store(true, Ordering::SeqCst);
+    mark_shutting_down_for(crate::crash::lifecycle::ShutdownReason::UserExit);
+}
+
+pub fn mark_shutting_down_for(reason: crate::crash::lifecycle::ShutdownReason) {
+    let first_request = !SHUTTING_DOWN.swap(true, Ordering::SeqCst);
+    if first_request {
+        crate::crash::record_clean_shutdown(reason);
+    }
     write_clean_exit_sentinel();
 }
 
@@ -80,7 +87,7 @@ where
                     _ = term.recv() => log::info!("[shutdown] SIGTERM received; graceful exit"),
                     _ = int.recv() => log::info!("[shutdown] SIGINT received; graceful exit"),
                 }
-                mark_shutting_down();
+                mark_shutting_down_for(crate::crash::lifecycle::ShutdownReason::Signal);
                 cleanup();
                 std::process::exit(0);
             });

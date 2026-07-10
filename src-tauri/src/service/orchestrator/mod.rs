@@ -10,7 +10,7 @@ pub(crate) use launch::{build_agent_command, launch_agent_in_background, role_on
 #[cfg(test)]
 pub(crate) use launch::{skip_local_worker_role, AgentRegistry};
 pub use refresh::{RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning};
-pub use types::{BatchOp, SpawnAgentParams, SpawnResult};
+pub use types::{BatchOp, SpawnAgentParams, SpawnIdentityProvenance, SpawnResult};
 
 #[cfg(test)]
 mod tests;

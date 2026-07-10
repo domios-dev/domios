@@ -4,6 +4,7 @@ type: review
 model: gpt-5.6-sol
 model_rationale: GPT-5.6 Sol is present in the discovered Codex catalog and is appropriate for final adversarial P0 review of durable routing, replay, and lossless rehydration correctness.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - Each architectural BOUNCE finding is independently verified or pinpointed with file/line evidence, ending in one ACCEPT or BOUNCE verdict without lane mutation.
 test_plan: 'Oracle: exact already-passing focused non-heavy tests plus static checks only. 1. Trace every Planner request delivery path; pass: non-routable/dead Planner cannot reach PTY send_text or fallback shell. 2. Inspect routability/rebind; pass: nonce, session, accepted agent state, chat target, and stale PlannerRef rules are explicit. 3. Trace durable lease/claim/ack/release across pre/post-delivery crashes; pass: deterministic request IDs and idempotent completion prevent stranded or duplicate delivery. 4. Inspect rehydration; pass: Plan, Spec, task, milestone, stride, and decision truth is restored, 36 pre-existing task IDs remain preserved, and telemetry is accurate. 5. Run the exact existing focused non-heavy routing/replay tests only if already passing/warm; otherwise run git diff --check and scripts/check-file-sizes.sh. 6. Inspect PowerShell/bash/zsh fixtures; pass: multiline payloads yield zero PTY writes. No cargo build/dev/Playwright. Return severity findings and ACCEPT/BOUNCE with file/line evidence.'

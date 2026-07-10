@@ -4,6 +4,7 @@ type: review
 model: gpt-5.6-sol
 model_rationale: GPT-5.6 Sol is present in the discovered Codex catalog and is appropriate for an adversarial P0 correctness review of durable routing/replay changes.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - Every prior BOUNCE item is independently verified as fixed or reported with exact file/line evidence; the review ends in one severity-ranked ACCEPT or BOUNCE verdict without modifying the lane.
 test_plan: 'Oracle: read-only diff and focused non-heavy evidence. 1. Inspect the corrected diff and all prior BOUNCE surfaces; pass: each has a fixed/not-fixed entry with exact file/line evidence. 2. If already warm and exact, run only the focused crate test filters that compile these routing/replay modules; otherwise run git diff --check and scripts/check-file-sizes.sh only. 3. Trace durable lease/claim/release across restart and failure; pass: no crash window can strand InProgress or duplicate replay. 4. Trace nonce echo and chat delivery; pass: actual nonce is validated, session binding and chat target are required, and any dead/shell case performs zero PTY writes. 5. Inspect deterministic PowerShell/bash/zsh multiline payload fixtures, planner_dead telemetry, bounded rebind, and full task/stride hydration assertions. 6. Return ACCEPT or BOUNCE with severity-ranked findings, file/line evidence, and exact tests run. No cargo/build/dev/Playwright unless a focused crate test is already warm and explicitly non-heavy.'

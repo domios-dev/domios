@@ -4,6 +4,7 @@ type: implement
 model: gpt-5.6-terra
 model_rationale: 'Routing rationale: normal Rust plan-state implementation; gpt-5.4 balances cross-module correctness and bounded scope.'
 personality: Dijkstra
+personality_provenance: null
 acceptance_criteria:
 - Plan A in_progress with dependent B/C pending/waiting and dependency metadata; explicit parked remains distinct.
 test_plan: 'Oracle command: cargo test -p codeterm-plan next_actions -- --nocapture. Expected: dependency tests pass and no parked dependency appears; inspect codeterm plan state pl_as7ty5 --json for pending/waiting output.'

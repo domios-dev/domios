@@ -4,6 +4,7 @@ type: verification
 model: gpt-5.4
 model_rationale: 'Routing rationale: bounded evidence reconciliation; gpt-5.4.'
 personality: Lamport
+personality_provenance: null
 acceptance_criteria:
 - Every retained item has classification, severity/blast radius, oracle output, ancestry/CI evidence, and close/follow-up action.
 test_plan: 'Oracle commands: gh issue view 230 --repo rollacode/codeterm --json number,state,url; repeat for 209,203,185,179; git log --oneline origin/develop; codeterm plan state pl_as7ty5 --json. Expected matrix agrees with live issue state/evidence.'

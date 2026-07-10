@@ -4,6 +4,7 @@ type: implement
 model: gpt-5.6-terra
 model_rationale: GPT-5.6 Terra is the discovered default and fits a bounded cross-layer implementation with established provider/model-picker seams.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - A dispatch can explicitly select a provider-supported reasoning effort, records planned/requested/resolved/actual provenance, and rejects unsupported effort without silent downgrade.
 test_plan: 'Oracle: capability fixture plus an isolated provider dispatch. 1. Define a provider fixture with declared low, medium, high levels and one with no effort capability; pass: discovery/API/CLI/UI surface exact supported levels or no selector. 2. Dispatch a task with a supported effort; pass: provider receives the documented launch/switch instruction and task attempt, pane/session, and report carry planned/requested/resolved/actual effort provenance. 3. Dispatch unsupported effort and effort to a provider without capability; pass: structured validation error and no agent launch/PTY write. 4. Restore and concurrently launch sessions with different efforts; pass: session-scoped effort remains truthful with no stale cross-pane value. 5. Verify model-only current behavior is unchanged and task_korvfm model attribution fixtures still pass. 6. Run focused Rust/TypeScript/provider tests discovered during trace, git diff --check, and scripts/check-file-sizes.sh; pass: all exit 0. Use no broad release build.'

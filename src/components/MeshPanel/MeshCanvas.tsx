@@ -25,6 +25,7 @@ interface PeerLayout {
   servicesStale?: boolean;
   servicesError?: string | null;
   servicesLoaded?: boolean;
+  webUrl?: string | null;
 }
 
 interface PushStats {
@@ -43,7 +44,7 @@ interface Props {
   onAddPeerClick?: () => void;
   meshEnabled?: boolean;
   onGoOnline?: () => void;
-  onOpenWebUi?: () => void;
+  onOpenPeerWebUi?: (url: string) => void;
 }
 
 const VOLUME_WINDOW_MS = 60 * 1000;
@@ -68,7 +69,7 @@ export function MeshCanvas({
   onAddPeerClick,
   meshEnabled = true,
   onGoOnline,
-  onOpenWebUi,
+  onOpenPeerWebUi,
 }: Props) {
   const showGhost = peers.length === 0 && !!onAddPeerClick;
   const layout = useMemo<PeerLayout[]>(() => {
@@ -103,6 +104,7 @@ export function MeshCanvas({
         servicesStale: p.services_stale,
         servicesError: p.services_error,
         servicesLoaded: p.services_loaded,
+        webUrl: p.https_url,
       });
     });
     if (showGhost) {
@@ -215,18 +217,6 @@ export function MeshCanvas({
         touchAction: "none",
       }}
     >
-      {onOpenWebUi && (
-        <div className="absolute top-2 left-2 z-10">
-          <button
-            onClick={onOpenWebUi}
-            data-testid="web-ui-trigger"
-            className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2.5 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)] text-[9px] uppercase tracking-wide"
-            title="Open Web UI"
-          >
-            Web UI
-          </button>
-        </div>
-      )}
       <div className="absolute top-2 right-2 z-10 flex gap-1 text-[10px]">
         <button
           onClick={() => zoomBy(ZOOM_STEP)}
@@ -344,6 +334,8 @@ export function MeshCanvas({
                 servicesStale={p.servicesStale}
                 servicesError={p.servicesError}
                 servicesLoaded={p.servicesLoaded}
+                webUrl={p.isThisMachine ? null : p.webUrl}
+                onOpenWebUi={onOpenPeerWebUi}
               />
             )}
           </div>

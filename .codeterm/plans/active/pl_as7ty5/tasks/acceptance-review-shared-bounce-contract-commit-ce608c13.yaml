@@ -4,6 +4,7 @@ type: review
 model: gpt-5.6-sol
 model_rationale: GPT-5.6 Sol is present in the discovered Codex catalog and is appropriate for independent commit-specific acceptance judgment of shared prompt authority and deterministic evidence.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - The review returns a formal ACCEPT or BOUNCE for commit ce608c133631912d88e1af3fa4a10def84fb25eb with file/line evidence for every specified acceptance surface and no lane mutation.
 test_plan: 'Oracle: non-daemon scripts and static checks only. 1. Trace bounce_unwinding_contract load/render graph; pass: loaded once, rendered into both role prompts, and role files contain deltas only. 2. Run documentation/check inventory; pass: exactly 23 files, 23 rows, and 24 loaders including seed/plugin split are covered. 3. Run F1-F10 exact/mutation fixtures and real merged-input stride mutation; pass: baseline passes and each controlled mutation fails. 4. Inspect prompt diff; pass: concise authoritative shared contract with no duplicated bulk. 5. Diff LoopSpec/runtime-store; pass: no semantic changes. 6. Run git diff --check and scripts/check-file-sizes.sh. No daemon, cargo/build/dev, or Playwright. Submit a separate formal report with target SHA, ACCEPT/BOUNCE, and file/line findings.'

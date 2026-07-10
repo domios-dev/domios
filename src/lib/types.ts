@@ -536,6 +536,9 @@ export interface PairedPeer {
   is_primary: boolean;
   access_level: string;
   version: string | null;
+  /** Verified HTTPS web UI URL — announced only while the peer's own web
+   * access is Ready, so its presence is proof the link resolves. */
+  https_url?: string | null;
 }
 
 export interface DiscoveredPeer {

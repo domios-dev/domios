@@ -292,6 +292,7 @@ mod tests {
             execution_attempts: vec![],
             park_reason: None,
             personality: None,
+            personality_provenance: None,
             attachments: vec![],
         }
     }

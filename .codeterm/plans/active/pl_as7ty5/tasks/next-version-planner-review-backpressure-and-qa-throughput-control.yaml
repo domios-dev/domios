@@ -4,6 +4,7 @@ type: implement
 model: gpt-5.6-sol
 model_rationale: GPT-5.6 Sol is the discovered highest-capability Codex model and suits cross-cutting orchestration state, lifecycle correctness, and backpressure design.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - Configurable review WIP default 5 blocks ordinary implementation dispatch when review capacity or review-credit policy is exceeded, with a structured visible reason.
 - in_review is accepted only with executable exact QA or independent-review evidence; BOUNCE atomically exits in_review; stale-review escalation and authorized override are durable and auditable.
