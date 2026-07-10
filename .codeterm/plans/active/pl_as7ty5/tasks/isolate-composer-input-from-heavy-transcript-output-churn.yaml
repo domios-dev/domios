@@ -4,6 +4,7 @@ type: implement
 model: gpt-5.5
 model_rationale: 'Routing rationale: high-risk input-critical performance architecture across React state, output batching, IPC, rendering, and cross-platform trace gates requires gpt-5.5.'
 personality: Dijkstra
+personality_provenance: null
 acceptance_criteria:
 - A deterministic fixture keeps 25 tabs/panes open while concurrent build-like output and real agent/task stream events produce sustained transcript churn.
 - Baseline and after artifacts include keydown-to-paint p50/p95/max, composer render count, main-thread long tasks, IPC/output event rate, transcript size, CPU, and backend lock/queue wait evidence.
@@ -19,7 +20,7 @@ qa_state: null
 status_label: pane-gone
 priority: p2
 created_at: 1783657396520
-updated_at: 1783712897504
+updated_at: 1783717841999
 status_changed_at: 1783710393194
 handle: isolate-composer-input-from-heavy-transcript-output-churn
 tags: []
@@ -99,6 +100,46 @@ milestones:
   kind: decision
   text: 'watchdog: assigned pane gone and silent for 2824636ms — demoted to pending'
   ts: 1783665667979
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_s9qfzg
+  from:
+    pane_id: 1e318290
+    session_id: 3d4b6951-d948-4a18-bdea-1d9f933fd24e
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    STATUS: partial
+    CHANGES: Composer input isolated from transcript/output churn, committed at 27b29b04e (tree clean). Controlled value stays synchronous (usePersistentDraft: React state now, only localStorage write debounced 350ms); ChatComposer memoized with explicit prop comparator; parent passes stable ref-backed callbacks (addOptimistic/updateOptimistic/nextClientOrder useCallback, composerModelBubble useMemo); transcript rendering deferred via useDeferredValue in PaneSessionChat. Opt-in instrumentation (near-zero prod cost, gated behind window.__ipcPerf/__outputStreamPerf/__composerPerf): IPC invoke/event counters+rates, output frame/byte/batch counters, beforeinput->rAF next-frame paint latency, composer/pane render counts, IME composition + ignored-key tracking. Deterministic Playwright fixture (composer-output-performance.spec.ts): 25 open tabs/panes, seeded + sustained 24-msg/35ms build-like transcript churn across all panes, mux churn hook, both WebView2 and web-mode; oracle asserts p95<=32ms, max<=100ms, exact toHaveValue after type/IME/paste/attach/history (no dropped/reordered input), non-input keys create no stale latency marks, transcript order/count preserved; writes CT_PERF_VARIANT-keyed JSON artifacts + backend lock/SLOW-IPC/queue-wait evidence from dev log. Test hooks verified wired: __codetermTestChat.pushMessages (useChatSession.ts), __muxPerfChurnPane (muxPerfTestHook.ts) — spec gates, does not silently skip.
+    TESTS RUN (lane-local, all green): git diff --check (clean); scripts/check-file-sizes.sh --fail (no file >1200); pnpm exec tsc --noEmit (exit 0); pnpm exec tsx src/lib/usePersistentDraft.test.tsx (4/4, incl. controlled-value-stays-live red-line guard); pnpm exec tsx src/components/Terminal/ChatComposer.test.tsx (2/2).
+    BLOCKED: Final acceptance gate — before/after WebView2 + web-mode latency traces proving p95<=32ms / max<=100ms under the 25-tab fixture — is a UI/e2e heavy sweep that the worker charter forbids from a cold worker lane. Hand off to serialized warm QA. Exact command: pnpm exec playwright test tests/playwright/suites/16-chat-view/composer-output-performance.spec.ts --config=tests/playwright/playwright.config.ts --project=golden --timeout=30000 --global-timeout=600000, run twice with CT_PERF_VARIANT=before (on origin/develop) then CT_PERF_VARIANT=after (this branch) against a healthy dev on 7686; compare the emitted composer-output-performance-<variant>-<mode>.json artifacts.
+  ts: 1783717836335
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_wd3nuv
+  from:
+    pane_id: 1e318290
+    session_id: 3d4b6951-d948-4a18-bdea-1d9f933fd24e
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    STATUS: partial
+    CHANGES: Composer input isolated from transcript/output churn, committed at 27b29b04e (tree clean). Controlled value stays synchronous (usePersistentDraft: React state now, only localStorage write debounced 350ms); ChatComposer memoized with explicit prop comparator; parent passes stable ref-backed callbacks (addOptimistic/updateOptimistic/nextClientOrder useCallback, composerModelBubble useMemo); transcript rendering deferred via useDeferredValue in PaneSessionChat. Opt-in instrumentation (near-zero prod cost, gated behind window.__ipcPerf/__outputStreamPerf/__composerPerf): IPC invoke/event counters+rates, output frame/byte/batch counters, beforeinput->rAF next-frame paint latency, composer/pane render counts, IME composition + ignored-key tracking. Deterministic Playwright fixture (composer-output-performance.spec.ts): 25 open tabs/panes, seeded + sustained 24-msg/35ms build-like transcript churn across all panes, mux churn hook, both WebView2 and web-mode; oracle asserts p95<=32ms, max<=100ms, exact toHaveValue after type/IME/paste/attach/history (no dropped/reordered input), non-input keys create no stale latency marks, transcript order/count preserved; writes CT_PERF_VARIANT-keyed JSON artifacts + backend lock/SLOW-IPC/queue-wait evidence from dev log. Test hooks verified wired: __codetermTestChat.pushMessages (useChatSession.ts), __muxPerfChurnPane (muxPerfTestHook.ts) — spec gates, does not silently skip.
+    TESTS RUN (lane-local, all green): git diff --check (clean); scripts/check-file-sizes.sh --fail (no file >1200); pnpm exec tsc --noEmit (exit 0); pnpm exec tsx src/lib/usePersistentDraft.test.tsx (4/4, incl. controlled-value-stays-live red-line guard); pnpm exec tsx src/components/Terminal/ChatComposer.test.tsx (2/2).
+    BLOCKED: Final acceptance gate — before/after WebView2 + web-mode latency traces proving p95<=32ms / max<=100ms under the 25-tab fixture — is a UI/e2e heavy sweep that the worker charter forbids from a cold worker lane. Hand off to serialized warm QA. Exact command: pnpm exec playwright test tests/playwright/suites/16-chat-view/composer-output-performance.spec.ts --config=tests/playwright/playwright.config.ts --project=golden --timeout=30000 --global-timeout=600000, run twice with CT_PERF_VARIANT=before (on origin/develop) then CT_PERF_VARIANT=after (this branch) against a healthy dev on 7686; compare the emitted composer-output-performance-<variant>-<mode>.json artifacts.
+  ts: 1783717841999
   links: []
   loop_id: null
   iteration: null
@@ -188,9 +229,21 @@ execution_attempts:
   worktree_path: D:/Developer/codeterm-worktrees/composer-output-performance
   base: origin/develop
   destination: null
-  report: null
+  report:
+    id: report_1783717843329
+    message: |-
+      STATUS: partial
+      CHANGES: Composer input isolated from transcript/output churn, committed at 27b29b04e (tree clean). Controlled value stays synchronous (usePersistentDraft: React state now, only localStorage write debounced 350ms); ChatComposer memoized with explicit prop comparator; parent passes stable ref-backed callbacks (addOptimistic/updateOptimistic/nextClientOrder useCallback, composerModelBubble useMemo); transcript rendering deferred via useDeferredValue in PaneSessionChat. Opt-in instrumentation (near-zero prod cost, gated behind window.__ipcPerf/__outputStreamPerf/__composerPerf): IPC invoke/event counters+rates, output frame/byte/batch counters, beforeinput->rAF next-frame paint latency, composer/pane render counts, IME composition + ignored-key tracking. Deterministic Playwright fixture (composer-output-performance.spec.ts): 25 open tabs/panes, seeded + sustained 24-msg/35ms build-like transcript churn across all panes, mux churn hook, both WebView2 and web-mode; oracle asserts p95<=32ms, max<=100ms, exact toHaveValue after type/IME/paste/attach/history (no dropped/reordered input), non-input keys create no stale latency marks, transcript order/count preserved; writes CT_PERF_VARIANT-keyed JSON artifacts + backend lock/SLOW-IPC/queue-wait evidence from dev log. Test hooks verified wired: __codetermTestChat.pushMessages (useChatSession.ts), __muxPerfChurnPane (muxPerfTestHook.ts) — spec gates, does not silently skip.
+      TESTS RUN (lane-local, all green): git diff --check (clean); scripts/check-file-sizes.sh --fail (no file >1200); pnpm exec tsc --noEmit (exit 0); pnpm exec tsx src/lib/usePersistentDraft.test.tsx (4/4, incl. controlled-value-stays-live red-line guard); pnpm exec tsx src/components/Terminal/ChatComposer.test.tsx (2/2).
+      BLOCKED: Final acceptance gate — before/after WebView2 + web-mode latency traces proving p95<=32ms / max<=100ms under the 25-tab fixture — is a UI/e2e heavy sweep that the worker charter forbids from a cold worker lane. Hand off to serialized warm QA. Exact command: pnpm exec playwright test tests/playwright/suites/16-chat-view/composer-output-performance.spec.ts --config=tests/playwright/playwright.config.ts --project=golden --timeout=30000 --global-timeout=600000, run twice with CT_PERF_VARIANT=before (on origin/develop) then CT_PERF_VARIANT=after (this branch) against a healthy dev on 7686; compare the emitted composer-output-performance-<variant>-<mode>.json artifacts.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
   assigned_at: 1783712897504
-  reported_at: null
+  reported_at: 1783717843329
   reviewed_at: null
   closed_at: null
   competition_group_id: null

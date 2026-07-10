@@ -4,6 +4,7 @@ type: review
 model: gpt-5.6-sol
 model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and is appropriate for independent P0 review of data-preserving lifecycle conversion and cutover correctness.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - Every prior BOUNCE surface is independently verified or reported with file/line evidence; the verdict is ACCEPT or BOUNCE and no live sidecar conversion is applied.
 test_plan: 'Oracle: converter unit tests and static checks only. 1. Run converter unit tests covering comments, structure, unknown fields, idempotency, unique audit IDs/timestamps, required/legacy reasons, lane/attempt cleanup, error paths, and unrelated YAML preservation; pass: all deterministic fixtures pass. 2. Run dry-run only against the three named legacy task records task_pes3i4, task_p6kh7f, task_sjhx4f; pass: inventory is exact and no files are written. 3. Trace old-parser-stop/new-parser-start cutover; pass: legacy records cannot be silently accepted after cutover and converted records parse only via paused semantics. 4. Run static rg classification for parked across production lifecycle, CLI manifest/errors/API/UI/docs/schema/filter/open-work; pass: production hits are zero and intentional fixtures are explicitly classified. 5. Run git diff --check and scripts/check-file-sizes.sh. Do not apply conversion, cargo, build, dev, or Playwright. Return severity findings and ACCEPT/BOUNCE with file/line evidence.'

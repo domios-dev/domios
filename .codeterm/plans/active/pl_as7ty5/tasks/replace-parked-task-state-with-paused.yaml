@@ -4,6 +4,7 @@ type: implement
 model: gpt-5.6-sol
 model_rationale: GPT-5.6 Terra is the discovered default and is sufficient for cross-surface task-state semantics, backward-state audit, and focused regression design.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - Task state exposes paused (not parked) with a required pause reason; pending remains dependency-waiting and paused work is excluded from heartbeat/dispatch eligibility.
 test_plan: 'Oracle: focused task-state fixtures and CLI/API state render. 1. Create a paused task through the supported command with a reason; pass: state, API/CLI/UI serialization show paused and the reason. 2. Attempt pause without a reason; pass: validation rejects it. 3. Mark a dependency-waiting task pending; pass: it remains distinct from paused in state/filter/open-work output. 4. Seed each legacy parked record and run the explicit audit/conversion operation; pass: each becomes paused with an audit stride/reason and no parked state remains. 5. Run the focused planner/task tests discovered in ownership plus git diff --check and scripts/check-file-sizes.sh; pass: all exit 0. No heavy build.'

@@ -4,6 +4,7 @@ type: implement
 model: gpt-5.4
 model_rationale: 'Routing rationale: bounded parser/reducer correlation and transcript hydration correctness task; gpt-5.4 is appropriate.'
 personality: Lamport
+personality_provenance: null
 acceptance_criteria:
 - Success, failure, timeout, and cancelled invocations each reach exactly one stable terminal state; late/duplicate events do not regress state; terminal result removes spinner; exec/wait is one logical command or explicit phases; reconnect/history produces the same terminal state; 20 concurrent commands retain unique stable keys.
 test_plan: 'Oracle: deterministic parser/reducer fixtures plus Playwright. 1. Add/run focused streamParser/useAgentRunStream tests for success, timeout, failure, cancelled, late result, duplicate result, exec plus wait, reconnect/history hydration, and 20 concurrent commands. Pass: exact terminal state/key assertions. 2. Run npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep "tool-lifecycle|tool-terminal". Pass: no terminal spinner, linked exec/wait rendering, restored transcript state, and concurrent card stability. 3. Inspect event log fixture. Pass: each invocation has one terminal transition.'

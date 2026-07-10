@@ -4,6 +4,7 @@ type: planning
 model: gpt-5.5
 model_rationale: Codex gpt-5.5 is the strongest available Codex option for high-risk planner-state and UX architecture synthesis.
 personality: Lamport
+personality_provenance: null
 acceptance_criteria:
 - Names verified files, components, state owners, API commands, event names, and identity fields for workspace tabs and planner state.
 - Defines one recommended first-class tab/canvas lifecycle and rejects duplicate planner state.

@@ -4,6 +4,7 @@ type: planning
 model: gpt-5.4
 model_rationale: 'Routing rationale: bounded cross-layer discovery of UI state ownership and Tailscale provisioning behavior; gpt-5.4 is appropriate.'
 personality: Lamport
+personality_provenance: null
 acceptance_criteria:
 - Produces evidence-backed Web UI state/ownership alternatives with exact responsive selectors, and a Linux/macOS Tailscale Serve desired-state contract covering status, version syntax, HTTPS/MagicDNS, permission/elevation, config conflict preservation, health probe, and disable/reset; leaves no implementation claim unsupported.
 test_plan: 'Oracle: real-machine observations, not implementation. 1. Capture current Mesh UI screenshot and inspect existing top-bar/Mesh/Settings components; pass: state owner and current discoverability gap are evidenced. 2. On Linux and macOS targets, run tailscale version; tailscale status --json; tailscale serve status --json or version-appropriate equivalent. Pass: exact syntax/status/error and URL evidence captured. 3. Probe any reported URL with curl -fsS --max-time 10 <url>/api/health. Pass: reachability result is recorded. 4. Inspect existing serve config and run version-appropriate disable/reset dry observation where safe. Pass: preservation/conflict behavior is known. 5. Produce selector candidates for top action, status menu, open action, setup state, peer secondary action, and inline error/progress. Pass: each candidate maps to a real component or explicit new testid need.'

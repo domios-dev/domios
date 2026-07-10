@@ -4,6 +4,7 @@ type: review
 model: gpt-5.6-sol
 model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and is appropriate for adversarial P0 review of persisted lifecycle/schema compatibility boundaries.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - The review verifies every parked-to-paused contract surface or reports it with exact file/line evidence, then returns one severity-ranked ACCEPT or BOUNCE verdict without modifying the lane.
 test_plan: 'Oracle: read-only diff and static lifecycle audit. 1. Trace task status enum, serde/parser, CLI/socket/API/UI/schema/docs; pass: paused is canonical, parked has no silent alias, and pause_reason is required. 2. Trace dependency, dispatch/open-work/heartbeat and pause/resume paths; pass: pending remains dependency waiting and paused is excluded everywhere required. 3. Inspect converter dry-run/apply/idempotency/error/audit-stride paths on fixture YAML; pass: only intended legacy parked records change and unrelated YAML is byte/structure preserved as declared. 4. Run final residual rg status parked classification; pass: every remaining hit is an intentional legacy fixture or converter/documented migration input. 5. Run only git diff --check and scripts/check-file-sizes.sh; no cargo/build/dev/Playwright. 6. Return ACCEPT or BOUNCE with severity findings, file/line evidence, and exact static checks.'

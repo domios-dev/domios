@@ -4,6 +4,7 @@ type: implementation
 model: gpt-5.4
 model_rationale: Normal Codex implementation is sufficient for a bounded prompt-composition fix with focused Rust snapshot tests; the behavior is correctness-sensitive but not architecture-heavy.
 personality: Lamport
+personality_provenance: null
 acceptance_criteria:
 - Initial dispatch with personality Hopper and guidance beginning You are Hopper... produces one canonical identity prefix, never You are Hopper. You are Hopper....
 - A single canonical composition function is used by initial dispatch, respawn/reconnect, competition, and charter/prepend flows, with snapshot tests proving equivalent semantic ordering.

@@ -4,6 +4,7 @@ type: implement
 model: gpt-5.4
 model_rationale: 'Routing rationale: bounded frontend Mesh header/per-peer UX consuming a defined backend snapshot; gpt-5.4 is appropriate after backend contract.'
 personality: Hopper
+personality_provenance: null
 acceptance_criteria:
 - Global Mesh header exposes Web UI with Globe icon, Open action only when healthy, and explicit Ready/Setup required/Conflict/Unhealthy state; setup/status menu and inline progress/errors work; peer action appears only for verified URL; canvas-only label is removed; Settings > Network remains detailed; selectors do not overlap desktop/mobile.
 test_plan: 'Oracle: component tests plus golden Playwright against backend snapshot fixtures. 1. Run focused MeshPanel/Titlebar tests with Ready, Setup required, Conflict, Unhealthy, loading, error, and peer-URL fixtures. Pass: exact selectors and action visibility match backend state. 2. Run npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep "mesh-web-ui|peer-web-ui-open". Pass: desktop/mobile header has no overlap, Open/setup/menu/peer actions work, and no tiny canvas-only label remains. 3. Exercise backend snapshots from Ubuntu operator_bootstrap_required, Mac existing healthy route/skew, and rollacode-bot healthy 7685 URL. Pass: UI displays truthful state/version/URL without inference or toast-only progress.'
