@@ -12,7 +12,7 @@ use crate::plan::{
 };
 use crate::service::plan::task_attempts::TaskRespawnRequest;
 use crate::service::plan::{NewTask, TaskLaneUpdate};
-use crate::service::SpawnIdentityProvenance;
+use crate::service::{persist_attempt_executor_identity, respawn_title_provenance};
 
 use super::{
     emit_plan_changed, epoch_ms, optional_string_field, plan_err, text_err, PlanRouteResult,
@@ -464,7 +464,7 @@ pub async fn task_respawn(
                 agent: Some(draft.provider.clone()),
                 cwd: Some(draft.cwd.clone()),
                 title: draft.title.clone(),
-                title_provenance: Some(SpawnIdentityProvenance::Suggested),
+                title_provenance: Some(respawn_title_provenance(draft.title.as_deref())),
                 role: Some("Worker".into()),
                 parent_pane_id: draft.parent_pane_id.clone(),
                 task: Some(draft.task_prompt.clone()),
@@ -489,6 +489,16 @@ pub async fn task_respawn(
             epoch_ms(),
         )
         .map_err(plan_err)?;
+    persist_attempt_executor_identity(
+        &state.svc.plan_store,
+        &state.svc,
+        &id,
+        &tid,
+        &spawn.pane_id,
+        &spawn.title,
+        epoch_ms(),
+    )
+    .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({
         "ok": true,

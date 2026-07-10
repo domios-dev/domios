@@ -61,6 +61,7 @@ mod tests;
 pub mod tokens;
 pub mod transport;
 pub mod watcher;
+mod worker_identity;
 mod worker_persona;
 mod workspace;
 
@@ -92,6 +93,7 @@ pub use orchestrator::{
 };
 pub use pane::{normalize_pane_description, MAX_PANE_DESCRIPTION_CHARS};
 pub use pane_budget::{evaluate_pane_budget, PaneBudgetLevel, PaneBudgetNotice};
+pub(crate) use worker_identity::{persist_attempt_executor_identity, respawn_title_provenance};
 pub(crate) use worker_persona::WorkerPersonaReservations;
 
 /// Shared service context — all state needed for multiplexer operations.

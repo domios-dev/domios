@@ -10,7 +10,7 @@ use super::{get_string_param, JsonRpcError};
 use crate::plan::TaskStatus;
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{hints, NewTask, PlanError};
-use crate::service::{ServiceState, SpawnIdentityProvenance};
+use crate::service::{persist_attempt_executor_identity, respawn_title_provenance, ServiceState};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
@@ -548,7 +548,7 @@ pub(super) fn dispatch(
                 agent: Some(draft.provider.clone()),
                 cwd: Some(draft.cwd.clone()),
                 title: draft.title.clone(),
-                title_provenance: Some(SpawnIdentityProvenance::Suggested),
+                title_provenance: Some(respawn_title_provenance(draft.title.as_deref())),
                 role: Some("Worker".into()),
                 parent_pane_id: draft.parent_pane_id.clone(),
                 task: Some(draft.task_prompt.clone()),
@@ -574,21 +574,16 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            let session_id = svc
-                .mux
-                .read()
-                .get_pane(&spawn.pane_id)
-                .and_then(|pane| pane.agent_session_id.clone());
-            store
-                .update_attempt_executor_identity(
-                    &id,
-                    &tid,
-                    &spawn.pane_id,
-                    Some(&spawn.title),
-                    session_id.as_deref(),
-                    now,
-                )
-                .map_err(plan_rpc_err)?;
+            persist_attempt_executor_identity(
+                store,
+                svc,
+                &id,
+                &tid,
+                &spawn.pane_id,
+                &spawn.title,
+                now,
+            )
+            .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({
                 "ok": true,
