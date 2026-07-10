@@ -16,6 +16,36 @@ pub struct BatchOp {
     pub id: Option<String>,
 }
 
+/// Distinct provenance of a launch's reasoning effort. Mirrors the model
+/// provenance discipline: each source stays separate and truthful, never
+/// conflated. `actual` stays `None` until authoritative runtime evidence
+/// arrives — a launch flag is a request, not proof of the running effort.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ReasoningEffortProvenance {
+    /// Effort recorded on the routing/plan task (dispatch intent).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub planned: Option<String>,
+    /// Effort the caller explicitly asked for at spawn.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested: Option<String>,
+    /// Effort that passed capability validation and reached the launch flags.
+    /// Equals `requested` when supported; validation rejects rather than downgrade.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved: Option<String>,
+    /// Runtime-confirmed effort. `None` until the provider reports it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actual: Option<String>,
+}
+
+impl ReasoningEffortProvenance {
+    pub fn is_empty(&self) -> bool {
+        self.planned.is_none()
+            && self.requested.is_none()
+            && self.resolved.is_none()
+            && self.actual.is_none()
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SpawnResult {
     pub pane_id: String,
@@ -24,6 +54,12 @@ pub struct SpawnResult {
     pub agent: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Resolved (validated) reasoning effort that reached the launch, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+    /// Full planned/requested/resolved/actual effort provenance.
+    #[serde(skip_serializing_if = "ReasoningEffortProvenance::is_empty")]
+    pub reasoning_effort_provenance: ReasoningEffortProvenance,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -92,6 +128,11 @@ pub struct SpawnAgentParams {
     pub spawned_by_pane_id: Option<String>,
     /// Provider decides flag syntax via `AgentProvider::model_launch_args`.
     pub model: Option<String>,
+    /// Explicitly requested reasoning effort. Capability-validated against the
+    /// provider before launch; an unsupported value is rejected structurally
+    /// (no silent downgrade). Provider maps it to launch flags via
+    /// `AgentProvider::reasoning_effort_launch_args`.
+    pub reasoning_effort: Option<String>,
     pub system_prompt: Option<String>,
     pub preset: Option<String>,
     pub resume_session_id: Option<String>,

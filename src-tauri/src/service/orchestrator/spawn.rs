@@ -1,9 +1,21 @@
 use super::launch::{
     build_agent_command, launch_agent_in_background, role_onboarding_task, skip_local_worker_role,
 };
-use super::types::{SpawnAgentParams, SpawnResult};
+use super::types::{ReasoningEffortProvenance, SpawnAgentParams, SpawnResult};
 use crate::service::{spawn_title, ServiceContext};
 use tauri::Manager;
+
+/// Build effort provenance for a launch where the requested effort has already
+/// passed capability validation. No silent downgrade ⇒ `resolved == requested`.
+/// `actual` stays `None` — the launch flag is a request, not runtime proof.
+pub(crate) fn resolved_effort_provenance(requested: Option<String>) -> ReasoningEffortProvenance {
+    ReasoningEffortProvenance {
+        planned: None,
+        requested: requested.clone(),
+        resolved: requested,
+        actual: None,
+    }
+}
 
 impl ServiceContext {
     /// Resolve agent cwd against workspace cwd:
@@ -77,6 +89,7 @@ impl ServiceContext {
             .or_else(|| params.agent_name.clone())
             .unwrap_or_else(|| agent.clone());
         let model = params.model.clone();
+        let reasoning_effort = params.reasoning_effort.clone();
         self.classify_spawn_target_for_params(&agent, &params)?;
         let bind_params = params.clone();
         let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params_with_chatbackends(
@@ -101,6 +114,8 @@ impl ServiceContext {
             pty_id: handle.pty_id.unwrap_or_default(),
             agent,
             model,
+            reasoning_effort: reasoning_effort.clone(),
+            reasoning_effort_provenance: resolved_effort_provenance(reasoning_effort),
             title,
             description: handle.description,
             role,
@@ -171,6 +186,8 @@ impl ServiceContext {
                 pty_id: handle.pty_id.unwrap_or_default(),
                 agent: agent_cmd,
                 model,
+                reasoning_effort: None,
+                reasoning_effort_provenance: ReasoningEffortProvenance::default(),
                 title,
                 description: handle.description,
                 role,
@@ -195,6 +212,11 @@ impl ServiceContext {
             &self.agent_registry,
             &agent_cmd,
             params.model.as_deref(),
+        )?;
+        crate::service::spawn::validate_agent_reasoning_effort(
+            &self.agent_registry,
+            &agent_cmd,
+            params.reasoning_effort.as_deref(),
         )?;
         // 1. Find workspace — explicit workspace_id wins over the parent's workspace.
         let (ws_id, ws_cwd) = {
@@ -466,12 +488,15 @@ impl ServiceContext {
             .unwrap_or_default();
 
         let budget_notice = self.workspace_pane_budget_notice(&ws_id);
+        let reasoning_effort = params.reasoning_effort.clone();
         Ok(SpawnResult {
             pane_id,
             tab_id,
             pty_id: String::new(), // PTY not yet assigned — happens async
             agent: agent_cmd,
             model: params.model,
+            reasoning_effort: reasoning_effort.clone(),
+            reasoning_effort_provenance: resolved_effort_provenance(reasoning_effort),
             title,
             description: params.description,
             role: params.role,

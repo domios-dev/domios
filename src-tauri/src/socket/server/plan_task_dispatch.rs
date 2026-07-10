@@ -147,6 +147,7 @@ pub(super) fn dispatch(
         task_id: Some(task_id.clone()),
         workspace_id: owned_str(p, "workspace_id"),
         model: routing.model.clone(),
+        reasoning_effort: owned_str(p, "reasoning_effort"),
         spawned_by_pane_id: owned_str(p, "caller_pane_id"),
         ..Default::default()
     };

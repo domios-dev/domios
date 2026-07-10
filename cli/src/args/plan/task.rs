@@ -238,6 +238,11 @@ pub enum PlanTaskAction {
         agent: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
+        #[arg(
+            long = "reasoning-effort",
+            help = "Provider-supported reasoning effort (rejected if unsupported)"
+        )]
+        reasoning_effort: Option<String>,
         #[arg(long, help = "Parent pane override (defaults to the caller pane)")]
         parent: Option<String>,
         #[arg(long)]

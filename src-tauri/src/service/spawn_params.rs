@@ -52,6 +52,7 @@ impl SpawnPaneSpec {
             PaneCommand::Agent(AgentSpawnSpec {
                 provider: params.agent.clone().unwrap_or_default(),
                 model: params.model.clone(),
+                reasoning_effort: params.reasoning_effort.clone(),
                 task: params.task.clone(),
                 agent_name: params.agent_name.clone(),
                 extra_args: params.args.clone().unwrap_or_default(),
@@ -120,6 +121,7 @@ impl SpawnPaneSpec {
             skip_permissions: Some(agent.auto_approve),
             spawned_by_pane_id: agent.spawned_by_pane_id.clone(),
             model: agent.model.clone(),
+            reasoning_effort: agent.reasoning_effort.clone(),
             system_prompt: None,
             preset: None,
             resume_session_id: agent.resume_session_id.clone(),
