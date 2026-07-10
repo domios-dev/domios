@@ -35,6 +35,8 @@ pub enum PlanError {
     QaNoteRequired,
     QaSlotUnavailable,
     QaNotRunning,
+    OverrideReasonRequired,
+    OverrideNotAuthorized,
     GateNotFound,
     GateAlreadyAnswered,
     GateRequiresQuestion,
@@ -140,6 +142,14 @@ impl fmt::Display for PlanError {
             ),
             PlanError::QaSlotUnavailable => write!(f, "QA queue has no available running slot"),
             PlanError::QaNotRunning => write!(f, "task is not running in QA; claim it first"),
+            PlanError::OverrideReasonRequired => write!(
+                f,
+                "overriding a regression gate requires an explicit reason; pass --reason \"<why the frontier may advance past the gate>\""
+            ),
+            PlanError::OverrideNotAuthorized => write!(
+                f,
+                "only the plan Orchestrator (owner) may override a regression gate"
+            ),
             PlanError::GateNotFound => write!(f, "decision gate not found"),
             PlanError::GateAlreadyAnswered => write!(f, "gate is already answered; answers are immutable"),
             PlanError::GateRequiresQuestion => write!(f, "gate requires a non-empty question"),
@@ -234,6 +244,12 @@ impl PlanError {
             PlanError::QaNoteRequired => serde_json::json!({ "type": "qa_note_required" }),
             PlanError::QaSlotUnavailable => serde_json::json!({ "type": "qa_slot_unavailable" }),
             PlanError::QaNotRunning => serde_json::json!({ "type": "qa_not_running" }),
+            PlanError::OverrideReasonRequired => {
+                serde_json::json!({ "type": "override_reason_required" })
+            }
+            PlanError::OverrideNotAuthorized => {
+                serde_json::json!({ "type": "override_not_authorized" })
+            }
             PlanError::GateNotFound => serde_json::json!({ "type": "gate_not_found" }),
             PlanError::GateAlreadyAnswered => {
                 serde_json::json!({ "type": "gate_already_answered" })

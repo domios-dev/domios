@@ -179,6 +179,19 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
             } else {
                 format!("dispatch {} ({})", lane.task_id, lane.name)
             };
+            // Non-blocker dispatch is refused while gates stand; name why so the
+            // frontier block is legible without reading the dispatch error.
+            let message = if s.blocking_regression_gates.is_empty() {
+                message
+            } else {
+                let gates = s
+                    .blocking_regression_gates
+                    .iter()
+                    .map(|g| g.key.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{message} — BLOCKED by pending regression gate(s): {gates}; clear the gate, tag the task release-blocking/regression-gate, or record an authorized override")
+            };
             actions.push(NextAction {
                 priority: 5,
                 kind: NextActionKind::Dispatch,
@@ -264,6 +277,8 @@ mod tests {
             live_agents: vec![],
             recent_strides: vec![],
             pending_regression_gates: vec![],
+            blocking_regression_gates: vec![],
+            regression_overrides: vec![],
             next_actions: vec![],
         }
     }
@@ -328,9 +343,10 @@ mod tests {
         let mut s = empty();
         s.open_lanes = vec![lane("tp", TaskStatus::Pending)];
         let a = compute_next_actions(&s);
-        assert_eq!(a.len(), 1);
-        assert_eq!(a[0].kind, NextActionKind::Dispatch);
-        assert_eq!(a[0].task_id.as_deref(), Some("tp"));
+        // A lone pending lane with no live worker also emits a Continue nudge.
+        assert!(a
+            .iter()
+            .any(|x| x.kind == NextActionKind::Dispatch && x.task_id.as_deref() == Some("tp")));
     }
 
     #[test]
@@ -384,6 +400,7 @@ mod tests {
             kinds,
             vec![
                 NextActionKind::Gate,
+                NextActionKind::Continue,
                 NextActionKind::Advance,
                 NextActionKind::Reconcile,
                 NextActionKind::ConsiderStop,

@@ -121,6 +121,36 @@ pub(super) fn dispatch(
             emit_plan_changed(app, &plan_id);
             Ok(json!({ "plan_id": plan_id, "claimed": result }))
         }
+        "plan.qa.override" => {
+            let plan_id = super::plan_refs::resolve_plan(store, params)?;
+            let gates = p
+                .and_then(|x| x.get("gates"))
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let reason = p
+                .and_then(|x| x.get("reason").or_else(|| x.get("note")))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let record = store
+                .record_regression_override(&plan_id, gates, reason, actor(p), now)
+                .map_err(plan_rpc_err)?;
+            let remaining = {
+                let plan = store.get(&plan_id);
+                plan.map(|pl| crate::service::plan::milestone_gates::blocking_regression_gates(&pl))
+                    .unwrap_or_default()
+            };
+            emit_plan_changed(app, &plan_id);
+            Ok(json!({
+                "plan_id": plan_id,
+                "override": record,
+                "blocking_gates": remaining,
+            }))
+        }
         "plan.qa.pass" => {
             let (plan_id, task_id) = super::plan_refs::resolve_task(store, params)?;
             let result = store

@@ -2,6 +2,9 @@ use serde_json::{json, Value};
 use tauri::AppHandle;
 
 use crate::plan::Task;
+use crate::service::plan::milestone_gates::{
+    regression_dispatch_decision, DispatchExemption, RegressionDispatchDecision, RegressionGate,
+};
 use crate::service::plan::task_queries::TaskSection;
 use crate::service::plan::{PlanError, PlanStore};
 use crate::service::{ServiceState, SpawnAgentParams};
@@ -22,6 +25,29 @@ fn spawn_failed(message: String) -> JsonRpcError {
         code: -32603,
         message,
         data: None,
+    }
+}
+
+fn gate_keys(gates: &[RegressionGate]) -> String {
+    gates
+        .iter()
+        .map(|g| g.key.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+// Refuse the dispatch loudly, naming every blocking gate — no pane is spawned.
+fn regression_blocked_error(gates: Vec<RegressionGate>) -> JsonRpcError {
+    let names = gate_keys(&gates);
+    JsonRpcError {
+        code: -32010,
+        message: format!(
+            "dispatch blocked by pending regression gate(s): {names}. Run the warm integration QA to clear them (codeterm plan qa next <plan> --group <gate> --note \"<evidence>\"), tag the task regression-gate/release-blocking if it is the exception, or record an authorized override (codeterm plan qa override <plan> --reason \"<why>\")."
+        ),
+        data: Some(json!({
+            "type": "regression_gate_blocked",
+            "blocking_gates": gates,
+        })),
     }
 }
 
@@ -83,6 +109,20 @@ pub(super) fn dispatch(
     let detail = store
         .show_task(&task_id)
         .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
+
+    // Frontier policy: a non-blocker cannot spawn while regression gates are
+    // pending. Decide BEFORE any pane is created so a block leaves no orphan.
+    let plan = store
+        .get(&plan_id)
+        .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+    let mut exemption: Option<DispatchExemption> = None;
+    match regression_dispatch_decision(&plan, &detail.task) {
+        RegressionDispatchDecision::Clear => {}
+        RegressionDispatchDecision::Exempt { exemption: e, .. } => exemption = Some(e),
+        RegressionDispatchDecision::Blocked { blocking } => {
+            return Err(regression_blocked_error(blocking));
+        }
+    }
 
     // Parent defaults to the dispatching (caller) pane, resolved server-side.
     let parent = owned_str(p, "parent_pane_id").or_else(|| owned_str(p, "caller_pane_id"));
@@ -177,6 +217,12 @@ pub(super) fn dispatch(
     });
     if !warnings.is_empty() {
         result["warnings"] = json!(warnings);
+    }
+    if let Some(exemption) = exemption {
+        result["regression_exception"] = json!({
+            "exemption": exemption,
+            "reason": exemption.reason(),
+        });
     }
     Ok(result)
 }
