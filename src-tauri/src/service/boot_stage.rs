@@ -19,6 +19,11 @@ impl ServiceContext {
     pub(crate) fn emit_boot_stage(&self, pane_id: &str, stage: BootStage, reason: Option<&str>) {
         if let Some(p) = self.mux.write().get_pane_mut(pane_id) {
             p.boot_stage = Some(stage);
+            p.boot_failure_reason = if stage == BootStage::SpawnFailed {
+                reason.map(str::to_string)
+            } else {
+                None
+            };
         }
         crate::api::events::emit_everywhere(
             &self.app_handle,
@@ -29,6 +34,9 @@ impl ServiceContext {
                 "reason": reason,
             }),
         );
+        if stage == BootStage::AgentReady {
+            self.schedule_planner_replay(pane_id);
+        }
     }
 }
 

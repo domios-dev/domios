@@ -230,3 +230,28 @@ fn render_is_silent_without_a_trigger() {
     render_reflection(&plan, DEFAULT_REFLECT_EVERY_GATES, &mut out);
     assert!(out.is_empty());
 }
+
+#[test]
+fn bounce_milestones_count_honestly_in_window_and_cadence() {
+    let (_d, store, pid, _ids) = store_with_group();
+    for i in 0..2 {
+        store
+            .add_plan_stride(
+                &pid,
+                BOUNCE_MILESTONE_KIND,
+                &format!("bounce {i}"),
+                crate::plan::AgentRef::from_pane("orch"),
+                10 + i,
+            )
+            .unwrap();
+    }
+
+    let plan = store.get(&pid).unwrap();
+    assert_eq!(gate_bounce_event_count(&plan), 2);
+    let pending = pending_reflections(&plan, 2);
+    let cadence = pending
+        .iter()
+        .find(|r| matches!(r.trigger, ReflectionTrigger::GateCadence { .. }))
+        .expect("bounce milestones should arm cadence");
+    assert_eq!(cadence.window.bounces, 2);
+}

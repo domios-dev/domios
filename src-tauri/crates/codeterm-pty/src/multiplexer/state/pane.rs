@@ -20,6 +20,7 @@ impl MultiplexerState {
             agent_session_name: None,
             agent_session_model: None,
             session_binding_nonce: None,
+            reported_session_binding_nonce: None,
             shell_integration_nonce: None,
             role: None,
             role_profile: None,
@@ -48,6 +49,7 @@ impl MultiplexerState {
             restored_from_snapshot: false,
             pending_greeting: None,
             boot_stage: None,
+            boot_failure_reason: None,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id

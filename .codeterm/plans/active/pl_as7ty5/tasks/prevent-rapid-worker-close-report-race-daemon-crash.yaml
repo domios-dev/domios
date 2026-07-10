@@ -1,0 +1,148 @@
+id: task_523k8i
+name: Prevent rapid worker close/report race daemon crash
+type: implement
+model: gpt-5.5
+model_rationale: 'Routing rationale: release-blocking Windows daemon crash across concurrent Rust lifecycle boundaries requires high-risk investigation and gpt-5.5.'
+personality: Dijkstra
+acceptance_criteria:
+- Three idle or recently-reporting worker panes close sequentially and rapidly while final reports race without daemon termination, WER/crash dump, lost final report, or orphan PTY; equivalent port 7685 health remains available.
+test_plan: 'Oracle: Windows remote/ROG daemon remains alive through the real three-pane close/report race. 1. Record remote daemon PID and equivalent health endpoint. 2. Spawn three idle/recently-reporting workers, queue final reports, then use codeterm pane close <id> sequentially and rapidly. Pass: each close completes, final report is recorded or lifecycle-rejected explicitly, no WER BEX64/dump appears. 3. Verify same process health after every close and all three. Pass: responsive. 4. Inspect Get-Process and PTY manager logs. Pass: no orphan child PTY. 5. Run focused pane, pty_lifecycle, pty_io lifecycle, hierarchy, and reports Rust tests remotely with 90s caps. Pass: exit 0. Report commands, timestamps, PID, logs, WER query.'
+correctness: Correctness requires a real lifetime/synchronization fix across close, reader/reap, hierarchy report delivery, and frontend close initiation; it preserves daemon liveness, final-report semantics, and PTY cleanup under the observed race.
+status: in_review
+review_stage: review
+qa_state: null
+status_label: pane-gone
+priority: p2
+created_at: 1783655691512
+updated_at: 1783666395059
+status_changed_at: 1783658571173
+handle: prevent-rapid-worker-close-report-race-daemon-crash
+tags: []
+section_ids:
+- sec_rlqrqc
+body: 'Investigate WER BEX64 0xc0000409 at offset 0x1808191 on 2026-07-10 04:03:33 local; dump C:/Users/User/AppData/Local/CrashDumps/codeterm.exe.10156.dmp; log ends after three rapid pane closes/reaps with concurrent final report delivery. Initial ownership: src-tauri/src/service/pane.rs; src-tauri/src/service/pty_lifecycle.rs; src-tauri/src/service/pty_io/lifecycle.rs; src-tauri/crates/codeterm-pty/src/pty/manager.rs; src-tauri/src/service/hierarchy.rs; src-tauri/src/agent/reports.rs; src/store/multiplexer/index.tsx; src/store/multiplexer/context.tsx; focused adjacent tests. Verify actual call graph first. Dependencies: accepted synthesis; independent review and shared integration QA before release. Branch/worktree: lane/pane-close-report-race at D:/Developer/codeterm-worktrees/pane-close-report-race from origin/develop. Report contract: STATUS in_review; exact changed files; lifetime/synchronization rationale; Windows remote test outputs; dump/log correlation; orphan PTY observation; risks.'
+role_guidance: 'You are Dijkstra, a Windows concurrency and crash-correctness engineer. Trace pane close, PTY reader/reap, hierarchy final-report delivery, and frontend tab-close lifecycle as one ownership graph. Red line: a mitigation that masks the crash but leaves orphan PTYs, dropped final reports, or an unsafe close/reap race fails.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/pane-close-report-race
+  branch: lane/pane-close-report-race
+  base: origin/develop
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: windows-crash-race
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_k149b2
+  from:
+    pane_id: ec02bb30
+    session_id: 019f4a2d-8d39-7d13-8250-eeb227377bfc
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    STATUS: partial
+    CHANGES: src-tauri/src/commands/pty.rs; src-tauri/src/service/pty_io/lifecycle.rs; src/store/multiplexer/index.tsx
+    RATIONALE: traced close ownership across frontend closePane/closeWorkspace -> mux_close_pane -> ServiceContext::close_pane -> kill_ptys -> PtyManager::kill, plus direct kill_pty/PtyKill -> kill_pane_pty. The unsafe edge was frontend pre-close kill_pty and command/service kill helpers using PtyManager::remove, which dropped the manager entry without terminating/reaping the child. A subsequent mux_close_pane then could not find the PTY to kill, leaving orphan PTYs and widening the close/reap/report race. Fix makes normal UI close single-owner through mux_close_pane and makes direct kill_pty/kill_pane_pty call PtyManager::kill so child kill+background reap always happens.
+    DUMP_LOG: WER Application Error at 2026-07-10 04:03:33 local: codeterm.exe 1.7.1.0, exception 0xc0000409, offset 0x0000000001808191, PID 0x27AC/10156. WER report at 04:03:36 references C:/Users/User/AppData/Local/CrashDumps/codeterm.exe.10156.dmp. No cdb/windbg/WinDbgX available on PATH, so stack symbol correlation not completed. Local dev log was stale (June 29) and did not contain the July 10 close/reap sequence.
+    ORPHAN PTY OBSERVATION: source-level orphan confirmed: PtyManager::remove only removes the session and logs Removed PTY; it does not child.kill() or wait(). Both frontend close paths could call kill_pty before mux_close_pane, causing the authoritative close to lose the only manager handle and fail to kill/reap. Existing PtyManager::kill test confirms kill removes the manager entry and terminates child.
+    TESTS RUN: PASS: CARGO_TEST_CMD='cargo test -p codeterm-pty' ../scripts/test-capped.sh -- pty::manager::tests::kill_terminates_child_and_removes_session -- --nocapture. PASS: CARGO_TEST_CMD='cargo test -p codeterm-pty' ../scripts/test-capped.sh -- pty::manager::tests::kill_returns_err_for_unknown_pty -- --nocapture. BLOCKED: cargo test -p codeterm service::hierarchy::tests::dead_worker_that_already_reported_gets_no_synthetic could not reach tests in this cold Windows lane: first missing bundled-embed, then bundled-cli, then dist Tauri resource; created repo stubs for first two only and stopped before app build. BLOCKED: pnpm exec tsc --noEmit failed because tsc/node_modules are unavailable. NOT RUN: remote isolated ROG/dev three-pane daemon oracle; visible ROG mesh instance is CodeTerm 1.5.7 and must not be used as prod-like target.
+    REMOTE: codeterm identify --mesh ROG returned platform windows, version 1.5.7; pane list showed live panes. No prod 7685 touched, no dev restart/build/release packaging run.
+    RISKS: service-crate compile/test and real daemon race oracle still required on prepared dev/ROG isolated instance before release. Need independent review of close/report lifecycle after remote QA.
+  ts: 1783656741766
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_atusdw
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'BOUNCE partial: source fix identifies credible double-owner/orphan PTY bug, but release acceptance still requires command/service regressions and isolated daemon three-pane health/no-orphan oracle; no stack correlation available.'
+  ts: 1783656768855
+  links:
+  - key:20b2cafe935fd1a2
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_vziya8
+  from:
+    pane_id: ec02bb30
+    session_id: 019f4a2d-8d39-7d13-8250-eeb227377bfc
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: single backend close owner in frontend; kill_pty and ServiceContext kill_pane_pty now use kill/reap semantics; exact idempotent unknown-PTY handling; focused regressions for PTY kill, service kill semantics, and frontend close ownership.
+    TESTS RUN: node scripts/test-close-owner.js; capped cargo tests for commands::pty::kill_pty_tests::{kill_pty_idempotent_kills_child_and_allows_repeat,kill_pty_idempotent_does_not_swallow_unrelated_errors}; service::pty_io::lifecycle::kill_pane_pty_tests::service_kill_pane_pty_helper_uses_kill_semantics; codeterm-pty pty::manager::{kill_terminates_child_and_removes_session,kill_returns_err_for_unknown_pty}; service::hierarchy::tests::dead_worker_that_already_reported_gets_no_synthetic. Isolated daemon oracle: CODETERM_INSTANCE=close-race CODETERM_API_PORT=7691 PID 13892; rapid close panes 4a706da8,84f2d76b,e22067ff; PID stable, health OK, two reports recorded and one explicit Pane not found rejection, PTYs killed/reaped, no new WER dump, no fast-fail log matches.
+  ts: 1783658571173
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_pvz2l1
+  executor_pane_id: ec02bb30
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/pane-close-report-race
+  worktree_path: D:/Developer/codeterm-worktrees/pane-close-report-race
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783658571485
+    message: |-
+      STATUS: in_review
+      CHANGES: single backend close owner in frontend; kill_pty and ServiceContext kill_pane_pty now use kill/reap semantics; exact idempotent unknown-PTY handling; focused regressions for PTY kill, service kill semantics, and frontend close ownership.
+      TESTS RUN: node scripts/test-close-owner.js; capped cargo tests for commands::pty::kill_pty_tests::{kill_pty_idempotent_kills_child_and_allows_repeat,kill_pty_idempotent_does_not_swallow_unrelated_errors}; service::pty_io::lifecycle::kill_pane_pty_tests::service_kill_pane_pty_helper_uses_kill_semantics; codeterm-pty pty::manager::{kill_terminates_child_and_removes_session,kill_returns_err_for_unknown_pty}; service::hierarchy::tests::dead_worker_that_already_reported_gets_no_synthetic. Isolated daemon oracle: CODETERM_INSTANCE=close-race CODETERM_API_PORT=7691 PID 13892; rapid close panes 4a706da8,84f2d76b,e22067ff; PID stable, health OK, two reports recorded and one explicit Pane not found rejection, PTYs killed/reaped, no new WER dump, no fast-fail log matches.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783655922787
+  reported_at: 1783658571485
+  reviewed_at: null
+  closed_at: 1783666395059
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

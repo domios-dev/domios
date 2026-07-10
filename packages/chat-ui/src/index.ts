@@ -8,3 +8,4 @@ export { InteractiveElementRenderer } from "./interactive/InteractiveElementRend
 export { InteractiveQuestion } from "./interactive/InteractiveQuestion";
 export type { InteractiveAnswerHandler } from "./interactive/InteractiveQuestion";
 export type { PaneNameResolver } from "./codeterm/templates";
+export { extractPlanRefs } from "./codeterm/planRefs";

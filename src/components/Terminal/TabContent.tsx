@@ -89,7 +89,7 @@ export function TabContent({
   const cwd = pane.cwd ?? workspaceCwd ?? null;
 
   const body = isChatBackend ? (
-    <PaneSessionChat paneId={pane.id} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
+    <PaneSessionChat paneId={pane.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
   ) : (
     <TerminalPane
       key={pane.id}

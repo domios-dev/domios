@@ -3,32 +3,56 @@
 #
 # Stages:
 #   1. dist     — vite build directly (skips tsc typecheck)
-#   2. sidecars — copy bundled-cli + bundled-embed from canonical checkout,
-#                 or build from source if canonical lacks them
+#   2. sidecars — build from source, or explicitly reuse canonical sidecars
+#                 only when provenance manifests match this worktree
 #
 # Usage:
-#   scripts/qa-prep.sh [--timeout SECS] [--force-build-sidecars]
+#   scripts/qa-prep.sh [--timeout SECS] [--warm-canonical]
 #
 # Env overrides:
 #   QA_PREP_TIMEOUT        wall-clock cap in seconds (default 300)
-#   FORCE_BUILD_SIDECARS   set to 1 to skip canonical copy and build fresh
+#   CODETERM_WARM_CANONICAL_QA  set to 1 to allow provenance-checked reuse
 
 set -euo pipefail
 
+if [ -n "${CODETERM_BUILD_GATEWAY_ACTIVE:-}" ] || [ -n "${CODETERM_BUILD_GATEWAY_JOB_ID:-}" ]; then
+  echo "[qa-prep] ERROR: environment gateway markers are not accepted" >&2
+  exit 2
+fi
+
+if [ "${1:-}" != "--gateway-context" ] || [ "$#" -lt 5 ]; then
+  echo "[qa-prep] ERROR: qa-prep is an internal build.sh child" >&2
+  exit 2
+fi
+GATEWAY_JOB_ID="$2"
+GATEWAY_PARENT_PID="$3"
+GATEWAY_PARENT_START="$4"
+GATEWAY_COMMAND="$5"
+shift 5
+
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO"
+source scripts/cache-policy.sh
+source scripts/build-gateway.sh
+ct_gateway_assert_internal_child "$GATEWAY_JOB_ID" "$GATEWAY_PARENT_PID" "$GATEWAY_PARENT_START" "$GATEWAY_COMMAND"
+
+if [ "${1:-}" = "--probe-only" ]; then
+  echo "[qa-prep] gateway parent/lock/worktree/command/source verified"
+  exit 0
+fi
+[ "${1:-}" != "--" ] || shift
+
 TIMEOUT="${QA_PREP_TIMEOUT:-300}"
-FORCE_BUILD=0
+WARM_CANONICAL="${CODETERM_WARM_CANONICAL_QA:-0}"
 
 while [[ "${1:-}" == -* ]]; do
   case "$1" in
     --timeout=*) TIMEOUT="${1#*=}"; shift ;;
     --timeout)   TIMEOUT="$2"; shift 2 ;;
-    --force-build-sidecars) FORCE_BUILD=1; shift ;;
+    --warm-canonical) WARM_CANONICAL=1; shift ;;
     *) echo "[qa-prep] unknown flag: $1" >&2; shift ;;
   esac
 done
-
-REPO="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$REPO"
 
 # Detect the main worktree (canonical checkout) via git.
 CANONICAL=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
@@ -76,6 +100,8 @@ run_stages() {
   fi
 
   "$REPO/node_modules/.bin/vite" build || fail_stage "dist"
+  ct_write_provenance "web-dist" "dev" "$(ct_host_triple)" "" "" \
+    "dist/index.html" "dist/.codeterm-provenance.json"
   echo "[qa-prep] dist: ok ($(du -sh "$REPO/dist" 2>/dev/null | cut -f1))"
 
   # ================================================================
@@ -92,16 +118,23 @@ run_stages() {
 
   CAN_CLI="${CANONICAL:+$CANONICAL/src-tauri/bundled-cli/codeterm${EXE_EXT}}"
   CAN_EMBED="${CANONICAL:+$CANONICAL/src-tauri/bundled-embed/codeterm-embed-${HOST_TRIPLE}${EXE_EXT}}"
+  CAN_CLI_PROV="${CAN_CLI:+$CAN_CLI.provenance.json}"
+  CAN_EMBED_PROV="${CAN_EMBED:+$CAN_EMBED.provenance.json}"
 
   USE_CANONICAL=0
-  if [ "$FORCE_BUILD" = "0" ] && [ -n "$CANONICAL" ] \
-      && sidecar_valid "${CAN_CLI}" && sidecar_valid "${CAN_EMBED}"; then
+  if [ "$WARM_CANONICAL" = "1" ] && [ -n "$CANONICAL" ] \
+      && sidecar_valid "${CAN_CLI}" && sidecar_valid "${CAN_EMBED}" \
+      && [ -f "$CAN_CLI_PROV" ] && [ -f "$CAN_EMBED_PROV" ] \
+      && ct_check_provenance "bundled-cli" "release" "$HOST_TRIPLE" "" "" "$CAN_CLI_PROV" \
+      && ct_check_provenance "bundled-embed" "release" "$HOST_TRIPLE" "" "" "$CAN_EMBED_PROV"; then
     USE_CANONICAL=1
   fi
 
   if [ "$USE_CANONICAL" = "1" ]; then
     cp "$CAN_CLI"   "$CLI_BIN"
     cp "$CAN_EMBED" "$EMBED_BIN"
+    cp "$CAN_CLI_PROV" "$CLI_BIN.provenance.json"
+    cp "$CAN_EMBED_PROV" "$EMBED_BIN.provenance.json"
     # Ad-hoc sign for macOS dev; errors are non-fatal (devs may lack Xcode tools).
     if [[ "$OSTYPE" == darwin* ]]; then
       codesign --force --sign - "$CLI_BIN"   2>/dev/null || true
@@ -111,13 +144,8 @@ run_stages() {
     EMB_SIZE=$(du -sh "$EMBED_BIN" | cut -f1)
     echo "[qa-prep] sidecars: reused from canonical (CLI ${CLI_SIZE}, embed ${EMB_SIZE})"
   else
-    echo "[qa-prep] sidecars: building from source (FORCE_BUILD=$FORCE_BUILD or canonical missing)..."
-    # Reuse canonical's warm target dir to get incremental compilation.
-    if [ "$FORCE_BUILD" = "0" ] && [ -n "$CANONICAL" ] && [ -d "$CANONICAL/src-tauri/target" ]; then
-      export CARGO_TARGET_DIR="$CANONICAL/src-tauri/target"
-      echo "[qa-prep] CARGO_TARGET_DIR=$CARGO_TARGET_DIR (warm)"
-    fi
-    command -v sccache >/dev/null 2>&1 && export RUSTC_WRAPPER=sccache || true
+    echo "[qa-prep] sidecars: building from source (warm-canonical=$WARM_CANONICAL, provenance missing or mismatched)"
+    ct_configure_sccache
 
     node scripts/prepare-cli-stub.js
     node scripts/prepare-embed-stub.js
@@ -126,10 +154,16 @@ run_stages() {
     CODETERM_DEV=1 cargo build --release --manifest-path cli/Cargo.toml \
       || fail_stage "sidecars:cli-build"
     CODETERM_DEV=1 node scripts/bundle-cli.js
+    ct_write_provenance "bundled-cli" "release" "$HOST_TRIPLE" "" "" \
+      "src-tauri/bundled-cli/codeterm${EXE_EXT}" \
+      "src-tauri/bundled-cli/codeterm${EXE_EXT}.provenance.json"
 
     cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed \
       || fail_stage "sidecars:embed-build"
     node scripts/bundle-embed.js
+    ct_write_provenance "bundled-embed" "release" "$HOST_TRIPLE" "" "" \
+      "src-tauri/bundled-embed/codeterm-embed-${HOST_TRIPLE}${EXE_EXT}" \
+      "src-tauri/bundled-embed/codeterm-embed-${HOST_TRIPLE}${EXE_EXT}.provenance.json"
 
     echo "[qa-prep] sidecars: built ok"
   fi
@@ -137,15 +171,7 @@ run_stages() {
   # ================================================================
   # Ready
   # ================================================================
-  if [ -n "$CANONICAL" ] && [ -d "$CANONICAL/src-tauri/target" ]; then
-    WARM_TARGET="$CANONICAL/src-tauri/target"
-    echo ""
-    echo "[qa-prep] done. Run dev with the shared warm target:"
-    echo "  CARGO_TARGET_DIR=$WARM_TARGET ./build.sh dev"
-    echo "  (or just ./build.sh dev — build.sh auto-detects this in worktrees)"
-  else
-    echo "[qa-prep] done. Run: ./build.sh dev"
-  fi
+  echo "[qa-prep] done. Run: ./build.sh dev"
 }
 
 run_stages &
