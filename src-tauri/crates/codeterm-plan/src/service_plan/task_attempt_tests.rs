@@ -164,7 +164,9 @@ fn task_respawn_draft_preserves_explicit_request_title() {
             2,
         )
         .unwrap();
-    store.assign_task(&p.id, &task_id, "pane_old", None, 3).unwrap();
+    store
+        .assign_task(&p.id, &task_id, "pane_old", None, 3)
+        .unwrap();
     let attempt = store.list_task_attempts(&p.id, &task_id).unwrap().remove(0);
 
     let draft = store
@@ -204,7 +206,9 @@ fn task_respawn_draft_omitted_title_stays_provisional() {
             2,
         )
         .unwrap();
-    store.assign_task(&p.id, &task_id, "pane_old", None, 3).unwrap();
+    store
+        .assign_task(&p.id, &task_id, "pane_old", None, 3)
+        .unwrap();
     let attempt = store.list_task_attempts(&p.id, &task_id).unwrap().remove(0);
 
     let draft = store
