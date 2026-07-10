@@ -477,6 +477,7 @@ pub(super) fn run_task(
             task_id,
             agent,
             model,
+            reasoning_effort,
             parent,
             workspace,
             cwd,
@@ -491,6 +492,9 @@ pub(super) fn run_task(
             }
             if let Some(model) = model {
                 params["model"] = json!(model);
+            }
+            if let Some(effort) = reasoning_effort {
+                params["reasoning_effort"] = json!(effort);
             }
             if let Some(parent) = parent {
                 params["parent_pane_id"] = json!(parent);

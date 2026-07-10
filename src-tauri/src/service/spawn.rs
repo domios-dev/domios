@@ -82,6 +82,8 @@ pub struct AgentSpawnSpec {
     #[serde(default)]
     pub model: Option<String>,
     #[serde(default)]
+    pub reasoning_effort: Option<String>,
+    #[serde(default)]
     pub task: Option<String>,
     #[serde(default)]
     pub agent_name: Option<String>,
@@ -206,6 +208,28 @@ pub(crate) fn validate_agent_model(
     Ok(())
 }
 
+/// Structurally validate a requested reasoning effort against the provider's
+/// declared capability. Empty/absent is always valid (no selection). An
+/// unsupported value returns the provider's structured rejection message and the
+/// caller aborts the spawn — never a silent downgrade. An unknown provider is an
+/// error too: we cannot honestly claim support we can't verify.
+pub(crate) fn validate_agent_reasoning_effort(
+    registry: &AgentRegistry,
+    provider_id: &str,
+    effort: Option<&str>,
+) -> Result<(), String> {
+    let Some(effort) = effort.map(str::trim).filter(|e| !e.is_empty()) else {
+        return Ok(());
+    };
+    match registry.with_provider(provider_id, |p| p.validate_reasoning_effort(Some(effort))) {
+        Some(Ok(())) => Ok(()),
+        Some(Err(rejection)) => Err(rejection.to_string()),
+        None => Err(format!(
+            "unknown provider '{provider_id}': cannot validate reasoning effort '{effort}'"
+        )),
+    }
+}
+
 impl ServiceContext {
     pub(crate) fn spawn_visible_agent_impl(
         &self,
@@ -241,6 +265,11 @@ impl ServiceContext {
         );
         let launch_model = model_resolution.model;
         validate_agent_model(&self.agent_registry, &agent_cmd, launch_model.as_deref())?;
+        validate_agent_reasoning_effort(
+            &self.agent_registry,
+            &agent_cmd,
+            agent.reasoning_effort.as_deref(),
+        )?;
         if let Some(ref notice) = model_resolution.fallback_notice {
             self.create_notification(model_fallback_notice_title(notice), None, Some("warning"));
         }

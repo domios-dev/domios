@@ -414,6 +414,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 cwd,
                 args,
                 model,
+                reasoning_effort,
                 system_prompt,
                 preset,
                 charter,
@@ -492,6 +493,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(m) = model {
                     body["model"] = serde_json::json!(m);
+                }
+                if let Some(effort) = reasoning_effort {
+                    body["reasoning_effort"] = serde_json::json!(effort);
                 }
                 if let Some(system_prompt) = system_prompt {
                     body["system_prompt"] = serde_json::json!(system_prompt);

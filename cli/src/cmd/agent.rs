@@ -261,6 +261,32 @@ fn format_agent_models(target: &serde_json::Value, provider: &str) -> String {
             ));
         }
     }
+    out.push_str(&format_reasoning_efforts(target));
+    out
+}
+
+fn format_reasoning_efforts(target: &serde_json::Value) -> String {
+    let efforts = target
+        .get("reasoning_efforts")
+        .and_then(|v| v.as_array())
+        .filter(|a| !a.is_empty());
+    let Some(efforts) = efforts else {
+        return String::new();
+    };
+    let default = target
+        .get("default_reasoning_effort")
+        .and_then(|v| v.as_str());
+    let mut out = String::from("\nReasoning effort:\n");
+    for e in efforts {
+        let id = e.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+        let name = e.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
+        let marker = if default == Some(id) {
+            " (default)"
+        } else {
+            ""
+        };
+        out.push_str(&format!("{:<10} {}{}\n", id, name, marker));
+    }
     out
 }
 
@@ -665,6 +691,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             args,
             workspace,
             model,
+            reasoning_effort,
             system_prompt,
             preset,
             charter,
@@ -775,6 +802,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(m) = model {
                 body["model"] = serde_json::json!(m);
+            }
+            if let Some(effort) = reasoning_effort {
+                body["reasoning_effort"] = serde_json::json!(effort);
             }
             if let Some(system_prompt) = system_prompt {
                 body["system_prompt"] = serde_json::json!(system_prompt);

@@ -20,9 +20,9 @@ use serde::{Deserialize, Serialize};
 pub use capabilities::{Capabilities, ChatBackendCap, ChatPreprocessorCap};
 pub use config::{
     CommandsConfig, CwdEncoding, IntegrationConfig, IntegrationKind, NetworkPermission,
-    PermissionsConfig, RuleConfig, SerdeModelInfo, SerdeReadinessStrategy, SerdeSessionIdInjection,
-    SerdeTaskDelivery, SerdeVerifySubmit, SessionsConfig, SkillsConfig, SpawnConfig,
-    SubprocessPermission, UsageConfig,
+    PermissionsConfig, RuleConfig, SerdeModelInfo, SerdeReadinessStrategy,
+    SerdeReasoningEffortInfo, SerdeSessionIdInjection, SerdeTaskDelivery, SerdeVerifySubmit,
+    SessionsConfig, SkillsConfig, SpawnConfig, SubprocessPermission, UsageConfig,
 };
 pub use methods::manifest_settings_sections;
 
@@ -92,6 +92,13 @@ pub struct PluginManifest {
     pub models: Vec<SerdeModelInfo>,
     #[serde(default)]
     pub default_model: Option<String>,
+
+    // Reasoning-effort levels — camelCase in plugin.json, mapped to the
+    // snake_case wire `ReasoningEffortInfo` through a local wrapper.
+    #[serde(default)]
+    pub reasoning_efforts: Vec<SerdeReasoningEffortInfo>,
+    #[serde(default)]
+    pub default_reasoning_effort: Option<String>,
 
     // Per-platform installer (macos/linux/windows)
     #[serde(default)]

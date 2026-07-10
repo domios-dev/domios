@@ -6,11 +6,14 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use super::provider::{AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery};
+use super::provider::{
+    AgentLaunchParams, AgentProvider, ReadinessStrategy, ReasoningEffortInfo, TaskDelivery,
+};
 
 pub struct MockProvider {
     id: String,
     supports_chat_ui: bool,
+    reasoning_efforts: Vec<ReasoningEffortInfo>,
 }
 
 impl MockProvider {
@@ -18,6 +21,7 @@ impl MockProvider {
         Self {
             id: id.to_string(),
             supports_chat_ui: false,
+            reasoning_efforts: Vec::new(),
         }
     }
 
@@ -25,6 +29,23 @@ impl MockProvider {
         Self {
             id: id.to_string(),
             supports_chat_ui: true,
+            reasoning_efforts: Vec::new(),
+        }
+    }
+
+    /// Fixture with declared reasoning-effort levels and a scriptable launch flag.
+    pub fn with_reasoning_efforts(id: &str, levels: &[&str]) -> Self {
+        Self {
+            id: id.to_string(),
+            supports_chat_ui: false,
+            reasoning_efforts: levels
+                .iter()
+                .map(|l| ReasoningEffortInfo {
+                    id: (*l).to_string(),
+                    display_name: (*l).to_string(),
+                    description: None,
+                })
+                .collect(),
         }
     }
 }
@@ -36,8 +57,15 @@ impl AgentProvider for MockProvider {
     fn display_name(&self) -> &str {
         &self.id
     }
-    fn build_launch_command(&self, _params: &AgentLaunchParams) -> String {
-        format!("{}-cli", self.id)
+    fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
+        let mut cmd = format!("{}-cli", self.id);
+        if let Some(args) = &params.args {
+            for a in args {
+                cmd.push(' ');
+                cmd.push_str(a);
+            }
+        }
+        cmd
     }
     fn readiness_strategy(&self) -> ReadinessStrategy {
         ReadinessStrategy::FixedDelay {
@@ -46,6 +74,15 @@ impl AgentProvider for MockProvider {
     }
     fn supports_chat_ui(&self) -> bool {
         self.supports_chat_ui
+    }
+    fn reasoning_efforts(&self) -> Vec<ReasoningEffortInfo> {
+        self.reasoning_efforts.clone()
+    }
+    fn reasoning_effort_launch_args(&self, effort: &str) -> Vec<String> {
+        if effort.is_empty() {
+            return Vec::new();
+        }
+        vec!["--effort".into(), effort.into()]
     }
     fn task_delivery(&self) -> TaskDelivery {
         TaskDelivery::PtyInput

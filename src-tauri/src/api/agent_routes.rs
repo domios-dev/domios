@@ -57,6 +57,10 @@ pub(crate) struct SpawnAgentBody {
     /// Model selector — provider decides flag syntax via
     /// AgentProvider::model_launch_args.
     model: Option<String>,
+    /// Reasoning-effort selector — capability-validated against the provider,
+    /// rejected structurally if unsupported (no silent downgrade).
+    #[serde(alias = "reasoning-effort")]
+    reasoning_effort: Option<String>,
     #[serde(alias = "system")]
     system_prompt: Option<String>,
     preset: Option<String>,
@@ -214,6 +218,7 @@ pub async fn spawn_agent(
         skip_permissions: body.skip_permissions,
         spawned_by_pane_id: body.spawned_by_pane_id,
         model: body.model,
+        reasoning_effort: body.reasoning_effort,
         system_prompt: body.system_prompt,
         preset: body.preset,
         resume_session_id: None,
