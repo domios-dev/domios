@@ -8,6 +8,9 @@ pub fn project_root(cwd: &Path) -> PathBuf {
     if test_project_root_marker(cwd).is_some() {
         return cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
     }
+    if let Some(root) = main_worktree_root(cwd) {
+        return root;
+    }
     if let Some(top) = worktree_top(cwd) {
         return top;
     }
@@ -54,6 +57,29 @@ fn test_project_root_marker(cwd: &Path) -> Option<PathBuf> {
             return None;
         }
     }
+}
+
+fn main_worktree_root(cwd: &Path) -> Option<PathBuf> {
+    let mut cmd = Command::new("git");
+    process_util::no_window_std(&mut cmd);
+    let out = cmd
+        .current_dir(cwd)
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let common_dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if common_dir.is_empty() {
+        return None;
+    }
+    let common_dir = PathBuf::from(common_dir);
+    if common_dir.file_name().and_then(|name| name.to_str()) != Some(".git") {
+        return None;
+    }
+    let root = common_dir.parent()?.to_path_buf();
+    Some(root.canonicalize().unwrap_or(root))
 }
 
 pub fn plans_dir(project: &Path) -> std::io::Result<PathBuf> {
@@ -187,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn project_root_keeps_linked_worktree_as_its_own_project_root() {
+    fn project_root_resolves_linked_worktree_to_main_worktree() {
         let tmp = tempfile::tempdir().unwrap();
         let main = tmp.path().join("main");
         let linked = tmp.path().join("linked");
@@ -213,11 +239,11 @@ mod tests {
         let linked_root = project_root(&linked);
 
         assert_eq!(main_root, main.canonicalize().unwrap());
-        assert_eq!(linked_root, linked.canonicalize().unwrap());
+        assert_eq!(linked_root, main_root);
     }
 
     #[test]
-    fn project_root_uses_linked_worktree_even_with_local_codeterm_dir() {
+    fn project_root_ignores_linked_worktree_codeterm_for_plan_sidecars() {
         let tmp = tempfile::tempdir().unwrap();
         let main = tmp.path().join("main");
         let linked = tmp.path().join("linked");
@@ -241,6 +267,6 @@ mod tests {
 
         std::fs::create_dir_all(linked.join(".codeterm").join("plans")).unwrap();
 
-        assert_eq!(project_root(&linked), linked.canonicalize().unwrap());
+        assert_eq!(project_root(&linked), main.canonicalize().unwrap());
     }
 }
