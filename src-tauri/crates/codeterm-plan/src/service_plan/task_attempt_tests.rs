@@ -62,17 +62,9 @@ fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
     assert_eq!(draft.provider, "codex");
     assert_eq!(draft.model.as_deref(), Some("gpt-5.5"));
     assert_eq!(draft.cwd, "/tmp/worktree");
-    assert!(draft
-        .task_prompt
-        .contains("Fix the task history respawn CLI."));
-    assert!(draft.task_prompt.contains("Role guidance:"));
-    assert!(draft
-        .task_prompt
-        .contains("Act as planner; do not implement."));
-    assert!(
-        draft.task_prompt.find("Role guidance:").unwrap()
-            < draft.task_prompt.find("Original task body:").unwrap()
-    );
+    assert!(draft.task_prompt.starts_with(
+        "Act as planner; do not implement.\n\nYou are a CodeTerm Worker respawned from a prior task attempt."
+    ));
     assert!(draft.task_prompt.contains("STATUS: blocked"));
     assert!(draft.task_prompt.contains("branch: lane/retry"));
     assert!(draft
@@ -101,7 +93,8 @@ fn role_guidance_round_trips_and_worker_charter_prepends_it() {
             NewTask {
                 name: "guided".into(),
                 kind: "implement".into(),
-                role_guidance: Some("Review only.".into()),
+                personality: Some("Hopper".into()),
+                role_guidance: Some("You are Hopper. Review only.".into()),
                 assigned_pane_id: Some("pane_guided".into()),
                 competition: None,
                 ..Default::default()
@@ -111,11 +104,107 @@ fn role_guidance_round_trips_and_worker_charter_prepends_it() {
         .unwrap();
     let plan = store.get(&p.id).unwrap();
     let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
-    assert_eq!(task.role_guidance.as_deref(), Some("Review only."));
+    assert_eq!(
+        task.role_guidance.as_deref(),
+        Some("You are Hopper. Review only.")
+    );
 
     let brief = store.prepend_worker_charter_for_pane("pane_guided", "continue");
-    assert!(brief.starts_with("Role guidance:\nReview only."));
-    assert!(brief.contains("<codeterm-worker-charter"));
+    let expected_prefix = format!(
+        "<codeterm-worker-charter task=\"{task_id}\">\nYou are Hopper. Review only.\n\nYou are a Worker on task {task_id}."
+    );
+    assert_eq!(&brief[..expected_prefix.len()], expected_prefix);
+    assert_eq!(brief.matches("You are Hopper.").count(), 1);
+}
+
+#[test]
+fn respawn_prompt_starts_with_canonical_identity_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Respawn identity".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    store.save(&mut p, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &p.id,
+            NewTask {
+                name: "retry lane".into(),
+                kind: "implement".into(),
+                personality: Some("Hopper".into()),
+                role_guidance: Some("You are Hopper. Audit reconnect semantics.".into()),
+                body: "Fix the reconnect prompt.".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .assign_task(&p.id, &task_id, "pane_old", None, 3)
+        .unwrap();
+    let attempt = store.list_task_attempts(&p.id, &task_id).unwrap().remove(0);
+
+    let draft = store
+        .build_task_respawn_draft(
+            &p.id,
+            &task_id,
+            task_attempts::TaskRespawnRequest {
+                attempt_id: attempt.attempt_id,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let expected_prefix = "You are Hopper. Audit reconnect semantics.\n\nYou are a CodeTerm Worker respawned from a prior task attempt.\nWork only on this one task. Do not reactivate or reuse the old historical attempt.\n\n";
+    assert_eq!(&draft.task_prompt[..expected_prefix.len()], expected_prefix);
+    assert_eq!(draft.task_prompt.matches("You are Hopper.").count(), 1);
+}
+
+#[test]
+fn competition_prompt_starts_with_same_canonical_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Competition identity".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    store.save(&mut p, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &p.id,
+            NewTask {
+                name: "judgeable".into(),
+                kind: "implement".into(),
+                personality: Some("Hopper".into()),
+                role_guidance: Some("You are Hopper. Audit reconnect semantics.".into()),
+                competition: Some(crate::plan::TaskCompetitionMetadata {
+                    enabled: true,
+                    attempts: Some(2),
+                    models: vec![],
+                    judge_hint: None,
+                }),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+
+    let drafts = store
+        .build_task_compete_drafts(
+            &p.id,
+            &task_id,
+            task_attempts::TaskCompeteRequest::default(),
+        )
+        .unwrap();
+    let prompt = &drafts[0].task_prompt;
+
+    let expected_prefix =
+        "You are Hopper. Audit reconnect semantics.\n\nYou are one isolated competitive attempt.";
+    assert_eq!(&prompt[..expected_prefix.len()], expected_prefix);
+    assert_eq!(prompt.matches("You are Hopper.").count(), 1);
 }
 
 #[test]

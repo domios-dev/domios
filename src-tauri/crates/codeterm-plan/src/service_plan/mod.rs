@@ -59,6 +59,7 @@ mod types;
 pub mod usage_digest;
 pub mod watcher;
 pub mod worker_charter;
+pub mod worker_identity;
 
 #[cfg(test)]
 mod body_file_tests;
