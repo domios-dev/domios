@@ -534,6 +534,7 @@ mod tests {
             "testing_discipline.md",
             "qa_pipeline_discipline.md",
             "planner_suffix.md",
+            "bounce_unwinding_contract.md",
             "orchestrator_suffix.md",
             "cron_report_hint.md",
             "cron_complete_suffix.md",
