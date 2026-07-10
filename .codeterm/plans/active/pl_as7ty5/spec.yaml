@@ -1,0 +1,110 @@
+id: sp_o6l6of
+plan_id: pl_as7ty5
+title: CodeTerm 1.7.2 issue reconciliation and workflow reliability
+project_path: \\?\D:\Developer\codeterm
+canonical_project_path: \\?\D:\Developer\codeterm
+status: active
+sections:
+- id: sec_7vsda3
+  title: Evidence and issue audit
+  handle: evidence-and-issue-audit
+  tags: []
+  body: 'Audit every open issue in rollacode/codeterm. Exclude roadmap or idea items, including #175. Remaining actionable open issues are #230, #209, #203, #185, and #179, plus the user reported Plan tab, nested Git discovery, plugin settings, and model parity defects. The seven issues #180, #184, #188, #189, #205, #206, and #207 were closed after ancestry verification and exact develop fix-commit comments; do not create duplicate lanes. Every retained item records issue URL, original observation, origin/develop evidence, exact tests or inspection surface, classification, severity/blast radius, and closure or implementation recommendation.'
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: sec_bbl356
+  title: Issue policy and reconciliation
+  handle: issue-policy-and-reconciliation
+  tags: []
+  body: Close an issue only after its original observable behavior has a passing oracle on the current develop integration candidate and independent review finds no material regression. Commit presence is evidence, not closure proof. A reproducible defect encountered while using planner, lanes, reports, canvas, plugins, CLI, or release workflow is captured with exact command, timestamp, output, severity, and blast radius. Admit a bounded follow-up only when it affects correctness, clarity, reliability, or release confidence; it must contain a regression oracle and independent review. No broad refactors or subjective churn.
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: sec_ibwnlr
+  title: Plan workspace tab and canvas UX
+  handle: plan-workspace-tab-and-canvas-ux
+  tags: []
+  body: 'A Plan present in a workspace appears as a first-class tab and canvas in that workspace. It is driven by authoritative planner state: GOAL, Spec, sections, tasks, dependencies, loops, lanes, reports, and live plan-change events. Define identity, lifecycle, loading, empty, unavailable, and workspace navigation behavior without duplicating plan data.'
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: sec_bsgagd
+  title: Git multi-repository behavior
+  handle: git-multi-repository-behavior
+  tags: []
+  body: Git discovery finds the root repository plus bounded sibling and nested repositories under the intended current folder. It recognizes .git directories and .git files for worktrees, avoids unsafe or unbounded traversal, deduplicates deterministically, and preserves non-repo parent and single-repo behavior across platforms.
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: sec_cy5lp7
+  title: Plugin loading cache and settings UX
+  handle: plugin-loading-cache-and-settings-ux
+  tags: []
+  body: Plugin settings has no loading-toast noise. Its panel owns contextual loading, error, and empty states. A successful plugin snapshot is cached for immediate reopen; cache rebuild or invalidation occurs only after a real plugin mutation. Keep the operational existing design language.
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: sec_1yhpg6
+  title: GPT model support and provider boundary
+  handle: gpt-model-support-and-provider-boundary
+  tags: []
+  body: Model support begins with actual provider discovery and configuration. Support gpt-5.5, gpt-5.4, gpt-5.4-mini, and gpt-5.3-codex only when exposed. Do not invent gpt-5.4-nano because live Codex discovery does not expose it. Do not assume GPT-5.6 availability. Preserve capability-based integration, per-pane session ownership, native and JS parity, and model-list regression coverage.
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: sec_1cbbvy
+  title: Regression and cross-platform acceptance
+  handle: regression-and-cross-platform-acceptance
+  tags: []
+  body: Acceptance includes focused unit or fixture tests, TypeScript tests and typecheck, ./build.sh check, relevant ./build.sh test, scripts/check-file-sizes.sh, focused or golden Playwright UI coverage, independent diff review, and GitHub CI matrix evidence. Gates use bounded timeouts and declare Windows, macOS, and Linux implications.
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: sec_pyww0e
+  title: Release 1.7.2
+  handle: release-1-7-2
+  tags: []
+  body: Release 1.7.2 starts from origin/develop and follows repository lifecycle. No artifact build, signing, notarization, or publishing runs locally. Configured GitHub and self-hosted CI handles release artifacts. Verify CI matrix, updater latest.json, public assets, signatures or checksums where applicable, supported install/update smoke, issue reconciliation, and cleanup.
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: sec_71y98z
+  title: Constraints and non-goals
+  handle: constraints-and-non-goals
+  tags: []
+  body: Preserve the dirty orchestrator checkout. All lanes use D:/Developer/codeterm-worktrees/<branch-slug> and branches based on origin/develop. The Planner does not execute implementation, dispatch workers, merge, or accept work. This excludes roadmap and idea work, unavailable preview-model promises, local release artifacts, unrelated cleanup, and duplicate lanes for closed issues. Discovery must feed a second task-cutting/replanning wave. The observed CODETERM_ROLE=Orchestrator while planner binding resolves to pane e88e18c8 is a controlled role-correctness evidence item.
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+created_at: 1783629061377
+updated_at: 1783629463717
+canvas:
+  viewport: null

@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BootStage {
+    /// Pane exists and is waiting for PTY materialization.
+    PtyStarting,
     /// PTY exists and its stream is claimed.
     PtySpawned,
     /// Shell prompt is ready to accept the launch command.
@@ -27,6 +29,7 @@ impl BootStage {
 
     pub fn as_str(&self) -> &'static str {
         match self {
+            BootStage::PtyStarting => "pty_starting",
             BootStage::PtySpawned => "pty_spawned",
             BootStage::ShellReady => "shell_ready",
             BootStage::AgentLaunching => "agent_launching",

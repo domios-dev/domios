@@ -73,7 +73,7 @@ struct JsonRpcResponse {
     error: Option<JsonRpcError>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub(super) struct JsonRpcError {
     pub(super) code: i32,
     pub(super) message: String,

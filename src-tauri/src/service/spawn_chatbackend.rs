@@ -413,6 +413,19 @@ impl ServiceContext {
                     }
                 }
             }
+            if let Err(error) =
+                svc.bind_in_process_chatbackend_session(&pane_id, &plugin_id, &session_id)
+            {
+                log::warn!(
+                    "[spawn.chatbackend] failed to bind provider session for {}: {}",
+                    pane_id,
+                    error
+                );
+                let _ = svc.chatbackend_close(&plugin_id, &session_id);
+                let _ = svc.mux.write().close_tab(&ws_id, &tab_id);
+                svc.emit_state_changed();
+                return;
+            }
             svc.emit_state_changed();
 
             log::info!(
@@ -441,7 +454,9 @@ impl ServiceContext {
                 });
             }
 
+            let replay_pane = pane_id.clone();
             svc.spawn_chatbackend_poll_loop(pane_id, plugin_id, session_id, history_meta);
+            svc.schedule_planner_replay(&replay_pane);
         });
     }
 

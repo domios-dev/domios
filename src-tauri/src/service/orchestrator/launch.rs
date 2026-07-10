@@ -58,6 +58,7 @@ pub(crate) fn launch_agent_in_background(
     if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
         p.agent_booting = true;
     }
+    svc.emit_boot_stage(&pane_id, BootStage::PtyStarting, None);
     std::thread::spawn(move || {
         let set_booting = |value: bool| {
             if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {

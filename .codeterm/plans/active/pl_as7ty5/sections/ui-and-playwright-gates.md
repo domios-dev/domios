@@ -1,0 +1,1 @@
+Use a healthy dev instance and focused stable-selector Playwright tests for workspace Plan tabs/canvas and Plugin settings. Verify loading, error, empty, cached reopen, mutation invalidation, workspace navigation, and live planner-state update; then run the relevant golden project. State whether Windows real WebView2 or macOS/Linux web mode was exercised.

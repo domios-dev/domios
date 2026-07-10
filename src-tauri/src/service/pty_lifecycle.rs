@@ -35,6 +35,7 @@ fn epoch_ms() -> u64 {
 pub struct PreparedBackendReader {
     reader: Box<dyn Read + Send>,
     frontend_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
+    lease: BackendReaderLease,
 }
 
 /// Synchronously claim the PTY stream: clone the reader AND register the
@@ -53,18 +54,25 @@ pub fn prepare_backend_reader(
     let session = manager
         .get_session(pty_id)
         .ok_or_else(|| format!("PTY not found: {}", pty_id))?;
-    let pair = session.pair.lock().unwrap();
+    let pair_guard = session.pair.lock().unwrap();
+    let Some(pair) = pair_guard.as_ref() else {
+        return Err(format!("PTY {} is closed", pty_id));
+    };
     let reader = pair
         .master
         .try_clone_reader()
         .map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
-    drop(pair);
+    drop(pair_guard);
     let frontend_tx = manager
         .setup_backend_channel(pty_id)
         .ok_or_else(|| format!("Failed to set up backend channel for PTY: {}", pty_id))?;
+    session
+        .backend_reader_active
+        .store(true, std::sync::atomic::Ordering::Release);
     Ok(Some(PreparedBackendReader {
         reader,
         frontend_tx,
+        lease: BackendReaderLease(session),
     }))
 }
 
@@ -77,20 +85,18 @@ pub fn spawn_prepared_backend_reader(
 ) -> JoinHandle<()> {
     let svc = svc.clone();
     let pty_id = pty_id.to_string();
+    let PreparedBackendReader {
+        reader,
+        frontend_tx,
+        lease,
+    } = prepared;
     tokio::spawn(async move {
+        let _lease = lease;
         log::info!(
             "[backend-reader] started for pty {}",
             &pty_id[..pty_id.len().min(8)]
         );
-        backend_read_loop(
-            prepared.reader,
-            svc,
-            pty_id,
-            prepared.frontend_tx,
-            true,
-            headless,
-        )
-        .await;
+        backend_read_loop(reader, svc, pty_id, frontend_tx, true, headless).await;
     })
 }
 
@@ -169,11 +175,10 @@ async fn backend_read_loop(
                             .map(|ro| ro.lock().get(&pty_id).is_none())
                             .unwrap_or(true)
                     };
-                    if is_hidden || (headless && no_owner()) {
+                    if should_answer_cursor_query(is_hidden, headless, no_owner()) {
                         let _ = svc.pty.lock().write(&pty_id, b"\x1b[1;1R");
                     }
                 }
-
                 let (prev, now) = svc.feed_pty_output(&pty_id, &data);
 
                 let _ = frontend_tx.try_send(data.clone());
@@ -291,5 +296,37 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
                 );
             }
         }
+    }
+}
+
+struct BackendReaderLease(std::sync::Arc<crate::pty::manager::PtySession>);
+
+impl Drop for BackendReaderLease {
+    fn drop(&mut self) {
+        self.0
+            .backend_reader_active
+            .store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
+fn should_answer_cursor_query(is_hidden: bool, _headless: bool, no_owner: bool) -> bool {
+    is_hidden || no_owner
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn cursor_query_is_answered_for_visible_pane_before_renderer_owns_pty() {
+        assert!(super::should_answer_cursor_query(false, false, true));
+    }
+
+    #[test]
+    fn cursor_query_is_left_to_renderer_once_visible_pane_has_owner() {
+        assert!(!super::should_answer_cursor_query(false, false, false));
+    }
+
+    #[test]
+    fn cursor_query_is_answered_for_hidden_pane_even_with_owner_state_unknown() {
+        assert!(super::should_answer_cursor_query(true, false, false));
     }
 }

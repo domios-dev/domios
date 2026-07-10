@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use crate::plan::coverage::compute_coverage_report;
+use crate::plan::peer::resolve_planner_ref;
 use crate::plan::PlannerRef;
 use crate::service::plan::{build_plan_state_snapshot, PlanError, PlanStateSnapshot};
 use crate::service::ServiceContext;
@@ -33,6 +34,9 @@ impl ServiceContext {
             }
         }
         let lanes = lane_rows::build_lane_rows(&plan, |p| self.pane_probe(p), now_ms);
+        let planner_resolution = resolve_planner_ref(&plan.planner, &plan.owner, |pane_id| {
+            self.pane_probe(pane_id)
+        });
         Ok(build_plan_state_snapshot(
             &plan,
             coverage,
@@ -40,6 +44,7 @@ impl ServiceContext {
             cleanup_debt,
             lanes,
             &live_panes,
+            Some(planner_resolution),
             now_ms,
         ))
     }

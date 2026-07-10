@@ -1,0 +1,78 @@
+{
+  "id": "sp_51a05b33260b48f2b909bb94f9695bd6",
+  "title": "1.6.3 Stability Requirements",
+  "project_path": "\\\\?\\C:\\Developer\\codeterm",
+  "status": "active",
+  "sections": [
+    {
+      "id": "sec_a034c213da004fc09b0a4710241b6cba",
+      "title": "Unified Windows spawn boundaries",
+      "handle": "spawn-boundary",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_1484024299a14a8192d905a700a53542",
+      "title": "Windows shell and conhost storm",
+      "handle": "win-spawn-storm",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_79c7f422ef4242faa8f725ab36841822",
+      "title": "Web UI connected host surfaces",
+      "handle": "web-ui-stability",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_8e0d55c5557d402f9f4ab431e3f49a86",
+      "title": "Codex usage parser reliability",
+      "handle": "usage-parser",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_1f2762da77534b829a3f59b930b4478c",
+      "title": "Regression gates and issue hygiene",
+      "handle": "regression-gates",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    }
+  ],
+  "created_at": 1782805095568,
+  "updated_at": 1782805137633,
+  "canvas": {
+    "viewport": null
+  }
+}

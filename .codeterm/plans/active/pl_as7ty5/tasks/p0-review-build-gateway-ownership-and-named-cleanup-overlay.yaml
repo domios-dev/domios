@@ -1,0 +1,125 @@
+id: task_mkbjgl
+name: P0 review build gateway ownership and named cleanup overlay
+type: review
+model: gpt-5.6-sol
+model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and is appropriate for adversarial P0 review of machine-wide build isolation and Windows process ownership.
+personality: null
+acceptance_criteria:
+- The review verifies every gateway/ownership/provenance invariant against actual diff paths, identifies the sole remaining serialized runtime oracle, and returns one ACCEPT or BOUNCE with file/line evidence.
+test_plan: 'Oracle: actual diff inspection and non-heavy static checks only. 1. Inspect the target worktree git diff; pass: review cites only actual paths. 2. Trace queue/lock lifecycle, cancellation, stale-lock, status, bypass defenses, heavy-owner restriction, exceptional isolated nonincremental+sccache path, and release provenance; pass: each has exact file/line evidence. 3. Trace Windows cleanup selectors; pass: they require owned API/Vite/CDP/WebView2 identity and cannot select default 7686 by executable/target path. 4. Inspect health build SHA/instance validation and fixture quality; pass: mismatch is surfaced. 5. Run only script syntax/static checks, git diff --check, and scripts/check-file-sizes.sh. 6. State the exact deferred command only: from a healthy SHA-matching warm release-integration checkout run powershell -ExecutionPolicy Bypass -File scripts/check-dev-instance-isolation.ps1 once, serialized, with no concurrent full builds. No cargo/build/dev/Playwright/live kill. Return actual diff paths, file/line evidence, and ACCEPT/BOUNCE.'
+correctness: One machine-wide heavy authority; identity-safe cleanup; bypass-resistant policy; truthful provenance; one deferred serialized runtime oracle.
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p0
+created_at: 1783681200645
+updated_at: 1783681548247
+status_changed_at: 1783681547245
+handle: p0-review-build-gateway-ownership-and-named-cleanup-overlay
+tags:
+- 1.7.2
+section_ids:
+- sec_d52ka9
+body: P0 read-only review of the actual dirty overlay for task_odejzc in D:/Developer/codeterm-worktrees/build-performance-research. Do not edit source, commit, run cargo/build/dev/Playwright, or kill any live process. Audit machine-scoped gateway queue/lock ownership and status; integration-checkout-only heavy entry; exceptional isolated nonincremental+sccache policy; release fresh provenance; build.ps1/build.sh/qa-prep bypass resistance; Windows named cleanup selection requiring API/Vite/CDP/WebView2 ownership and never default 7686 by executable or target path; fixture quality and cancellation/stale-lock handling; and health SHA/instance checks. Confirm that the only remaining runtime oracle is one serialized scripts/check-dev-instance-isolation.ps1 run from the healthy SHA-matching warm release-integration checkout, never concurrent full builds. Return severity-ranked ACCEPT or BOUNCE with actual diff file/line evidence and the exact later command.
+role_guidance: 'You are an independent P0 read-only build-isolation reviewer. Review actual dirty paths and defer all runtime action to the one serialized later oracle. Red line: no edits, commits, cargo/build/dev/Playwright, or live kill.'
+executor_role: code-reviewer
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:/Developer/codeterm-worktrees/build-performance-research
+  branch: research/build-performance-1.7.2
+  base: origin/develop
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: build-gateway
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_7wxnzi
+  from:
+    pane_id: 23657b43
+    session_id: 019f4baf-7e1a-7951-98d4-1c7971e01b29
+    title: P0 review build gateway ownership and named cleanup overlay
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: done
+    CHANGES: Read-only P0 review completed; BOUNCE. No files edited. Found forgeable gateway/integration/qa-prep ownership, unsafe duplicate Playwright Windows cleanup selectors, stale-status/PID-reuse gaps, and weak health/provenance fixtures.
+    TESTS RUN: bash -n on touched shell scripts; node --check on touched mjs scripts; PowerShell parser checks on touched ps1 scripts; git diff --check (pass, line-ending warnings only); scripts/check-file-sizes.sh (pass). No cargo/build/dev/Playwright/live kill. Deferred sole runtime oracle: powershell -ExecutionPolicy Bypass -File scripts/check-dev-instance-isolation.ps1 once from healthy SHA-matching warm release-integration checkout, serialized with no concurrent full builds.
+  ts: 1783681450201
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_o8fa0t
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: P0 review completed with BOUNCE and exact remediation; close review objective and return source correction to task_odejzc.
+  ts: 1783681546364
+  links:
+  - key:ccf892cbda325101
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_gvu9vz
+  executor_pane_id: 23657b43
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: research/build-performance-1.7.2
+  worktree_path: D:/Developer/codeterm-worktrees/build-performance-research
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783681450609
+    message: |-
+      STATUS: done
+      CHANGES: Read-only P0 review completed; BOUNCE. No files edited. Found forgeable gateway/integration/qa-prep ownership, unsafe duplicate Playwright Windows cleanup selectors, stale-status/PID-reuse gaps, and weak health/provenance fixtures.
+      TESTS RUN: bash -n on touched shell scripts; node --check on touched mjs scripts; PowerShell parser checks on touched ps1 scripts; git diff --check (pass, line-ending warnings only); scripts/check-file-sizes.sh (pass). No cargo/build/dev/Playwright/live kill. Deferred sole runtime oracle: powershell -ExecutionPolicy Bypass -File scripts/check-dev-instance-isolation.ps1 once from healthy SHA-matching warm release-integration checkout, serialized with no concurrent full builds.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783681215517
+  reported_at: 1783681450609
+  reviewed_at: null
+  closed_at: 1783681547245
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

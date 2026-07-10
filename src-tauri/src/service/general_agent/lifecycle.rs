@@ -1,6 +1,7 @@
 //! Start / restart / readiness-poll for the General Agent PTY+launch flow.
 
 use super::{general_dir, instructions, state, GENERAL_ALIAS};
+use codeterm_types::pty::BootStage;
 
 /// Start the General Agent — called from start_servers on a background thread.
 ///
@@ -386,6 +387,15 @@ pub fn start_general_agent(
         log::warn!("[general-agent] Agent not detected within 15s — watchdog will retry if needed");
     }
 
+    if !pane_still_owns_pty(mux, &pane_id, &pty_id) {
+        log::info!(
+            "[general-agent] Launch on stale PTY {} for pane {} ignored; pane moved on",
+            pty_id,
+            pane_id
+        );
+        return;
+    }
+
     // Fresh session: send one inline orient message to seed context.
     // Resume mode omits this because `--resume` already restores prior turns.
     if launched && !use_resume {
@@ -420,6 +430,10 @@ pub fn start_general_agent(
         }
     }
 
+    svc.emit_boot_stage(&pane_id, BootStage::AgentReady, None);
+    if let Some(pane) = mux.write().get_pane_mut(&pane_id) {
+        pane.agent_booting = false;
+    }
     svc.emit_state_changed();
     log::info!(
         "[general-agent] Started successfully (pane={}, pty={})",
@@ -440,13 +454,19 @@ pub fn restart_general_agent(
 ) {
     log::info!("[general-agent] Manual restart requested");
 
+    let mut teardown = None;
+    let mut general_pane_id = None;
     {
         let m = mux.write();
         if let Some(pid) = m.resolve_pane_id(GENERAL_ALIAS) {
+            general_pane_id = Some(pid.clone());
             if let Some(pane) = m.get_pane(&pid) {
                 if let Some(ref pty_id) = pane.pty_id {
-                    let _ = pty.lock().kill(pty_id);
-                    log::info!("[general-agent] Killed PTY {} for restart", pty_id);
+                    teardown = Some(pty.lock().begin_kill(pty_id));
+                    log::info!(
+                        "[general-agent] Terminating PTY {} process tree for restart",
+                        pty_id
+                    );
                 }
             }
             drop(m);
@@ -459,7 +479,21 @@ pub fn restart_general_agent(
         }
     }
 
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    if let Some(teardown) = teardown {
+        let result =
+            teardown.and_then(|reaper| reaper.wait_bounded(std::time::Duration::from_secs(5)));
+        if let Err(reason) = result {
+            log::error!("[general-agent] Restart blocked by PTY teardown: {reason}");
+            if let Some(pane_id) = general_pane_id {
+                svc.emit_boot_stage(&pane_id, BootStage::SpawnFailed, Some(&reason));
+                if let Some(pane) = mux.write().get_pane_mut(&pane_id) {
+                    pane.agent_booting = false;
+                }
+                svc.emit_state_changed();
+            }
+            return;
+        }
+    }
 
     // start_general_agent). Same rationale as the lifecycle::start_general_agent path: do not block restart on mem.wake_up().
     {
@@ -471,6 +505,97 @@ pub fn restart_general_agent(
     }
 
     start_general_agent(svc, mux, pty, screen_state, config, app);
+}
+
+pub fn restart_general_agent_pane(
+    pane_id: &str,
+    svc: &crate::ServiceState,
+    mux: &crate::MuxState,
+    pty: &crate::PtyState,
+    screen_state: &crate::ScreenStateHandle,
+    config: &crate::config::ConfigState,
+    app: &tauri::AppHandle,
+) -> Result<(), String> {
+    if validate_general_agent_pane_retry(pane_id, mux)? {
+        restart_general_agent(svc, mux, pty, screen_state, config, app);
+    }
+    Ok(())
+}
+
+pub fn validate_general_agent_pane_retry(
+    pane_id: &str,
+    mux: &crate::MuxState,
+) -> Result<bool, String> {
+    validate_general_agent_pane_retry_inner(pane_id, mux, false)
+}
+
+pub fn claim_general_agent_pane_retry(
+    pane_id: &str,
+    mux: &crate::MuxState,
+) -> Result<bool, String> {
+    validate_general_agent_pane_retry_inner(pane_id, mux, true)
+}
+
+fn validate_general_agent_pane_retry_inner(
+    pane_id: &str,
+    mux: &crate::MuxState,
+    claim: bool,
+) -> Result<bool, String> {
+    let mut m = mux.write();
+    let general_pane_id = m
+        .resolve_pane_id(GENERAL_ALIAS)
+        .ok_or_else(|| "General Agent pane is not registered".to_string())?;
+    let requested_pane_id = m
+        .resolve_pane_id(pane_id)
+        .unwrap_or_else(|| pane_id.to_string());
+    if requested_pane_id != general_pane_id {
+        return Err(format!(
+            "Retry rejected: pane {} is not the General Agent pane {}",
+            requested_pane_id, general_pane_id
+        ));
+    }
+    let pane = m
+        .get_pane(&general_pane_id)
+        .ok_or_else(|| format!("General Agent pane {} is missing", general_pane_id))?;
+    if !pane.protected {
+        return Err(format!(
+            "Retry rejected: General Agent pane {} is not protected",
+            general_pane_id
+        ));
+    }
+    if pane.agent_booting || pane.boot_stage.is_some_and(is_launch_stage) {
+        log::info!(
+            "[general-agent] Retry for pane {} ignored; launch already in progress",
+            general_pane_id
+        );
+        return Ok(false);
+    }
+    if claim {
+        let _ = pane;
+        if let Some(pane) = m.get_pane_mut(&general_pane_id) {
+            pane.agent_booting = true;
+            pane.boot_stage = Some(BootStage::PtyStarting);
+            pane.boot_failure_reason = None;
+        }
+    }
+    Ok(true)
+}
+
+fn is_launch_stage(stage: BootStage) -> bool {
+    matches!(
+        stage,
+        BootStage::PtyStarting
+            | BootStage::PtySpawned
+            | BootStage::ShellReady
+            | BootStage::AgentLaunching
+    )
+}
+
+fn pane_still_owns_pty(mux: &crate::MuxState, pane_id: &str, pty_id: &str) -> bool {
+    mux.write()
+        .get_pane(pane_id)
+        .and_then(|p| p.pty_id.as_deref())
+        == Some(pty_id)
 }
 
 /// Poll screen_state for signs that the agent has started.
@@ -534,8 +659,24 @@ fn general_agent_env_vars(
 
 #[cfg(test)]
 mod tests {
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use codeterm_types::pty::BootStage;
+    use codeterm_util::lock_hold::TimedRwLock;
     use parking_lot::Mutex;
     use std::sync::Arc;
+
+    fn mux_with_general_pane(stage: Option<BootStage>) -> (MuxState, String) {
+        let mut mux = MultiplexerState::empty();
+        super::super::workspace::ensure_general_workspace(&mut mux, true);
+        let pane_id = mux
+            .resolve_pane_id(super::GENERAL_ALIAS)
+            .expect("general pane");
+        if let Some(pane) = mux.get_pane_mut(&pane_id) {
+            pane.boot_stage = stage;
+        }
+        (Arc::new(TimedRwLock::new("mux", mux)), pane_id)
+    }
 
     #[test]
     fn general_agent_env_uses_configured_api_port_not_parent_env() {
@@ -565,5 +706,49 @@ mod tests {
             env.get("CODETERM_API_TOKEN").map(String::as_str),
             Some("test-token")
         );
+    }
+
+    #[test]
+    fn pane_scoped_retry_rejects_non_general_pane() {
+        let (mux, general_id) = mux_with_general_pane(Some(BootStage::SpawnFailed));
+
+        let err = super::validate_general_agent_pane_retry("other-pane", &mux).unwrap_err();
+
+        assert!(err.contains("other-pane"), "{err}");
+        assert!(err.contains(&general_id), "{err}");
+    }
+
+    #[test]
+    fn pane_scoped_retry_noops_while_launch_is_in_progress() {
+        let (mux, general_id) = mux_with_general_pane(Some(BootStage::PtyStarting));
+
+        let should_restart = super::validate_general_agent_pane_retry(&general_id, &mux).unwrap();
+
+        assert!(!should_restart);
+    }
+
+    #[test]
+    fn pane_scoped_retry_allows_failed_general_pane() {
+        let (mux, general_id) = mux_with_general_pane(Some(BootStage::SpawnFailed));
+
+        let should_restart = super::validate_general_agent_pane_retry(&general_id, &mux).unwrap();
+
+        assert!(should_restart);
+    }
+
+    #[test]
+    fn pane_scoped_retry_claim_is_single_owner() {
+        let (mux, general_id) = mux_with_general_pane(Some(BootStage::SpawnFailed));
+
+        let first = super::claim_general_agent_pane_retry(&general_id, &mux).unwrap();
+        let second = super::claim_general_agent_pane_retry(&general_id, &mux).unwrap();
+
+        assert!(first);
+        assert!(!second);
+        let mux = mux.read();
+        let pane = mux.get_pane(&general_id).expect("general pane");
+        assert!(pane.agent_booting);
+        assert_eq!(pane.boot_stage, Some(BootStage::PtyStarting));
+        assert!(pane.boot_failure_reason.is_none());
     }
 }

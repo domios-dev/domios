@@ -29,12 +29,13 @@ import type {
   AtomicSpawn,
   OrchestrationPairInput,
   OrchestrationPairResult,
+  PaneBootStageEvent,
 } from "../../lib/types";
 import {
   makeVirtualPickerTab,
   type ExtendedState,
 } from "./tree";
-import { reducer } from "./reducer";
+import { reducer, type Action } from "./reducer";
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
 import { mountMuxPerfTestHook } from "./muxPerfTestHook";
 import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSession";
@@ -88,6 +89,15 @@ export function muxStateEventAction(payload: unknown): "apply-snapshot" | "refre
     return "apply-snapshot";
   }
   return "refresh";
+}
+
+export function paneBootStageEventAction(payload: PaneBootStageEvent): Action {
+  return {
+    type: "UPDATE_BOOT_STAGE",
+    paneId: payload.pane_id,
+    stage: payload.stage,
+    reason: payload.reason,
+  };
 }
 
 export function MultiplexerProvider({ children }: { children: ReactNode }) {
@@ -204,6 +214,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         });
       },
     ).then((unlisten) => unlisteners.push(unlisten));
+
+    listen<PaneBootStageEvent>("pane-boot-stage", (event) => {
+      if (!event.payload) return;
+      dispatch(paneBootStageEventAction(event.payload));
+    }).then((unlisten) => unlisteners.push(unlisten));
 
     listen<{ pane_id: string; title: string }>("pane-title-pinned", (event) => {
       dispatch({
@@ -390,17 +405,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const closeWorkspace = useCallback(
     (id: string) => {
-      const { workspaces, panes } = stateRef.current;
-      const ws = workspaces.find((w) => w.id === id);
-      if (ws) {
-        const paneIds = ws.tabs.map((t) => t.pane_id);
-        for (const pid of paneIds) {
-          const pane = panes[pid];
-          if (pane?.pty_id) {
-            guardedInvoke("kill_pty", { ptyId: pane.pty_id }).catch(() => {});
-          }
-        }
-      }
       guardedInvoke("mux_close_workspace", { workspaceId: id }).catch(() => {});
       dispatch({ type: "CLOSE_WORKSPACE", id });
     },
@@ -607,10 +611,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const ctx = findContext(paneId);
       if (!ctx) return;
       const { panes, workspaces } = stateRef.current;
-      const pane = panes[paneId];
-      if (pane?.pty_id) {
-        guardedInvoke("kill_pty", { ptyId: pane.pty_id }).catch(() => {});
-      }
       guardedInvoke("mux_close_pane", { paneId }).catch(() => {});
       const ws = workspaces.find((w) => w.id === ctx.workspaceId);
       const tab = ws?.tabs.find((t) => t.id === ctx.tabId);
