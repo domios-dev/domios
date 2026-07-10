@@ -624,11 +624,10 @@ pub async fn plugin_snapshot(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    crate::commands::plugins::action::plugin_manager_snapshot_for_service(state.svc.clone())
+    let snapshot = crate::commands::plugins::plugin_manager_snapshot_for_service(state.svc.clone())
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(snapshot))
 }
 
 /// Web-mirror twin of the `plugin_manager_action` Tauri command.
@@ -646,7 +645,7 @@ pub async fn plugin_action(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    crate::commands::plugins::action::invalidate_plugin_snapshot();
+    crate::commands::plugins::invalidate_plugin_snapshot();
     Ok(Json(result))
 }
 
