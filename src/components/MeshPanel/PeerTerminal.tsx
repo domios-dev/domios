@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { Globe } from "lucide-react";
 import type { Service } from "./types";
 
 type AccessLevel = "full" | "read_only" | "agent_isolated";
@@ -17,6 +18,9 @@ interface Props {
   servicesStale?: boolean;
   servicesError?: string | null;
   servicesLoaded?: boolean;
+  /** Verified peer web UI URL — the Open action shows only when this is set. */
+  webUrl?: string | null;
+  onOpenWebUi?: (url: string) => void;
 }
 
 const HEALTH_DOT_COLOR: Record<string, string> = {
@@ -42,6 +46,8 @@ function PeerTerminalComponent({
   servicesStale = false,
   servicesError = null,
   servicesLoaded = true,
+  webUrl = null,
+  onOpenWebUi,
 }: Props) {
   const serviceStateLabel = servicesError
     ? `services unreachable: ${servicesError}`
@@ -136,9 +142,27 @@ function PeerTerminalComponent({
           )}
         </div>
         {isPaired && accessLevel && (
-          <div className="mt-2 text-[10px] text-[var(--ct-muted)]">
-            paired · access: {accessLevel}
-            {pairedDuration ? ` · ${pairedDuration}` : ""}
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span className="text-[10px] text-[var(--ct-muted)]">
+              paired · access: {accessLevel}
+              {pairedDuration ? ` · ${pairedDuration}` : ""}
+            </span>
+            {webUrl && (
+              <button
+                type="button"
+                data-testid="peer-web-ui-open"
+                data-peer-web-url={webUrl}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenWebUi?.(webUrl);
+                }}
+                className="inline-flex items-center gap-1 rounded border border-[var(--ct-border)] px-1.5 py-0.5 text-[10px] text-[var(--ct-accent)] hover:border-[var(--ct-accent)] hover:bg-[var(--ct-hover)] cursor-pointer bg-transparent shrink-0"
+                title={`Open ${name}'s Web UI — ${webUrl}`}
+              >
+                <Globe size={11} />
+                Open Web UI
+              </button>
+            )}
           </div>
         )}
       </div>
