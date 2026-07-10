@@ -32,7 +32,9 @@ pub async fn serve_status_handler(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let status = crate::mesh::probe_serve_status(state.api_port);
+    let build = state.mesh.lock().build_hash.clone();
+    let mut status = crate::mesh::probe_serve_status(state.api_port);
+    status.snapshot = crate::mesh::reconcile_web_serve(state.api_port, None, Some(build));
     Ok(Json(
         serde_json::to_value(status).unwrap_or(serde_json::Value::Null),
     ))
