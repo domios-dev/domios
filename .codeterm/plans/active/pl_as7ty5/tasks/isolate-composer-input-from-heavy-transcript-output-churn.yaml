@@ -13,14 +13,14 @@ acceptance_criteria:
 - Heavy QA is executed remotely or in an isolated warm checkout, and diff/file-size gates pass without running a local heavy build.
 test_plan: 'Oracle: deterministic 25-tab fixture plus before/after traces on Windows WebView2 and web-mode. 1. Start the fixture with 25 open tabs/panes, concurrent build-like output, and real agent/task stream events; record baseline artifacts for keydown-to-paint p50/p95/max, composer render count, main-thread long tasks, IPC/output event rate, transcript size, CPU, and backend lock/queue wait. Pass: all named metrics and fixture parameters are present. 2. Type normal text, IME composition, paste, attachments, and history actions during sustained output; pass: every input sequence is preserved in order with no dropped/reordered characters and visible controlled-input update on the next frame. 3. Run the identical fixture after the change in Windows WebView2 and web-mode Playwright, capturing equivalent traces; pass: p95 keydown-to-paint <=32ms and max <=100ms in both modes, with no input-critical long-task regression. 4. Compare transcript and tool/agent event counts and ordering before/after; pass: no output or transcript correctness regression and live output remains bounded/visible. 5. Run the exact focused performance harness and Playwright trace command in the remote QA environment; pass: threshold gate exits 0. 6. Run git diff --check and scripts/check-file-sizes.sh; pass: both exit 0.'
 correctness: Input responsiveness under sustained 25-tab stream pressure; measured next-frame paint; no controlled-input deferral; no dropped/reordered IME or paste data; transcript and event ordering parity; bounded output; backend lock/queue evidence; Windows WebView2 and web-mode parity; reproducible before/after artifacts; no local heavy-build dependency.
-status: pending
+status: in_progress
 review_stage: review
 qa_state: null
-status_label: needs-reassign
+status_label: pane-gone
 priority: p2
 created_at: 1783657396520
-updated_at: 1783665667979
-status_changed_at: 1783665667979
+updated_at: 1783712897504
+status_changed_at: 1783710393194
 handle: isolate-composer-input-from-heavy-transcript-output-churn
 tags: []
 section_ids:
@@ -32,9 +32,9 @@ competition: null
 intent: null
 parent_task_id: null
 depends_on: []
-assigned_pane_id: null
+assigned_pane_id: 1e318290
 lane:
-  pane_id: null
+  pane_id: 1e318290
   workspace_id: null
   workspace_name: release-1.7.2-integration
   worktree_path: D:/Developer/codeterm-worktrees/composer-output-performance
@@ -141,6 +141,58 @@ execution_attempts:
   reported_at: 1783662843343
   reviewed_at: null
   closed_at: 1783665667979
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_gfras6
+  executor_pane_id: 7dbbb1c1
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/composer-output-performance
+  worktree_path: D:/Developer/codeterm-worktrees/composer-output-performance
+  base: origin/develop
+  destination: null
+  report: null
+  assigned_at: 1783710393194
+  reported_at: null
+  reviewed_at: null
+  closed_at: 1783712867968
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_plkk7l
+  executor_pane_id: 1e318290
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/composer-output-performance
+  worktree_path: D:/Developer/codeterm-worktrees/composer-output-performance
+  base: origin/develop
+  destination: null
+  report: null
+  assigned_at: 1783712897504
+  reported_at: null
+  reviewed_at: null
+  closed_at: null
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

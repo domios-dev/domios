@@ -8,14 +8,14 @@ acceptance_criteria:
 - '#209 GUI/session .deb update verifies/stages target before elevation, obtains authorized elevation without terminal password piping, installs atomically, restarts, and reports 1.7.1; headless mesh returns structured elevation_required or blocked when unavailable; AppImage remains distinct; no false updating remains.'
 test_plan: 'Oracle: focused updater tests plus remote Ubuntu old-to-target update. 1. Run focused Rust updater tests for passwordless sudo success, password-required sudo, pkexec unavailable, pkexec cancelled, install failure, and privileged success. Pass: explicit secure status and no password path. 2. Verify invalid signature/hash rejects before installer invocation. 3. On remote Ubuntu old CodeTerm, run GUI/session-capable auto update noninteractively. Pass: restart reports 1.7.1. 4. On password-required/headless mesh host, run update. Pass: structured elevation_required or blocked, no updating/version claim. 5. AppImage fixture. Pass: Debian elevation not invoked. Record commands/status JSON/logs/identify before-after/verification output.'
 correctness: Correctness requires verified artifact before OS-approved elevation, no password handling, atomic staging/install and restart/rollback preservation, truthful GUI/headless status, Debian/AppImage separation, and observable final version after success.
-status: pending
-review_stage: review
-qa_state: null
+status: in_review
+review_stage: qa
+qa_state: queued
 status_label: pane-gone
 priority: p2
 created_at: 1783631784458
-updated_at: 1783677102495
-status_changed_at: 1783677102495
+updated_at: 1783712759240
+status_changed_at: 1783712749680
 handle: verify-209-linux-debian-updater
 tags: []
 section_ids:
@@ -150,6 +150,149 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_y5tukl
+  from:
+    pane_id: a106519d
+    session_id: c4c52f27-f68a-4518-817a-53bef13fd4ae
+    title: Turing
+  kind: status_update
+  text: |-
+    STATUS: in_review
+    CHANGES: Closed the confirmed BOUNCE. The remaining source defect was the elevation preflight (which lookups + 'sudo -n true' process spawn) running SYNCHRONOUSLY on the main Tauri async runtime inside install_update (updater_routes.rs:157) and check_and_apply_deb (apply.rs:169). Replaced sync gate_staged_deb with async gate_staged_deb_async(plan, preflight) which offloads the preflight closure to tokio::task::spawn_blocking. Now ALL filesystem/process/dpkg work (stage_deb_atomically_async, install_verified_deb_with_async, AND preflight) is off the async runtime. Wired both call sites to await the async gate; route surfaces a structured status=blocked on preflight worker failure.
+
+    DESIGN (bounce audit, all three proven):
+    1. Update existence/verification precedes elevation preflight: check_stage_deb_update confirms an update exists, downloads+verifies via Tauri updater signature, and stages the .deb atomically BEFORE gate_staged_deb_async runs any preflight. NoUpdate short-circuits and never spawns an elevation probe (no false elevation_required).
+    2. All fs/process/dpkg work off the async runtime: staging, install, and now preflight all via spawn_blocking.
+    3. Install failure = truthful bounded repair, no restart: install_verified_deb_with returns repair_required/blocked/elevation_cancelled; the route's install thread sets error without restart; app.restart() only runs after install succeeds. Unchanged, still correct.
+    Passwords never requested/piped/logged: only pkexec (GUI session) or sudo -n (passwordless) are used.
+
+    FILES: src-tauri/src/update/apply.rs (sync gate_staged_deb -> async gate_staged_deb_async via spawn_blocking; 3 async-boundary tests), src-tauri/src/api/updater_routes.rs (await async gate, structured blocked on worker error).
+
+    TESTS RUN (Windows lane, MSVC env, capped runner):
+    - cargo test --lib debian_tests: 17 passed (incl. no_update_does_not_run_elevation_preflight, staged_runs_preflight_through_async_boundary, staged_not_ready_surfaces_structured_status, installer_runs_through_async_boundary, staging_runs_through_async_boundary).
+    - cargo test --lib update::: 41 passed, 0 failed.
+    - build.ps1 check: passed (only 3 pre-existing keepawake dead-code warnings).
+    - cargo fmt --check: clean. git diff --check: clean. check-file-sizes.sh --fail on touched paths: pass (apply.rs 945 lines).
+    Note: cold worktree needed a stub dist/index.html (gitignored) and an uncapped test --no-run warm-up; the 90s cap is runtime-only, all test EXECUTION finished in 0.01s.
+
+    STATUS TRANSITIONS: bounced (async-runtime preflight) -> fixed -> focused tests green -> committed f28d3e210 on lane/linux-deb-auto-updater -> in_review.
+
+    REMOTE UBUNTU BEFORE-AFTER: NOT executed. Blocked host: live old-to-target GUI/session update, headless mesh elevation_required, and invalid-artifact rejection oracle require v1.7.2 publish assets + latest-deb.json to exist (parked decision). Ubuntu self-hosted runner checkout /home/rollacode/actions-runner/_work/codeterm/codeterm is the intended clean environment for that oracle.
+
+    RISKS: Linux pkexec policy behavior and dpkg restart semantics still need the remote Ubuntu QA pass. Invalid signature/hash rejection is covered by the Tauri updater download-verify path but needs a live/fixture manifest-rejection run on Linux. No clippy at lane gate (tiered policy) — await_holding_lock verified by inspection: async gate holds no lock across .await.
+  ts: 1783712661649
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_t97gjo
+  from:
+    pane_id: a106519d
+    session_id: c4c52f27-f68a-4518-817a-53bef13fd4ae
+    title: Turing
+  kind: status_update
+  text: |-
+    STATUS: in_review
+    CHANGES: Closed the confirmed BOUNCE. The remaining source defect was the elevation preflight (which lookups + 'sudo -n true' process spawn) running SYNCHRONOUSLY on the main Tauri async runtime inside install_update (updater_routes.rs:157) and check_and_apply_deb (apply.rs:169). Replaced sync gate_staged_deb with async gate_staged_deb_async(plan, preflight) which offloads the preflight closure to tokio::task::spawn_blocking. Now ALL filesystem/process/dpkg work (stage_deb_atomically_async, install_verified_deb_with_async, AND preflight) is off the async runtime. Wired both call sites to await the async gate; route surfaces a structured status=blocked on preflight worker failure.
+
+    DESIGN (bounce audit, all three proven):
+    1. Update existence/verification precedes elevation preflight: check_stage_deb_update confirms an update exists, downloads+verifies via Tauri updater signature, and stages the .deb atomically BEFORE gate_staged_deb_async runs any preflight. NoUpdate short-circuits and never spawns an elevation probe (no false elevation_required).
+    2. All fs/process/dpkg work off the async runtime: staging, install, and now preflight all via spawn_blocking.
+    3. Install failure = truthful bounded repair, no restart: install_verified_deb_with returns repair_required/blocked/elevation_cancelled; the route's install thread sets error without restart; app.restart() only runs after install succeeds. Unchanged, still correct.
+    Passwords never requested/piped/logged: only pkexec (GUI session) or sudo -n (passwordless) are used.
+
+    FILES: src-tauri/src/update/apply.rs (sync gate_staged_deb -> async gate_staged_deb_async via spawn_blocking; 3 async-boundary tests), src-tauri/src/api/updater_routes.rs (await async gate, structured blocked on worker error).
+
+    TESTS RUN (Windows lane, MSVC env, capped runner):
+    - cargo test --lib debian_tests: 17 passed (incl. no_update_does_not_run_elevation_preflight, staged_runs_preflight_through_async_boundary, staged_not_ready_surfaces_structured_status, installer_runs_through_async_boundary, staging_runs_through_async_boundary).
+    - cargo test --lib update::: 41 passed, 0 failed.
+    - build.ps1 check: passed (only 3 pre-existing keepawake dead-code warnings).
+    - cargo fmt --check: clean. git diff --check: clean. check-file-sizes.sh --fail on touched paths: pass (apply.rs 945 lines).
+    Note: cold worktree needed a stub dist/index.html (gitignored) and an uncapped test --no-run warm-up; the 90s cap is runtime-only, all test EXECUTION finished in 0.01s.
+
+    STATUS TRANSITIONS: bounced (async-runtime preflight) -> fixed -> focused tests green -> committed f28d3e210 on lane/linux-deb-auto-updater -> in_review.
+
+    REMOTE UBUNTU BEFORE-AFTER: NOT executed. Blocked host: live old-to-target GUI/session update, headless mesh elevation_required, and invalid-artifact rejection oracle require v1.7.2 publish assets + latest-deb.json to exist (parked decision). Ubuntu self-hosted runner checkout /home/rollacode/actions-runner/_work/codeterm/codeterm is the intended clean environment for that oracle.
+
+    RISKS: Linux pkexec policy behavior and dpkg restart semantics still need the remote Ubuntu QA pass. Invalid signature/hash rejection is covered by the Tauri updater download-verify path but needs a live/fixture manifest-rejection run on Linux. No clippy at lane gate (tiered policy) — await_holding_lock verified by inspection: async gate holds no lock across .await.
+  ts: 1783712669168
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_6k2e8h
+  from:
+    pane_id: a106519d
+    session_id: c4c52f27-f68a-4518-817a-53bef13fd4ae
+    title: Turing
+  kind: status_update
+  text: 'STATUS: in_review (short retry) — see full report; async-runtime preflight bounce fixed, committed f28d3e210, 17 debian_tests + 41 update:: green; remote Ubuntu oracle still blocked on v1.7.2 assets.'
+  ts: 1783712687323
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_j41o04
+  from:
+    pane_id: a106519d
+    session_id: c4c52f27-f68a-4518-817a-53bef13fd4ae
+    title: Turing
+  kind: status_update
+  text: 'STATUS: in_review (short retry) — see full report; async-runtime preflight bounce fixed, committed f28d3e210, 17 debian_tests + 41 update:: green; remote Ubuntu oracle still blocked on v1.7.2 assets.'
+  ts: 1783712695757
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_nqqm7a
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: ACCEPT implementation report
+  text: ' lane/linux-deb-auto-updater committed f28d3e210; fixed Debian elevation preflight async-runtime bounce by moving preflight off the async runtime and preserving update-exists-before-elevation semantics. Evidence: focused debian_tests 17/17 pass; update:: suite 41/41 pass; fmt pass; file-size check pass; diff check pass; intended files only src-tauri/src/api/updater_routes.rs and src-tauri/src/update/apply.rs; merge-tree with feat/1.7.2-stability clean. Remaining QA: remote Ubuntu live updater oracle after v1.7.2 assets/latest-deb.json exists.'
+  ts: 1783712745490
+  links:
+  - key:38d96adb331b16fe
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_jtg9gh
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: qa
+  text: 'enqueue: QA-ready after f28d3e210: run remote Ubuntu live old-to-target Debian updater oracle when v1.7.2 assets/latest-deb.json exists; verify no password handling, truthful elevation_required/blocked for headless/password-required, GUI pkexec success/cancel if available, invalid artifact rejection, dpkg failure repair_required/no restart, successful restart reports target version.'
+  ts: 1783712749680
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_u38wex
   executor_pane_id: 3abb6ea0
@@ -184,6 +327,40 @@ execution_attempts:
   reported_at: 1783657826194
   reviewed_at: null
   closed_at: 1783662844315
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_cue2jb
+  executor_pane_id: a106519d
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/linux-deb-auto-updater
+  worktree_path: D:/Developer/codeterm-worktrees/linux-deb-auto-updater
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783712697808
+    message: 'STATUS: in_review (short retry) — see full report; async-runtime preflight bounce fixed, committed f28d3e210, 17 debian_tests + 41 update:: green; remote Ubuntu oracle still blocked on v1.7.2 assets.'
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783710392766
+  reported_at: 1783712697808
+  reviewed_at: null
+  closed_at: 1783712759240
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

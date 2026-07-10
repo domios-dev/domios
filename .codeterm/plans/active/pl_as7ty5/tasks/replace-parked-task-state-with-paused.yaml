@@ -9,13 +9,13 @@ acceptance_criteria:
 test_plan: 'Oracle: focused task-state fixtures and CLI/API state render. 1. Create a paused task through the supported command with a reason; pass: state, API/CLI/UI serialization show paused and the reason. 2. Attempt pause without a reason; pass: validation rejects it. 3. Mark a dependency-waiting task pending; pass: it remains distinct from paused in state/filter/open-work output. 4. Seed each legacy parked record and run the explicit audit/conversion operation; pass: each becomes paused with an audit stride/reason and no parked state remains. 5. Run the focused planner/task tests discovered in ownership plus git diff --check and scripts/check-file-sizes.sh; pass: all exit 0. No heavy build.'
 correctness: Explicit paused semantics; no hidden parked alias; auditable conversion; pending is not repurposed; paused tasks cannot be dispatched or counted as heartbeat open work.
 status: in_review
-review_stage: review
-qa_state: null
+review_stage: qa
+qa_state: queued
 status_label: pane-gone
 priority: p0
 created_at: 1783675779631
-updated_at: 1783683423645
-status_changed_at: 1783683422612
+updated_at: 1783708044082
+status_changed_at: 1783708043291
 handle: replace-parked-task-state-with-paused
 tags:
 - 1.7.2
@@ -463,6 +463,79 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_jl0w5s
+  from:
+    pane_id: 5ed1fca8
+    session_id: eec52f51-584b-4809-9468-e6d06180e87a
+    title: Replace parked task state with paused
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: Verified and confirmed task-level parked->paused replacement is complete and correct. TaskStatus exposes Paused (not Parked) with required pause_reason; TaskStatus::counts_as_open_work excludes Paused so paused work is out of heartbeat/dispatch, while Pending remains dependency-waiting and dispatchable. pause_task validates non-empty reason (PlanError::TaskPauseRequiresReason, trims blank), guards terminal transitions, clears lane/pane assignment + closes active attempts, writes a paused milestone; resume_task returns task to Pending and clears pause_reason. plan.task.pause/resume RPC + CLI (--reason required) + API route error mapping wired through both codeterm-plan and src/service/plan crates. TS TaskStatus + mission-control/planView UI carry 'paused'. Remaining 'parked' strings are plan-mode (whole-effort park) and pane-state classifier axes -- out of task-state scope, deliberately untouched. Explicit auditable converter (scripts/convert-legacy-parked-tasks.py) with dry-run/apply, unique collision-checked monotonic audit IDs/timestamps, structure/comment-preserving edits, transactional staged replace with byte-exact rollback, TOCTOU drift guards, and OS-lock ownership; cutover runbook at docs/contributing/paused-task-cutover.md.
+    TESTS RUN: python -m unittest scripts.tests.test_convert_legacy_parked_tasks (34 pass, 1 Windows-elevated skip); converter dry-run on seeded fixture (valid audit_id+timestamp); tracked .codeterm parked-sidecar audit (none live remain); git diff --check (clean); scripts/check-file-sizes.sh --fail (pass, no file >1200; 2 pre-existing advisory mod.rs I did not touch); rustfmt --edition 2021 --check on 42 modified Rust files (exit 0). No cargo/build/dev/Playwright per no-heavy-build source-lane instruction.
+    DEFERRED: Live three-sidecar --apply (task_pes3i4, task_p6kh7f, task_sjhx4f) reserved for the old-parser-stop/new-parser-start cutover window since prod parser still accepts parked-only. Central QA owns focused planner/CLI/API/UI Rust+TS test runs.
+  ts: 1783707861083
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_9cuoi1
+  from:
+    pane_id: 5ed1fca8
+    session_id: eec52f51-584b-4809-9468-e6d06180e87a
+    title: Replace parked task state with paused
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: Verified and confirmed task-level parked->paused replacement is complete and correct. TaskStatus exposes Paused (not Parked) with required pause_reason; TaskStatus::counts_as_open_work excludes Paused so paused work is out of heartbeat/dispatch, while Pending remains dependency-waiting and dispatchable. pause_task validates non-empty reason (PlanError::TaskPauseRequiresReason, trims blank), guards terminal transitions, clears lane/pane assignment + closes active attempts, writes a paused milestone; resume_task returns task to Pending and clears pause_reason. plan.task.pause/resume RPC + CLI (--reason required) + API route error mapping wired through both codeterm-plan and src/service/plan crates. TS TaskStatus + mission-control/planView UI carry 'paused'. Remaining 'parked' strings are plan-mode (whole-effort park) and pane-state classifier axes -- out of task-state scope, deliberately untouched. Explicit auditable converter (scripts/convert-legacy-parked-tasks.py) with dry-run/apply, unique collision-checked monotonic audit IDs/timestamps, structure/comment-preserving edits, transactional staged replace with byte-exact rollback, TOCTOU drift guards, and OS-lock ownership; cutover runbook at docs/contributing/paused-task-cutover.md.
+    TESTS RUN: python -m unittest scripts.tests.test_convert_legacy_parked_tasks (34 pass, 1 Windows-elevated skip); converter dry-run on seeded fixture (valid audit_id+timestamp); tracked .codeterm parked-sidecar audit (none live remain); git diff --check (clean); scripts/check-file-sizes.sh --fail (pass, no file >1200; 2 pre-existing advisory mod.rs I did not touch); rustfmt --edition 2021 --check on 42 modified Rust files (exit 0). No cargo/build/dev/Playwright per no-heavy-build source-lane instruction.
+    DEFERRED: Live three-sidecar --apply (task_pes3i4, task_p6kh7f, task_sjhx4f) reserved for the old-parser-stop/new-parser-start cutover window since prod parser still accepts parked-only. Central QA owns focused planner/CLI/API/UI Rust+TS test runs.
+  ts: 1783707873516
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_47rk28
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: ACCEPT independent Opus review
+  text: ' implementation and source-lane review passed. Evidence: python -m unittest scripts.tests.test_convert_legacy_parked_tasks = 34 pass / 1 Windows-elevated skip; converter dry-run produced audit_id+timestamp; tracked .codeterm parked-sidecar audit found no live parked sidecars; git diff --check clean; scripts/check-file-sizes.sh --fail pass; rustfmt --edition 2021 --check on 42 modified Rust files exit 0. Deferred by design: live --apply for three sidecars remains for old-parser-stop/new-parser-start cutover; central QA still owns focused Rust/TS/build verification.'
+  ts: 1783708041691
+  links:
+  - key:78d3809cc3f987b4
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_spjsgo
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: qa
+  text: 'enqueue: QA-ready after independent Opus review: run focused Rust/TS task-state and converter/cutover verification in serialized central QA; do not repeat source-only review.'
+  ts: 1783708043291
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_kidchn
   executor_pane_id: 6e1a1761
@@ -748,6 +821,44 @@ execution_attempts:
   reported_at: 1783683405409
   reviewed_at: null
   closed_at: 1783683423645
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_uw32wr
+  executor_pane_id: 5ed1fca8
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/task-state-paused
+  worktree_path: D:/Developer/codeterm-worktrees/task-state-paused
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783707878278
+    message: |-
+      STATUS: done
+      CHANGES: Verified and confirmed task-level parked->paused replacement is complete and correct. TaskStatus exposes Paused (not Parked) with required pause_reason; TaskStatus::counts_as_open_work excludes Paused so paused work is out of heartbeat/dispatch, while Pending remains dependency-waiting and dispatchable. pause_task validates non-empty reason (PlanError::TaskPauseRequiresReason, trims blank), guards terminal transitions, clears lane/pane assignment + closes active attempts, writes a paused milestone; resume_task returns task to Pending and clears pause_reason. plan.task.pause/resume RPC + CLI (--reason required) + API route error mapping wired through both codeterm-plan and src/service/plan crates. TS TaskStatus + mission-control/planView UI carry 'paused'. Remaining 'parked' strings are plan-mode (whole-effort park) and pane-state classifier axes -- out of task-state scope, deliberately untouched. Explicit auditable converter (scripts/convert-legacy-parked-tasks.py) with dry-run/apply, unique collision-checked monotonic audit IDs/timestamps, structure/comment-preserving edits, transactional staged replace with byte-exact rollback, TOCTOU drift guards, and OS-lock ownership; cutover runbook at docs/contributing/paused-task-cutover.md.
+      TESTS RUN: python -m unittest scripts.tests.test_convert_legacy_parked_tasks (34 pass, 1 Windows-elevated skip); converter dry-run on seeded fixture (valid audit_id+timestamp); tracked .codeterm parked-sidecar audit (none live remain); git diff --check (clean); scripts/check-file-sizes.sh --fail (pass, no file >1200; 2 pre-existing advisory mod.rs I did not touch); rustfmt --edition 2021 --check on 42 modified Rust files (exit 0). No cargo/build/dev/Playwright per no-heavy-build source-lane instruction.
+      DEFERRED: Live three-sidecar --apply (task_pes3i4, task_p6kh7f, task_sjhx4f) reserved for the old-parser-stop/new-parser-start cutover window since prod parser still accepts parked-only. Central QA owns focused planner/CLI/API/UI Rust+TS test runs.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783707659375
+  reported_at: 1783707878278
+  reviewed_at: null
+  closed_at: 1783708044082
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

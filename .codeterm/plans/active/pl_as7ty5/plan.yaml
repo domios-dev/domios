@@ -118,7 +118,7 @@ owner:
 project_path: \\?\D:\Developer\codeterm
 canonical_project_path: \\?\D:\Developer\codeterm
 created_at: 1783628878496
-updated_at: 1783695009784
+updated_at: 1783712951183
 milestone_kinds:
 - key: discovery
   label: discovery
@@ -179,6 +179,27 @@ milestone_kinds:
   color: null
 - key: QA claimed after restore. Daemon proof passes
   label: QA claimed after restore. Daemon proof passes
+  color: null
+- key: BOUNCE from stale in_review
+  label: BOUNCE from stale in_review
+  color: null
+- key: BOUNCE from queued QA
+  label: BOUNCE from queued QA
+  color: null
+- key: ACCEPT independent Opus review
+  label: ACCEPT independent Opus review
+  color: null
+- key: ACCEPT integration report
+  label: ACCEPT integration report
+  color: null
+- key: ACCEPT parser contract report
+  label: ACCEPT parser contract report
+  color: null
+- key: ACCEPT implementation report
+  label: ACCEPT implementation report
+  color: null
+- key: BOUNCE integration
+  label: BOUNCE integration
   color: null
 loops:
 - id: loop_6c2hy7
@@ -510,9 +531,30 @@ owner_history:
     title: null
   ts: 1783694574504
   reason: handoff after fixed dev daemon restored pl_as7ty5 with 58 tasks
+- from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  to:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  ts: 1783707115895
+  reason: active orchestrator burn-down ownership
+- from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  to:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  ts: 1783709813495
+  reason: active orchestrator ownership; user requested visible self-attachment
 planner:
   kind: pane
-  pane_id: bc6cec17
+  pane_id: 8bb464bc
+  session_id: 00cb78a1-02f2-44ab-be1d-1839df09f673
 planning_state: approved
 planning_log:
 - from: drafting
