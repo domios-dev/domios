@@ -4,6 +4,7 @@ type: implement
 model: gpt-5.5
 model_rationale: 'Discovery task_2zzydz is accepted. Own src-tauri/crates/codeterm-types/src/plan/types.rs, src-tauri/crates/codeterm-plan/src/service_plan/next_actions.rs, state.rs, mutations/task_ops.rs and focused tests. Keep dependency waiting pending/waiting and distinct from parked; expose dependency metadata for canvas state. #230.'
 personality: Dijkstra
+personality_provenance: null
 acceptance_criteria:
 - 'Plan A in_progress with dependent B/C pending/waiting; explicit parked remains distinct; task creation defaults pending. Oracle: focused codeterm-plan tests plus seeded codeterm plan state pl_as7ty5 --json. Run .\build.ps1 check under 90s; all pass.'
 test_plan: Correctness requires machine-readable dependency waiting, no parked count/frontier loss, and unchanged explicit park semantics.

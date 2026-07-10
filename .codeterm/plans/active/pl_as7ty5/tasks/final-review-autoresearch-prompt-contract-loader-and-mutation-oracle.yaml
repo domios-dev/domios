@@ -4,6 +4,7 @@ type: review
 model: gpt-5.6-sol
 model_rationale: GPT-5.6 Sol is present in the discovered Codex catalog and fits a final independent review of nuanced prompt/evaluation contract evidence.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - The review establishes or rejects each narrow oracle against the specified commit with file/line evidence and returns a single ACCEPT or BOUNCE verdict without modifying the lane.
 test_plan: 'Oracle: non-daemon scripts and static review only. 1. Trace docs/PROMPTS.md loader claims to the split authoritative loader code; pass: each loader path and authority statement is accurate. 2. Run scripts/test-plan-strides-union-merge.sh and its controlled mutation-negative case; pass: the script consumes real merged input and fails under mutation. 3. Run deterministic F1-F10 exact/mutation fixture scripts; pass: expected outputs are exact and each controlled mutation is rejected. 4. Inspect prompt diff word/contract content; pass: concise authoritative requirements, no self-instructing bloat. 5. Diff LoopSpec/runtime-store surfaces; pass: no semantic changes. 6. Run git diff --check and scripts/check-file-sizes.sh. No daemon, cargo/build/dev, or Playwright. Return file/line findings and ACCEPT/BOUNCE.'

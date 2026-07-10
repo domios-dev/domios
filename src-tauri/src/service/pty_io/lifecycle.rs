@@ -286,7 +286,7 @@ impl ServiceContext {
             return self.chatbackend_close(&plugin_id, &session_id);
         }
         let pty_id = self.resolve_pty_id(pane_id)?;
-        self.pty.lock().remove(&pty_id);
+        kill_live_pane_pty(&mut self.pty.lock(), &pty_id)?;
         Ok(())
     }
 
@@ -343,5 +343,44 @@ impl ServiceContext {
             }
         })
         .await;
+    }
+}
+
+pub(crate) fn kill_live_pane_pty(
+    manager: &mut crate::pty::manager::PtyManager,
+    pty_id: &str,
+) -> Result<(), String> {
+    manager.kill(pty_id)
+}
+
+#[cfg(test)]
+mod kill_pane_pty_tests {
+    use std::collections::HashMap;
+
+    use super::kill_live_pane_pty;
+
+    #[test]
+    fn service_kill_pane_pty_helper_uses_kill_semantics() {
+        let mut manager = crate::pty::manager::PtyManager::new();
+        let (pty_id, session) = manager
+            .spawn(None, None, 80, 24, HashMap::new())
+            .expect("spawn default shell");
+
+        kill_live_pane_pty(&mut manager, &pty_id).expect("kill succeeds");
+
+        assert!(
+            manager.get_session(&pty_id).is_none(),
+            "service PTY kill must remove the manager entry"
+        );
+        let exited = session
+            .child
+            .lock()
+            .expect("child lock")
+            .try_wait()
+            .expect("try_wait after kill");
+        assert!(
+            exited.is_some(),
+            "service PTY kill must terminate/reap the child path via PtyManager::kill"
+        );
     }
 }

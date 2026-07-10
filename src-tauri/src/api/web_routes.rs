@@ -3,16 +3,16 @@
 //! these), plus the SSE event stream that replaces Tauri event emits.
 
 use axum::{
-    Json,
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
     response::sse::{Event, KeepAlive, Sse},
+    Json,
 };
 use futures_core::Stream;
 use serde::Deserialize;
 use std::time::{Duration, SystemTime};
 
-use crate::api::routes::{AppState, check_auth};
+use crate::api::routes::{check_auth, AppState};
 
 pub use crate::api::web_plugin_routes::plugin_ui;
 

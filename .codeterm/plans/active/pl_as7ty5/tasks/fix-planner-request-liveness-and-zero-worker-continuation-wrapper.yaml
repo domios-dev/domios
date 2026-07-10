@@ -4,6 +4,7 @@ type: implement
 model: gpt-5.6-sol
 model_rationale: GPT-5.6 Terra is the discovered default and is appropriate for a cross-cutting P0 routing, durable-state, and recovery contract.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - Dead Planner sends return agent_unavailable without shell injection, retain a durable request, and replay it exactly once after a live replacement rehydrates the plan.
 test_plan: 'Oracle: deterministic dead-Planner routing regression. 1. Bind a Planner/Manager then make its agent exit into PowerShell; pass: routing marks planner_dead and the binding is stale despite a live pane/PTY. 2. Send the exact multiline model-audit payload containing bullets, backticks, and <nonexistent>; pass: structured agent_unavailable, zero shell input/parser errors, and one durable queued request with full payload. 3. Trigger bounded Planner replacement/rebind; pass: replacement rehydrates plan id, owner, goal/spec/sections, all task IDs, strides, and recent decisions before delivery. 4. Replay; pass: queued request reaches chat exactly once and becomes completed, with no duplicate plan mutation/report/reindex/move/adoption/task. 5. Repeat against bash/zsh fallback. 6. Assert orchestrator status shows planner_dead, undelivered count, and recovery action. 7. Run focused Rust/TypeScript routing fixtures discovered from ownership plus git diff --check and scripts/check-file-sizes.sh; pass: all exit 0. Windows fixture must preserve all 36 pre-existing task IDs and strides.'
