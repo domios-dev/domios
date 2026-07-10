@@ -34,10 +34,8 @@ fn record_respawn_attempt_and_persist_identity(
     draft: &crate::service::plan::task_attempts::TaskRespawnDraft,
     title: &str,
     now_ms: u64,
-) -> Result<
-    crate::service::plan::task_attempts::TaskAttemptCreated,
-    crate::service::plan::PlanError,
-> {
+) -> Result<crate::service::plan::task_attempts::TaskAttemptCreated, crate::service::plan::PlanError>
+{
     let created = state.svc.plan_store.record_task_respawn_attempt(
         plan_id,
         task_id,

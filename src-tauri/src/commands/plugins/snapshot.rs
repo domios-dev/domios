@@ -119,11 +119,10 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
         // Static manifest flag; the live "waiting on reload now" signal is `pending_reload`, set by build_snapshot.
         obj.insert(
             "requires_reload".into(),
-            serde_json::json!(
-                m.get("requiresReload")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false)
-            ),
+            serde_json::json!(m
+                .get("requiresReload")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)),
         );
         if let Some(schema) = settings_schema {
             obj.insert("settings_schema".into(), schema);
@@ -387,12 +386,10 @@ mod tests {
             entry["homepage"],
             serde_json::json!("https://example.com/demo")
         );
-        assert!(
-            entry["readme_markdown"]
-                .as_str()
-                .unwrap()
-                .contains("Useful docs here.")
-        );
+        assert!(entry["readme_markdown"]
+            .as_str()
+            .unwrap()
+            .contains("Useful docs here."));
         assert_eq!(
             entry["capabilities"]["status_bubble"],
             serde_json::json!(true)
