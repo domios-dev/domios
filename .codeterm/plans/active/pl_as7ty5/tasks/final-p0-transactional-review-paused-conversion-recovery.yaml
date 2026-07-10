@@ -1,0 +1,119 @@
+id: task_ooyjeh
+name: Final P0 transactional review paused conversion recovery
+type: review
+model: gpt-5.6-sol
+model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and is appropriate for final P0 review of transactional migration failure and recovery semantics.
+personality: null
+acceptance_criteria:
+- All last-BOUNCE transactional and preserved lifecycle invariants are independently verified or reported with file/line evidence in a separate ACCEPT or BOUNCE report, with no lane mutation.
+test_plan: 'Oracle: exactly 15 converter tests, focused adversarial probes, and static checks. 1. Run all 15 converter tests; pass: duplicate lifecycle keys and malformed/mismatched audits reject, full-batch staging detects source drift, and idempotency/invariants pass. 2. Inject replacement/fsync failure at positions 1, 2, and 3; pass: durable journal plus byte-exact backups restore every original input. 3. Force rollback failure fixture; pass: rollback_failed is truthful, durable, and recoverable on next invocation. 4. Run exact dry-run/cutover validation for task_pes3i4, task_p6kh7f, task_sjhx4f; pass: safe three-record procedure and no writes. 5. Static-scan CLI manifest and production lifecycle; pass: zero parked surfaces. 6. Run git diff --check and scripts/check-file-sizes.sh. No cargo build/dev/Playwright/live conversion. Submit separate file/line ACCEPT/BOUNCE.'
+correctness: Transactionally safe conversion; complete byte-exact rollback; truthful recoverable rollback failure; no parked production lifecycle; safe cutover.
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p0
+created_at: 1783680443051
+updated_at: 1783680739016
+status_changed_at: 1783680738053
+handle: final-p0-transactional-review-paused-conversion-recovery
+tags:
+- 1.7.2
+section_ids:
+- sec_d52ka9
+body: 'Final P0 read-only transactional review of corrected task_yxlkl8 in D:/Developer/codeterm-worktrees/task-state-paused. Do not edit source, commit, build, start dev, run Playwright, or apply live conversion. Recheck only the last BOUNCE plus preserved prior invariants: reject duplicate lifecycle keys and malformed/mismatched audits; full-batch staging/source-drift detection; durable journal and byte-exact backups; replacement/fsync failure at positions 1/2/3 restores every input; rollback_failed is truthful and recoverable; CLI has zero parked lifecycle surfaces; and exact three-record cutover remains safe. Run 15 converter tests, focused adversarial probes, and static checks. Return a separate severity-ranked ACCEPT or BOUNCE with file/line evidence.'
+role_guidance: 'You are an independent final P0 read-only transactional reviewer. Verify only failure/recovery, cutover, and residual lifecycle invariants. Red line: no edits, commits, build, dev, Playwright, or live conversion.'
+executor_role: code-reviewer
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:/Developer/codeterm-worktrees/task-state-paused
+  branch: lane/task-state-paused
+  base: origin/develop
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: planner-correctness
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_9ee28o
+  from:
+    pane_id: fa6e72b0
+    session_id: 019f4ba3-f300-7bb3-9ae5-3a6e5fac7108
+    title: Final P0 transactional review paused conversion recovery
+  kind: status_update
+  text: 'STATUS: done | CHANGES: none (read-only review); BOUNCE P0: write_all checks each source only during per-file staging, then enters replacement without a final full-batch revalidation; deterministic temp-fixture probe changed file 1 after its check and before replacement, conversion committed and erased drift. | TESTS RUN: exactly 15 converter unittest tests passed; replace/fsync failures positions 1/2/3 rollback passed; rollback_failed truthful + next-invocation recovery passed; exact 3-record live-sidecar dry-run passed with unchanged SHA-256; CLI parked-surface scan passed; git diff --check passed; scripts/check-file-sizes.sh --fail passed. No build/dev/Playwright/live conversion.'
+  ts: 1783680714252
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_8i9qc0
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Final transactional review completed with BOUNCE; close review objective and return one TOCTOU remediation to task_yxlkl8.
+  ts: 1783680737215
+  links:
+  - key:dc71c585db7426a7
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_f0j4c0
+  executor_pane_id: fa6e72b0
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/task-state-paused
+  worktree_path: D:/Developer/codeterm-worktrees/task-state-paused
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783680714604
+    message: 'STATUS: done | CHANGES: none (read-only review); BOUNCE P0: write_all checks each source only during per-file staging, then enters replacement without a final full-batch revalidation; deterministic temp-fixture probe changed file 1 after its check and before replacement, conversion committed and erased drift. | TESTS RUN: exactly 15 converter unittest tests passed; replace/fsync failures positions 1/2/3 rollback passed; rollback_failed truthful + next-invocation recovery passed; exact 3-record live-sidecar dry-run passed with unchanged SHA-256; CLI parked-surface scan passed; git diff --check passed; scripts/check-file-sizes.sh --fail passed. No build/dev/Playwright/live conversion.'
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783680459236
+  reported_at: 1783680714604
+  reviewed_at: null
+  closed_at: 1783680738053
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

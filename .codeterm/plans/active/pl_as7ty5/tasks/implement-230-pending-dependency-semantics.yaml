@@ -1,0 +1,52 @@
+id: task_6c6nax
+name: 'Implement #230 pending dependency semantics'
+type: implement
+model: gpt-5.5
+model_rationale: 'Discovery task_2zzydz is accepted. Own src-tauri/crates/codeterm-types/src/plan/types.rs, src-tauri/crates/codeterm-plan/src/service_plan/next_actions.rs, state.rs, mutations/task_ops.rs and focused tests. Keep dependency waiting pending/waiting and distinct from parked; expose dependency metadata for canvas state. #230.'
+personality: Dijkstra
+acceptance_criteria:
+- 'Plan A in_progress with dependent B/C pending/waiting; explicit parked remains distinct; task creation defaults pending. Oracle: focused codeterm-plan tests plus seeded codeterm plan state pl_as7ty5 --json. Run .\build.ps1 check under 90s; all pass.'
+test_plan: Correctness requires machine-readable dependency waiting, no parked count/frontier loss, and unchanged explicit park semantics.
+correctness: 'You are Dijkstra, a Rust plan-state engineer. Own only the named plan type/service files; red line: normal sequencing must never be parked.'
+status: cancelled
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783631777648
+updated_at: 1783631831469
+status_changed_at: 1783631831469
+handle: implement-230-pending-dependency-semantics
+tags: []
+section_ids:
+- sec_rlqrqc
+body: 'Discovery task_2zzydz is accepted. Own src-tauri/crates/codeterm-types/src/plan/types.rs, src-tauri/crates/codeterm-plan/src/service_plan/next_actions.rs, state.rs, mutations/task_ops.rs and focused tests. Keep dependency waiting pending/waiting and distinct from parked; expose dependency metadata for canvas state. #230. Branch/worktree: D:/Developer/codeterm-worktrees/plan-dependency-230; branch lane/plan-dependency-230; base undefined.'
+role_guidance: origin/develop
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/plan-dependency-230
+  branch: lane/plan-dependency-230
+  base: undefined
+  destination: null
+  cleanup_status: done
+  cleanup_hints:
+  - Duplicate of pre-existing task_p2rngf with identical writer ownership; preserve task_p2rngf.
+taken_by_role: null
+peer: null
+group: planner-correctness
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+park_reason: null
+attachments: []

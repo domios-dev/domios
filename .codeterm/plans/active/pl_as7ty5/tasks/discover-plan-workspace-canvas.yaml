@@ -1,0 +1,616 @@
+id: task_2y4p6q
+name: Map first-class workspace Plan tab and canvas architecture
+type: planning
+model: gpt-5.5
+model_rationale: Codex gpt-5.5 is the strongest available Codex option for high-risk planner-state and UX architecture synthesis.
+personality: Lamport
+acceptance_criteria:
+- Names verified files, components, state owners, API commands, event names, and identity fields for workspace tabs and planner state.
+- Defines one recommended first-class tab/canvas lifecycle and rejects duplicate planner state.
+- Provides exact UI test surfaces/selectors or identifies where they must be introduced.
+- Reports the role-binding mismatch with command, timestamp, output, severity/blast radius, and a bounded regression proposal if admitted.
+test_plan: |-
+  Oracle: a reviewer can trace plan creation/change to its visible workspace tab without guessing.
+  1. Run rg -n "workspace|tab|plan|canvas|plan-changed" src src-tauri and inspect every cited definition/call site; pass: every proposed path and symbol exists.
+  2. Run git -C D:/Developer/codeterm-worktrees/release-1.7.2-integration rev-parse origin/develop; pass: report records the commit baseline.
+  3. Inspect existing Playwright helpers and relevant specs under tests/playwright; pass: report identifies exact selector or testid candidates and the platform coverage boundary.
+  4. Run codeterm plan state pl_as7ty5 --json and capture the planner binding plus the pane environment mismatch; pass: role defect evidence is reproducible or explicitly marked transient.
+correctness: Correctness requires a real authoritative-state flow and a testable UI lifecycle, not a visual mockup or an invented routing path.
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783629620402
+updated_at: 1783630158875
+status_changed_at: 1783630149672
+handle: discover-plan-workspace-canvas
+tags: []
+section_ids:
+- sec_ga5tvr
+- sec_oi6846
+- sec_f6g3fr
+- sec_h9tsba
+body: Read-only planning task on fresh origin/develop integration checkout. Trace how a workspace owns tabs, how Plan/canvas data is loaded and live-updated, and why a Plan present in a workspace is absent as a tab. Identify exact React and Rust/API entry points, authoritative IDs, event subscriptions, loading/error/empty states, route/navigation behavior, stable selector opportunities, and cross-workspace constraints. Also classify the observed CODETERM_ROLE=Orchestrator despite planner binding to pane e88e18c8 as a reproducible role-routing correctness item with exact evidence.
+role_guidance: 'You are Lamport, a frontend state-architecture researcher. Trace the real workspace, tab, canvas, and planner event graph before proposing a change. Red line: proposing a second plan store or guessed component path fails the task.'
+executor_role: frontend-architecture-researcher
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/release-1.7.2-integration
+  branch: release/1.7.2-integration
+  base: origin/develop
+  destination: null
+  cleanup_status: deferred
+  cleanup_hints:
+  - Shared release/1.7.2-integration worktree remains the active integration and QA checkout until release closeout; remove once all implementation branches are merged and v1.7.2 is published.
+taken_by_role: null
+peer: null
+group: Discovery
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_poz6rd
+  from:
+    pane_id: 954510a9
+    session_id: 019f489e-8557-7ca2-8ae0-999fbb76c96b
+    title: Lamport
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: Read-only architecture trace completed; no files changed. Mapped workspace tab ownership, virtual workspace Plan entry/canvas lifecycle, Rust/API plan event graph, Playwright selector surfaces, and planner-resolution correctness issue.
+    TESTS RUN: git rev-parse origin/develop; rg workspace/tab/plan/canvas/plan-changed over src src-tauri tests/playwright; codeterm plan state pl_as7ty5 --json; codeterm pane status --pane 954510a9; codeterm pane status --pane e88e18c8; codeterm pane list filtered for 954510a9/e88e18c8/4c17f607.
+  ts: 1783629897502
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_doh9hc
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: BOUNCE first report; missing concrete symbol/file map, tab lifecycle/event flow, UI state/selectors, and role-binding regression proposal. Same worker asked for complete read-only evidence report.
+  ts: 1783629957794
+  links:
+  - key:25db185243f46f7b
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_m7pj9j
+  from:
+    pane_id: 954510a9
+    session_id: 019f489e-8557-7ca2-8ae0-999fbb76c96b
+    title: Lamport
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: Read-only second architecture report; no files edited.
+
+    BASELINE
+    - git rev-parse origin/develop: 0ba27f17dd663feec3c263e2f44923e366fb5a4e.
+    - Fresh checkout cwd: D:/Developer/codeterm-worktrees/release-1.7.2-integration.
+
+    WORKSPACE TAB OWNERSHIP
+    - Backend authoritative workspace/tab structs: src-tauri/crates/codeterm-pty/src/multiplexer/types.rs
+      - Workspace { id, name, tabs: Vec<Tab>, active_tab_id, cwd, protected, sort_order }.
+      - Tab { id, description, pane_id, sort_order }.
+      - Pane { id, role, parent_pane_id, pending_paired_planner_pane_id, hidden, show_in_tabbar, ... }.
+    - Backend state methods:
+      - src-tauri/crates/codeterm-pty/src/multiplexer/state/tab.rs owns tab create/lookup/close/focus mutations.
+      - src-tauri/crates/codeterm-pty/src/multiplexer/state/workspace.rs owns workspace create/focus/close/rename/move-tab/list.
+      - src-tauri/crates/codeterm-pty/src/multiplexer/state/reorder.rs owns reorder_tabs/reorder_workspaces.
+    - HTTP routes:
+      - src-tauri/src/api/routes.rs registers /api/workspaces, /api/workspaces/{id}/tabs, focus/close/rename/move/reorder.
+      - src-tauri/src/api/workspace_routes.rs implements list_workspaces, create_workspace, focus_workspace, create_tab, close_tab, rename_tab, move_tab, reorder_tabs, reorder_workspaces.
+    - Frontend mirror/store:
+      - src/store/multiplexer/reducer.ts SET_STATE treats backend as authoritative for workspaces/panes/active_tab_id, then derives activeTabIds.
+      - reducer ADD_TAB/CLOSE_TAB/SET_ACTIVE_TAB/MOVE_TAB mutate frontend state while backend events catch up.
+      - Only OPEN_SESSION_PICKER injects a frontend-only virtual tab; Plan is not injected there.
+      - src/store/multiplexer/tree.ts injectVirtualTabs preserves only virtual picker tabs across backend snapshots.
+    - Sidebar rendering:
+      - src/components/Sidebar/Sidebar.tsx passes workspace, activeTabIds, panes, planIndex, fullPlans into SidebarWorkspaceTabs.
+      - src/components/Sidebar/SidebarWorkspaceTabs.tsx renders WorkspacePlanTreeSlot first, then real pane tabs via topLevelTabsInWorkspace/sortable rows.
+      - src/components/Sidebar/workspaceTabs.ts defines topLevelTabsInWorkspace, childTabsForParent, flattenSidebarTabs, paneIdsInWorkspace, childPaneIdsInWorkspace.
+
+    WHY PLAN IS PRESENT BUT ABSENT AS A TAB
+    - A Plan is not a Workspace.tabs[] entry because Workspace.tabs[] is one Tab per Pane. Plan has no pane_id and is not backend multiplexer state.
+    - The sidebar Plan row is synthesized from planner index state:
+      - src/components/Canvas/workspacePlanEntry.ts deriveWorkspacePlanEntries(index, workspace, panes).
+      - It filters active plans, then planBelongsToWorkspacePath(entry, workspace), then hasWorkspacePlanContent(entry).
+      - planBelongsToWorkspacePath checks entry.file_path under workspace.cwd/.codeterm/plans/**, including active/archive plan.json.
+      - hasWorkspacePlanContent requires task_count/section_count/element_count/loop_count/has_goal/assigned_pane_ids.
+    - Therefore a workspace can own a visible Plan row from .codeterm/plans without having any new Tab in Workspace.tabs[]. This is current design, not missing reducer state.
+
+    AUTHORITATIVE PLAN STATE AND API SYMBOLS
+    - Plan storage crate: src-tauri/crates/codeterm-plan/src/service_plan/**.
+    - Plan data types: src-tauri/crates/codeterm-plan/src/plan/types.rs and src-tauri/crates/codeterm-types/src/plan/types.rs.
+    - Plan state snapshot: src-tauri/crates/codeterm-plan/src/service_plan/state.rs
+      - build_plan_state_snapshot(...)
+      - PlanStateSnapshot fields: plan_id, title, status, mode, planning_state, owner, planner, planner_resolution, task_counts, coverage, lanes, live_agents, next_actions.
+    - REST routes: src-tauri/src/api/routes.rs
+      - GET/POST /api/plans -> plan_routes::list/create
+      - GET/PATCH/DELETE /api/plans/{id} -> get/update/delete_plan
+      - GET /api/plans/{id}/state -> state
+      - GET /api/plans/{id}/next -> next
+      - POST /api/plans/{id}/sections, /tasks, /layout, /mode, /archive, /unarchive, /pause, /resume, /claim, /disown, etc.
+      - POST /api/canvas/focus -> task_routes::canvas_focus
+    - REST handlers:
+      - src-tauri/src/api/plan_routes/plans.rs create/list/get/state/update/mode_set/delete/archive/unarchive/pause/resume/transfer/disown/claim/kinds_set/tag_facets_set.
+      - src-tauri/src/api/plan_routes/tasks.rs task_add/task_update/task_assign/task_close/task_rm/task_respawn/task_attempts.
+      - src-tauri/src/api/plan_routes/elements.rs layout_set/element_add/element_update/groups_set/note_add/etc.
+      - src-tauri/src/api/task_routes.rs list/show/take/drop_task/add/canvas_focus.
+    - Socket/CLI RPC parallels:
+      - src-tauri/src/socket/server/plan.rs emits plan-changed and handles plan RPC commands.
+      - src-tauri/src/socket/server/plan_task_rpc.rs, plan_task_dispatch.rs, plan_elements.rs, plan_goal.rs, plan_mode.rs, plan_archive.rs, plan_lifecycle.rs, canvas.rs mirror CLI/socket flows.
+
+    FRONTEND PLAN/CANVAS STATE OWNERS
+    - API client: src/components/Canvas/plansApi.ts
+      - fetchPlan(api, planId), fetchPlanIndex(api), fetchPlans(api, { project }), createPlan, patchPlanLayout, archivePlan, unarchivePlan, parkPlan, resumePlan, renamePlan, claimPlan.
+      - PlanIndexEntry fields: plan_id, file_path, owner, title, status, updated_at, assigned_pane_ids, task_count, open_task_count, section_count, element_count, loop_count, has_goal.
+    - Provider/index owner: src/components/Canvas/PlansProvider.tsx
+      - PlansProvider owns lightweight index and reference-counted full plan loading.
+      - usePlanIndex/usePlanIndexOptional expose index loading/reconnecting/error/refetch.
+      - useFullPlans/useFullPlansOptional expose full plan bodies.
+      - useCanvasPlans(mode, projectPath) acquires full plan data, with workspace project scoping when mode == workspace.
+    - Full-plan hook: src/components/Canvas/usePlans.ts
+      - useResilientQuery(fetchPlans(...)) owns loading/reconnecting/error/refetch.
+      - plan-changed with plan_id calls patchPlan(plan_id) -> fetchPlan and replace/append; without plan_id refetches.
+      - plans-loaded refetches.
+    - Canvas open/focus state: src/components/Canvas/canvasFocusStore.ts
+      - canvasFocusStore.openWorkspace(target), closeWorkspace(), toggleWorkspace(), getWorkspaceTarget(), markPulse/clearPulse.
+      - useCanvasWorkspaceOpen/useCanvasWorkspaceTarget expose external store state.
+    - Workspace Plan entry:
+      - src/components/Sidebar/WorkspacePlanEntry.tsx WorkspacePlanTreeSlot uses deriveWorkspacePlanEntries + useFullPlansOptional + selectActiveWork.
+      - WorkspacePlanEntry renders data-testid workspace-plan-entry, title/hint/badges, and calls openWorkspacePlanForEntries(entries).
+    - Canvas shell:
+      - src/components/Canvas/PlanViewShell.tsx owns persisted mode via localStorage key codeterm.planViewMode.
+      - Renders Board/List/Canvas surfaces and data-testid plan-view-shell with data-plan-view-mode.
+    - Canvas view:
+      - src/components/Canvas/CanvasView.tsx CanvasView uses useCanvasPlans(mode, projectPath), workspaceTarget, mux state, and renders PlanViewShell.
+      - CanvasViewInner filters plans, builds layout, subscribes to canvas-focus, renders loading/error/empty/data surfaces.
+
+    PROPOSED STABLE FIRST-CLASS TAB IDENTITY/LIFECYCLE
+    - Do not add a second plan store. PlanStore/.codeterm/plans remains authoritative.
+    - Treat the Plan row as a first-class virtual navigation tab within the workspace, but derive it from the existing plan index.
+    - Stable identity should be workspace-scoped and deterministic: virtual id workspace-plan:${workspace.id} for aggregate row; workspace-plan:${workspace.id}:${plan_id} if per-plan tab semantics are required.
+    - It should not be persisted into backend Workspace.tabs[] unless the multiplexer type is explicitly widened beyond pane tabs. Current Tab requires pane_id, so storing Plan there would force fake pane ids and duplicate state.
+    - Lifecycle:
+      1. Plan mutation writes PlanStore only.
+      2. Backend emits plan-changed { plan_id }.
+      3. PlansProvider refetches index; usePlans patches/refetches full plans.
+      4. deriveWorkspacePlanEntries maps index rows to owning workspace by file_path under workspace.cwd/.codeterm/plans.
+      5. WorkspacePlanTreeSlot renders the stable virtual Plan row before real tabs.
+      6. Click sets active workspace then calls openWorkspacePlanForEntries -> canvasFocusStore.openWorkspace({ planId? }).
+      7. App renders CanvasView mode=workspace while workspaceCanvasVisible is true.
+      8. Real tab activation hides/deactivates workspace canvas and tab highlight returns to Workspace.tabs[].
+    - This rejects duplicate planner state: no separate planner tab table, no fake pane, no second store for plan visibility. If durable selection is needed, persist only UI nav selection (workspace-plan:${workspace.id}) in frontend/main-view state, not plan content.
+
+    EVENT/SUBSCRIPTION FLOW
+    - Mutation sources:
+      - REST plan_routes::* call emit_plan_changed(&state, &id) in src-tauri/src/api/plan_routes/mod.rs.
+      - REST task_routes::{take,drop_task,add} emit plan-changed in src-tauri/src/api/task_routes.rs.
+      - socket/server plan modules call emit_plan_changed(app, &id).
+      - service-level plan_reconcile/sink_impl/spawn_plan_task/orchestrator spawn paths also emit plan-changed.
+    - Event names:
+      - plan-changed payload { plan_id }
+      - plans-loaded payload {}
+      - canvas-focus payload { task_id, pane_id, plan_id }
+    - Frontend listeners:
+      - PlansProvider listens plan-changed/plans-loaded to refetch index.
+      - usePlans listens plan-changed/plans-loaded to patch one plan or refetch full list.
+      - CanvasViewInner listens canvas-focus and calls resolveCanvasFocusNodeIds + focusOnNodes.
+    - Startup load guard:
+      - plan_routes::list returns 503 “plans are still loading; retry shortly” when no project query and svc.plans_startup_loaded() is false.
+      - useResilientQuery exposes loading/reconnecting/error around this.
+
+    LOADING / ERROR / EMPTY / ORPHAN STATES
+    - Index loading/error:
+      - PlansProvider exposes indexLoading/indexReconnecting/indexError. Sidebar currently consumes planIndexOptional but does not render an explicit Plan-index error row.
+    - Full plan loading/error:
+      - usePlans exposes loading/reconnecting/error.
+      - CanvasViewInner computes showsData = planFetchShowsData(loading, error, plans.length).
+      - PlanFetchErrorState is rendered with testId canvas-fetch in CanvasView.tsx.
+      - PlanFetchReconnectingBanner is rendered with testId canvas-reconnecting.
+      - Empty: CanvasViewInner renders data-testid canvas-empty with “No active plans yet.” and CanvasEmptyActions when mode=workspace and api exists.
+    - Orphan/unowned behavior:
+      - fetchUnownedPlanIndex in plansApi.ts calls /api/plans?unowned=1.
+      - CanvasView renders CanvasUnownedTray when api && mode === workspace, using claimOwner derived from orchestratorPaneId/filteredPlans/focusedPaneId.
+      - WorkspacePlanEntry does not show unowned plans unless file_path belongs to workspace and has content; unowned is claimable from canvas tray, not a tab.
+    - Cross-workspace/orphan execution metadata:
+      - src/components/Canvas/planWorkspaceScope.ts derivePlanWorkspaceScope maps owner/participants from workspace tabs by pane_id and task.lane workspace metadata.
+      - isCrossWorkspace is true when participant workspaces > 1.
+
+    CANVAS RELATIONSHIP
+    - The canvas is one view mode under PlanViewShell, not the plan store.
+    - PlanViewShell renders three surfaces using the same PlanViewSurfaceProps:
+      - board: src/components/Canvas/planView/PlanBoardView.tsx data-testid plan-board-view.
+      - list: src/components/Canvas/planView/PlanListView.tsx.
+      - canvas: src/components/Canvas/missionControl/MissionControlPlanSurface.tsx and CanvasViewInner/CanvasWorldCanvas for spatial rendering.
+    - CanvasViewInner builds filteredPlans, layoutWorkspace/plansForLayout, scene, lookups, presence overlays, minimap, toolbar, tag legend, detail overlay.
+    - Canvas relationship to workspace tab nav: workspace Plan row opens CanvasView mode=workspace; real pane PlanButton can open focus mode with planId/orchestratorPaneId/focusPaneId.
+
+    CROSS-WORKSPACE BEHAVIOR
+    - Sidebar ownership is path-based: plan file_path must be under workspace.cwd/.codeterm/plans/**.
+    - Full canvas fetch is project-scoped by active workspace cwd unless allPlans is enabled in CanvasView.
+    - derivePlanWorkspaceScope can show participant labels from task lane metadata or assigned pane workspace mapping.
+    - openPlanDeepLink(planId, taskId, ctx) in workspacePlanEntry.ts finds owner workspace by index file_path, switches active workspace, then opens workspace canvas focused on the task.
+    - Real pane reveal from canvas uses revealAssignedAgentPane in src/components/Canvas/planRevealAgentPane.ts via CanvasView onOpenPane.
+
+    ROUTE/NAVIGATION BEHAVIOR
+    - App integration: src/App.tsx imports CanvasView and canvasFocusStore hooks.
+    - It computes workspaceCanvasOpen/useCanvasWorkspaceOpen and workspaceCanvasVisible from mainView/workspace/plugin/active tab conditions.
+    - Sidebar receives workspaceCanvasActive to suppress real tab highlight when Plan surface is active.
+    - src/components/Sidebar/sidebarSelection.ts:
+      - isWorkspacePlanEntryActive(workspaceIsActiveVisual, workspaceCanvasActive) => both true.
+      - isWorkspaceTabActive returns false if workspaceCanvasActive.
+    - Keyboard tab cycling in Sidebar.tsx includes the virtual plan item via buildSidebarCycleItems(ws.tabs, panes, entries.length > 0); if next.kind === plan it calls openWorkspacePlanForEntries(entries), otherwise setActiveTab.
+
+    PLAYWRIGHT SELECTORS AND SPECS
+    - Existing selectors in code:
+      - src/components/Sidebar/WorkspaceItem.tsx: data-testid workspace-item, data-workspace-id.
+      - src/components/Sidebar/WorkspacePlanEntry.tsx: data-testid workspace-plan-entry, data-workspace-action=plan, data-pinned=true, data-active, workspace-plan-title, workspace-plan-hint, sidebar-inflight-badge.
+      - src/components/Sidebar/TabItem.tsx: data-testid tab-item, data-tab-id.
+      - src/components/Canvas/PlanViewShell.tsx: data-testid plan-view-shell, data-plan-view-mode, plan-view-close.
+      - src/components/Canvas/CanvasView.tsx: canvas-view, canvas-reconnecting, canvas-fetch, canvas-empty, canvas-world-layer, canvas-change-marker.
+      - src/components/Canvas/planView/PlanBoardView.tsx: plan-board-view.
+    - Direct spec:
+      - tests/playwright/suites/13-canvas/workspace-plan-entry.spec.ts creates temp workspace + plan, adds section/task, focuses workspace, opens web page, asserts workspace-plan-entry visible/active, plan-view-shell visible, plan-board-view visible, then clicking a real tab hides plan shell.
+    - Supporting helpers:
+      - tests/playwright/helpers/canvas-inspect.ts uses workspace-item, workspace-plan-entry, plan-view-shell, canvas-empty.
+      - tests/playwright/helpers/canvas-web-page.ts opens isolated canvas web page and waits for plan/canvas/workspace selectors.
+      - tests/playwright/helpers/dev-console.ts defines platform boundary: Windows connects over CDP to real WebView2 desktop app; macOS/Linux launch Chromium web-mode against dev web client.
+    - Existing coverage around modes/states:
+      - tests/playwright/suites/13-canvas/plan-view-mode.spec.ts checks data-plan-view-mode transitions and board/list/canvas visibility.
+      - canvas-reconnecting-banner.spec.ts checks canvas/board/list reconnecting banners.
+      - mission-control-flow.spec.ts checks canvas mode and plan-view-shell.
+      - plan-detail-overlay.spec.ts uses plan-view-shell + mode + board/detail selectors.
+    - Selector improvement required for stable first-class tab identity:
+      - Add data-workspace-id and data-plan-id/data-plan-ids to workspace-plan-entry, or data-virtual-tab-id=workspace-plan:${workspace.id}. Current tests scope through div:has([data-workspace-id]) [data-testid=workspace-plan-entry], which is usable but indirect.
+
+    ROLE / PLANNER BINDING DEFECT REPRODUCTION
+    - Timestamp captured: 2026-07-09T23:44:18.4329929+03:00.
+    - Commands and evidence:
+      - PowerShell env probe returned CODETERM_ROLE=Worker, CODETERM_PANE_ID=954510a9, CODETERM_WORKSPACE_ID empty in this shell output.
+      - codeterm plan state pl_as7ty5 --json returned:
+        - lane task_2y4p6q “Map first-class workspace Plan tab and canvas architecture” pane_id=954510a9 status=in_progress liveness=working.
+        - planner { kind: pane, pane_id: e88e18c8 }.
+        - planner_resolution { bound_pane_id: e88e18c8, kind: orchestrator_fallback, reason: “planner pane e88e18c8 not live” }.
+        - owner pane_id=4c17f607.
+      - codeterm pane status --pane 954510a9 returned pane 954510a9, agent codex, title Lamport, status Working.
+      - codeterm pane status --pane e88e18c8 returned pane e88e18c8, agent codex, title planner ready, status Idle.
+      - codeterm pane list showed hierarchy under workspace codeterm: 4c17f607 ship 1.7.2; child 954510a9 Lamport; child e88e18c8 planner ready.
+    - Classification:
+      - The specific prompt claim “observed CODETERM_ROLE=Orchestrator despite planner binding to pane e88e18c8” did NOT reproduce in this shell; this pane reported Worker.
+      - Reproducible correctness defect found: PlanState planner_resolution says bound planner pane e88e18c8 is not live and falls back to orchestrator, while pane status/list show e88e18c8 exists and is Idle. This can misroute planner peer decisions/status and hide a valid planner binding.
+    - Severity/blast radius:
+      - Medium. Affects planner-peer routing/status, plan state truthfulness, UI/CLI diagnosis, and any automation that treats planner_resolution.kind=orchestrator_fallback as permission to route planner work to owner pane.
+    - Bounded fix proposal:
+      - Inspect src-tauri/crates/codeterm-plan/src/plan/peer.rs resolve_planner_ref and the live_agent_panes set passed by service build_plan_state.
+      - Ensure planner pane existence and “live pane” are separated. A pane that exists but is Idle should not resolve as “not live” if the contract is binding presence rather than active Working state.
+      - If resolution truly means “live agent process” not “pane exists,” change reason/kind to avoid saying “not live” when pane status is Idle and present.
+    - Regression proposal:
+      - Rust unit/service test: construct mux with owner 4c17f607 and planner pane e88e18c8 present/Idle, plan.planner=PlannerRef::Pane(e88e18c8), build_plan_state, assert planner_resolution.bound_pane_id=e88e18c8 and kind is planner-bound/pane-bound, not orchestrator_fallback.
+      - Add negative test: planner ref points to absent pane -> orchestrator_fallback with reason “planner pane <id> not found/not live” remains valid.
+      - CLI/API smoke: codeterm plan state <id> --json and codeterm pane status --pane <planner> agree on existence.
+
+    COULD COMMANDS HAVE MODIFIED src-tauri/gen/schemas/*.json?
+    - No command I ran should modify src-tauri/gen/schemas/*.json.
+    - Commands run were read-only discovery: Get-Content, rg, rg --files, git rev-parse, Get-Date, env echo, codeterm plan state, codeterm pane status, codeterm pane list, and codeterm agent report.
+    - No build, npm, tauri, schema generation, cargo, formatter, apply_patch, redirection write, or codegen command was run.
+    - codeterm agent report mutates CodeTerm planner/report state, not repo source files, and has no reason to touch src-tauri/gen/schemas/*.json.
+
+    TESTS/RUNS
+    - rg -n "workspace|tab|plan|canvas|plan-changed" src src-tauri tests/playwright.
+    - rg --files src src-tauri tests/playwright filtered for Plan/Canvas/Workspace/Tab.
+    - Targeted Get-Content on cited TS/Rust/Playwright files.
+    - git rev-parse origin/develop.
+    - codeterm plan state pl_as7ty5 --json.
+    - codeterm pane status --pane 954510a9.
+    - codeterm pane status --pane e88e18c8.
+    - codeterm pane list filtered for 954510a9/e88e18c8/4c17f607.
+  ts: 1783630125197
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_9fltzg
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: ACCEPT second report; independently verified workspace plan entry, PlanStore event flow, Playwright selectors, and planner-resolution mismatch. Evidence is sufficient for synthesis.
+  ts: 1783630149162
+  links:
+  - key:0476a0ea18057cd2
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_uq1x08
+  executor_pane_id: 954510a9
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: release/1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/release-1.7.2-integration
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783630125614
+    message: |-
+      STATUS: done
+      CHANGES: Read-only second architecture report; no files edited.
+
+      BASELINE
+      - git rev-parse origin/develop: 0ba27f17dd663feec3c263e2f44923e366fb5a4e.
+      - Fresh checkout cwd: D:/Developer/codeterm-worktrees/release-1.7.2-integration.
+
+      WORKSPACE TAB OWNERSHIP
+      - Backend authoritative workspace/tab structs: src-tauri/crates/codeterm-pty/src/multiplexer/types.rs
+        - Workspace { id, name, tabs: Vec<Tab>, active_tab_id, cwd, protected, sort_order }.
+        - Tab { id, description, pane_id, sort_order }.
+        - Pane { id, role, parent_pane_id, pending_paired_planner_pane_id, hidden, show_in_tabbar, ... }.
+      - Backend state methods:
+        - src-tauri/crates/codeterm-pty/src/multiplexer/state/tab.rs owns tab create/lookup/close/focus mutations.
+        - src-tauri/crates/codeterm-pty/src/multiplexer/state/workspace.rs owns workspace create/focus/close/rename/move-tab/list.
+        - src-tauri/crates/codeterm-pty/src/multiplexer/state/reorder.rs owns reorder_tabs/reorder_workspaces.
+      - HTTP routes:
+        - src-tauri/src/api/routes.rs registers /api/workspaces, /api/workspaces/{id}/tabs, focus/close/rename/move/reorder.
+        - src-tauri/src/api/workspace_routes.rs implements list_workspaces, create_workspace, focus_workspace, create_tab, close_tab, rename_tab, move_tab, reorder_tabs, reorder_workspaces.
+      - Frontend mirror/store:
+        - src/store/multiplexer/reducer.ts SET_STATE treats backend as authoritative for workspaces/panes/active_tab_id, then derives activeTabIds.
+        - reducer ADD_TAB/CLOSE_TAB/SET_ACTIVE_TAB/MOVE_TAB mutate frontend state while backend events catch up.
+        - Only OPEN_SESSION_PICKER injects a frontend-only virtual tab; Plan is not injected there.
+        - src/store/multiplexer/tree.ts injectVirtualTabs preserves only virtual picker tabs across backend snapshots.
+      - Sidebar rendering:
+        - src/components/Sidebar/Sidebar.tsx passes workspace, activeTabIds, panes, planIndex, fullPlans into SidebarWorkspaceTabs.
+        - src/components/Sidebar/SidebarWorkspaceTabs.tsx renders WorkspacePlanTreeSlot first, then real pane tabs via topLevelTabsInWorkspace/sortable rows.
+        - src/components/Sidebar/workspaceTabs.ts defines topLevelTabsInWorkspace, childTabsForParent, flattenSidebarTabs, paneIdsInWorkspace, childPaneIdsInWorkspace.
+
+      WHY PLAN IS PRESENT BUT ABSENT AS A TAB
+      - A Plan is not a Workspace.tabs[] entry because Workspace.tabs[] is one Tab per Pane. Plan has no pane_id and is not backend multiplexer state.
+      - The sidebar Plan row is synthesized from planner index state:
+        - src/components/Canvas/workspacePlanEntry.ts deriveWorkspacePlanEntries(index, workspace, panes).
+        - It filters active plans, then planBelongsToWorkspacePath(entry, workspace), then hasWorkspacePlanContent(entry).
+        - planBelongsToWorkspacePath checks entry.file_path under workspace.cwd/.codeterm/plans/**, including active/archive plan.json.
+        - hasWorkspacePlanContent requires task_count/section_count/element_count/loop_count/has_goal/assigned_pane_ids.
+      - Therefore a workspace can own a visible Plan row from .codeterm/plans without having any new Tab in Workspace.tabs[]. This is current design, not missing reducer state.
+
+      AUTHORITATIVE PLAN STATE AND API SYMBOLS
+      - Plan storage crate: src-tauri/crates/codeterm-plan/src/service_plan/**.
+      - Plan data types: src-tauri/crates/codeterm-plan/src/plan/types.rs and src-tauri/crates/codeterm-types/src/plan/types.rs.
+      - Plan state snapshot: src-tauri/crates/codeterm-plan/src/service_plan/state.rs
+        - build_plan_state_snapshot(...)
+        - PlanStateSnapshot fields: plan_id, title, status, mode, planning_state, owner, planner, planner_resolution, task_counts, coverage, lanes, live_agents, next_actions.
+      - REST routes: src-tauri/src/api/routes.rs
+        - GET/POST /api/plans -> plan_routes::list/create
+        - GET/PATCH/DELETE /api/plans/{id} -> get/update/delete_plan
+        - GET /api/plans/{id}/state -> state
+        - GET /api/plans/{id}/next -> next
+        - POST /api/plans/{id}/sections, /tasks, /layout, /mode, /archive, /unarchive, /pause, /resume, /claim, /disown, etc.
+        - POST /api/canvas/focus -> task_routes::canvas_focus
+      - REST handlers:
+        - src-tauri/src/api/plan_routes/plans.rs create/list/get/state/update/mode_set/delete/archive/unarchive/pause/resume/transfer/disown/claim/kinds_set/tag_facets_set.
+        - src-tauri/src/api/plan_routes/tasks.rs task_add/task_update/task_assign/task_close/task_rm/task_respawn/task_attempts.
+        - src-tauri/src/api/plan_routes/elements.rs layout_set/element_add/element_update/groups_set/note_add/etc.
+        - src-tauri/src/api/task_routes.rs list/show/take/drop_task/add/canvas_focus.
+      - Socket/CLI RPC parallels:
+        - src-tauri/src/socket/server/plan.rs emits plan-changed and handles plan RPC commands.
+        - src-tauri/src/socket/server/plan_task_rpc.rs, plan_task_dispatch.rs, plan_elements.rs, plan_goal.rs, plan_mode.rs, plan_archive.rs, plan_lifecycle.rs, canvas.rs mirror CLI/socket flows.
+
+      FRONTEND PLAN/CANVAS STATE OWNERS
+      - API client: src/components/Canvas/plansApi.ts
+        - fetchPlan(api, planId), fetchPlanIndex(api), fetchPlans(api, { project }), createPlan, patchPlanLayout, archivePlan, unarchivePlan, parkPlan, resumePlan, renamePlan, claimPlan.
+        - PlanIndexEntry fields: plan_id, file_path, owner, title, status, updated_at, assigned_pane_ids, task_count, open_task_count, section_count, element_count, loop_count, has_goal.
+      - Provider/index owner: src/components/Canvas/PlansProvider.tsx
+        - PlansProvider owns lightweight index and reference-counted full plan loading.
+        - usePlanIndex/usePlanIndexOptional expose index loading/reconnecting/error/refetch.
+        - useFullPlans/useFullPlansOptional expose full plan bodies.
+        - useCanvasPlans(mode, projectPath) acquires full plan data, with workspace project scoping when mode == workspace.
+      - Full-plan hook: src/components/Canvas/usePlans.ts
+        - useResilientQuery(fetchPlans(...)) owns loading/reconnecting/error/refetch.
+        - plan-changed with plan_id calls patchPlan(plan_id) -> fetchPlan and replace/append; without plan_id refetches.
+        - plans-loaded refetches.
+      - Canvas open/focus state: src/components/Canvas/canvasFocusStore.ts
+        - canvasFocusStore.openWorkspace(target), closeWorkspace(), toggleWorkspace(), getWorkspaceTarget(), markPulse/clearPulse.
+        - useCanvasWorkspaceOpen/useCanvasWorkspaceTarget expose external store state.
+      - Workspace Plan entry:
+        - src/components/Sidebar/WorkspacePlanEntry.tsx WorkspacePlanTreeSlot uses deriveWorkspacePlanEntries + useFullPlansOptional + selectActiveWork.
+        - WorkspacePlanEntry renders data-testid workspace-plan-entry, title/hint/badges, and calls openWorkspacePlanForEntries(entries).
+      - Canvas shell:
+        - src/components/Canvas/PlanViewShell.tsx owns persisted mode via localStorage key codeterm.planViewMode.
+        - Renders Board/List/Canvas surfaces and data-testid plan-view-shell with data-plan-view-mode.
+      - Canvas view:
+        - src/components/Canvas/CanvasView.tsx CanvasView uses useCanvasPlans(mode, projectPath), workspaceTarget, mux state, and renders PlanViewShell.
+        - CanvasViewInner filters plans, builds layout, subscribes to canvas-focus, renders loading/error/empty/data surfaces.
+
+      PROPOSED STABLE FIRST-CLASS TAB IDENTITY/LIFECYCLE
+      - Do not add a second plan store. PlanStore/.codeterm/plans remains authoritative.
+      - Treat the Plan row as a first-class virtual navigation tab within the workspace, but derive it from the existing plan index.
+      - Stable identity should be workspace-scoped and deterministic: virtual id workspace-plan:${workspace.id} for aggregate row; workspace-plan:${workspace.id}:${plan_id} if per-plan tab semantics are required.
+      - It should not be persisted into backend Workspace.tabs[] unless the multiplexer type is explicitly widened beyond pane tabs. Current Tab requires pane_id, so storing Plan there would force fake pane ids and duplicate state.
+      - Lifecycle:
+        1. Plan mutation writes PlanStore only.
+        2. Backend emits plan-changed { plan_id }.
+        3. PlansProvider refetches index; usePlans patches/refetches full plans.
+        4. deriveWorkspacePlanEntries maps index rows to owning workspace by file_path under workspace.cwd/.codeterm/plans.
+        5. WorkspacePlanTreeSlot renders the stable virtual Plan row before real tabs.
+        6. Click sets active workspace then calls openWorkspacePlanForEntries -> canvasFocusStore.openWorkspace({ planId? }).
+        7. App renders CanvasView mode=workspace while workspaceCanvasVisible is true.
+        8. Real tab activation hides/deactivates workspace canvas and tab highlight returns to Workspace.tabs[].
+      - This rejects duplicate planner state: no separate planner tab table, no fake pane, no second store for plan visibility. If durable selection is needed, persist only UI nav selection (workspace-plan:${workspace.id}) in frontend/main-view state, not plan content.
+
+      EVENT/SUBSCRIPTION FLOW
+      - Mutation sources:
+        - REST plan_routes::* call emit_plan_changed(&state, &id) in src-tauri/src/api/plan_routes/mod.rs.
+        - REST task_routes::{take,drop_task,add} emit plan-changed in src-tauri/src/api/task_routes.rs.
+        - socket/server plan modules call emit_plan_changed(app, &id).
+        - service-level plan_reconcile/sink_impl/spawn_plan_task/orchestrator spawn paths also emit plan-changed.
+      - Event names:
+        - plan-changed payload { plan_id }
+        - plans-loaded payload {}
+        - canvas-focus payload { task_id, pane_id, plan_id }
+      - Frontend listeners:
+        - PlansProvider listens plan-changed/plans-loaded to refetch index.
+        - usePlans listens plan-changed/plans-loaded to patch one plan or refetch full list.
+        - CanvasViewInner listens canvas-focus and calls resolveCanvasFocusNodeIds + focusOnNodes.
+      - Startup load guard:
+        - plan_routes::list returns 503 “plans are still loading; retry shortly” when no project query and svc.plans_startup_loaded() is false.
+        - useResilientQuery exposes loading/reconnecting/error around this.
+
+      LOADING / ERROR / EMPTY / ORPHAN STATES
+      - Index loading/error:
+        - PlansProvider exposes indexLoading/indexReconnecting/indexError. Sidebar currently consumes planIndexOptional but does not render an explicit Plan-index error row.
+      - Full plan loading/error:
+        - usePlans exposes loading/reconnecting/error.
+        - CanvasViewInner computes showsData = planFetchShowsData(loading, error, plans.length).
+        - PlanFetchErrorState is rendered with testId canvas-fetch in CanvasView.tsx.
+        - PlanFetchReconnectingBanner is rendered with testId canvas-reconnecting.
+        - Empty: CanvasViewInner renders data-testid canvas-empty with “No active plans yet.” and CanvasEmptyActions when mode=workspace and api exists.
+      - Orphan/unowned behavior:
+        - fetchUnownedPlanIndex in plansApi.ts calls /api/plans?unowned=1.
+        - CanvasView renders CanvasUnownedTray when api && mode === workspace, using claimOwner derived from orchestratorPaneId/filteredPlans/focusedPaneId.
+        - WorkspacePlanEntry does not show unowned plans unless file_path belongs to workspace and has content; unowned is claimable from canvas tray, not a tab.
+      - Cross-workspace/orphan execution metadata:
+        - src/components/Canvas/planWorkspaceScope.ts derivePlanWorkspaceScope maps owner/participants from workspace tabs by pane_id and task.lane workspace metadata.
+        - isCrossWorkspace is true when participant workspaces > 1.
+
+      CANVAS RELATIONSHIP
+      - The canvas is one view mode under PlanViewShell, not the plan store.
+      - PlanViewShell renders three surfaces using the same PlanViewSurfaceProps:
+        - board: src/components/Canvas/planView/PlanBoardView.tsx data-testid plan-board-view.
+        - list: src/components/Canvas/planView/PlanListView.tsx.
+        - canvas: src/components/Canvas/missionControl/MissionControlPlanSurface.tsx and CanvasViewInner/CanvasWorldCanvas for spatial rendering.
+      - CanvasViewInner builds filteredPlans, layoutWorkspace/plansForLayout, scene, lookups, presence overlays, minimap, toolbar, tag legend, detail overlay.
+      - Canvas relationship to workspace tab nav: workspace Plan row opens CanvasView mode=workspace; real pane PlanButton can open focus mode with planId/orchestratorPaneId/focusPaneId.
+
+      CROSS-WORKSPACE BEHAVIOR
+      - Sidebar ownership is path-based: plan file_path must be under workspace.cwd/.codeterm/plans/**.
+      - Full canvas fetch is project-scoped by active workspace cwd unless allPlans is enabled in CanvasView.
+      - derivePlanWorkspaceScope can show participant labels from task lane metadata or assigned pane workspace mapping.
+      - openPlanDeepLink(planId, taskId, ctx) in workspacePlanEntry.ts finds owner workspace by index file_path, switches active workspace, then opens workspace canvas focused on the task.
+      - Real pane reveal from canvas uses revealAssignedAgentPane in src/components/Canvas/planRevealAgentPane.ts via CanvasView onOpenPane.
+
+      ROUTE/NAVIGATION BEHAVIOR
+      - App integration: src/App.tsx imports CanvasView and canvasFocusStore hooks.
+      - It computes workspaceCanvasOpen/useCanvasWorkspaceOpen and workspaceCanvasVisible from mainView/workspace/plugin/active tab conditions.
+      - Sidebar receives workspaceCanvasActive to suppress real tab highlight when Plan surface is active.
+      - src/components/Sidebar/sidebarSelection.ts:
+        - isWorkspacePlanEntryActive(workspaceIsActiveVisual, workspaceCanvasActive) => both true.
+        - isWorkspaceTabActive returns false if workspaceCanvasActive.
+      - Keyboard tab cycling in Sidebar.tsx includes the virtual plan item via buildSidebarCycleItems(ws.tabs, panes, entries.length > 0); if next.kind === plan it calls openWorkspacePlanForEntries(entries), otherwise setActiveTab.
+
+      PLAYWRIGHT SELECTORS AND SPECS
+      - Existing selectors in code:
+        - src/components/Sidebar/WorkspaceItem.tsx: data-testid workspace-item, data-workspace-id.
+        - src/components/Sidebar/WorkspacePlanEntry.tsx: data-testid workspace-plan-entry, data-workspace-action=plan, data-pinned=true, data-active, workspace-plan-title, workspace-plan-hint, sidebar-inflight-badge.
+        - src/components/Sidebar/TabItem.tsx: data-testid tab-item, data-tab-id.
+        - src/components/Canvas/PlanViewShell.tsx: data-testid plan-view-shell, data-plan-view-mode, plan-view-close.
+        - src/components/Canvas/CanvasView.tsx: canvas-view, canvas-reconnecting, canvas-fetch, canvas-empty, canvas-world-layer, canvas-change-marker.
+        - src/components/Canvas/planView/PlanBoardView.tsx: plan-board-view.
+      - Direct spec:
+        - tests/playwright/suites/13-canvas/workspace-plan-entry.spec.ts creates temp workspace + plan, adds section/task, focuses workspace, opens web page, asserts workspace-plan-entry visible/active, plan-view-shell visible, plan-board-view visible, then clicking a real tab hides plan shell.
+      - Supporting helpers:
+        - tests/playwright/helpers/canvas-inspect.ts uses workspace-item, workspace-plan-entry, plan-view-shell, canvas-empty.
+        - tests/playwright/helpers/canvas-web-page.ts opens isolated canvas web page and waits for plan/canvas/workspace selectors.
+        - tests/playwright/helpers/dev-console.ts defines platform boundary: Windows connects over CDP to real WebView2 desktop app; macOS/Linux launch Chromium web-mode against dev web client.
+      - Existing coverage around modes/states:
+        - tests/playwright/suites/13-canvas/plan-view-mode.spec.ts checks data-plan-view-mode transitions and board/list/canvas visibility.
+        - canvas-reconnecting-banner.spec.ts checks canvas/board/list reconnecting banners.
+        - mission-control-flow.spec.ts checks canvas mode and plan-view-shell.
+        - plan-detail-overlay.spec.ts uses plan-view-shell + mode + board/detail selectors.
+      - Selector improvement required for stable first-class tab identity:
+        - Add data-workspace-id and data-plan-id/data-plan-ids to workspace-plan-entry, or data-virtual-tab-id=workspace-plan:${workspace.id}. Current tests scope through div:has([data-workspace-id]) [data-testid=workspace-plan-entry], which is usable but indirect.
+
+      ROLE / PLANNER BINDING DEFECT REPRODUCTION
+      - Timestamp captured: 2026-07-09T23:44:18.4329929+03:00.
+      - Commands and evidence:
+        - PowerShell env probe returned CODETERM_ROLE=Worker, CODETERM_PANE_ID=954510a9, CODETERM_WORKSPACE_ID empty in this shell output.
+        - codeterm plan state pl_as7ty5 --json returned:
+          - lane task_2y4p6q “Map first-class workspace Plan tab and canvas architecture” pane_id=954510a9 status=in_progress liveness=working.
+          - planner { kind: pane, pane_id: e88e18c8 }.
+          - planner_resolution { bound_pane_id: e88e18c8, kind: orchestrator_fallback, reason: “planner pane e88e18c8 not live” }.
+          - owner pane_id=4c17f607.
+        - codeterm pane status --pane 954510a9 returned pane 954510a9, agent codex, title Lamport, status Working.
+        - codeterm pane status --pane e88e18c8 returned pane e88e18c8, agent codex, title planner ready, status Idle.
+        - codeterm pane list showed hierarchy under workspace codeterm: 4c17f607 ship 1.7.2; child 954510a9 Lamport; child e88e18c8 planner ready.
+      - Classification:
+        - The specific prompt claim “observed CODETERM_ROLE=Orchestrator despite planner binding to pane e88e18c8” did NOT reproduce in this shell; this pane reported Worker.
+        - Reproducible correctness defect found: PlanState planner_resolution says bound planner pane e88e18c8 is not live and falls back to orchestrator, while pane status/list show e88e18c8 exists and is Idle. This can misroute planner peer decisions/status and hide a valid planner binding.
+      - Severity/blast radius:
+        - Medium. Affects planner-peer routing/status, plan state truthfulness, UI/CLI diagnosis, and any automation that treats planner_resolution.kind=orchestrator_fallback as permission to route planner work to owner pane.
+      - Bounded fix proposal:
+        - Inspect src-tauri/crates/codeterm-plan/src/plan/peer.rs resolve_planner_ref and the live_agent_panes set passed by service build_plan_state.
+        - Ensure planner pane existence and “live pane” are separated. A pane that exists but is Idle should not resolve as “not live” if the contract is binding presence rather than active Working state.
+        - If resolution truly means “live agent process” not “pane exists,” change reason/kind to avoid saying “not live” when pane status is Idle and present.
+      - Regression proposal:
+        - Rust unit/service test: construct mux with owner 4c17f607 and planner pane e88e18c8 present/Idle, plan.planner=PlannerRef::Pane(e88e18c8), build_plan_state, assert planner_resolution.bound_pane_id=e88e18c8 and kind is planner-bound/pane-bound, not orchestrator_fallback.
+        - Add negative test: planner ref points to absent pane -> orchestrator_fallback with reason “planner pane <id> not found/not live” remains valid.
+        - CLI/API smoke: codeterm plan state <id> --json and codeterm pane status --pane <planner> agree on existence.
+
+      COULD COMMANDS HAVE MODIFIED src-tauri/gen/schemas/*.json?
+      - No command I ran should modify src-tauri/gen/schemas/*.json.
+      - Commands run were read-only discovery: Get-Content, rg, rg --files, git rev-parse, Get-Date, env echo, codeterm plan state, codeterm pane status, codeterm pane list, and codeterm agent report.
+      - No build, npm, tauri, schema generation, cargo, formatter, apply_patch, redirection write, or codegen command was run.
+      - codeterm agent report mutates CodeTerm planner/report state, not repo source files, and has no reason to touch src-tauri/gen/schemas/*.json.
+
+      TESTS/RUNS
+      - rg -n "workspace|tab|plan|canvas|plan-changed" src src-tauri tests/playwright.
+      - rg --files src src-tauri tests/playwright filtered for Plan/Canvas/Workspace/Tab.
+      - Targeted Get-Content on cited TS/Rust/Playwright files.
+      - git rev-parse origin/develop.
+      - codeterm plan state pl_as7ty5 --json.
+      - codeterm pane status --pane 954510a9.
+      - codeterm pane status --pane e88e18c8.
+      - codeterm pane list filtered for 954510a9/e88e18c8/4c17f607.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783629771518
+  reported_at: 1783630125614
+  reviewed_at: null
+  closed_at: 1783630149672
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []
