@@ -1,6 +1,7 @@
-use super::{build_brief, resolve_dispatch_routing};
-use crate::plan::Task;
+use super::{build_brief, dispatch_worker_identity, resolve_dispatch_routing};
+use crate::plan::{IdentityProvenance, Task};
 use crate::service::plan::task_queries::TaskSection;
+use crate::service::SpawnIdentityProvenance;
 use serde_json::json;
 
 fn providers() -> Vec<String> {
@@ -137,6 +138,36 @@ fn brief_omits_personality_line_when_absent() {
     let brief = build_brief(&t, &[]);
     assert!(!brief.contains("You are"));
     assert!(brief.starts_with("# Bare"));
+}
+
+#[test]
+fn dispatch_preserves_only_explicit_user_personality() {
+    let t = task(json!({
+        "id": "task_user_persona",
+        "name": "Dispatch",
+        "type": "code",
+        "status": "pending",
+        "personality": "Ada",
+        "personality_provenance": IdentityProvenance::UserSupplied,
+    }));
+    let (title, provenance) = dispatch_worker_identity(&t);
+    assert_eq!(title.as_deref(), Some("Ada"));
+    assert_eq!(provenance, Some(SpawnIdentityProvenance::UserSupplied));
+}
+
+#[test]
+fn dispatch_treats_planner_personality_as_provisional() {
+    let t = task(json!({
+        "id": "task_suggested_persona",
+        "name": "Dispatch",
+        "type": "code",
+        "status": "pending",
+        "personality": "Ada",
+        "personality_provenance": IdentityProvenance::Suggested,
+    }));
+    let (title, provenance) = dispatch_worker_identity(&t);
+    assert_eq!(title.as_deref(), Some("Ada"));
+    assert_eq!(provenance, Some(SpawnIdentityProvenance::Suggested));
 }
 
 fn task(value: serde_json::Value) -> Task {

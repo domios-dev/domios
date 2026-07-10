@@ -447,6 +447,8 @@ pub struct Task {
     #[serde(default)]
     pub personality: Option<String>,
     #[serde(default)]
+    pub personality_provenance: Option<IdentityProvenance>,
+    #[serde(default)]
     pub acceptance_criteria: Vec<String>,
     pub test_plan: Option<String>,
     pub correctness: Option<String>,
@@ -499,6 +501,13 @@ pub struct Task {
     pub park_reason: Option<String>,
     #[serde(default)]
     pub attachments: Vec<AttachmentRef>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityProvenance {
+    UserSupplied,
+    Suggested,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

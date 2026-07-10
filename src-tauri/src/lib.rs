@@ -717,6 +717,9 @@ pub fn run() {
                     std::collections::HashSet::new(),
                 )),
                 plan_startup_loaded: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                worker_identity_allocator: Arc::new(parking_lot::Mutex::new(
+                    crate::service::WorkerPersonaReservations::default(),
+                )),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             {

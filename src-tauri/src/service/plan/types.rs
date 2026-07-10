@@ -248,6 +248,7 @@ pub struct NewTask {
     pub model: Option<String>,
     pub model_rationale: Option<String>,
     pub personality: Option<String>,
+    pub personality_provenance: Option<crate::plan::IdentityProvenance>,
     pub acceptance_criteria: Vec<String>,
     pub test_plan: Option<String>,
     pub correctness: Option<String>,
