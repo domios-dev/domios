@@ -254,32 +254,22 @@ fn set_in_progress(
 /// Assemble the worker brief: body, acceptance, test plan, section links,
 /// strides (milestones — T4 enriches later), and the mandatory report command.
 pub(super) fn build_brief(task: &Task, sections: &[TaskSection]) -> String {
+    build_brief_with_personality(task, sections, task.personality.as_deref())
+}
+
+pub(super) fn build_brief_with_personality(
+    task: &Task,
+    sections: &[TaskSection],
+    effective_personality: Option<&str>,
+) -> String {
     let mut out = String::new();
-    let persona = task
-        .personality
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-    let role_guidance = task
-        .role_guidance
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-    match (persona, role_guidance) {
-        (Some(persona), Some(guidance)) => {
-            out.push_str(&format!("You are {persona}. {guidance}\n\n"));
-        }
-        (None, Some(guidance)) => {
-            out.push_str(guidance);
-            out.push_str("\n\n");
-        }
-        (Some(persona), None) => {
-            out.push_str(&format!(
-                "You are {persona} — executor for: {}\n\n",
-                task.name
-            ));
-        }
-        (None, None) => {}
+    if let Some(identity) = crate::service::plan::worker_identity::compose_worker_identity(
+        effective_personality,
+        task.role_guidance.as_deref(),
+        Some(task.name.as_str()),
+    ) {
+        out.push_str(&identity);
+        out.push_str("\n\n");
     }
     out.push_str(&format!("# {}\n\n", task.name));
 

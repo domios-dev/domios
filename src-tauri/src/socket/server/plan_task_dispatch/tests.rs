@@ -1,6 +1,6 @@
 use super::{
-    build_brief, build_brief_with_claimed_persona, dispatch_worker_identity,
-    resolve_dispatch_routing,
+    build_brief, build_brief_with_claimed_persona, build_brief_with_personality,
+    dispatch_worker_identity, resolve_dispatch_routing,
 };
 use crate::plan::{IdentityProvenance, Task};
 use crate::service::plan::task_queries::TaskSection;
@@ -91,7 +91,8 @@ fn brief_opens_with_role_guidance_before_title_and_body() {
         "body": "Fix the bounce in the thread view.",
     }));
     let brief = build_brief(&t, &[]);
-    let guidance = "You are Shannon. You are a React/TypeScript perf engineer. RED LINE: assert the DOM end state.";
+    let guidance =
+        "You are Shannon. You are a React/TypeScript perf engineer. RED LINE: assert the DOM end state.";
     let guidance_pos = brief.find(guidance).expect("role guidance in brief");
     let title_pos = brief.find("# Stabilize flicker").expect("title in brief");
     let body_pos = brief
@@ -100,6 +101,43 @@ fn brief_opens_with_role_guidance_before_title_and_body() {
     assert_eq!(guidance_pos, 0);
     assert!(guidance_pos < title_pos);
     assert!(guidance_pos < body_pos);
+}
+
+#[test]
+fn brief_deduplicates_matching_persona_guidance_prefix() {
+    let t = task(json!({
+        "id": "task_dup",
+        "name": "Trace composition",
+        "type": "code",
+        "status": "pending",
+        "personality": "Hopper",
+        "role_guidance": "You are Hopper. Keep the role guidance first.",
+    }));
+
+    let brief = build_brief(&t, &[]);
+    let expected = "You are Hopper. Keep the role guidance first.\n\n# Trace composition\n\n## When done\nRun: codeterm agent report \"STATUS: done | blocked | partial\\nCHANGES: ...\\nTESTS RUN: ...\"\n";
+    assert_eq!(brief, expected);
+    assert!(!brief.contains("You are Hopper. You are Hopper."));
+}
+
+#[test]
+fn brief_uses_claimed_personality_once_without_mutating_routing_metadata() {
+    let t = task(json!({
+        "id": "task_claimed",
+        "name": "Trace composition",
+        "type": "code",
+        "status": "pending",
+        "personality": "Suggested Hopper",
+        "executor_role": "rust-backend-dev",
+        "role_guidance": "You are Grace. Keep the role guidance first.",
+    }));
+
+    let brief = build_brief_with_personality(&t, &[], Some("Grace"));
+    let expected = "You are Grace. Keep the role guidance first.\n\n# Trace composition\n\n## When done\nRun: codeterm agent report \"STATUS: done | blocked | partial\\nCHANGES: ...\\nTESTS RUN: ...\"\n";
+    assert_eq!(brief, expected);
+    assert_eq!(brief.matches("You are Grace.").count(), 1);
+    assert!(!brief.contains("Suggested Hopper"));
+    assert!(!brief.contains("rust-backend-dev"));
 }
 
 #[test]
@@ -139,8 +177,8 @@ fn brief_omits_personality_line_when_absent() {
         "status": "pending",
     }));
     let brief = build_brief(&t, &[]);
-    assert!(!brief.contains("You are"));
-    assert!(brief.starts_with("# Bare"));
+    let expected = "# Bare\n\n## When done\nRun: codeterm agent report \"STATUS: done | blocked | partial\\nCHANGES: ...\\nTESTS RUN: ...\"\n";
+    assert_eq!(brief, expected);
 }
 
 #[test]
