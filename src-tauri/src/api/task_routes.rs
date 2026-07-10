@@ -35,6 +35,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::QaNotRunning
         | PlanError::GateAlreadyAnswered
         | PlanError::GateRequiresQuestion
+        | PlanError::OverrideReasonRequired
         | PlanError::WaitingFocusRequiresOpenGate
         | PlanError::UndeclaredKind { .. }
         | PlanError::OpenSubtasks { .. }
@@ -44,6 +45,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::DependencySelfReference
         | PlanError::DependencyCycle
         | PlanError::BudgetExhausted { .. } => StatusCode::BAD_REQUEST,
+        PlanError::OverrideNotAuthorized => StatusCode::FORBIDDEN,
         PlanError::WritePending { .. } => StatusCode::SERVICE_UNAVAILABLE,
         PlanError::ReadbackMismatch { .. } => StatusCode::CONFLICT,
         PlanError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
