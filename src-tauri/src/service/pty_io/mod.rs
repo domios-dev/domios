@@ -9,6 +9,8 @@ mod lifecycle;
 mod send;
 mod wake;
 
+#[cfg(test)]
+pub(crate) use lifecycle::{active_pane_lane_base, pane_task_env};
 pub(crate) use send::build_spawn_dispatch;
 pub use send::{poll_bare_shell_prompt, poll_shell_prompt};
 

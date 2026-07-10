@@ -263,20 +263,23 @@ fn store_with_bound_task() -> (tempfile::TempDir, PlanStore, String, String) {
     (dir, store, plan.id, task_id)
 }
 
+fn mutate_plan(store: &PlanStore, plan_id: &str, now_ms: u64, f: impl FnOnce(&mut Plan)) {
+    let mut plan = store.get(plan_id).expect("plan exists");
+    f(&mut plan);
+    store.save(&mut plan, now_ms).expect("save mutated plan");
+}
+
 #[test]
 fn active_pane_lane_base_prefers_live_attempt_base() {
     let (_dir, store, plan_id, task_id) = store_with_bound_task();
-    store
-        .with_plan(&plan_id, 4, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id)
-                .unwrap();
-            task.execution_attempts[0].base = Some("attempt-base".into());
-            Ok(())
-        })
-        .unwrap();
+    mutate_plan(&store, &plan_id, 4, |plan| {
+        let task = plan
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .unwrap();
+        task.execution_attempts[0].base = Some("attempt-base".into());
+    });
 
     assert_eq!(
         active_pane_lane_base(&store, "pane-a").as_deref(),
@@ -297,26 +300,23 @@ fn active_pane_lane_base_falls_back_to_lane_base_when_attempt_missing() {
 #[test]
 fn active_pane_lane_base_ignores_closed_and_other_pane_attempts() {
     let (_dir, store, plan_id, task_id) = store_with_bound_task();
-    store
-        .with_plan(&plan_id, 4, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id)
-                .unwrap();
-            task.execution_attempts[0].base = Some("closed-base".into());
-            task.execution_attempts[0].closed_at = Some(4);
-            task.execution_attempts
-                .push(crate::plan::TaskExecutionAttempt {
-                    id: "attempt_other".into(),
-                    executor_pane_id: "pane-b".into(),
-                    base: Some("other-base".into()),
-                    assigned_at: Some(4),
-                    ..Default::default()
-                });
-            Ok(())
-        })
-        .unwrap();
+    mutate_plan(&store, &plan_id, 4, |plan| {
+        let task = plan
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .unwrap();
+        task.execution_attempts[0].base = Some("closed-base".into());
+        task.execution_attempts[0].closed_at = Some(4);
+        task.execution_attempts
+            .push(crate::plan::TaskExecutionAttempt {
+                id: "attempt_other".into(),
+                executor_pane_id: "pane-b".into(),
+                base: Some("other-base".into()),
+                assigned_at: Some(4),
+                ..Default::default()
+            });
+    });
 
     assert_eq!(
         active_pane_lane_base(&store, "pane-a").as_deref(),
@@ -335,17 +335,14 @@ fn active_pane_lane_base_none_without_binding() {
 #[test]
 fn pane_task_env_uses_live_attempt_base_and_leaves_plain_pane_clean() {
     let (_dir, store, plan_id, task_id) = store_with_bound_task();
-    store
-        .with_plan(&plan_id, 4, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id)
-                .unwrap();
-            task.execution_attempts[0].base = Some("attempt-base".into());
-            Ok(())
-        })
-        .unwrap();
+    mutate_plan(&store, &plan_id, 4, |plan| {
+        let task = plan
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .unwrap();
+        task.execution_attempts[0].base = Some("attempt-base".into());
+    });
 
     let bound = pane_task_env(&store, "pane-a");
     assert_eq!(
