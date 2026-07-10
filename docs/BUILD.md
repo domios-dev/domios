@@ -24,21 +24,38 @@
 git clone <repo-url> codeterm && cd codeterm
 pnpm install
 ./build.sh dev          # development (hot-reload, foreground)
-./build.sh dev --wait   # same but backgrounds + blocks until new build is live at /api/health
 ./build.sh build        # production build
 ```
 
 ### Windows
 
 ```powershell
-# Git Bash:
-./build.cmd dev --wait
-
-# If you still use PowerShell, call build.sh through git-bash:
-git-bash -lc "./build.sh dev --wait"
+# Interactive foreground session:
+.\build.ps1 dev
 ```
 
-`./build.cmd dev --wait` already runs the dev process through the same script path that clears previous dev instances on port 7686.
+Do not use `dev --wait` for an interactive Windows session. It is reserved for
+automation that needs a detached health gate and does not prove a visible window.
+
+### Visible Windows dev session
+
+For interactive verification, do not use `dev --wait`. It is the detached
+readiness path for scripts and CI. Use one visible CodeTerm pane as the sole
+foreground owner:
+
+```powershell
+# Verify no previous dev listener/process remains, then open one visible pane.
+codeterm pane new --cmd "Set-Location '<checkout>'; .\build.ps1 dev"
+```
+
+Keep that pane open and require all of the following before reporting ready:
+
+- port 7686 is owned by the checkout's `target\debug\codeterm.exe`;
+- `/api/health` reports `status=ok`, the exact checkout `build_sha`, API 7686,
+  Vite 1420, CDP 9223, and identifier `com.codeterm.dev`;
+- the CodeTerm process has a responsive, nonzero `MainWindowHandle`;
+- exactly one Cargo process remains, the foreground `tauri dev` watcher owned
+  by the visible pane. Any second Cargo/build owner must be stopped and traced.
 
 ## Dev/Prod Isolation
 
@@ -229,4 +246,4 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

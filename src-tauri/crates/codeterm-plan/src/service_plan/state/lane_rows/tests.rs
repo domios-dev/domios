@@ -59,6 +59,7 @@ fn probe_map(present: &[&str], working: &[&str]) -> impl FnMut(&str) -> PaneProb
         live_agent: working.iter().any(|p| p == pane),
         role: None,
         parent_pane_id: None,
+        ..Default::default()
     }
 }
 

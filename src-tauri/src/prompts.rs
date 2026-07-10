@@ -21,6 +21,9 @@ pub const MILESTONE_GATE_LADDER: &str = "Testing ladder — per-task = focused f
 /// Appended to Planner-profile Worker tasks.
 pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");
 
+/// Shared bounce-unwinding contract rendered into Planner and Orchestrator suffixes.
+pub const BOUNCE_UNWINDING_CONTRACT: &str = include_str!("../prompts/bounce_unwinding_contract.md");
+
 /// Canonical role_guidance for tasks whose primary deliverable is tests.
 pub const TEST_AUTHOR_GUIDANCE: &str = "You are a test-author. docs/contributing/test-authoring.md is your operating charter — read it fully before writing the first test. Non-negotiables: oracle-first, red-green demo in your report, condition-waits never sleeps, agent-readiness gates, bounded everything, smoke-run every harness script against the real CLI.";
 
@@ -164,12 +167,15 @@ pub fn planner_testing_methodology() -> String {
 
 /// Orchestrator suffix with the shared plan-skills principles substituted in.
 pub fn orchestrator_suffix() -> String {
-    ORCHESTRATOR_SUFFIX.replace("{plan_skills_principles}", PLAN_SKILLS_PRINCIPLES)
+    ORCHESTRATOR_SUFFIX
+        .replace("{bounce_unwinding_contract}", BOUNCE_UNWINDING_CONTRACT)
+        .replace("{plan_skills_principles}", PLAN_SKILLS_PRINCIPLES)
 }
 
 /// Planner suffix with the testing methodology and plan-skills principles substituted in.
 pub fn planner_suffix() -> String {
     PLANNER_SUFFIX
+        .replace("{bounce_unwinding_contract}", BOUNCE_UNWINDING_CONTRACT)
         .replace(
             "{planner_testing_methodology}",
             &planner_testing_methodology(),
@@ -441,6 +447,30 @@ mod tests {
     fn planner_suffix_has_reflection_symmetry_line() {
         assert!(PLANNER_SUFFIX.contains("At reflection points"));
         assert!(PLANNER_SUFFIX.contains("task or test-plan quality"));
+    }
+
+    #[test]
+    fn role_suffixes_render_one_shared_bounce_contract() {
+        assert_eq!(
+            PLANNER_SUFFIX
+                .matches("{bounce_unwinding_contract}")
+                .count(),
+            1
+        );
+        assert_eq!(
+            ORCHESTRATOR_SUFFIX
+                .matches("{bounce_unwinding_contract}")
+                .count(),
+            1
+        );
+        assert!(!PLANNER_SUFFIX.contains("Baseline target:"));
+        assert!(!ORCHESTRATOR_SUFFIX.contains("Baseline target:"));
+
+        for rendered in [planner_suffix(), orchestrator_suffix()] {
+            assert!(!rendered.contains("{bounce_unwinding_contract}"));
+            assert_eq!(rendered.matches("Baseline target:").count(), 1);
+            assert!(rendered.contains(BOUNCE_UNWINDING_CONTRACT.trim()));
+        }
     }
 
     #[test]

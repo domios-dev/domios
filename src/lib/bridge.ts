@@ -396,6 +396,8 @@ const HTTP_MAP: Record<string, Mapper> = {
   get_remote_workers: () => webJson("GET", "/api/remote-workers"),
   save_session: () => webJson("POST", "/api/session/save"),
   restart_general_agent: () => webJson("POST", "/api/agents/general/restart"),
+  restart_general_agent_pane: (a) =>
+    webJson("POST", `/api/agents/general/${enc(s(a, "paneId") ?? s(a, "pane_id"))}/restart`),
   complete_general_agent_first_run: (a) =>
     webJson("POST", "/api/agents/general/complete-first-run", {
       provider_id: s(a, "providerId") ?? s(a, "provider_id"),

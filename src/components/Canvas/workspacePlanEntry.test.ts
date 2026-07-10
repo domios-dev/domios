@@ -11,6 +11,8 @@ import {
   resolvePanePlanFocusTarget,
   resolveWorkspaceFocusNodeIds,
   canvasFitContextKey,
+  findPlanOwnerWorkspace,
+  openPlanDeepLink,
   workspacePlanEntryExtraCount,
   workspacePlanEntryHint,
   workspacePlanEntryKind,
@@ -262,6 +264,43 @@ test("openWorkspacePlanCanvas opens workspace target on the focus store", () => 
   assert(canvasFocusStore.isWorkspaceOpen(), "workspace canvas open");
   assert(canvasFocusStore.getWorkspaceTarget()?.planId === FIXTURE_PLAN.id, "plan id stored");
   canvasFocusStore.closeWorkspace();
+});
+
+test("openPlanDeepLink switches to the indexed owner workspace and focuses the task", () => {
+  const ownerWorkspace = { ...workspace, id: "ws-owner", cwd: "/repo/owner" };
+  const foreignWorkspace = { ...workspace, id: "ws-current", cwd: "/repo/current" };
+  const entry = indexEntry({
+    file_path: `/repo/owner/.codeterm/plans/active/${FIXTURE_PLAN.id}/plan.json`,
+  });
+  const owner = findPlanOwnerWorkspace(FIXTURE_PLAN.id, [entry], [foreignWorkspace, ownerWorkspace]);
+  assert(owner?.workspace.id === ownerWorkspace.id, "owner comes from indexed file path");
+
+  let switchedTo: string | null = null;
+  canvasFocusStore.closeWorkspace();
+  const opened = openPlanDeepLink(FIXTURE_PLAN.id, FIXTURE_TASK.id, {
+    index: [entry],
+    workspaces: [foreignWorkspace, ownerWorkspace],
+    activeWorkspaceId: foreignWorkspace.id,
+    setActiveWorkspace: (id) => { switchedTo = id; },
+  });
+  assert(opened, "valid indexed plan opens");
+  assert(switchedTo === ownerWorkspace.id, "owner workspace is revealed");
+  const target = canvasFocusStore.getWorkspaceTarget();
+  assert(target?.planId === FIXTURE_PLAN.id, "plan view targets indexed plan");
+  assert(target?.nodeIds?.[0] === FIXTURE_TASK.id, "task focus is retained");
+  canvasFocusStore.closeWorkspace();
+});
+
+test("openPlanDeepLink leaves a missing reference inert without a missing callback", () => {
+  let switched = false;
+  const opened = openPlanDeepLink("pl_missing", "task_missing", {
+    index: [],
+    workspaces: [workspace],
+    activeWorkspaceId: workspace.id,
+    setActiveWorkspace: () => { switched = true; },
+  });
+  assert(!opened, "missing plan does not open navigation");
+  assert(!switched, "missing plan does not switch workspace");
 });
 
 test("openPanePlanFocus routes pane focus through workspace canvas", () => {
