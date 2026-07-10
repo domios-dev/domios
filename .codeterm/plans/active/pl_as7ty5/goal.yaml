@@ -1,0 +1,11 @@
+vector: Every actionable non-roadmap issue is evidence-classified as fixed-and-verified or implementation-required; the shipped develop-to-release candidate proves first-class workspace Plan tabs, nested Git repository discovery, cached and intelligible plugin settings, current discovered OpenAI model capability support, cross-platform regression gates, CI-built v1.7.2 artifacts, and reconciled issue/release evidence.
+vision: Ship CodeTerm 1.7.2 as a focused, evidence-led cleanup that makes planning visible where work happens, restores repository and plugin workflows, exposes supported OpenAI models through provider capabilities, and closes only issues proven fixed.
+constraints:
+- Start implementation branches from origin/develop; preserve the dirty orchestrator checkout and use sibling worktrees under C:/Developer/codeterm-worktrees/<branch-slug>.
+- Do not build, sign, notarize, or publish release artifacts locally; release artifacts run only on configured GitHub/self-hosted CI build machines.
+- Use English; favor Codex workers, reserving a strong model for architecture/UX synthesis and independent final review.
+- Do not create execution tasks until this structure is reviewed/approved; discovery tasks must feed replanning.
+postulates:
+- Open issue status is decided from repository and develop evidence, never title, memory, or assumption.
+- Provider support is capability-based and sourced from actual provider discovery/configuration, not hardcoded model guesses.
+- A reproducible tool/workflow defect found in scope is admitted only through the bounded evidence, severity, regression, and independent-review loop.

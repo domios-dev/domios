@@ -1,0 +1,226 @@
+id: task_lqkcmc
+name: Confirm bounded Git multi-repository discovery contract
+type: planning
+model: gpt-5.4
+model_rationale: Codex gpt-5.4 is sufficient for a bounded plugin source and test-fixture reconnaissance task.
+personality: Dijkstra
+acceptance_criteria:
+- Confirms the early-return source behavior and all cited symbols/paths against fresh origin/develop.
+- Defines explicit traversal depth, entry/time bounds, ignored directories, root containment, and .git file/directory handling.
+- Defines a concrete fixture matrix for root-plus-three repositories, worktree .git file, non-repo parent, and single-root regression.
+- Expected report gives implementation file ownership and exact focused test command.
+test_plan: |-
+  Oracle: the proposed test fixture distinguishes the current early-return bug from the repaired contract.
+  1. Run rg -n "gitRepos|rev-parse|show-toplevel" plugins/git/src/plugin.ts plugins/git; pass: report cites the exact early-return branch.
+  2. Locate plugin test scripts with rg -n "vitest|test\\(|gitRepos" plugins/git package.json; pass: report names the real command and test file.
+  3. Create no files; inspect existing fixture conventions only. Pass: proposed fixture paths and expected repository list are explicit.
+  4. Run git -C D:/Developer/codeterm-worktrees/release-1.7.2-integration status --short; pass: read-only task leaves it clean.
+correctness: The contract is correct only if it keeps the enclosing root, discovers valid child repositories, is bounded and contained, and has an executable fixture oracle.
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783629621330
+updated_at: 1783631203735
+status_changed_at: 1783631203013
+handle: discover-git-multi-repo
+tags: []
+section_ids:
+- sec_ga5tvr
+- sec_rlqrqc
+body: 'Read-only planning task. Validate supplied root-cause evidence in plugins/git/src/plugin.ts gitRepos: the enclosing repository early-return prevents child scanning. Map current plugin test setup and the exact smallest ownership surface. Define the bounded traversal contract: retain root repo plus nested/sibling repositories, recognize .git directories and .git files/worktrees, deterministic deduplication, depth and entry limits, ignored unsafe directories, and non-repo-parent behavior. Produce fixture/test design for a root containing three nested/sibling repos and a non-repo parent.'
+role_guidance: 'You are Dijkstra, a plugin contract researcher. Validate traversal boundaries and repository identity with fixtures before recommending implementation. Red line: a scan that can escape its root or ignores .git files is not an acceptable contract.'
+executor_role: plugin-researcher
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/release-1.7.2-integration
+  branch: release/1.7.2-integration
+  base: origin/develop
+  destination: null
+  cleanup_status: deferred
+  cleanup_hints:
+  - Shared release/1.7.2-integration worktree remains active until release closeout; task itself was read-only and its pane is closed.
+taken_by_role: worker
+peer: null
+group: Discovery
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_1a9hvu
+  from:
+    pane_id: ce472956
+    session_id: 019f489e-baa5-7553-9a09-a24320c0828b
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: none (read-only validation); confirmed gitRepos early-return in plugins/git/src/plugin.ts and origin/develop, mapped current plugin test harness, defined bounded multi-repo discovery fixture/test contract
+    TESTS RUN: rg -n "gitRepos|rev-parse|show-toplevel" plugins/git/src/plugin.ts plugins/git; rg -n "vitest|test\(|gitRepos" plugins/git package.json; git status --short; git show origin/develop:plugins/git/src/plugin.ts | Select-String -Context 3,25 "function gitRepos"; inspected scripts/plugin-tests.sh and plugin test conventions
+  ts: 1783629893105
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_ueexkw
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: BOUNCE first report; missing explicit traversal bounds, containment/dedup policy, fixture expectations, and focused command. Same worker asked for complete read-only evidence report.
+  ts: 1783629956772
+  links:
+  - key:cb235cb349627373
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_ttesa6
+  from:
+    pane_id: 9fadfe15
+    session_id: 019f48b2-848a-71b2-a918-b7cea9bdc1b4
+    title: Dijkstra followup
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: none (read-only validation). Confirmed plugins/git/src/plugin.ts:494-507 is the entire ownership surface for repo discovery today, and the early return at lines 495-499 prevents any child scan whenever cwd is inside a repo. Confirmed plugin test harness pattern is per-plugin npx tsx tests loaded via VM, but scripts/plugin-tests.sh:9-53 does not currently register a git plugin suite, so the minimal implementation surface for follow-up is plugins/git/src/plugin.ts + plugins/git/tests/plugin.test.ts + scripts/plugin-tests.sh.
+    BUILD/TYPECHECK/TESTS: Read-only focused checks only. Ran: rg -n "gitRepos|show-toplevel|rev-parse|\.git" plugins/git/src/plugin.ts plugins/git -g '!dist'; Get-Content plugins/git/src/plugin.ts / scripts/plugin-tests.sh / neighboring plugin tests; git show origin/develop:plugins/git/src/plugin.ts. Findings: current contract is incorrect for multi-repo discovery because an enclosing repo returns only its top-level root; current child scan only checks immediate children and only host.fileExists('<child>/.git'), which conflates .git directories/files and does not define dedup/containment behavior. Recommended bounded contract for implementation/tests: 1) If cwd is inside a repo, include that containing repo root in results but continue bounded downward scan strictly within that root only; never ascend above the resolved root. 2) If cwd is not inside a repo, scan strictly within cwd only; never inspect parent/sibling paths outside cwd. 3) Discover repos by checking immediate children plus nested descendants within the bounded root, recognizing both .git directories and .git files/worktrees as repo markers. 4) Deduplicate deterministically by normalized repo path; if cwd resolves to the same repo as a discovered descendant/worktree alias, emit one entry only. 5) Preserve deterministic ordering: containing/root repo first when present, then remaining discovered repos in stable lexical path order. 6) Enforce explicit traversal caps in the contract: maximum discovery depth and maximum entries returned; stop descending once caps are met. 7) Skip unsafe/non-project directories during descent (.git internals, node_modules, dist, build/target-style artifact trees, hidden system dirs/symlink escapes if host API exposes them). 8) Non-repo parent behavior: when cwd itself is not a repo parent, return [] unless bounded descendants contain repos. Required fixture design: one root fixture with three bounded repos visible from the scan root (root repo itself plus two nested/sibling repos, with at least one using a .git file/worktree marker), and one non-repo-parent fixture where cwd is outside any repo and should not escape upward. Expected assertions: inside nested working tree => root repo included and child repos still discovered; parent non-repo dir => only bounded descendants returned; worktree-style .git file recognized; duplicate logical repo paths collapsed; traversal never returns repos above the bounded root.
+    FOLLOWUP: Implementation should add a dedicated plugins/git/tests/plugin.test.ts using the existing assert/eq + VM-loaded plugin.js pattern from provider plugins, with a stub host that controls exec/fileExists/listing behavior for the bounded fixtures. Register that suite in scripts/plugin-tests.sh under both all and a new git case. Focused command for QA/test-runner lane after implementation: npx tsx plugins/git/tests/plugin.test.ts
+  ts: 1783631168771
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_l2sq88
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'ACCEPT second report for source/fixture/containment contract. Numeric bounds are routed to Planner synthesis after repeated under-specification: max depth 3, max visited directories 512, max repositories 64; prefer deterministic work budget over wall-clock timeout in synchronous QuickJS.'
+  ts: 1783631202054
+  links:
+  - key:690f40f496ac99e8
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_38fjnn
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: evidence
+  text: Report metadata falsely listed 11 changed files while git status, git diff --stat, and git diff --name-only were empty at HEAD=origin/develop=0ba27f17d. Admit bounded report changed-files attribution regression.
+  ts: 1783631202514
+  links:
+  - key:655380f562d598b0
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_in6o6w
+  executor_pane_id: ce472956
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.4
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: release/1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/release-1.7.2-integration
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783629893554
+    message: |-
+      STATUS: done
+      CHANGES: none (read-only validation); confirmed gitRepos early-return in plugins/git/src/plugin.ts and origin/develop, mapped current plugin test harness, defined bounded multi-repo discovery fixture/test contract
+      TESTS RUN: rg -n "gitRepos|rev-parse|show-toplevel" plugins/git/src/plugin.ts plugins/git; rg -n "vitest|test\(|gitRepos" plugins/git package.json; git status --short; git show origin/develop:plugins/git/src/plugin.ts | Select-String -Context 3,25 "function gitRepos"; inspected scripts/plugin-tests.sh and plugin test conventions
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783629784978
+  reported_at: 1783629893554
+  reviewed_at: null
+  closed_at: 1783631203735
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_kef7d2
+  executor_pane_id: 9fadfe15
+  executor_title: Dijkstra followup
+  provider: codex
+  agent_type: codex
+  model: gpt-5.4
+  session_id: null
+  role: worker
+  parent_pane_id: 4c17f607
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: release/1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/release-1.7.2-integration
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783631169224
+    message: |-
+      STATUS: in_review
+      CHANGES: none (read-only validation). Confirmed plugins/git/src/plugin.ts:494-507 is the entire ownership surface for repo discovery today, and the early return at lines 495-499 prevents any child scan whenever cwd is inside a repo. Confirmed plugin test harness pattern is per-plugin npx tsx tests loaded via VM, but scripts/plugin-tests.sh:9-53 does not currently register a git plugin suite, so the minimal implementation surface for follow-up is plugins/git/src/plugin.ts + plugins/git/tests/plugin.test.ts + scripts/plugin-tests.sh.
+      BUILD/TYPECHECK/TESTS: Read-only focused checks only. Ran: rg -n "gitRepos|show-toplevel|rev-parse|\.git" plugins/git/src/plugin.ts plugins/git -g '!dist'; Get-Content plugins/git/src/plugin.ts / scripts/plugin-tests.sh / neighboring plugin tests; git show origin/develop:plugins/git/src/plugin.ts. Findings: current contract is incorrect for multi-repo discovery because an enclosing repo returns only its top-level root; current child scan only checks immediate children and only host.fileExists('<child>/.git'), which conflates .git directories/files and does not define dedup/containment behavior. Recommended bounded contract for implementation/tests: 1) If cwd is inside a repo, include that containing repo root in results but continue bounded downward scan strictly within that root only; never ascend above the resolved root. 2) If cwd is not inside a repo, scan strictly within cwd only; never inspect parent/sibling paths outside cwd. 3) Discover repos by checking immediate children plus nested descendants within the bounded root, recognizing both .git directories and .git files/worktrees as repo markers. 4) Deduplicate deterministically by normalized repo path; if cwd resolves to the same repo as a discovered descendant/worktree alias, emit one entry only. 5) Preserve deterministic ordering: containing/root repo first when present, then remaining discovered repos in stable lexical path order. 6) Enforce explicit traversal caps in the contract: maximum discovery depth and maximum entries returned; stop descending once caps are met. 7) Skip unsafe/non-project directories during descent (.git internals, node_modules, dist, build/target-style artifact trees, hidden system dirs/symlink escapes if host API exposes them). 8) Non-repo parent behavior: when cwd itself is not a repo parent, return [] unless bounded descendants contain repos. Required fixture design: one root fixture with three bounded repos visible from the scan root (root repo itself plus two nested/sibling repos, with at least one using a .git file/worktree marker), and one non-repo-parent fixture where cwd is outside any repo and should not escape upward. Expected assertions: inside nested working tree => root repo included and child repos still discovered; parent non-repo dir => only bounded descendants returned; worktree-style .git file recognized; duplicate logical repo paths collapsed; traversal never returns repos above the bounded root.
+      FOLLOWUP: Implementation should add a dedicated plugins/git/tests/plugin.test.ts using the existing assert/eq + VM-loaded plugin.js pattern from provider plugins, with a stub host that controls exec/fileExists/listing behavior for the bounded fixtures. Register that suite in scripts/plugin-tests.sh under both all and a new git case. Focused command for QA/test-runner lane after implementation: npx tsx plugins/git/tests/plugin.test.ts
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783631077753
+  reported_at: 1783631169224
+  reviewed_at: null
+  closed_at: 1783631203013
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

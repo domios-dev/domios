@@ -1,0 +1,125 @@
+id: task_cgaqvb
+name: P0 review parked-to-paused lifecycle rename
+type: review
+model: gpt-5.6-sol
+model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and is appropriate for adversarial P0 review of persisted lifecycle/schema compatibility boundaries.
+personality: null
+acceptance_criteria:
+- The review verifies every parked-to-paused contract surface or reports it with exact file/line evidence, then returns one severity-ranked ACCEPT or BOUNCE verdict without modifying the lane.
+test_plan: 'Oracle: read-only diff and static lifecycle audit. 1. Trace task status enum, serde/parser, CLI/socket/API/UI/schema/docs; pass: paused is canonical, parked has no silent alias, and pause_reason is required. 2. Trace dependency, dispatch/open-work/heartbeat and pause/resume paths; pass: pending remains dependency waiting and paused is excluded everywhere required. 3. Inspect converter dry-run/apply/idempotency/error/audit-stride paths on fixture YAML; pass: only intended legacy parked records change and unrelated YAML is byte/structure preserved as declared. 4. Run final residual rg status parked classification; pass: every remaining hit is an intentional legacy fixture or converter/documented migration input. 5. Run only git diff --check and scripts/check-file-sizes.sh; no cargo/build/dev/Playwright. 6. Return ACCEPT or BOUNCE with severity findings, file/line evidence, and exact static checks.'
+correctness: Breaking canonical paused lifecycle; explicit migration only; required reason; dependency distinction; no dispatch/heartbeat leakage; safe converter; cross-surface consistency.
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p0
+created_at: 1783677740125
+updated_at: 1783678036882
+status_changed_at: 1783678035845
+handle: p0-review-parked-to-paused-lifecycle-rename
+tags:
+- 1.7.2
+section_ids:
+- sec_d52ka9
+body: 'Read-only P0 review of the current uncommitted task_yxlkl8 diff in D:/Developer/codeterm-worktrees/task-state-paused. Audit the complete breaking parked-to-paused task-lifecycle rename: no silent serde/parser alias; required pause reason; pending remains distinct for dependencies; paused exclusion from dispatch/open-work/heartbeat; pause/resume transitions; CLI/socket/API/UI/schema/docs consistency; explicit converter dry-run/apply/idempotency/error/audit-stride behavior preserving unrelated YAML; and final residual rg classification allowing only intentional legacy fixtures. Do not edit source, commit, build, start dev, or run Playwright. Return severity-ranked ACCEPT or BOUNCE with exact file/line evidence.'
+role_guidance: 'You are an independent P0 read-only lifecycle reviewer. Audit the full parked-to-paused rename and converter. Red line: no source edits, commits, build, dev, or Playwright.'
+executor_role: code-reviewer
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:/Developer/codeterm-worktrees/task-state-paused
+  branch: lane/task-state-paused
+  base: origin/develop
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: planner-correctness
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_ykbnc8
+  from:
+    pane_id: f71cab1f
+    session_id: 019f4b7b-4d87-7483-9052-9231d49b1764
+    title: P0 review parked-to-paused lifecycle rename
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: Read-only P0 audit completed; BOUNCE. No source edits. Findings: converter rewrites whole YAML and is non-idempotent with non-unique zero-time audit IDs; migrated assignments are not normalized and stale active-work consumers remain; CLI manifest/UI/docs retain task-lifecycle parked surfaces.
+    TESTS RUN: PASS git diff --check; PASS scripts/check-file-sizes.sh (no files over 1200; two pre-existing advisory mod.rs notices). No build/dev/Playwright/cargo run.
+  ts: 1783678016152
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_4617f0
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Independent P0 review completed with BOUNCE; close review task and return remediation to task_yxlkl8.
+  ts: 1783678034996
+  links:
+  - key:b929350dc039403c
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_83mlye
+  executor_pane_id: f71cab1f
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/task-state-paused
+  worktree_path: D:/Developer/codeterm-worktrees/task-state-paused
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783678016550
+    message: |-
+      STATUS: done
+      CHANGES: Read-only P0 audit completed; BOUNCE. No source edits. Findings: converter rewrites whole YAML and is non-idempotent with non-unique zero-time audit IDs; migrated assignments are not normalized and stale active-work consumers remain; CLI manifest/UI/docs retain task-lifecycle parked surfaces.
+      TESTS RUN: PASS git diff --check; PASS scripts/check-file-sizes.sh (no files over 1200; two pre-existing advisory mod.rs notices). No build/dev/Playwright/cargo run.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783677795121
+  reported_at: 1783678016550
+  reviewed_at: null
+  closed_at: 1783678035845
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

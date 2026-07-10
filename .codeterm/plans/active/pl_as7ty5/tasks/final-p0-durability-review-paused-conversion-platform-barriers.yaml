@@ -1,0 +1,124 @@
+id: task_rvyzsz
+name: Final P0 durability review paused conversion platform barriers
+type: review
+model: gpt-5.6-sol
+model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and is appropriate for final cross-platform durability and recovery correctness review.
+personality: null
+acceptance_criteria:
+- Every durability, platform-barrier, classification, recovery, and documentation invariant is verified or pinpointed with actual file/line evidence; the report records the one elevated probe skip and returns one ACCEPT or BOUNCE.
+test_plan: 'Oracle: 34 tests plus non-elevated platform/static probes only. 1. Run all 34 durability tests; pass: logical state/durability separation, failure classifications 1175/1176/1177, backup ownership, and guarded recovery pass. 2. Inspect Windows ReplaceFileW and same-volume/volume-flush implementation/docs; pass: no unsupported WRITE_THROUGH or power-loss claim. 3. Inspect macOS F_FULLFSYNC/namespace and current-inode lock reacquisition/final verification; pass: platform assumptions are explicit and guarded. 4. Exercise durability_unverified-before-mutation and repair_required-after-ambiguity fixtures; pass: fail-closed behavior. 5. Run feasible non-elevated barrier probes and name the sole elevated barrier probe skipped. 6. Run git diff --check and scripts/check-file-sizes.sh. No build/dev/Playwright/live conversion. Return actual paths, file/line findings, skip rationale, and ACCEPT/BOUNCE.'
+correctness: Honest durability claims; fail-closed ambiguous recovery; explicit platform barriers; guarded partial recovery; no power-loss overclaim.
+status: done
+review_stage: review
+qa_state: null
+status_label: pane-gone
+priority: p0
+created_at: 1783683469604
+updated_at: 1783689883129
+status_changed_at: 1783689883129
+handle: final-p0-durability-review-paused-conversion-platform-barriers
+tags:
+- 1.7.2
+section_ids:
+- sec_d52ka9
+body: 'Final P0 durability read-only review of the actual task_yxlkl8 overlay at D:/Developer/codeterm-worktrees/task-state-paused. Do not edit source, commit, build, start dev, run Playwright, or apply live conversion. Recheck last platform BOUNCE: logical_state versus durability; no unsupported ReplaceFileW WRITE_THROUGH claims; documented local same-volume Windows barriers and volume flush; transaction-owned backups and explicit 1175/1176/1177 layout/hash classification; macOS F_FULLFSYNC plus namespace barriers; current-inode lock reacquisition/final verification; fail-closed durability_unverified before mutation and repair_required after ambiguity; guarded partial-layout recovery; and docs with no power-loss overclaim. Run 34 tests, static checks, and platform probes feasible without elevation, noting the single elevated-barrier skip. Return severity-ranked ACCEPT or BOUNCE with actual file/line evidence.'
+role_guidance: 'You are an independent final P0 durability reviewer. Audit actual overlay, non-elevated tests/probes, and honest platform claims only. Red line: no edits, commits, build, dev, Playwright, or live conversion.'
+executor_role: code-reviewer
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:/Developer/codeterm-worktrees/task-state-paused
+  branch: lane/task-state-paused
+  base: origin/develop
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: planner-correctness
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_ddsh6j
+  from:
+    pane_id: be474ef3
+    session_id: 019f4bd2-43d6-74a1-874c-7327919cd18e
+    title: Final P0 durability review paused conversion platform barriers
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: done
+    CHANGES: Read-only final durability audit; no source edits, commits, builds, dev, Playwright, or live conversion. Verdict BOUNCE: Unix final verification uses stale staged path; rollback lock-barrier failure can leave rolled_back/verified with lock absent.
+    TESTS RUN: 34 unittest cases: OK, 33 executed + 1 elevated Windows volume-barrier skip; git diff --check PASS; scripts/check-file-sizes.sh --fail PASS; Python AST PASS; non-elevated Windows fixed-volume probe PASS and volume flush failed closed with access denied; two temp-only negative durability probes reproduced both P0s.
+  ts: 1783683794620
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_pmrl5e
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: Read-only review completed; its BOUNCE findings were consumed by the owning paused-state correction. Review task itself is terminal evidence, not open implementation.
+  ts: 1783689883129
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_mn625k
+  executor_pane_id: be474ef3
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/task-state-paused
+  worktree_path: D:/Developer/codeterm-worktrees/task-state-paused
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783683795158
+    message: |-
+      STATUS: done
+      CHANGES: Read-only final durability audit; no source edits, commits, builds, dev, Playwright, or live conversion. Verdict BOUNCE: Unix final verification uses stale staged path; rollback lock-barrier failure can leave rolled_back/verified with lock absent.
+      TESTS RUN: 34 unittest cases: OK, 33 executed + 1 elevated Windows volume-barrier skip; git diff --check PASS; scripts/check-file-sizes.sh --fail PASS; Python AST PASS; non-elevated Windows fixed-volume probe PASS and volume flush failed closed with access denied; two temp-only negative durability probes reproduced both P0s.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783683494327
+  reported_at: 1783683795158
+  reviewed_at: null
+  closed_at: 1783686332924
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

@@ -1,0 +1,809 @@
+id: task_qdwix5
+name: Fix report changed-files attribution
+type: implement
+model: gpt-5.6-terra
+model_rationale: 'Routing rationale: normal Rust metadata correctness task with isolated tests; gpt-5.4.'
+personality: Dijkstra
+acceptance_criteria:
+- 'changed_files is the complete deterministic lane delta: unique sorted paths from the declared attempt base..HEAD committed range plus the current worktree overlay (staged, unstaged, and untracked), scoped to the attempt branch/worktree; clean read-only base==HEAD is empty; committed clean lanes include their committed files; unrelated global checkout files and undeclared fallbacks are excluded.'
+test_plan: 'Oracle: report metadata equals the declared lane git observations. 1. In a clean fixture with attempt.base==HEAD, run git diff --name-only base..HEAD plus git status --short; pass: changed_files is empty. 2. In a committed fixture, run git diff --name-only <attempt.base>..<attempt.head>; pass: every committed path appears even when git status is clean. 3. Add staged, unstaged, and untracked overlay files; run git diff --name-only <base>..<head>, git diff --name-only, git diff --cached --name-only, and enumerate untracked paths; pass: changed_files is the sorted unique union. 4. Run the real report path in the declared lane/worktree; pass: no files from the daemon/global checkout appear.'
+correctness: Correctness requires complete lane-change attribution for committed and dirty work, deterministic sorted deduplication, explicit attempt base/worktree scoping, empty output for clean base==HEAD read-only lanes, and exclusion of unrelated or undeclared checkout files.
+status: done
+review_stage: review
+qa_state: null
+status_label: pane-gone
+priority: p2
+created_at: 1783631783541
+updated_at: 1783686568955
+status_changed_at: 1783686568955
+handle: fix-report-changed-files-attribution
+tags: []
+section_ids:
+- sec_rlqrqc
+body: 'Trace actual owner and scope changed-file attribution to declared lane/worktree; report clean and controlled-dirty fixture evidence and exact diff. Exact file ownership: src-tauri/crates/codeterm-plan/src/service_plan/handoff.rs; src-tauri/crates/codeterm-plan/src/service_plan/state.rs; existing handoff/report tests Dependencies: Discovery tasks task_2zzydz/task_5h3w2g; group report-correctness. Report contract: report STATUS in_review, CHANGES with exact files, TESTS with exact command/output, FOLLOWUP with blockers and evidence.'
+role_guidance: 'You are Dijkstra, an evidence-integrity engineer. Trace attribution before editing. Red line: reporting files absent from declared git status/diff is failure.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/report-attribution-ci3
+  branch: lane/report-attribution-ci3
+  base: release/1.7.2-integration
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: report-correctness
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_l0f3zf
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'Base advanced from origin/develop to accepted integration head because this lane owns state/report surfaces touched by #230; avoids stale-base rewrite and is recorded explicitly.'
+  ts: 1783633928748
+  links:
+  - key:751f274c5851f698
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_0qh9nr
+  from:
+    pane_id: 8ddfa488
+    session_id: 019f48dd-f729-75d0-a828-bd3e80979f17
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: cli/src/cmd/report_guard.rs
+    TESTS RUN:
+    - rustfmt cli/src/cmd/report_guard.rs -> exit 0
+    - git status --short ->  M cli/src/cmd/report_guard.rs
+    - git diff --name-only -> cli/src/cmd/report_guard.rs
+    FOLLOWUP:
+    - cargo/build/dev/Playwright not run per lane instruction
+    - Evidence: changed_files now derives from worktree diff/status instead of diff-tree HEAD; added clean/dirty/linked-worktree unit fixtures in cli/src/cmd/report_guard.rs
+  ts: 1783634055522
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_hzg2j5
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'BOUNCE semantic regression: dirty-only attribution empties committed lane reports; require explicit attempt base..HEAD plus dirty overlay and linked-worktree isolation.'
+  ts: 1783634092341
+  links:
+  - key:24199096c6254ea1
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_9519xw
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'Planner authoritative contract: attempt.base..HEAD committed delta union staged/unstaged/untracked overlay; deterministic normalized dedupe; no ambient/fallback base.'
+  ts: 1783634144325
+  links:
+  - key:bac2e5ec52418fa0
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_yed32l
+  from:
+    pane_id: 8ddfa488
+    session_id: 019f48dd-f729-75d0-a828-bd3e80979f17
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: cli/src/args/agent.rs; cli/src/cmd/agent.rs; cli/src/cmd/report_guard.rs; src-tauri/crates/codeterm-plan/src/service_plan/task_attempts.rs; src-tauri/src/service/pty_io/lifecycle.rs; src-tauri/src/socket/server/plan_task_dispatch.rs
+    TESTS RUN:
+    - rustfmt --edition 2021 cli/src/args/agent.rs cli/src/cmd/agent.rs cli/src/cmd/report_guard.rs src-tauri/src/socket/server/plan_task_dispatch.rs src-tauri/src/service/pty_io/lifecycle.rs src-tauri/crates/codeterm-plan/src/service_plan/task_attempts.rs -> exit 0
+    - git status --short -> 6 modified files, exactly the paths above
+    - git diff --name-only -> exactly the 6 paths above
+    FOLLOWUP:
+    - No cargo/build/dev/Playwright run per lane instruction
+    - Evidence contract implemented in source: changed_files now uses explicit base..HEAD committed delta plus staged/unstaged/untracked overlay, deduped/sorted, scoped to current worktree only; worker report commands and CODETERM_LANE_BASE plumb declared attempt base explicitly
+  ts: 1783634255915
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_zypvvp
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'BOUNCE base trust boundary: raw task metadata is shell-interpolated and passed as ambiguous git revision; require env/escaping plus commit verification and consistent attempt base.'
+  ts: 1783634289887
+  links:
+  - key:722104f7e5d780e4
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_a0f9so
+  from:
+    pane_id: 8ddfa488
+    session_id: 019f48dd-f729-75d0-a828-bd3e80979f17
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: cli/src/args/agent.rs; cli/src/cmd/agent.rs; cli/src/cmd/report_guard.rs; src-tauri/crates/codeterm-plan/src/service_plan/task_attempt_tests.rs; src-tauri/crates/codeterm-plan/src/service_plan/task_attempts.rs; src-tauri/src/service/pty_io/lifecycle.rs; src-tauri/src/socket/server/plan_task_dispatch.rs; src-tauri/src/socket/server/plan_task_dispatch/tests.rs
+    TESTS RUN:
+    - rustfmt --edition 2021 cli/src/cmd/report_guard.rs src-tauri/crates/codeterm-plan/src/service_plan/task_attempts.rs src-tauri/crates/codeterm-plan/src/service_plan/task_attempt_tests.rs src-tauri/src/socket/server/plan_task_dispatch.rs src-tauri/src/socket/server/plan_task_dispatch/tests.rs -> exit 0
+    - git status --short -> exactly 8 modified files listed above
+    - git diff --name-only -> exactly the 8 paths listed above
+    FOLLOWUP:
+    - No cargo/build/dev/Playwright run per lane instruction
+    - Security fix: generated report command text no longer shell-interpolates base; workers rely on CODETERM_LANE_BASE env / explicit manual --base only
+    - Guard fix: base is validated with git rev-parse --verify --end-of-options <base>^{commit}; leading '-' bases are rejected; diff uses resolved SHA..HEAD in current worktree only
+  ts: 1783634380845
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_k778j5
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'BOUNCE proof gap: no regression covers CODETERM_LANE_BASE propagation/attempt precedence; remove dead task_report_command base parameter and test selection helper.'
+  ts: 1783634428465
+  links:
+  - key:cf30f55f4cddd516
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_u199an
+  from:
+    pane_id: 8ddfa488
+    session_id: 019f48dd-f729-75d0-a828-bd3e80979f17
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: cli/src/args/agent.rs; cli/src/cmd/agent.rs; cli/src/cmd/report_guard.rs; src-tauri/crates/codeterm-plan/src/service_plan/task_attempt_tests.rs; src-tauri/crates/codeterm-plan/src/service_plan/task_attempts.rs; src-tauri/src/service/pty_io/lifecycle.rs; src-tauri/src/service/pty_io/tests.rs; src-tauri/src/socket/server/plan_task_dispatch.rs; src-tauri/src/socket/server/plan_task_dispatch/tests.rs
+    TESTS RUN:
+    - rustfmt --edition 2021 src-tauri/src/service/pty_io/lifecycle.rs src-tauri/src/service/pty_io/tests.rs src-tauri/crates/codeterm-plan/src/service_plan/task_attempts.rs -> exit 0
+    - git status --short -> exactly 9 modified files listed above
+    - git diff --name-only -> exactly the 9 paths listed above
+    FOLLOWUP:
+    - No cargo/build/dev/Playwright run per lane instruction
+    - Added direct tests for active pane lane-base selection: live attempt base wins, lane fallback, closed/other-pane attempts ignored, unbound pane none
+    - Removed unused task_report_command base parameter and preserved report_guard security/range tests
+  ts: 1783634526600
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_pocaff
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'ACCEPT source after semantic, security, and propagation corrections: explicit validated base..HEAD plus overlay, no shell interpolation, linked-worktree isolation, active-attempt env precedence tests; rustfmt passed, cargo deferred to CI.'
+  ts: 1783634550737
+  links:
+  - key:0c6e7128fa2d2f89
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_5hjhzy
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: qa
+  text: 'enqueue: Source accepted and merged after semantic/security/env propagation review; Rust/CLI CI required'
+  ts: 1783636383446
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_gfo866
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'BOUNCE from independent review: backend/headless fallback in service/orchestrator/launch.rs bypasses pane_env and drops CODETERM_PLAN_ID/TASK_ID/LANE_BASE; same owner must unify env and add fallback test.'
+  ts: 1783636700472
+  links:
+  - key:76c64a40ed563d12
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_xpzmff
+  from:
+    pane_id: d624dd99
+    session_id: 019f4908-523b-71c2-b2ac-22d0751b833b
+    title: Dijkstra report fallback fix
+  kind: report_refused
+  text: |-
+    PARTIAL: REPORT NOT SENT
+    readiness report refused: this git worktree has uncommitted lane changes.
+    Next commands:
+      git status --short
+      git add <files>
+      git commit -m "<message>"
+      codeterm agent report --status in_review --sha $(git rev-parse HEAD) "..."
+    Or report WIP with:
+      codeterm agent report --status partial "..."
+    Dirty lane files:
+      src-tauri/src/service/orchestrator/launch.rs
+      src-tauri/src/service/pty_io/lifecycle.rs
+      src-tauri/src/service/pty_io/tests.rs
+
+    Original readiness report that was refused locally:
+    STATUS: in_review
+    CHANGES: src-tauri/src/service/orchestrator/launch.rs; src-tauri/src/service/pty_io/lifecycle.rs; src-tauri/src/service/pty_io/tests.rs
+    BUILD/TYPECHECK/TESTS: rustfmt --edition 2021 src-tauri/src/service/orchestrator/launch.rs src-tauri/src/service/pty_io/lifecycle.rs src-tauri/src/service/pty_io/tests.rs -> exit 0; git status --short -> exactly 3 modified files listed above; git diff --name-only -> exactly the 3 paths listed above
+    FOLLOWUP: No cargo/build/dev per lane instruction. Backend/headless launch fallback now reuses ServiceContext::pane_env, and the focused regression proves a bound live attempt contributes CODETERM_LANE_BASE plus CODETERM_PLAN_ID/CODETERM_TASK_ID while an unbound pane stays clean.
+  ts: 1783636852507
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_vt80lk
+  from:
+    pane_id: d624dd99
+    session_id: 019f4908-523b-71c2-b2ac-22d0751b833b
+    title: Dijkstra report fallback fix
+  kind: status_update
+  text: |-
+    PARTIAL: STATUS: in_review
+    CHANGES: src-tauri/src/service/orchestrator/launch.rs; src-tauri/src/service/pty_io/lifecycle.rs; src-tauri/src/service/pty_io/tests.rs
+    BUILD/TYPECHECK/TESTS: rustfmt --edition 2021 src-tauri/src/service/orchestrator/launch.rs src-tauri/src/service/pty_io/lifecycle.rs src-tauri/src/service/pty_io/tests.rs -> exit 0; git status --short -> exactly 3 modified files listed above; git diff --name-only -> exactly the 3 paths listed above
+    FOLLOWUP: In-review report was refused because the lane remains intentionally uncommitted pending ACCEPT. Backend/headless launch fallback now reuses ServiceContext::pane_env, and the focused regression proves a bound live attempt contributes CODETERM_LANE_BASE plus CODETERM_PLAN_ID/CODETERM_TASK_ID while an unbound pane stays clean. No cargo/build/dev per lane instruction.
+  ts: 1783636869199
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_gi3auq
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'ACCEPT fallback correction: launch backend path reuses pane_env; task env helper covers live attempt base and unbound pane; rustfmt passed, runtime tests deferred to CI.'
+  ts: 1783636873261
+  links:
+  - key:1443f79c41696359
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_xm21zr
+  from:
+    pane_id: d624dd99
+    session_id: 019f4908-523b-71c2-b2ac-22d0751b833b
+    title: Dijkstra report fallback fix
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: src-tauri/src/service/orchestrator/launch.rs; src-tauri/src/service/pty_io/lifecycle.rs; src-tauri/src/service/pty_io/tests.rs
+    BUILD/TYPECHECK/TESTS: rustfmt --edition 2021 src-tauri/src/service/orchestrator/launch.rs src-tauri/src/service/pty_io/lifecycle.rs src-tauri/src/service/pty_io/tests.rs -> exit 0; git status --short -> clean after commit; git diff --name-only HEAD^ HEAD -> exactly the 3 paths listed above
+    FOLLOWUP: Commit 049b78db611b9c113e87339efcc292fd975cd75e (fix(report): preserve lane env in backend fallback). No cargo/build/dev per lane instruction. Backend/headless launch fallback now reuses ServiceContext::pane_env, and the focused regression proves a bound live attempt contributes CODETERM_LANE_BASE plus CODETERM_PLAN_ID/CODETERM_TASK_ID while an unbound pane stays clean.
+  ts: 1783638716442
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_xw92mo
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: qa
+  text: 'enqueue: Fallback finding fixed and merged; full Rust/CLI CI required'
+  ts: 1783638731566
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_3b9qh5
+  from:
+    pane_id: 38b81356
+    session_id: 019f492d-3b4e-7092-9037-da99fba8b002
+    title: Dijkstra report borrow fix
+  kind: report_refused
+  text: |-
+    PARTIAL: REPORT NOT SENT
+    readiness report refused: this git worktree has uncommitted lane changes.
+    Next commands:
+      git status --short
+      git add <files>
+      git commit -m "<message>"
+      codeterm agent report --status in_review --sha $(git rev-parse HEAD) "..."
+    Or report WIP with:
+      codeterm agent report --status partial "..."
+    Dirty lane files:
+      cli/src/cmd/report_guard.rs
+
+    Original readiness report that was refused locally:
+    STATUS: in_review
+    CHANGES: cli/src/cmd/report_guard.rs
+    BUILD/TYPECHECK/TESTS: rustfmt --edition 2021 cli/src/cmd/report_guard.rs -> exit 0; git diff --name-only -> cli/src/cmd/report_guard.rs; git diff -- cli/src/cmd/report_guard.rs -> deterministic BTreeSet union for committed base..HEAD plus dirty overlay, sorted/deduped without overlapping borrow
+    FOLLOWUP: CI bounce E0502 fixed in load_changed_files by replacing mutable Vec + contains loop with committed+overlay BTreeSet union. No cargo/build run per instruction. Working tree intentionally dirty with only cli/src/cmd/report_guard.rs.
+  ts: 1783639195260
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_wwebmm
+  from:
+    pane_id: 38b81356
+    session_id: 019f492d-3b4e-7092-9037-da99fba8b002
+    title: Dijkstra report borrow fix
+  kind: status_update
+  text: |-
+    PARTIAL: STATUS: partial
+    CHANGES: cli/src/cmd/report_guard.rs
+    BUILD/TYPECHECK/TESTS: rustfmt --edition 2021 cli/src/cmd/report_guard.rs -> exit 0; git diff --name-only -> cli/src/cmd/report_guard.rs; git diff -- cli/src/cmd/report_guard.rs -> deterministic BTreeSet union for committed base..HEAD plus dirty overlay, sorted/deduped without overlapping borrow
+    FOLLOWUP: Exact CI bounce fixed: load_changed_files no longer immutably borrows changed during mutation, preserving the sorted/deduped base..HEAD + overlay contract. in_review report was refused by readiness guard because the lane remains uncommitted by instruction ('no commit until ACCEPT').
+  ts: 1783639208722
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_s8fsjp
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: ACCEPT CI borrow correction; BTreeSet union preserves sorted unique committed plus overlay contract and removes E0502
+  ts: 1783639268389
+  links:
+  - key:dfa69b030da8479f
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_rese65
+  from:
+    pane_id: 38b81356
+    session_id: 019f492d-3b4e-7092-9037-da99fba8b002
+    title: Dijkstra report borrow fix
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: cli/src/cmd/report_guard.rs
+    BUILD/TYPECHECK/TESTS: rustfmt --edition 2021 cli/src/cmd/report_guard.rs -> exit 0; git diff --cached --name-only -> cli/src/cmd/report_guard.rs before commit; git commit -m 'fix(report): avoid overlapping changed-file borrow' -> commit d4afd6705615b93f614d28724b0e2bfa1b370417; git status --short -> clean
+    FOLLOWUP: Accepted exact CI fix committed only in cli/src/cmd/report_guard.rs. load_changed_files now uses a deterministic BTreeSet union for base..HEAD committed paths plus dirty overlay, preserving sorted/deduped attribution without overlapping borrow. No push performed.
+  ts: 1783639289963
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_eyprg4
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: ACCEPT merged CI report borrow correction d4afd670
+  ts: 1783639314292
+  links:
+  - key:0595c3e19e9a73e8
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_bl81k6
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: evidence
+  text: 'Fresh reproduction on task_e6dyql: formal report at HEAD 0ba27f17 attributed 11 unrelated committed files (.agents/skills, AGENTS.md, plugin/startup files), while actual lane overlay is 19 files for plan deep-link resolver/UI. Base-range/dirty-overlay attribution remains incorrect or lane base was not propagated.'
+  ts: 1783674703870
+  links:
+  - key:c8b308ec658f931a
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_etgtql
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: evidence
+  text: 'Recovered incident evidence: formal report at HEAD 0ba27f17 attributed 11 unrelated committed files (.agents/skills, AGENTS.md, plugin/startup files) while the actual lane overlay contained 19 files for plan deep-link resolver/UI. Base-range/dirty-overlay changed-files attribution remains incorrect or lane base was not propagated; acceptance requires lane-scoped base and dirty-overlay proof.'
+  ts: 1783675842731
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_p01jqe
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'Report attribution reproduced again on task_yxlkl8 pane bf79bb58: readiness report used base SHA 0ba27f17 and listed unrelated canonical HEAD files instead of the uncommitted task-state-paused lane overlay. Correct attribution must use lane base plus dirty overlay and reject/label base-only SHA reports truthfully.'
+  ts: 1783680987389
+  links:
+  - key:8513c8611652d3b8
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_5ijxwt
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'Report attribution reproduced on task_2oy6cc pane b8927481: formal in_review report again used base SHA 0ba27f17 and unrelated canonical HEAD changed_files rather than planner-request-liveness dirty overlay.'
+  ts: 1783681433193
+  links:
+  - key:ec16891aee209fc8
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_xoafl1
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'Report attribution reproduced on build-gateway review pane 23657b43: --acknowledge-dirty formal report still attached base SHA 0ba27f17 and unrelated canonical HEAD files instead of actual build-performance-research dirty overlay.'
+  ts: 1783681477775
+  links:
+  - key:46926f68cc64409b
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_smnbaw
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'Core Warm QA BOUNCE exact: src/service/pty_io/tests.rs misses imports for active_pane_lane_base/pane_task_env and illegally calls private codeterm-plan PlanStore::with_plan across crate boundary. Replace with supported public setup/mutation API or a narrowly exposed non-production test fixture surface; focused app lib tests must compile. No other scope.'
+  ts: 1783686205296
+  links:
+  - key:c464335055ed18ae
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_k5fu0j
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: status_update
+  text: Core Warm compile correction integrated in release checkout; pty_io tests now use public lifecycle APIs and preserve attempt precedence assertions; centralized test starting.
+  ts: 1783686441419
+  links:
+  - key:5c2005b58f667673
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_cwany5
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: 'Accepted after centralized Core Warm QA: public lifecycle test fixtures compile and full build.ps1 test passes.'
+  ts: 1783686568955
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_et3tao
+  executor_pane_id: 8ddfa488
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.4
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/report-attribution
+  worktree_path: D:/Developer/codeterm-worktrees/report-attribution
+  base: release/1.7.2-integration
+  destination: null
+  report:
+    id: report_1783634527167
+    message: |-
+      STATUS: in_review
+      CHANGES: cli/src/args/agent.rs; cli/src/cmd/agent.rs; cli/src/cmd/report_guard.rs; src-tauri/crates/codeterm-plan/src/service_plan/task_attempt_tests.rs; src-tauri/crates/codeterm-plan/src/service_plan/task_attempts.rs; src-tauri/src/service/pty_io/lifecycle.rs; src-tauri/src/service/pty_io/tests.rs; src-tauri/src/socket/server/plan_task_dispatch.rs; src-tauri/src/socket/server/plan_task_dispatch/tests.rs
+      TESTS RUN:
+      - rustfmt --edition 2021 src-tauri/src/service/pty_io/lifecycle.rs src-tauri/src/service/pty_io/tests.rs src-tauri/crates/codeterm-plan/src/service_plan/task_attempts.rs -> exit 0
+      - git status --short -> exactly 9 modified files listed above
+      - git diff --name-only -> exactly the 9 paths listed above
+      FOLLOWUP:
+      - No cargo/build/dev/Playwright run per lane instruction
+      - Added direct tests for active pane lane-base selection: live attempt base wins, lane fallback, closed/other-pane attempts ignored, unbound pane none
+      - Removed unused task_report_command base parameter and preserved report_guard security/range tests
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783633929371
+  reported_at: 1783634527167
+  reviewed_at: null
+  closed_at: 1783636383939
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_ryqd69
+  executor_pane_id: d624dd99
+  executor_title: Dijkstra report fallback fix
+  provider: codex
+  agent_type: codex
+  model: gpt-5.4
+  session_id: null
+  role: worker
+  parent_pane_id: 4c17f607
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/report-attribution
+  worktree_path: D:/Developer/codeterm-worktrees/report-attribution
+  base: release/1.7.2-integration
+  destination: null
+  report:
+    id: report_1783638716940
+    message: |-
+      STATUS: in_review
+      CHANGES: src-tauri/src/service/orchestrator/launch.rs; src-tauri/src/service/pty_io/lifecycle.rs; src-tauri/src/service/pty_io/tests.rs
+      BUILD/TYPECHECK/TESTS: rustfmt --edition 2021 src-tauri/src/service/orchestrator/launch.rs src-tauri/src/service/pty_io/lifecycle.rs src-tauri/src/service/pty_io/tests.rs -> exit 0; git status --short -> clean after commit; git diff --name-only HEAD^ HEAD -> exactly the 3 paths listed above
+      FOLLOWUP: Commit 049b78db611b9c113e87339efcc292fd975cd75e (fix(report): preserve lane env in backend fallback). No cargo/build/dev per lane instruction. Backend/headless launch fallback now reuses ServiceContext::pane_env, and the focused regression proves a bound live attempt contributes CODETERM_LANE_BASE plus CODETERM_PLAN_ID/CODETERM_TASK_ID while an unbound pane stays clean.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783636701110
+  reported_at: 1783638716940
+  reviewed_at: null
+  closed_at: 1783686568955
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_sz3as2
+  executor_pane_id: 38b81356
+  executor_title: Dijkstra report borrow fix
+  provider: codex
+  agent_type: codex
+  model: gpt-5.4
+  session_id: null
+  role: worker
+  parent_pane_id: 4c17f607
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/report-attribution
+  worktree_path: D:/Developer/codeterm-worktrees/report-attribution
+  base: release/1.7.2-integration
+  destination: null
+  report:
+    id: report_1783639290437
+    message: |-
+      STATUS: in_review
+      CHANGES: cli/src/cmd/report_guard.rs
+      BUILD/TYPECHECK/TESTS: rustfmt --edition 2021 cli/src/cmd/report_guard.rs -> exit 0; git diff --cached --name-only -> cli/src/cmd/report_guard.rs before commit; git commit -m 'fix(report): avoid overlapping changed-file borrow' -> commit d4afd6705615b93f614d28724b0e2bfa1b370417; git status --short -> clean
+      FOLLOWUP: Accepted exact CI fix committed only in cli/src/cmd/report_guard.rs. load_changed_files now uses a deterministic BTreeSet union for base..HEAD committed paths plus dirty overlay, preserving sorted/deduped attribution without overlapping borrow. No push performed.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783639119791
+  reported_at: 1783639290437
+  reviewed_at: null
+  closed_at: 1783639317549
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_bzj3qe
+  executor_pane_id: 2751c017
+  executor_title: Kai
+  provider: codex
+  agent_type: codex
+  model: gpt-5.4
+  session_id: null
+  role: worker
+  parent_pane_id: 4c17f607
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/report-attribution-ci3
+  worktree_path: D:/Developer/codeterm-worktrees/report-attribution-ci3
+  base: release/1.7.2-integration
+  destination: null
+  report: null
+  assigned_at: 1783657553595
+  reported_at: null
+  reviewed_at: null
+  closed_at: 1783662786191
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_97xu4b
+  executor_pane_id: '93356474'
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-terra
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/report-attribution-ci3
+  worktree_path: D:/Developer/codeterm-worktrees/report-attribution-ci3
+  base: release/1.7.2-integration
+  destination: null
+  report: null
+  assigned_at: 1783686300705
+  reported_at: null
+  reviewed_at: null
+  closed_at: 1783686441787
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []
