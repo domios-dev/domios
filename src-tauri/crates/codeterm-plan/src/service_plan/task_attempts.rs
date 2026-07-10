@@ -53,6 +53,7 @@ pub struct TaskRespawnDraft {
     pub parent_pane_id: Option<String>,
     pub workspace_id: Option<String>,
     pub title: Option<String>,
+    pub explicit_title: bool,
     pub cwd: String,
     pub task_prompt: String,
     pub report_command: String,
@@ -631,6 +632,7 @@ impl PlanStore {
             .unwrap_or_else(|| "claude".into());
         let model = request.model.or(source.model.clone()).or(task_model);
         let report_command = task_report_command(plan_id, &task.id);
+        let explicit_title = request.title.is_some();
         let cwd = source
             .worktree_path
             .clone()
@@ -656,6 +658,7 @@ impl PlanStore {
                 .or(plan.owner.pane_id),
             workspace_id: request.workspace_id.or(task.lane.workspace_id.clone()),
             title: request.title,
+            explicit_title,
             cwd,
             task_prompt,
             report_command,

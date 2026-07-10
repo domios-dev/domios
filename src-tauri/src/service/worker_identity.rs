@@ -2,8 +2,8 @@ use crate::service::plan::{PlanError, PlanStore};
 
 use super::{ServiceState, SpawnIdentityProvenance};
 
-pub(crate) fn respawn_title_provenance(title: Option<&str>) -> SpawnIdentityProvenance {
-    if title.is_some() {
+pub(crate) fn respawn_title_provenance(explicit_title: bool) -> SpawnIdentityProvenance {
+    if explicit_title {
         SpawnIdentityProvenance::UserSupplied
     } else {
         SpawnIdentityProvenance::Suggested
@@ -43,11 +43,11 @@ mod tests {
     #[test]
     fn respawn_title_provenance_preserves_explicit_user_titles() {
         assert_eq!(
-            respawn_title_provenance(Some("Ada")),
+            respawn_title_provenance(true),
             SpawnIdentityProvenance::UserSupplied
         );
         assert_eq!(
-            respawn_title_provenance(None),
+            respawn_title_provenance(false),
             SpawnIdentityProvenance::Suggested
         );
     }
@@ -86,6 +86,7 @@ mod tests {
             parent_pane_id: None,
             workspace_id: Some("ws".into()),
             title: Some("user-title".into()),
+            explicit_title: true,
             cwd: ".".into(),
             task_prompt: "prompt".into(),
             report_command: "report".into(),
