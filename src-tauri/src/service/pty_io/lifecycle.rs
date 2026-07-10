@@ -372,15 +372,19 @@ mod kill_pane_pty_tests {
             manager.get_session(&pty_id).is_none(),
             "service PTY kill must remove the manager entry"
         );
-        let exited = session
-            .child
-            .lock()
-            .expect("child lock")
-            .try_wait()
-            .expect("try_wait after kill");
-        assert!(
-            exited.is_some(),
-            "service PTY kill must terminate/reap the child path via PtyManager::kill"
-        );
+        // TerminateProcess is async on Windows and the reaper thread may reap
+        // concurrently; poll until the child is gone (here or in background).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            match session.child.lock().expect("child lock").try_wait() {
+                Ok(Some(_)) | Err(_) => break,
+                Ok(None) => {}
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "service PTY kill must terminate/reap the child path via PtyManager::kill"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
     }
 }
