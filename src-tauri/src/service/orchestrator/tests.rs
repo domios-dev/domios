@@ -91,6 +91,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         args: None,
         cwd: None,
         title: None,
+        title_provenance: None,
         description: None,
         role: None,
         role_profile: None,

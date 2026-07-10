@@ -4,6 +4,7 @@ type: implement
 model: gpt-5.4-mini
 model_rationale: 'Routing rationale: narrow Rust conditional and regression task; gpt-5.4-mini is sufficient and efficient.'
 personality: Lamport
+personality_provenance: null
 acceptance_criteria:
 - Present idle pane resolves as planner; absent pane falls back with explicit reason; active behavior unchanged.
 test_plan: 'Oracle command: cargo test -p codeterm-plan peer -- --nocapture. Expected: present-idle and absent-pane cases pass; capture codeterm plan state pl_as7ty5 --json.'

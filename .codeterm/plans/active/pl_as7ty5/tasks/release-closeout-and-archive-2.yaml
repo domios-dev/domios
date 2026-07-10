@@ -4,6 +4,7 @@ type: cleanup
 model: gpt-5.4-mini
 model_rationale: 'Routing rationale: narrow mechanical closeout; gpt-5.4-mini.'
 personality: Lamport
+personality_provenance: null
 acceptance_criteria:
 - No drift/finished pane/merged lane remains; post-release section covered; final state/reconcile/doctor clean before archive.
 test_plan: 'Oracle commands: codeterm plan state pl_as7ty5 --json; codeterm plan reconcile pl_as7ty5; git worktree list; codeterm pane list; codeterm plan doctor pl_as7ty5 --kind quality. Expected no unresolved drift and cleanup evidence recorded.'

@@ -4,6 +4,7 @@ type: implement
 model: gpt-5.4
 model_rationale: 'Routing rationale: normal multi-file frontend/backend cache implementation; gpt-5.4 fits the bounded contract.'
 personality: Hopper
+personality_provenance: null
 acceptance_criteria:
 - First loading, extensions-error, empty, cached reopen, stale refresh, refresh failure preserving rows, and successful mutation invalidation all pass.
 test_plan: 'Oracle commands: npm test -- --run src/components/Extensions/ExtensionsView.test.tsx; npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep "extensions|plugins". Expected: exact state selectors pass and mutation invalidates once.'

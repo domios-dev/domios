@@ -144,6 +144,89 @@ fn respawn_report_command_uses_attempt_base_not_task_lane_base() {
 }
 
 #[test]
+fn task_respawn_draft_preserves_explicit_request_title() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Respawn title".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    store.save(&mut p, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &p.id,
+            NewTask {
+                name: "retry lane".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .assign_task(&p.id, &task_id, "pane_old", None, 3)
+        .unwrap();
+    let attempt = store.list_task_attempts(&p.id, &task_id).unwrap().remove(0);
+
+    let draft = store
+        .build_task_respawn_draft(
+            &p.id,
+            &task_id,
+            task_attempts::TaskRespawnRequest {
+                attempt_id: attempt.attempt_id,
+                title: Some("Exact User Title".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    assert_eq!(draft.title.as_deref(), Some("Exact User Title"));
+    assert!(draft.explicit_title);
+}
+
+#[test]
+fn task_respawn_draft_omitted_title_stays_provisional() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Respawn inherited title".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    store.save(&mut p, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &p.id,
+            NewTask {
+                name: "retry lane".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .assign_task(&p.id, &task_id, "pane_old", None, 3)
+        .unwrap();
+    let attempt = store.list_task_attempts(&p.id, &task_id).unwrap().remove(0);
+
+    let draft = store
+        .build_task_respawn_draft(
+            &p.id,
+            &task_id,
+            task_attempts::TaskRespawnRequest {
+                attempt_id: attempt.attempt_id,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    assert_eq!(draft.title, None);
+    assert!(!draft.explicit_title);
+}
+
+#[test]
 fn role_guidance_round_trips_and_worker_charter_prepends_it() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
@@ -316,6 +399,68 @@ fn terminal_status_update_leaves_history_but_no_active_presence() {
     assert_eq!(task.execution_attempts[0].closed_at, Some(4));
     assert!(store.task_binding_for_pane("pane_live").is_none());
     assert!(store.task_bindings_for_pane("pane_live").is_empty());
+}
+
+#[test]
+fn recent_worker_attempt_titles_filters_workspace_session_and_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Recent titles".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "task".into(),
+                kind: "implement".into(),
+                lane: TaskLaneMetadata {
+                    workspace_id: Some("ws_target".into()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .assign_task_with_role(&plan.id, &task_id, "pane-1", None, Some("worker"), 3)
+        .unwrap();
+    store
+        .update_attempt_executor_identity(
+            &plan.id,
+            &task_id,
+            "pane-1",
+            Some("Ada"),
+            Some("sess-1"),
+            4,
+        )
+        .unwrap();
+    store
+        .assign_task_with_role(&plan.id, &task_id, "pane-2", None, Some("worker"), 5)
+        .unwrap();
+    store
+        .update_attempt_executor_identity(
+            &plan.id,
+            &task_id,
+            "pane-2",
+            Some("Bea"),
+            Some("sess-2"),
+            6,
+        )
+        .unwrap();
+
+    assert_eq!(
+        store.recent_worker_attempt_titles("ws_target", Some("sess-1"), 10),
+        vec!["Ada".to_string()]
+    );
+    assert_eq!(
+        store.recent_worker_attempt_titles("ws_target", None, 1),
+        vec!["Bea".to_string()]
+    );
 }
 
 #[test]

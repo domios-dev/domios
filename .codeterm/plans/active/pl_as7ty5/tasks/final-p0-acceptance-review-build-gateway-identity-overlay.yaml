@@ -4,6 +4,7 @@ type: review
 model: gpt-5.6-sol
 model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and is suitable for final P0 acceptance review of machine-wide build authority and process identity defenses.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - Every exact gateway, ownership, identity, negative-case, and cancellation invariant is verified or pinpointed against actual paths, with one ACCEPT or BOUNCE verdict and the sole deferred command.
 test_plan: 'Oracle: static/deterministic checks and actual overlay only. 1. Inspect git diff; pass: cite real changed paths. 2. Trace canonical gateway entry, fixture-only injection, registered release integration ownership, qa-prep parent authentication, stale mutex behavior, cancellation, and provenance; pass: exact file/line evidence. 3. Trace centralized Playwright Windows cleanup and health identity; pass: named API/Vite/CDP/identifier ownership and spoof/wrong-port/shared-target negatives reject. 4. Run deterministic gate/static scripts, git diff --check, and scripts/check-file-sizes.sh; pass: all non-heavy checks pass. 5. Confirm only deferred runtime command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-dev-instance-isolation.ps1, once and serialized from healthy SHA-matching warm release integration. No cargo/build/dev/Playwright/live kill. Return file/line ACCEPT/BOUNCE.'

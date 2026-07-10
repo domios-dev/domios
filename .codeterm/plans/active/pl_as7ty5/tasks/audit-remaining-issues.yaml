@@ -4,6 +4,7 @@ type: planning
 model: gpt-5.4
 model_rationale: Codex gpt-5.4 is efficient for bounded GitHub and repository evidence reconciliation.
 personality: Hopper
+personality_provenance: null
 acceptance_criteria:
 - 'Produces one evidence row for each of #230, #209, #203, #185, #179 and each explicitly reported non-GitHub defect.'
 - Classifies every row as fixed_needs_verification, implementation_required, not_reproducible, needs_product_decision, or discard, with a concrete oracle.

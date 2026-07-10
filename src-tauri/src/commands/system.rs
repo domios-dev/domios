@@ -72,15 +72,21 @@ pub fn open_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_autostart_enabled() -> bool {
-    crate::autostart::is_enabled()
+pub async fn get_autostart_enabled() -> Result<bool, String> {
+    tokio::task::spawn_blocking(crate::autostart::is_enabled)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
-    if enabled {
-        crate::autostart::enable()
-    } else {
-        crate::autostart::disable()
-    }
+pub async fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        if enabled {
+            crate::autostart::enable()
+        } else {
+            crate::autostart::disable()
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }

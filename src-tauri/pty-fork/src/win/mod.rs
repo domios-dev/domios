@@ -6,11 +6,11 @@ use std::pin::Pin;
 use std::sync::Mutex;
 use std::task::{Context, Poll};
 use winapi::shared::minwindef::DWORD;
+use winapi::shared::winerror::WAIT_TIMEOUT;
 use winapi::um::jobapi2::TerminateJobObject;
 use winapi::um::minwinbase::STILL_ACTIVE;
 use winapi::um::processthreadsapi::*;
 use winapi::um::synchapi::WaitForSingleObject;
-use winapi::shared::winerror::WAIT_TIMEOUT;
 use winapi::um::winbase::{INFINITE, WAIT_OBJECT_0};
 
 pub mod conpty;

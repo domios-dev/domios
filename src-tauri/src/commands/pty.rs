@@ -913,7 +913,13 @@ mod kill_pty_tests {
             .expect_err("manager should expose exact missing-id error");
         assert!(is_missing_pty_error("real-id", &err));
         assert!(!is_missing_pty_error("other-id", &err));
-        assert!(!is_missing_pty_error("real-id", "PTY real-id not found: access denied"));
-        assert!(!is_missing_pty_error("real-id", "wrapped PTY real-id not found"));
+        assert!(!is_missing_pty_error(
+            "real-id",
+            "PTY real-id not found: access denied"
+        ));
+        assert!(!is_missing_pty_error(
+            "real-id",
+            "wrapped PTY real-id not found"
+        ));
     }
 }
