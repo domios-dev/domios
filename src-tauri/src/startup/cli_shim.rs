@@ -23,6 +23,7 @@ const KNOWN_SUBCOMMANDS: &[&str] = &[
     "mesh",
     "mem",
     "sessions",
+    "system",
     "--help",
     "-h",
     "--version",
@@ -193,6 +194,7 @@ mod tests {
             "mesh",
             "mem",
             "sessions",
+            "system",
         ] {
             assert!(
                 is_cli_invocation(name),

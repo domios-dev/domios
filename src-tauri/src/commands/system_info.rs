@@ -105,6 +105,9 @@ pub fn disable_web_access(
 /// installs pwsh so the new shell is picked up by `detect_default_shell`.
 #[tauri::command]
 pub fn restart_app(app: AppHandle) {
+    crate::crash::shutdown::mark_shutting_down_for(
+        crate::crash::lifecycle::ShutdownReason::Restart,
+    );
     app.restart();
 }
 

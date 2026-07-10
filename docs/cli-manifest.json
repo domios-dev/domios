@@ -10291,7 +10291,7 @@
         },
         {
           "name": "enable-autostart",
-          "about": "Install an OS-level trigger that auto-launches CodeTerm at user login and re-launches it if the process disappears. Per platform: Windows = `schtasks` task with ONLOGON + 5-minute repeat, macOS = `~/Library/LaunchAgents/com.codeterm.app.plist` with `KeepAlive` + `RunAtLoad`, Linux = user systemd unit `~/.config/systemd/user/codeterm.service` with `Restart=on-failure`. Idempotent — running twice is a no-op",
+          "about": "Install an OS login trigger for the external crash-aware supervisor. The supervisor alone applies clean-exit, backoff, and loop policy; platform wrappers never restart the app independently",
           "aliases": [],
           "args": [
             {
@@ -10300,6 +10300,14 @@
               "value_name": "BINARY",
               "default": null,
               "help": "Override the path to the CodeTerm executable. Defaults to the installed app binary for the current platform",
+              "aliases": []
+            },
+            {
+              "name": "supervisor",
+              "positional": false,
+              "value_name": "SUPERVISOR",
+              "default": null,
+              "help": "Override the path to the codeterm CLI supervisor. Defaults to the currently-running CLI executable",
               "aliases": []
             }
           ],
