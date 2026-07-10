@@ -30,7 +30,7 @@ pub async fn graceful_shutdown(app: &tauri::AppHandle) -> Result<(), String> {
     log::info!("[updater] graceful_shutdown: starting");
 
     // Stop the liveness watchdog treating the imminent API-down as a crash.
-    crate::crash::shutdown::mark_shutting_down();
+    crate::crash::shutdown::mark_shutting_down_for(crate::crash::lifecycle::ShutdownReason::Update);
 
     let svc = app
         .try_state::<ServiceState>()
