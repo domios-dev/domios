@@ -14,13 +14,13 @@ acceptance_criteria:
 test_plan: 'Oracle: deterministic deadline regression plus isolated real-daemon delivery. 1. Add focused unit tests around TurnCounter/reminder state that repeatedly apply Idle->Working transitions and ordinary reports across a simulated interval exceeding 30 minutes with an execution-plan owner and open tasks; pass: due becomes true at the original deadline and remains eligible until successful delivery, never restarting from zero. 2. Add fixtures for paused, completed, parked, closed, disabled, and no-open-task plans; pass: each suppresses or clears reminders only according to its existing semantic contract. 3. Exercise delivery success and failure/retry; pass: plan/orchestrator status exposes last_tick, last_due, last_delivery, and failure/retry reason with deterministic values. 4. Start an isolated daemon instance, create an execution-plan owner with at least one open task, cause repeated Idle->Working transitions and ordinary reports for the configured test interval, then observe real reminder delivery; pass: a reminder arrives once at the deadline without daemon restart and status telemetry matches logs. 5. Run the exact focused cargo test filters discovered from the touched modules, then build.sh check in the isolated remote QA checkout; pass: exit 0. 6. Run git diff --check and scripts/check-file-sizes.sh; pass: both exit 0. Do not run a local heavy or release build.'
 correctness: Independent deadline versus activity reset; no reminder starvation under normal Orchestrator work; exact terminal-state suppression; idempotent delivery/retry; observable scheduler state; deterministic unit regression; real isolated-daemon proof; no heartbeat-state conflation.
 status: in_review
-review_stage: review
-qa_state: null
+review_stage: qa
+qa_state: queued
 status_label: pane-gone
 priority: p1
 created_at: 1783666770154
-updated_at: 1783683996208
-status_changed_at: 1783672640350
+updated_at: 1783707634880
+status_changed_at: 1783707634880
 handle: preserve-orchestrator-time-reminders-across-activity-transitions
 tags:
 - 1.7.2
@@ -150,6 +150,22 @@ milestones:
   ts: 1783683996208
   links:
   - key:33797a68416959a6
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_jmbr6d
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: qa
+  text: 'enqueue: QA-ready after integrated reminder-deadlines lane: run focused reminder deadline persistence/status telemetry tests plus isolated real-daemon delivery oracle; do not open a new review loop.'
+  ts: 1783707634880
+  links: []
   loop_id: null
   iteration: null
   canvas:

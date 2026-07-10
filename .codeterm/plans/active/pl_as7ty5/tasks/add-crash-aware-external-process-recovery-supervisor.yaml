@@ -11,11 +11,11 @@ correctness: Correctness requires external, epoch-aware, durable crash recovery 
 status: in_review
 review_stage: qa
 qa_state: queued
-status_label: independent-review-and-platform-qa
+status_label: pane-gone
 priority: p2
 created_at: 1783656650316
-updated_at: 1783694938263
-status_changed_at: 1783694938263
+updated_at: 1783710884414
+status_changed_at: 1783710843531
 handle: add-crash-aware-external-process-recovery-supervisor
 tags: []
 section_ids:
@@ -143,6 +143,212 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_rp4cr1
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: BOUNCE from queued QA
+  text: ' lane/crash-recovery-supervisor is not an ancestor of feat/1.7.2-stability. Next exit: integrate lane/crash-recovery-supervisor, resolve conflicts, then run focused crash supervisor tests and isolated force-kill oracle before QA pass.'
+  ts: 1783707768977
+  links:
+  - key:929d4901caaad9f6
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_qntb9v
+  from:
+    pane_id: 6a28df4e
+    session_id: e0a49c1f-1d4d-4ea7-86aa-db3123a0ff96
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    STATUS: in_review
+    CHANGES: Resolved the QA bounce root cause. lane/crash-recovery-supervisor was not an ancestor of feat/1.7.2-stability (lane sat on merge-base 0ba27f17d; feat had advanced 41 commits). Rebased the lane's single crash-supervisor commit onto feat/1.7.2-stability. feat/1.7.2-stability is now an ancestor of the lane, so QA can merge/test it. No content changes to the supervisor itself; integration only.
+    CONFLICTS: Only src-tauri/src/lib.rs overlapped both branches; git auto-merged it cleanly (verified: crash::record_startup, get_recovery_state command registration, heartbeat spawn_blocking, and recovery_state SSE wiring all preserved). feat never touched crash/, autostart.rs, cli system cmd/args, update/shutdown, CrashReportToast, or App.tsx, so those replayed cleanly. Backup at backup/crash-recovery-supervisor-preintegrate (old SHA b67d05894); integrated SHA d94b8dc50.
+    TESTS RUN (lane light gate — green): scripts/check-file-sizes.sh --fail PASS (no file >1200); rustfmt --edition 2021 --check on all touched Rust sources PASS (the only fmt diff is pre-existing web_routes.rs, untouched by this lane, identical to feat base); git working tree clean.
+    HEAVY TESTS — ROUTED TO CENTRALIZED QA OWNER: This lane worktree target is fully cold (no debug/, sccache 0 hits). Per updated AGENTS.md, feat/1.7.2-stability canonical root is the sole heavy build/test owner and lanes must not cold-compile (90s cap fires mid-build). Focused crash tests already passed in an earlier warm turn (cli cmd::system, src-tauri crash::lifecycle). Re-run post-integration on the canonical root: TEST_CAP_SECS=90 CARGO_TEST_CMD='cargo test --manifest-path cli/Cargo.toml' scripts/test-capped.sh -- cmd::system; TEST_CAP_SECS=90 CARGO_TEST_CMD='cargo test --manifest-path src-tauri/Cargo.toml --lib' scripts/test-capped.sh -- crash::lifecycle; ./build.ps1 check.
+    FORCE-KILL ORACLE — STILL OWED BY QA: isolated Windows 7697 supervisor force-kill oracle (capture old PID/epoch/health/routes, kill only that app PID, assert pending_crash precedes bounded restart + new PID/epoch, verify restored workspace/panes/plans/owner/planner/attempts/routes with zero duplicate workers/reports, user-exit=no-restart, third crash trips loop protection/banner). Prior blocker was tauri-build PermissionDenied on the isolated instance; that is a canonical-root build environment issue, not a lane code issue.
+    READY FOR QA: lane ref shared across worktrees; QA owner can merge d94b8dc50 directly. No new review loop needed — integration blocker cleared.
+  ts: 1783710025057
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_gthkn1
+  from:
+    pane_id: 6a28df4e
+    session_id: e0a49c1f-1d4d-4ea7-86aa-db3123a0ff96
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    STATUS: in_review
+    CHANGES: Resolved the QA bounce root cause. lane/crash-recovery-supervisor was not an ancestor of feat/1.7.2-stability (lane sat on merge-base 0ba27f17d; feat had advanced 41 commits). Rebased the lane's single crash-supervisor commit onto feat/1.7.2-stability. feat/1.7.2-stability is now an ancestor of the lane, so QA can merge/test it. No content changes to the supervisor itself; integration only.
+    CONFLICTS: Only src-tauri/src/lib.rs overlapped both branches; git auto-merged it cleanly (verified: crash::record_startup, get_recovery_state command registration, heartbeat spawn_blocking, and recovery_state SSE wiring all preserved). feat never touched crash/, autostart.rs, cli system cmd/args, update/shutdown, CrashReportToast, or App.tsx, so those replayed cleanly. Backup at backup/crash-recovery-supervisor-preintegrate (old SHA b67d05894); integrated SHA d94b8dc50.
+    TESTS RUN (lane light gate — green): scripts/check-file-sizes.sh --fail PASS (no file >1200); rustfmt --edition 2021 --check on all touched Rust sources PASS (the only fmt diff is pre-existing web_routes.rs, untouched by this lane, identical to feat base); git working tree clean.
+    HEAVY TESTS — ROUTED TO CENTRALIZED QA OWNER: This lane worktree target is fully cold (no debug/, sccache 0 hits). Per updated AGENTS.md, feat/1.7.2-stability canonical root is the sole heavy build/test owner and lanes must not cold-compile (90s cap fires mid-build). Focused crash tests already passed in an earlier warm turn (cli cmd::system, src-tauri crash::lifecycle). Re-run post-integration on the canonical root: TEST_CAP_SECS=90 CARGO_TEST_CMD='cargo test --manifest-path cli/Cargo.toml' scripts/test-capped.sh -- cmd::system; TEST_CAP_SECS=90 CARGO_TEST_CMD='cargo test --manifest-path src-tauri/Cargo.toml --lib' scripts/test-capped.sh -- crash::lifecycle; ./build.ps1 check.
+    FORCE-KILL ORACLE — STILL OWED BY QA: isolated Windows 7697 supervisor force-kill oracle (capture old PID/epoch/health/routes, kill only that app PID, assert pending_crash precedes bounded restart + new PID/epoch, verify restored workspace/panes/plans/owner/planner/attempts/routes with zero duplicate workers/reports, user-exit=no-restart, third crash trips loop protection/banner). Prior blocker was tauri-build PermissionDenied on the isolated instance; that is a canonical-root build environment issue, not a lane code issue.
+    READY FOR QA: lane ref shared across worktrees; QA owner can merge d94b8dc50 directly. No new review loop needed — integration blocker cleared.
+  ts: 1783710029764
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_5f4v4h
+  from:
+    pane_id: 6a28df4e
+    session_id: e0a49c1f-1d4d-4ea7-86aa-db3123a0ff96
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review — QA bounce root cause resolved.
+    CHANGES: lane/crash-recovery-supervisor was not an ancestor of feat/1.7.2-stability (lane on merge-base 0ba27f17d; feat advanced 41 commits). Rebased the single crash-supervisor commit onto feat/1.7.2-stability. feat/1.7.2-stability is now an ancestor of the lane; QA can merge/test it. Integration only, no supervisor content change.
+    CONFLICTS: Only src-tauri/src/lib.rs overlapped; git auto-merged cleanly (verified crash::record_startup, get_recovery_state registration, heartbeat spawn_blocking, recovery_state SSE all preserved). feat never touched crash/, autostart.rs, cli system cmd/args, update/shutdown, CrashReportToast, App.tsx — replayed clean. Pre-integrate backup: backup/crash-recovery-supervisor-preintegrate (b67d05894); integrated SHA d94b8dc50.
+    LANE LIGHT GATE (green): check-file-sizes --fail PASS; rustfmt --check on all touched sources PASS (only fmt diff is pre-existing web_routes.rs, untouched, identical to feat base); working tree clean.
+    HEAVY TESTS ROUTED TO CANONICAL-ROOT QA OWNER: lane target fully cold (no debug/, sccache 0 hits). Per AGENTS.md feat/1.7.2-stability canonical root is sole heavy build/test owner; lanes must not cold-compile (90s cap fires mid-build). Focused crash tests passed in prior warm turn (cli cmd::system, src-tauri crash::lifecycle). Re-run post-integration: TEST_CAP_SECS=90 CARGO_TEST_CMD='cargo test --manifest-path cli/Cargo.toml' scripts/test-capped.sh -- cmd::system; TEST_CAP_SECS=90 CARGO_TEST_CMD='cargo test --manifest-path src-tauri/Cargo.toml --lib' scripts/test-capped.sh -- crash::lifecycle; ./build.ps1 check.
+    FORCE-KILL ORACLE STILL OWED BY QA: isolated Windows 7697 supervisor force-kill (old PID/epoch/health/routes -> kill app PID -> pending_crash precedes bounded restart + new PID/epoch -> restored workspace/panes/plans/owner/planner/attempts/routes, zero dup workers/reports -> user-exit=no-restart -> third crash trips loop protection/banner). Prior blocker was tauri-build PermissionDenied on the isolated instance — canonical-root build-env issue, not lane code.
+    READY FOR QA: lane ref shared across worktrees; QA owner merges d94b8dc50 directly. Integration blocker cleared, no new review loop.
+  ts: 1783710070775
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_o6tid4
+  from:
+    pane_id: 6a28df4e
+    session_id: e0a49c1f-1d4d-4ea7-86aa-db3123a0ff96
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review — QA bounce root cause resolved.
+    CHANGES: lane/crash-recovery-supervisor was not an ancestor of feat/1.7.2-stability (lane on merge-base 0ba27f17d; feat advanced 41 commits). Rebased the single crash-supervisor commit onto feat/1.7.2-stability. feat/1.7.2-stability is now an ancestor of the lane; QA can merge/test it. Integration only, no supervisor content change.
+    CONFLICTS: Only src-tauri/src/lib.rs overlapped; git auto-merged cleanly (verified crash::record_startup, get_recovery_state registration, heartbeat spawn_blocking, recovery_state SSE all preserved). feat never touched crash/, autostart.rs, cli system cmd/args, update/shutdown, CrashReportToast, App.tsx — replayed clean. Pre-integrate backup: backup/crash-recovery-supervisor-preintegrate (b67d05894); integrated SHA d94b8dc50.
+    LANE LIGHT GATE (green): check-file-sizes --fail PASS; rustfmt --check on all touched sources PASS (only fmt diff is pre-existing web_routes.rs, untouched, identical to feat base); working tree clean.
+    HEAVY TESTS ROUTED TO CANONICAL-ROOT QA OWNER: lane target fully cold (no debug/, sccache 0 hits). Per AGENTS.md feat/1.7.2-stability canonical root is sole heavy build/test owner; lanes must not cold-compile (90s cap fires mid-build). Focused crash tests passed in prior warm turn (cli cmd::system, src-tauri crash::lifecycle). Re-run post-integration: TEST_CAP_SECS=90 CARGO_TEST_CMD='cargo test --manifest-path cli/Cargo.toml' scripts/test-capped.sh -- cmd::system; TEST_CAP_SECS=90 CARGO_TEST_CMD='cargo test --manifest-path src-tauri/Cargo.toml --lib' scripts/test-capped.sh -- crash::lifecycle; ./build.ps1 check.
+    FORCE-KILL ORACLE STILL OWED BY QA: isolated Windows 7697 supervisor force-kill (old PID/epoch/health/routes -> kill app PID -> pending_crash precedes bounded restart + new PID/epoch -> restored workspace/panes/plans/owner/planner/attempts/routes, zero dup workers/reports -> user-exit=no-restart -> third crash trips loop protection/banner). Prior blocker was tauri-build PermissionDenied on the isolated instance — canonical-root build-env issue, not lane code.
+    READY FOR QA: lane ref shared across worktrees; QA owner merges d94b8dc50 directly. Integration blocker cleared, no new review loop.
+  ts: 1783710077855
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_92zl39
+  from:
+    pane_id: 6a28df4e
+    session_id: e0a49c1f-1d4d-4ea7-86aa-db3123a0ff96
+    title: Dijkstra
+  kind: status_update
+  text: 'IN_REVIEW: STATUS: in_review — QA bounce root cause resolved. Rebased lane''s single crash-supervisor commit onto feat/1.7.2-stability (was on merge-base 0ba27f17d, feat had +41 commits). feat/1.7.2-stability now an ancestor of lane -> QA can merge/test. Only lib.rs overlapped; auto-merged clean (crash::record_startup, get_recovery_state, heartbeat spawn_blocking, recovery_state SSE preserved). Backup backup/crash-recovery-supervisor-preintegrate (b67d05894); integrated d94b8dc50. Lane light gate green (file-size, rustfmt, clean tree). Heavy tests + Windows 7697 force-kill oracle routed to canonical-root QA owner (lane target cold; AGENTS.md makes feat/1.7.2-stability sole heavy owner). Prior warm turn passed cli cmd::system + src-tauri crash::lifecycle. Ready for QA; integration blocker cleared.'
+  ts: 1783710120396
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_cxx3ww
+  from:
+    pane_id: 6a28df4e
+    session_id: e0a49c1f-1d4d-4ea7-86aa-db3123a0ff96
+    title: Dijkstra
+  kind: status_update
+  text: 'IN_REVIEW: STATUS: in_review — QA bounce root cause resolved. Rebased lane''s single crash-supervisor commit onto feat/1.7.2-stability (was on merge-base 0ba27f17d, feat had +41 commits). feat/1.7.2-stability now an ancestor of lane -> QA can merge/test. Only lib.rs overlapped; auto-merged clean (crash::record_startup, get_recovery_state, heartbeat spawn_blocking, recovery_state SSE preserved). Backup backup/crash-recovery-supervisor-preintegrate (b67d05894); integrated d94b8dc50. Lane light gate green (file-size, rustfmt, clean tree). Heavy tests + Windows 7697 force-kill oracle routed to canonical-root QA owner (lane target cold; AGENTS.md makes feat/1.7.2-stability sole heavy owner). Prior warm turn passed cli cmd::system + src-tauri crash::lifecycle. Ready for QA; integration blocker cleared.'
+  ts: 1783710126451
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_16nohn
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: |
+    STATUS: in_review — QA bounce root cause (lane not integrated) resolved.
+
+    CHANGES: lane/crash-recovery-supervisor was not an ancestor of feat/1.7.2-stability (lane on merge-base 0ba27f17d; feat had advanced +41 commits). Rebased the lane's single crash-supervisor commit onto feat/1.7.2-stability. feat/1.7.2-stability is now an ancestor of the lane, so the QA gate can merge/test it. Integration only — no supervisor content change. Pre-integrate backup: backup/crash-recovery-supervisor-preintegrate (old SHA b67d05894). Integrated SHA: d94b8dc50.
+
+    CONFLICTS: Only src-tauri/src/lib.rs overlapped both branches; git auto-merged it cleanly. Verified preserved: crash::record_startup at startup, get_recovery_state command registration, crash::lifecycle::heartbeat spawn_blocking, and recovery_state SSE wiring. feat never touched crash/, autostart.rs, cli system cmd/args, update/shutdown, CrashReportToast.tsx, or App.tsx — all replayed clean.
+
+    LANE LIGHT GATE (green): scripts/check-file-sizes.sh --fail PASS (no file >1200). rustfmt --edition 2021 --check on all touched Rust sources PASS (the only fmt diff is pre-existing web_routes.rs, untouched by this lane, byte-identical to feat base). Working tree clean.
+
+    HEAVY TESTS — ROUTED TO CANONICAL-ROOT QA OWNER: This lane worktree target is fully cold (no debug/, sccache 0 hits). Per updated AGENTS.md, feat/1.7.2-stability canonical root is the sole heavy build/test owner and lanes must not cold-compile (the 90s cap fires mid-build). Focused crash tests passed in a prior warm turn (cli cmd::system, src-tauri crash::lifecycle). Re-run post-integration on the canonical root:
+    - TEST_CAP_SECS=90 CARGO_TEST_CMD='cargo test --manifest-path cli/Cargo.toml' scripts/test-capped.sh -- cmd::system
+    - TEST_CAP_SECS=90 CARGO_TEST_CMD='cargo test --manifest-path src-tauri/Cargo.toml --lib' scripts/test-capped.sh -- crash::lifecycle
+    - ./build.ps1 check
+
+    FORCE-KILL ORACLE — STILL OWED BY QA: isolated Windows 7697 supervisor force-kill oracle (capture old PID/epoch/health/routes -> kill only that app PID -> assert pending_crash precedes bounded restart + new PID/epoch -> verify restored workspace/panes/plans/owner/planner/attempts/routes with zero duplicate workers/reports -> user-exit=no-restart -> third crash trips loop protection/banner). Prior blocker was tauri-build PermissionDenied on the isolated instance — a canonical-root build-env issue, not a lane code defect.
+
+    DELIVERY NOTE: codeterm agent report could not deliver — the task's recorded owner pane e3fa0754 is gone (watchdog already demoted this task to pending). Recording this outcome as a durable task milestone instead. Lane ref d94b8dc50 is shared across worktrees; the QA owner can merge it directly. Integration blocker cleared — no new review loop needed.
+  ts: 1783710182583
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_3ik9yi
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: ACCEPT integration report
+  text: ' lane/crash-recovery-supervisor rebased onto feat/1.7.2-stability, integrated SHA d94b8dc50; light gate passed (scripts/check-file-sizes.sh --fail, rustfmt --check, clean tree). Remaining gateway QA: focused cli cmd::system and crash::lifecycle tests, ./build.ps1 check, and isolated Windows 7697 force-kill supervisor oracle.'
+  ts: 1783710839318
+  links:
+  - key:2fc92b2a5da8bf07
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_nr56xi
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: qa
+  text: 'enqueue: QA-ready after integration: rerun focused cli cmd::system and crash::lifecycle tests in canonical warm checkout, then isolated Windows 7697 force-kill supervisor oracle.'
+  ts: 1783710843531
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_5jqkf8
   executor_pane_id: 201c8980
@@ -217,6 +423,40 @@ execution_attempts:
   reported_at: 1783674953924
   reviewed_at: null
   closed_at: 1783674969654
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_tac7fe
+  executor_pane_id: 6a28df4e
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/crash-recovery-supervisor
+  worktree_path: D:/Developer/codeterm-worktrees/crash-recovery-supervisor
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783710127868
+    message: 'STATUS: in_review — QA bounce root cause resolved. Rebased lane''s single crash-supervisor commit onto feat/1.7.2-stability (was on merge-base 0ba27f17d, feat had +41 commits). feat/1.7.2-stability now an ancestor of lane -> QA can merge/test. Only lib.rs overlapped; auto-merged clean (crash::record_startup, get_recovery_state, heartbeat spawn_blocking, recovery_state SSE preserved). Backup backup/crash-recovery-supervisor-preintegrate (b67d05894); integrated d94b8dc50. Lane light gate green (file-size, rustfmt, clean tree). Heavy tests + Windows 7697 force-kill oracle routed to canonical-root QA owner (lane target cold; AGENTS.md makes feat/1.7.2-stability sole heavy owner). Prior warm turn passed cli cmd::system + src-tauri crash::lifecycle. Ready for QA; integration blocker cleared.'
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783709740688
+  reported_at: 1783710127868
+  reviewed_at: null
+  closed_at: 1783710884414
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

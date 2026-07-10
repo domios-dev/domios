@@ -13,14 +13,14 @@ acceptance_criteria:
 - Focused tests, diff check, and file-size check pass without rewriting the existing authoritative QA prose or performing local heavy/release builds.
 test_plan: 'Oracle: seeded plan fixtures plus CLI/status integration tests. 1. Seed a plan with each of Discovery, persona-allocator-review, review-gate, and web-ui-serve-discovery pending; attempt non-blocker dispatch. Pass: no worker/pane is created, command exits with a structured block reason naming every relevant gate, and plan/orchestrator status shows the same gates. 2. Clear one group at a time through the existing QA completion path. Pass: status retains remaining gates and dispatch stays blocked until the final relevant gate is green. 3. Exercise a gate-clearing/release-blocking task. Pass: it remains dispatchable only under the explicitly defined policy and its exception is visible/audited. 4. Exercise explicit authorized override. Pass: command requires an explicit reason, records actor/time/gates/reason, and status shows the override; ordinary callers cannot bypass. 5. Exercise no-pending-gate control fixture. Pass: dispatch behavior is unchanged. 6. Run exact focused cargo/CLI tests discovered from dispatch/gate modules, git diff --check, and scripts/check-file-sizes.sh; pass: all exit 0. No local heavy/release build.'
 correctness: QA policy enforcement at actual dispatch boundary; no accidental worker spawn under pending gates; truthful status; audited exceptional override; per-group evidence preservation; compatibility for green plans; no policy-document duplication.
-status: in_review
-review_stage: qa
-qa_state: queued
-status_label: pane-gone
+status: in_progress
+review_stage: review
+qa_state: null
+status_label: needs-integration
 priority: p1
 created_at: 1783666895441
-updated_at: 1783694940030
-status_changed_at: 1783694940030
+updated_at: 1783709977141
+status_changed_at: 1783709977141
 handle: block-frontier-dispatch-behind-pending-regression-gates
 tags:
 - 1.7.2
@@ -33,9 +33,9 @@ competition: null
 intent: null
 parent_task_id: null
 depends_on: []
-assigned_pane_id: null
+assigned_pane_id: bd8f3648
 lane:
-  pane_id: null
+  pane_id: bd8f3648
   workspace_id: null
   workspace_name: null
   worktree_path: D:/Developer/codeterm-worktrees/regression-gate-enforcement
@@ -85,6 +85,23 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_e9dm8y
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: BOUNCE from queued QA
+  text: ' lane/regression-gate-enforcement is missing locally or not integrated into feat/1.7.2-stability. Next exit: recover/integrate the lane, then run seeded regression-gate CLI/status fixtures before QA pass.'
+  ts: 1783707772246
+  links:
+  - key:1212061a546692a4
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_xsgmyp
   executor_pane_id: 37894ae1
@@ -114,6 +131,32 @@ execution_attempts:
   reported_at: 1783672819762
   reviewed_at: null
   closed_at: 1783672834955
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_83lq59
+  executor_pane_id: bd8f3648
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.4
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/regression-gate-enforcement
+  worktree_path: D:/Developer/codeterm-worktrees/regression-gate-enforcement
+  base: origin/develop
+  destination: null
+  report: null
+  assigned_at: 1783709977141
+  reported_at: null
+  reviewed_at: null
+  closed_at: null
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

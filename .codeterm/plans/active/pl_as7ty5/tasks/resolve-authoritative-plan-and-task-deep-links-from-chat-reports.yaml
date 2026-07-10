@@ -8,14 +8,14 @@ acceptance_criteria:
 - From a different workspace, clicking valid pl_/task_ references resolves through global PlanIndex, switches/reveals the indexed owner workspace, opens plan-view-shell, and focuses the task; human titles render with compact fallback and full-ID copy/a11y; loading/archived/unowned/stale/missing/permission states are explicit without false deleted toast; safe prose links work while code blocks/commands/URLs/raw tool output remain unlinked; no N+1 or composer lag.
 test_plan: 'Oracle: focused resolver/unit tests plus cross-workspace Playwright. 1. Add/run unit fixtures for global index hit, owner workspace switch, title lookup, cache batch, plan-changed/plans-loaded invalidation, archived/unowned, stale/missing, permission/unreachable, and prose boundary cases. Pass: exact resolver/state assertions and no links inside code/command/URL/raw tool fixtures. 2. Start Playwright in workspace B while indexed plan/task belongs to workspace A; click selectors data-testid=chat-plan-link and data-testid=chat-task-link. Pass: workspace A is revealed, plan-view-shell opens, task focus is visible, and full IDs remain available via tooltip/copy/context menu. 3. Test keyboard Enter/Space and mobile/desktop viewports. Pass: activation works and no overlap. 4. Run npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep "chat-plan-link|chat-task-link|plan-view-shell". Pass: valid links navigate; missing ID stays in explicit missing state without navigation or deleted toast. 5. Inspect request count/trace. Pass: lookup is batched/cached and transcript render causes no N+1.'
 correctness: Correctness requires authoritative global index identity and owner-workspace routing, safe reference parsing, batched/cache-aware live updates, truthful failure states, preserved raw identifiers, and accessible responsive navigation without touching tool-card or composer performance ownership.
-status: in_review
-review_stage: qa
-qa_state: queued
-status_label: pane-gone
+status: in_progress
+review_stage: review
+qa_state: null
+status_label: needs-integration
 priority: p2
 created_at: 1783658038159
-updated_at: 1783694943784
-status_changed_at: 1783694943784
+updated_at: 1783711318092
+status_changed_at: 1783711318092
 handle: resolve-authoritative-plan-and-task-deep-links-from-chat-reports
 tags: []
 section_ids:
@@ -27,9 +27,9 @@ competition: null
 intent: null
 parent_task_id: null
 depends_on: []
-assigned_pane_id: null
+assigned_pane_id: 7b1f5c69
 lane:
-  pane_id: null
+  pane_id: 7b1f5c69
   workspace_id: null
   workspace_name: release-1.7.2-integration
   worktree_path: D:/Developer/codeterm-worktrees/plan-deep-links
@@ -118,6 +118,23 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_8ayleh
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: BOUNCE from queued QA
+  text: ' lane/plan-deep-links is missing locally or not integrated into feat/1.7.2-stability. Next exit: recover/integrate the lane, then run resolver/workspace focused tests and cross-workspace Playwright golden grep before QA pass.'
+  ts: 1783707775317
+  links:
+  - key:cfd55293349158ba
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_ju6if9
   executor_pane_id: cac38992
@@ -189,6 +206,32 @@ execution_attempts:
   reported_at: 1783674678797
   reviewed_at: null
   closed_at: 1783674703551
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_rzff93
+  executor_pane_id: 7b1f5c69
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-terra
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/plan-deep-links
+  worktree_path: D:/Developer/codeterm-worktrees/plan-deep-links
+  base: origin/develop
+  destination: null
+  report: null
+  assigned_at: 1783711318092
+  reported_at: null
+  reviewed_at: null
+  closed_at: null
   competition_group_id: null
   competition_lane: null
   judge_verdict: null
