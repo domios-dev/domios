@@ -893,13 +893,20 @@ mod kill_pty_tests {
             manager.get_session(&pty_id).is_none(),
             "kill must remove session from manager"
         );
-        let exited = session
-            .child
-            .lock()
-            .expect("child lock")
-            .try_wait()
-            .expect("try_wait after kill");
-        assert!(exited.is_some(), "kill must terminate the child");
+        // TerminateProcess is async on Windows and the reaper thread may reap
+        // concurrently; poll until the child is gone (here or in background).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            match session.child.lock().expect("child lock").try_wait() {
+                Ok(Some(_)) | Err(_) => break,
+                Ok(None) => {}
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "kill must terminate the child"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
 
         kill_pty_idempotent(&mut manager, &pty_id).expect("repeat kill is a no-op");
         kill_pty_idempotent(&mut manager, "missing-pty").expect("unknown kill is a no-op");
