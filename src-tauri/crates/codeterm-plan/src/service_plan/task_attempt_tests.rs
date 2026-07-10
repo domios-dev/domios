@@ -121,6 +121,46 @@ fn task_respawn_draft_preserves_explicit_request_title() {
         .unwrap();
 
     assert_eq!(draft.title.as_deref(), Some("Exact User Title"));
+    assert!(draft.explicit_title);
+}
+
+#[test]
+fn task_respawn_draft_omitted_title_stays_provisional() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Respawn inherited title".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    store.save(&mut p, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &p.id,
+            NewTask {
+                name: "retry lane".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store.assign_task(&p.id, &task_id, "pane_old", None, 3).unwrap();
+    let attempt = store.list_task_attempts(&p.id, &task_id).unwrap().remove(0);
+
+    let draft = store
+        .build_task_respawn_draft(
+            &p.id,
+            &task_id,
+            task_attempts::TaskRespawnRequest {
+                attempt_id: attempt.attempt_id,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    assert_eq!(draft.title, None);
+    assert!(!draft.explicit_title);
 }
 
 #[test]

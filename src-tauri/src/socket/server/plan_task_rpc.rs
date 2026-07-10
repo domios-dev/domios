@@ -548,7 +548,7 @@ pub(super) fn dispatch(
                 agent: Some(draft.provider.clone()),
                 cwd: Some(draft.cwd.clone()),
                 title: draft.title.clone(),
-                title_provenance: Some(respawn_title_provenance(draft.title.as_deref())),
+                title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
                 role: Some("Worker".into()),
                 parent_pane_id: draft.parent_pane_id.clone(),
                 task: Some(draft.task_prompt.clone()),
