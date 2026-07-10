@@ -390,17 +390,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const closeWorkspace = useCallback(
     (id: string) => {
-      const { workspaces, panes } = stateRef.current;
-      const ws = workspaces.find((w) => w.id === id);
-      if (ws) {
-        const paneIds = ws.tabs.map((t) => t.pane_id);
-        for (const pid of paneIds) {
-          const pane = panes[pid];
-          if (pane?.pty_id) {
-            guardedInvoke("kill_pty", { ptyId: pane.pty_id }).catch(() => {});
-          }
-        }
-      }
       guardedInvoke("mux_close_workspace", { workspaceId: id }).catch(() => {});
       dispatch({ type: "CLOSE_WORKSPACE", id });
     },
@@ -607,10 +596,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const ctx = findContext(paneId);
       if (!ctx) return;
       const { panes, workspaces } = stateRef.current;
-      const pane = panes[paneId];
-      if (pane?.pty_id) {
-        guardedInvoke("kill_pty", { ptyId: pane.pty_id }).catch(() => {});
-      }
       guardedInvoke("mux_close_pane", { paneId }).catch(() => {});
       const ws = workspaces.find((w) => w.id === ctx.workspaceId);
       const tab = ws?.tabs.find((t) => t.id === ctx.tabId);
