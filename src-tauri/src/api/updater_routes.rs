@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
 use crate::update::apply::{
-    check_and_apply, check_stage_deb_update, debian_preflight_status, gate_staged_deb,
+    check_and_apply, check_stage_deb_update, debian_preflight_status, gate_staged_deb_async,
     ApplyOptions, ApplyResult, DebianElevationStatus, DebianStageGate,
 };
 use crate::update::InstallMethod;
@@ -154,7 +154,18 @@ pub async fn install_update(
                 }
             };
 
-            let (version, path) = match gate_staged_deb(plan, debian_preflight_status) {
+            let gate = match gate_staged_deb_async(plan, debian_preflight_status).await {
+                Ok(gate) => gate,
+                Err(e) => {
+                    update_state.lock().set_error(e.clone());
+                    return Ok(Json(serde_json::json!({
+                        "status": "blocked",
+                        "message": e,
+                        "install_method": "deb"
+                    })));
+                }
+            };
+            let (version, path) = match gate {
                 DebianStageGate::NoUpdate => {
                     update_state.lock().set_phase(UpdatePhase::Idle);
                     return Ok(Json(serde_json::json!({
