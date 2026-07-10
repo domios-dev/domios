@@ -1,4 +1,7 @@
-use super::{build_brief, dispatch_worker_identity, resolve_dispatch_routing};
+use super::{
+    build_brief, build_brief_with_claimed_persona, dispatch_worker_identity,
+    resolve_dispatch_routing,
+};
 use crate::plan::{IdentityProvenance, Task};
 use crate::service::plan::task_queries::TaskSection;
 use crate::service::SpawnIdentityProvenance;
@@ -168,6 +171,38 @@ fn dispatch_treats_planner_personality_as_provisional() {
     let (title, provenance) = dispatch_worker_identity(&t);
     assert_eq!(title.as_deref(), Some("Ada"));
     assert_eq!(provenance, Some(SpawnIdentityProvenance::Suggested));
+}
+
+#[test]
+fn dispatch_treats_batch_personality_without_legacy_provenance_as_provisional() {
+    let t = task(json!({
+        "id": "task_batch_persona",
+        "name": "Dispatch",
+        "type": "code",
+        "status": "pending",
+        "personality": "Lamport",
+    }));
+    let (title, provenance) = dispatch_worker_identity(&t);
+    assert_eq!(title.as_deref(), Some("Lamport"));
+    assert_eq!(provenance, Some(SpawnIdentityProvenance::Suggested));
+}
+
+#[test]
+fn dispatch_brief_uses_atomically_claimed_persona_after_reroll() {
+    let t = task(json!({
+        "id": "task_batch_collision",
+        "name": "Dispatch",
+        "type": "code",
+        "status": "pending",
+        "personality": "Lamport",
+        "personality_provenance": IdentityProvenance::Suggested,
+        "role_guidance": "You are a concurrency engineer.",
+    }));
+
+    let brief = build_brief_with_claimed_persona(&t, &[], "Ada");
+
+    assert!(brief.starts_with("You are Ada. You are a concurrency engineer."));
+    assert!(!brief.contains("You are Lamport"));
 }
 
 fn task(value: serde_json::Value) -> Task {
