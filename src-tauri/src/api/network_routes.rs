@@ -127,7 +127,12 @@ pub async fn restart_app(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let app = state.svc.app_handle.clone();
-    tokio::task::spawn_blocking(move || app.restart());
+    tokio::task::spawn_blocking(move || {
+        crate::crash::shutdown::mark_shutting_down_for(
+            crate::crash::lifecycle::ShutdownReason::Restart,
+        );
+        app.restart();
+    });
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
