@@ -243,6 +243,7 @@ mod tests {
             agent_session_name: None,
             agent_session_model: None,
             session_binding_nonce: None,
+            reported_session_binding_nonce: None,
             shell_integration_nonce: None,
             role: None,
             role_profile: None,
@@ -268,6 +269,7 @@ mod tests {
             restored_from_snapshot: false,
             pending_greeting: None,
             boot_stage: None,
+            boot_failure_reason: None,
         }
     }
 

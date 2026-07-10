@@ -1,0 +1,125 @@
+id: task_180aul
+name: Final P0 review paused-state adversarial conversion delta
+type: review
+model: gpt-5.6-sol
+model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and is appropriate for final adversarial P0 review of destructive-adjacent migration and persistence correctness.
+personality: null
+acceptance_criteria:
+- All specified adversarial conversion and cutover findings are independently verified or pinpointed with file/line evidence, ending in one ACCEPT or BOUNCE without applying conversion.
+test_plan: 'Oracle: converter tests, adversarial probes, and static checks only. 1. Run converter fixtures preserving comments and arbitrary nested/unknown YAML; pass: no whole-document rewrite and unrelated structure is preserved. 2. Exercise park_reason-to-pause_reason, assignment clearing, active-attempt close, mixed/duplicate rejection, idempotency, and collision-safe monotonic audit IDs/timestamps; pass: deterministic expected records and error behavior. 3. Validate staged atomic-ish write/recovery behavior; pass: no partially converted accepted state. 4. Run exact dry-run only for task_pes3i4, task_p6kh7f, task_sjhx4f; pass: exact inventory and zero writes. 5. Trace/run the documented old-parser-stop/new-parser-start three-record cutover procedure with validation/rollback fixtures; pass: safe boundary and durable rollback signal. 6. Verify regenerated CLI manifest and rg production lifecycle surfaces; pass: zero production parked status surfaces. 7. Run git diff --check and scripts/check-file-sizes.sh. No cargo build/dev/Playwright/live conversion. Return file/line findings and ACCEPT/BOUNCE.'
+correctness: Non-destructive exact conversion; safe staged cutover; idempotent collision-free audit; no production parked lifecycle; validated reversible runbook.
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p0
+created_at: 1783679634742
+updated_at: 1783679965714
+status_changed_at: 1783679964717
+handle: final-p0-review-paused-state-adversarial-conversion-delta
+tags:
+- 1.7.2
+section_ids:
+- sec_d52ka9
+body: 'Final P0 read-only review of corrected task_yxlkl8 in D:/Developer/codeterm-worktrees/task-state-paused. Do not edit source, commit, build, start dev, run Playwright, or apply live conversion. Recheck prior adversarial BOUNCE findings: comments and arbitrary nested YAML preservation; park_reason-to-pause_reason migration; assignment clear and active-attempt close; staged atomic-ish writes and mixed/duplicate rejection; idempotency; collision-safe monotonic unique audit IDs/timestamps; regenerated CLI manifest and zero production parked lifecycle surfaces; durable exact three-record cutover runbook with validation/rollback; and exact dry-run inventory for task_pes3i4, task_p6kh7f, task_sjhx4f. Run converter tests, adversarial probes, and static checks only. Return severity-ranked ACCEPT or BOUNCE with file/line evidence.'
+role_guidance: 'You are an independent final P0 read-only migration reviewer. Verify adversarial conversion, cutover, and residual lifecycle surfaces only. Red line: no source edits, commits, build, dev, Playwright, or live conversion.'
+executor_role: code-reviewer
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:/Developer/codeterm-worktrees/task-state-paused
+  branch: lane/task-state-paused
+  base: origin/develop
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: planner-correctness
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_6zxmb0
+  from:
+    pane_id: 062cc37f
+    session_id: 019f4b97-a18a-7c00-9e97-bca37ebde17e
+    title: P0 paused migration review
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: Read-only final P0 review; no source or live plan records changed. VERDICT: BOUNCE — converter accepts duplicate park_reason YAML, emits a paused record with residual park_reason, then treats malformed audited records as already converted; injected second replace failure also demonstrated the documented partial-batch recovery path.
+    TESTS RUN: converter unittest suite 9/9 passed; exact three-record live dry-run with SHA-256 zero-write verification passed; offline three-record apply/validate/idempotence/rollback fixture passed; duplicate-key and malformed-audit adversarial probes failed safety; injected replace failure changed 1/3 temp files; CLI manifest/static legacy-task sweep passed; git diff --check passed; scripts/check-file-sizes.sh passed.
+  ts: 1783679943610
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_j8ag2x
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Final adversarial review completed with BOUNCE; close review objective and return converter safety remediation to task_yxlkl8.
+  ts: 1783679963876
+  links:
+  - key:9dbedfed96281289
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_qntd2a
+  executor_pane_id: 062cc37f
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/task-state-paused
+  worktree_path: D:/Developer/codeterm-worktrees/task-state-paused
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783679943972
+    message: |-
+      STATUS: done
+      CHANGES: Read-only final P0 review; no source or live plan records changed. VERDICT: BOUNCE — converter accepts duplicate park_reason YAML, emits a paused record with residual park_reason, then treats malformed audited records as already converted; injected second replace failure also demonstrated the documented partial-batch recovery path.
+      TESTS RUN: converter unittest suite 9/9 passed; exact three-record live dry-run with SHA-256 zero-write verification passed; offline three-record apply/validate/idempotence/rollback fixture passed; duplicate-key and malformed-audit adversarial probes failed safety; injected replace failure changed 1/3 temp files; CLI manifest/static legacy-task sweep passed; git diff --check passed; scripts/check-file-sizes.sh passed.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783679651958
+  reported_at: 1783679943972
+  reviewed_at: null
+  closed_at: 1783679964717
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

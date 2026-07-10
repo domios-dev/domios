@@ -1,8 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
 import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
-import { ClaudeStreamParser, mergeAssistantMessages } from "./streamParser";
-import type { ClaudeStreamEvent, RawLine } from "./streamParser";
+import {
+  ClaudeStreamParser,
+  mergeAssistantMessages,
+  reconcileToolInvocations,
+  selectEffectiveToolInvocations,
+} from "./streamParser";
+import type {
+  ClaudeStreamEvent,
+  EffectiveToolInvocationState,
+  RawLine,
+} from "./streamParser";
 
 interface UseAgentRunStreamOpts {
   api: ApiConfig;
@@ -12,6 +21,7 @@ interface UseAgentRunStreamOpts {
 
 export interface UseAgentRunStreamResult {
   events: ClaudeStreamEvent[];
+  invocations: EffectiveToolInvocationState[];
   rawLines: RawLine[];
   connected: boolean;
   error: string | null;
@@ -172,8 +182,14 @@ export function useAgentRunStream({
     };
   }, [api.host, api.port, api.token, paneId, enabled, reloadKey]);
 
+  const invocations = useMemo(
+    () => selectEffectiveToolInvocations(reconcileToolInvocations(events)),
+    [events],
+  );
+
   return {
     events,
+    invocations,
     rawLines,
     connected,
     error,

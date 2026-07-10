@@ -1,0 +1,270 @@
+id: task_korvfm
+name: Extend model identity attribution and audit remaining task models
+type: implement
+model: gpt-5.6-sol
+model_rationale: 'Retain GPT-5.6 Sol: the active lane is already bound to the discovered high-capability Codex model and needs complex provider-boundary, runtime provenance, and cross-task audit reasoning.'
+personality: Dijkstra
+acceptance_criteria:
+- Every open task has an audited planned/provider model disposition, while launch requested, catalog-resolved, actual session, pane, and report identities remain distinct and truthful.
+test_plan: 'Oracle: provider launch fixture with planned task model gpt-5.6-luna, requested gpt-5.6-luna, configured catalog resolving actual runtime gpt-5.6-terra. 1. Capture task routing, request/config, provider command, catalog resolution, session/runtime metadata, pane metadata, and report metadata; pass: all six provenance values are persisted or explicit null with source and never conflated. 2. Run a matching supported fixture such as gpt-5.5; pass: requested/resolved/actual agree and planned routing is separately retained. 3. Run unavailable/fallback fixture; pass: structured requested_model, resolved_model, actual_model, fallback reason, and no silent substitution. 4. Run concurrent launch/refresh/restored-session fixtures; pass: identity is session-scoped and stale values do not leak. 5. Audit every pending/blocked/in-progress/in-review task against codeterm agent providers and provider model catalogs; pass: each has validated retention, explicit reroute, or blocker recorded. 6. Run focused provider tests and relevant TypeScript tests discovered from ownership, git diff --check, and scripts/check-file-sizes.sh; pass: all exit 0. No local heavy build or release routing.'
+correctness: Planned/requested/resolved/actual provenance; runtime/session truth over UI metadata; explicit fallback/rejection; session-scoped restoration; audited open-task model routing; capability-based provider boundary; no unverified production routing.
+status: in_review
+review_stage: qa
+qa_state: queued
+status_label: pane-gone
+priority: p0
+created_at: 1783664538494
+updated_at: 1783694941943
+status_changed_at: 1783694941943
+handle: extend-model-identity-attribution-and-audit-remaining-task-models
+tags:
+- 1.7.2
+section_ids:
+- sec_rlqrqc
+body: Extend the bounded 1.7.2 provider/model identity regression to trace and preserve planned task routing model, requested launch model, catalog-resolved model, actual runtime session model, pane metadata, worker report, and fallback reason as distinct provenance fields. Audit every remaining pending, blocked, in-progress, and in-review task model against discovered provider catalogs; flag stale/unavailable/unverified assignments and record an explicit remediation or validated retention. A requested model must either run with matching runtime identity or surface a structured fallback/error; planned/task model, pane metadata, and spawn output alone are never evidence. Do not route production lanes to unverified gpt-5.6 variants. Preserve supported fallback models and capability-based provider boundaries; do not encode pricing. Own only provider launch/identity reporting and focused fixtures discovered by trace, avoiding task_llrfpe plugin snapshot/cache ownership and task_e7mes1 General Agent runtime ownership.
+role_guidance: 'You are a provider-runtime identity engineer. Prove planned, requested, resolved, and actual model provenance from authoritative runtime evidence, then audit each open task''s routing model. Red line: never treat pane labels or spawn text as proof, silently substitute a model, or route production to an unverified model.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:/Developer/codeterm-worktrees/provider-model-identity
+  branch: lane/provider-model-identity
+  base: origin/develop
+  destination: null
+  cleanup_status: pending
+  cleanup_hints:
+  - Clean the sibling worktree only after the Orchestrator records review and QA disposition.
+taken_by_role: null
+peer: null
+group: provider-model-identity
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_v6t0a4
+  from:
+    pane_id: 0692855e
+    session_id: 019f4ab2-11eb-7113-910d-e3735461cc34
+    title: provider identity
+  kind: status_update
+  text: |-
+    STATUS: partial
+    CHANGES: Added separate requested-model pane metadata, kept session model runtime-owned, surfaced structured model_fallback with requested_model/actual_model/reason on spawn/API, and warn/notify when provider session metadata reports an actual model different from the launch request. Production Codex catalog remains free of gpt-5.6 variants.
+    TESTS RUN: cargo check -p codeterm-pty; cargo check -p codeterm-plugin; git diff --check; bash scripts/check-file-sizes.sh --fail; rg gpt-5.6 provider/runtime sources. BLOCKED: app crate focused Rust test via build.ps1 failed before tests because src-tauri build.rs requires missing ../dist; pnpm plugin tests blocked because node_modules/tsx and bash-on-PATH are missing.
+  ts: 1783665185249
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_5zu7uh
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: BOUNCE runtime model mismatch only toast/log and requested model lost on restore; require persisted structured pane/session mismatch, event/API/report truth, exact Luna-to-Terra and restore tests
+  ts: 1783665216505
+  links:
+  - key:d5b0deb484db5532
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_876n1d
+  from:
+    pane_id: 0692855e
+    session_id: 019f4ab2-11eb-7113-910d-e3735461cc34
+    title: provider identity
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: Persisted requested_model, actual runtime model, and structured model_identity_mismatch on pane/session state; restored requested/mismatch through snapshots; surfaced synchronous catalog fallback as model_fallback; made reports and agent-report events carry actual model plus requested/mismatch; kept pane/report identity based on runtime session metadata; added focused runtime Luna->Terra mismatch, report, restore, and unavailable-model fallback fixtures; cleaned generated schema noise; verified no production provider gpt-5.6 routing hits.
+    TESTS RUN: cargo check -p codeterm (src-tauri); .\build.ps1 test --lib model_identity (1315 passed); pnpm build; pnpm exec tsx plugins/provider-codex/tests/plugin.test.ts (86 passed); git diff --check; bash scripts/check-file-sizes.sh --fail; production gpt-5.6 rg scan (no provider/runtime hits).
+  ts: 1783665954892
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_56j7uw
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: source acceptable after 1315 Rust tests and plugin tests; CONTINUE isolated live Luna->actual identity/API/report/restore oracle before accept
+  ts: 1783665991908
+  links:
+  - key:8eb04ac057006e12
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_hzsqfn
+  from:
+    pane_id: 0692855e
+    session_id: 019f4ab2-11eb-7113-910d-e3735461cc34
+    title: provider identity
+  kind: status_update
+  text: |-
+    STATUS: blocked
+    CHANGES: Source review diff remains uncommitted. Live oracle was attempted on isolated instance CODETERM_INSTANCE=provider-model-oracle, CODETERM_API_PORT=7787, CARGO_TARGET_DIR=.target-oracle, data dir C:\Users\dev\.codeterm-dev-provider-model-oracle. Seeded only that instance's models/codex.toml with gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna plus gpt-5.5/gpt-5.4/gpt-5.4-mini/gpt-5.3-codex/gpt-5.2 fallbacks.
+    TESTS RUN: Isolated health OK on 7787. Catalog verified via codeterm agent models codex: default gpt-5.5, 8 models including Sol/Terra/Luna. Spawned Luna pane 885dd436 in workspace 8f8a2477. Authoritative launch log: build_agent_command provider=codex model=Some(gpt-5.6-luna) cmd=codex ... -m gpt-5.6-luna. API /api/panes showed agent_requested_model=gpt-5.6-luna, but no agent_session_model and no model_identity_mismatch; reports API/CLI remained empty; pane chat empty; logs showed timed out waiting for codex TUI before task delivery then agent ready, with no session_start/session-model evidence. This does not satisfy live oracle. Unavailable model probe pane 331c15ac requested no-such-model-oracle: log showed requested model unavailable using gpt-5.5 and restored API state showed agent_requested_model=gpt-5.5, but spawn JSON omitted model_fallback, so synchronous structured fallback surfacing is still incomplete live. Restarted only isolated 7787 process directly; after restart API restored pane 885dd436 agent_requested_model=gpt-5.6-luna and pane 331c15ac agent_requested_model=gpt-5.5, no actual/mismatch existed to restore, no duplicate model mismatch warning. Cleanup: stopped isolated PID 37488 and leftover .target-oracle OpenConsole PID 47608, removed .target-oracle and oracle-dev.log. No 7787 listener remains. Note: build.sh dev --wait for named instance unexpectedly stopped existing 7686 listener during stale cleanup; I did not intentionally target 7686 and did not restart it.
+  ts: 1783666854854
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_onpokn
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: BLOCKED live launch passes -m gpt-5.6-luna but no session model/mismatch/report evidence; unavailable-model live spawn JSON omits model_fallback; build oracle also killed unrelated 7686
+  ts: 1783666883995
+  links:
+  - key:cfb014bf1a5a0ff8
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_p4pe88
+  from:
+    pane_id: 74a8cfa7
+    session_id: 019f4b55-03c4-7e43-9156-7491c1be77e6
+    title: provider model identity
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: Preserved the existing identity diff and separated planned, requested, provider-resolved, and runtime-actual model provenance. Persisted the full identity plus structured fallback through pane/session snapshots, dispatch override, respawn, competition, API/spawn results, reports/events, and session rollover. Catalog fallback now exposes provider_resolved_model with actual_model=null until authoritative session evidence arrives; runtime mismatch fills actual_model and reason. New-session/refresh writes are provider+session scoped, stale actual evidence is cleared on session change, and pane/report display remains runtime-owned. No production GPT-5.6 catalog/routing IDs or pricing were added; no commit was made.
+    TESTS RUN: PASS rustfmt --check on all changed Rust files; PASS git diff --check; PASS 10 focused static identity invariants; PASS production provider/catalog gpt-5.6 scan (no hits); PASS scripts/check-file-sizes.sh --fail. Per source-only instruction, no cargo/build/dev/Playwright ran. CENTRAL QA REQUESTED: .\build.ps1 test --lib model_identity; .\build.ps1 test --lib reported_session_rebinds_same_pane_for_new_conversation; .\build.ps1 test --lib task_attempt_history_builds_respawn_prompt_from_prior_attempt; .\build.ps1 test --lib competition_keeps_planned_model_separate_from_lane_requests; .\build.ps1 test --lib report_exposes_actual_requested_and_runtime_mismatch.
+  ts: 1783676328113
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_qr15g6
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: qa
+  text: 'enqueue: QA-ready from model identity report: run requested focused model identity and report/session attribution tests.'
+  ts: 1783694941943
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_xnlpa6
+  executor_pane_id: 0692855e
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/provider-model-identity
+  worktree_path: D:/Developer/codeterm-worktrees/provider-model-identity
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783666855264
+    message: |-
+      STATUS: blocked
+      CHANGES: Source review diff remains uncommitted. Live oracle was attempted on isolated instance CODETERM_INSTANCE=provider-model-oracle, CODETERM_API_PORT=7787, CARGO_TARGET_DIR=.target-oracle, data dir C:\Users\dev\.codeterm-dev-provider-model-oracle. Seeded only that instance's models/codex.toml with gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna plus gpt-5.5/gpt-5.4/gpt-5.4-mini/gpt-5.3-codex/gpt-5.2 fallbacks.
+      TESTS RUN: Isolated health OK on 7787. Catalog verified via codeterm agent models codex: default gpt-5.5, 8 models including Sol/Terra/Luna. Spawned Luna pane 885dd436 in workspace 8f8a2477. Authoritative launch log: build_agent_command provider=codex model=Some(gpt-5.6-luna) cmd=codex ... -m gpt-5.6-luna. API /api/panes showed agent_requested_model=gpt-5.6-luna, but no agent_session_model and no model_identity_mismatch; reports API/CLI remained empty; pane chat empty; logs showed timed out waiting for codex TUI before task delivery then agent ready, with no session_start/session-model evidence. This does not satisfy live oracle. Unavailable model probe pane 331c15ac requested no-such-model-oracle: log showed requested model unavailable using gpt-5.5 and restored API state showed agent_requested_model=gpt-5.5, but spawn JSON omitted model_fallback, so synchronous structured fallback surfacing is still incomplete live. Restarted only isolated 7787 process directly; after restart API restored pane 885dd436 agent_requested_model=gpt-5.6-luna and pane 331c15ac agent_requested_model=gpt-5.5, no actual/mismatch existed to restore, no duplicate model mismatch warning. Cleanup: stopped isolated PID 37488 and leftover .target-oracle OpenConsole PID 47608, removed .target-oracle and oracle-dev.log. No 7787 listener remains. Note: build.sh dev --wait for named instance unexpectedly stopped existing 7686 listener during stale cleanup; I did not intentionally target 7686 and did not restart it.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783664607045
+  reported_at: 1783666855264
+  reviewed_at: null
+  closed_at: 1783666884376
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_xjz5i3
+  executor_pane_id: 74a8cfa7
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/provider-model-identity
+  worktree_path: D:/Developer/codeterm-worktrees/provider-model-identity
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783676328380
+    message: |-
+      STATUS: done
+      CHANGES: Preserved the existing identity diff and separated planned, requested, provider-resolved, and runtime-actual model provenance. Persisted the full identity plus structured fallback through pane/session snapshots, dispatch override, respawn, competition, API/spawn results, reports/events, and session rollover. Catalog fallback now exposes provider_resolved_model with actual_model=null until authoritative session evidence arrives; runtime mismatch fills actual_model and reason. New-session/refresh writes are provider+session scoped, stale actual evidence is cleared on session change, and pane/report display remains runtime-owned. No production GPT-5.6 catalog/routing IDs or pricing were added; no commit was made.
+      TESTS RUN: PASS rustfmt --check on all changed Rust files; PASS git diff --check; PASS 10 focused static identity invariants; PASS production provider/catalog gpt-5.6 scan (no hits); PASS scripts/check-file-sizes.sh --fail. Per source-only instruction, no cargo/build/dev/Playwright ran. CENTRAL QA REQUESTED: .\build.ps1 test --lib model_identity; .\build.ps1 test --lib reported_session_rebinds_same_pane_for_new_conversation; .\build.ps1 test --lib task_attempt_history_builds_respawn_prompt_from_prior_attempt; .\build.ps1 test --lib competition_keeps_planned_model_separate_from_lane_requests; .\build.ps1 test --lib report_exposes_actual_requested_and_runtime_mismatch.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783675286308
+  reported_at: 1783676328380
+  reviewed_at: null
+  closed_at: 1783676345934
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

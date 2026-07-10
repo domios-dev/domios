@@ -1,12 +1,13 @@
 use std::io::Write;
 use std::sync::mpsc;
+use std::sync::Mutex;
 
 pub struct WriteRequest {
     pub data: Vec<u8>,
 }
 
 pub struct WriteQueue {
-    sender: mpsc::Sender<WriteRequest>,
+    sender: Mutex<Option<mpsc::Sender<WriteRequest>>>,
 }
 
 impl WriteQueue {
@@ -26,13 +27,24 @@ impl WriteQueue {
             }
         });
 
-        Self { sender }
+        Self {
+            sender: Mutex::new(Some(sender)),
+        }
     }
 
     pub fn send(&self, data: Vec<u8>) -> Result<(), String> {
-        self.sender
+        let sender = self.sender.lock().map_err(|e| e.to_string())?;
+        sender
+            .as_ref()
+            .ok_or_else(|| "PTY write channel closed".to_string())?
             .send(WriteRequest { data })
             .map_err(|_| "PTY write channel closed".to_string())
+    }
+
+    pub fn close(&self) {
+        if let Ok(mut sender) = self.sender.lock() {
+            let _ = sender.take();
+        }
     }
 }
 
@@ -98,7 +110,9 @@ mod tests {
             data: collected.clone(),
         };
         let (sender, _receiver) = mpsc::channel::<WriteRequest>();
-        let queue = WriteQueue { sender };
+        let queue = WriteQueue {
+            sender: Mutex::new(Some(sender)),
+        };
         drop(_receiver);
 
         std::thread::sleep(std::time::Duration::from_millis(10));

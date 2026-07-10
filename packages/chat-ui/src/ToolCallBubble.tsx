@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { recognize } from "./codeterm/recognize";
 import { CodetermCard } from "./codeterm/CodetermCard";
-import type { OpenPlan } from "./codeterm/LinkedText";
+import type { OpenPlan, ResolvedChatPlanRef } from "./codeterm/LinkedText";
 import type { PaneNameResolver } from "./codeterm/templates";
 import { CodeBlock, ChevronIcon, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
 import {
@@ -43,6 +43,7 @@ interface ToolCallBubbleProps {
   onToggle: (next: boolean) => void;
   resolvePaneName?: PaneNameResolver;
   onOpenPlan?: OpenPlan;
+  resolvePlanRef?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => ResolvedChatPlanRef | null;
   fontScale?: number;
 }
 
@@ -52,6 +53,7 @@ export function ToolCallBubble({
   onToggle,
   resolvePaneName,
   onOpenPlan,
+  resolvePlanRef,
   fontScale,
 }: ToolCallBubbleProps) {
   const toolName = message.toolName || "";
@@ -112,6 +114,7 @@ export function ToolCallBubble({
           onToggle={() => onToggle(!expanded)}
           resolvePaneName={resolvePaneName}
           onOpenPlan={onOpenPlan}
+          resolvePlanRef={resolvePlanRef}
           fontScale={fontScale}
         />
       );

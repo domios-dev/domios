@@ -6,6 +6,7 @@ import type {
   Pane,
   Notification,
   PaneStatus,
+  BootStage,
 } from "../../lib/types";
 import {
   highestTitleLevel,
@@ -43,6 +44,7 @@ export type Action =
   | { type: "SET_PANE_TITLE"; paneId: string; title: string; level?: TitleLevel }
   | { type: "SET_AGENT_TYPE"; paneId: string; agentType: string | null }
   | { type: "UPDATE_PANE_STATUS"; paneId: string; status: PaneStatus }
+  | { type: "UPDATE_BOOT_STAGE"; paneId: string; stage: BootStage; reason?: string | null }
   | { type: "OPEN_SESSION_PICKER"; workspaceId: string; virtual: VirtualPickerTab }
   | { type: "CLOSE_SESSION_PICKER"; workspaceId: string; tabId: string }
   | { type: "RESET_GENERATION" };
@@ -467,6 +469,22 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           [action.paneId]: action.status,
         },
       };
+
+    case "UPDATE_BOOT_STAGE": {
+      const pane = state.panes[action.paneId];
+      if (!pane) return state;
+      return {
+        ...state,
+        panes: {
+          ...state.panes,
+          [action.paneId]: {
+            ...pane,
+            boot_stage: action.stage,
+            boot_failure_reason: action.stage === "spawn_failed" ? (action.reason ?? null) : null,
+          },
+        },
+      };
+    }
 
     case "OPEN_SESSION_PICKER": {
       const ws = state.workspaces.find((w) => w.id === action.workspaceId);

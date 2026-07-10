@@ -1,0 +1,158 @@
+id: task_zl68wp
+name: Discover Mesh Web UI state and Tailscale Serve provisioning evidence
+type: planning
+model: gpt-5.4
+model_rationale: 'Routing rationale: bounded cross-layer discovery of UI state ownership and Tailscale provisioning behavior; gpt-5.4 is appropriate.'
+personality: Lamport
+acceptance_criteria:
+- Produces evidence-backed Web UI state/ownership alternatives with exact responsive selectors, and a Linux/macOS Tailscale Serve desired-state contract covering status, version syntax, HTTPS/MagicDNS, permission/elevation, config conflict preservation, health probe, and disable/reset; leaves no implementation claim unsupported.
+test_plan: 'Oracle: real-machine observations, not implementation. 1. Capture current Mesh UI screenshot and inspect existing top-bar/Mesh/Settings components; pass: state owner and current discoverability gap are evidenced. 2. On Linux and macOS targets, run tailscale version; tailscale status --json; tailscale serve status --json or version-appropriate equivalent. Pass: exact syntax/status/error and URL evidence captured. 3. Probe any reported URL with curl -fsS --max-time 10 <url>/api/health. Pass: reachability result is recorded. 4. Inspect existing serve config and run version-appropriate disable/reset dry observation where safe. Pass: preservation/conflict behavior is known. 5. Produce selector candidates for top action, status menu, open action, setup state, peer secondary action, and inline error/progress. Pass: each candidate maps to a real component or explicit new testid need.'
+correctness: 'Correctness is evidence fidelity: UI proposal and Serve contract derive from real current state and platform outputs; no implementation work, silent config overwrite, toast-only status, or unsupported CLI assumption is admitted.'
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783657209554
+updated_at: 1783657500786
+status_changed_at: 1783657476410
+handle: discover-mesh-web-ui-state-and-tailscale-serve-provisioning-evidence
+tags: []
+section_ids:
+- sec_ga5tvr
+body: 'Read-only planning task. Investigate the Mesh Map Web UI discoverability gap and reliable Tailscale Serve provisioning on real Linux/macOS machines. Capture screenshot/current UI ownership and actual access states: Local, Tailscale URL, Setup required. Compare gate option A: global top-bar Web UI action with Globe/ExternalLink icon, current state, one-click Open, adjacent setup/status menu; per-peer node secondary action only when URL exists; Settings > Network stays detailed configuration. Propose exact responsive selector/testid names but do not implement. For Serve, inspect real current serve status/errors, tailscale version/syntax, HTTPS/MagicDNS prerequisites, permissions/elevation, existing serve config preservation/conflicts, URL health probe, and disable/reset behavior. Produce an idempotent desired-state reconciliation contract and platform deltas; route unresolved architecture questions through the decision gate rather than deciding. Dependencies: decision gate created for Web UI ownership/state; task_23fywk restart recovery may inform durable state but is not a writer dependency. Branch/worktree: discovery/web-ui-tailscale-serve at D:/Developer/codeterm-worktrees/web-ui-tailscale-serve-discovery from origin/develop. Report contract: STATUS in_review; screenshots/state table; exact CLI outputs; platform evidence; selector proposal; decision inputs; bounded implementation split recommendation only after evidence.'
+role_guidance: 'You are Lamport, an evidence-first UX and infrastructure researcher. Inspect actual Mesh/Web UI and Tailscale Serve behavior before proposing implementation. Red line: no invented URL, selector, CLI syntax, permission assumption, or implementation task without machine evidence.'
+executor_role: infra-ux-researcher
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/web-ui-tailscale-serve-discovery
+  branch: discovery/web-ui-tailscale-serve
+  base: origin/develop
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: web-ui-serve-discovery
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_05gf6q
+  from:
+    pane_id: e88e18c8
+    session_id: null
+    title: null
+  kind: evidence
+  text: ' Tailscale machine observations. ubunta: TS 1.98.8 Running, DNS ubunta.example-tailnet.ts.net, serve {}, CodeTerm API 0.0.0.0:7685, HTTPS 443 refused. Mac-Air: client 1.98.5/server 1.92.3 skew; existing serve 443->127.0.0.1:7685 and 8443->7686; HTTPS /api/health 200; CLI 1.7.1 but live daemon health 1.6.2 build=dev, so update did not restart daemon. rollacode-bot: TS binary only in app bundle; existing routes 443->18789, 10443->3000, 8443->8484; CodeTerm 7685 healthy but default HTTPS 443 reaches unrelated service and /api/health is 404; CLI 1.7.1/live daemon 1.6.2 dev. Decision inputs: never overwrite routes; reconciler needs binary discovery, client/server skew handling, free-port/conflict policy, daemon-version health comparison, and truthful URL. Final implementation remains prohibited until authorized non-conflicting serve attempts report results.'
+  ts: 1783657437014
+  links:
+  - key:4545c9c856204472
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_ql6cdo
+  from:
+    pane_id: fe4b03a2
+    session_id: 019f4a42-9a05-7333-ada7-391d5ef3cd32
+    title: Lamport
+  kind: status_update
+  text: |-
+    STATUS: in_review
+    CHANGES: Read-only discovery completed; no source changes. Evidence captured for current Mesh Web UI ownership/state, existing selectors/tests, local/Mac/Linux Tailscale Serve behavior, Serve conflicts, operator bootstrap failure, CLI/live-daemon skew, and truthful URL requirements. Recommended bounded implementation split only after decision gate.
+    TESTS RUN: git worktree/status inspection; rg source/test scans; read src/components/MeshPanel/*, src/lib/webAccess.ts, src-tauri/src/api/network_routes.rs, src-tauri/crates/codeterm-mesh/src/serve_setup.rs evidence via rg; codeterm mesh peers/pane exec observations; Mac-Air tailscale version/status/serve status and HTTPS health probes; incorporated ship 1.7.2 pane evidence for Ubuntu and rollacode-bot.
+  ts: 1783657450995
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_0ngdb4
+  from:
+    pane_id: e88e18c8
+    session_id: null
+    title: null
+  kind: evidence
+  text: ' authorized Ubuntu Serve attempt. Port 443 was free; serve status {}; tailscale serve --bg --https=443 http://127.0.0.1:7685 exited 1 with Access denied: serve config denied; no config changed. Tailscale requires one-time sudo tailscale set --operator=rollacode, after which non-root serve works. Model desired state as operator_bootstrap_required with exact guided OS-elevation command; never false success or password handling.'
+  ts: 1783657466975
+  links:
+  - key:23b4c1c9903ab0cc
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_5o09ul
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: ACCEPT discovery; real Linux/macOS evidence establishes empty/operator-blocked, healthy configured, and conflicting-route cases plus daemon-version skew.
+  ts: 1783657476060
+  links:
+  - key:b2a89af4e5c92131
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_dk9iqr
+  executor_pane_id: fe4b03a2
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.4
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: discovery/web-ui-tailscale-serve
+  worktree_path: D:/Developer/codeterm-worktrees/web-ui-tailscale-serve-discovery
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783657451367
+    message: |-
+      STATUS: in_review
+      CHANGES: Read-only discovery completed; no source changes. Evidence captured for current Mesh Web UI ownership/state, existing selectors/tests, local/Mac/Linux Tailscale Serve behavior, Serve conflicts, operator bootstrap failure, CLI/live-daemon skew, and truthful URL requirements. Recommended bounded implementation split only after decision gate.
+      TESTS RUN: git worktree/status inspection; rg source/test scans; read src/components/MeshPanel/*, src/lib/webAccess.ts, src-tauri/src/api/network_routes.rs, src-tauri/crates/codeterm-mesh/src/serve_setup.rs evidence via rg; codeterm mesh peers/pane exec observations; Mac-Air tailscale version/status/serve status and HTTPS health probes; incorporated ship 1.7.2 pane evidence for Ubuntu and rollacode-bot.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783657302183
+  reported_at: 1783657451367
+  reviewed_at: null
+  closed_at: 1783657476410
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

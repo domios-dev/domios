@@ -29,12 +29,13 @@ import type {
   AtomicSpawn,
   OrchestrationPairInput,
   OrchestrationPairResult,
+  PaneBootStageEvent,
 } from "../../lib/types";
 import {
   makeVirtualPickerTab,
   type ExtendedState,
 } from "./tree";
-import { reducer } from "./reducer";
+import { reducer, type Action } from "./reducer";
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
 import { mountMuxPerfTestHook } from "./muxPerfTestHook";
 import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSession";
@@ -88,6 +89,15 @@ export function muxStateEventAction(payload: unknown): "apply-snapshot" | "refre
     return "apply-snapshot";
   }
   return "refresh";
+}
+
+export function paneBootStageEventAction(payload: PaneBootStageEvent): Action {
+  return {
+    type: "UPDATE_BOOT_STAGE",
+    paneId: payload.pane_id,
+    stage: payload.stage,
+    reason: payload.reason,
+  };
 }
 
 export function MultiplexerProvider({ children }: { children: ReactNode }) {
@@ -204,6 +214,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         });
       },
     ).then((unlisten) => unlisteners.push(unlisten));
+
+    listen<PaneBootStageEvent>("pane-boot-stage", (event) => {
+      if (!event.payload) return;
+      dispatch(paneBootStageEventAction(event.payload));
+    }).then((unlisten) => unlisteners.push(unlisten));
 
     listen<{ pane_id: string; title: string }>("pane-title-pinned", (event) => {
       dispatch({

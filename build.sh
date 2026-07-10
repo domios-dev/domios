@@ -4,8 +4,8 @@
 #   ./build.sh dev       — dev mode (hot reload, incremental)
 #   ./build.sh dev --wait — same, but backgrounds and blocks until /api/health
 #                          responds (handy for scripts/agents)
-#   ./build.sh check     — cargo check only (~2s incremental)
-#   ./build.sh test      — run Rust unit tests
+#   ./build.sh check     — integration-owner cargo check
+#   ./build.sh worktree-check — explicit isolated, nonincremental lane check
 #   ./build.sh build     — production build
 #   ./build.sh bootstrap — create/build bundled CLI + embed sidecar for fresh clones
 #   ./build.sh qa-prep   — one-shot: dist + sidecars for a fresh isolated worktree (no tsc gate)
@@ -57,6 +57,10 @@ kill_dev() {
     echo "ERROR: refusing to kill prod CodeTerm port 7685" >&2
     exit 1
   fi
+  if [ "${CODETERM_TEST_KILL_DRY_RUN:-0}" = "1" ]; then
+    echo "Dry-run dev kill instance='${CT_INSTANCE:-default}' api=$CT_PORT vite=$CT_VITE_PORT cdp=$CT_CDP_PORT identifier=$CT_IDENTIFIER"
+    return
+  fi
   kill_web_watch 2>/dev/null || true
   local session_prefix="codeterm-dev${CT_SUFFIX}-"
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
@@ -100,9 +104,11 @@ kill_dev() {
   fi
 }
 
-setup_env
-
 CMD="${1:-dev}"
+case "$CMD" in
+  gateway-*) ;;
+  *) setup_env ;;
+esac
 
 # --- Per-worktree dev instance isolation ---
 # CODETERM_INSTANCE (optional) names a dev instance so multiple worktrees can
@@ -126,26 +132,157 @@ esac
 if [ -n "$CT_INSTANCE" ]; then
   CT_SLUG=$(printf '%s' "$CT_INSTANCE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
   CT_SUFFIX="-$CT_SLUG"
+  CT_IDENTIFIER="com.codeterm.dev.$(printf '%s' "$CT_SLUG" | tr '-' '.')"
   # Stable per-instance vite port: sum of slug bytes mod 200, +1 offset.
   CT_OFFSET=$(printf '%s' "$CT_SLUG" | od -An -tu1 | awk '{for(i=1;i<=NF;i++)s+=$i} END{print (s%200)+1}')
   CT_VITE_PORT=$((1420 + CT_OFFSET))
+  CT_CDP_PORT=$((9223 + CT_OFFSET))
 else
   CT_SLUG=""
   CT_SUFFIX=""
+  CT_IDENTIFIER="com.codeterm.dev"
   CT_VITE_PORT=1420
+  CT_CDP_PORT=9223
 fi
 CT_DATA_DIR="$HOME/.codeterm-dev${CT_SUFFIX}"
-if [ "$CT_PORT" = "7685" ] && [ "$CMD" != "qa-prep" ]; then
-  echo "ERROR: refusing to target prod CodeTerm port 7685. Use dev port 7686 or a named non-prod instance." >&2
-  exit 1
-fi
 # Export so the spawned daemon + its child PTYs inherit the instance identity.
 export CODETERM_INSTANCE="$CT_INSTANCE"
 export CODETERM_API_PORT="$CT_PORT"
 export CODETERM_VITE_PORT="$CT_VITE_PORT"
+export CODETERM_DEV_IDENTIFIER="$CT_IDENTIFIER"
+export CODETERM_CDP_PORT="$CT_CDP_PORT"
 
 # Wire .githooks as the hooks directory
 git config core.hooksPath .githooks 2>/dev/null || true
+
+source scripts/cache-policy.sh
+source scripts/build-gateway.sh
+
+if [ -n "${CODETERM_BUILD_GATEWAY_DIR:-}" ]; then
+  echo "ERROR: CODETERM_BUILD_GATEWAY_DIR cannot redirect the machine build gateway" >&2
+  exit 2
+fi
+if [ -n "${CT_BUILD_GATEWAY_SCOPE:-}" ]; then
+  echo "ERROR: CT_BUILD_GATEWAY_SCOPE is internal to fake gateway commands" >&2
+  exit 2
+fi
+case "$CMD" in
+  gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe)
+    [ -z "${CODETERM_BUILD_GATEWAY_FIXTURE_DIR:-}" ] || ct_gateway_set_fixture_dir "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR"
+    ;;
+  *)
+    if [ -n "${CODETERM_BUILD_GATEWAY_FIXTURE_DIR:-}" ]; then
+      echo "ERROR: fixture gateway scope is unavailable to production orchestration command '$CMD'" >&2
+      exit 2
+    fi
+    ;;
+esac
+
+enter_build_gateway() {
+  ct_gateway_acquire "$*"
+  local gateway_log
+  gateway_log="$(ct_gateway_log_path)"
+  echo "Build gateway job $CT_BUILD_JOB_ID log: $gateway_log"
+  exec > >(tee -a "$gateway_log") 2>&1
+}
+
+integration_worktree() {
+  local canonical
+  if [ -n "${CODETERM_INTEGRATION_WORKTREE:-}" ]; then
+    echo "ERROR: CODETERM_INTEGRATION_WORKTREE cannot designate build ownership" >&2
+    return 2
+  fi
+  canonical="$(git worktree list --porcelain 2>/dev/null | awk '
+    /^worktree / { path=substr($0,10) }
+    /^branch refs\/heads\/feat\/1[.]7[.]2-stability$/ { print path }
+  ')"
+  if [ -n "$canonical" ]; then
+    printf '%s\n' "$canonical"
+    return
+  fi
+  git worktree list --porcelain 2>/dev/null | awk '
+    /^worktree / { path=substr($0,10) }
+    /^branch refs\/heads\/release\/.*-integration$/ { print path }
+  '
+}
+
+require_integration_owner() {
+  local integration current current_branch count target_abs
+  integration="$(integration_worktree)" || exit $?
+  current="$(pwd -P)"
+  count="$(printf '%s\n' "$integration" | sed '/^$/d' | wc -l | tr -d ' ')"
+  if [ "$count" -gt 1 ]; then
+    echo "ERROR: multiple registered release/*-integration worktrees; build ownership is ambiguous." >&2
+    printf '%s\n' "$integration" >&2
+    exit 2
+  fi
+  if [ -z "$integration" ]; then
+    echo "ERROR: no release/*-integration worktree is registered for $CMD." >&2
+    exit 2
+  fi
+  integration="$(cd "$integration" && pwd -P)"
+  current_branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  if [ "$integration" != "$current" ] || { [[ "$current_branch" != "feat/1.7.2-stability" ]] && [[ ! "$current_branch" =~ ^release/.+-integration$ ]]; }; then
+    echo "ERROR: $CMD is restricted to the canonical stability/integration checkout." >&2
+    echo "Current worktree: $current" >&2
+    echo "Integration checkout: $integration" >&2
+    echo "Worker worktrees should submit diffs; the gateway builds once from integration." >&2
+    exit 2
+  fi
+  if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+    target_abs="$(node -e 'const path=require("node:path");process.stdout.write(path.resolve(process.argv[1]))' "$CARGO_TARGET_DIR")"
+    if ! ct_path_under "$target_abs" "$current"; then
+      echo "ERROR: integration mutable target must live inside the registered warm checkout: $target_abs" >&2
+      exit 2
+    fi
+  fi
+  unset CODETERM_ALLOW_EXTERNAL_TARGET
+}
+
+prepare_exceptional_worktree_target() {
+  local dir identity
+  dir="$(ct_gateway_dir)"
+  identity="$(printf '%s' "$(pwd -P)" | git hash-object --stdin)"
+  export CARGO_TARGET_DIR="$dir/targets/exceptional/$identity"
+  export CARGO_INCREMENTAL=0
+  export CODETERM_ALLOW_EXTERNAL_TARGET=1
+  mkdir -p "$CARGO_TARGET_DIR"
+  ct_verify_target_dir
+  ct_require_prestarted_sccache
+  echo "[cache-policy] exceptional worktree target=$CARGO_TARGET_DIR"
+  echo "[cache-policy] CARGO_INCREMENTAL=$CARGO_INCREMENTAL"
+}
+
+prepare_release_target() {
+  local dir
+  dir="$(ct_gateway_dir)/targets/release/$CT_BUILD_JOB_ID"
+  if [ -e "$dir" ]; then
+    echo "ERROR: release target is not fresh: $dir" >&2
+    exit 2
+  fi
+  export CARGO_TARGET_DIR="$dir"
+  export CARGO_INCREMENTAL=0
+  export CODETERM_ALLOW_EXTERNAL_TARGET=1
+  mkdir -p "$CARGO_TARGET_DIR"
+  echo "[cache-policy] fresh release target=$CARGO_TARGET_DIR"
+  echo "[cache-policy] CARGO_INCREMENTAL=$CARGO_INCREMENTAL"
+}
+
+require_release_source() {
+  local actual expected dirty
+  actual="$(git rev-parse HEAD)"
+  expected="${CODETERM_EXPECTED_BUILD_SHA:-$actual}"
+  if [ "$actual" != "$expected" ]; then
+    echo "ERROR: release source mismatch: expected $expected, got $actual" >&2
+    exit 2
+  fi
+  dirty="$(git status --porcelain=v1)"
+  if [ -n "$dirty" ]; then
+    echo "ERROR: release source is not clean; refusing provenance capture" >&2
+    echo "$dirty" >&2
+    exit 2
+  fi
+}
 
 # Copy the freshly-built CLI into a target bin dir. Both prod (~/.codeterm/bin)
 # and dev (~/.codeterm-dev/bin) need the same binary so the dev daemon's
@@ -157,6 +294,15 @@ cli_release_dir() {
     echo "$target_root/$CARGO_BUILD_TARGET/release"
   else
     echo "$target_root/release"
+  fi
+}
+
+tauri_debug_dir() {
+  local target_root="${CARGO_TARGET_DIR:-src-tauri/target}"
+  if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
+    echo "$target_root/$CARGO_BUILD_TARGET/debug"
+  else
+    echo "$target_root/debug"
   fi
 }
 
@@ -178,9 +324,20 @@ if [ "${CODETERM_TEST_PRINT_CLI_RELEASE_DIR:-}" = "1" ]; then
   exit 0
 fi
 
+if [ "${CODETERM_TEST_PRINT_BUILD_CACHE_POLICY:-}" = "1" ]; then
+  ct_verify_target_dir
+  printf 'identifier=%s\napi_port=%s\nvite_port=%s\ncdp_port=%s\ntauri_debug_dir=%s\n' \
+    "$CT_IDENTIFIER" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$(tauri_debug_dir)"
+  exit 0
+fi
+
 prepare_bundle_stubs() {
   node scripts/prepare-cli-stub.js
   node scripts/prepare-embed-stub.js
+}
+
+prepare_dev_frontend_dist() {
+  node scripts/dev-resource-preflight.mjs "${1:-$(pwd -P)}"
 }
 
 # Resolve the tauri dev config. For a named instance, generate a derived config
@@ -193,7 +350,7 @@ dev_conf_path() {
     return
   fi
   local out="src-tauri/tauri.dev.conf${CT_SUFFIX}.json"
-  node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('$base','utf8'));c.build=c.build||{};c.build.devUrl='http://127.0.0.1:'+process.env.CODETERM_VITE_PORT;fs.writeFileSync('$out',JSON.stringify(c,null,2));" >&2
+  node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('$base','utf8'));c.identifier=process.env.CODETERM_DEV_IDENTIFIER;c.build=c.build||{};c.build.devUrl='http://127.0.0.1:'+process.env.CODETERM_VITE_PORT;fs.writeFileSync('$out',JSON.stringify(c,null,2));" >&2
   echo "$out"
 }
 
@@ -247,6 +404,28 @@ dev_wait_process_alive() {
   esac
 }
 
+handoff_gateway_to_dev() {
+  local dev_pid="$1" monitor_pid monitor_start lock
+  lock="$(ct_gateway_dir)/lock"
+  (
+    trap - EXIT INT TERM
+    CT_GATEWAY_MUTEX_PID="$BASHPID"
+    CT_GATEWAY_PROCESS_START="$(ct_gateway_process_start_token "$BASHPID")"
+    sleep 1
+    while dev_wait_process_alive "$dev_pid"; do
+      sleep 2
+    done
+    CT_GATEWAY_ACTIVE=1
+    ct_gateway_finish 0
+  ) >/dev/null 2>&1 &
+  monitor_pid=$!
+  monitor_start="$(ct_gateway_process_start_token "$monitor_pid")"
+  printf '%s\n' "$monitor_pid" > "$lock/pid"
+  printf '%s\n' "$monitor_start" > "$lock/start_token"
+  CT_GATEWAY_ACTIVE=0
+  echo "Build gateway remains owned by dev monitor $monitor_pid until launcher $dev_pid exits."
+}
+
 # /web browser clients are served the static dist/ bundle, NOT vite HMR.
 # Watch-rebuild it so phone/browser mirrors pick up frontend edits on reload.
 # Tauri's beforeDevCommand owns the live devUrl server on 1420.
@@ -292,81 +471,18 @@ windows_dev_leftover_cleanup() {
   fi
   command -v powershell.exe >/dev/null 2>&1 || command -v powershell >/dev/null 2>&1 || return
 
-  local root_win ps1 ps
+  local root_win target_debug_win cleanup_script ps
   root_win="$(pwd -W 2>/dev/null || pwd)"
-  ps1="$root_win/.codeterm-win-dev-cleanup${CT_SUFFIX}-$$.ps1"
-  cat > "$ps1" <<'PS'
-param(
-  [Parameter(Mandatory = $true)][string]$Root
-)
-
-$ErrorActionPreference = "SilentlyContinue"
-$rootPath = (Resolve-Path -LiteralPath $Root).Path
-$targetDebug = Join-Path $rootPath "src-tauri\target\debug"
-$nodeModules = Join-Path $rootPath "node_modules"
-$selfPid = $PID
-
-$all = @(Get-CimInstance Win32_Process)
-$childrenByParent = @{}
-foreach ($proc in $all) {
-  $parent = [int]$proc.ParentProcessId
-  if (-not $childrenByParent.ContainsKey($parent)) {
-    $childrenByParent[$parent] = New-Object System.Collections.Generic.List[object]
-  }
-  $childrenByParent[$parent].Add($proc)
-}
-
-function Stop-ProcessTree {
-  param([int]$ProcessId, [hashtable]$Seen)
-  if ($ProcessId -le 0 -or $Seen.ContainsKey($ProcessId)) {
-    return
-  }
-  $Seen[$ProcessId] = $true
-  if ($childrenByParent.ContainsKey($ProcessId)) {
-    foreach ($child in @($childrenByParent[$ProcessId])) {
-      Stop-ProcessTree -ProcessId ([int]$child.ProcessId) -Seen $Seen
-    }
-  }
-  try {
-    Stop-Process -Id $ProcessId -Force -Confirm:$false -ErrorAction Stop
-    Write-Host "Stopped stale dev process tree pid=$ProcessId"
-  } catch {}
-}
-
-$victims = New-Object System.Collections.Generic.HashSet[int]
-foreach ($proc in $all) {
-  $procId = [int]$proc.ProcessId
-  if ($procId -eq $selfPid) {
-    continue
-  }
-  $cmd = [string]$proc.CommandLine
-  $exe = [string]$proc.ExecutablePath
-  $name = [string]$proc.Name
-  $isRepoScriptHost = @("node.exe", "npm.exe", "pnpm.exe", "cmd.exe", "sh.exe", "bash.exe") -contains $name.ToLowerInvariant()
-  $matchesTarget = ($exe -and $exe.StartsWith($targetDebug, [System.StringComparison]::OrdinalIgnoreCase)) -or
-    ($cmd -and $cmd.IndexOf($targetDebug, [System.StringComparison]::OrdinalIgnoreCase) -ge 0)
-  $matchesDevWebView = $cmd -and $cmd.IndexOf("com.codeterm.dev\EBWebView", [System.StringComparison]::OrdinalIgnoreCase) -ge 0
-  $matchesRepoVite = $isRepoScriptHost -and $cmd -and
-    $cmd.IndexOf($nodeModules, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -and
-    ($cmd -match "vite\\bin\\vite\.js|@tauri-apps\\cli\\tauri\.js")
-
-  if ($matchesTarget -or $matchesDevWebView -or $matchesRepoVite) {
-    [void]$victims.Add($procId)
-  }
-}
-
-$seen = @{}
-foreach ($procId in @($victims)) {
-  Stop-ProcessTree -ProcessId $procId -Seen $seen
-}
-PS
+  target_debug_win="$(cd "$(tauri_debug_dir)" 2>/dev/null && pwd -W 2>/dev/null || echo "$(pwd -W 2>/dev/null || pwd)/$(tauri_debug_dir)")"
+  cleanup_script="$root_win/scripts/windows-dev-cleanup.ps1"
   if command -v powershell.exe >/dev/null 2>&1; then
     ps="powershell.exe"
   else
     ps="powershell"
   fi
-  "$ps" -NoProfile -ExecutionPolicy Bypass -File "$ps1" -Root "$root_win" 2>/dev/null || true
-  rm -f "$ps1"
+  "$ps" -NoProfile -ExecutionPolicy Bypass -File "$cleanup_script" -Root "$root_win" \
+    -TargetDebug "$target_debug_win" -Identifier "$CT_IDENTIFIER" -Instance "$CT_INSTANCE" \
+    -VitePort "$CT_VITE_PORT" -ApiPort "$CT_PORT" -CdpPort "$CT_CDP_PORT" 2>/dev/null || true
 }
 
 start_web_watch() {
@@ -389,6 +505,46 @@ kill_web_watch() {
 
 dev_health_status() {
   curl -s --max-time 2 "http://127.0.0.1:${CT_PORT}/api/health" 2>/dev/null || true
+}
+
+dev_health_fields() {
+  node -e '
+    let input="";
+    process.stdin.on("data", chunk => input += chunk);
+    process.stdin.on("end", () => {
+      const json=JSON.parse(input);
+      const instance=json.instance ?? {};
+      process.stdout.write([json.status ?? "", json.build_sha ?? "", instance.name ?? "", instance.api_port ?? "", instance.vite_port ?? "", instance.cdp_port ?? "", instance.identifier ?? ""].join("\n"));
+    });
+  '
+}
+
+validate_dev_health() {
+  local expected_sha="$1" expected_instance="$2" expected_port="$3" expected_vite="$4" expected_cdp="$5" expected_identifier="$6" health="$7"
+  local status sha instance port vite cdp identifier
+  local -a fields=()
+  mapfile -t fields < <(printf '%s' "$health" | dev_health_fields 2>/dev/null || true)
+  status="${fields[0]:-}"
+  sha="${fields[1]:-}"
+  instance="${fields[2]:-}"
+  port="${fields[3]:-}"
+  vite="${fields[4]:-}"
+  cdp="${fields[5]:-}"
+  identifier="${fields[6]:-}"
+  if [ "$status" != "ok" ]; then
+    echo "Health endpoint did not report status=ok" >&2
+    return 1
+  fi
+  if [[ ! "$expected_sha" =~ ^[0-9a-f]{40}$ ]] || [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]] || [ "$sha" != "$expected_sha" ]; then
+    echo "Health endpoint is stale or wrong-lane: expected build $expected_sha, got $sha" >&2
+    return 1
+  fi
+  if [ "$instance" != "$expected_instance" ] || [ "$port" != "$expected_port" ] ||
+      [ "$vite" != "$expected_vite" ] || [ "$cdp" != "$expected_cdp" ] || [ "$identifier" != "$expected_identifier" ]; then
+    echo "Health endpoint is from the wrong instance: expected instance='$expected_instance' api='$expected_port' vite='$expected_vite' cdp='$expected_cdp' identifier='$expected_identifier', got instance='$instance' api='$port' vite='$vite' cdp='$cdp' identifier='$identifier'" >&2
+    return 1
+  fi
+  printf '%s\n' "$sha"
 }
 
 dev_listener_pid() {
@@ -414,20 +570,106 @@ case "$CMD" in
   env)
     # Already loaded above. Use: source build.sh env
     ;;
+  fmt-check)
+    cargo fmt --manifest-path src-tauri/Cargo.toml --check
+    cargo fmt --manifest-path cli/Cargo.toml --check
+    ;;
+  gateway-status)
+    ct_gateway_status
+    ;;
+  gateway-cancel)
+    ct_gateway_cancel "${2:?gateway-cancel requires a job id}"
+    ;;
+  gateway-health-check)
+    validate_dev_health "${2:?expected SHA required}" "${3:-}" "${4:?expected port required}" \
+      "${5:?expected vite port required}" "${6:?expected cdp port required}" "${7:?expected identifier required}" \
+      "$(cat "${8:?health fixture path required}")"
+    ;;
+  gateway-fake|gateway-sleep)
+    enter_build_gateway "$CMD ${*:2}"
+    fake_name="${2:-fake}"
+    fake_duration="${3:-${2:-1}}"
+    if [ -n "${CODETERM_GATEWAY_FAKE_EVENTS:-}" ]; then
+      printf '%s start %s\n' "$fake_name" "$(node -p '(BigInt(Date.now()) * 1000000n).toString()')" >> "$CODETERM_GATEWAY_FAKE_EVENTS"
+    fi
+    if [[ "$fake_duration" == wait:* ]]; then
+      fake_release="${fake_duration#wait:}"
+      fake_deadline=$(( $(date +%s) + ${CODETERM_GATEWAY_FAKE_WAIT_SECS:-30} ))
+      while [ ! -e "$fake_release" ]; do
+        [ "$(date +%s)" -le "$fake_deadline" ] || { echo "Fake gateway release timed out: $fake_release" >&2; exit 124; }
+        sleep 0.05
+      done
+    else
+      sleep "$fake_duration"
+    fi
+    if [ -n "${CODETERM_GATEWAY_FAKE_EVENTS:-}" ]; then
+      printf '%s end %s\n' "$fake_name" "$(node -p '(BigInt(Date.now()) * 1000000n).toString()')" >> "$CODETERM_GATEWAY_FAKE_EVENTS"
+    fi
+    [ "${4:-success}" != "fail" ] || exit 23
+    ;;
+  gateway-policy-probe)
+    case "${2:-}" in
+      integration-owner) require_integration_owner ;;
+      release-source) require_release_source ;;
+      release-target)
+        enter_build_gateway "$CMD ${*:2}"
+        prepare_release_target
+        printf 'target=%s\nincremental=%s\n' "$CARGO_TARGET_DIR" "$CARGO_INCREMENTAL"
+        ;;
+      worktree-target)
+        enter_build_gateway "$CMD ${*:2}"
+        prepare_exceptional_worktree_target
+        printf 'target=%s\nincremental=%s\nwrapper=%s\n' "$CARGO_TARGET_DIR" "$CARGO_INCREMENTAL" "$RUSTC_WRAPPER"
+        ;;
+      qa-child)
+        enter_build_gateway "qa-prep"
+        bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "$$" "$CT_GATEWAY_PROCESS_START" "qa-prep" --probe-only
+        ;;
+      dev-resources)
+        enter_build_gateway "dev-resource-preflight"
+        prepare_dev_frontend_dist "${3:?dev-resources requires a fixture root}"
+        ;;
+      *) echo "Unknown gateway policy probe: ${2:-}" >&2; exit 2 ;;
+    esac
+    ;;
   check)
+    require_integration_owner
+    enter_build_gateway "$CMD ${*:2}"
+    prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
+    ct_configure_sccache
     cargo check --manifest-path src-tauri/Cargo.toml
     ;;
   test)
+    require_integration_owner
+    enter_build_gateway "$CMD ${*:2}"
+    prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
-    cargo test --manifest-path src-tauri/Cargo.toml --lib
+    ct_configure_sccache
+    scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
+    ;;
+  worktree-check)
+    enter_build_gateway "$CMD ${*:2}"
+    prepare_exceptional_worktree_target
+    prepare_bundle_stubs
+    cargo check --manifest-path src-tauri/Cargo.toml "${@:2}"
     ;;
   build)
+    require_integration_owner
+    enter_build_gateway "$CMD ${*:2}"
+    require_release_source
+    prepare_release_target
     ensure_deps
+    ct_configure_sccache
+    RELEASE_PROVENANCE="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.provenance.json"
+    ct_snapshot_provenance "full-build" "release" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
+      "$RELEASE_PROVENANCE"
     pnpm tauri build
+    ct_check_provenance "full-build" "release" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
+      "$RELEASE_PROVENANCE"
     # Release gate: /web is served from the exe-adjacent dist/ bundle that
-    # tauri.conf bundle.resources maps in (../dist -> dist). If pnpm build
-    # produced no dist/index.html the installer ships a /web that 404s.
+    # tauri.conf bundle.resources maps in (../dist -> dist). If Tauri's
+    # beforeBuildCommand produced no dist/index.html, /web ships broken.
     if [ ! -f dist/index.html ]; then
       echo "❌ RELEASE GATE: dist/index.html missing after build — /web would 404. Run 'pnpm build'." >&2
       exit 1
@@ -435,11 +677,16 @@ case "$CMD" in
     echo "✅ web bundle present (dist/index.html) — packaged into installer via bundle.resources"
     ;;
   qa-prep)
-    bash scripts/qa-prep.sh "${@:2}"
+    require_integration_owner
+    enter_build_gateway "$CMD ${*:2}"
+    bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "$$" "$CT_GATEWAY_PROCESS_START" "$CMD ${*:2}" -- "${@:2}"
     ;;
   bootstrap)
+    require_integration_owner
+    enter_build_gateway "$CMD ${*:2}"
     ensure_deps
     prepare_bundle_stubs
+    ct_configure_sccache
     touch cli/src/main.rs
     cargo build --release --manifest-path cli/Cargo.toml
     CODETERM_DEV=1 node scripts/bundle-cli.js
@@ -448,21 +695,29 @@ case "$CMD" in
     echo "Bootstrap complete: bundled CLI and codeterm-embed are present."
     ;;
   embed)
+    require_integration_owner
+    enter_build_gateway "$CMD ${*:2}"
     # Force-rebuild the codeterm-embed binary. Skipped on every dev cycle
     # by default — use this when you change embed sources or pull new
     # ONNX/embeddings deps.
     prepare_bundle_stubs
+    ct_configure_sccache
     cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
     node scripts/bundle-embed.js
     echo "codeterm-embed rebuilt"
     ;;
   cli)
+    require_integration_owner
+    enter_build_gateway "$CMD ${*:2}"
+    ct_configure_sccache
     touch cli/src/main.rs
     cargo build --release --manifest-path cli/Cargo.toml
     install_cli_to "$HOME/.codeterm/bin"
     install_cli_to "$HOME/.codeterm-dev/bin"
     ;;
   clean)
+    require_integration_owner
+    enter_build_gateway "$CMD ${*:2}"
     cargo clean --manifest-path src-tauri/Cargo.toml
     ;;
   kill)
@@ -470,18 +725,12 @@ case "$CMD" in
     echo "Done."
     ;;
   dev)
+    require_integration_owner
+    enter_build_gateway "$CMD ${*:2}"
+    prepare_dev_frontend_dist
     kill_dev
     ensure_deps
-    # Shared compile cache when available — makes cold worktree builds warm.
-    command -v sccache >/dev/null 2>&1 && export RUSTC_WRAPPER=sccache
-    # In a worktree: share the canonical checkout's warm debug target (avoids cold build).
-    if [ -z "${CARGO_TARGET_DIR:-}" ]; then
-      _CT_CANONICAL=$(git worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2; exit}')
-      if [ -n "$_CT_CANONICAL" ] && [ "$_CT_CANONICAL" != "$(pwd)" ] && [ -d "$_CT_CANONICAL/src-tauri/target" ]; then
-        export CARGO_TARGET_DIR="$_CT_CANONICAL/src-tauri/target"
-        echo "Using shared CARGO_TARGET_DIR=$CARGO_TARGET_DIR (warm)"
-      fi
-    fi
+    ct_configure_sccache
     echo "Building CLI..."
     cargo build --release --manifest-path cli/Cargo.toml
     if [ -z "$CT_INSTANCE" ]; then
@@ -498,7 +747,7 @@ case "$CMD" in
     # first-launch embedded extract is skipped so ~/.codeterm/plugins/
     # doesn't shadow the workspace.
     export CODETERM_DEV=1
-    export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=9223}"
+    export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=$CT_CDP_PORT}"
     start_web_watch
 
     WAIT=0
@@ -511,6 +760,7 @@ case "$CMD" in
     if [ "$WAIT" -eq 1 ]; then
       LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
       : > "$LOG"
+      EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
       DEV_PID=$(start_dev_wait_process "$LOG")
       echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to respond..."
       DEADLINE=$(( $(date +%s) + 600 ))
@@ -527,9 +777,12 @@ case "$CMD" in
         fi
         HEALTH=$(dev_health_status)
         if [ -n "$HEALTH" ]; then
-          SHA=$(printf '%s' "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('build','')[:8])" 2>/dev/null || true)
-          STATUS=$(printf '%s' "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+          STATUS=$(printf '%s' "$HEALTH" | dev_health_fields 2>/dev/null | cut -f1 || true)
           if [ "$STATUS" = "ok" ]; then
+            if ! SHA=$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH"); then
+              echo "$HEALTH"
+              exit 1
+            fi
             STABLE=1
             for _ in 1 2 3 4; do
               sleep 2
@@ -542,8 +795,7 @@ case "$CMD" in
                 break
               fi
               HEALTH=$(dev_health_status)
-              STATUS=$(printf '%s' "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
-              if [ "$STATUS" != "ok" ]; then
+              if ! SHA=$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH" 2>/dev/null); then
                 STABLE=0
                 break
               fi
@@ -553,7 +805,8 @@ case "$CMD" in
               tail -25 "$LOG"
               exit 1
             fi
-            echo "Dev ready: build $SHA, launcher pid $DEV_PID, listener pid $(dev_listener_pid)"
+            echo "Dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', launcher pid $DEV_PID, listener pid $(dev_listener_pid)"
+            handoff_gateway_to_dev "$DEV_PID"
             exit 0
           fi
         fi
@@ -576,6 +829,8 @@ case "$CMD" in
     python3 -m pytest -m llm -v --tb=short "${@:2}"
     ;;
   test:all)
+    require_integration_owner
+    enter_build_gateway "$CMD ${*:2}"
     # Aggregate runner for every NON-LLM test layer. Unit layers always run;
     # dev-dependent integration layers (pytest e2e, Playwright @smoke) run only
     # when dev (7686) is healthy, otherwise they SKIP loudly. Exits non-zero iff
@@ -620,7 +875,7 @@ case "$CMD" in
     exit "$ta_rc"
     ;;
   *)
-    echo "Usage: ./build.sh {dev|check|test|test:all|build|qa-prep|cli|clean|kill|e2e|env}"
+    echo "Usage: ./build.sh {dev|check|worktree-check|test|test:all|build|qa-prep|cli|clean|kill|e2e|fmt-check|gateway-status|gateway-cancel|gateway-fake|gateway-health-check|env}"
     exit 1
     ;;
 esac

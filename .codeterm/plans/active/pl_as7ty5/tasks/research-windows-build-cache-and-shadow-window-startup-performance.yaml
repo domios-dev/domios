@@ -1,0 +1,789 @@
+id: task_odejzc
+name: Research Windows build cache and shadow-window startup performance
+type: planning
+model: gpt-5.6-sol
+model_rationale: Release-blocking cross-worktree artifact contamination affects PTY, crash recovery, persona runtime, and Playwright verification; gpt-5.5 is required for the build/runtime architecture and cross-platform gates.
+personality: Dijkstra
+acceptance_criteria:
+- build.ps1/build.sh are the sole supported machine entry points for heavy build/check/dev orchestration, backed by a machine-scoped observable lock/queue.
+- Fake overlapping jobs prove one running owner and serialized queue behavior, with owner/job/state/queue position/log/status visible through completion, failure, cancellation, and release.
+- The warm release-integration checkout alone owns mutable incremental target artifacts; ordinary worker lanes do not run uncontrolled heavy builds.
+- Explicit exceptional worktree compilation is serialized, uses isolated target, verifies prestarted shared sccache configuration, and sets CARGO_INCREMENTAL=0.
+- Release mode uses a fresh target and rejects stale/mismatched source and build provenance; health build_sha/instance validation and safe kill ownership remain correct.
+- First-paint/shadow-window instrumentation is excluded from this blocking diff; all tests use focused/fake jobs or remote/isolated QA, never concurrent full local builds.
+test_plan: 'Oracle: fake-job gateway serialization plus focused build/provenance verification, not two concurrent full builds. 1. Add/run deterministic fake build jobs through build.ps1/build.sh gateway with overlapping requests from distinct worktree identities; pass: exactly one job enters running, remaining jobs queue with observable owner/job/state/position/log, and execution order is serialized. 2. Cancel/fail/complete fake jobs; pass: lock ownership is released, next job advances, failure/status/log remain observable, and no stale owner blocks the queue. 3. Exercise ordinary worker request; pass: it stops at source/focused non-heavy checks and cannot claim the warm mutable target. 4. Exercise explicit exceptional worktree compile request; pass: it is serialized, uses isolated target, CARGO_INCREMENTAL=0, and prestarted shared sccache configuration is validated/logged before compile. 5. Exercise release mode; pass: fresh target is used and source SHA/profile/target/toolchain/flags/features/generated-resource provenance is verified. 6. Verify health build_sha/instance identity and safe kill ownership using focused fixture or isolated process; pass: mismatch is surfaced and kill only targets the owned instance. 7. Run exact focused unit/script tests, git diff --check, and scripts/check-file-sizes.sh; pass: all exit 0. Do not run a local heavy/release build or a concurrent two-full-build test.'
+correctness: One machine-wide heavy-build authority; deterministic serialization; observable queue/lifecycle; no uncontrolled mutable target sharing; isolated exceptional compile; verified immutable cache boundary; non-incremental exceptional builds; fresh release provenance; preserved health/kill ownership; no three-build amplification; first-paint instrumentation deferred.
+status: done
+review_stage: review
+qa_state: null
+status_label: pane-gone
+priority: p1
+created_at: 1783661192391
+updated_at: 1783686097064
+status_changed_at: 1783686096095
+handle: research-windows-build-cache-and-shadow-window-startup-performance
+tags:
+- 1.7.2
+section_ids:
+- sec_ga5tvr
+body: Implement one machine-scoped build gateway; do not make per-worktree dev isolation the default. build.ps1/build.sh are the sole machine entry points for build/check/dev orchestration. Add a machine-scoped lock and queue with observable owner, job, state, start/end time, queue position, and log path. The warm release-integration checkout owns mutable incremental target artifacts. Ordinary workers stop at source inspection and focused non-heavy checks. An exceptional worktree compile must be explicitly requested, serialized through the gateway, use an isolated target, use a correctly prestarted shared sccache only for immutable compiler outputs, and set CARGO_INCREMENTAL=0. Release builds use a fresh target plus complete source/provenance verification. Preserve health build_sha/instance validation and safe kill ownership only where evidence confirms them sound. The confirmed cross-branch artifact contamination is addressed by eliminating uncontrolled concurrent heavy builds, not by encouraging all worktrees to build. Do not include first-paint/shadow-window instrumentation in this blocking diff; capture it as separate follow-up evidence only after the gateway is stable. Own build.ps1/build.sh, gateway state/lock/queue implementation, focused tests, and directly related health/kill validation surfaces discovered by trace. Branch/worktree remains research/build-performance-1.7.2 at D:/Developer/codeterm-worktrees/build-performance-research from origin/develop. This is the prerequisite for the next warm integration QA run and blocks unsafe heavy worker verification.
+role_guidance: 'You are a build gateway engineer. Centralize heavy build ownership through build.ps1/build.sh, make queue state observable, and ensure only the warm integration checkout owns mutable incremental artifacts. Red line: no uncontrolled concurrent full builds, no silent target sharing, no stale provenance accepted as fresh, and no first-paint instrumentation scope added to this blocking change.'
+executor_role: build-infra-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/build-performance-research
+  branch: research/build-performance-1.7.2
+  base: origin/develop
+  destination: null
+  cleanup_status: deferred
+  cleanup_hints:
+  - Accepted overlay is integrated in the warm release checkout; keep source worktree until integration is committed/merged.
+taken_by_role: null
+peer: null
+group: build-performance-1.7.2
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_qqn6r1
+  from:
+    pane_id: e88e18c8
+    session_id: null
+    title: null
+  kind: evidence
+  text: ' cache policy matrix expanded. .codeterm/build-machine/README.md and build-all.sh claim clean fresh-clone/no target cache for release engines; build-linux.sh follows. build-windows.sh explicitly persists Windows VM cargo target cache for retries. Docker test scripts persist named volumes for src-tauri/target and cli/target. Hosted release-windows/macos/linux workflows use Swatinem/rust-cache for src-tauri and cli workspaces. Research must map and unify four policies: no local cross-worktree cache, persistent Docker test volumes, hosted rust-cache, and persistent Windows VM target state, while preserving tagged-source final artifact verification.'
+  ts: 1783661199499
+  links:
+  - key:53326fc176c0891c
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_xrpe7u
+  from:
+    pane_id: a361536c
+    session_id: 019f4a7e-c06d-7c01-a342-ce593215a1fc
+    title: build perf research
+  kind: status_update
+  text: |-
+    STATUS: in_review
+    CHANGES: Evidence-only research. Added .research/build-perf/run-windows-bench.ps1 and run-windows-cli-bench.ps1 as local measurement harnesses; no product code/cache policy edits. Installed user sccache v0.16.0 for measurement.
+    TESTS RUN: Windows CLI cargo check matrix: isolated cold 32.17s, isolated warm/no-op 0.42s; sccache nonincremental cold 38.57s, warm/no-op 5.18s, fresh target same sccache cache 72.88s with 0 Rust hits / 987 Rust misses. Windows src-tauri cold isolated failed before compile on missing bundled-embed codeterm-embed-x86_64-pc-windows-msvc.exe; qa-prep failed before Rust on missing node_modules/vite. Mac-Air mesh same SHA/toolchain: CLI warm/no-op 0.81s, temp cold target 21.93s, 215M. Startup logs: no current 7686 listener; existing dev log shows repeated WebView2 HRESULT 0x8007139F around PTY/window activity; tauri config has transparent=true and no visible=false. Decision: keep A isolated per-worktree target as default; reject B shared CARGO_TARGET_DIR+sccache as default for 1.7.2; accept only opt-in hybrid qa-prep/warm-canonical target after artifact provenance checks. Startup follow-up: instrument process/window/webview/root/first-paint and gate/delay show; classify current evidence as runtime WebView2/show-before-content, not compile cache.
+  ts: 1783662366268
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_yqo7zw
+  from:
+    pane_id: watchdog
+    session_id: null
+    title: null
+  kind: decision
+  text: 'watchdog: assigned pane gone and silent for 2703301ms — demoted to pending'
+  ts: 1783665070125
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_bp6l92
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: evidence
+  text: named build.sh dev --wait instance provider-model-oracle port 7787 unexpectedly stopped unrelated dev 7686 during stale cleanup; require concurrent-instance PID/port ownership regression
+  ts: 1783666882953
+  links:
+  - key:10b0e02b543a0cc8
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_e5bszc
+  from:
+    pane_id: e88e18c8
+    session_id: null
+    title: null
+  kind: decision
+  text: ' task_odejzc is the execution prerequisite for the next QA frontier. After its accepted evidence, freeze new non-blocker dispatch and run one serialized warm integration QA checkout on this machine. Reuse the authoritative existing gate procedures and record separate outcomes for Discovery, persona-allocator-review, review-gate, and web-ui-serve-discovery; do not rerun four broad suites or rewrite QA policy prose. Unfreeze only after all four group outcomes are green or an explicit audited override is recorded.'
+  ts: 1783666910187
+  links:
+  - key:04942f9ef1b0d030
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_u60zhk
+  from:
+    pane_id: 0040bdd8
+    session_id: 019f4ad2-60ea-7fb0-88b9-e4e1b1f729cb
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    STATUS: partial
+    CHANGES: Removed implicit canonical src-tauri/target sharing from build.sh dev; added cache-policy validation for CARGO_TARGET_DIR and sccache before build/server start; made named dev instances use unique Tauri/WebView2 identifiers and CDP ports; narrowed Windows stale cleanup by API/Vite port, WebView2 identifier, and target-debug listener ownership so named starts/kills cannot reap 7686 or another live instance by executable path alone; changed qa-prep to default-build sidecars and only reuse canonical sidecars via explicit --warm-canonical with provenance manifests; added cache-provenance helper; added Windows two-instance QA regression script with PID/executable/port assertions; added startup timing logs for process_start, native_window_created, rest_api_listening, daemon_health, webview_navigation, frontend_root_mount, and first_paint without changing show/delay policy; preserved existing .research evidence and did not revert schema artifacts.
+    TESTS RUN: bash -n build.sh scripts/cache-policy.sh scripts/qa-prep.sh scripts/check-build-kill-safety.sh; node --check scripts/cache-provenance.mjs; PowerShell parse check for scripts/check-dev-instance-isolation.ps1; CODETERM_TEST_PRINT_BUILD_CACHE_POLICY probes for default and provider-model-oracle/7787; external CARGO_TARGET_DIR rejection probe; cache-provenance write/check probe; git diff --check; cargo fmt --manifest-path src-tauri/Cargo.toml --check; scripts/check-file-sizes.sh --fail. NOT RUN: real two-concurrent-instance regression scripts/check-dev-instance-isolation.ps1 because it starts two dev instances/heavy local build; bridge.coverage.test.ts because node_modules is incomplete (missing node_modules/tsx/dist/cli.mjs); no local release/heavy build.
+  ts: 1783667354199
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_3eltz9
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: CONTINUE source/syntax checks acceptable; mandatory real Windows three-instance coexist/kill/stale-cleanup oracle and first-paint timeline now authorized, prod 7685 forbidden
+  ts: 1783667381896
+  links:
+  - key:ccac41159ce7974b
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_41iemq
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: evidence
+  text: persona lane build.ps1 dev --wait returned health from stale generic 1.6.2/dev instead of lane commit 4cda2201c; readiness must verify instance/build SHA
+  ts: 1783667400885
+  links:
+  - key:3fe1375389a72db6
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_7hqsv8
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: evidence
+  text: Orchestrator detected and stopped concurrent windows-launch-runtime Cargo/rustc while build-isolation oracle was compiling; task_odejzc now exclusively owns heavy machine gate
+  ts: 1783668997494
+  links:
+  - key:274f0a5475878882
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_efvm2p
+  from:
+    pane_id: 0040bdd8
+    session_id: 019f4ad2-60ea-7fb0-88b9-e4e1b1f729cb
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    STATUS: partial
+    CHANGES: Added authoritative health build_sha/build/instance fields in /api/health; added build.rs BUILD_SHA; tightened dev --wait readiness to reject generic build=dev, wrong build SHA, wrong instance name, wrong API port, or wrong Tauri/WebView2 identifier; fixed build.ps1 CDP/Vite reload to honor CODETERM_VITE_PORT and CODETERM_CDP_PORT; repaired lane node_modules and ran bridge coverage; generated dist with vite build after default dev start exposed missing dist; patched named cleanup further after oracle reproduced that named cleanup could still remove 7686 via raw target/no-port matching. Did not commit.
+    ORACLE SO FAR: bridge.coverage.test.ts passed 7/7. Initial two-instance script aborted because 7686 was absent; prod 7685 before was pid=46376 health build=dev version=1.6.2. Started default 7686 through build.ps1 dev --wait with CARGO_TARGET_DIR=.codeterm-targets/default after building dist; command timed out at 600s, but 7686 later became healthy with pid=55868, build_sha=0ba27f17dd663feec3c263e2f44923e366fb5a4e, version=1.7.1, identifier=com.codeterm.dev. Reran two-instance script: stale-cleanup probe preserved 7686 initially, but the script failed due a harness bug where Write-Receipt polluted Assert-Listener return. After fixing that and rerunning, 7686 was gone before the script could proceed, proving named cleanup/finally path still killed default. I patched build.sh so named cleanup no longer kills raw target/no-port processes unless they own that named API port; this final patch was NOT retested per STOP.
+    TOP-LEVEL BUILD OWNERS: build.ps1 dev --wait for default 7686; scripts/check-dev-instance-isolation.ps1 starts powershell children that invoke build.ps1 dev --wait/kill for named instances. Direct commands I ran outside build wrappers: cargo fmt only (format, no build), pnpm install, pnpm exec vite build to create missing dist, pnpm exec tsx bridge.coverage.test.ts, process/health inspection. Future Windows build/test commands should enter only through build.ps1 or the approved isolation harness it invokes; no ad hoc concurrent cargo chains.
+    CLEANUP: two-instance harness finally attempted named kills for build-isolation-a, build-isolation-b, provider-model-oracle. Current instruction says machine has zero cargo/rustc processes; I did not start further cleanup after STOP. NOT COMPLETE: two-instance script did not complete; no independent review requested yet; startup timing capture not completed beyond instrumentation; no final orphan sweep verified after STOP.
+  ts: 1783669265784
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_35asuq
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: BOUNCE 600s default build plus two concurrent named full builds is rejected; redesign as one machine-scoped queued build gateway, warm integration target, isolated+sccache exceptional worktree checks, fake concurrency test
+  ts: 1783669325372
+  links:
+  - key:67e290e19ebb4106
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_w48sz5
+  from:
+    pane_id: e88e18c8
+    session_id: null
+    title: null
+  kind: retrospective
+  text: ' The prior concurrent-two-worktree full-build oracle amplified the underlying artifact/lock failure by launching three heavy builds. The corrected proof uses deterministic fake gateway jobs for queue serialization; exceptional real compilation is serialized and isolated, while broad heavy QA remains in the warm integration checkout.'
+  ts: 1783669367497
+  links:
+  - key:9890f73821c60564
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_fuht01
+  from:
+    pane_id: 2bd52204
+    session_id: 019f4b0e-a0c3-7e22-aae7-c899394caad0
+    title: build gateway
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: Implemented a machine-scoped observable build queue/lock with durable queued/running/completed/failed/cancelled job records, owner/job/timestamps/position/log visibility, cancellation and stale-lock recovery; restricted heavy check/test/dev/build ownership to the release integration checkout; added explicit serialized isolated nonincremental worktree-check with prestarted sccache validation; added fresh release targets and source/toolchain/profile/target/flags/features/generated-resource provenance verification; hardened build.ps1 argument forwarding, qa-prep gateway enforcement, health build_sha/instance validation, dev gateway lifetime ownership, and related kill isolation. Preserved prior useful health/kill changes and excluded first-paint/shadow-window instrumentation.
+    TESTS RUN: PASS scripts/check-build-gateway-serialization.sh; PASS scripts/check-build-gateway-policy.sh; PASS scripts/check-cache-provenance.sh; PASS scripts/check-health-identity.sh; PASS scripts/check-build-kill-safety.sh; PASS build.ps1 gateway argument forwarding; PASS build.ps1 fmt-check; PASS shell syntax, node --check, PowerShell parse, git diff --check, untracked whitespace checks, scripts/check-file-sizes.sh --fail. No real heavy/release build, dev instance, concurrent full-build test, or prod 7685 action was run. Requested one later serialized warm-integration oracle from the orchestrator.
+  ts: 1783671917871
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_rnvytl
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: BOUNCE confirmed during review audit. Must prove named-instance cleanup cannot kill default 7686 through the single machine gateway before returning to review; fake-only evidence is insufficient.
+  ts: 1783677100092
+  links:
+  - key:244ecf4bce18c6bf
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_4zxwol
+  from:
+    pane_id: 2827ba3b
+    session_id: 019f4ba5-cdb0-7932-875b-5456f7ea47bd
+    title: build gateway audit
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: Centralized heavy orchestration behind the machine gateway; added observable queue/lock state, integration target ownership, exceptional isolated nonincremental sccache policy, fresh release provenance, and fixture-driven Windows named cleanup selection. Named cleanup now requires its API/Vite/CDP/WebView2 ownership and cannot select default 7686 by shared executable or target path. Replaced the rejected concurrent multi-dev oracle with one deferred warm-integration named-kill preservation check. First-paint/shadow-window instrumentation is excluded.
+    TESTS RUN: PASS fake gateway overlap/queue/failure/cancellation/stale-release; PASS gateway policy; PASS named cleanup fixture; PASS cache provenance; PASS health identity; PASS build.ps1 fake forwarding; PASS shell/PowerShell/Node parse; PASS git diff checks; PASS file-size gate. No real build, dev, Playwright, Cargo, or live kill oracle run.
+  ts: 1783681149839
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_eqcjdy
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Source correction is review-ready. Independent review must verify machine gateway ownership, no bypass, named cleanup selection preserving default 7686, cache/provenance policy, and that the deferred live oracle is exactly one serialized warm-integration run.
+  ts: 1783681163818
+  links:
+  - key:0b4775bce18f2269
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_8cgq6b
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'BOUNCE exact: production gateway path must be one canonical machine scope; fixture-only path injection separated. Derive registered release/*-integration worktree/branch with no production override. qa-prep only internal child of build.sh with live lock matching job_id, build.sh parent PID+start token, worktree, command, source SHA; reject env markers. Delete Playwright inline cleanup selector and call centralized windows-dev-cleanup with named API/Vite/CDP/identifier. Gateway locks/status validate PID+process-start identity and reap under mutex before output. Require exact full build_sha/instance identity. Provenance hashes dirty tracked/untracked contents or rejects dirty reuse. Add spoof negatives for alternate gateway dir, self-designated integration, forged QA markers, short SHA/each identity mismatch, dirty same-path changed contents, shared-target orphan/wrong-port repo Vite through actual Playwright cleanup. Only after deterministic gates pass may Orchestrator run one serialized check-dev-instance-isolation.ps1.'
+  ts: 1783681550150
+  links:
+  - key:0cadc01f8557d68a
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_3pooyv
+  from:
+    pane_id: 5956d4c1
+    session_id: 019f4bb4-b14e-78c3-878a-4b50f18451e5
+    title: harden build gateway
+  kind: status_update
+  text: |-
+    STATUS: in_review
+    CHANGES: Canonicalized the machine build gateway with observable serialized queue state; PID+process-start identity and mutex-protected stale reaping; registered release/*-integration ownership with no production path/worktree override; isolated nonincremental+sccache exceptional checks; fresh release targets and content-sensitive source/generated/toolchain provenance; authenticated qa-prep parent/lock/job provenance; exact health SHA/API/Vite/CDP/identifier validation; and centralized Windows/Playwright cleanup selection. First-paint/shadow-window instrumentation remains excluded.
+    TESTS RUN: PASS deterministic fake overlap/queue/completion/failure/queued+running cancellation/stale owner/stale queue/stale mutex; PASS spoof policy negatives and build.ps1 fake forwarding; PASS dirty same-path provenance rejection; PASS health identity matrix; PASS centralized cleanup and dry-run kill safety; PASS Bash/Node/TypeScript/PowerShell parsers, git diff --check, untracked whitespace, and scripts/check-file-sizes.sh --fail. NOT RUN: Cargo/build/dev/Playwright/live kill/deferred oracle. LATER WARM-INTEGRATION COMMAND: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-dev-instance-isolation.ps1
+  ts: 1783683304451
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_yns3x0
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Non-forgeable gateway correction is final-review-ready after deterministic queue, stale-owner, spoof, provenance, health, cleanup, parser, diff, and file-size gates. Live oracle remains prohibited pending independent ACCEPT.
+  ts: 1783683318606
+  links:
+  - key:8c6c8cb579efd51f
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_1vkiw1
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Independent source ACCEPT. Await integration of accepted dirty overlay into warm release checkout, then run exactly one serialized powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-dev-instance-isolation.ps1 with no concurrent full builds.
+  ts: 1783683645502
+  links:
+  - key:8d3e6f37ec2dfcf0
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_zlbq4f
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'BOUNCE from sole live warm oracle prerequisite. Accepted build.ps1 dev --wait entered Cargo but Tauri build.rs failed because worktree-local ../dist did not exist. No 7686 listener and no compiler remained. Add gateway-owned dev resource preflight before Cargo: create/validate an isolated worktree-local frontendDist suitable for Tauri dev without requiring a duplicate production frontend build; never reuse another worktree dist. Add clean-no-dist deterministic fixture proving preflight occurs before any cargo process. Preserve canonical queue/cache/provenance ownership. Then source-review the delta and rerun the same single warm oracle once.'
+  ts: 1783683895257
+  links:
+  - key:aa14425d11705b37
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_o0jt3v
+  from:
+    pane_id: fa910906
+    session_id: 019f4bd8-7841-70b3-ac6e-7282e4c3b295
+    title: dev resource preflight
+  kind: status_update
+  text: 'IN_REVIEW: STATUS: in_review\nCHANGES: Added gateway-owned dev resource preflight before the first Cargo command. It creates and validates only the current checkout''s configured frontendDist, rejects external/symlinked paths, and does not run a duplicate frontend production build. Added a clean-no-dist fixture with a Cargo sentinel and production ordering assertion. Preserved canonical gateway/cache/provenance/health/kill behavior and added no first-paint/shadow-window instrumentation.\nTESTS RUN: PASS scripts/check-dev-resource-preflight.sh; PASS scripts/check-build-gateway-serialization.sh; PASS scripts/check-build-gateway-policy.sh; PASS scripts/check-cache-provenance.sh; PASS scripts/check-health-identity.sh; PASS scripts/check-build-kill-safety.sh; PASS Bash/Node/PowerShell parsers; PASS git diff --check and untracked whitespace; PASS scripts/check-file-sizes.sh --fail. NOT RUN: Cargo/build/dev/Playwright/live kill or the single warm integration oracle. The oracle remains exactly: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-dev-instance-isolation.ps1, after this overlay is integrated into release/1.7.2-integration.'
+  ts: 1783684262623
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_j46zuo
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Dev resource preflight correction is review-ready. Independent review must verify configured frontendDist isolation/symlink rejection, pre-Cargo ordering, no duplicate production frontend build, and preservation of accepted gateway invariants before reintegration/live oracle.
+  ts: 1783684279188
+  links:
+  - key:38c7008fd206817e
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_1xbyau
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'BOUNCE preflight delta: before mkdir, realpath checkout root; enforce lexical containment; find nearest existing ancestor; lstat every existing component and reject symlink/junction/Windows reparse; realpath ancestor under root; append missing suffix and recheck; only then mkdir and post-verify. Remove direct build.sh pnpm build so tauri beforeBuildCommand is the single frontend production build. Add direct symlink, symlink-ancestor+missing-leaf, and Windows junction/reparse-ancestor+missing-leaf fixtures asserting failure and zero outside creation; only privileged native Windows symlink may skip, never junction.'
+  ts: 1783684617743
+  links:
+  - key:fd95f288b9f7bf7e
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_ah9n17
+  from:
+    pane_id: ceec1a80
+    session_id: 019f4be3-81ab-7d22-b0f2-de18ab0bf35a
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: Hardened gateway-owned dev frontendDist preflight by canonicalizing the checkout, enforcing lexical containment, lstat-checking every existing component, rejecting symlink/junction/reparse ancestors, validating the nearest real ancestor plus missing suffix before mkdir, and post-verifying containment. Removed build.sh's duplicate pnpm build so Tauri beforeBuildCommand is the sole production frontend build. Added direct symlink, symlink-ancestor, and mandatory Windows junction no-outside-creation fixtures; native Windows symlink fixtures skip only when privilege is unavailable. No first-paint/shadow-window instrumentation added.
+    TESTS RUN: PASS check-dev-resource-preflight; PASS fake build-gateway serialization/status/failure/cancellation/release; PASS gateway policy; PASS cache provenance; PASS health identity; PASS centralized build/kill safety; PASS Bash/Node/PowerShell syntax; PASS git diff --check and untracked whitespace; PASS check-file-sizes.sh --fail. Native Windows symlink fixture skipped for unavailable privilege; Windows junction fixture passed. NOT RUN: Cargo/build/dev/Playwright/live kill/live oracle.
+  ts: 1783685291723
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_wdcjkp
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'Bounded review stop: exact second-round blockers are fixed and deterministic fixtures pass. No third review. Integrate three-file delta and rerun the single serialized warm oracle; residual native Windows symlink privilege skip is documented, junction fixture passed.'
+  ts: 1783685315367
+  links:
+  - key:4937aaaa1f16b910
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_49nynf
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: ACCEPT. Warm release integration compiled and started healthy on 7686 after three-way merge; health identity fixture including empty instance passed; sole serialized scripts/check-dev-instance-isolation.ps1 oracle passed and preserved default pid 58500 plus production pid 46376. No concurrent build.
+  ts: 1783686095241
+  links:
+  - key:a1331dd7afe15a92
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_p5xff8
+  executor_pane_id: a361536c
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: research/build-performance-1.7.2
+  worktree_path: D:/Developer/codeterm-worktrees/build-performance-research
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783662366824
+    message: |-
+      STATUS: in_review
+      CHANGES: Evidence-only research. Added .research/build-perf/run-windows-bench.ps1 and run-windows-cli-bench.ps1 as local measurement harnesses; no product code/cache policy edits. Installed user sccache v0.16.0 for measurement.
+      TESTS RUN: Windows CLI cargo check matrix: isolated cold 32.17s, isolated warm/no-op 0.42s; sccache nonincremental cold 38.57s, warm/no-op 5.18s, fresh target same sccache cache 72.88s with 0 Rust hits / 987 Rust misses. Windows src-tauri cold isolated failed before compile on missing bundled-embed codeterm-embed-x86_64-pc-windows-msvc.exe; qa-prep failed before Rust on missing node_modules/vite. Mac-Air mesh same SHA/toolchain: CLI warm/no-op 0.81s, temp cold target 21.93s, 215M. Startup logs: no current 7686 listener; existing dev log shows repeated WebView2 HRESULT 0x8007139F around PTY/window activity; tauri config has transparent=true and no visible=false. Decision: keep A isolated per-worktree target as default; reject B shared CARGO_TARGET_DIR+sccache as default for 1.7.2; accept only opt-in hybrid qa-prep/warm-canonical target after artifact provenance checks. Startup follow-up: instrument process/window/webview/root/first-paint and gate/delay show; classify current evidence as runtime WebView2/show-before-content, not compile cache.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783661244158
+  reported_at: 1783662366824
+  reviewed_at: null
+  closed_at: 1783665070125
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_2wg2re
+  executor_pane_id: 0040bdd8
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: research/build-performance-1.7.2
+  worktree_path: D:/Developer/codeterm-worktrees/build-performance-research
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783669266121
+    message: |-
+      STATUS: partial
+      CHANGES: Added authoritative health build_sha/build/instance fields in /api/health; added build.rs BUILD_SHA; tightened dev --wait readiness to reject generic build=dev, wrong build SHA, wrong instance name, wrong API port, or wrong Tauri/WebView2 identifier; fixed build.ps1 CDP/Vite reload to honor CODETERM_VITE_PORT and CODETERM_CDP_PORT; repaired lane node_modules and ran bridge coverage; generated dist with vite build after default dev start exposed missing dist; patched named cleanup further after oracle reproduced that named cleanup could still remove 7686 via raw target/no-port matching. Did not commit.
+      ORACLE SO FAR: bridge.coverage.test.ts passed 7/7. Initial two-instance script aborted because 7686 was absent; prod 7685 before was pid=46376 health build=dev version=1.6.2. Started default 7686 through build.ps1 dev --wait with CARGO_TARGET_DIR=.codeterm-targets/default after building dist; command timed out at 600s, but 7686 later became healthy with pid=55868, build_sha=0ba27f17dd663feec3c263e2f44923e366fb5a4e, version=1.7.1, identifier=com.codeterm.dev. Reran two-instance script: stale-cleanup probe preserved 7686 initially, but the script failed due a harness bug where Write-Receipt polluted Assert-Listener return. After fixing that and rerunning, 7686 was gone before the script could proceed, proving named cleanup/finally path still killed default. I patched build.sh so named cleanup no longer kills raw target/no-port processes unless they own that named API port; this final patch was NOT retested per STOP.
+      TOP-LEVEL BUILD OWNERS: build.ps1 dev --wait for default 7686; scripts/check-dev-instance-isolation.ps1 starts powershell children that invoke build.ps1 dev --wait/kill for named instances. Direct commands I ran outside build wrappers: cargo fmt only (format, no build), pnpm install, pnpm exec vite build to create missing dist, pnpm exec tsx bridge.coverage.test.ts, process/health inspection. Future Windows build/test commands should enter only through build.ps1 or the approved isolation harness it invokes; no ad hoc concurrent cargo chains.
+      CLEANUP: two-instance harness finally attempted named kills for build-isolation-a, build-isolation-b, provider-model-oracle. Current instruction says machine has zero cargo/rustc processes; I did not start further cleanup after STOP. NOT COMPLETE: two-instance script did not complete; no independent review requested yet; startup timing capture not completed beyond instrumentation; no final orphan sweep verified after STOP.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783666724498
+  reported_at: 1783669266121
+  reviewed_at: null
+  closed_at: 1783669853774
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_ivhcgl
+  executor_pane_id: 2bd52204
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: research/build-performance-1.7.2
+  worktree_path: D:/Developer/codeterm-worktrees/build-performance-research
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783671918126
+    message: |-
+      STATUS: done
+      CHANGES: Implemented a machine-scoped observable build queue/lock with durable queued/running/completed/failed/cancelled job records, owner/job/timestamps/position/log visibility, cancellation and stale-lock recovery; restricted heavy check/test/dev/build ownership to the release integration checkout; added explicit serialized isolated nonincremental worktree-check with prestarted sccache validation; added fresh release targets and source/toolchain/profile/target/flags/features/generated-resource provenance verification; hardened build.ps1 argument forwarding, qa-prep gateway enforcement, health build_sha/instance validation, dev gateway lifetime ownership, and related kill isolation. Preserved prior useful health/kill changes and excluded first-paint/shadow-window instrumentation.
+      TESTS RUN: PASS scripts/check-build-gateway-serialization.sh; PASS scripts/check-build-gateway-policy.sh; PASS scripts/check-cache-provenance.sh; PASS scripts/check-health-identity.sh; PASS scripts/check-build-kill-safety.sh; PASS build.ps1 gateway argument forwarding; PASS build.ps1 fmt-check; PASS shell syntax, node --check, PowerShell parse, git diff --check, untracked whitespace checks, scripts/check-file-sizes.sh --fail. No real heavy/release build, dev instance, concurrent full-build test, or prod 7685 action was run. Requested one later serialized warm-integration oracle from the orchestrator.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783670658748
+  reported_at: 1783671918126
+  reviewed_at: null
+  closed_at: 1783671954487
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_ytajg5
+  executor_pane_id: 2827ba3b
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: research/build-performance-1.7.2
+  worktree_path: D:/Developer/codeterm-worktrees/build-performance-research
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783681150159
+    message: |-
+      STATUS: in_review
+      CHANGES: Centralized heavy orchestration behind the machine gateway; added observable queue/lock state, integration target ownership, exceptional isolated nonincremental sccache policy, fresh release provenance, and fixture-driven Windows named cleanup selection. Named cleanup now requires its API/Vite/CDP/WebView2 ownership and cannot select default 7686 by shared executable or target path. Replaced the rejected concurrent multi-dev oracle with one deferred warm-integration named-kill preservation check. First-paint/shadow-window instrumentation is excluded.
+      TESTS RUN: PASS fake gateway overlap/queue/failure/cancellation/stale-release; PASS gateway policy; PASS named cleanup fixture; PASS cache provenance; PASS health identity; PASS build.ps1 fake forwarding; PASS shell/PowerShell/Node parse; PASS git diff checks; PASS file-size gate. No real build, dev, Playwright, Cargo, or live kill oracle run.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783680580687
+  reported_at: 1783681150159
+  reviewed_at: null
+  closed_at: 1783681164803
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_3zfidz
+  executor_pane_id: 5956d4c1
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: research/build-performance-1.7.2
+  worktree_path: D:/Developer/codeterm-worktrees/build-performance-research
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783683304742
+    message: |-
+      STATUS: in_review
+      CHANGES: Canonicalized the machine build gateway with observable serialized queue state; PID+process-start identity and mutex-protected stale reaping; registered release/*-integration ownership with no production path/worktree override; isolated nonincremental+sccache exceptional checks; fresh release targets and content-sensitive source/generated/toolchain provenance; authenticated qa-prep parent/lock/job provenance; exact health SHA/API/Vite/CDP/identifier validation; and centralized Windows/Playwright cleanup selection. First-paint/shadow-window instrumentation remains excluded.
+      TESTS RUN: PASS deterministic fake overlap/queue/completion/failure/queued+running cancellation/stale owner/stale queue/stale mutex; PASS spoof policy negatives and build.ps1 fake forwarding; PASS dirty same-path provenance rejection; PASS health identity matrix; PASS centralized cleanup and dry-run kill safety; PASS Bash/Node/TypeScript/PowerShell parsers, git diff --check, untracked whitespace, and scripts/check-file-sizes.sh --fail. NOT RUN: Cargo/build/dev/Playwright/live kill/deferred oracle. LATER WARM-INTEGRATION COMMAND: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-dev-instance-isolation.ps1
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783681556529
+  reported_at: 1783683304742
+  reviewed_at: null
+  closed_at: 1783683319611
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_q0td4o
+  executor_pane_id: fa910906
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: research/build-performance-1.7.2
+  worktree_path: D:/Developer/codeterm-worktrees/build-performance-research
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783684262984
+    message: 'STATUS: in_review\nCHANGES: Added gateway-owned dev resource preflight before the first Cargo command. It creates and validates only the current checkout''s configured frontendDist, rejects external/symlinked paths, and does not run a duplicate frontend production build. Added a clean-no-dist fixture with a Cargo sentinel and production ordering assertion. Preserved canonical gateway/cache/provenance/health/kill behavior and added no first-paint/shadow-window instrumentation.\nTESTS RUN: PASS scripts/check-dev-resource-preflight.sh; PASS scripts/check-build-gateway-serialization.sh; PASS scripts/check-build-gateway-policy.sh; PASS scripts/check-cache-provenance.sh; PASS scripts/check-health-identity.sh; PASS scripts/check-build-kill-safety.sh; PASS Bash/Node/PowerShell parsers; PASS git diff --check and untracked whitespace; PASS scripts/check-file-sizes.sh --fail. NOT RUN: Cargo/build/dev/Playwright/live kill or the single warm integration oracle. The oracle remains exactly: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-dev-instance-isolation.ps1, after this overlay is integrated into release/1.7.2-integration.'
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783683901192
+  reported_at: 1783684262984
+  reviewed_at: null
+  closed_at: 1783684280054
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_dbd7uk
+  executor_pane_id: ceec1a80
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: research/build-performance-1.7.2
+  worktree_path: D:/Developer/codeterm-worktrees/build-performance-research
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783685292066
+    message: |-
+      STATUS: in_review
+      CHANGES: Hardened gateway-owned dev frontendDist preflight by canonicalizing the checkout, enforcing lexical containment, lstat-checking every existing component, rejecting symlink/junction/reparse ancestors, validating the nearest real ancestor plus missing suffix before mkdir, and post-verifying containment. Removed build.sh's duplicate pnpm build so Tauri beforeBuildCommand is the sole production frontend build. Added direct symlink, symlink-ancestor, and mandatory Windows junction no-outside-creation fixtures; native Windows symlink fixtures skip only when privilege is unavailable. No first-paint/shadow-window instrumentation added.
+      TESTS RUN: PASS check-dev-resource-preflight; PASS fake build-gateway serialization/status/failure/cancellation/release; PASS gateway policy; PASS cache provenance; PASS health identity; PASS centralized build/kill safety; PASS Bash/Node/PowerShell syntax; PASS git diff --check and untracked whitespace; PASS check-file-sizes.sh --fail. Native Windows symlink fixture skipped for unavailable privilege; Windows junction fixture passed. NOT RUN: Cargo/build/dev/Playwright/live kill/live oracle.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783684623524
+  reported_at: 1783685292066
+  reviewed_at: null
+  closed_at: 1783685316215
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

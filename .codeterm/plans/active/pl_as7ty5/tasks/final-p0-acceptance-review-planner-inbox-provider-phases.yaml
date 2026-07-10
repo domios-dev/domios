@@ -1,0 +1,119 @@
+id: task_00jmbu
+name: Final P0 acceptance review Planner inbox provider phases
+type: review
+model: gpt-5.6-sol
+model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and is appropriate for final P0 acceptance review of provider transport state machines and durable recovery.
+personality: null
+acceptance_criteria:
+- Every specified provider-binding, inbox-phase, lease, hydration, telemetry, and cross-shell invariant is verified or pinpointed against actual paths, ending in one ACCEPT or BOUNCE without mutation.
+test_plan: 'Oracle: actual diff paths, exact focused non-heavy tests, and static checks only. 1. Inspect actual target diff; pass: report cites only real changed paths and ignores task_qdwix5 attribution. 2. Trace PTY/chatBackend open/reopen authentication, session and nonce binding; pass: unknown or stale paths reject. 3. Trace atomic gate/request/inbox persistence and all receiver phases; pass: request IDs are stable and delivery_uncertain cannot ambiguously resend. 4. Trace safe pre-send lease expiry and verified rebind; pass: only safe lease expiration and no duplicate send. 5. Verify uncapped hydration of all spec/section/task/milestone/stride/decision/gate/inbox data with 36-task multi-spec fixture. 6. Inspect resolver telemetry/structured errors and run real Claude/Codex PTY plus chatBackend input fixtures; pass: zero PowerShell/bash/zsh shell writes. 7. Run exact existing focused non-heavy tests, git diff --check, and scripts/check-file-sizes.sh. No build/dev/Playwright. Return actual paths, file/line findings, and ACCEPT/BOUNCE.'
+correctness: Authenticated provider delivery; atomic phase truth; no ambiguous replay; uncapped lossless hydration; structured transport truth; cross-provider zero-shell safety.
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p0
+created_at: 1783683505277
+updated_at: 1783683932444
+status_changed_at: 1783683931491
+handle: final-p0-acceptance-review-planner-inbox-provider-phases
+tags:
+- 1.7.2
+section_ids:
+- sec_d52ka9
+body: 'Final P0 acceptance review of the actual task_2oy6cc overlay at D:/Developer/codeterm-worktrees/planner-request-liveness. Ignore task_qdwix5 report attribution. Do not edit source, commit, build, start dev, or run Playwright. Recheck all prior source blockers: authenticated PTY/chatBackend open/reopen session-plus-nonce binding; atomic gate/request/inbox write; receiver inbox request-id phases pre_send/send_started/provider_accepted/planner_acked/delivery_uncertain; expiring only safe pre-send leases and no ambiguous resend; stale PlannerRef verified rebind; full uncapped all-spec/section/task/milestone/stride/decision/gate/inbox hydration; resolver-derived telemetry and structured transport errors; 36-task multi-spec fixture; and real Claude/Codex PTY plus chatBackend provider-input with zero PowerShell/bash/zsh shell writes. Run exact focused non-heavy tests and static checks only. Return severity-ranked ACCEPT or BOUNCE with actual diff file/line evidence.'
+role_guidance: 'You are an independent final P0 acceptance reviewer. Audit actual task_2oy6cc provider/inbox state machine and recovery only. Red line: no edits, commits, build, dev, or Playwright; ignore task_qdwix5 attribution.'
+executor_role: code-reviewer
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:/Developer/codeterm-worktrees/planner-request-liveness
+  branch: lane/planner-request-liveness
+  base: origin/develop
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: planner-correctness
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_6w36iv
+  from:
+    pane_id: e9365ece
+    session_id: 019f4bd2-bc46-7f01-b163-f563b5934d88
+    title: Final P0 acceptance review Planner inbox provider phases
+  kind: status_update
+  text: 'STATUS: done | blocked: BOUNCE P0 restored chatBackend delivery rotates session and nonce after preflight, sends to the new provider session, then records acceptance against the old binding; the new session cannot acknowledge and accepted requests do not replay. | partial: main-crate fixtures could not execute because tauri build.rs requires missing ../dist.\nCHANGES: None. Read-only audit of the actual task_2oy6cc 30-path dirty overlay; ignored task_qdwix5 attribution.\nTESTS RUN: PASS exact codeterm-plan atomic gate/request/inbox, send-started delivery uncertainty, provider accepted/planner ack phases, accepted no-replay after expiry, safe pre-send lease replay, planner-dead telemetry; PASS git diff --check; PASS scripts/check-file-sizes.sh --fail. Main codeterm hydration fixture exited 1 without diagnostics; exact chatBackend open/reopen fixture failed before execution because ../dist is missing.'
+  ts: 1783683898990
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_mhkcpe
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Final acceptance review completed with BOUNCE; close review objective and return chatBackend session-rotation remediation to task_2oy6cc.
+  ts: 1783683930624
+  links:
+  - key:c4f8858af006dc64
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_jc1w02
+  executor_pane_id: e9365ece
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-request-liveness
+  worktree_path: D:/Developer/codeterm-worktrees/planner-request-liveness
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783683899329
+    message: 'STATUS: done | blocked: BOUNCE P0 restored chatBackend delivery rotates session and nonce after preflight, sends to the new provider session, then records acceptance against the old binding; the new session cannot acknowledge and accepted requests do not replay. | partial: main-crate fixtures could not execute because tauri build.rs requires missing ../dist.\nCHANGES: None. Read-only audit of the actual task_2oy6cc 30-path dirty overlay; ignored task_qdwix5 attribution.\nTESTS RUN: PASS exact codeterm-plan atomic gate/request/inbox, send-started delivery uncertainty, provider accepted/planner ack phases, accepted no-replay after expiry, safe pre-send lease replay, planner-dead telemetry; PASS git diff --check; PASS scripts/check-file-sizes.sh --fail. Main codeterm hydration fixture exited 1 without diagnostics; exact chatBackend open/reopen fixture failed before execution because ../dist is missing.'
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783683525150
+  reported_at: 1783683899329
+  reviewed_at: null
+  closed_at: 1783683931491
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

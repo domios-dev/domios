@@ -215,6 +215,9 @@ pub enum PlanDecisionAction {
         #[arg(long)]
         answered_by_pane: Option<String>,
     },
+    /// Acknowledge one durably delivered Planner request
+    #[command(hide = true)]
+    AckRequest { plan_id: String, request_id: String },
     /// List decision gates for a plan
     List {
         plan_id: String,

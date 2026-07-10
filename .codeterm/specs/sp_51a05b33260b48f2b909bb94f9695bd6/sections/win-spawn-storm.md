@@ -1,0 +1,1 @@
+On Windows, CodeTerm startup and normal CLI/agent work must not create visible or orphaned PowerShell/conhost windows. Restoring many saved panes must not eagerly spawn shell processes for every inactive tab. A single PTY shell must attach to ConPTY without also creating a legacy child conhost.exe 0x4. The fix must preserve terminal output and ConPTY compatibility.

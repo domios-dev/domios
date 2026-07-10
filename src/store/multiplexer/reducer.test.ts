@@ -150,6 +150,84 @@ test("SET_STATE keeps a genuine tracker-reported Waiting even without pending_pr
   assert(next.paneStatuses["p-1"] === "Waiting", "tracker-reaffirmed Waiting is not dropped");
 });
 
+test("boot stage events preserve failure reason and clear it on retry and ready", () => {
+  const hydrated = {
+    ...base(),
+    panes: { "p-1": { id: "p-1", pty_id: null, title: "General", protected: true } as unknown as Pane },
+  };
+  const starting = reducer(hydrated, {
+    type: "UPDATE_BOOT_STAGE",
+    paneId: "p-1",
+    stage: "pty_starting",
+  });
+  assert(starting.panes["p-1"].boot_stage === "pty_starting", "pty_starting recorded");
+  assert(starting.panes["p-1"].boot_failure_reason === null, "retry clears stale reason");
+
+  const failed = reducer(starting, {
+    type: "UPDATE_BOOT_STAGE",
+    paneId: "p-1",
+    stage: "spawn_failed",
+    reason: "provider missing",
+  });
+  assert(failed.panes["p-1"].boot_stage === "spawn_failed", "spawn_failed recorded");
+  assert(failed.panes["p-1"].boot_failure_reason === "provider missing", "failure reason recorded");
+
+  const retry = reducer(failed, {
+    type: "UPDATE_BOOT_STAGE",
+    paneId: "p-1",
+    stage: "pty_starting",
+  });
+  assert(retry.panes["p-1"].boot_stage === "pty_starting", "retry moves back to starting");
+  assert(retry.panes["p-1"].boot_failure_reason === null, "stale failure reason cleared on retry");
+
+  const ready = reducer(retry, {
+    type: "UPDATE_BOOT_STAGE",
+    paneId: "p-1",
+    stage: "agent_ready",
+  });
+  assert(ready.panes["p-1"].boot_stage === "agent_ready", "agent_ready recorded");
+  assert(ready.panes["p-1"].boot_failure_reason === null, "ready leaves no stale failure reason");
+});
+
+test("late attach hydration carries spawn failure and later snapshot clears it", () => {
+  const failedSnapshot = {
+    ...snap(7, "w-new"),
+    panes: {
+      "p-1": {
+        id: "p-1",
+        pty_id: null,
+        title: "General",
+        protected: true,
+        boot_stage: "spawn_failed",
+        boot_failure_reason: "child exited",
+      } as unknown as Pane,
+    },
+  };
+  const hydrated = reducer(base(), { type: "SET_STATE", state: failedSnapshot });
+  assert(hydrated.panes["p-1"].boot_stage === "spawn_failed", "late attach sees failed stage");
+  assert(
+    hydrated.panes["p-1"].boot_failure_reason === "child exited",
+    "late attach sees failure detail",
+  );
+
+  const readySnapshot = {
+    ...snap(8, "w-new"),
+    panes: {
+      "p-1": {
+        id: "p-1",
+        pty_id: "pty-1",
+        title: "General",
+        protected: true,
+        boot_stage: "agent_ready",
+        boot_failure_reason: null,
+      } as unknown as Pane,
+    },
+  };
+  const ready = reducer(hydrated, { type: "SET_STATE", state: readySnapshot });
+  assert(ready.panes["p-1"].boot_stage === "agent_ready", "new snapshot hydrates ready stage");
+  assert(ready.panes["p-1"].boot_failure_reason === null, "new snapshot clears stale failure detail");
+});
+
 function pane(id: string): Pane {
   return { id, pty_id: null, title: id } as unknown as Pane;
 }

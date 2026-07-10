@@ -297,6 +297,7 @@ impl MultiplexerState {
                     agent_session_name: None,
                     agent_session_model: agent_session_model.clone(),
                     session_binding_nonce: None,
+                    reported_session_binding_nonce: None,
                     shell_integration_nonce: None,
                     role: parsed_role,
                     role_profile: role_profile.clone(),
@@ -326,6 +327,7 @@ impl MultiplexerState {
                     restored_from_snapshot: true,
                     pending_greeting: None,
                     boot_stage: None,
+                    boot_failure_reason: None,
                 },
             );
             Some(pane_id.clone())
