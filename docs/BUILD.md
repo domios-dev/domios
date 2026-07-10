@@ -57,6 +57,10 @@ Keep that pane open and require all of the following before reporting ready:
 - exactly one Cargo process remains, the foreground `tauri dev` watcher owned
   by the visible pane. Any second Cargo/build owner must be stopped and traced.
 
+For the 1.7.2 release line, the canonical root checkout on
+`feat/1.7.2-stability` owns all heavy build, test, and dev commands. The build
+gateway prefers it over any older `release/*-integration` worktree.
+
 ## Dev/Prod Isolation
 
 Dev builds (`npx tauri dev`) run with `tauri.dev.conf.json` overrides:
@@ -246,4 +250,4 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
