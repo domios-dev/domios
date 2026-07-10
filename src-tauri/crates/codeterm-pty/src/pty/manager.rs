@@ -659,15 +659,20 @@ mod tests {
             "session should be gone from manager after kill"
         );
 
-        let mut child = session.child.lock().expect("child mutex");
-        let status = child
-            .try_wait()
-            .expect("try_wait after kill should not error");
-        assert!(
-            status.is_some(),
-            "child must have exited after PtyManager::kill (was: {:?})",
-            status
-        );
+        // TerminateProcess is async on Windows and the reaper thread may reap
+        // concurrently; poll until the child is gone (here or in background).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            match session.child.lock().expect("child mutex").try_wait() {
+                Ok(Some(_)) | Err(_) => break,
+                Ok(None) => {}
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "child must have exited after PtyManager::kill"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
     }
 
     /// Regression guard for the CREATE_NO_WINDOW ConPTY bug: spawning a child
