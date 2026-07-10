@@ -4,6 +4,7 @@ type: review
 model: gpt-5.6-sol
 model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and is appropriate for final P0 review of transactional migration failure and recovery semantics.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - All last-BOUNCE transactional and preserved lifecycle invariants are independently verified or reported with file/line evidence in a separate ACCEPT or BOUNCE report, with no lane mutation.
 test_plan: 'Oracle: exactly 15 converter tests, focused adversarial probes, and static checks. 1. Run all 15 converter tests; pass: duplicate lifecycle keys and malformed/mismatched audits reject, full-batch staging detects source drift, and idempotency/invariants pass. 2. Inject replacement/fsync failure at positions 1, 2, and 3; pass: durable journal plus byte-exact backups restore every original input. 3. Force rollback failure fixture; pass: rollback_failed is truthful, durable, and recoverable on next invocation. 4. Run exact dry-run/cutover validation for task_pes3i4, task_p6kh7f, task_sjhx4f; pass: safe three-record procedure and no writes. 5. Static-scan CLI manifest and production lifecycle; pass: zero parked surfaces. 6. Run git diff --check and scripts/check-file-sizes.sh. No cargo build/dev/Playwright/live conversion. Submit separate file/line ACCEPT/BOUNCE.'

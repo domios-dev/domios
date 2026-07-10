@@ -4,6 +4,7 @@ type: implement
 model: gpt-5.5
 model_rationale: 'Routing rationale: release-blocking privileged Linux package update design spans security, OS elevation, updater lifecycle, and truthful cross-mode state; gpt-5.5 is required.'
 personality: Turing
+personality_provenance: null
 acceptance_criteria:
 - '#209 GUI/session .deb update verifies/stages target before elevation, obtains authorized elevation without terminal password piping, installs atomically, restarts, and reports 1.7.1; headless mesh returns structured elevation_required or blocked when unavailable; AppImage remains distinct; no false updating remains.'
 test_plan: 'Oracle: focused updater tests plus remote Ubuntu old-to-target update. 1. Run focused Rust updater tests for passwordless sudo success, password-required sudo, pkexec unavailable, pkexec cancelled, install failure, and privileged success. Pass: explicit secure status and no password path. 2. Verify invalid signature/hash rejects before installer invocation. 3. On remote Ubuntu old CodeTerm, run GUI/session-capable auto update noninteractively. Pass: restart reports 1.7.1. 4. On password-required/headless mesh host, run update. Pass: structured elevation_required or blocked, no updating/version claim. 5. AppImage fixture. Pass: Debian elevation not invoked. Record commands/status JSON/logs/identify before-after/verification output.'
@@ -14,7 +15,7 @@ qa_state: queued
 status_label: pane-gone
 priority: p2
 created_at: 1783631784458
-updated_at: 1783712759240
+updated_at: 1783714969255
 status_changed_at: 1783712749680
 handle: verify-209-linux-debian-updater
 tags: []
@@ -286,6 +287,23 @@ milestones:
   text: 'enqueue: QA-ready after f28d3e210: run remote Ubuntu live old-to-target Debian updater oracle when v1.7.2 assets/latest-deb.json exists; verify no password handling, truthful elevation_required/blocked for headless/password-required, GUI pkexec success/cancel if available, invalid artifact rejection, dpkg failure repair_required/no restart, successful restart reports target version.'
   ts: 1783712749680
   links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_p82wom
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: Integration update
+  text: ' canonical feat/1.7.2-stability and release/1.7.2-integration now both point to 7d55b81b2. Merged accepted lanes: worker-persona-allocator via 4b414a4d2, crash-recovery-supervisor via b339d9fb5, linux-deb-auto-updater via 7d55b81b2. Linux merge preserved two-parent topology using commit-tree after git merge applied the exact merge-tree/index tree but failed to write final merge commit. Dev 7686 restarted and verified health build_sha=7d55b81b2b008c8cc3708bfc0161c2b65ab8b3e9.'
+  ts: 1783714969255
+  links:
+  - key:98c10ae954d01e7f
   loop_id: null
   iteration: null
   canvas:

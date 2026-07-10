@@ -4,6 +4,7 @@ type: implement
 model: gpt-5.5
 model_rationale: 'Routing rationale: release-blocking Windows daemon crash across concurrent Rust lifecycle boundaries requires high-risk investigation and gpt-5.5.'
 personality: Dijkstra
+personality_provenance: null
 acceptance_criteria:
 - Three idle or recently-reporting worker panes close sequentially and rapidly while final reports race without daemon termination, WER/crash dump, lost final report, or orphan PTY; equivalent port 7685 health remains available.
 test_plan: 'Oracle: Windows remote/ROG daemon remains alive through the real three-pane close/report race. 1. Record remote daemon PID and equivalent health endpoint. 2. Spawn three idle/recently-reporting workers, queue final reports, then use codeterm pane close <id> sequentially and rapidly. Pass: each close completes, final report is recorded or lifecycle-rejected explicitly, no WER BEX64/dump appears. 3. Verify same process health after every close and all three. Pass: responsive. 4. Inspect Get-Process and PTY manager logs. Pass: no orphan child PTY. 5. Run focused pane, pty_lifecycle, pty_io lifecycle, hierarchy, and reports Rust tests remotely with 90s caps. Pass: exit 0. Report commands, timestamps, PID, logs, WER query.'

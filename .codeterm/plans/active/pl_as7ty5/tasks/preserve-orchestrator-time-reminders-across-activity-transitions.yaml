@@ -4,6 +4,7 @@ type: implement
 model: gpt-5.5
 model_rationale: This release-blocking scheduler correctness fix spans reminder eligibility, durable plan state, lifecycle transitions, observability, and real isolated-daemon delivery; gpt-5.5 is required.
 personality: Lamport
+personality_provenance: null
 acceptance_criteria:
 - Repeated Idle->Working transitions and ordinary reports do not reset or remove the time-reminder deadline for an active execution-plan owner with at least one open task.
 - A deterministic simulated interval over 30 minutes reaches due and delivers despite continuous normal activity; due timing is measured from the intended deadline, not the last activity reset.

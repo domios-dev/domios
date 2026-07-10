@@ -4,6 +4,7 @@ type: review
 model: gpt-5.6-sol
 model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and is appropriate for adversarial P0 review of machine-wide build isolation and Windows process ownership.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - The review verifies every gateway/ownership/provenance invariant against actual diff paths, identifies the sole remaining serialized runtime oracle, and returns one ACCEPT or BOUNCE with file/line evidence.
 test_plan: 'Oracle: actual diff inspection and non-heavy static checks only. 1. Inspect the target worktree git diff; pass: review cites only actual paths. 2. Trace queue/lock lifecycle, cancellation, stale-lock, status, bypass defenses, heavy-owner restriction, exceptional isolated nonincremental+sccache path, and release provenance; pass: each has exact file/line evidence. 3. Trace Windows cleanup selectors; pass: they require owned API/Vite/CDP/WebView2 identity and cannot select default 7686 by executable/target path. 4. Inspect health build SHA/instance validation and fixture quality; pass: mismatch is surfaced. 5. Run only script syntax/static checks, git diff --check, and scripts/check-file-sizes.sh. 6. State the exact deferred command only: from a healthy SHA-matching warm release-integration checkout run powershell -ExecutionPolicy Bypass -File scripts/check-dev-instance-isolation.ps1 once, serialized, with no concurrent full builds. No cargo/build/dev/Playwright/live kill. Return actual diff paths, file/line evidence, and ACCEPT/BOUNCE.'

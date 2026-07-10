@@ -4,6 +4,7 @@ type: review
 model: gpt-5.6-sol
 model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and is suited to final adversarial cross-platform transactional filesystem review.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - The review verifies or pinpoints every platform transaction/recovery invariant against actual diff paths, states platform assumptions, and returns one ACCEPT or BOUNCE without mutation.
 test_plan: 'Oracle: 26 tests, runbook, and static inspection only. 1. Inspect actual dirty diff paths; pass: review cites only current overlay. 2. Run all 26 platform transaction tests; pass: global ownership lock, OS handle semantics, prepared/intent/installed journal hashes/fsync, and recovery states pass. 3. Review Windows deny-write/ReplaceFileW failure and Unix cooperative/exchange/stopped-daemon paths; pass: documented assumptions match guarded behavior. 4. Exercise stale-owner proof, hash-guarded rollback/conflict fixtures, and prepared/applying/rollback_failed/committed recovery; pass: no state resumes forward after interruption. 5. Validate runbook and static residual parked scan; pass: exact operations and zero production labels. 6. Run git diff --check and scripts/check-file-sizes.sh. No build/dev/Playwright/live conversion. Return platform assumptions, actual paths, file/line findings, and ACCEPT/BOUNCE.'
