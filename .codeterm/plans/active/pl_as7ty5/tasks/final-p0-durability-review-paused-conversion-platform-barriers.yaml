@@ -4,6 +4,7 @@ type: review
 model: gpt-5.6-sol
 model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and is appropriate for final cross-platform durability and recovery correctness review.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - Every durability, platform-barrier, classification, recovery, and documentation invariant is verified or pinpointed with actual file/line evidence; the report records the one elevated probe skip and returns one ACCEPT or BOUNCE.
 test_plan: 'Oracle: 34 tests plus non-elevated platform/static probes only. 1. Run all 34 durability tests; pass: logical state/durability separation, failure classifications 1175/1176/1177, backup ownership, and guarded recovery pass. 2. Inspect Windows ReplaceFileW and same-volume/volume-flush implementation/docs; pass: no unsupported WRITE_THROUGH or power-loss claim. 3. Inspect macOS F_FULLFSYNC/namespace and current-inode lock reacquisition/final verification; pass: platform assumptions are explicit and guarded. 4. Exercise durability_unverified-before-mutation and repair_required-after-ambiguity fixtures; pass: fail-closed behavior. 5. Run feasible non-elevated barrier probes and name the sole elevated barrier probe skipped. 6. Run git diff --check and scripts/check-file-sizes.sh. No build/dev/Playwright/live conversion. Return actual paths, file/line findings, skip rationale, and ACCEPT/BOUNCE.'

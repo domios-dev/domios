@@ -7,7 +7,7 @@ use crate::service::plan::milestone_gates::{
 };
 use crate::service::plan::task_queries::TaskSection;
 use crate::service::plan::{PlanError, PlanStore};
-use crate::service::{ServiceState, SpawnAgentParams};
+use crate::service::{ServiceState, SpawnAgentParams, SpawnIdentityProvenance};
 
 use super::plan::{emit_plan_changed, plan_rpc_err};
 use super::plan_refs;
@@ -54,6 +54,26 @@ fn regression_blocked_error(gates: Vec<RegressionGate>) -> JsonRpcError {
 pub(super) struct DispatchRouting {
     pub agent: Option<String>,
     pub model: Option<String>,
+}
+
+fn dispatch_worker_identity(task: &Task) -> (Option<String>, Option<SpawnIdentityProvenance>) {
+    let title = task
+        .personality
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let provenance = if title.is_some() {
+        match task.personality_provenance {
+            Some(crate::plan::IdentityProvenance::UserSupplied) => {
+                Some(SpawnIdentityProvenance::UserSupplied)
+            }
+            _ => Some(SpawnIdentityProvenance::Suggested),
+        }
+    } else {
+        Some(SpawnIdentityProvenance::Suggested)
+    };
+    (title, provenance)
 }
 
 /// Resolve the provider/model a dispatch should spawn. Precedence: an explicit
@@ -154,19 +174,13 @@ pub(super) fn dispatch(
     }
 
     // A personality is the executor persona: it names the pane and opens the brief.
-    let title = detail
-        .task
-        .personality
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| detail.task.name.clone());
+    let (explicit_persona, title_provenance) = dispatch_worker_identity(&detail.task);
 
     let spawn_params = SpawnAgentParams {
         agent: routing.agent.clone(),
         cwd: owned_str(p, "cwd"),
-        title: Some(title),
+        title: explicit_persona,
+        title_provenance,
         role: Some("Worker".into()),
         parent_pane_id: parent,
         plan_id: Some(plan_id.clone()),
@@ -189,7 +203,22 @@ pub(super) fn dispatch(
         }));
         assign_task_with_profile(store, svc, &assign, assign.as_ref(), now)?;
         set_in_progress(store, &plan_id, &task_id, now)?;
-        let brief = build_brief(&detail.task, &detail.sections);
+        let session_id = svc
+            .mux
+            .read()
+            .get_pane(&pane_id)
+            .and_then(|pane| pane.agent_session_id.clone());
+        store
+            .update_attempt_executor_identity(
+                &plan_id,
+                &task_id,
+                &pane_id,
+                Some(&spawn.title),
+                session_id.as_deref(),
+                now,
+            )
+            .map_err(plan_rpc_err)?;
+        let brief = build_brief_with_claimed_persona(&detail.task, &detail.sections, &spawn.title);
         svc.send_text(&pane_id, &brief, true)
             .map_err(|e| JsonRpcError {
                 code: -32603,
@@ -227,6 +256,16 @@ pub(super) fn dispatch(
     Ok(result)
 }
 
+fn build_brief_with_claimed_persona(
+    task: &Task,
+    sections: &[TaskSection],
+    claimed_title: &str,
+) -> String {
+    let mut claimed_task = task.clone();
+    claimed_task.personality = Some(claimed_title.to_string());
+    build_brief(&claimed_task, sections)
+}
+
 fn set_in_progress(
     store: &PlanStore,
     plan_id: &str,
@@ -261,32 +300,22 @@ fn set_in_progress(
 /// Assemble the worker brief: body, acceptance, test plan, section links,
 /// strides (milestones — T4 enriches later), and the mandatory report command.
 pub(super) fn build_brief(task: &Task, sections: &[TaskSection]) -> String {
+    build_brief_with_personality(task, sections, task.personality.as_deref())
+}
+
+pub(super) fn build_brief_with_personality(
+    task: &Task,
+    sections: &[TaskSection],
+    effective_personality: Option<&str>,
+) -> String {
     let mut out = String::new();
-    let persona = task
-        .personality
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-    let role_guidance = task
-        .role_guidance
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-    match (persona, role_guidance) {
-        (Some(persona), Some(guidance)) => {
-            out.push_str(&format!("You are {persona}. {guidance}\n\n"));
-        }
-        (None, Some(guidance)) => {
-            out.push_str(guidance);
-            out.push_str("\n\n");
-        }
-        (Some(persona), None) => {
-            out.push_str(&format!(
-                "You are {persona} — executor for: {}\n\n",
-                task.name
-            ));
-        }
-        (None, None) => {}
+    if let Some(identity) = crate::service::plan::worker_identity::compose_worker_identity(
+        effective_personality,
+        task.role_guidance.as_deref(),
+        Some(task.name.as_str()),
+    ) {
+        out.push_str(&identity);
+        out.push_str("\n\n");
     }
     out.push_str(&format!("# {}\n\n", task.name));
 

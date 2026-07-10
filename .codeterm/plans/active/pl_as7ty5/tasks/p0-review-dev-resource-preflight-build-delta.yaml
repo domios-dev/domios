@@ -4,6 +4,7 @@ type: review
 model: gpt-5.6-sol
 model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and is appropriate for adversarial narrow review of path confinement and build-order invariants.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - The review verifies each path-confinement, pre-Cargo resource, no-duplicate-build, and preserved gateway invariant against actual delta paths, then returns one ACCEPT or BOUNCE without mutation.
 test_plan: 'Oracle: preflight/deterministic/static checks only. 1. Inspect actual diff limited to build.sh, scripts/dev-resource-preflight.mjs, scripts/check-dev-resource-preflight.sh; pass: review cites real delta paths. 2. Run scripts/check-dev-resource-preflight.sh; pass: current-checkout frontendDist accepts, external/symlink/reparse escapes reject, and only local dev resource is created/validated. 3. Trace build.sh ordering; pass: preflight happens before first Cargo sentinel, no duplicate production frontend build, and production ordering is unchanged. 4. Static-check gateway/cache/provenance/cleanup call paths; pass: no bypass/regression. 5. Run git diff --check and scripts/check-file-sizes.sh. No cargo/build/dev/Playwright/live kill. Return actual file/line findings and ACCEPT/BOUNCE.'

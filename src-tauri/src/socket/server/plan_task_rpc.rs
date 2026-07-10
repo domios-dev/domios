@@ -10,7 +10,7 @@ use super::{get_string_param, JsonRpcError};
 use crate::plan::TaskStatus;
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{hints, NewTask, PlanError};
-use crate::service::ServiceState;
+use crate::service::{persist_attempt_executor_identity, respawn_title_provenance, ServiceState};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
@@ -298,6 +298,16 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("personality"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
+                        personality_provenance: p
+                            .and_then(|x| x.get("personality_provenance"))
+                            .cloned()
+                            .map(serde_json::from_value)
+                            .transpose()
+                            .map_err(|e| JsonRpcError {
+                                code: -32602,
+                                message: format!("invalid personality_provenance: {e}"),
+                                data: None,
+                            })?,
                         acceptance_criteria,
                         test_plan,
                         correctness,
@@ -557,7 +567,8 @@ pub(super) fn dispatch(
             let spawn_params = crate::service::SpawnAgentParams {
                 agent: Some(draft.provider.clone()),
                 cwd: Some(draft.cwd.clone()),
-                title: Some(draft.title.clone()),
+                title: draft.title.clone(),
+                title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
                 role: Some("Worker".into()),
                 parent_pane_id: draft.parent_pane_id.clone(),
                 task: Some(draft.task_prompt.clone()),
@@ -583,6 +594,16 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
+            persist_attempt_executor_identity(
+                store,
+                svc,
+                &id,
+                &tid,
+                &spawn.pane_id,
+                &spawn.title,
+                now,
+            )
+            .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({
                 "ok": true,

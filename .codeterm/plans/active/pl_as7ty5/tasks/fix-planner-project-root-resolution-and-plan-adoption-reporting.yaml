@@ -4,18 +4,19 @@ type: implement
 model: gpt-5.5
 model_rationale: 'Routing rationale: bounded planner CLI/project-root state correctness task with file-backed plan index and restart behavior; gpt-5.4 is appropriate.'
 personality: Lamport
+personality_provenance: null
 acceptance_criteria:
 - A repo-root plan with planner plus three worker tasks (active, in_review, pane absent) survives a prod-like restart with identical canonical_project_path, owner/planner binding, task ids/statuses, lane base/branch/worktree, and attempt history; active restored worker keeps plan/task binding and final report route; absent worker is needs-reassign with history preserved; no task silently becomes parked/pending; move/adopt dry-run and real move preserve/count every sidecar task, id, history, and stride.
 test_plan: 'Oracle: remote Windows prod-like restart fixture preserves canonical planner state and lane semantics. 1. In a repo-root fixture, create a plan with a bound planner and three workers: one in_progress active pane, one in_review, one in_progress pane later absent; record canonical_project_path, owner/planner, task ids/statuses, execution_attempt ids, lane base/branch/worktree, pane/session ids, and report routes. 2. Hard-restart the remote prod-like daemon. Pass: same plan is indexed from workspace cwd with identical canonical_project_path and owner/planner binding. 3. Restore sessions/panes. Pass: active worker regains plan/task binding and can deliver a final report to the same route; in_review remains in_review; absent pane becomes needs-reassign deterministically with attempt history intact. 4. Run codeterm plan state and task show for each task. Pass: no status becomes parked/pending without an explicit transition. 5. Run plan move/adopt --dry-run and then real move on the fixture. Pass: reported task_count equals canonical sidecar task count and every task id/history/stride survives transfer. 6. Run focused Rust/CLI restart/index/reconcile/move-adopt tests remotely with 90s caps. Pass: exit 0. Capture exact commands, IDs, before/after JSON, and no mutation of production plan.'
 correctness: 'Correctness is a durable restart invariant: workspace-repo-root identity, plan indexing, owner/planner binding, pane/session/task/attempt/report-route restoration, deterministic absent-pane reconciliation, and task status must all preserve truth across restart. Move/adopt must preserve and accurately count canonical sidecar task data; no fallback may hide, duplicate, unbind, silently park, or lose plan history.'
-status: in_review
-review_stage: qa
-qa_state: running
-status_label: pane-gone
+status: in_progress
+review_stage: review
+qa_state: null
+status_label: needs-reassign
 priority: p2
 created_at: 1783655692782
-updated_at: 1783694909194
-status_changed_at: 1783694789000
+updated_at: 1783712789323
+status_changed_at: 1783710392481
 handle: fix-planner-project-root-resolution-and-plan-adoption-reporting
 tags: []
 section_ids:
@@ -27,9 +28,9 @@ competition: null
 intent: Restore deterministic production restart recovery for plan project root/indexing, owner/planner binding, worker lane/attempt/report state, and move/adopt sidecar task preservation without silent task-status drift.
 parent_task_id: null
 depends_on: []
-assigned_pane_id: ''
+assigned_pane_id: 29a9490d
 lane:
-  pane_id: null
+  pane_id: 29a9490d
   workspace_id: null
   workspace_name: release-1.7.2-integration
   worktree_path: D:/Developer/codeterm-worktrees/planner-project-resolution
@@ -38,7 +39,7 @@ lane:
   destination: null
   cleanup_status: null
   cleanup_hints: []
-taken_by_role: worker
+taken_by_role: null
 peer: null
 group: planner-cli-correctness
 canvas:
@@ -305,6 +306,55 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_lzi0xt
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: qa
+  text: 'fail: QA did not pass: focused capped command TEST_CAP_SECS=90 CARGO_TEST_CMD="cargo test --manifest-path src-tauri/Cargo.toml --lib" scripts/test-capped.sh -- adopt_plan_preserves_task_files_and_clears_stale_runtime_bindings hit cold compile/Windows PermissionDenied on bundled embed and no later passing run exists. Next unblock: clear debug embed/resource contention, ensure dev 7686 remains healthy, rerun the same capped focused command once from the warm canonical checkout; pass only with explicit exit 0 and task_count=58 daemon proof.'
+  ts: 1783707635802
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_xi2ez2
+  from:
+    pane_id: watchdog
+    session_id: null
+    title: null
+  kind: decision
+  text: 'watchdog: assigned pane gone and silent for 2721125ms — demoted to pending'
+  ts: 1783710356927
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_v4rx87
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: BOUNCE integration
+  text: ' lane/planner-project-resolution commit ad17508af does not merge cleanly into current feat/1.7.2-stability 768018b31; merge-tree reports content conflict in src-tauri/src/service/plan/adopt.rs. Also lane has generated schema noise (src-tauri/gen/schemas/desktop-schema.json, windows-schema.json) that must be reverted unless intentionally required. Expected next proof: rebase/merge current stability, resolve adopt.rs conflict preserving split-task sidecar adoption fix, clean generated noise, rerun focused codeterm-plan canonical_path tests and app adopt tests with required ignored dist/embed/bootstrap resources, then report exact commands/results.'
+  ts: 1783712789323
+  links:
+  - key:b79485631c3cfcc0
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_f4osde
   executor_pane_id: cca9f056
@@ -364,6 +414,32 @@ execution_attempts:
   reported_at: 1783658123278
   reviewed_at: null
   closed_at: 1783662836769
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_hn0abl
+  executor_pane_id: 29a9490d
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-project-resolution
+  worktree_path: D:/Developer/codeterm-worktrees/planner-project-resolution
+  base: origin/develop
+  destination: null
+  report: null
+  assigned_at: 1783710392481
+  reported_at: null
+  reviewed_at: null
+  closed_at: null
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

@@ -4,6 +4,7 @@ type: implement
 model: gpt-5.6-terra
 model_rationale: 'Routing rationale: normal Rust metadata correctness task with isolated tests; gpt-5.4.'
 personality: Dijkstra
+personality_provenance: null
 acceptance_criteria:
 - 'changed_files is the complete deterministic lane delta: unique sorted paths from the declared attempt base..HEAD committed range plus the current worktree overlay (staged, unstaged, and untracked), scoped to the attempt branch/worktree; clean read-only base==HEAD is empty; committed clean lanes include their committed files; unrelated global checkout files and undeclared fallbacks are excluded.'
 test_plan: 'Oracle: report metadata equals the declared lane git observations. 1. In a clean fixture with attempt.base==HEAD, run git diff --name-only base..HEAD plus git status --short; pass: changed_files is empty. 2. In a committed fixture, run git diff --name-only <attempt.base>..<attempt.head>; pass: every committed path appears even when git status is clean. 3. Add staged, unstaged, and untracked overlay files; run git diff --name-only <base>..<head>, git diff --name-only, git diff --cached --name-only, and enumerate untracked paths; pass: changed_files is the sorted unique union. 4. Run the real report path in the declared lane/worktree; pass: no files from the daemon/global checkout appear.'

@@ -98,6 +98,7 @@ impl SpawnPaneSpec {
             args: if args.is_empty() { None } else { Some(args) },
             cwd: self.cwd.clone(),
             title: self.title.clone(),
+            title_provenance: None,
             description: self.description.clone(),
             role: agent.role.clone(),
             role_profile: agent.role_profile.clone(),

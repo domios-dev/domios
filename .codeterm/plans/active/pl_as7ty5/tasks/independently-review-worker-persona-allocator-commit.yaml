@@ -4,6 +4,7 @@ type: review
 model: gpt-5.5
 model_rationale: High-risk read-only review of cross-cutting identity allocation, persistence, concurrency, and spawn lifecycle behavior requires the strongest review model.
 personality: Dijkstra
+personality_provenance: null
 acceptance_criteria:
 - All 41 touched files are reviewed against origin/develop with file/line evidence; no source changes are introduced by the reviewer.
 - Provenance and serialization/API/schema compatibility are verified, including explicit user-supplied identity preservation versus generated suggestions.
