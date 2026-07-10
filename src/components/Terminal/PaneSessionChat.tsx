@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { MessageBubble } from "@codeterm/chat-ui";
@@ -248,15 +248,16 @@ export function PaneSessionChat({
     [paneTitleMap],
   );
 
+  const deferredEnrichedMessages = useDeferredValue(enrichedMessages);
   const latestFailedToolCallId = useMemo(() => {
-    for (let i = enrichedMessages.length - 1; i >= 0; i -= 1) {
-      const msg = enrichedMessages[i]?.msg;
+    for (let i = deferredEnrichedMessages.length - 1; i >= 0; i -= 1) {
+      const msg = deferredEnrichedMessages[i]?.msg;
       if (msg?.type === "tool_call" && msg.toolError === true) {
         return msg.id;
       }
     }
     return null;
-  }, [enrichedMessages]);
+  }, [deferredEnrichedMessages]);
 
   const visiblePlanRefs = useMemo(() => {
     const refs: Array<{ planId: string; targetId?: string; targetKind: "plan" | "task" | "section" }> = [];
@@ -365,6 +366,26 @@ export function PaneSessionChat({
     longIdle,
   ]);
 
+  const composerModelBubble = useMemo(() => {
+    if (!effectiveChatBackend || !chatBacking) return undefined;
+    return (
+      <>
+        <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
+        <ChatPresetBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
+      </>
+    );
+  }, [chatBacking, effectiveChatBackend]);
+
+  const watcherModelBubble = useMemo(() => {
+    if (!effectiveChatBackend || !chatBacking) return undefined;
+    return (
+      <>
+        <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} readOnly />
+        <ChatPresetBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} readOnly />
+      </>
+    );
+  }, [chatBacking, effectiveChatBackend]);
+
   if (error) {
     return (
       <div
@@ -443,12 +464,12 @@ export function PaneSessionChat({
             </button>
           </div>
         )}
-        {enrichedMessages.length === 0 && !inlinePrompt && liveAgentState.state !== "question" && (
+        {deferredEnrichedMessages.length === 0 && !inlinePrompt && liveAgentState.state !== "question" && (
           <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-empty-state">
             No messages yet.
           </div>
         )}
-        {enrichedMessages.map(({ msg, origin }) => {
+        {deferredEnrichedMessages.map(({ msg, origin }) => {
           let onOriginClick: (() => void) | undefined;
           let originProviderId: string | null | undefined;
           if (origin?.kind === "pane") {
@@ -487,7 +508,7 @@ export function PaneSessionChat({
             </div>
           );
         })}
-        {!inlinePrompt && (enrichedMessages.length > 0 || liveAgentState.state === "question") && (
+        {!inlinePrompt && (deferredEnrichedMessages.length > 0 || liveAgentState.state === "question") && (
           // with the message text instead of the far-left container edge.
           <div className="w-full max-w-4xl min-w-0 mx-auto">
             <AgentStateIndicator
@@ -518,12 +539,7 @@ export function PaneSessionChat({
       {isWatcherPane && watcherSpec ? (
         <WatcherReadOnlyBar
           watcher={watcherSpec}
-          modelBubble={effectiveChatBackend && chatBacking ? (
-            <>
-              <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} readOnly />
-              <ChatPresetBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} readOnly />
-            </>
-          ) : undefined}
+          modelBubble={watcherModelBubble}
         />
       ) : (
       <ChatComposer
@@ -542,12 +558,7 @@ export function PaneSessionChat({
         updateOptimistic={updateOptimistic}
         showComposerError={showComposerError}
         onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
-        modelBubble={effectiveChatBackend && chatBacking ? (
-          <>
-            <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
-            <ChatPresetBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
-          </>
-        ) : undefined}
+        modelBubble={composerModelBubble}
       />
       )}
     </div>
