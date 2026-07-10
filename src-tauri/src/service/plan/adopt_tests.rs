@@ -179,6 +179,7 @@ fn adopt_plan_dry_run_reports_without_writing() {
     assert!(report.dry_run);
     assert!(!report.moved);
     assert_eq!(report.plan_id, plan_id);
+    assert_eq!(report.task_count, 1);
     assert!(target_store.get(&plan_id).is_none());
     assert!(!target
         .path()
@@ -187,6 +188,14 @@ fn adopt_plan_dry_run_reports_without_writing() {
         .join("active")
         .join(&plan_id)
         .join("plan.yaml")
+        .is_file());
+    assert!(source_dir
+        .join("tasks")
+        .join("task-with-sidecar.yaml")
+        .is_file());
+    assert!(source_dir
+        .join("tasks")
+        .join("task-with-sidecar.jsonl")
         .is_file());
 }
 
