@@ -432,7 +432,10 @@ impl PlanStore {
                         return None;
                     }
                 }
-                Some((attempt.assigned_at.or(attempt.reported_at).unwrap_or(0), title))
+                Some((
+                    attempt.assigned_at.or(attempt.reported_at).unwrap_or(0),
+                    title,
+                ))
             })
             .collect();
         entries.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
