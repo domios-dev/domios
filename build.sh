@@ -187,9 +187,18 @@ enter_build_gateway() {
 }
 
 integration_worktree() {
+  local canonical
   if [ -n "${CODETERM_INTEGRATION_WORKTREE:-}" ]; then
     echo "ERROR: CODETERM_INTEGRATION_WORKTREE cannot designate build ownership" >&2
     return 2
+  fi
+  canonical="$(git worktree list --porcelain 2>/dev/null | awk '
+    /^worktree / { path=substr($0,10) }
+    /^branch refs\/heads\/feat\/1[.]7[.]2-stability$/ { print path }
+  ')"
+  if [ -n "$canonical" ]; then
+    printf '%s\n' "$canonical"
+    return
   fi
   git worktree list --porcelain 2>/dev/null | awk '
     /^worktree / { path=substr($0,10) }
@@ -213,8 +222,8 @@ require_integration_owner() {
   fi
   integration="$(cd "$integration" && pwd -P)"
   current_branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
-  if [ "$integration" != "$current" ] || [[ ! "$current_branch" =~ ^release/.+-integration$ ]]; then
-    echo "ERROR: $CMD is restricted to the release-integration checkout." >&2
+  if [ "$integration" != "$current" ] || { [[ "$current_branch" != "feat/1.7.2-stability" ]] && [[ ! "$current_branch" =~ ^release/.+-integration$ ]]; }; then
+    echo "ERROR: $CMD is restricted to the canonical stability/integration checkout." >&2
     echo "Current worktree: $current" >&2
     echo "Integration checkout: $integration" >&2
     echo "Worker worktrees should submit diffs; the gateway builds once from integration." >&2

@@ -54,6 +54,11 @@ dev session or as evidence that a visible window launched.
 
 **Run ONE test at a time.** All `cargo test`/`build.sh test` runs share a single `target/.cargo-lock`; launching a second while one is in flight makes them queue (not parallelize) and looks like a multi-minute "hang" — narrow the filter, run it once in the background, wait for it; never fire concurrent runs.
 
+For 1.7.2, `feat/1.7.2-stability` in the canonical project root is the sole
+heavy build/test/dev owner. A registered `release/*-integration` worktree is
+only a fallback when that branch is absent. Do not keep testing an obsolete
+integration checkout after the stability branch has been established.
+
 ## Build speed (worktrees, tests, profiles)
 
 Parallel lanes mean cold worktrees; these are the levers that keep builds fast
