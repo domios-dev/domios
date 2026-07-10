@@ -511,6 +511,7 @@ mod tests {
             status: TaskStatus::Parked,
             park_reason: None,
             personality: None,
+            personality_provenance: None,
             model: None,
             model_rationale: None,
             acceptance_criteria: vec![],

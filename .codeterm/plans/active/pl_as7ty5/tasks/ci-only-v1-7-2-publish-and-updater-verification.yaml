@@ -4,6 +4,7 @@ type: release
 model: gpt-5.5
 model_rationale: 'Routing rationale: highest release-risk CI/public verification; gpt-5.5.'
 personality: Turing
+personality_provenance: null
 acceptance_criteria:
 - CI publishes v1.7.2; public latest.json/assets match; supported update smoke reaches 1.7.2.
 test_plan: 'Oracle commands: gh run list --workflow <release-workflow>; gh run view <run> --log-failed; Invoke-WebRequest <public latest.json>; release API asset listing. Expected matrix green and URLs/checksums match v1.7.2.'

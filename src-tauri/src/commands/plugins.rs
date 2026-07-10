@@ -4,7 +4,7 @@ mod diff_cache;
 mod snapshot;
 mod view;
 
-pub(crate) use action::{PluginManagerAction, run_action};
+pub(crate) use action::{run_action, PluginManagerAction};
 pub(crate) use snapshot::snapshot;
 pub(crate) use view::{bubble_poll, glance_render, view_call};
 

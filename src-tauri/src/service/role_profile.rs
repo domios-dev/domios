@@ -1,4 +1,5 @@
 use super::{json_str, orchestrator::SpawnAgentParams};
+use crate::service::SpawnIdentityProvenance;
 
 impl SpawnAgentParams {
     pub fn from_json(params: &serde_json::Value) -> Result<Self, String> {
@@ -12,6 +13,15 @@ impl SpawnAgentParams {
             }),
             cwd: json_str(params, "cwd"),
             title: super::spawn_title::normalize_agent_title(json_str(params, "title")),
+            title_provenance: json_str(params, "title_provenance")
+                .as_deref()
+                .map(parse_spawn_identity_provenance)
+                .transpose()?
+                .or_else(|| {
+                    json_str(params, "title")
+                        .filter(|value| !value.trim().is_empty())
+                        .map(|_| SpawnIdentityProvenance::UserSupplied)
+                }),
             description: json_str(params, "description")
                 .map(|s| crate::service::normalize_pane_description(&s))
                 .transpose()?
@@ -52,6 +62,16 @@ impl SpawnAgentParams {
         };
         out.normalize_role_profile()?;
         Ok(out)
+    }
+}
+
+fn parse_spawn_identity_provenance(value: &str) -> Result<SpawnIdentityProvenance, String> {
+    match value.trim() {
+        "user_supplied" => Ok(SpawnIdentityProvenance::UserSupplied),
+        "suggested" => Ok(SpawnIdentityProvenance::Suggested),
+        other => Err(format!(
+            "invalid title_provenance '{other}'; expected user_supplied|suggested"
+        )),
     }
 }
 

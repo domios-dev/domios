@@ -52,6 +52,8 @@ fn batch_resolves_refs_and_writes_in_one_plan_mutation() {
                         why: None,
                         priority: None,
                         group: None,
+                        personality: None,
+                        personality_provenance: None,
                     },
                     BatchOp::AddMilestone {
                         client_id: Some("m".into()),
@@ -106,6 +108,8 @@ fn batch_is_atomic_when_later_op_fails() {
                         why: None,
                         priority: None,
                         group: None,
+                        personality: None,
+                        personality_provenance: None,
                     },
                     BatchOp::SetTaskBody {
                         task: "missing".into(),
@@ -118,6 +122,65 @@ fn batch_is_atomic_when_later_op_fails() {
         .unwrap_err();
     assert!(matches!(err, PlanError::TaskNotFound));
     assert!(store.get(&plan_id).unwrap().tasks.is_empty());
+}
+
+#[test]
+fn batch_personality_is_persisted_as_suggested_even_when_payload_claims_user_provenance() {
+    let (store, plan_id) = store_with_plan();
+    let request: BatchRequest = serde_json::from_value(serde_json::json!({
+        "ops": [{
+            "op": "upsert_task",
+            "handle": "allocator",
+            "name": "Allocate personas",
+            "personality": "Lamport",
+            "personality_provenance": "user_supplied"
+        }]
+    }))
+    .unwrap();
+
+    store.apply_batch(&plan_id, request, 2).unwrap();
+
+    let task = &store.get(&plan_id).unwrap().tasks[0];
+    assert_eq!(task.personality.as_deref(), Some("Lamport"));
+    assert_eq!(
+        task.personality_provenance,
+        Some(IdentityProvenance::Suggested)
+    );
+}
+
+#[test]
+fn batch_personality_cannot_override_explicit_user_personality() {
+    let (store, plan_id) = store_with_plan();
+    store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "Allocate personas".into(),
+                handle: Some("allocator".into()),
+                personality: Some("Grace".into()),
+                personality_provenance: Some(IdentityProvenance::UserSupplied),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let request: BatchRequest = serde_json::from_value(serde_json::json!({
+        "ops": [{
+            "op": "upsert_task",
+            "handle": "allocator",
+            "personality": "Lamport"
+        }]
+    }))
+    .unwrap();
+
+    store.apply_batch(&plan_id, request, 3).unwrap();
+
+    let task = &store.get(&plan_id).unwrap().tasks[0];
+    assert_eq!(task.personality.as_deref(), Some("Grace"));
+    assert_eq!(
+        task.personality_provenance,
+        Some(IdentityProvenance::UserSupplied)
+    );
 }
 
 #[test]
@@ -290,6 +353,8 @@ fn batch_upsert_and_milestone_key_are_idempotent() {
                 why: None,
                 priority: None,
                 group: None,
+                personality: None,
+                personality_provenance: None,
             },
             BatchOp::AddMilestone {
                 client_id: Some("m".into()),
@@ -331,6 +396,8 @@ fn batch_set_task_sections_links_existing_task() {
                     why: None,
                     priority: None,
                     group: None,
+                    personality: None,
+                    personality_provenance: None,
                 }],
             },
             2,
@@ -373,6 +440,8 @@ fn batch_set_task_sections_is_atomic_when_later_op_fails() {
                     why: None,
                     priority: None,
                     group: None,
+                    personality: None,
+                    personality_provenance: None,
                 }],
             },
             2,

@@ -6,8 +6,8 @@ use serde_json::Value;
 
 use super::{NewTask, PlanError, PlanStore};
 use crate::plan::{
-    AgentRef, CanvasElement, ElementCanvas, Goal, Milestone, MilestoneKind, Plan, Section, Spec,
-    Task, TaskPriority, TaskStatus, TransferRecord,
+    AgentRef, CanvasElement, ElementCanvas, Goal, IdentityProvenance, Milestone, MilestoneKind,
+    Plan, Section, Spec, Task, TaskPriority, TaskStatus, TransferRecord,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -35,6 +35,10 @@ pub enum BatchOp {
         priority: Option<String>,
         #[serde(default)]
         group: Option<String>,
+        #[serde(default)]
+        personality: Option<String>,
+        #[serde(default)]
+        personality_provenance: Option<IdentityProvenance>,
     },
     SetTaskBody {
         task: String,
@@ -316,6 +320,8 @@ impl PlanStore {
                             why,
                             priority,
                             group,
+                            personality,
+                            personality_provenance: _,
                         } => {
                             let created = !working.tasks.iter().any(|task| {
                                 task.id == handle || task.handle.as_deref() == Some(handle.as_str())
@@ -370,10 +376,21 @@ impl PlanStore {
                                 if let Some(group) = group {
                                     task.group = Some(group);
                                 }
+                                if task.personality_provenance
+                                    != Some(IdentityProvenance::UserSupplied)
+                                {
+                                    if let Some(personality) = personality {
+                                        task.personality = Some(personality);
+                                        task.personality_provenance =
+                                            Some(IdentityProvenance::Suggested);
+                                    }
+                                }
                                 task.updated_at = now_ms;
                                 task.id.clone()
                             } else {
                                 let id = gen_id("task");
+                                let personality_provenance =
+                                    personality.as_ref().map(|_| IdentityProvenance::Suggested);
                                 let task = Task {
                                     id: id.clone(),
                                     name: name.unwrap_or_else(|| handle.clone()),
@@ -418,7 +435,8 @@ impl PlanStore {
                                     milestones: vec![],
                                     execution_attempts: vec![],
                                     park_reason: None,
-                                    personality: None,
+                                    personality,
+                                    personality_provenance,
                                     attachments: vec![],
                                 };
                                 working.tasks.push(task);
@@ -911,6 +929,8 @@ impl From<NewTask> for BatchOp {
                     .unwrap_or_else(|| "p2".into())
             }),
             group: task.group,
+            personality: task.personality,
+            personality_provenance: task.personality_provenance,
         }
     }
 }

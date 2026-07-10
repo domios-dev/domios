@@ -4,6 +4,7 @@ type: review
 model: gpt-5.6-sol
 model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and fits adversarial P0 review of concurrent transactional migration safety.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - All race, drift, journal, lock, rollback, and preserved transactional invariants are independently verified or pinpointed against the actual dirty overlay, with one ACCEPT or BOUNCE verdict and actual diff paths.
 test_plan: 'Oracle: 18 converter tests, adversarial static probes, and actual git-diff paths only. 1. Inspect git diff in the target worktree; pass: report only real changed paths and do not trust task_qdwix5 attribution. 2. Run all 18 converter tests; pass: exclusive lock, prepared-journal recovery, source hashes, duplicate/malformed audit rejection, and prior 15 invariants pass. 3. Inject drift before first replace, at files 1/2/3, and at every remaining-source boundary; pass: full-batch revalidation detects it and concurrent edits are preserved. 4. Inspect rollback journal; pass: rollback touches only files already replaced and restores them exactly. 5. Exercise prepared-journal/lock recovery; pass: stale recovery is deterministic and cannot resume against mismatched sources. 6. Run git diff --check and scripts/check-file-sizes.sh. No build/dev/Playwright/live conversion. Return file/line findings, actual diff paths, and ACCEPT/BOUNCE.'

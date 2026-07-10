@@ -57,10 +57,14 @@ pub mod store;
 pub mod structured_prompt;
 pub mod sync_watcher;
 #[cfg(test)]
+pub(crate) mod test_support;
+#[cfg(test)]
 mod tests;
 pub mod tokens;
 pub mod transport;
 pub mod watcher;
+mod worker_identity;
+mod worker_persona;
 mod workspace;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -87,10 +91,12 @@ pub use inject_verify::{
 pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
 pub use orchestrator::{
     BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,
-    SpawnResult,
+    SpawnIdentityProvenance, SpawnResult,
 };
 pub use pane::{normalize_pane_description, MAX_PANE_DESCRIPTION_CHARS};
 pub use pane_budget::{evaluate_pane_budget, PaneBudgetLevel, PaneBudgetNotice};
+pub(crate) use worker_identity::{persist_attempt_executor_identity, respawn_title_provenance};
+pub(crate) use worker_persona::WorkerPersonaReservations;
 
 /// Shared service context — all state needed for multiplexer operations.
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
@@ -202,6 +208,8 @@ pub struct ServiceContext {
         Arc<parking_lot::Mutex<std::collections::HashSet<std::path::PathBuf>>>,
     pub plan_startup_loaded: Arc<AtomicBool>,
     pub plan_turn_counter: Arc<crate::service::plan::reminders::TurnCounter>,
+    pub(crate) worker_identity_allocator:
+        Arc<parking_lot::Mutex<worker_persona::WorkerPersonaReservations>>,
 }
 
 pub type ServiceState = Arc<ServiceContext>;

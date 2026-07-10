@@ -17,6 +17,15 @@ ct_gateway_dir() {
     printf '%s\n' "${home:-$HOME}/.local/state/codeterm-build-gateway"
   else
     local_app_data="$(powershell.exe -NoProfile -Command "[Console]::Write([Environment]::GetFolderPath('LocalApplicationData'))" 2>/dev/null | tr -d '\r')"
+    if [ -z "$local_app_data" ] && [ -n "${LOCALAPPDATA:-}" ]; then
+      local_app_data="$LOCALAPPDATA"
+    fi
+    if [ -z "$local_app_data" ] && [ -n "${USERPROFILE:-}" ]; then
+      local_app_data="$USERPROFILE/AppData/Local"
+    fi
+    if [ -z "$local_app_data" ] && [ -n "${ProgramData:-}" ]; then
+      local_app_data="$ProgramData"
+    fi
     [ -n "$local_app_data" ] || { echo "ERROR: cannot resolve canonical LocalApplicationData" >&2; return 2; }
     printf '%s\n' "$local_app_data/CodeTerm/build-gateway"
   fi

@@ -4,6 +4,7 @@ type: planning
 model: gpt-5.4
 model_rationale: Codex gpt-5.4 efficiently traces bounded frontend/provider state while live discovery supplies the source of truth.
 personality: Turing
+personality_provenance: null
 acceptance_criteria:
 - Names exact plugin snapshot command, UI components/hooks, mutation paths, tests, and the recommended cache owner/invalidation events.
 - Defines loading, error, empty, cached reopen, and stale-after-mutation UI acceptance states with concrete selectors.

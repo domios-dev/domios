@@ -4,6 +4,7 @@ type: implement
 model: gpt-5.5
 model_rationale: 'Routing rationale: high-risk workspace identity/navigation UX requires stronger Codex reasoning.'
 personality: Hopper
+personality_provenance: null
 acceptance_criteria:
 - Each workspace row exposes one stable workspace-plan:<workspace_id> first-class virtual Plan button/tab that opens authoritative Plan surface navigation with no Pane or Workspace.tabs entry.
 - Workspace Plan view cumulatively includes root and nested-root authoritative plans, excludes siblings/outside roots, deduplicates by plan id/canonical sidecar, orders stably, and updates live.
