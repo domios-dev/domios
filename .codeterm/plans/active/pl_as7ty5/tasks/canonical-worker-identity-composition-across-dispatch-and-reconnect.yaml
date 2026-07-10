@@ -4,6 +4,7 @@ type: implementation
 model: gpt-5.4
 model_rationale: Normal Codex implementation is sufficient for a bounded prompt-composition fix with focused Rust snapshot tests; the behavior is correctness-sensitive but not architecture-heavy.
 personality: Lamport
+personality_provenance: null
 acceptance_criteria:
 - Initial dispatch with personality Hopper and guidance beginning You are Hopper... produces one canonical identity prefix, never You are Hopper. You are Hopper....
 - A single canonical composition function is used by initial dispatch, respawn/reconnect, competition, and charter/prepend flows, with snapshot tests proving equivalent semantic ordering.
@@ -13,14 +14,14 @@ acceptance_criteria:
 - Focused tests, git diff --check, and file-size checks pass; changed files remain within the declared ownership boundary.
 test_plan: '1. Run the focused Rust test command covering worker brief/charter composition: cargo test -p codeterm --lib plan_task_dispatch -- --nocapture (or the exact narrowed package/filter discovered from the existing test module); pass condition: all composition tests pass. 2. Add/run exact snapshot cases for personality+guidance, no personality, reconnect/charter wrapper, competition, and legacy task fields; pass condition: each expected full prompt equals the canonical fixture and contains one identity, with role guidance immediately after any machine wrapper. 3. Run git diff --check and scripts/check-file-sizes.sh; pass condition: both exit 0 and no source file exceeds the project limit. 4. Run the focused prompt/plan test command required by the touched modules and report exact command/output; no local heavy build or release build is permitted.'
 correctness: Identity uniqueness; semantic ordering after machine wrappers; parity across dispatch/reconnect/competition/charter; legacy serialization compatibility; no routing/storage/runtime semantic changes; exact snapshot oracle rather than substring-only assertions; source-size discipline.
-status: in_review
-review_stage: qa
-qa_state: queued
-status_label: pane-gone
+status: in_progress
+review_stage: review
+qa_state: null
+status_label: QA failed
 priority: p1
 created_at: 1783661792517
-updated_at: 1783694940980
-status_changed_at: 1783694940980
+updated_at: 1783707921360
+status_changed_at: 1783707921360
 handle: canonical-worker-identity-composition-across-dispatch-and-reconnect
 tags:
 - 1.7.2
@@ -33,9 +34,9 @@ competition: null
 intent: null
 parent_task_id: null
 depends_on: []
-assigned_pane_id: null
+assigned_pane_id: ''
 lane:
-  pane_id: null
+  pane_id: ''
   workspace_id: null
   workspace_name: null
   worktree_path: D:/Developer/codeterm-worktrees/worker-identity-composition
@@ -133,6 +134,38 @@ milestones:
   kind: qa
   text: 'enqueue: QA-ready from source-only worker identity report: run focused plan_task_dispatch and codeterm-plan composition tests.'
   ts: 1783694940980
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_qyuwrt
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: qa
+  text: 'claim: Serialized QA claim for integrated worker identity composition: run focused plan task dispatch/composition Rust tests via scripts/test-capped.sh plus git diff --check and scripts/check-file-sizes.sh.'
+  ts: 1783707792191
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_x4rqq4
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: qa
+  text: 'fail: QA did not pass: focused capped command TEST_CAP_SECS=90 CARGO_TEST_CMD="cargo test --manifest-path src-tauri/Cargo.toml --lib" scripts/test-capped.sh -- socket::server::plan_task_dispatch::tests hit the 90s cold compile cap and tauri-build failed with Windows PermissionDenied (OS code 5) on bundled-embed/codeterm-embed-x86_64-pc-windows-msvc.exe. Static gates passed: git diff --check and scripts/check-file-sizes.sh --fail. Next unblock: identify/clear the process or ACL holding the bundled embed resource, keep dev 7686 healthy, rerun the same capped focused command once from warm canonical checkout; pass only on exit 0.'
+  ts: 1783707921360
   links: []
   loop_id: null
   iteration: null

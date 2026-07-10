@@ -4,18 +4,19 @@ type: implement
 model: gpt-5.5
 model_rationale: 'Routing rationale: release-blocking Windows daemon crash across concurrent Rust lifecycle boundaries requires high-risk investigation and gpt-5.5.'
 personality: Dijkstra
+personality_provenance: null
 acceptance_criteria:
 - Three idle or recently-reporting worker panes close sequentially and rapidly while final reports race without daemon termination, WER/crash dump, lost final report, or orphan PTY; equivalent port 7685 health remains available.
 test_plan: 'Oracle: Windows remote/ROG daemon remains alive through the real three-pane close/report race. 1. Record remote daemon PID and equivalent health endpoint. 2. Spawn three idle/recently-reporting workers, queue final reports, then use codeterm pane close <id> sequentially and rapidly. Pass: each close completes, final report is recorded or lifecycle-rejected explicitly, no WER BEX64/dump appears. 3. Verify same process health after every close and all three. Pass: responsive. 4. Inspect Get-Process and PTY manager logs. Pass: no orphan child PTY. 5. Run focused pane, pty_lifecycle, pty_io lifecycle, hierarchy, and reports Rust tests remotely with 90s caps. Pass: exit 0. Report commands, timestamps, PID, logs, WER query.'
 correctness: Correctness requires a real lifetime/synchronization fix across close, reader/reap, hierarchy report delivery, and frontend close initiation; it preserves daemon liveness, final-report semantics, and PTY cleanup under the observed race.
 status: in_review
-review_stage: review
-qa_state: null
-status_label: pane-gone
+review_stage: qa
+qa_state: queued
+status_label: integration-accepted
 priority: p2
 created_at: 1783655691512
-updated_at: 1783666395059
-status_changed_at: 1783658571173
+updated_at: 1783710837300
+status_changed_at: 1783710837300
 handle: prevent-rapid-worker-close-report-race-daemon-crash
 tags: []
 section_ids:
@@ -27,17 +28,18 @@ competition: null
 intent: null
 parent_task_id: null
 depends_on: []
-assigned_pane_id: null
+assigned_pane_id: 69aacc2a
 lane:
-  pane_id: null
+  pane_id: 69aacc2a
   workspace_id: null
   workspace_name: release-1.7.2-integration
   worktree_path: D:/Developer/codeterm-worktrees/pane-close-report-race
   branch: lane/pane-close-report-race
   base: origin/develop
   destination: null
-  cleanup_status: null
-  cleanup_hints: []
+  cleanup_status: deferred
+  cleanup_hints:
+  - 'Not closable from review: lane/pane-close-report-race has passing focused and isolated daemon evidence but is not an ancestor of feat/1.7.2-stability. Next command: merge lane/pane-close-report-race into feat/1.7.2-stability in the canonical checkout or a scratch integration worktree, resolve conflicts, run its focused PTY close tests plus isolated close-race oracle, then return to QA/close.'
 taken_by_role: null
 peer: null
 group: windows-crash-race
@@ -106,6 +108,168 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_jfmidl
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: BOUNCE from stale in_review
+  text: ' accepted evidence is lane-only; git merge-base shows lane/pane-close-report-race is not integrated into feat/1.7.2-stability. Required exit: integrate the lane and rerun the focused PTY close/idempotent tests plus close-race daemon oracle before close.'
+  ts: 1783707638307
+  links:
+  - key:bb186f70506ebede
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_4e8em0
+  from:
+    pane_id: 69aacc2a
+    session_id: 216cb87f-7e3e-4d1d-a43d-f287f8071449
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    STATUS: in_review
+
+    INTEGRATION (primary bounce blocker — now cleared):
+    Merged feat/1.7.2-stability into lane/pane-close-report-race (merge 768018b31), then fast-forwarded feat/1.7.2-stability 90aa4e269 -> 768018b31 in the canonical checkout D:/Developer/codeterm. GATE SATISFIED: `git merge-base --is-ancestor 5daa386dc feat/1.7.2-stability` = true. The two prior bounces failed exactly this check; it now passes. FF touched only the 6 fix-delta files; the orchestrator's 15 uncommitted WIP files (.codeterm/plans/**, src-tauri/Cargo.toml) were verified non-overlapping and left intact. No new commit, no push, prod 7685 untouched, canonical dev not restarted.
+
+    CONFLICT RESOLUTION:
+    Only src-tauri/src/service/pty_io/tests.rs conflicted (test-setup only; the fix logic in commands/pty.rs and multiplexer/index.tsx auto-merged clean). The lane had refactored 3 tests to a local mutate_plan() helper + no-arg store_with_bound_task(); stability evolved store_with_bound_task(base) + update_task_lane/revert_task_dispatch. The lane's no-arg signature no longer compiles against stability's API, so I took stability's version wholesale and dropped the now-orphaned mutate_plan helper. Resolution is test-setup for active_pane_lane_base/pane_task_env, unrelated to the PTY kill path.
+
+    CHANGES (exact files in the integrated fix, 5daa386dc):
+    - src/store/multiplexer/index.tsx (closePane/closeWorkspace no longer preflight kill_pty; single backend owner = mux_close_pane/mux_close_workspace)
+    - src-tauri/src/commands/pty.rs (kill_pty -> kill_pty_idempotent -> PtyManager::kill; exact missing-PTY match, idempotent)
+    - src-tauri/src/service/pty_io/lifecycle.rs (ServiceContext close -> kill_live_pane_pty -> PtyManager::kill, was ::remove)
+    - src-tauri/src/service/pty_io/mod.rs (test-only re-exports), src-tauri/src/socket/server/mod.rs (Debug on JsonRpcError), scripts/test-close-owner.js (regression)
+
+    LIFETIME/SYNCHRONIZATION RATIONALE:
+    Root cause was a two-owner close. Frontend closePane/closeWorkspace called kill_pty (which did PtyManager::remove — sessions.remove + log ONLY, no child.kill/wait/handle-close) and THEN mux_close_pane ran the authoritative backend close. remove() dropped the session Arc out from under the still-live reader thread + child while ConPTY handles stayed open; the second owner then found "PTY not found". Across three rapid closes with concurrent final-report delivery this is a double-drop / ConPTY handle use-after-free window. Fix collapses ownership to one path and makes every kill path go through PtyManager::kill -> begin_kill (child.kill + close reader/pair/queue + remove-from-map) -> reap_in_background (non-blocking child reap). So: terminate + close-handles + reap happen exactly once, on one owner; a repeat/unknown kill is an explicit idempotent no-op (is_missing_pty_error, narrow match that does NOT swallow unrelated errors). This removes the race and the orphan rather than masking the crash.
+
+    DUMP/LOG CORRELATION:
+    WER Application Error 2026-07-10 04:03:33 local: codeterm.exe 1.7.1.0, exception 0xc0000409 (STATUS_STACK_BUFFER_OVERRUN / __fastfail), offset 0x1808191, PID 0x27AC/10156; dump C:/Users/dev/AppData/Local/CrashDumps/codeterm.exe.10156.dmp. No cdb/windbg/WinDbgX on PATH, so symbol-level offset resolution is still not possible here. src-tauri builds default panic=unwind (no panic=abort in profiles), so 0xc0000409 is an abort — consistent with a double-panic during unwind or a ConPTY handle UAF in the reader/reap path, i.e. the two-owner remove-then-close race above, not a single benign panic.
+
+    ORPHAN PTY OBSERVATION:
+    Source-confirmed. PtyManager::remove (manager.rs:516) = sessions.remove + "Removed PTY" log, no child.kill(), no wait(), no ConPTY handle close -> orphaned child + dangling reader thread. All close-path callers now route through PtyManager::kill instead; grep confirms no remaining PtyManager::remove caller in close paths (the surviving .remove( calls are on unrelated maps: agent panes, run_watcher, state_reactor, output, wake).
+
+    TESTS RUN (this integration pass):
+    - PASS: node scripts/test-close-owner.js -> "close owner regression checks passed" (closePane/closeWorkspace: no kill_pty preflight, exactly one backend close owner each), run on the integrated tree.
+    - Source verification of merged commands/pty.rs + lifecycle.rs + index.tsx: fix functions present and identical post-merge.
+    - NOT RUN by me: focused Rust tests (commands::pty::kill_pty_tests, service::pty_io::lifecycle::kill_pane_pty_tests, codeterm-pty pty::manager::kill*, service::hierarchy) and the 3-pane daemon oracle.
+
+    WHY HEAVY VERIFICATION IS GATEWAY-ONLY (empirically established, not a choice):
+    1. build.sh check/test/build/dev/cli/e2e are now hard-gated to the canonical stability checkout (require_integration_owner) — refused in a lane. 2. The sanctioned lane path `build.sh worktree-check` bailed: the machine build gateway is held by the canonical checkout's live `build.sh dev` (job 20260710T181451, owner D:/Developer/codeterm, pid 39758) which I must not disturb. 3. Direct capped cargo test in the cold lane hit the 90s cap DURING dependency compile (ulid/rusqlite/sha2 at ~122/137) — a cold-build timeout, not a code hang; per policy I did not raise the cap. So tests + oracle must run at the warm gateway/canonical checkout, which now already contains the fix after the ff.
+
+    REMAINING (single gateway step, on feat/1.7.2-stability = 768018b31):
+    From D:/Developer/codeterm after the current dev is quiesced:
+      ./build.sh test   (or capped: commands::pty::kill_pty_tests, service::pty_io::lifecycle::kill_pane_pty_tests, codeterm-pty pty::manager::kill*, service::hierarchy::tests::dead_worker_that_already_reported_gets_no_synthetic)
+      then rebuild dev and run the 3-pane close/report race oracle (spawn 3 idle/recently-reporting workers, queue final reports, `codeterm pane close <id>` sequentially/rapidly), asserting: PID stable, /api/health responsive after each + all three, each report recorded OR explicit "Pane not found" rejection, Get-Process shows no orphan child PTY, no new WER BEX64/dump.
+
+    RISKS:
+    - Fresh green from the automated Rust suite + the real daemon oracle on the integrated tree still owed at the gateway before close; my evidence this pass is integration + source + JS-regression, not a live race oracle.
+    - WER offset 0x1808191 still not symbol-correlated (no debugger on PATH); root cause is inferred from the ownership graph, strong but not dump-proven.
+    - ROG remote is CodeTerm 1.5.7 and is NOT a valid prod-like oracle target for a 1.7.2 build.
+  ts: 1783710743535
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_u6l6ts
+  from:
+    pane_id: 69aacc2a
+    session_id: 216cb87f-7e3e-4d1d-a43d-f287f8071449
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    STATUS: in_review
+
+    INTEGRATION (primary bounce blocker — now cleared):
+    Merged feat/1.7.2-stability into lane/pane-close-report-race (merge 768018b31), then fast-forwarded feat/1.7.2-stability 90aa4e269 -> 768018b31 in the canonical checkout D:/Developer/codeterm. GATE SATISFIED: `git merge-base --is-ancestor 5daa386dc feat/1.7.2-stability` = true. The two prior bounces failed exactly this check; it now passes. FF touched only the 6 fix-delta files; the orchestrator's 15 uncommitted WIP files (.codeterm/plans/**, src-tauri/Cargo.toml) were verified non-overlapping and left intact. No new commit, no push, prod 7685 untouched, canonical dev not restarted.
+
+    CONFLICT RESOLUTION:
+    Only src-tauri/src/service/pty_io/tests.rs conflicted (test-setup only; the fix logic in commands/pty.rs and multiplexer/index.tsx auto-merged clean). The lane had refactored 3 tests to a local mutate_plan() helper + no-arg store_with_bound_task(); stability evolved store_with_bound_task(base) + update_task_lane/revert_task_dispatch. The lane's no-arg signature no longer compiles against stability's API, so I took stability's version wholesale and dropped the now-orphaned mutate_plan helper. Resolution is test-setup for active_pane_lane_base/pane_task_env, unrelated to the PTY kill path.
+
+    CHANGES (exact files in the integrated fix, 5daa386dc):
+    - src/store/multiplexer/index.tsx (closePane/closeWorkspace no longer preflight kill_pty; single backend owner = mux_close_pane/mux_close_workspace)
+    - src-tauri/src/commands/pty.rs (kill_pty -> kill_pty_idempotent -> PtyManager::kill; exact missing-PTY match, idempotent)
+    - src-tauri/src/service/pty_io/lifecycle.rs (ServiceContext close -> kill_live_pane_pty -> PtyManager::kill, was ::remove)
+    - src-tauri/src/service/pty_io/mod.rs (test-only re-exports), src-tauri/src/socket/server/mod.rs (Debug on JsonRpcError), scripts/test-close-owner.js (regression)
+
+    LIFETIME/SYNCHRONIZATION RATIONALE:
+    Root cause was a two-owner close. Frontend closePane/closeWorkspace called kill_pty (which did PtyManager::remove — sessions.remove + log ONLY, no child.kill/wait/handle-close) and THEN mux_close_pane ran the authoritative backend close. remove() dropped the session Arc out from under the still-live reader thread + child while ConPTY handles stayed open; the second owner then found "PTY not found". Across three rapid closes with concurrent final-report delivery this is a double-drop / ConPTY handle use-after-free window. Fix collapses ownership to one path and makes every kill path go through PtyManager::kill -> begin_kill (child.kill + close reader/pair/queue + remove-from-map) -> reap_in_background (non-blocking child reap). So: terminate + close-handles + reap happen exactly once, on one owner; a repeat/unknown kill is an explicit idempotent no-op (is_missing_pty_error, narrow match that does NOT swallow unrelated errors). This removes the race and the orphan rather than masking the crash.
+
+    DUMP/LOG CORRELATION:
+    WER Application Error 2026-07-10 04:03:33 local: codeterm.exe 1.7.1.0, exception 0xc0000409 (STATUS_STACK_BUFFER_OVERRUN / __fastfail), offset 0x1808191, PID 0x27AC/10156; dump C:/Users/dev/AppData/Local/CrashDumps/codeterm.exe.10156.dmp. No cdb/windbg/WinDbgX on PATH, so symbol-level offset resolution is still not possible here. src-tauri builds default panic=unwind (no panic=abort in profiles), so 0xc0000409 is an abort — consistent with a double-panic during unwind or a ConPTY handle UAF in the reader/reap path, i.e. the two-owner remove-then-close race above, not a single benign panic.
+
+    ORPHAN PTY OBSERVATION:
+    Source-confirmed. PtyManager::remove (manager.rs:516) = sessions.remove + "Removed PTY" log, no child.kill(), no wait(), no ConPTY handle close -> orphaned child + dangling reader thread. All close-path callers now route through PtyManager::kill instead; grep confirms no remaining PtyManager::remove caller in close paths (the surviving .remove( calls are on unrelated maps: agent panes, run_watcher, state_reactor, output, wake).
+
+    TESTS RUN (this integration pass):
+    - PASS: node scripts/test-close-owner.js -> "close owner regression checks passed" (closePane/closeWorkspace: no kill_pty preflight, exactly one backend close owner each), run on the integrated tree.
+    - Source verification of merged commands/pty.rs + lifecycle.rs + index.tsx: fix functions present and identical post-merge.
+    - NOT RUN by me: focused Rust tests (commands::pty::kill_pty_tests, service::pty_io::lifecycle::kill_pane_pty_tests, codeterm-pty pty::manager::kill*, service::hierarchy) and the 3-pane daemon oracle.
+
+    WHY HEAVY VERIFICATION IS GATEWAY-ONLY (empirically established, not a choice):
+    1. build.sh check/test/build/dev/cli/e2e are now hard-gated to the canonical stability checkout (require_integration_owner) — refused in a lane. 2. The sanctioned lane path `build.sh worktree-check` bailed: the machine build gateway is held by the canonical checkout's live `build.sh dev` (job 20260710T181451, owner D:/Developer/codeterm, pid 39758) which I must not disturb. 3. Direct capped cargo test in the cold lane hit the 90s cap DURING dependency compile (ulid/rusqlite/sha2 at ~122/137) — a cold-build timeout, not a code hang; per policy I did not raise the cap. So tests + oracle must run at the warm gateway/canonical checkout, which now already contains the fix after the ff.
+
+    REMAINING (single gateway step, on feat/1.7.2-stability = 768018b31):
+    From D:/Developer/codeterm after the current dev is quiesced:
+      ./build.sh test   (or capped: commands::pty::kill_pty_tests, service::pty_io::lifecycle::kill_pane_pty_tests, codeterm-pty pty::manager::kill*, service::hierarchy::tests::dead_worker_that_already_reported_gets_no_synthetic)
+      then rebuild dev and run the 3-pane close/report race oracle (spawn 3 idle/recently-reporting workers, queue final reports, `codeterm pane close <id>` sequentially/rapidly), asserting: PID stable, /api/health responsive after each + all three, each report recorded OR explicit "Pane not found" rejection, Get-Process shows no orphan child PTY, no new WER BEX64/dump.
+
+    RISKS:
+    - Fresh green from the automated Rust suite + the real daemon oracle on the integrated tree still owed at the gateway before close; my evidence this pass is integration + source + JS-regression, not a live race oracle.
+    - WER offset 0x1808191 still not symbol-correlated (no debugger on PATH); root cause is inferred from the ownership graph, strong but not dump-proven.
+    - ROG remote is CodeTerm 1.5.7 and is NOT a valid prod-like oracle target for a 1.7.2 build.
+  ts: 1783710749770
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_kilvlu
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: ACCEPT integration report
+  text: ' lane/pane-close-report-race merged into feat/1.7.2-stability at 768018b31; original lane 5daa386dc is now ancestor of stability; JS close-owner regression passed with node scripts/test-close-owner.js; source verification confirms single backend close owner and PtyManager::kill path. Remaining gateway QA: focused PTY Rust tests and 3-pane close/report daemon oracle.'
+  ts: 1783710834052
+  links:
+  - key:8b53cc8c26f3e5f4
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_zug0ln
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: qa
+  text: 'enqueue: QA-ready after integration: run focused PTY close/idempotent Rust tests plus 3-pane close/report race daemon oracle on canonical stability head 768018b31.'
+  ts: 1783710837300
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_pvz2l1
   executor_pane_id: ec02bb30
@@ -138,6 +302,80 @@ execution_attempts:
   reported_at: 1783658571485
   reviewed_at: null
   closed_at: 1783666395059
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_a3qmuo
+  executor_pane_id: 69aacc2a
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/pane-close-report-race
+  worktree_path: D:/Developer/codeterm-worktrees/pane-close-report-race
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783710751226
+    message: |-
+      STATUS: in_review
+
+      INTEGRATION (primary bounce blocker — now cleared):
+      Merged feat/1.7.2-stability into lane/pane-close-report-race (merge 768018b31), then fast-forwarded feat/1.7.2-stability 90aa4e269 -> 768018b31 in the canonical checkout D:/Developer/codeterm. GATE SATISFIED: `git merge-base --is-ancestor 5daa386dc feat/1.7.2-stability` = true. The two prior bounces failed exactly this check; it now passes. FF touched only the 6 fix-delta files; the orchestrator's 15 uncommitted WIP files (.codeterm/plans/**, src-tauri/Cargo.toml) were verified non-overlapping and left intact. No new commit, no push, prod 7685 untouched, canonical dev not restarted.
+
+      CONFLICT RESOLUTION:
+      Only src-tauri/src/service/pty_io/tests.rs conflicted (test-setup only; the fix logic in commands/pty.rs and multiplexer/index.tsx auto-merged clean). The lane had refactored 3 tests to a local mutate_plan() helper + no-arg store_with_bound_task(); stability evolved store_with_bound_task(base) + update_task_lane/revert_task_dispatch. The lane's no-arg signature no longer compiles against stability's API, so I took stability's version wholesale and dropped the now-orphaned mutate_plan helper. Resolution is test-setup for active_pane_lane_base/pane_task_env, unrelated to the PTY kill path.
+
+      CHANGES (exact files in the integrated fix, 5daa386dc):
+      - src/store/multiplexer/index.tsx (closePane/closeWorkspace no longer preflight kill_pty; single backend owner = mux_close_pane/mux_close_workspace)
+      - src-tauri/src/commands/pty.rs (kill_pty -> kill_pty_idempotent -> PtyManager::kill; exact missing-PTY match, idempotent)
+      - src-tauri/src/service/pty_io/lifecycle.rs (ServiceContext close -> kill_live_pane_pty -> PtyManager::kill, was ::remove)
+      - src-tauri/src/service/pty_io/mod.rs (test-only re-exports), src-tauri/src/socket/server/mod.rs (Debug on JsonRpcError), scripts/test-close-owner.js (regression)
+
+      LIFETIME/SYNCHRONIZATION RATIONALE:
+      Root cause was a two-owner close. Frontend closePane/closeWorkspace called kill_pty (which did PtyManager::remove — sessions.remove + log ONLY, no child.kill/wait/handle-close) and THEN mux_close_pane ran the authoritative backend close. remove() dropped the session Arc out from under the still-live reader thread + child while ConPTY handles stayed open; the second owner then found "PTY not found". Across three rapid closes with concurrent final-report delivery this is a double-drop / ConPTY handle use-after-free window. Fix collapses ownership to one path and makes every kill path go through PtyManager::kill -> begin_kill (child.kill + close reader/pair/queue + remove-from-map) -> reap_in_background (non-blocking child reap). So: terminate + close-handles + reap happen exactly once, on one owner; a repeat/unknown kill is an explicit idempotent no-op (is_missing_pty_error, narrow match that does NOT swallow unrelated errors). This removes the race and the orphan rather than masking the crash.
+
+      DUMP/LOG CORRELATION:
+      WER Application Error 2026-07-10 04:03:33 local: codeterm.exe 1.7.1.0, exception 0xc0000409 (STATUS_STACK_BUFFER_OVERRUN / __fastfail), offset 0x1808191, PID 0x27AC/10156; dump C:/Users/dev/AppData/Local/CrashDumps/codeterm.exe.10156.dmp. No cdb/windbg/WinDbgX on PATH, so symbol-level offset resolution is still not possible here. src-tauri builds default panic=unwind (no panic=abort in profiles), so 0xc0000409 is an abort — consistent with a double-panic during unwind or a ConPTY handle UAF in the reader/reap path, i.e. the two-owner remove-then-close race above, not a single benign panic.
+
+      ORPHAN PTY OBSERVATION:
+      Source-confirmed. PtyManager::remove (manager.rs:516) = sessions.remove + "Removed PTY" log, no child.kill(), no wait(), no ConPTY handle close -> orphaned child + dangling reader thread. All close-path callers now route through PtyManager::kill instead; grep confirms no remaining PtyManager::remove caller in close paths (the surviving .remove( calls are on unrelated maps: agent panes, run_watcher, state_reactor, output, wake).
+
+      TESTS RUN (this integration pass):
+      - PASS: node scripts/test-close-owner.js -> "close owner regression checks passed" (closePane/closeWorkspace: no kill_pty preflight, exactly one backend close owner each), run on the integrated tree.
+      - Source verification of merged commands/pty.rs + lifecycle.rs + index.tsx: fix functions present and identical post-merge.
+      - NOT RUN by me: focused Rust tests (commands::pty::kill_pty_tests, service::pty_io::lifecycle::kill_pane_pty_tests, codeterm-pty pty::manager::kill*, service::hierarchy) and the 3-pane daemon oracle.
+
+      WHY HEAVY VERIFICATION IS GATEWAY-ONLY (empirically established, not a choice):
+      1. build.sh check/test/build/dev/cli/e2e are now hard-gated to the canonical stability checkout (require_integration_owner) — refused in a lane. 2. The sanctioned lane path `build.sh worktree-check` bailed: the machine build gateway is held by the canonical checkout's live `build.sh dev` (job 20260710T181451, owner D:/Developer/codeterm, pid 39758) which I must not disturb. 3. Direct capped cargo test in the cold lane hit the 90s cap DURING dependency compile (ulid/rusqlite/sha2 at ~122/137) — a cold-build timeout, not a code hang; per policy I did not raise the cap. So tests + oracle must run at the warm gateway/canonical checkout, which now already contains the fix after the ff.
+
+      REMAINING (single gateway step, on feat/1.7.2-stability = 768018b31):
+      From D:/Developer/codeterm after the current dev is quiesced:
+        ./build.sh test   (or capped: commands::pty::kill_pty_tests, service::pty_io::lifecycle::kill_pane_pty_tests, codeterm-pty pty::manager::kill*, service::hierarchy::tests::dead_worker_that_already_reported_gets_no_synthetic)
+        then rebuild dev and run the 3-pane close/report race oracle (spawn 3 idle/recently-reporting workers, queue final reports, `codeterm pane close <id>` sequentially/rapidly), asserting: PID stable, /api/health responsive after each + all three, each report recorded OR explicit "Pane not found" rejection, Get-Process shows no orphan child PTY, no new WER BEX64/dump.
+
+      RISKS:
+      - Fresh green from the automated Rust suite + the real daemon oracle on the integrated tree still owed at the gateway before close; my evidence this pass is integration + source + JS-regression, not a live race oracle.
+      - WER offset 0x1808191 still not symbol-correlated (no debugger on PATH); root cause is inferred from the ownership graph, strong but not dump-proven.
+      - ROG remote is CodeTerm 1.5.7 and is NOT a valid prod-like oracle target for a 1.7.2 build.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783709694448
+  reported_at: 1783710751226
+  reviewed_at: null
+  closed_at: null
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

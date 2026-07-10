@@ -4,6 +4,7 @@ type: planning
 model: gpt-5.6-sol
 model_rationale: Release-blocking cross-worktree artifact contamination affects PTY, crash recovery, persona runtime, and Playwright verification; gpt-5.5 is required for the build/runtime architecture and cross-platform gates.
 personality: Dijkstra
+personality_provenance: null
 acceptance_criteria:
 - build.ps1/build.sh are the sole supported machine entry points for heavy build/check/dev orchestration, backed by a machine-scoped observable lock/queue.
 - Fake overlapping jobs prove one running owner and serialized queue behavior, with owner/job/state/queue position/log/status visible through completion, failure, cancellation, and release.

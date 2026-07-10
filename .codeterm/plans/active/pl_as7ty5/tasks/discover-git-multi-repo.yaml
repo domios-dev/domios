@@ -4,6 +4,7 @@ type: planning
 model: gpt-5.4
 model_rationale: Codex gpt-5.4 is sufficient for a bounded plugin source and test-fixture reconnaissance task.
 personality: Dijkstra
+personality_provenance: null
 acceptance_criteria:
 - Confirms the early-return source behavior and all cited symbols/paths against fresh origin/develop.
 - Defines explicit traversal depth, entry/time bounds, ignored directories, root containment, and .git file/directory handling.

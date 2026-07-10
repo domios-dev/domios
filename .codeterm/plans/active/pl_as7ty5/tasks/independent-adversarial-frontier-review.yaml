@@ -4,6 +4,7 @@ type: review
 model: gpt-5.5
 model_rationale: 'Routing rationale: high-risk cross-lane adversarial review; gpt-5.5 is required.'
 personality: Dijkstra
+personality_provenance: null
 acceptance_criteria:
 - No unowned blast-radius risk, or every finding is routed to a concrete bounce/follow-up; seven closed issues untouched.
 test_plan: 'Oracle commands: git diff --check; git diff --stat; rg -n "provider|session|lock|workspace-plan|gitRepos" touched files; rerun each lane''s focused command. Expected: evidence-backed review report.'

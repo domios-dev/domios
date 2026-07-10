@@ -4,6 +4,7 @@ type: review
 model: gpt-5.6-sol
 model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and is appropriate for final P0 acceptance review of provider transport state machines and durable recovery.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - Every specified provider-binding, inbox-phase, lease, hydration, telemetry, and cross-shell invariant is verified or pinpointed against actual paths, ending in one ACCEPT or BOUNCE without mutation.
 test_plan: 'Oracle: actual diff paths, exact focused non-heavy tests, and static checks only. 1. Inspect actual target diff; pass: report cites only real changed paths and ignores task_qdwix5 attribution. 2. Trace PTY/chatBackend open/reopen authentication, session and nonce binding; pass: unknown or stale paths reject. 3. Trace atomic gate/request/inbox persistence and all receiver phases; pass: request IDs are stable and delivery_uncertain cannot ambiguously resend. 4. Trace safe pre-send lease expiry and verified rebind; pass: only safe lease expiration and no duplicate send. 5. Verify uncapped hydration of all spec/section/task/milestone/stride/decision/gate/inbox data with 36-task multi-spec fixture. 6. Inspect resolver telemetry/structured errors and run real Claude/Codex PTY plus chatBackend input fixtures; pass: zero PowerShell/bash/zsh shell writes. 7. Run exact existing focused non-heavy tests, git diff --check, and scripts/check-file-sizes.sh. No build/dev/Playwright. Return actual paths, file/line findings, and ACCEPT/BOUNCE.'

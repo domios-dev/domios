@@ -4,6 +4,7 @@ type: implement
 model: gpt-5.6-terra
 model_rationale: GPT-5.6 Terra is the verified default for shared Chat/Terminal renderer parity and responsive accessibility work; inherit task model without dispatch override.
 personality: Hopper
+personality_provenance: null
 acceptance_criteria:
 - At exact 959x279, long unbroken JSON is rendered in a deliberate collapsed representation of at most two visual lines with ellipsis/chevron and an accessible Expand control; it is never silently hard-clipped.
 - At a narrower mobile viewport, min-width:0 and overflow rules prevent horizontal overflow, overlap, and layout shift while preserving the same compact affordance.

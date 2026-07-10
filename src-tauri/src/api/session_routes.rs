@@ -212,6 +212,7 @@ pub async fn resume_session_api(
                 .clone()
                 .or_else(|| Some(format!("resumed {}", &meta.session_id[..8])))
         }),
+        title_provenance: Some(crate::service::SpawnIdentityProvenance::UserSupplied),
         description: None,
         role: None,
         role_profile: None,

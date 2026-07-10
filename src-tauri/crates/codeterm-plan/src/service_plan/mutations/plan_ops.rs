@@ -327,6 +327,7 @@ impl PlanStore {
             role_guidance: new.role_guidance,
             executor_role: new.executor_role,
             personality: new.personality,
+            personality_provenance: new.personality_provenance,
             competition: new.competition,
             intent: new.intent,
             parent_task_id: new.parent_task_id,
