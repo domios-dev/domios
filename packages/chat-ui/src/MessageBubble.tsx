@@ -38,7 +38,7 @@ import { ToolOutputContent } from "./ToolOutputContent";
 import { isImageOnlyToolOutput } from "./toolImageOutput";
 import { ContextRequestCard } from "./ContextRequestCard";
 import { WatcherVerdictCard } from "./WatcherVerdictCard";
-import { LinkedText, PlanRefCards } from "./codeterm/LinkedText";
+import { LinkedText, type ResolvedChatPlanRef } from "./codeterm/LinkedText";
 import { hasPlanRefs } from "./codeterm/planRefs";
 import {
   INBOUND_KIND_LABELS,
@@ -66,6 +66,7 @@ interface MessageBubbleProps {
   resolvePaneName?: PaneNameResolver;
   /** Open the plan view for a plan, optionally focused on a task/section node. */
   onOpenPlan?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => void;
+  resolvePlanRef?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => ResolvedChatPlanRef | null;
   fontScale?: number;
   /** `shell_command` decoration — re-run the command in the pane's PTY. */
   onRerunShellCommand?: (command: string) => void;
@@ -76,7 +77,7 @@ interface MessageBubbleProps {
 const INTERACTIVE_QUESTIONS_ENABLED = false;
 const TOOL_EXPANDED_BY_ID = new Map<string, boolean>();
 
-export const MessageBubble = React.memo(function MessageBubble({ message, isLatestFailedToolCall = false, origin, originAvatar, onOriginClick, resolvePaneName, onOpenPlan, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, isLatestFailedToolCall = false, origin, originAvatar, onOriginClick, resolvePaneName, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
   const isFailedToolCall = message.type === "tool_call" && message.toolError === true;
   const shouldAutoExpand = message.type === "tool_call"
     && (message.toolInput?.content != null
@@ -93,7 +94,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
       return (
         <>
           <RichMarkdown text={message.content} fontScale={fontScale} />
-          <PlanRefCards text={message.content} onOpenPlan={onOpenPlan} />
         </>
       );
     }
@@ -306,7 +306,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
         {effectiveOrigin?.kind === "command" ? (
           <CommandBody commands={effectiveOrigin.commands} body={message.content} />
         ) : hasPlanRefs(message.content) ? (
-          <LinkedText text={message.content} onOpenPlan={onOpenPlan} />
+          <LinkedText text={message.content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         ) : (
           renderUserContent(message.content)
         )}
@@ -525,14 +525,15 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
 
   if (message.type === "tool_call") {
     return (
-      <ToolCallBubble
-        message={message}
-        expanded={expanded}
-        onToggle={setExpandedPersistent}
-        resolvePaneName={resolvePaneName}
-        onOpenPlan={onOpenPlan}
-        fontScale={fontScale}
-      />
+        <ToolCallBubble
+          message={message}
+          expanded={expanded}
+          onToggle={setExpandedPersistent}
+          resolvePaneName={resolvePaneName}
+          onOpenPlan={onOpenPlan}
+          resolvePlanRef={resolvePlanRef}
+          fontScale={fontScale}
+        />
     );
   }
 

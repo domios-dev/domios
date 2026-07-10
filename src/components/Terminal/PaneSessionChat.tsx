@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { MessageBubble } from "@codeterm/chat-ui";
+import { extractPlanRefs } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
@@ -18,9 +19,9 @@ import {
 import { usePaneProvider, useShellSessionModel } from "../../lib/usePaneProvider";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
-import { openPlanDeepLink } from "../Canvas/workspacePlanEntry";
+import { findPlanOwnerWorkspace, openPlanDeepLink } from "../Canvas/workspacePlanEntry";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
-import type { PendingPrompt } from "../../lib/types";
+import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { PendingPromptCard } from "./PendingPromptCard";
 import { AgentStateIndicator } from "./AgentStateIndicator";
@@ -30,9 +31,11 @@ import { useChatSession, isCodeTermFrontendTestMode } from "./useChatSession";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
+import { usePlanRefResolver } from "./usePlanRefResolver";
 
 interface Props {
   paneId: string;
+  api?: ApiConfig;
   onError?: (msg: string) => void;
   onOpenTerminalFallback?: () => void;
   uiFontScale?: number;
@@ -77,6 +80,7 @@ function OriginProviderAvatar({ providerId }: { providerId: string | null | unde
 
 export function PaneSessionChat({
   paneId,
+  api,
   onError,
   onOpenTerminalFallback,
   uiFontScale,
@@ -105,7 +109,7 @@ export function PaneSessionChat({
     setShowScrollDown(false);
   }, []);
 
-  const { setFocusedPane, addNotification, setActiveWorkspace, upsertToast } = useMultiplexer();
+  const { setFocusedPane, addNotification, setActiveWorkspace } = useMultiplexer();
   const paneSelector = useCallback((s: Parameters<typeof selectPane>[0]) => selectPane(s, paneId), [paneId]);
   const pane = useMuxSelector(paneSelector, paneFieldsEqual);
   const paneTitleMap = useMuxSelector(selectPaneTitleMap, paneTitleMapEqual);
@@ -254,6 +258,55 @@ export function PaneSessionChat({
     return null;
   }, [enrichedMessages]);
 
+  const visiblePlanRefs = useMemo(() => {
+    const refs: Array<{ planId: string; targetId?: string; targetKind: "plan" | "task" | "section" }> = [];
+    for (const { msg } of enrichedMessages) {
+      if (msg.type === "tool_result" || msg.type === "system" || msg.type === "local_command") continue;
+      for (const ref of extractPlanRefs(msg.content ?? "")) {
+        refs.push({
+          planId: ref.planId,
+          targetId: ref.targetId,
+          targetKind: ref.targetKind,
+        });
+      }
+    }
+    return refs;
+  }, [enrichedMessages]);
+  const resolvedPlanRefs = usePlanRefResolver(
+    api ?? { enabled: false, host: "127.0.0.1", port: 0, token: null, cors: false },
+    visiblePlanRefs,
+  );
+  const resolvePlanRef = useCallback(
+    (planId: string, targetId?: string, targetKind?: "plan" | "task" | "section") => {
+      const kind = targetKind ?? (targetId ? "task" : "plan");
+      const key = `${kind}:${planId}:${targetId ?? ""}`;
+      const found = resolvedPlanRefs.refs.get(key);
+      if (found) {
+        const ownerWorkspace = findPlanOwnerWorkspace(planId, planIndex, planNav.workspaces);
+        const state = resolvedPlanRefs.unreachable
+          ? "unreachable" as const
+          : (ownerWorkspace ? found.state : "unowned");
+        return {
+          title: found.title,
+          planTitle: found.plan_title,
+          taskTitle: found.task_title,
+          sectionTitle: found.section_title,
+          state,
+          rawLabel: targetId ?? planId,
+          fullRef: targetId ? `${planId}/${targetId}` : planId,
+        };
+      }
+      return {
+        title: targetId ?? planId,
+        planTitle: planId,
+        state: resolvedPlanRefs.unreachable ? "unreachable" as const : "loading" as const,
+        rawLabel: targetId ?? planId,
+        fullRef: targetId ? `${planId}/${targetId}` : planId,
+      };
+    },
+    [resolvedPlanRefs, planIndex, planNav.workspaces],
+  );
+
   const onOpenPlan = useCallback(
     (planId: string, taskId?: string) => {
       openPlanDeepLink(planId, taskId, {
@@ -261,19 +314,10 @@ export function PaneSessionChat({
         workspaces: planNav.workspaces,
         activeWorkspaceId: planNav.activeWorkspaceId,
         setActiveWorkspace,
-        onMissing: () =>
-          upsertToast({
-            id: `plan-missing-${planId}`,
-            key: `plan-missing-${planId}`,
-            pane_id: paneId,
-            workspace_id: planNav.activeWorkspaceId,
-            title: "Plan unavailable",
-            body: "That plan was not found — it may have been deleted.",
-            level: "Warning",
-          }),
+        onMissing: undefined,
       });
     },
-    [planIndex, planNav.workspaces, planNav.activeWorkspaceId, setActiveWorkspace, upsertToast, paneId],
+    [planIndex, planNav.workspaces, planNav.activeWorkspaceId, setActiveWorkspace],
   );
 
   useEffect(() => {
@@ -427,6 +471,7 @@ export function PaneSessionChat({
                 origin={origin}
                 resolvePaneName={resolvePaneName}
                 onOpenPlan={onOpenPlan}
+                resolvePlanRef={resolvePlanRef}
                 fontScale={uiFontScale}
                 onAnswerInteractive={handleAnswerInteractive}
                 answeredInteractiveIds={answeredInteractiveIds}

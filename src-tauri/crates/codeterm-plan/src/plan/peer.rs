@@ -37,16 +37,25 @@ where
     match planner {
         None => PeerResolution::Unbound,
         Some(PlannerRef::Waived { note }) => PeerResolution::Waived { note: note.clone() },
-        Some(PlannerRef::Pane { pane_id, .. }) => {
+        Some(PlannerRef::Pane {
+            pane_id,
+            session_id,
+            ..
+        }) => {
             let probe = pane_probe(pane_id);
-            if probe.exists {
+            if probe.planner_routable_for(session_id.as_deref()) {
                 PeerResolution::Planner {
                     pane_id: pane_id.clone(),
                 }
             } else {
+                let reason = if probe.exists {
+                    format!("planner_dead: pane {pane_id} has no nonce-verified live agent chat session")
+                } else {
+                    format!("planner pane {pane_id} gone")
+                };
                 PeerResolution::OrchestratorFallback {
                     bound_pane_id: pane_id.clone(),
-                    reason: format!("planner pane {pane_id} absent"),
+                    reason,
                 }
             }
         }
@@ -62,6 +71,10 @@ mod tests {
         PaneProbe {
             exists: true,
             live_agent: true,
+            agent_session_id: Some("session-1".into()),
+            session_binding_valid: true,
+            chat_delivery_target: true,
+            agent_accepting_work: true,
             role: None,
             parent_pane_id: None,
         }
@@ -70,7 +83,11 @@ mod tests {
     fn idle_probe(_: &str) -> PaneProbe {
         PaneProbe {
             exists: true,
-            live_agent: false,
+            live_agent: true,
+            agent_session_id: Some("session-1".into()),
+            session_binding_valid: true,
+            chat_delivery_target: true,
+            agent_accepting_work: true,
             role: None,
             parent_pane_id: None,
         }
@@ -83,7 +100,7 @@ mod tests {
     fn pane(pane_id: &str) -> Option<PlannerRef> {
         Some(PlannerRef::Pane {
             pane_id: pane_id.into(),
-            session_id: None,
+            session_id: Some("session-1".into()),
             title: None,
         })
     }
@@ -116,6 +133,49 @@ mod tests {
             resolution_json(&r),
             r#"{"kind":"planner","pane_id":"pane_x"}"#
         );
+    }
+
+    #[test]
+    fn live_pane_or_pty_without_agent_chat_is_planner_dead() {
+        let probe = PaneProbe {
+            exists: true,
+            live_agent: true,
+            agent_session_id: Some("session-1".into()),
+            session_binding_valid: true,
+            chat_delivery_target: false,
+            agent_accepting_work: false,
+            role: None,
+            parent_pane_id: None,
+        };
+        let r = resolve_planner_ref(&pane("pane_x"), &Default::default(), |_| probe.clone());
+        assert!(
+            matches!(r, PeerResolution::OrchestratorFallback { reason, .. } if reason.contains("planner_dead"))
+        );
+    }
+
+    #[test]
+    fn planner_session_must_match_the_bound_session() {
+        let bound = Some(PlannerRef::Pane {
+            pane_id: "pane_x".into(),
+            session_id: Some("old-session".into()),
+            title: None,
+        });
+        let r = resolve_planner_ref(&bound, &Default::default(), live_probe);
+        assert!(matches!(r, PeerResolution::OrchestratorFallback { .. }));
+    }
+
+    #[test]
+    fn stale_ref_without_bound_session_is_not_routable() {
+        let stale = Some(PlannerRef::Pane {
+            pane_id: "pane_x".into(),
+            session_id: None,
+            title: None,
+        });
+        let resolution = resolve_planner_ref(&stale, &Default::default(), live_probe);
+        assert!(matches!(
+            resolution,
+            PeerResolution::OrchestratorFallback { .. }
+        ));
     }
 
     #[test]

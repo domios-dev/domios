@@ -1,13 +1,15 @@
 use super::{
-    is_explicit_plan_foreign, ledger_with_live_children, milestone_text,
-    report_task_status_transition, resolve_plan_ctx, resolve_report_target, worker_death_report,
-    ReportTarget,
+    is_explicit_plan_foreign, ledger_with_live_children, milestone_text, planner_rehydrate_payload,
+    planner_request_payload, planner_specs_for_plan, report_task_status_transition,
+    resolve_plan_ctx, resolve_report_target, worker_death_report, ReportTarget,
 };
 use crate::agent::ledger::LedgerRow;
 use crate::agent::reports::{ReportStatus, ReportStore};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
-use crate::plan::{OrchestratorRef, Plan};
+use crate::plan::{
+    Goal, Milestone, OrchestratorRef, Plan, PlannerRequest, PlannerRequestState, Spec,
+};
 use crate::service::plan::{NewTask, PlanStore};
 
 // Enforce report key symmetry: reporter writes and parent query must use the same key.
@@ -314,6 +316,124 @@ fn milestone_text_prefixes_structured_status_only() {
         milestone_text("ready", Some(ReportStatus::InReview)),
         "IN_REVIEW: ready"
     );
+}
+
+#[test]
+fn planner_rehydrate_preserves_all_36_tasks_and_strides() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Windows recovery".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    for index in 0..36 {
+        store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: format!("task {index}"),
+                    kind: "implement".into(),
+                    body: format!("body {index}"),
+                    competition: None,
+                    ..Default::default()
+                },
+                index + 2,
+            )
+            .unwrap();
+    }
+    let mut hydrated = store.get(&plan.id).unwrap();
+    hydrated.goal = Some(Goal {
+        vector: "recover".into(),
+        ..Default::default()
+    });
+    let task_stride = Milestone {
+        id: "task-stride".into(),
+        from: OrchestratorRef::from_pane("worker"),
+        kind: "status_update".into(),
+        text: "task evidence".into(),
+        ts: 10,
+        links: vec![],
+        loop_id: None,
+        iteration: None,
+        canvas: Default::default(),
+        attachments: vec![],
+    };
+    hydrated.tasks[0].milestones.push(task_stride);
+    hydrated.strides.push(Milestone {
+        id: "plan-stride".into(),
+        from: OrchestratorRef::from_pane("owner"),
+        kind: "decision".into(),
+        text: "plan evidence".into(),
+        ts: 11,
+        links: vec![],
+        loop_id: None,
+        iteration: None,
+        canvas: Default::default(),
+        attachments: vec![],
+    });
+    let mut spec = Spec::new(
+        "Authoritative spec".into(),
+        dir.path().display().to_string(),
+    );
+    spec.plan_id = Some(plan.id.clone());
+    store.save_spec(&mut spec, 12).unwrap();
+    let mut linked_spec = Spec::new("Linked spec".into(), dir.path().display().to_string());
+    store.save_spec(&mut linked_spec, 13).unwrap();
+    hydrated.primary_spec_id = Some(spec.id.clone());
+    hydrated.spec_refs = vec![spec.id.clone(), linked_spec.id.clone()];
+
+    let payload = planner_rehydrate_payload(&hydrated, planner_specs_for_plan(&store, &hydrated));
+    let snapshot: serde_json::Value =
+        serde_json::from_str(payload.split_once('\n').unwrap().1).unwrap();
+    let tasks = snapshot["tasks"].as_array().unwrap();
+    assert_eq!(tasks.len(), 36);
+    assert_eq!(
+        tasks
+            .iter()
+            .filter_map(|task| task["id"].as_str())
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        36
+    );
+    assert_eq!(tasks[0]["milestones"][0]["id"], "task-stride");
+    assert_eq!(snapshot["strides"][0]["id"], "plan-stride");
+    assert_eq!(snapshot["goal"]["vector"], "recover");
+    assert_eq!(snapshot["specs"].as_array().unwrap().len(), 2);
+    let spec_titles = snapshot["specs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|spec| spec["title"].as_str())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(spec_titles, ["Authoritative spec", "Linked spec"].into());
+}
+
+#[test]
+fn planner_request_envelope_preserves_shell_metacharacters_as_chat_data() {
+    let payload = "- audit `model`\n- <nonexistent>\n$env:BAD='x'; echo $(whoami)\n$(false) && :";
+    let request = PlannerRequest {
+        request_id: "req-shell".into(),
+        payload: payload.into(),
+        payload_blob: None,
+        caller_pane_id: Some("caller".into()),
+        caller_session_id: Some("caller-session".into()),
+        state: PlannerRequestState::Accepted,
+        created_at: 1,
+        accepted_at: Some(2),
+        lease_expires_at: None,
+        delivery_attempts: 1,
+        completed_at: None,
+        failed_at: None,
+        delivered_to_pane_id: Some("planner".into()),
+        delivered_to_session_id: Some("planner-session".into()),
+        delivered_with_binding_nonce: Some("planner-nonce".into()),
+    };
+
+    let envelope = planner_request_payload("pl-shell", &request);
+    assert!(envelope.contains(payload));
+    assert!(envelope.contains("ack-request pl-shell req-shell"));
 }
 
 #[test]

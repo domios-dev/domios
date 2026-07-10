@@ -81,6 +81,7 @@ impl ServiceContext {
         };
         if changed {
             self.emit_state_changed();
+            self.schedule_planner_replay(&pane_id);
         }
     }
 
@@ -113,6 +114,7 @@ impl ServiceContext {
             shell_nonce,
             pane_cwd,
             agent_session_id,
+            is_planner,
         ) = {
             let mux = self.mux.read();
             let pid = mux.pane_id_for_pty(pty_id);
@@ -128,6 +130,7 @@ impl ServiceContext {
             let nonce = pane.and_then(|p| p.shell_integration_nonce.clone());
             let cwd = pane.and_then(|p| p.cwd.clone());
             let sid = pane.and_then(|p| p.agent_session_id.clone());
+            let planner = pane.is_some_and(|p| p.role_profile.as_deref() == Some("planner"));
             (
                 pid,
                 at,
@@ -138,6 +141,7 @@ impl ServiceContext {
                 nonce,
                 cwd,
                 sid,
+                planner,
             )
         };
 
@@ -183,13 +187,12 @@ impl ServiceContext {
             static UNDETECT_COUNT: std::sync::atomic::AtomicU64 =
                 std::sync::atomic::AtomicU64::new(0);
             let count = UNDETECT_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if count % 50 == 0 {
+            if is_planner || count % 50 == 0 {
                 // Keep a short grace after session-tagging so early prompt snapshots don't trigger false exits.
                 // Locked panes skip output-based clearing because slow startup can leave stale prompt text visible.
-                if in_grace_cached || locked_cached {
+                if in_grace_cached || (locked_cached && !is_planner) {
                     agent_type
                 } else {
-                    const EXIT_DEBOUNCE_SECS: u64 = 2;
                     let screen = self
                         .screen_state
                         .lock()
@@ -203,11 +206,15 @@ impl ServiceContext {
                             let mut mux = self.mux.write();
                             match mux.get_pane_mut(pid) {
                                 Some(pane) => {
-                                    let (clear, next) = exit_debounce(
-                                        pane.exit_suspected_at,
-                                        std::time::Instant::now(),
-                                        std::time::Duration::from_secs(EXIT_DEBOUNCE_SECS),
-                                    );
+                                    let (clear, next) = if is_planner {
+                                        (true, None)
+                                    } else {
+                                        exit_debounce(
+                                            pane.exit_suspected_at,
+                                            std::time::Instant::now(),
+                                            std::time::Duration::from_secs(2),
+                                        )
+                                    };
                                     pane.exit_suspected_at = next;
                                     clear
                                 }
@@ -456,6 +463,7 @@ impl ServiceContext {
         };
         if changed {
             self.emit_state_changed();
+            self.schedule_planner_replay(&pane_id);
         }
     }
 

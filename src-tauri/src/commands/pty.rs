@@ -528,6 +528,9 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
             Some(r) => r,
             None => {
                 let pair = session.pair.lock().unwrap();
+                let Some(pair) = pair.as_ref() else {
+                    return Ok(Vec::new());
+                };
                 pair.master.try_clone_reader().map_err(|e| e.to_string())?
             }
         }

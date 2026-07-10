@@ -629,26 +629,26 @@ mod tests {
 
     #[test]
     fn rpc_dependency_field_omitted_is_none() {
-        assert_eq!(dependency_vec_field(Some(&json!({}))).unwrap(), None);
+        assert!(matches!(dependency_vec_field(Some(&json!({}))), Ok(None)));
     }
 
     #[test]
     fn rpc_dependency_field_array_replaces() {
-        assert_eq!(
-            dependency_vec_field(Some(&json!({ "depends_on": ["task_a", "task_b"] }))).unwrap(),
-            Some(vec!["task_a".to_string(), "task_b".to_string()])
-        );
+        assert!(matches!(
+            dependency_vec_field(Some(&json!({ "depends_on": ["task_a", "task_b"] }))),
+            Ok(Some(ids)) if ids == ["task_a", "task_b"]
+        ));
     }
 
     #[test]
     fn rpc_dependency_field_null_or_empty_clears() {
-        assert_eq!(
-            dependency_vec_field(Some(&json!({ "depends_on": null }))).unwrap(),
-            Some(Vec::new())
-        );
-        assert_eq!(
-            dependency_vec_field(Some(&json!({ "depends_on": [] }))).unwrap(),
-            Some(Vec::new())
-        );
+        assert!(matches!(
+            dependency_vec_field(Some(&json!({ "depends_on": null }))),
+            Ok(Some(ids)) if ids.is_empty()
+        ));
+        assert!(matches!(
+            dependency_vec_field(Some(&json!({ "depends_on": [] }))),
+            Ok(Some(ids)) if ids.is_empty()
+        ));
     }
 }

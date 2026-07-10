@@ -1,6 +1,7 @@
 use portable_pty::{native_pty_system, CommandBuilder, PtyPair, PtySize};
 use std::collections::HashMap;
 use std::io::Read;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::Instant;
 
@@ -34,7 +35,7 @@ pub fn take_spawn_time(pty_id: &str) -> Option<SpawnMark> {
 
 /// A PTY session — stores the pair, reader, writer, child.
 pub struct PtySession {
-    pub pair: StdMutex<PtyPair>,
+    pub pair: StdMutex<Option<PtyPair>>,
     pub size: StdMutex<(u16, u16)>,
     pub reader: StdMutex<Option<Box<dyn Read + Send>>>,
     pub write_queue: WriteQueue,
@@ -44,6 +45,7 @@ pub struct PtySession {
     /// Bounded to prevent memory leaks when frontend isn't consuming (hidden tabs).
     pub backend_reader_tx: StdMutex<Option<tokio::sync::mpsc::Sender<Vec<u8>>>>,
     pub backend_reader_rx: StdMutex<Option<tokio::sync::mpsc::Receiver<Vec<u8>>>>,
+    pub backend_reader_active: AtomicBool,
 }
 
 impl PtySession {
@@ -53,6 +55,9 @@ impl PtySession {
             return Ok(false);
         }
         let pair = self.pair.lock().map_err(|e| e.to_string())?;
+        let pair = pair
+            .as_ref()
+            .ok_or_else(|| "PTY already closed".to_string())?;
         pair.master
             .resize(PtySize {
                 rows,
@@ -63,6 +68,67 @@ impl PtySession {
             .map_err(|e| format!("Resize failed: {}", e))?;
         *size = (cols, rows);
         Ok(true)
+    }
+}
+
+pub struct PtyReaper {
+    pty_id: String,
+    session: Arc<PtySession>,
+    kill_error: Option<String>,
+}
+
+impl PtyReaper {
+    pub fn wait_bounded(self, timeout: std::time::Duration) -> Result<(), String> {
+        if let Some(error) = self.kill_error.as_ref() {
+            let message = format!(
+                "PTY {} process-tree termination failed: {error}",
+                self.pty_id
+            );
+            self.reap_in_background();
+            return Err(message);
+        }
+
+        let deadline = Instant::now() + timeout;
+        loop {
+            let result = {
+                match self.session.child.lock() {
+                    Ok(mut child) => child.try_wait().map_err(|error| error.to_string()),
+                    Err(error) => Err(format!("child mutex poisoned: {error}")),
+                }
+            };
+            match result {
+                Ok(Some(_)) if !self.session.backend_reader_active.load(Ordering::Acquire) => {
+                    log::info!("PTY {} process tree reaped", self.pty_id);
+                    return Ok(());
+                }
+                Ok(Some(_)) | Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                }
+                Ok(Some(_)) | Ok(None) => {
+                    let message = format!(
+                        "PTY {} process tree did not exit within {}ms",
+                        self.pty_id,
+                        timeout.as_millis()
+                    );
+                    self.reap_in_background();
+                    return Err(message);
+                }
+                Err(error) => {
+                    let message = format!("PTY {} reap failed: {error}", self.pty_id);
+                    self.reap_in_background();
+                    return Err(message);
+                }
+            }
+        }
+    }
+
+    fn reap_in_background(self) {
+        std::thread::spawn(move || {
+            if let Ok(mut child) = self.session.child.lock() {
+                let _ = child.wait();
+            }
+            log::info!("PTY {} process tree reaped in background", self.pty_id);
+        });
     }
 }
 
@@ -227,6 +293,7 @@ pub const STRIPPED_PTY_ENV: &[&str] = &[
     "CLAUDECODE",
     "CLAUDE_CODE_SESSION_ID",
     "CLAUDE_CODE_CHILD_SESSION",
+    "AI_AGENT",
     "NO_COLOR",
     "CI",
     "CONTINUOUS_INTEGRATION",
@@ -307,13 +374,14 @@ pub fn build_session(
     let write_queue = WriteQueue::new(writer);
 
     let session = Arc::new(PtySession {
-        pair: StdMutex::new(pair),
+        pair: StdMutex::new(Some(pair)),
         size: StdMutex::new((cols, rows)),
         reader: StdMutex::new(Some(reader)),
         write_queue,
         child: StdMutex::new(child),
         backend_reader_tx: StdMutex::new(None),
         backend_reader_rx: StdMutex::new(None),
+        backend_reader_active: AtomicBool::new(false),
     });
 
     Ok(BuiltSession { shell, session })
@@ -365,7 +433,17 @@ impl PtyManager {
     ) -> (String, Arc<PtySession>) {
         let BuiltSession { shell, session } = built;
         let pty_id = custom_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        log::info!("Spawned PTY {} with shell '{}'", pty_id, shell);
+        let child_pid = session
+            .child
+            .lock()
+            .ok()
+            .and_then(|child| child.process_id());
+        log::info!(
+            "Spawned PTY {} with shell '{}' child_pid={:?}",
+            pty_id,
+            shell,
+            child_pid
+        );
         record_spawn_time(&pty_id, &shell);
         self.sessions.insert(pty_id.clone(), session.clone());
         (pty_id, session)
@@ -397,33 +475,42 @@ impl PtyManager {
 
     /// Kill/remove PTY. Returns error if PTY not found (already killed).
     pub fn kill(&mut self, pty_id: &str) -> Result<(), String> {
+        let reaper = self.begin_kill(pty_id)?;
+        reaper.reap_in_background();
+        Ok(())
+    }
+
+    pub fn begin_kill(&mut self, pty_id: &str) -> Result<PtyReaper, String> {
         let session = self
             .sessions
             .remove(pty_id)
             .ok_or_else(|| format!("PTY {} not found", pty_id))?;
-        match session.child.lock() {
-            Ok(mut child) => {
-                let _ = child.kill();
-            }
-            Err(e) => log::warn!("PTY {} child mutex poisoned during kill: {}", pty_id, e),
+        let kill_error = match session.child.lock() {
+            Ok(mut child) => child.kill().err().map(|error| error.to_string()),
+            Err(error) => Some(format!("child mutex poisoned: {error}")),
+        };
+        session.write_queue.close();
+        if let Ok(mut reader) = session.reader.lock() {
+            let _ = reader.take();
         }
-        // background thread so PTY lock is released immediately.
-        let id = pty_id.to_string();
-        std::thread::spawn(move || {
-            match session.child.lock() {
-                Ok(mut c) => {
-                    let _ = c.wait();
-                }
-                Err(_) => {}
+        if let Ok(mut tx) = session.backend_reader_tx.lock() {
+            let _ = tx.take();
+        }
+        if let Ok(mut rx) = session.backend_reader_rx.lock() {
+            let _ = rx.take();
+        }
+        match session.pair.lock() {
+            Ok(mut pair) => {
+                let _ = pair.take();
             }
-            drop(session);
-            log::info!("PTY {} child reaped", id);
-        });
-        log::info!(
-            "Killed PTY {} (SIGKILL sent, reaping in background)",
-            pty_id
-        );
-        Ok(())
+            Err(e) => log::warn!("PTY {} pair mutex poisoned during kill: {}", pty_id, e),
+        }
+        log::info!("Killed PTY {} process tree; ConPTY handles closed", pty_id);
+        Ok(PtyReaper {
+            pty_id: pty_id.to_string(),
+            session,
+            kill_error,
+        })
     }
 
     pub fn remove(&mut self, pty_id: &str) {
@@ -463,7 +550,8 @@ impl PtyManager {
 fn detect_default_shell() -> String {
     #[cfg(target_os = "windows")]
     {
-        // Avoid the WindowsApps stub for pwsh.exe — Store loader serialises ConPTY spawns for 10–30s. Prefer real installs.
+        // Avoid WindowsApps pwsh.exe — Store-packaged PowerShell can answer terminal
+        // queries while leaking prompt output outside ConPTY. Prefer real installs.
         let candidates = [
             r"C:\Program Files\PowerShell\7\pwsh.exe",
             r"C:\Program Files (x86)\PowerShell\7\pwsh.exe",
@@ -495,8 +583,7 @@ fn which_exe(name: &str) -> Option<String> {
         if dir.is_empty() {
             continue;
         }
-        // Skip WindowsApps App Execution Alias dir — see detect_default_shell.
-        if dir.to_ascii_lowercase().contains(r"\microsoft\windowsapps") {
+        if is_windowsapps_path(dir) {
             continue;
         }
         let full = std::path::Path::new(dir).join(name);
@@ -505,6 +592,11 @@ fn which_exe(name: &str) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(target_os = "windows")]
+fn is_windowsapps_path(path: &str) -> bool {
+    path.to_ascii_lowercase().contains(r"\windowsapps")
 }
 
 #[cfg(test)]
@@ -620,6 +712,145 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
+    fn conpty_cmd_produces_prompt_beyond_control_bytes() {
+        use std::io::Read;
+        use std::sync::mpsc;
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: 30,
+                cols: 100,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("openpty");
+        let mut reader = pair.master.try_clone_reader().expect("clone reader");
+        let _child = pair
+            .slave
+            .spawn_command(CommandBuilder::new("cmd.exe"))
+            .expect("spawn cmd.exe");
+        drop(pair.slave);
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut got = Vec::new();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+            while std::time::Instant::now() < deadline {
+                let mut buf = vec![0u8; 4096];
+                let n = reader.read(&mut buf).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                buf.truncate(n);
+                got.extend_from_slice(&buf);
+                if String::from_utf8_lossy(&got).contains('>') {
+                    break;
+                }
+            }
+            let _ = tx.send(got);
+        });
+        let got = rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap_or_default();
+        let text = String::from_utf8_lossy(&got);
+        assert!(
+            text.contains('>') && got.len() > 4,
+            "cmd.exe never produced a prompt beyond control bytes; bytes={:?}, text={:?}",
+            got,
+            text
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn conpty_pwsh_prompt_produces_output_beyond_cursor_query() {
+        use std::io::{Read, Write};
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+
+        let shell = detect_default_shell();
+        assert!(
+            shell.to_lowercase().contains("pwsh") || shell.to_lowercase().contains("powershell"),
+            "expected Windows PowerShell default shell, got {shell}"
+        );
+
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: 30,
+                cols: 100,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("openpty");
+        let mut reader = pair.master.try_clone_reader().expect("clone reader");
+        let mut writer = pair.master.take_writer().expect("take writer");
+        let mut cmd = CommandBuilder::new(&shell);
+        crate::pty::shell_integration::apply_env(&mut cmd, &shell);
+        let _child = pair.slave.spawn_command(cmd).expect("spawn pwsh");
+        drop(pair.slave);
+
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(8);
+            while Instant::now() < deadline {
+                let mut buf = vec![0u8; 4096];
+                let n = reader.read(&mut buf).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                buf.truncate(n);
+                if tx.send(buf).is_err() {
+                    break;
+                }
+            }
+        });
+
+        let mut got = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let chunk = rx.recv_timeout(remaining).unwrap_or_default();
+            if chunk.is_empty() {
+                break;
+            }
+            if chunk.windows(4).any(|w| w == b"\x1b[6n") {
+                let _ = writer.write_all(b"\x1b[1;1R");
+                let _ = writer.flush();
+            }
+            got.extend_from_slice(&chunk);
+            let text = String::from_utf8_lossy(&got);
+            if text.contains("PS ") && text.contains('>') {
+                break;
+            }
+        }
+        assert!(
+            got.len() > 4,
+            "pwsh produced only terminal capability bytes: {:?}",
+            got
+        );
+        let text = String::from_utf8_lossy(&got);
+        assert!(
+            text.contains("PS ") && text.contains('>'),
+            "pwsh never produced a prompt beyond cursor query; bytes={:?}, text={:?}",
+            got,
+            text
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windowsapps_paths_are_rejected_for_default_shell_lookup() {
+        assert!(is_windowsapps_path(
+            r"C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe"
+        ));
+        assert!(is_windowsapps_path(
+            r"C:\Users\dev\AppData\Local\Microsoft\WindowsApps"
+        ));
+        assert!(!is_windowsapps_path(r"C:\Program Files\PowerShell\7"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
     fn conpty_shell_does_not_spawn_legacy_child_conhost() {
         use std::io::Read;
         use std::sync::mpsc;
@@ -663,6 +894,80 @@ mod tests {
     }
 
     #[cfg(target_os = "windows")]
+    #[test]
+    fn kill_reaps_conpty_host_before_next_spawn() {
+        let mut manager = PtyManager::new();
+        let before = openconsole_children_of_current_process();
+        let (old_pty, old_session) = manager
+            .spawn(None, None, 80, 24, HashMap::new())
+            .expect("spawn old pty");
+        let old_child = old_session
+            .child
+            .lock()
+            .expect("old child mutex")
+            .process_id()
+            .expect("old child pid");
+        let old_hosts =
+            wait_for_new_openconsole_children(&before, std::time::Duration::from_secs(5));
+        assert_eq!(
+            old_hosts.len(),
+            1,
+            "old PTY should create exactly one OpenConsole host; got {old_hosts:?}"
+        );
+
+        manager
+            .begin_kill(&old_pty)
+            .expect("begin old pty kill")
+            .wait_bounded(std::time::Duration::from_secs(5))
+            .expect("old PTY process tree must reap before retry");
+        assert!(
+            wait_for_processes_gone(
+                old_hosts
+                    .iter()
+                    .copied()
+                    .chain(std::iter::once(old_child))
+                    .collect(),
+                std::time::Duration::from_secs(5),
+            ),
+            "old child {old_child} and OpenConsole hosts {old_hosts:?} must exit after kill"
+        );
+
+        let after_old = openconsole_children_of_current_process();
+        let (new_pty, new_session) = manager
+            .spawn(None, None, 80, 24, HashMap::new())
+            .expect("spawn new pty");
+        let new_hosts =
+            wait_for_new_openconsole_children(&after_old, std::time::Duration::from_secs(5));
+        assert_eq!(
+            new_hosts.len(),
+            1,
+            "new PTY should own exactly one OpenConsole host; got {new_hosts:?}"
+        );
+        let new_child = new_session
+            .child
+            .lock()
+            .expect("new child mutex")
+            .process_id()
+            .expect("new child pid");
+        manager
+            .begin_kill(&new_pty)
+            .expect("begin new pty kill")
+            .wait_bounded(std::time::Duration::from_secs(5))
+            .expect("new PTY process tree must reap");
+        assert!(
+            wait_for_processes_gone(
+                new_hosts
+                    .iter()
+                    .copied()
+                    .chain(std::iter::once(new_child))
+                    .collect(),
+                std::time::Duration::from_secs(5),
+            ),
+            "new child {new_child} and OpenConsole hosts {new_hosts:?} must exit after kill"
+        );
+    }
+
+    #[cfg(target_os = "windows")]
     fn legacy_conhost_children(parent_pid: u32) -> Vec<u32> {
         let script = format!(
             "$p={}; Get-CimInstance Win32_Process -Filter \"Name = 'conhost.exe' AND ParentProcessId = $p\" | Where-Object {{ $_.CommandLine -like '*conhost.exe 0x4*' }} | ForEach-Object {{ $_.ProcessId }}",
@@ -684,6 +989,71 @@ mod tests {
             .lines()
             .filter_map(|line| line.trim().parse::<u32>().ok())
             .collect()
+    }
+
+    #[cfg(target_os = "windows")]
+    fn openconsole_children_of_current_process() -> std::collections::HashSet<u32> {
+        let script = format!(
+            "$p={}; Get-CimInstance Win32_Process -Filter \"Name = 'OpenConsole.exe' AND ParentProcessId = $p\" | ForEach-Object {{ $_.ProcessId }}",
+            std::process::id()
+        );
+        let mut cmd = std::process::Command::new("powershell.exe");
+        cmd.args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ]);
+        codeterm_util::process_util::no_window_std(&mut cmd);
+        let Ok(output) = cmd.output() else {
+            return std::collections::HashSet::new();
+        };
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.trim().parse::<u32>().ok())
+            .collect()
+    }
+
+    #[cfg(target_os = "windows")]
+    fn wait_for_new_openconsole_children(
+        before: &std::collections::HashSet<u32>,
+        timeout: std::time::Duration,
+    ) -> Vec<u32> {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let current = openconsole_children_of_current_process();
+            let hosts: Vec<u32> = current.difference(before).copied().collect();
+            if !hosts.is_empty() || std::time::Instant::now() >= deadline {
+                return hosts;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn wait_for_processes_gone(pids: Vec<u32>, timeout: std::time::Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let alive = pids.iter().any(|pid| process_exists(*pid));
+            if !alive {
+                return true;
+            }
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn process_exists(pid: u32) -> bool {
+        let mut cmd = std::process::Command::new("tasklist.exe");
+        cmd.args(["/fi", &format!("PID eq {}", pid), "/fo", "csv", "/nh"]);
+        codeterm_util::process_util::no_window_std(&mut cmd);
+        cmd.output()
+            .map(|output| String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
+            .unwrap_or(false)
     }
 
     #[test]

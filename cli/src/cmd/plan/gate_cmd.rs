@@ -58,6 +58,29 @@ pub(super) fn handle(
             Ok(None)
         }
 
+        PlanDecisionAction::AckRequest {
+            plan_id,
+            request_id,
+        } => {
+            let mut params = json!({
+                "plan_id": plan_id,
+                "request_id": request_id,
+            });
+            maybe_inject_caller_pane(&mut params);
+            let request = call_plan_rpc(client, "plan.decision.ack_request", params)?;
+            if json_output {
+                return Ok(Some(request));
+            }
+            println!(
+                "Acknowledged Planner request {}.",
+                request
+                    .get("request_id")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("?")
+            );
+            Ok(None)
+        }
+
         PlanDecisionAction::List { plan_id, open } => {
             let params = json!({
                 "plan_id": plan_id,

@@ -118,6 +118,36 @@ pub fn restart_general_agent(
     Ok(())
 }
 
+#[tauri::command]
+pub fn restart_general_agent_pane(
+    svc: State<'_, ServiceState>,
+    config: State<'_, crate::config::ConfigState>,
+    app: tauri::AppHandle,
+    pane_id: String,
+) -> Result<(), String> {
+    let svc = (*svc).clone();
+    let mux = svc.mux.clone();
+    let should_restart =
+        crate::service::general_agent::validate_general_agent_pane_retry(&pane_id, &mux)?;
+    if !should_restart {
+        return Ok(());
+    }
+    let pty = svc.pty.clone();
+    let screen_state = svc.screen_state.clone();
+    let config = (*config).clone();
+    std::thread::spawn(move || {
+        crate::service::general_agent::restart_general_agent(
+            &svc,
+            &mux,
+            &pty,
+            &screen_state,
+            &config,
+            &app,
+        );
+    });
+    Ok(())
+}
+
 /// Probe for a CLI binary. Used by the per-provider Installation card in
 /// Settings → Agents to render the install/missing badge. Checks the process
 /// PATH plus platform fallback dirs because GUI apps often inherit a minimal

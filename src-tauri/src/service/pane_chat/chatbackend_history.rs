@@ -172,6 +172,15 @@ impl ChatBackendHistory {
         changed
     }
 
+    pub fn remove(&mut self, message_id: &str) -> bool {
+        if self.by_id.remove(message_id).is_none() {
+            return false;
+        }
+        self.order.retain(|id| id != message_id);
+        self.flush();
+        true
+    }
+
     fn flush(&self) {
         let mut out = String::new();
         if let Some(meta) = &self.meta {
@@ -277,6 +286,17 @@ mod tests {
             !h.upsert(&[msg("1", "a")]),
             "byte-identical upsert is a no-op"
         );
+    }
+
+    #[test]
+    fn remove_allows_a_failed_delivery_to_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        let mut h = ChatBackendHistory::open_at(path.clone());
+        h.upsert(&[msg("request-1", "payload")]);
+        assert!(h.remove("request-1"));
+        assert!(read_messages(&path).is_empty());
+        assert!(h.upsert(&[msg("request-1", "payload")]));
     }
 
     #[test]

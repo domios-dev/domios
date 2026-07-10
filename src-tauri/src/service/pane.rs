@@ -220,6 +220,12 @@ impl ServiceContext {
             // Clearing agent_type also clears the lock — agent died/disconnected.
             if agent_type.is_none() {
                 pane.agent_type_locked = false;
+                pane.session_binding_nonce = None;
+                pane.reported_session_binding_nonce = None;
+                pane.agent_session_id = None;
+                pane.agent_state = None;
+                pane.pending_prompt = None;
+                pane.boot_stage = Some(codeterm_types::pty::BootStage::ShellReady);
             } else if lock {
                 pane.agent_type_locked = true;
             }
@@ -241,6 +247,7 @@ impl ServiceContext {
                 self.refresh_session_model_once(pane_id, &new_type);
             }
         } else {
+            self.clear_dead_planner_binding(pane_id);
             // Drop friendly name on agent clear; keep the last-seen model so the tab doesn't flicker blank between sessions.
             let mut mux = self.mux.write();
             if let Some(pane) = mux.get_pane_mut(pane_id) {
@@ -567,7 +574,10 @@ impl ServiceContext {
         }
         if let Some(pane) = mux.get_pane_mut(pane_id) {
             pane.agent_session_id = session_id;
+            pane.reported_session_binding_nonce = None;
         }
+        drop(mux);
+        self.bind_planner_session(pane_id);
     }
 
     /// Per-launch binding nonce for a pane, generated once and reused. Injected as CODETERM_SESSION_BINDING_NONCE so a provider's session-start report can prove it owns this pane; a report carrying a different nonce is a stale/foreign claim and gets rejected.
@@ -579,6 +589,7 @@ impl ServiceContext {
             }
             let nonce = uuid::Uuid::new_v4().to_string();
             pane.session_binding_nonce = Some(nonce.clone());
+            pane.reported_session_binding_nonce = None;
             nonce
         } else {
             uuid::Uuid::new_v4().to_string()

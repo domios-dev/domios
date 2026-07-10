@@ -16,6 +16,7 @@ pub enum NextActionKind {
     ClaimQa,
     SpawnTester,
     RegressionGate,
+    Continue,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -129,6 +130,27 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         });
     }
 
+    let has_unblocked_work = s
+        .open_lanes
+        .iter()
+        .any(|lane| lane.status == TaskStatus::Pending);
+    let qa_only = !s.open_lanes.is_empty()
+        && s.open_lanes.iter().all(|lane| {
+            lane.status == TaskStatus::InReview && lane.review_stage == ReviewStage::Qa
+        });
+    if s.execution_tasks_unlocked && has_unblocked_work && s.live_agents.is_empty() && !qa_only {
+        actions.push(NextAction {
+            priority: 1,
+            kind: NextActionKind::Continue,
+            task_id: None,
+            loop_id: None,
+            message: format!(
+                "continue plan {}: open unblocked work has zero live workers",
+                s.plan_id
+            ),
+        });
+    }
+
     for l in &s.loops {
         if loop_near_limit(l) {
             actions.push(NextAction {
@@ -219,6 +241,9 @@ mod tests {
             owner: Default::default(),
             planner: None,
             planner_resolution: crate::plan::peer::PeerResolution::Unbound,
+            planner_dead: false,
+            undelivered_request_count: 0,
+            planner_recovery_action: None,
             goal: None,
             task_counts: Default::default(),
             percent_done: 0.0,
@@ -323,6 +348,23 @@ mod tests {
         assert!(compute_next_actions(&s)
             .iter()
             .all(|action| action.kind != NextActionKind::Dispatch));
+    }
+
+    #[test]
+    fn zero_worker_open_work_emits_continuation_but_qa_only_does_not() {
+        let mut s = empty();
+        s.open_lanes = vec![lane("pending", TaskStatus::Pending)];
+        assert!(compute_next_actions(&s)
+            .iter()
+            .any(|action| action.kind == NextActionKind::Continue));
+        s.open_lanes = vec![OpenLane {
+            review_stage: ReviewStage::Qa,
+            qa_state: Some(QaState::Queued),
+            ..lane("qa", TaskStatus::InReview)
+        }];
+        assert!(compute_next_actions(&s)
+            .iter()
+            .all(|action| action.kind != NextActionKind::Continue));
     }
 
     #[test]
