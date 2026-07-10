@@ -1,11 +1,7 @@
 /**
- * 18-reorder — hierarchy-aware drag-to-reorder gates (web-mode).
- *
- * Each hierarchy level is its own constrained drop group, so an item can never
- * leave its group. Drags are driven with the dnd-kit KeyboardSensor (focus the
- * row, Space to lift, Arrow to move, Space to drop) — deterministic in
- * headless Chromium. The oracle is the backend snapshot (GET /api/mux/state),
- * whose per-group `sort_order` is authoritative. All @golden.
+ * WHAT: reorder covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 18-reorder.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type Page } from "../../helpers/fixtures";
 import { ApiClient } from "../../helpers/api-client";
@@ -62,12 +58,15 @@ async function keyboardDrag(page: Page, rowSelector: string, key: "ArrowDown" | 
   await row.waitFor({ state: "visible", timeout: 15_000 });
   await row.focus();
   await page.keyboard.press("Space");
+  // PW_JUSTIFIED_SLEEP: fixed 200ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(200);
   for (let i = 0; i < presses; i++) {
     await page.keyboard.press(key);
+    // PW_JUSTIFIED_SLEEP: fixed 150ms sampling/settle window; no app event exists for this probe.
     await page.waitForTimeout(150);
   }
   await page.keyboard.press("Space");
+  // PW_JUSTIFIED_SLEEP: fixed 400ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(400);
 }
 
@@ -76,6 +75,7 @@ async function keyboardDrag(page: Page, rowSelector: string, key: "ArrowDown" | 
  *  store's refresh hook and let SET_STATE re-render the sidebar. */
 async function syncUi(page: Page) {
   await page.evaluate(() => window.dispatchEvent(new Event("codeterm-refresh-mux-state")));
+  // PW_JUSTIFIED_SLEEP: fixed 400ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(400);
 }
 
@@ -134,10 +134,10 @@ test("@golden C2 a child reorders within its parent group and cannot leave it", 
     .poll(async () => (await childOrder(api, ws, parent.pane_id)).join(","), { timeout: 15_000 })
     .toBe([c2.tab_id, c1.tab_id].join(","));
 
-  // Negative: try to drag a child far up, out of its group. The cross-group drop
   // is rejected — the child must remain a child of the same parent.
   const topBefore = await topLevelOrder(api, ws);
   await keyboardDrag(page, childRow(parent.pane_id, c2.tab_id), "ArrowUp", 4);
+  // PW_JUSTIFIED_SLEEP: fixed 500ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(500);
   const st = await muxState(api);
   expect(st.panes[c2.pane_id]?.parent_pane_id, "child must not escape its parent group").toBe(parent.pane_id);

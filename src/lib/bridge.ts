@@ -16,8 +16,9 @@ import {
   listen as tauriListen,
   type UnlistenFn as TauriUnlistenFn,
 } from "@tauri-apps/api/event";
-import { IS_WEB, webJson } from "./webApi";
+import { IS_WEB, WebApiError, webJson } from "./webApi";
 import { webListen } from "./webEvents";
+import { WEB_SPECIAL, WEB_UNSUPPORTED } from "./bridgeWebUnsupported";
 import { setClientPaneUiMode } from "./clientPaneUiMode";
 import { checkBuildMismatch } from "./buildMismatchGuard";
 import type { TabInfo } from "./types";
@@ -28,15 +29,44 @@ export { IS_WEB };
 type Args = Record<string, unknown>;
 type Mapper = (args: Args) => Promise<unknown>;
 const webPtyOffsets = new Map<string, number>();
+const webPtyTruncations = new Map<string, number>();
 let invokeForTest: (<T>(cmd: string, args?: Args) => Promise<T>) | null = null;
+let listenForTest:
+  | (<T>(event: string, handler: (e: { payload: T }) => void) => Promise<UnlistenFn>)
+  | null = null;
 
 export function __setInvokeForTest(fn: (<T>(cmd: string, args?: Args) => Promise<T>) | null): void {
   invokeForTest = fn;
 }
 
+export function __setListenForTest(
+  fn: (<T>(event: string, handler: (e: { payload: T }) => void) => Promise<UnlistenFn>) | null,
+): void {
+  listenForTest = fn;
+}
+
 /** Drop the tail cursor so the next read_pty replays retained history from 0. */
 export function resetWebPtyTail(ptyId: string): void {
   webPtyOffsets.delete(ptyId);
+  webPtyTruncations.delete(ptyId);
+}
+
+/** Consume (once) the under-retention marker from the last `read_pty` response,
+ * if the ring evicted bytes ahead of the client's cursor. */
+export function takePtyTruncation(ptyId: string): number | null {
+  const from = webPtyTruncations.get(ptyId);
+  if (from === undefined) return null;
+  webPtyTruncations.delete(ptyId);
+  return from;
+}
+
+/** True iff a `read_pty` failure means the PTY is confirmed gone — a stable,
+ * structured signal `usePtyConnection` can trust to respawn, as opposed to a
+ * transient transport hiccup that should just retry. */
+export function isPtyDeadError(err: unknown): boolean {
+  if (IS_WEB) return err instanceof WebApiError && err.status === 404;
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes("PTY not found") || message.includes("PTY closed");
 }
 
 const enc = encodeURIComponent;
@@ -44,7 +74,6 @@ const s = (args: Args, key: string): string => String(args[key] ?? "");
 
 /** Commands with a meaningful HTTP equivalent. */
 const HTTP_MAP: Record<string, Mapper> = {
-  // ── extensions / plugins (web-mirror parity) ──
   plugin_manager_snapshot: () => webJson("GET", "/api/plugins/snapshot"),
   plugin_manager_action: (a) => webJson("POST", "/api/plugins/action", a.action),
   plugin_glance: (a) => webJson("POST", "/api/plugins/glance", a),
@@ -67,7 +96,15 @@ const HTTP_MAP: Record<string, Mapper> = {
       sessionId: s(a, "sessionId"),
       model: s(a, "model"),
     }),
-  // ── config ──
+  open_chat_backend_pane: (a) =>
+    webJson("POST", "/api/plugins/chatbackend/open", {
+      pluginId: s(a, "pluginId"),
+      workspaceId: a.workspaceId,
+      config: a.config,
+      systemPrompt: a.systemPrompt,
+      preset: a.preset,
+      model: a.model,
+    }),
   get_config: () => webJson("GET", "/api/config"),
   // PATCH: the route has no POST; the handler merges top-level keys, so the full config object works as a partial.
   update_config: (a) => webJson("PATCH", "/api/config", a.config),
@@ -77,7 +114,6 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("POST", "/api/network/serve/enable", { https_port: a.https_port }),
   disable_web_access: () => webJson("POST", "/api/network/serve/disable"),
 
-  // ── multiplexer ──
   mux_get_state: () => webJson("GET", "/api/mux/state"),
   mux_set_active_workspace: (a) =>
     webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/focus`),
@@ -157,6 +193,8 @@ const HTTP_MAP: Record<string, Mapper> = {
     }),
   mux_clear_pane_role: (a) =>
     webJson("DELETE", `/api/panes/${enc(s(a, "paneId"))}/role`),
+  mux_make_orchestrator: (a) =>
+    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/make-orchestrator`),
   mux_set_chat_view: async (a) => {
     setClientPaneUiMode(s(a, "paneId"), a.chatView ?? a.enabled ? "chat" : "terminal");
     return { ok: true };
@@ -180,7 +218,6 @@ const HTTP_MAP: Record<string, Mapper> = {
   shell_command_snapshot: (a) =>
     webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/shell-commands`),
 
-  // ── chat (raw-JSONL window + tailer — matches the Tauri command shapes, NOT the parsed-snapshot /chat/* routes other consumers use) ──
   chat_start: (a) =>
     webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/start`),
   chat_stop: (a) =>
@@ -223,7 +260,6 @@ const HTTP_MAP: Record<string, Mapper> = {
     return resp.line ?? "";
   },
 
-  // ── mesh ──
   mesh_get_status: () => webJson("GET", "/api/mesh/status"),
   mesh_list_peers: () => webJson("GET", "/api/mesh/peers"),
   mesh_peer_services_list: (a) =>
@@ -253,18 +289,25 @@ const HTTP_MAP: Record<string, Mapper> = {
   mesh_reject_pairing: (a) =>
     webJson("POST", "/api/mesh/reject", { request_id: a.requestId }),
   mesh_add_manual: (a) => webJson("POST", "/api/mesh/peers/add-manual", a),
+  mesh_set_enabled: (a) => webJson("POST", "/api/mesh/enabled", { enabled: a.enabled }),
   mesh_start_broadcast: () => webJson("POST", "/api/mesh/broadcast/start"),
   mesh_stop_broadcast: () => webJson("POST", "/api/mesh/broadcast/stop"),
+  mesh_exit: () => webJson("POST", "/api/mesh/exit"),
+  mesh_set_access: (a) =>
+    webJson("POST", `/api/mesh/peers/${enc(s(a, "instanceId"))}/access`, {
+      access_level: a.accessLevel,
+    }),
 
-  // ── services / activity / crons ──
   services_list: () => webJson("GET", "/api/services"),
-  services_create: (a) => webJson("POST", "/api/services", a.params ?? a),
+  services_create: (a) => webJson("POST", "/api/services", a.input),
   services_update: (a) =>
-    webJson("PATCH", `/api/services/${enc(s(a, "id"))}`, a.params ?? a),
+    webJson("PATCH", `/api/services/${enc(s(a, "id"))}`, a.patch),
   services_delete: (a) => webJson("DELETE", `/api/services/${enc(s(a, "id"))}`),
   services_regenerate_token: (a) =>
     webJson("POST", `/api/services/${enc(s(a, "id"))}/regenerate-token`),
   activity_list: () => webJson("GET", "/api/activity"),
+  cron_get: (a) => webJson("GET", `/api/crons/${enc(s(a, "id"))}`),
+  cron_history: (a) => webJson("GET", `/api/crons/${enc(s(a, "id"))}/history`),
   cron_delete: (a) => webJson("DELETE", `/api/crons/${enc(s(a, "id"))}`),
   cron_trigger: (a) => webJson("POST", `/api/crons/${enc(s(a, "id"))}/trigger`),
   cron_toggle: (a) =>
@@ -273,17 +316,30 @@ const HTTP_MAP: Record<string, Mapper> = {
       `/api/crons/${enc(s(a, "id"))}/${a.enabled ? "enable" : "disable"}`,
     ),
   cron_update: (a) => webJson("PATCH", `/api/crons/${enc(s(a, "id"))}`, a.params ?? a),
+  services_smart_add_inspect: (a) =>
+    webJson("POST", "/api/services/smart-add-inspect", { url: a.url }),
 
-  // ── PTY (browser terminal I/O loop) ──
+  spawn_pty: async (a) => {
+    const resp = await webJson<{ pty_id: string }>("POST", "/api/pty/spawn", {
+      command: a.command,
+      cwd: a.cwd,
+      cols: a.cols,
+      rows: a.rows,
+      predicted_id: a.predictedId,
+      pane_id: a.paneId,
+    });
+    return resp.pty_id;
+  },
   read_pty: async (a) => {
     const ptyId = s(a, "ptyId");
     // First attach tails from 0 — the initial read doubles as history replay.
     const offset = webPtyOffsets.get(ptyId) ?? 0;
-    const resp = await webJson<{ data: number[]; offset: number }>(
+    const resp = await webJson<{ data: number[]; offset: number; truncated_from?: number }>(
       "GET",
       `/api/pty/${enc(ptyId)}/read?offset=${offset}`,
     );
     webPtyOffsets.set(ptyId, resp.offset);
+    if (resp.truncated_from !== undefined) webPtyTruncations.set(ptyId, resp.truncated_from);
     return resp.data;
   },
   write_pty_string: (a) =>
@@ -313,7 +369,6 @@ const HTTP_MAP: Record<string, Mapper> = {
       force: a.force === true,
     }),
 
-  // ── keepawake (sidebar toggle in web) ──
   keepawake_status: () => webJson("GET", "/api/keepawake"),
   keepawake_start: (a) =>
     webJson("POST", "/api/keepawake/start", {
@@ -327,8 +382,9 @@ const HTTP_MAP: Record<string, Mapper> = {
     const resp = await webJson<{ themes?: string[] }>("GET", "/api/themes");
     return resp.themes ?? [];
   },
+  delete_custom_theme: (a) =>
+    webJson("DELETE", `/api/themes/${enc(s(a, "themeId"))}`),
 
-  // ── misc with real endpoints ──
   fs_list_dir: (a) =>
     webJson(
       "GET",
@@ -339,6 +395,53 @@ const HTTP_MAP: Record<string, Mapper> = {
   list_agent_providers: () => webJson("GET", "/api/agents/providers"),
   get_remote_workers: () => webJson("GET", "/api/remote-workers"),
   save_session: () => webJson("POST", "/api/session/save"),
+  restart_general_agent: () => webJson("POST", "/api/agents/general/restart"),
+  restart_general_agent_pane: (a) =>
+    webJson("POST", `/api/agents/general/${enc(s(a, "paneId") ?? s(a, "pane_id"))}/restart`),
+  complete_general_agent_first_run: (a) =>
+    webJson("POST", "/api/agents/general/complete-first-run", {
+      provider_id: s(a, "providerId") ?? s(a, "provider_id"),
+    }),
+  save_temp_file: async (a) => {
+    const resp = await webJson<{ path?: string }>("POST", "/api/attachments/temp-file", {
+      data: a.data,
+      extension: a.extension,
+      name: a.name,
+    });
+    return resp.path ?? "";
+  },
+  copy_image_to_clipboard: (a) =>
+    webJson("POST", "/api/clipboard/copy-image", { path: a.path }),
+  save_clipboard_image: async (a) => {
+    const resp = await webJson<{ path?: string }>(
+      "POST",
+      "/api/attachments/clipboard-image",
+      { bytes: a.bytes, ext: a.ext },
+    );
+    return resp.path ?? "";
+  },
+  save_clipboard_file: async (a) => {
+    const resp = await webJson<{ path?: string }>(
+      "POST",
+      "/api/attachments/clipboard-file",
+      { bytes: a.bytes, filename: a.filename },
+    );
+    return resp.path ?? "";
+  },
+  install_provider_in_pane: (a) =>
+    webJson(
+      "POST",
+      `/api/agents/providers/${enc(s(a, "providerId"))}/install-in-pane`,
+    ),
+  restart_app: () => webJson("POST", "/api/app/restart"),
+  mux_link_pty: (a) =>
+    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/link-pty`, {
+      pty_id: a.ptyId,
+    }),
+  write_pty_launch_command: (a) =>
+    webJson("POST", `/api/pty/${enc(s(a, "ptyId"))}/launch-command`, {
+      command: a.command,
+    }),
   usage_latest: (a) => {
     const accountId = a.accountId ?? a.account_id;
     return webJson(
@@ -386,6 +489,33 @@ const CANNED: Record<string, unknown> = {
   kill_pty: null,
 };
 
+export class WebUnsupportedError extends Error {
+  readonly code = "WEB_UNSUPPORTED" as const;
+
+  constructor(readonly command: string) {
+    super(`[web] command not supported in browser mode: ${command}`);
+    this.name = "WebUnsupportedError";
+  }
+}
+
+export type WebCapability =
+  | { supported: true }
+  | { supported: false; reason: string };
+
+/** Whether a Tauri IPC command is reachable from the web mirror. */
+export function webCapability(cmd: string): WebCapability {
+  if (!IS_WEB) return { supported: true };
+  if (cmd in WEB_SPECIAL || cmd === "open_url") return { supported: true };
+  if (cmd in HTTP_MAP || cmd in CANNED) return { supported: true };
+  const reason = WEB_UNSUPPORTED[cmd];
+  if (reason) return { supported: false, reason };
+  return { supported: false, reason: `unmapped command: ${cmd}` };
+}
+
+export function isWebUnsupportedError(err: unknown): err is WebUnsupportedError {
+  return err instanceof WebUnsupportedError;
+}
+
 async function invokeRaw<T>(cmd: string, args?: Args): Promise<T> {
   if (!IS_WEB) {
     return tauriInvoke<T>(cmd, args);
@@ -400,6 +530,9 @@ async function invokeRaw<T>(cmd: string, args?: Args): Promise<T> {
   }
   if (cmd in CANNED) {
     return CANNED[cmd] as T;
+  }
+  if (cmd in WEB_UNSUPPORTED) {
+    throw new WebUnsupportedError(cmd);
   }
   const msg = `[web] command not available in browser mode: ${cmd}`;
   console.warn(msg, args);
@@ -478,6 +611,7 @@ export async function listen<T>(
   event: string,
   handler: (e: { payload: T }) => void,
 ): Promise<UnlistenFn> {
+  if (listenForTest) return listenForTest(event, handler);
   if (!IS_WEB) {
     return tauriListen<T>(event, handler);
   }

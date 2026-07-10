@@ -4,13 +4,13 @@ How CodeTerm ships instructions to LLM agents: where prompt files live, how they
 
 ## Overview
 
-Every system-level prompt in CodeTerm is a plain `.md` file compiled into the binary via `include_str!()`. There is no runtime prompt store and no hot-reload — **editing a prompt requires a rebuild**. The single loader module is `src-tauri/src/prompts.rs`, which exposes each file as a `pub const &str`.
+Every system-level prompt in CodeTerm is a plain `.md` file compiled into the binary via `include_str!()`. There is no runtime prompt store and no hot-reload — **editing a prompt requires a rebuild**. Loaders are split by ownership: the app catalog is `src-tauri/src/prompts.rs`, plan worker fragments are in `codeterm-plan`, memory prompts and private seed constants are in `codeterm-mem`, and the provider bridge rule is also loaded by `codeterm-plugin`.
 
 **One in-binary prompt location.** Every prompt the project owns and ships with CodeTerm lives here:
 
-1. **`src-tauri/prompts/*.md`** — all in-binary prompts. Loaded via `include_str!()` in `src-tauri/src/prompts.rs`. Includes the GA system prompt, role suffixes, framework rules, bridge memory protocol, cron suffixes, AND every memory-worker prompt (extraction, REM dreaming, reranking, worker preamble).
+1. **`src-tauri/prompts/`** — all in-binary prompt sources. Loaded via `include_str!()` by the owning app or crate module. Includes the GA system prompt, role suffixes, framework rules, bridge memory protocol, cron suffixes, seed prompts, AND every memory-worker prompt (extraction, REM dreaming, reranking, worker preamble).
 
-Provider-specific prompt wrappers and synced skill copies may exist under user home directories at runtime, but they are generated artifacts, not source prompts. If you find a project-owned prompt source anywhere else in this repo, that is a bug — move it into `src-tauri/prompts/` and load it via `prompts.rs`.
+Provider-specific prompt wrappers and synced skill copies may exist under user home directories at runtime, but they are generated artifacts, not source prompts. If you find a project-owned prompt source anywhere else in this repo, that is a bug — move it into `src-tauri/prompts/` and expose it from the module that owns its runtime use.
 
 Prompts reach the model through six pathways:
 
@@ -23,24 +23,33 @@ Prompts reach the model through six pathways:
 
 ## Prompt files
 
-All in-binary prompts live in `src-tauri/prompts/`. Each one is exposed as a `pub const &str` in `src-tauri/src/prompts.rs`.
+All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constants are split across `src-tauri/src/prompts.rs`, `codeterm-plan/src/service_plan/prompts_plan.rs`, `codeterm-mem/src/prompt_text.rs`, `codeterm-mem/src/seed.rs`, and `codeterm-plugin/src/prompts.rs` according to ownership. Seed constants are private; they are not part of a shared prompt catalog.
 
 | File | Const | Category | Placeholders | Injection point |
 |---|---|---|---|---|
 | `general_agent.md` | `GENERAL_AGENT_TEMPLATE` | GA system prompt | `{version}` `{platform}` `{hostname}` `{provider_name}` `{general_dir}` `{secrets_dir}` `{skills_dir}` `{identity}` `{soul}` `{wake_up}` `{codeterm_cli}` | `service/general_agent/instructions.rs` — substituted, written to `AGENT.md` on every GA start |
 | `bootstrap_instructions.md` | `BOOTSTRAP_INSTRUCTIONS_TEMPLATE` | First-run onboarding | — | `service/general_agent/instructions.rs` — written to `bootstrap.md` once, deleted after GA completes onboarding |
 | `worker_suffix.md` | `WORKER_SUFFIX` | Role suffix | — | `service/orchestrator.rs` and `service/spawn.rs` — appended when spawned with `--role Worker` |
-| `orchestrator_suffix.md` | `ORCHESTRATOR_SUFFIX` | Role suffix | — | `service/orchestrator.rs` and `service/spawn.rs` — appended for `--role Orchestrator` |
+| `testing_discipline.md` | `TESTING_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
+| `qa_pipeline_discipline.md` | `QA_PIPELINE_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
+| `bounce_unwinding_contract.md` | `BOUNCE_UNWINDING_CONTRACT` | Shared role fragment | — | `src/prompts.rs` — interpolated once into each rendered Planner and Orchestrator suffix |
+| `planner_suffix.md` | `PLANNER_SUFFIX` | Role suffix | `{planner_testing_methodology}` `{test_author_guidance}` `{bounce_unwinding_contract}` `{plan_skills_principles}` | `service/orchestrator/launch.rs` — rendered and appended for Planner-profile workers |
+| `orchestrator_suffix.md` | `ORCHESTRATOR_SUFFIX` | Role suffix | `{bounce_unwinding_contract}` `{plan_skills_principles}` | `service/orchestrator/launch.rs` — rendered and appended for `--role Orchestrator` |
 | `cron_report_hint.md` | `CRON_REPORT_HINT` | Cron suffix | — | `service/cron.rs` — appended when a cron job has a `creator_pane_id` |
 | `cron_complete_suffix.md` | `CRON_COMPLETE_SUFFIX` | Cron suffix | `{}` (run_id) | `service/cron.rs`, `cron/scheduler.rs` — always appended |
-| `codeterm_rule.md` | `CODETERM_RULE` | Framework rule | — | `plugin/agent_claude/provider/integration.rs` — written to `~/.claude/rules/codeterm.md`; inlined into Codex `AGENTS.md` |
+| `codeterm_rule.md` | `CODETERM_RULE` | Framework rule | — | App loader: `service/general_agent/instructions.rs`; plugin loader: `codeterm-plugin/src/agent_claude/provider/integration.rs` writes `~/.claude/rules/codeterm.md` |
 | `codeterm_cli.md` | `CODETERM_CLI` | Framework rule | — | `service/general_agent/instructions.rs` — injected into the GA prompt via `{codeterm_cli}`; also mirrored into the codeterm skill |
 | `bridge_mem.md` | `BRIDGE_MEM` | Memory protocol rule | — | `service/sync_watcher.rs:18` installs per provider; inlined into Codex `AGENTS.md` |
 | `worker_task_preamble.md` | `WORKER_TASK_PREAMBLE` | Memory worker wrapper | `{intent}` `{worker_id}` `{task}` | `mem/workers.rs` `build_worker_task()` — wraps every headless memory worker task |
-| `plugin_agent_task_preamble.md` | `PLUGIN_AGENT_TASK_PREAMBLE` | Plugin agent wrapper | `{task}` | `plugin/js_runtime/host_compute.rs` `agent_spawn()` — wraps every plugin-spawned agent task so the agent acts through `codeterm plugin <id> <verb>` → `onAgentCommand`, distinct from the memory graph-worker preamble |
+| `plugin_agent_task_preamble.md` | `PLUGIN_AGENT_TASK_PREAMBLE` | Plugin agent wrapper | `{task}` | `service/plugin_host.rs` — wraps plugin-spawned agent tasks before launch |
 | `mem_extraction.md` | `MEM_EXTRACTION` | Memory worker | `{id}` `{title}` `{body}` | `mem/auto_extract.rs` `build_extraction_prompt()` — entity/relation extraction by haiku |
 | `dreaming_rem.md` | `DREAMING_REM` | Memory worker | — | `mem/dreaming.rs` `spawn_rem_worker()` — REM-phase memory consolidation |
 | `mem_rerank.md` | `MEM_RERANK` | Direct API call | `{query}` `{items}` | `mem/rerank.rs` `build_rerank_prompt()` — POST to Anthropic/OpenAI for search reranking |
+| `seed/identity_placeholder.md` | `IDENTITY_BODY` | Fresh-install seed | — | private `codeterm-mem/src/seed.rs` constant |
+| `seed/rule_never_edit_autogen.md` | `RULE_NEVER_EDIT_AUTOGEN` | Fresh-install seed | — | private `codeterm-mem/src/seed.rs` constant |
+| `seed/rule_save_to_mem.md` | `RULE_SAVE_TO_MEM` | Fresh-install seed | — | private `codeterm-mem/src/seed.rs` constant |
+| `seed/rule_search_before_asking.md` | `RULE_SEARCH_BEFORE_ASKING` | Fresh-install seed | — | private `codeterm-mem/src/seed.rs` constant |
+| `seed/skill_codeterm.md` | `SKILL_CODETERM` | Fresh-install seed | — | private `codeterm-mem/src/seed.rs` constant |
 
 ### Placeholder rules
 
@@ -62,24 +71,20 @@ Four of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_r
 
 ## Plugin-spawned agent prompts
 
-`plugin_agent_task_preamble.md` is the wrapper applied by `plugin/js_runtime/host_compute.rs` when a plugin spawns an agent through the host API. It injects the plugin-owned `{task}` and keeps that agent out of the memory graph-worker protocol: plugin agents should operate through verbs exposed as `codeterm plugin <id> <verb>`, which dispatches to the plugin's `onAgentCommand` handler.
+`plugin_agent_task_preamble.md` is the wrapper applied by `service/plugin_host.rs` when a plugin spawns an agent through the host API. It injects the plugin-owned `{task}` and keeps that agent out of the memory graph-worker protocol: plugin agents should operate through verbs exposed as `codeterm plugin <id> <verb>`, which dispatches to the plugin's `onAgentCommand` handler.
 
-`mem/seed.rs` ships a handful of baseline `NewMemItem` rows (bundled rules and the codeterm skill stub) inserted on fresh install. These are Rust literals, not LLM prompts — they live in the mem store and are surfaced to agents only via `codeterm mem search`/`get`.
+`codeterm-mem/src/seed.rs` privately loads markdown sources under `prompts/seed/` and inserts them as baseline `NewMemItem` rows on fresh install. They live in the mem store and are surfaced to agents only via `codeterm mem search`/`get`.
 
-## Role definitions live in `codeterm mem`, not `.claude/agents/`
+## Role guidance is assigned at spawn
 
-CodeTerm dogfoods its own mem as the single source of truth for role-specific guidance (see "We dogfood..." section in `CLAUDE.md`). When you spawn a worker, the task prompt instructs it to `codeterm mem get <role_skill_id>` BEFORE doing the concrete work.
+Structural roles are `Orchestrator`, `Worker`, and the Planner profile. Specialized
+worker stance lives in the task prompt and task `role_guidance`, not in a mem role
+registry. When spawning a worker, include the relevant guidance inline: for example,
+"You are a Rust backend worker focused only on `src-tauri/`".
 
-Current role skills in mem:
-
-- `skill_backend_dev_role_rust_src_tauri_for_codeterm` — Rust / `src-tauri/` work
-- `skill_frontend_dev_role_react_typescript_src_for_codeterm` — React / TypeScript / `src/` work
-- `skill_code_reviewer_role_read_only_review_for_codeterm` — read-only diff review
-- `skill_docs_sync_role_keep_docs_in_sync_with_code_for_codeterm` — documentation sync
-- `skill_prompt_evaluator_role_a_b_and_regression_testing_for_codeterm` — A/B / regression testing for prompt files
-- `skill_end_to_end_github_release_for_codeterm` — full release pipeline
-
-Mem entries propagate immediately across all CodeTerm instances on the machine. No rebuild, no per-checkout copies. `.claude/skills/` is kept only for skills with runnable code (e.g. `prompt-evaluator/runner.py`); their `SKILL.md` is the entry point the mem skill points to.
+Reusable operational knowledge belongs in embedded docs (`codeterm docs ...`) or
+folder skills when runnable files are required. Machine-local preferences such as
+builder capacity belong in mem preferences.
 
 ## Loading flow
 
@@ -88,30 +93,17 @@ Mem entries propagate immediately across all CodeTerm instances on the machine. 
         │
         │  include_str!()  (compile time)
         ▼
-src-tauri/src/prompts.rs  (pub const &str)
+owning loader module (pub const &str)
         │
-        ├──► service/general_agent.rs ─► ~/.codeterm/general/AGENT.md     (GA system prompt)
-        │                            └─► ~/.codeterm/general/AGENTS.md    (Codex inline bundle)
-        │
-        ├──► service/orchestrator.rs ─► task_text += SUFFIX                (Worker/Orch spawn)
-        │
-        ├──► service/cron.rs ──────── ─► task_text += CRON_COMPLETE_SUFFIX (every cron run)
-        │
-        ├──► commands.rs ──────────── ─► ~/.claude/rules/codeterm.md       (Claude bridge install)
-        │
-        ├──► service/sync_watcher.rs ─► per-provider bridge rule install   (BRIDGE_MEM)
-        │
-        ├──► mem/workers.rs ────────── ─► WORKER_TASK_PREAMBLE wraps every headless mem worker
-        │       │
-        │       ├──► mem/auto_extract.rs ─► spawn_headless (extraction worker)
-        │       └──► mem/dreaming.rs ────► spawn_headless (REM worker)
-        │
-        ├──► plugin/js_runtime/host_compute.rs ─► PLUGIN_AGENT_TASK_PREAMBLE wraps plugin-spawned agents
-        │
-        └──► mem/rerank.rs ──────────── ─► raw HTTPS POST to Anthropic / OpenAI (no agent provider)
+        ├──► app prompts.rs ─► service/orchestrator/launch.rs (rendered role suffixes)
+        │                    └─► service/plugin_host.rs (plugin-agent wrapper)
+        ├──► codeterm-plan/prompts_plan.rs ─► worker task rendering
+        ├──► codeterm-mem/prompt_text.rs ─► extraction, dreaming, and reranking
+        ├──► codeterm-mem/seed.rs (private consts) ─► fresh-install memory seeds
+        └──► codeterm-plugin/prompts.rs ─► agent_claude/provider/integration.rs
 ```
 
-The General Agent also gets `CODETERM_RULE` and `BRIDGE_MEM` via the provider's rule mechanism, **not** via `AGENT.md`. That is why `AGENTS.md` (for Codex, which has no rules dir) concatenates all three manually — see `service/general_agent.rs:138-143`.
+`codeterm_rule.md` deliberately has two `include_str!` loaders: the app copy feeds `service/general_agent/instructions.rs`, while the `codeterm-plugin` copy feeds provider bridge installation. The active role and plugin-agent injection paths are `service/orchestrator/launch.rs` and `service/plugin_host.rs`; the loader modules only own compilation and rendering.
 
 ## Editing workflow
 
@@ -133,8 +125,8 @@ The General Agent also gets `CODETERM_RULE` and `BRIDGE_MEM` via the provider's 
 ## Rules
 
 - **One source location.** Every project-owned prompt belongs in `src-tauri/prompts/`. Do not scatter `.md` instructions through `src-tauri/src/`, `cli/`, `src/`, or anywhere else.
-- **No inline multi-line prompt strings in Rust or TypeScript.** If you catch yourself writing a `format!("You are an agent that ...")` longer than two lines, stop. Move it to `src-tauri/prompts/<name>.md`, add a const in `prompts.rs`, and use `crate::prompts::<NAME>.replace("{var}", value)`. Even short ones (rerank is ~5 lines) belong in a file — having one source of truth is more important than line count.
-- **Every new prompt const goes through `prompts.rs`.** Never `include_str!("../prompts/foo.md")` directly from a sibling module — that fragments the index. The whole point of `prompts.rs` is that you can `grep WORKER_` once and find every prompt in the project.
+- **No inline multi-line prompt strings in Rust or TypeScript.** If you catch yourself writing a `format!("You are an agent that ...")` longer than two lines, stop. Move it to `src-tauri/prompts/<name>.md`, add a const in the owning loader module, and render it there. Even short ones (rerank is ~5 lines) belong in a file — having one source of truth is more important than line count.
+- **Every new prompt const has one authoritative owning loader.** App-wide prompts go through `src-tauri/src/prompts.rs`; crate-owned prompts stay in that crate's prompt module. Update `scripts/check-prompts-doc.sh` when a new owning loader is introduced so the source and documentation inventories remain exact.
 - **No hot-reload assumptions.** `include_str!()` is compile-time. If a change "isn't taking effect", it is almost always a stale binary — kill and restart dev (`./build.sh kill && ./build.sh dev`); the kill guarantees the old process is gone.
 - **Run prompt-evaluator on every prompt change.** This is the only guard against silent behavioral regressions — prompt diffs do not show up in unit tests.
 - **Prompts are English-only.** Like all code and docs.
@@ -146,4 +138,23 @@ The General Agent also gets `CODETERM_RULE` and `BRIDGE_MEM` via the provider's 
 - `docs/API.md` — "Agent Prompts" section lists the same files from an API-consumer angle
 - `.claude/skills/prompt-evaluator/SKILL.md` — the harness it drives
 
-<!-- revision: 10 -->
+
+## Prompt tiers — progressive disclosure
+
+System-prompt content is tiered; keep it that way when editing:
+
+- **Tier 0 (always in context):** hard invariants not discoverable via help
+  (routing, no-echo, chat_backend-no-shell, CLI-first discovery habit) plus a
+  capability map — one line per domain pointing at its tier-1 entry.
+  `codeterm_cli.md` budget: ~900 words. Mem and mesh keep compact protocol
+  blocks by explicit decision (high-frequency, behavior-critical).
+- **Tier 1 (agent discovers):** `codeterm <cmd> --help` (clap long_help) and
+  `codeterm docs <TOPIC>`. Nothing may live inline that tier 1 already answers;
+  when adding a rule, put the rationale in docs and one imperative line here.
+- **Tier 2:** situational playbooks (TELEGRAM-SETUP, SECRETS, ...).
+
+Behavioral prompt changes are gated by `evals/cli-agent` (baseline vs after)
+with sandboxes OUTSIDE the repo — in-repo sandboxes feed agents the repo's
+checked-in AGENTS.md instead of the generated one and invalidate the run.
+
+<!-- revision: 14 -->

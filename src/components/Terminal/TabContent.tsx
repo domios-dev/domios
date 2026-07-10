@@ -1,10 +1,14 @@
 import { TerminalPane } from "./TerminalPane";
 import { PaneSessionChat } from "./PaneSessionChat";
 import { PaneTopBar } from "./PaneTopBar";
+import { NewSessionPicker } from "./NewSessionPicker";
 import { isPaneVisible } from "../MemoryPanel/workerFocusStore";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
+import { FirstRunGeneralPicker, isFirstRunGeneralPane } from "../AgentPicker";
+import { useAgentProviders } from "../../hooks/useAgentProviders";
 import type {
   ApiConfig,
+  AppConfig,
   Pane,
   ThemeConfig,
   FontConfig,
@@ -13,6 +17,8 @@ import type {
 
 interface TabContentProps {
   pane: Pane | undefined;
+  workspaceId: string;
+  tabId: string;
   isFocused: boolean;
   onFocusPane: (paneId: string) => void;
   onPtySpawned: (paneId: string, ptyId: string) => void;
@@ -24,14 +30,15 @@ interface TabContentProps {
   workspaceCwd?: string | null;
   uiFontScale?: number;
   isVisible: boolean;
-  /** From App's single useConfig — chat is the default view (leads the picker). */
   chatFirst: boolean;
-  /** From App's single useConfig — chat-default nudge already answered. */
   chatDefaultPrompted: boolean;
+  agentsConfig?: AppConfig["agents"];
 }
 
 export function TabContent({
   pane,
+  workspaceId,
+  tabId,
   isFocused,
   onFocusPane,
   onPtySpawned,
@@ -44,22 +51,45 @@ export function TabContent({
   isVisible,
   chatFirst,
   chatDefaultPrompted,
+  api,
+  agentsConfig,
 }: TabContentProps) {
   const descriptor = useAgentDescriptor(pane?.agent_type);
+  const { providers } = useAgentProviders();
 
   if (!pane) return null;
   if (!isPaneVisible(pane)) return null;
 
+  if (isFirstRunGeneralPane(pane)) {
+    return (
+      <PaneWrapper paneId={pane.id}>
+        <FirstRunGeneralPicker providers={providers} />
+      </PaneWrapper>
+    );
+  }
+
+  if (pane.virtual && !pane.agent_type) {
+    return (
+      <PaneWrapper paneId={pane.id}>
+        <NewSessionPicker
+          paneId={pane.id}
+          workspaceId={workspaceId}
+          tabId={tabId}
+          workspaceCwd={workspaceCwd}
+          agentsConfig={agentsConfig}
+        />
+      </PaneWrapper>
+    );
+  }
+
   const isChatBackend = pane.backing?.kind === "chat_backend";
-  // The switch only applies to PTY agent panes that can render both surfaces;
-  // chatBackend panes are chat-only (no terminal), so they get pills but no switch.
   const showSwitch = !isChatBackend && descriptor?.supports_chat_ui === true;
   const usageProvider = !isChatBackend ? (pane.agent_type ?? null) : null;
   const usageVisible = !!usageProvider && usageEnabledByProvider?.[usageProvider] === true;
   const cwd = pane.cwd ?? workspaceCwd ?? null;
 
   const body = isChatBackend ? (
-    <PaneSessionChat paneId={pane.id} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
+    <PaneSessionChat paneId={pane.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
   ) : (
     <TerminalPane
       key={pane.id}
@@ -88,6 +118,9 @@ export function TabContent({
           chatDefaultPrompted={chatDefaultPrompted}
           usageProvider={usageProvider}
           usageVisible={usageVisible}
+          api={api}
+          isWatcherPane={pane.watcher != null}
+          watcherLastStatus={pane.watcher?.last_status ?? null}
         />
         <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>
           {body}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
 import { getAgentProvider } from "../../lib/agentProviders";
@@ -10,6 +10,7 @@ import { MessageBubble } from "@codeterm/chat-ui";
 import { attachToolResults, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { AlertTriangle, File } from "lucide-react";
 import { SendIcon, ChevronUpIcon } from "../Icons";
+import { BusyState } from "../shared/BusyState";
 
 // ChatView is a placeholder for future direct API chat mode (pick model, call /chat directly).
 // Current UI shows only local optimistic input while PTY path remains unchanged.
@@ -105,7 +106,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     },
   });
 
-  // Clear waitingForReply when Claude responds
   useEffect(() => {
     if (waitingForReply && allMessages.length > 0) {
       const last = allMessages[allMessages.length - 1];
@@ -115,10 +115,19 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     }
   }, [allMessages, waitingForReply]);
 
-  // Show only last N messages for performance
   const messages = allMessages.length > visibleCount
     ? allMessages.slice(allMessages.length - visibleCount)
     : allMessages;
+  const renderedMessages = useMemo(() => attachToolResults(messages), [messages]);
+  const latestFailedToolCallId = useMemo(() => {
+    for (let i = renderedMessages.length - 1; i >= 0; i -= 1) {
+      const msg = renderedMessages[i];
+      if (msg.type === "tool_call" && msg.toolError === true) {
+        return msg.id;
+      }
+    }
+    return null;
+  }, [renderedMessages]);
   const hasMore = allMessages.length > visibleCount;
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -164,7 +173,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     };
   }, [paneId]);
 
-  // Track user scroll
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
@@ -172,7 +180,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     userScrolledUp.current = !atBottom;
   }, []);
 
-  // Send input to PTY with optimistic UI
   const sendMessage = useCallback(async () => {
     const text = input.trim();
     const currentAttachments = [...attachments];
@@ -184,7 +191,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     if (textareaRef.current) textareaRef.current.style.height = "20px";
     refocusComposer();
 
-    // Optimistic: single user message with text + attachment indicators
     const attLabels = currentAttachments.map(a => `[${a.name}]`);
     const displayContent = [text, ...attLabels].filter(Boolean).join(" ");
     if (displayContent) {
@@ -210,7 +216,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       const pid = await resolvePtyId();
       if (!pid) return;
 
-      // Handle attachments — strategy depends on provider
       const imageStrategy = provider?.imageSend || { method: 'path' as const };
       const fileMentions: string[] = [];
 
@@ -218,7 +223,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       for (const att of currentAttachments) {
         let filePath = att.path;
 
-        // Resolve file path: from disk, from image preview, or from raw base64
         if (!filePath) {
           const base64 = att.preview?.split(",")[1] || att._base64;
           if (base64) {
@@ -238,17 +242,14 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             await invoke("write_pty_string", { ptyId: pid, data: imageStrategy.pasteKeystroke || "\x16" });
             await new Promise(r => setTimeout(r, 500));
           } catch (err) {
-            // Clipboard paste failed — fall back to sending the file path
             console.warn("[ChatView] clipboard paste failed, using path fallback:", err);
             fileMentions.push(filePath);
           }
         } else {
-          // Non-image files: collect paths to include in text message
           fileMentions.push(filePath);
         }
       }
 
-      // Phase 2: send text + file paths as one message
       const parts: string[] = [];
       for (const fp of fileMentions) {
         parts.push(`[attached: ${fp}]`);
@@ -258,11 +259,9 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       if (parts.length > 0) {
         await invoke("write_pty_string", { ptyId: pid, data: parts.join(" ") + "\r", raw: false });
       } else if (currentAttachments.length > 0) {
-        // All were clipboard-pasted images, just send Enter
         await invoke("write_pty_string", { ptyId: pid, data: "\r" });
       }
     } catch {
-      // PTY might be dead
     } finally {
       refocusComposer();
     }
@@ -345,7 +344,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
   const toggleExpand = useCallback(() => {
     setInputExpanded(prev => {
       if (prev) {
-        // Collapsing — recalc height to fit content
         requestAnimationFrame(() => {
           const el = textareaRef.current;
           if (el) {
@@ -375,7 +373,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         e.preventDefault();
         sendMessage();
       }
-      // Cmd+Shift+E / Ctrl+Shift+E — toggle expand
       if (e.key === "e" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         toggleExpand();
@@ -440,24 +437,15 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
                 </button>
               </div>
             )}
-            {attachToolResults(messages).map((msg) => (
+            {renderedMessages.map((msg) => (
               <div key={msg.id} data-testid="direct-chat-message" data-message-role={msg.type}>
-                <MessageBubble message={msg} />
+                <MessageBubble message={msg} isLatestFailedToolCall={msg.id === latestFailedToolCallId} />
               </div>
             ))}
             {/* Thinking indicator — shown after sending message, before Claude responds */}
             {waitingForReply && !pendingPrompt && (
               <div className="mb-3 max-w-4xl mx-auto" data-testid="direct-chat-waiting-reply">
-                <span
-                  className="inline-flex items-center gap-1 text-sm"
-                  style={{ color: "var(--ct-muted-fg, #8b949e)" }}
-                >
-                  <span className="inline-flex gap-0.5">
-                    <span className="animate-bounce" style={{ animationDelay: '0ms', animationDuration: '1s' }}>.</span>
-                    <span className="animate-bounce" style={{ animationDelay: '200ms', animationDuration: '1s' }}>.</span>
-                    <span className="animate-bounce" style={{ animationDelay: '400ms', animationDuration: '1s' }}>.</span>
-                  </span>
-                </span>
+                <BusyState labelKey="chatPending" phase="thinking" inline hideLabel />
               </div>
             )}
             {/* Permission prompt — interactive buttons */}
@@ -591,7 +579,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             value={input}
             onChange={(e) => {
               setInput(e.target.value);
-              // Auto-resize on change
               const el = e.target;
               if (!inputExpanded) {
                 el.style.height = "0";

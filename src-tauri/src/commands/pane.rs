@@ -131,7 +131,6 @@ pub fn read_session_jsonl(
     offset: Option<u64>,
     tail_bytes: Option<u64>,
 ) -> Result<String, String> {
-    // 1. Get agent_session_id, agent_type, and cwd from pane
     let (session_id, cwd, agent_type) = {
         let m = mux.write();
         let pane = m
@@ -231,10 +230,37 @@ pub async fn chat_start(
 /// Shared by the Tauri command and the web mirror's
 /// POST /api/panes/{id}/chat-raw/start — identical result shape, so the
 /// chat view renders the same in both shells.
+/// Prepends the pane's pending orchestrator greeting (task_e0ddee08) as a
+/// synthetic assistant `ChatMsg` — verbatim from [`crate::prompts::PEER_ORCH_GREETING`],
+/// never model-generated. Ordered first via a sentinel `seq` below any real
+/// transcript entry. No-op (returns `messages` unchanged) when unset.
+fn prepend_pending_greeting(
+    svc: &ServiceState,
+    pane_id: &str,
+    messages: Vec<crate::agent::chat_types::ChatMsg>,
+) -> Vec<crate::agent::chat_types::ChatMsg> {
+    let greeting = svc
+        .mux
+        .read()
+        .get_pane(pane_id)
+        .and_then(|p| p.pending_greeting.clone());
+    let Some(content) = greeting else {
+        return messages;
+    };
+    let mut out = Vec::with_capacity(messages.len() + 1);
+    out.push(crate::agent::chat_types::ChatMsg {
+        id: format!("greeting-{pane_id}"),
+        kind: "assistant".into(),
+        content,
+        seq: i64::MIN,
+        ..Default::default()
+    });
+    out.extend(messages);
+    out
+}
+
 pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartResult, String> {
     let started = std::time::Instant::now();
-    // chatBackend pane: its transcript is the durable host-side JSONL, not an
-    // agent JSONL/sqlite session. Return that persisted snapshot so a pane shows
     if svc.pane_chat_backing(&pane_id).is_some() {
         let (messages, _total) =
             crate::service::pane_chat::pane_chat_snapshot(svc, &pane_id, 0).unwrap_or_default();
@@ -243,7 +269,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             start_offset: 0,
             offset: 0,
             pending: false,
-            messages: Some(messages),
+            messages: Some(prepend_pending_greeting(svc, &pane_id, messages)),
             cursor: None,
         });
     }
@@ -254,7 +280,22 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
         let cwd = pane.cwd.clone().unwrap_or_default();
         let Some(sid) = pane.agent_session_id.clone() else {
-            // Fresh agent pane: the session file appears with the first agent reply.
+            if let Some(content) = pane.pending_greeting.clone() {
+                return Ok(ChatStartResult {
+                    text: String::new(),
+                    start_offset: 0,
+                    offset: 0,
+                    pending: false,
+                    messages: Some(vec![crate::agent::chat_types::ChatMsg {
+                        id: format!("greeting-{pane_id}"),
+                        kind: "assistant".into(),
+                        content,
+                        seq: i64::MIN,
+                        ..Default::default()
+                    }]),
+                    cursor: None,
+                });
+            }
             return Ok(ChatStartResult {
                 text: String::new(),
                 start_offset: 0,
@@ -267,7 +308,6 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         (provider, cwd, sid, t.elapsed().as_millis())
     };
 
-    // Chat view is a reader for the tab's saved conversation, not a session detector. A provider may still report that the live process has rolled
     // to a newer backing session (Codex resume starts a fresh rollout). Only accept that provider-owned handoff when no sibling pane already owns it.
     let detect_started = std::time::Instant::now();
     if let Some(active_sid) = svc
@@ -304,7 +344,6 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     }
     let detect_ms = detect_started.elapsed().as_millis();
 
-    // DB-backed providers (sqlite, e.g. opencode) have no tailable JSONL: read
     // structured messages in Rust and stream deltas from a DB poller.
     if svc
         .agent_registry
@@ -341,19 +380,32 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             start_offset: 0,
             offset: 0,
             pending: false,
-            messages: Some(delta.messages),
+            messages: Some(prepend_pending_greeting(svc, &pane_id, delta.messages)),
             cursor,
         });
     }
 
-    // JSONL providers (claude, codex): parse to normalized `ChatMsg` in Rust —
-    // the SAME shape the DB-backed providers emit — so every provider renders
     let path_started = std::time::Instant::now();
-    let path = svc
+    let Some(path) = svc
         .agent_registry
         .with_provider(&provider_id, |p| p.session_jsonl_path(&cwd, &session_id))
         .flatten()
-        .ok_or("provider has no JSONL")?;
+    else {
+        log::warn!(
+            "[chat_start] pane={} provider={} session={} has no JSONL yet",
+            pane_id,
+            provider_id,
+            session_id
+        );
+        return Ok(ChatStartResult {
+            text: String::new(),
+            start_offset: 0,
+            offset: 0,
+            pending: true,
+            messages: None,
+            cursor: None,
+        });
+    };
     let total = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     let path_ms = path_started.elapsed().as_millis();
 
@@ -372,7 +424,6 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     };
     let read_ms = read_started.elapsed().as_millis();
 
-    // Multiple webviews can attach to the same pane. The tailer is per pane, but subscriptions are per client; share the existing worker when one
     // is already running so one client's stop() cannot kill another's stream.
     let tailer_started = std::time::Instant::now();
     if !svc.chat_registry.acquire(&pane_id, &session_id) {
@@ -418,7 +469,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         start_offset: 0,
         offset: total,
         pending: false,
-        messages: Some(messages),
+        messages: Some(prepend_pending_greeting(svc, &pane_id, messages)),
         cursor: None,
     })
 }
@@ -588,7 +639,9 @@ pub async fn chat_send_text(
     pane_id: String,
     text: String,
     enter: Option<bool>,
-) -> Result<(), String> {
+) -> Result<String, String> {
+    // Agent without knowing its pane id — parity with the REST send route.
+    let pane_id = svc.mux.read().resolve_pane_id(&pane_id).unwrap_or(pane_id);
     let enter = enter.unwrap_or(true);
     let run_stages =
         crate::chatpipeline::is_user_turn_send(false, false, svc.pane_has_agent(&pane_id));
@@ -597,12 +650,13 @@ pub async fn chat_send_text(
     } else {
         text
     };
-    svc.send_text_when_ready(&pane_id, &text, enter).await
+    svc.send_text_when_ready(&pane_id, &text, enter).await?;
+    Ok(pane_id)
 }
 
 /// P1: open a non-PTY chatBackend pane driven by `plugin_id` (a plugin declaring
 /// the `chatBackend` capability). The frontend Extensions "Open chat" action
-/// calls this; `send`/`get-output` on the returned pane route to the plugin via
+/// calls this; `send`/`get-text` on the returned pane route to the plugin via
 /// the PaneTransport seam. Returns the new pane id.
 #[tauri::command]
 pub async fn open_chat_backend_pane(
@@ -620,6 +674,9 @@ pub async fn open_chat_backend_pane(
         system_prompt.as_deref(),
         preset.as_deref(),
         model.as_deref(),
+        None,
+        None,
+        None,
     );
     if let (Some(base), Some(extra)) = (config.as_object_mut(), overrides.as_object()) {
         for (key, value) in extra {
@@ -628,10 +685,18 @@ pub async fn open_chat_backend_pane(
     } else if !overrides.as_object().map(|o| o.is_empty()).unwrap_or(true) {
         config = overrides;
     }
+    crate::service::spawn::reject_direct_watcher_chatbackend_config(&config)?;
     let handle = svc.spawn_pane(SpawnPaneSpec {
         workspace_id,
         visibility: PaneVisibility::Visible,
-        command: PaneCommand::ChatBackend { plugin_id, config },
+        command: PaneCommand::ChatBackend {
+            plugin_id,
+            config,
+            role: None,
+            role_profile: None,
+            can_spawn: None,
+            watcher: None,
+        },
         ..Default::default()
     })?;
     Ok(handle.pane_id)
@@ -641,25 +706,31 @@ pub async fn open_chat_backend_pane(
 /// talking to — so the tab/bubble can show it. Core asks the capability
 /// resolved by `plugin_id`; never a hardcoded id.
 #[tauri::command]
-pub fn chatbackend_session_info(
+pub async fn chatbackend_session_info(
     svc: tauri::State<'_, ServiceState>,
     plugin_id: String,
     session_id: String,
 ) -> Result<crate::chatbackend::ChatSessionInfo, String> {
-    svc.chatbackend_session_info(&plugin_id, &session_id)
+    let svc = svc.inner().clone();
+    tokio::task::spawn_blocking(move || svc.chatbackend_session_info(&plugin_id, &session_id))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// P1: switch the model an open chatBackend shell session uses on its next turn,
 /// returning the refreshed session info. Backends that cannot switch surface an
 /// error (the capability's `setModel` is optional).
 #[tauri::command]
-pub fn chatbackend_switch_model(
+pub async fn chatbackend_switch_model(
     svc: tauri::State<'_, ServiceState>,
     plugin_id: String,
     session_id: String,
     model: String,
 ) -> Result<crate::chatbackend::ChatSessionInfo, String> {
-    svc.chatbackend_set_model(&plugin_id, &session_id, &model)
+    let svc = svc.inner().clone();
+    tokio::task::spawn_blocking(move || svc.chatbackend_set_model(&plugin_id, &session_id, &model))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

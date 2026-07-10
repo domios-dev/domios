@@ -20,6 +20,11 @@ export function formatResetsAt(ms: number, now: number): string {
   return `resets ${date} · ${time}`;
 }
 
+export function formatSpend(cents: number): string {
+  const dollars = cents / 100;
+  return dollars >= 100 ? `$${Math.round(dollars)}` : `$${dollars.toFixed(2)}`;
+}
+
 export function formatStampShort(ms: number): string {
   const d = new Date(ms);
   return d.toLocaleString(undefined, {

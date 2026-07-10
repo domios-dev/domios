@@ -3,7 +3,7 @@ use crate::{
         delayed::parse_schedule,
         send_text::{actions_to_json, parse_actions_spec, resolve_send_text_input},
     },
-    MemAction, MemGraphAction,
+    MemAction, MemGraphAction, ServiceAction,
 };
 use serde_json::json;
 
@@ -140,16 +140,23 @@ pub(super) fn now_ms() -> u64 {
 pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>) {
     let enc = urlencoding::encode;
     match action {
-        MemAction::Search { query, kind, area, scope, limit, .. } => {
+        MemAction::Search { query, kind, area, scope, project, limit, .. } => {
             let mut path = format!("/api/mem/search?q={}&limit={}", enc(query), limit);
             if let Some(k) = kind { path.push_str(&format!("&kind={}", enc(k))); }
             if let Some(a) = area { path.push_str(&format!("&area={}", enc(a))); }
             if let Some(s) = scope { path.push_str(&format!("&scope={}", enc(s))); }
+            if let Some(p) = project { path.push_str(&format!("&project={}", enc(p))); }
             ("GET".into(), path, None)
         }
         MemAction::Get { id } => ("GET".into(), format!("/api/mem/items/{}", enc(id)), None),
         MemAction::Delete { id } => ("DELETE".into(), format!("/api/mem/items/{}", enc(id)), None),
-        MemAction::Forget { area } => ("DELETE".into(), format!("/api/mem/forget/{}", enc(area)), None),
+        MemAction::Forget { area, yes } => {
+            if let Err(e) = crate::cmd::mem::item::validate_mem_forget_confirmation(area, *yes) {
+                eprintln!("Error: {}", e);
+                std::process::exit(2);
+            }
+            ("DELETE".into(), format!("/api/mem/forget/{}", enc(area)), None)
+        }
         MemAction::History { id } => ("GET".into(), format!("/api/mem/items/{}/history", enc(id)), None),
         MemAction::Append { id, text, file, changed_by } => {
             let resolved = resolve_remote_text(text, file).unwrap_or_else(|| {
@@ -219,6 +226,30 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
             if let Some(v) = source_path { payload["source_path"] = json!(v); }
             if *replace { payload["replace"] = json!(true); }
             if *skip_extract { payload["skip_extract"] = json!(true); }
+            if *pin { payload["pinned"] = json!(true); }
+            ("POST".into(), "/api/mem/items".into(), Some(payload.to_string()))
+        }
+        MemAction::SavePreference { title, body, body_file, summary, tags, area, importance, scope, workspace, pin, replace } => {
+            let mut payload = json!({"kind": "preference", "importance": importance, "skip_extract": true});
+            if let Some(v) = title { payload["title"] = json!(v); }
+            if let Some(v) = resolve_remote_text(body, body_file) { payload["body"] = json!(v); }
+            if let Some(v) = summary { payload["summary"] = json!(v); }
+            if let Some(v) = tags { payload["tags"] = json!(v); }
+            if let Some(v) = area { payload["area"] = json!(v); }
+            let resolved_scope = match (workspace, scope) {
+                (Some(ws), _) => {
+                    let ws = ws.trim();
+                    if ws.is_empty() {
+                        eprintln!("Error: --workspace requires a non-empty id");
+                        std::process::exit(1);
+                    }
+                    Some(format!("workspace:{ws}"))
+                }
+                (None, Some(s)) => Some(s.clone()),
+                (None, None) => None,
+            };
+            if let Some(v) = resolved_scope { payload["scope"] = json!(v); }
+            if *replace { payload["replace"] = json!(true); }
             if *pin { payload["pinned"] = json!(true); }
             ("POST".into(), "/api/mem/items".into(), Some(payload.to_string()))
         }
@@ -464,6 +495,149 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
                 None => "/api/mem/pinned".into(),
             };
             ("GET".into(), path, None)
+        }
+    }
+}
+
+pub(crate) fn service_to_api(action: &ServiceAction) -> (String, String, Option<String>) {
+    match action {
+        ServiceAction::List { kind, enabled } => {
+            let mut path = String::from("/api/services");
+            let mut sep = '?';
+            if let Some(k) = kind {
+                path.push(sep);
+                sep = '&';
+                path.push_str(&format!("kind={}", urlencoding::encode(k)));
+            }
+            if let Some(e) = enabled {
+                path.push(sep);
+                let _ = sep;
+                path.push_str(&format!("enabled={}", e));
+            }
+            ("GET".into(), path, None)
+        }
+        ServiceAction::Add {
+            name,
+            kind,
+            health_mode,
+            url,
+            host,
+            port,
+            process_label,
+            script_path,
+            health_path,
+            health_json_field,
+            health_ok_values,
+            health_degraded_values,
+            health_interval,
+            description,
+            push,
+        } => {
+            let mut body = json!({
+                "name": name,
+                "kind": kind,
+                "health_mode": health_mode,
+                "health_interval": health_interval,
+                "push_enabled": push,
+            });
+            if let Some(v) = url {
+                body["url"] = json!(v);
+            }
+            if let Some(v) = host {
+                body["host"] = json!(v);
+            }
+            if let Some(v) = port {
+                body["port"] = json!(v);
+            }
+            if let Some(v) = process_label {
+                body["process_label"] = json!(v);
+            }
+            if let Some(v) = script_path {
+                body["script_path"] = json!(v);
+            }
+            if let Some(v) = health_path {
+                body["health_path"] = json!(v);
+            }
+            if let Some(v) = health_json_field {
+                body["health_json_field"] = json!(v);
+            }
+            if let Some(v) = health_ok_values {
+                body["health_ok_values"] = json!(v);
+            }
+            if let Some(v) = health_degraded_values {
+                body["health_degraded_values"] = json!(v);
+            }
+            if let Some(v) = description {
+                body["description"] = json!(v);
+            }
+            (
+                "POST".into(),
+                "/api/services".into(),
+                Some(body.to_string()),
+            )
+        }
+        ServiceAction::Show { id } => (
+            "GET".into(),
+            format!("/api/services/{}", urlencoding::encode(id)),
+            None,
+        ),
+        ServiceAction::Edit {
+            id,
+            name,
+            url,
+            health_path,
+            health_json_field,
+            health_ok_values,
+            health_degraded_values,
+            enabled,
+        } => {
+            let mut body = json!({});
+            if let Some(v) = name {
+                body["name"] = json!(v);
+            }
+            if let Some(v) = url {
+                body["url"] = json!(v);
+            }
+            if let Some(v) = health_path {
+                body["health_path"] = json!(v);
+            }
+            if let Some(v) = health_json_field {
+                body["health_json_field"] = json!(v);
+            }
+            if let Some(v) = health_ok_values {
+                body["health_ok_values"] = json!(v);
+            }
+            if let Some(v) = health_degraded_values {
+                body["health_degraded_values"] = json!(v);
+            }
+            if let Some(v) = enabled {
+                body["enabled"] = json!(v);
+            }
+            (
+                "PUT".into(),
+                format!("/api/services/{}", urlencoding::encode(id)),
+                Some(body.to_string()),
+            )
+        }
+        ServiceAction::Delete { id } => (
+            "DELETE".into(),
+            format!("/api/services/{}", urlencoding::encode(id)),
+            None,
+        ),
+        ServiceAction::Token { id, rotate } => {
+            if *rotate {
+                (
+                    "POST".into(),
+                    format!("/api/services/{}/regenerate-token", urlencoding::encode(id)),
+                    None,
+                )
+            } else {
+                (
+                    "GET".into(),
+                    format!("/api/services/{}", urlencoding::encode(id)),
+                    None,
+                )
+            }
         }
     }
 }

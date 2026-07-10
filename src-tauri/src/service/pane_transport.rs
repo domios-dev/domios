@@ -17,8 +17,8 @@ pub trait PaneTransport {
     fn resize(&self, cols: u16, rows: u16) -> Result<(), String>;
     /// Kill the backing process/session without removing the pane.
     fn kill(&self) -> Result<(), String>;
-    /// `codeterm get-output` — buffered output text (PTY) or transcript
-    /// (chatBackend). Returns `{ output, offset }`.
+    /// Internal raw output transport — buffered PTY output or chatBackend
+    /// transcript. Returns `{ output, offset }`.
     fn read_output(
         &self,
         offset: Option<usize>,
@@ -193,5 +193,17 @@ impl ServiceContext {
                 session_id,
             })),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::next_char_boundary;
+
+    #[test]
+    fn next_char_boundary_handles_multibyte_offsets() {
+        let s = "abкd";
+        assert_eq!(next_char_boundary(s, 3), 4);
+        assert_eq!(&s[next_char_boundary(s, 3)..], "d");
     }
 }

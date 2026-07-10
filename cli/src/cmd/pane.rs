@@ -16,7 +16,7 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                     list.retain(|p| {
                         p.get("agent_type")
                             .and_then(|v| v.as_str())
-                            .map_or(false, |s| !s.is_empty())
+                            .is_some_and(|s| !s.is_empty())
                     });
                 }
                 if json {
@@ -118,6 +118,19 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
             handle_result(json, final_result);
         }
         PaneAction::Current { last } => {
+            // The pane this command RUNS IN is the env var — the focused pane
+            // is whatever tab the human is looking at (an orchestrator once
+            // adopted a foreign focused pane as its own id and mis-parented
+            // eleven workers). Fall back to focus only outside pane context,
+            // loudly.
+            if !last {
+                if let Ok(own) = std::env::var("CODETERM_PANE_ID") {
+                    if !own.trim().is_empty() {
+                        println!("{}", own.trim());
+                        return;
+                    }
+                }
+            }
             let result = client.call("pane.list", None);
             match result {
                 Ok(value) => {
@@ -125,6 +138,9 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                         let pane = if last {
                             arr.last()
                         } else {
+                            eprintln!(
+                                "warning: no CODETERM_PANE_ID in this shell — falling back to the FOCUSED pane, which may not be yours"
+                            );
                             arr.iter()
                                 .find(|p| {
                                     p.get("focused").and_then(|v| v.as_bool()).unwrap_or(false)
@@ -147,7 +163,9 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
             handle_result(json, result);
         }
         PaneAction::Close { id } => {
-            let result = client.call("pane.close", Some(serde_json::json!({ "pane_id": id })));
+            let mut params = serde_json::json!({ "pane_id": id });
+            crate::cmd::plan::maybe_inject_caller_pane(&mut params);
+            let result = client.call("pane.close", Some(params));
             handle_result(json, result);
         }
         PaneAction::Rename { pane, title } => {
@@ -185,8 +203,11 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                 }
             };
             let url = format!(
-                "{}/api/panes/{}/text?formatted={}",
-                api_url, pane_id, formatted
+                "{}/api/panes/{}/text?formatted={}{}",
+                api_url,
+                pane_id,
+                formatted,
+                caller_query_suffix()
             );
             match http.get(url).send() {
                 Ok(resp) => {
@@ -266,7 +287,7 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
             }
         }
         PaneAction::Status { pane } => {
-            let pane_id = resolve_pane(client, pane);
+            let pane_selector = pane.unwrap_or_else(|| resolve_pane(client, None));
             let (api_url, api_token) = read_api_config();
             let http = match build_http(&api_token) {
                 Ok(c) => c,
@@ -275,38 +296,28 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                     std::process::exit(1);
                 }
             };
-            match http.get(format!("{}/api/panes", api_url)).send() {
+            match http
+                .get(format!("{}/api/panes/{}/status", api_url, pane_selector))
+                .send()
+            {
                 Ok(resp) => {
-                    if let Ok(panes) = resp.json::<Vec<serde_json::Value>>() {
-                        if let Some(p) = panes
-                            .iter()
-                            .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(&pane_id))
-                        {
-                            let at = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("-");
-                            let sid = p
-                                .get("agent_session_id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("-");
-                            let pp = if p.get("pending_prompt").is_some() {
-                                "yes"
-                            } else {
-                                "no"
-                            };
-                            let cv = p
-                                .get("chat_view")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false);
-                            println!("pane:    {}", pane_id);
-                            println!("agent:   {}", at);
-                            println!(
-                                "desc:    {}",
-                                p.get("description").and_then(|v| v.as_str()).unwrap_or("-")
-                            );
-                            println!("session: {}", sid);
-                            println!("prompt:  {}", pp);
-                            println!("chat:    {}", cv);
-                            return;
-                        }
+                    if !resp.status().is_success() {
+                        eprintln!("Pane not found");
+                        std::process::exit(1);
+                    }
+                    if let Ok(p) = resp.json::<serde_json::Value>() {
+                        let pane_id = p
+                            .get("pane_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(&pane_selector);
+                        let at = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("-");
+                        let status = p.get("status").and_then(|v| v.as_str()).unwrap_or("-");
+                        let title = p.get("title").and_then(|v| v.as_str()).unwrap_or("-");
+                        println!("pane:    {}", pane_id);
+                        println!("agent:   {}", at);
+                        println!("title:   {}", title);
+                        println!("status:  {}", status);
+                        return;
                     }
                     eprintln!("Pane not found");
                     std::process::exit(1);
@@ -368,7 +379,13 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                     std::process::exit(1);
                 }
             };
-            let url = format!("{}/api/panes/{}/chat?since={}", api_url, pane_id, since);
+            let url = format!(
+                "{}/api/panes/{}/chat?since={}{}",
+                api_url,
+                pane_id,
+                since,
+                caller_query_suffix()
+            );
             match http.get(url).send() {
                 // Non-JSON / empty body (e.g. pane not bound yet) -> {} so the renderer prints an honest "(no chat ...)" instead of a decode error.
                 Ok(resp) => {
@@ -444,6 +461,16 @@ fn strip_origin_marker(s: &str) -> (Option<String>, String) {
         }
     }
     (None, s.to_string())
+}
+
+/// `&caller=<pane>` from CODETERM_PANE_ID so the server can detect a coordinator
+/// polling a worker pane; empty when not running inside a pane.
+fn caller_query_suffix() -> String {
+    std::env::var("CODETERM_PANE_ID")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(|p| format!("&caller={}", p))
+        .unwrap_or_default()
 }
 
 /// One-line, length-capped view of a message body so a single huge blob
@@ -609,7 +636,6 @@ fn sfield<'a>(v: &'a serde_json::Value, key: &str) -> &'a str {
 }
 
 fn strip_separators(s: &str) -> String {
-    // Apostrophes get inserted by `deunicode` for Cyrillic soft signs (Дальтон → Dal'ton); strip them so the compact match still hits a plain
     // "Dalton" tab. Same for whitespace / dash / underscore which commonly differ between user input and stored titles.
     s.chars()
         .filter(|c| !c.is_whitespace() && *c != '-' && *c != '_' && *c != '\'')
@@ -705,7 +731,6 @@ pub fn render_pane_tree(panes: &[serde_json::Value]) -> String {
         description: String,
         parent: Option<String>,
     }
-    // Group by workspace. BTreeMap keeps a stable (name, id) ordering so the output doesn't reshuffle between calls (panes arrive
     // HashMap-unordered).
     let mut groups: std::collections::BTreeMap<(String, String), Vec<Row>> =
         std::collections::BTreeMap::new();

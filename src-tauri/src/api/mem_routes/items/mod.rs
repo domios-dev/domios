@@ -10,15 +10,12 @@ use crate::mem::activity::now_ms;
 use crate::mem::{
     layers::WakeUpOptions,
     learnings::{self, LearnKind},
-    rerank::RerankConfig,
-    search::{SearchConfig, SearchMode, SearchQuery},
     store::{MemKind, MemScope, MemUpdate, NewMemItem},
 };
 
 use super::{
     changed_by_from_headers, emit_activity, sanitize_actor, validate_item_fields, WORKER_ID_HEADER,
 };
-
 #[derive(Deserialize)]
 pub struct ActivityRecentParams {
     #[serde(default)]
@@ -37,85 +34,6 @@ pub async fn mem_activity_recent(
     let events = state.svc.activity.recent(since);
     Ok(Json(serde_json::json!({ "events": events })))
 }
-
-#[derive(Deserialize)]
-pub struct SearchParams {
-    pub q: String,
-    #[serde(default)]
-    pub kind: Option<String>,
-    #[serde(default)]
-    pub scope: Option<String>,
-    #[serde(default)]
-    pub area: Option<String>,
-    #[serde(default)]
-    pub limit: Option<usize>,
-    #[serde(default)]
-    pub rerank: Option<bool>,
-    /// Override retrieval pipeline: `hybrid_rrf` (default) or `vector_first_rerank`.
-    /// Lets the bench harness A/B the a reference memory system-style rerank without a code
-    /// change. Unknown values fall back to the default.
-    #[serde(default)]
-    pub mode: Option<String>,
-    /// Vector-first mode only: keyword-overlap weight. a reference memory system uses 0.30.
-    /// Ignored when mode is hybrid_rrf.
-    #[serde(default)]
-    pub weight: Option<f64>,
-}
-
-pub async fn mem_search(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Query(p): Query<SearchParams>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let q = SearchQuery {
-        query: p.q,
-        kind: p.kind,
-        scope: p.scope,
-        area: p.area,
-        limit: p.limit,
-    };
-    let hits = if p.rerank.unwrap_or(false) {
-        let cfg = RerankConfig {
-            enabled: true,
-            provider: "auto".into(),
-            api_key_env: None,
-            model: None,
-        };
-        state
-            .svc
-            .mem
-            .search_with_rerank(&q, &cfg)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
-    } else {
-        let mut sc = SearchConfig::default();
-        match p.mode.as_deref() {
-            Some("vector_first_rerank") | Some("vector_first") => {
-                sc.mode = SearchMode::VectorFirstRerank;
-            }
-            Some("hybrid_rrf") | Some("rrf") | None => {}
-            Some(other) => {
-                return Err((StatusCode::BAD_REQUEST, format!("unknown mode: {}", other)));
-            }
-        }
-        if let Some(w) = p.weight {
-            if !(0.0..=1.0).contains(&w) {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    format!("weight must be 0.0..=1.0, got {}", w),
-                ));
-            }
-            sc.vector_rerank_weight = w;
-        }
-        state
-            .svc
-            .mem
-            .recall_with_config(&q, &sc)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
-    };
-    Ok(Json(serde_json::json!({ "hits": hits })))
-}
-
 pub async fn mem_get(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -226,7 +144,6 @@ pub async fn mem_save(
         .scope
         .map(|s| MemScope::from_str(&s))
         .unwrap_or(MemScope::Global);
-    // Check BEFORE moving fields — prevents extraction cascade
     let is_auto_extracted = body.tags.iter().any(|t| t == "auto-extracted")
         || body
             .source
@@ -265,9 +182,13 @@ pub async fn mem_save(
     if should_extract {
         let svc = state.svc.clone();
         let id_for_extract = id.clone();
+        let mem_cfg = crate::config::memory_config();
+        let default_agent = crate::config::default_agent_provider();
         tokio::task::spawn_blocking(move || {
             crate::mem::auto_extract::spawn_extraction_worker(
                 &svc,
+                &mem_cfg,
+                &default_agent,
                 id_for_extract,
                 title_clone,
                 body_clone,

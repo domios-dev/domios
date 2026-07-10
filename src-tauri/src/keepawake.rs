@@ -4,24 +4,16 @@ use std::sync::{Arc, OnceLock};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
-/// Monotonic session counter — every `start()` bumps this and stores the id
-/// on the ActiveSession. The platform thread captures the id on spawn and
-/// only clears shared state on exit if the stored session still matches —
-/// otherwise a racing new session would be clobbered by an expiring thread.
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// Event emitted whenever the keep-awake session changes (started, stopped,
-/// expired naturally). Frontend subscribes via `listen("keepawake-changed")`.
 const EVENT_CHANGED: &str = "keepawake-changed";
+const SUPERVISOR_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// File inside the CodeTerm data dir where the last session is snapshotted
-/// so we can resume across restarts.
 const PERSIST_FILE: &str = "keepawake.json";
 const CHILDREN_FILE: &str = "keepawake-children.json";
 
-/// Shared state managed by Tauri.
 pub type KeepAwakeState = Arc<Mutex<Option<ActiveSession>>>;
 
 pub fn new_state() -> KeepAwakeState {
@@ -33,6 +25,8 @@ pub struct ActiveSession {
     display: bool,
     expires_at: Option<i64>,
     session_id: u64,
+    gnome_policy: bool,
+    system_block: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -55,8 +49,30 @@ static CHILD_REGISTRY: OnceLock<Mutex<Vec<KeepAwakeChild>>> = OnceLock::new();
 pub struct KeepAwakeStatus {
     pub active: bool,
     pub display: bool,
-    /// Unix timestamp in ms when the session expires, or null for indefinite.
     pub expires_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<KeepAwakeDiagnostic>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub admin_commands: Vec<String>,
+    #[serde(default)]
+    pub gnome_policy: bool,
+    #[serde(default)]
+    pub system_block: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq)]
+pub struct KeepAwakeDiagnostic {
+    pub runtime_inhibit_active: bool,
+    pub display_inhibit_active: bool,
+    pub gnome_policy_safe: Option<bool>,
+    pub systemd_hard_block_active: Option<bool>,
+    pub systemd_daemon_reload_needed: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsafe_gnome_settings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing_systemd_masks: Vec<String>,
 }
 
 fn persist_path() -> PathBuf {
@@ -146,16 +162,26 @@ pub(crate) fn reap_orphaned_children_on_startup() {
 }
 
 pub(crate) fn cleanup_active_children_for_exit() {
-    let killed = cleanup_active_children_with(terminate_pid);
+    let killed = cleanup_active_children_with_state(None, terminate_pid);
     if !killed.is_empty() {
         log::warn!("[keepawake] terminated active child pid(s): {:?}", killed);
     }
 }
 
-fn cleanup_active_children_with<K>(mut kill: K) -> Vec<u32>
+pub(crate) fn cleanup_active_children_for_exit_with_state(state: &KeepAwakeState) {
+    let killed = cleanup_active_children_with_state(Some(state), terminate_pid);
+    if !killed.is_empty() {
+        log::warn!("[keepawake] terminated active child pid(s): {:?}", killed);
+    }
+}
+
+fn cleanup_active_children_with_state<K>(state: Option<&KeepAwakeState>, mut kill: K) -> Vec<u32>
 where
     K: FnMut(u32) -> Result<(), String>,
 {
+    if let Some(state) = state {
+        let _ = state.lock().take();
+    }
     let path = children_path();
     let mut guard = child_registry().lock();
     let entries = std::mem::take(&mut *guard);
@@ -220,6 +246,55 @@ where
 fn should_reap_child(snapshot: &ProcessSnapshot) -> bool {
     snapshot.command.contains("codeterm-keepawake-wrapper")
         || snapshot.command.contains("caffeinate")
+        || snapshot.command.contains("systemd-inhibit")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ChildHealth {
+    alive: bool,
+    warning: Option<String>,
+}
+
+fn active_child_health_with<I>(inspect: I) -> ChildHealth
+where
+    I: Fn(u32) -> Option<ProcessSnapshot>,
+{
+    let entries = child_registry().lock().clone();
+
+    if entries.is_empty() {
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        return ChildHealth {
+            alive: false,
+            warning: Some("keepawake child registry is empty".to_string()),
+        };
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        return ChildHealth {
+            alive: true,
+            warning: None,
+        };
+    }
+
+    let missing: Vec<u32> = entries
+        .iter()
+        .filter(|child| {
+            inspect(child.pid)
+                .as_ref()
+                .is_none_or(|snapshot| !should_reap_child(snapshot))
+        })
+        .map(|child| child.pid)
+        .collect();
+
+    if !missing.is_empty() {
+        return ChildHealth {
+            alive: false,
+            warning: Some(format!("keepawake child process not alive: {:?}", missing)),
+        };
+    }
+
+    ChildHealth {
+        alive: true,
+        warning: None,
+    }
 }
 
 fn inspect_process(pid: u32) -> Option<ProcessSnapshot> {
@@ -280,9 +355,6 @@ fn terminate_pid(pid: u32) -> Result<(), String> {
     }
 }
 
-/// Snapshot a status to disk so the next launch can resume it. Inactive
-/// status clears the file. Writes go through a `.tmp` + `rename` so a crash
-/// mid-write can never leave a partial file.
 fn save_snapshot(status: &KeepAwakeStatus) {
     let path = persist_path();
     if !status.active {
@@ -319,10 +391,6 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
-/// Clear shared state from a platform expiry thread, but only if the stored
-/// session still belongs to this thread. Prevents a just-expired thread from
-/// clobbering a fresh session started in the tiny window between
-/// `recv_timeout` returning Err and this thread acquiring the state lock.
 fn clear_if_owner(state: &KeepAwakeState, my_id: u64, app: &AppHandle) {
     let mut guard = state.lock();
     match guard.as_ref() {
@@ -333,9 +401,14 @@ fn clear_if_owner(state: &KeepAwakeState, my_id: u64, app: &AppHandle) {
                 active: false,
                 display: false,
                 expires_at: None,
+                diagnostic: platform::diagnostic(false, false),
+                warnings: Vec::new(),
+                admin_commands: Vec::new(),
+                gnome_policy: false,
+                system_block: false,
             };
             save_snapshot(&off);
-            let _ = app.emit(EVENT_CHANGED, &off);
+            crate::api::events::emit_everywhere(app, EVENT_CHANGED, &off);
         }
         _ => {
             // Another session took over — it owns the state now, don't touch.
@@ -348,12 +421,18 @@ pub fn start(
     app: &AppHandle,
     duration_secs: Option<u64>,
     display: Option<bool>,
+    gnome_policy: Option<bool>,
+    system_block: Option<bool>,
 ) -> Result<KeepAwakeStatus, String> {
-    // Stop any existing session first. Don't emit an intermediate "off" state — a `start` call is a single atomic transition from the frontend's
     // view.
     stop_inner(state);
 
     let display = display.unwrap_or(false);
+    let gnome_policy = gnome_policy.unwrap_or(false);
+    let system_block = system_block.unwrap_or(false);
+    if gnome_policy {
+        platform::apply_user_power_policy()?;
+    }
     let expires_at = duration_secs.map(|d| now_ms() + (d as i64) * 1000);
     let session_id = SESSION_COUNTER.fetch_add(1, Ordering::SeqCst) + 1;
     let (stop_tx, stop_rx) = std::sync::mpsc::channel();
@@ -373,24 +452,71 @@ pub fn start(
         display,
         expires_at,
         session_id,
-    };
-    let status = KeepAwakeStatus {
-        active: true,
-        display,
-        expires_at,
+        gnome_policy,
+        system_block,
     };
     *state.lock() = Some(session);
-
+    let status = build_status(true, display, expires_at, gnome_policy, system_block);
     log::info!(
-        "[keepawake] started: id={}, display={}, duration={:?}",
+        "[keepawake] started: id={}, display={}, duration={:?}, gnome_policy={}, system_block={}",
         session_id,
         display,
-        duration_secs
+        duration_secs,
+        gnome_policy,
+        system_block
     );
 
     save_snapshot(&status);
-    let _ = app.emit(EVENT_CHANGED, &status);
+    crate::api::events::emit_everywhere(app, EVENT_CHANGED, &status);
     Ok(status)
+}
+
+fn build_status(
+    active: bool,
+    display: bool,
+    expires_at: Option<i64>,
+    gnome_policy: bool,
+    system_block: bool,
+) -> KeepAwakeStatus {
+    let diagnostic = platform::diagnostic(active, display);
+    let mut warnings = Vec::new();
+    let mut admin_commands = Vec::new();
+    if let Some(diagnostic) = diagnostic.as_ref() {
+        if active && !diagnostic.runtime_inhibit_active {
+            warnings.push("runtime sleep inhibitor is not visible".to_string());
+        }
+        if display && !diagnostic.display_inhibit_active {
+            warnings.push("display/idle inhibitor is not visible".to_string());
+        }
+        if diagnostic.gnome_policy_safe == Some(false) {
+            warnings.push(
+                "GNOME current-user power policy can still suspend or blank the session"
+                    .to_string(),
+            );
+        }
+        if diagnostic.systemd_daemon_reload_needed == Some(true) {
+            warnings.push(
+                "systemd reports stale unit state; run sudo systemctl daemon-reload".to_string(),
+            );
+        }
+        if diagnostic.systemd_hard_block_active == Some(false) {
+            warnings.push("systemd sleep targets/services are not masked".to_string());
+        }
+    }
+    if system_block {
+        admin_commands = platform::system_block_commands();
+    }
+
+    KeepAwakeStatus {
+        active,
+        display,
+        expires_at,
+        diagnostic,
+        warnings,
+        admin_commands,
+        gnome_policy,
+        system_block,
+    }
 }
 
 pub fn stop(state: &KeepAwakeState, app: &AppHandle) -> Result<(), String> {
@@ -400,16 +526,17 @@ pub fn stop(state: &KeepAwakeState, app: &AppHandle) -> Result<(), String> {
         active: false,
         display: false,
         expires_at: None,
+        diagnostic: platform::diagnostic(false, false),
+        warnings: Vec::new(),
+        admin_commands: Vec::new(),
+        gnome_policy: false,
+        system_block: false,
     };
     save_snapshot(&off);
-    let _ = app.emit(EVENT_CHANGED, &off);
+    crate::api::events::emit_everywhere(app, EVENT_CHANGED, &off);
     Ok(())
 }
 
-/// Restore a previously-persisted session on startup.
-/// - indefinite → resume as indefinite
-/// - timed, not yet expired → resume with remaining duration
-/// - timed, already expired during downtime → clear the file, do nothing
 pub fn resume_from_disk(state: &KeepAwakeState, app: &AppHandle) {
     let Some(snap) = load_snapshot() else { return };
     if !snap.active {
@@ -420,7 +547,14 @@ pub fn resume_from_disk(state: &KeepAwakeState, app: &AppHandle) {
     match snap.expires_at {
         None => {
             log::info!("[keepawake] resuming indefinite session from snapshot");
-            let _ = start(state, app, None, Some(snap.display));
+            let _ = start(
+                state,
+                app,
+                None,
+                Some(snap.display),
+                Some(snap.gnome_policy),
+                Some(snap.system_block),
+            );
         }
         Some(expires_at) => {
             let remaining_ms = expires_at - now_ms();
@@ -437,35 +571,143 @@ pub fn resume_from_disk(state: &KeepAwakeState, app: &AppHandle) {
                 "[keepawake] resuming timed session: {}s remaining",
                 remaining_secs
             );
-            let _ = start(state, app, Some(remaining_secs), Some(snap.display));
+            let _ = start(
+                state,
+                app,
+                Some(remaining_secs),
+                Some(snap.display),
+                Some(snap.gnome_policy),
+                Some(snap.system_block),
+            );
         }
     }
 }
 
 pub fn status(state: &KeepAwakeState) -> KeepAwakeStatus {
+    status_with_inspector(state, inspect_process)
+}
+
+fn status_with_inspector<I>(state: &KeepAwakeState, inspect: I) -> KeepAwakeStatus
+where
+    I: Fn(u32) -> Option<ProcessSnapshot>,
+{
     let guard = state.lock();
     match guard.as_ref() {
-        Some(s) => KeepAwakeStatus {
-            active: true,
-            display: s.display,
-            expires_at: s.expires_at,
-        },
-        None => KeepAwakeStatus {
-            active: false,
-            display: false,
-            expires_at: None,
-        },
+        Some(s) => {
+            let health = active_child_health_with(inspect);
+            let mut status = build_status(
+                health.alive,
+                health.alive && s.display,
+                if health.alive { s.expires_at } else { None },
+                s.gnome_policy,
+                s.system_block,
+            );
+            if let Some(warning) = health.warning {
+                status.warnings.push(warning);
+            }
+            status
+        }
+        None => build_status(false, false, None, false, false),
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SupervisorTick {
+    Idle,
+    Healthy,
+    Repaired,
+    RepairFailed,
+}
+
+pub(crate) fn start_supervisor(state: KeepAwakeState, app: AppHandle) {
+    std::thread::Builder::new()
+        .name("keepawake-supervisor".into())
+        .spawn(move || loop {
+            std::thread::sleep(SUPERVISOR_INTERVAL);
+            let _ = supervisor_tick_with(&state, inspect_process, || {
+                restart_active_session(&state, &app)
+            });
+        })
+        .expect("failed to spawn keepawake supervisor thread");
+}
+
+fn supervisor_tick_with<I, R>(state: &KeepAwakeState, inspect: I, restart: R) -> SupervisorTick
+where
+    I: Fn(u32) -> Option<ProcessSnapshot>,
+    R: FnOnce() -> Result<(), String>,
+{
+    if state.lock().is_none() {
+        return SupervisorTick::Idle;
+    }
+
+    let health = active_child_health_with(inspect);
+    if health.alive {
+        return SupervisorTick::Healthy;
+    }
+
+    log::warn!(
+        "[keepawake] active session lost child assertion: {}; respawning",
+        health
+            .warning
+            .unwrap_or_else(|| "unknown child health failure".to_string())
+    );
+    match restart() {
+        Ok(()) => SupervisorTick::Repaired,
+        Err(e) => {
+            log::warn!("[keepawake] supervisor respawn failed: {}", e);
+            SupervisorTick::RepairFailed
+        }
+    }
+}
+
+fn restart_active_session(state: &KeepAwakeState, app: &AppHandle) -> Result<(), String> {
+    let Some((display, expires_at, gnome_policy, system_block)) = state
+        .lock()
+        .as_ref()
+        .map(|s| (s.display, s.expires_at, s.gnome_policy, s.system_block))
+    else {
+        return Ok(());
+    };
+
+    let duration_secs = match expires_at {
+        Some(expires_at) => {
+            let remaining_ms = expires_at - now_ms();
+            if remaining_ms <= 0 {
+                return stop(state, app);
+            }
+            Some(((remaining_ms + 999) / 1000) as u64)
+        }
+        None => None,
+    };
+
+    start(
+        state,
+        app,
+        duration_secs,
+        Some(display),
+        Some(gnome_policy),
+        Some(system_block),
+    )
+    .map(|_| ())
 }
 
 #[tauri::command]
 pub fn keepawake_start(
     duration_secs: Option<u64>,
     display: Option<bool>,
+    gnome_policy: Option<bool>,
+    system_block: Option<bool>,
     state: tauri::State<'_, KeepAwakeState>,
     app: AppHandle,
 ) -> Result<KeepAwakeStatus, String> {
-    start(&state, &app, duration_secs, display)
+    start(
+        &state,
+        &app,
+        duration_secs,
+        display,
+        gnome_policy,
+        system_block,
+    )
 }
 
 #[tauri::command]
@@ -518,7 +760,6 @@ mod platform {
                 }
                 SetThreadExecutionState(flags);
 
-                // Block until stop signal or timeout
                 let stopped_early = match duration_secs {
                     Some(secs) => stop_rx
                         .recv_timeout(std::time::Duration::from_secs(secs))
@@ -526,7 +767,6 @@ mod platform {
                     None => stop_rx.recv().is_ok(),
                 };
 
-                // Reset execution state
                 SetThreadExecutionState(ES_CONTINUOUS);
 
                 // On natural expiry, clear shared state only if still owned; a rapid restart may replace the owner.
@@ -536,6 +776,18 @@ mod platform {
             })
             .map(|_| ())
             .map_err(|e| format!("failed to spawn keepawake thread: {}", e))
+    }
+
+    pub fn diagnostic(_active: bool, _display: bool) -> Option<KeepAwakeDiagnostic> {
+        None
+    }
+
+    pub fn apply_user_power_policy() -> Result<(), String> {
+        Err("GNOME power policy mode is only supported on Linux".to_string())
+    }
+
+    pub fn system_block_commands() -> Vec<String> {
+        Vec::new()
     }
 }
 
@@ -553,7 +805,6 @@ mod platform {
         app: AppHandle,
         session_id: u64,
     ) -> Result<(), String> {
-        // Spawn eagerly so failure surfaces as an Err before we record any session state. The shell wrapper owns the real caffeinate process and
         // terminates it if CodeTerm disappears and launchd reparents the wrapper to PID 1.
         let (child, caffeinate_pid) = spawn_keepawake_child(display, session_id)?;
         let child_pid = child.id();
@@ -577,12 +828,9 @@ mod platform {
                 };
 
                 if let Some(mut c) = child_for_thread.lock().take() {
-                    // SIGTERM (not Child::kill, which is SIGKILL) so the wrapper's trap runs and
-                    // reaps its caffeinate. SIGKILL bypasses the trap, orphaning caffeinate to PID 1
                     let _ = terminate_pid(c.id());
                     let _ = c.wait();
                 }
-                // Safety net: kill the caffeinate directly too, in case the wrapper trap was missed
                 // (pid-file race) or it had already been reparented away from the wrapper.
                 if let Some(pid) = caffeinate_pid {
                     let _ = terminate_pid(pid);
@@ -598,7 +846,6 @@ mod platform {
             })
             .map(|_| ())
             .map_err(|e| {
-                // Thread spawn failed after caffeinate was already running — reap it here so we don't orphan the child process. SIGTERM (not SIGKILL) so
                 // the wrapper trap reaps its caffeinate; then kill the caffeinate directly as a safety net.
                 if let Some(mut c) = child_slot.lock().take() {
                     let _ = terminate_pid(c.id());
@@ -681,10 +928,25 @@ done
 wait "$child" 2>/dev/null
 "#
     }
+
+    pub fn diagnostic(_active: bool, _display: bool) -> Option<KeepAwakeDiagnostic> {
+        None
+    }
+
+    pub fn apply_user_power_policy() -> Result<(), String> {
+        Err("GNOME power policy mode is only supported on Linux".to_string())
+    }
+
+    pub fn system_block_commands() -> Vec<String> {
+        Vec::new()
+    }
 }
 
-// Fallback for Linux / other — no-op
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(target_os = "linux")]
+#[path = "keepawake/linux.rs"]
+mod platform;
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 mod platform {
     use super::*;
 
@@ -696,106 +958,22 @@ mod platform {
         _app: AppHandle,
         _session_id: u64,
     ) -> Result<(), String> {
-        log::warn!("[keepawake] not supported on this platform");
-        Ok(())
+        Err("keepawake is not supported on this platform".to_string())
+    }
+
+    pub fn diagnostic(_active: bool, _display: bool) -> Option<KeepAwakeDiagnostic> {
+        None
+    }
+
+    pub fn apply_user_power_policy() -> Result<(), String> {
+        Err("GNOME power policy mode is only supported on Linux".to_string())
+    }
+
+    pub fn system_block_commands() -> Vec<String> {
+        Vec::new()
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::{Arc, Mutex as StdMutex};
-
-    fn child(pid: u32, wrapper: bool) -> KeepAwakeChild {
-        KeepAwakeChild {
-            pid,
-            spawned_at_ms: 123,
-            display: false,
-            wrapper,
-        }
-    }
-
-    #[test]
-    fn child_journal_round_trips_and_empty_save_removes_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(CHILDREN_FILE);
-        let entries = vec![child(10, true), child(11, false)];
-
-        save_children_to(&path, &entries);
-        assert_eq!(load_children_from(&path), entries);
-
-        save_children_to(&path, &[]);
-        assert!(!path.exists());
-    }
-
-    #[test]
-    fn reap_kills_only_orphaned_keepawake_processes() {
-        let entries = vec![child(10, true), child(11, false), child(12, false)];
-        let killed = Arc::new(StdMutex::new(Vec::new()));
-        let killed_for_closure = Arc::clone(&killed);
-
-        let outcome = reap_journaled_orphans(
-            entries,
-            |pid| match pid {
-                10 => Some(ProcessSnapshot {
-                    ppid: 1,
-                    command: "/bin/sh codeterm-keepawake-wrapper".into(),
-                }),
-                11 => Some(ProcessSnapshot {
-                    ppid: 10,
-                    command: "caffeinate -i -s".into(),
-                }),
-                12 => Some(ProcessSnapshot {
-                    ppid: 1,
-                    command: "python something_else.py".into(),
-                }),
-                _ => None,
-            },
-            |pid| {
-                killed_for_closure.lock().unwrap().push(pid);
-                Ok(())
-            },
-        );
-
-        assert_eq!(*killed.lock().unwrap(), vec![10]);
-        assert_eq!(outcome.killed, vec![10]);
-        assert_eq!(outcome.kept, vec![child(11, false)]);
-        assert_eq!(outcome.skipped, vec![12]);
-    }
-
-    #[test]
-    fn exit_cleanup_attempts_all_registered_children() {
-        let entries = vec![child(20, true), child(21, false)];
-        let killed = Arc::new(StdMutex::new(Vec::new()));
-        let killed_for_closure = Arc::clone(&killed);
-
-        let result = cleanup_child_entries(entries, |pid| {
-            killed_for_closure.lock().unwrap().push(pid);
-            Ok(())
-        });
-
-        assert_eq!(result, vec![20, 21]);
-        assert_eq!(*killed.lock().unwrap(), vec![20, 21]);
-    }
-
-    #[test]
-    fn parse_ps_snapshot_reads_ppid_and_command() {
-        let snapshot = parse_ps_snapshot("    1 /bin/sh codeterm-keepawake-wrapper -i -s\n")
-            .expect("snapshot parsed");
-
-        assert_eq!(snapshot.ppid, 1);
-        assert_eq!(snapshot.command, "/bin/sh codeterm-keepawake-wrapper -i -s");
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn macos_wrapper_kills_caffeinate_when_parent_disappears() {
-        let script = platform::keepawake_wrapper_script();
-
-        assert!(script.contains("caffeinate \"$@\" &"));
-        assert!(script.contains("printf '%s\\n' \"$child\""));
-        assert!(script.contains("trap 'cleanup; exit 0' TERM INT HUP"));
-        assert!(script.contains("[ \"$ppid\" = \"1\" ]"));
-        assert!(script.contains("cleanup"));
-    }
-}
+#[path = "keepawake/tests.rs"]
+mod tests;

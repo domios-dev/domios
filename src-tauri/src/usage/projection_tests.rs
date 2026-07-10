@@ -230,7 +230,6 @@ fn cache_invalidate_forces_recompute() {
 
 #[test]
 fn shape_skips_offdevice_jump_pair() {
-    // Setup: 5 normal pairs during the morning (1h apart, 4% each), then ONE giant pair after a 6h gap with 35% delta (off-device work). The shape
     // must NOT pin the 35% to a single hour — that pair gets dropped from per-hour aggregation entirely.
     let p = unique_provider("offdev");
     let s = store();
@@ -243,7 +242,6 @@ fn shape_skips_offdevice_jump_pair() {
         if dow == 0 || dow == 6 {
             continue;
         }
-        // 9:00 — 13:00, 4 pairs of +4%
         insert(&s, &p, day + 9 * 3_600_000, Some(0.0), Some(RESETS_A));
         insert(&s, &p, day + 10 * 3_600_000, Some(4.0), Some(RESETS_A));
         insert(&s, &p, day + 11 * 3_600_000, Some(8.0), Some(RESETS_A));
@@ -273,7 +271,6 @@ fn shape_skips_offdevice_jump_pair() {
 
 #[test]
 fn median_resists_vacation_outlier() {
-    // 10 weeks at ~28% Monday + 1 vacation week at 4% Monday. Mean would be ~26%, median should be ~28% — vacation doesn't drag. Realistic
     // sampling: 8 samples through the day (~4% per pair).
     let p = unique_provider("vac");
     let s = store();
@@ -332,12 +329,10 @@ fn from_yest_used_when_near_midnight() {
     let s = store();
     let now = now_at_hour(10);
     let today_start_ms = local_start_of_day_ms(now);
-    // 23:00 yesterday = 1 hour before midnight → within 2h window
     let near_midnight = today_start_ms - 60 * 60 * 1000;
     insert(&s, &p, near_midnight, Some(30.0), Some(RESETS_A));
     insert(&s, &p, now, Some(40.0), Some(RESETS_A));
     let delta = today_delta(&s, &p, None, now, 40.0, RESETS_A).unwrap();
-    // 40 - 30 = 10; pre-midnight reading was close enough, use cross-day bridge
     assert!((delta - 10.0).abs() < 0.01, "got {}", delta);
 }
 
@@ -350,10 +345,8 @@ fn from_yest_ignored_when_gap_too_large() {
     let s = store();
     let now = now_at_hour(10);
     let today_start_ms = local_start_of_day_ms(now);
-    // 14:00 yesterday = 10 hours before midnight → gap exceeds 2h window
     let far_before_midnight = today_start_ms - 10 * 60 * 60 * 1000;
     insert(&s, &p, far_before_midnight, Some(34.0), Some(RESETS_A));
-    // Only one reading today → today_min = current_pct → from_today_min = 0
     insert(&s, &p, now, Some(50.0), Some(RESETS_A));
     let delta = today_delta(&s, &p, None, now, 50.0, RESETS_A).unwrap();
     // The 16% gap delta must NOT appear as "spent today"
@@ -390,7 +383,6 @@ fn from_yest_gap_with_intra_day_readings() {
     let today_start_ms = local_start_of_day_ms(now);
     let far_before_midnight = today_start_ms - 10 * 60 * 60 * 1000;
     insert(&s, &p, far_before_midnight, Some(34.0), Some(RESETS_A));
-    // Two readings today: 50% at 10h, 58% at 14h
     insert(&s, &p, now_at_hour(10), Some(50.0), Some(RESETS_A));
     insert(&s, &p, now, Some(58.0), Some(RESETS_A));
     let delta = today_delta(&s, &p, None, now, 58.0, RESETS_A).unwrap();
@@ -427,7 +419,6 @@ fn day_actuals_sparse_history_attributes_only_observed_spend() {
     let now = now_at_hour(15);
     let today_start = local_start_of_day_ms(now);
     let cycle_end = today_start + DAY_MS;
-    // Day -4: 5 → 10
     insert(
         &s,
         &p,
@@ -442,7 +433,6 @@ fn day_actuals_sparse_history_attributes_only_observed_spend() {
         Some(10.0),
         Some(cycle_end),
     );
-    // Day -3: 12 → 14
     insert(
         &s,
         &p,
@@ -472,7 +462,6 @@ fn day_actuals_sparse_history_attributes_only_observed_spend() {
         .iter()
         .find(|a| a.day_start_ms == today_start)
         .unwrap();
-    // Bridge 14→14 = 0 + within-day no pairs (just one sample at now) → 0? two samples: yest-22:00 (gets filtered by day_start cutoff) and now. So
     // today has 1 sample. Bridge 14→22 (within 2h gap) = +8. Total 8.
     assert!(today_bucket.pct.is_some());
     let v = today_bucket.pct.unwrap();

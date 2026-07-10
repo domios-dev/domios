@@ -20,7 +20,6 @@
       { "name": "resize", "description": "Resize terminal" }
     ]},
     { "name": "send-text", "description": "Send text to pane" },
-    { "name": "get-output", "description": "Read terminal output" },
     { "name": "browser", "description": "Browser panel", "subcommands": [
       { "name": "open", "description": "Open URL" }
     ]},

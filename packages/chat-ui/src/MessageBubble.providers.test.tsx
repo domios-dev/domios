@@ -3,9 +3,11 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import { MessageBubble } from "./MessageBubble";
+import { CROSS_PANE_BUBBLE_TESTID, CROSS_PANE_SHELL_TESTID, crossPaneBubbleClassName } from "./crossPaneBubble";
 import { attachToolResults } from "@codeterm/chat-core";
 import {
   providerTranscriptFixtures,
+  codexStructuredEditMessages,
   type ProviderTranscriptFixture,
 } from "./providerTranscriptFixtures.testdata";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
@@ -179,6 +181,12 @@ for (const fixture of providerTranscriptFixtures) {
       for (const label of fixture.expected.toolLabels) {
         assertToolIcon(host, label);
       }
+      if (fixture.expected.diffNeedle) {
+        assertIncludes(host, fixture.expected.diffNeedle, `${fixture.provider} structured edit added line`);
+      }
+      if (fixture.expected.diffRemovedNeedle) {
+        assertIncludes(host, fixture.expected.diffRemovedNeedle, `${fixture.provider} structured edit removed line`);
+      }
 
       await clickButtonContaining(host, "Thinking");
       assertIncludes(host, fixture.expected.thinkingNeedle, `${fixture.provider} expanded thinking`);
@@ -337,6 +345,40 @@ test("Codex injected transcript rows render as collapsed neutral artifacts", asy
   }
 });
 
+test("codex structured apply_patch renders diff from real-session patch text", async () => {
+  const { host, root } = await renderMessages(codexStructuredEditMessages);
+  try {
+    assertIncludes(host, "apply_patch", "structured apply_patch tool label");
+    assertIncludes(host, "mem/mod.rs", "structured edit file path");
+    assertIncludes(host, "let body = text.trim()", "structured edit added hunk");
+    assertIncludes(host, "val.to_string()", "structured edit removed hunk");
+    assertIncludes(host, "+", "structured edit shows added line count");
+    assertIncludes(host, "-", "structured edit shows removed line count");
+    assertIncludes(host, "Success. Updated the following files", "patch_apply_end result");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("codex exec_command rg search does not render as structured edit diff", async () => {
+  const { host, root } = await renderMessages([
+    codexStructuredEditMessages[0],
+  ]);
+  try {
+    assert(host.querySelector('[data-testid="chatbackend-tool-exec"]'), "exec_command should render shell card");
+    assertIncludes(host, "shell", "exec_command card label");
+    assertIncludes(host, "rg -n", "rg exec command renders");
+    assert(!textOf(host).includes("exec_command"), "raw exec_command label should not appear");
+    assert(!textOf(host).includes("let body = text.trim()"), "rg search must not show patch diff content");
+    const diffMarkers = textOf(host).match(/\+\d+/g) ?? [];
+    assert(diffMarkers.length === 0, "rg search must not show +/- edit counts");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 test("chatBackend exec tool_call renders command card and attached result", async () => {
   const { host, root } = await renderMessages([
     {
@@ -362,12 +404,206 @@ test("chatBackend exec tool_call renders command card and attached result", asyn
     assert(host.querySelector('[data-testid="chatbackend-tool-exec"]'), "expected exec card");
     assertIncludes(host, "npm test -- --runInBand", "exec card command");
     assertIncludes(host, "cwd /repo/app", "exec card cwd");
-    assertIncludes(host, "result", "exec card phase");
     assertIncludes(host, "Tests passed", "exec card result preview");
+    const execCard = host.querySelector('[data-testid="chatbackend-tool-exec"]');
+    assert(execCard, "expected exec card root");
+    const execCardText = execCard.textContent ?? "";
+    assert(!/\b(pending|running|result)\b/i.test(execCardText), "exec card should not show phase badge");
     assert(
       !buttons(host).some((button) => (button.textContent ?? "").includes("Exit code: 0")),
       "paired tool_result should not render as a separate result button",
     );
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("chatBackend curated tool cards hide internal lifecycle phase badges", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "cb-pending-exec",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "exec",
+      toolId: "pending-call",
+      toolInput: { cmd: "sleep 1" },
+      toolArgs: JSON.stringify({ cmd: "sleep 1" }),
+    },
+    {
+      id: "cb-running-read",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "read_file",
+      toolId: "running-call",
+      toolInput: { path: "src/status.ts" },
+      toolArgs: JSON.stringify({ path: "src/status.ts" }),
+    },
+    {
+      id: "cb-result-write",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "write_file",
+      toolId: "result-call",
+      toolInput: { path: "src/done.ts", content: "ok" },
+      toolArgs: JSON.stringify({ path: "src/done.ts" }),
+      toolResult: "written",
+    },
+  ]);
+  try {
+    const cards = Array.from(host.querySelectorAll('[data-testid^="chatbackend-tool-"]'));
+    assert(cards.length === 2, `expected two curated cards, got ${cards.length}`);
+    for (const card of cards) {
+      const label = card.getAttribute("data-testid") ?? "card";
+      const text = card.textContent ?? "";
+      assert(!/\b(pending|running|result)\b/i.test(text), `${label} should not expose lifecycle phase badge`);
+    }
+    assertIncludes(host, "sleep 1", "pending exec still shows command");
+    assert(host.querySelector('[data-testid="chat-tool-inline"]'), "read_file should render as inline row");
+    assertIncludes(host, "src/status.ts", "running read still shows path");
+    assertIncludes(host, "written", "result write still shows attached output");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("failed tool card uses dashed neutral border and muted glyph", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "failed-exec",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "exec",
+      toolId: "failed-call",
+      toolInput: { cmd: "false" },
+      toolArgs: JSON.stringify({ cmd: "false" }),
+      toolResult: "error: command failed",
+      toolError: true,
+    },
+  ]);
+  try {
+    const card = host.querySelector('[data-testid="chatbackend-tool-exec"]') as HTMLButtonElement | null;
+    assert(card, "expected failed exec card");
+    const style = card!.getAttribute("style") ?? "";
+    assert(style.includes("border-style: dashed"), "failed card should be dashed");
+    assert(!style.includes("ct-red"), "failed card border should not use red token");
+    const failedGlyph = Array.from(card!.querySelectorAll("span")).find((node) => (node.textContent ?? "").includes("✕"));
+    assert(failedGlyph, "expected failed glyph");
+    const glyphStyle = failedGlyph!.getAttribute("style") ?? "";
+    assert(glyphStyle.includes("var(--ct-muted-fg)"), "failed glyph should use muted color");
+    assert(!glyphStyle.includes("ct-red"), "failed glyph should not use red token");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("codex codeterm command after cd chain renders CodeTerm card", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "codex-codeterm-chain",
+      provider: "codex",
+      type: "tool_call",
+      content: "",
+      toolName: "exec_command",
+      toolId: "call-codeterm",
+      toolInput: { cmd: "cd frontend && codeterm agent reports" },
+      toolArgs: "cd frontend && codeterm agent reports",
+    },
+    {
+      id: "codex-codeterm-chain-result",
+      provider: "codex",
+      type: "tool_result",
+      content: "OK\n",
+      toolResult: "OK\n",
+      toolId: "call-codeterm",
+    },
+  ]);
+  try {
+    assertIncludes(host, "CodeTerm", "CodeTerm card label");
+    assertIncludes(host, "agent reports", "CodeTerm command title");
+    assert(!host.querySelector('[data-testid="chat-tool-call"]'), "codeterm command should not render as generic exec tool");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("standalone arrow-only tool result is hidden", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "arrow-only-result",
+      provider: "codex",
+      type: "tool_result",
+      content: "→\n\n->\n⎿",
+    },
+  ]);
+  try {
+    assert(textOf(host).trim() === "", `arrow-only tool result should be hidden, got: ${textOf(host)}`);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+const PNG_1X1_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+
+test("generate image tool result renders preview instead of raw base64", async () => {
+  const dataUrl = `data:image/png;base64,${PNG_1X1_BASE64}`;
+  const { host, root } = await renderMessages([
+    {
+      id: "image-tool-call",
+      provider: "cursor",
+      type: "tool_call",
+      content: "",
+      toolName: "GenerateImage",
+      toolId: "call-image",
+      toolArgs: JSON.stringify({ description: "A red dot" }),
+    },
+    {
+      id: "image-tool-result",
+      provider: "cursor",
+      type: "tool_result",
+      content: JSON.stringify([{ type: "image_url", image_url: { url: dataUrl } }]),
+      toolResult: JSON.stringify([{ type: "image_url", image_url: { url: dataUrl } }]),
+      toolId: "call-image",
+    },
+  ]);
+  try {
+    assert(host.querySelector('[data-testid="chat-tool-image-preview"]'), "expected image preview card");
+    const img = host.querySelector('[data-testid="chat-tool-image-preview"] img') as HTMLImageElement | null;
+    assert(img, "expected preview img");
+    assert(img.src.startsWith("data:image/png;base64,"), "expected data url src");
+    assertIncludes(host, "Save", "expected save affordance");
+    assert(!textOf(host).includes(PNG_1X1_BASE64.slice(0, 40)), "raw base64 should not render as text");
+    assert(host.querySelector('[data-testid="chat-tool-image-download"]'), "expected download link");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("generate image standalone tool_result renders preview card", async () => {
+  const dataUrl = `data:image/png;base64,${PNG_1X1_BASE64}`;
+  const { host, root } = await renderMessages([
+    {
+      id: "image-only-result",
+      provider: "cursor",
+      type: "tool_result",
+      content: dataUrl,
+      toolResult: dataUrl,
+    },
+  ]);
+  try {
+    assert(host.querySelector('[data-testid="chat-tool-image-preview"]'), "expected standalone image preview");
+    assertIncludes(host, "PNG", "expected format label");
+    assert(!textOf(host).includes(PNG_1X1_BASE64.slice(0, 40)), "standalone result must not leak base64 text");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -412,18 +648,22 @@ test("codex sparse tool_call rows between exec commands do not render ghost butt
   try {
     assertIncludes(host, "npm test", "first codex exec command");
     assertIncludes(host, "npm run build", "second codex exec command");
-    const toolButtons = Array.from(host.querySelectorAll('[data-testid="chat-tool-call"]'));
+    const toolButtons = Array.from(host.querySelectorAll('[data-testid="chatbackend-tool-exec"]'));
     assert(
       toolButtons.length === 2,
-      `only real codex exec rows should render tool buttons (${toolButtons.length}: ${toolButtons.map((button) => button.textContent ?? "").join(" | ")})`,
+      `only real codex exec rows should render shell cards (${toolButtons.length}: ${toolButtons.map((button) => button.textContent ?? "").join(" | ")})`,
     );
     assert(
       toolButtons.every((button) => (button.textContent ?? "").trim()),
       "sparse codex rows should not render chevron-only buttons",
     );
     assert(
-      toolButtons.filter((button) => (button.textContent ?? "").includes("exec_command")).length === 2,
-      "real codex exec rows still render",
+      toolButtons.every((button) => (button.textContent ?? "").includes("shell")),
+      "codex exec_command rows should render as shell cards",
+    );
+    assert(
+      !textOf(host).includes("exec_command"),
+      "raw exec_command label should not appear in chat UI",
     );
   } finally {
     await act(async () => root.unmount());
@@ -455,11 +695,34 @@ test("chatBackend read_file and write_file render file cards", async () => {
     },
   ]);
   try {
-    assert(host.querySelector('[data-testid="chatbackend-tool-read_file"]'), "expected read_file card");
+    assert(host.querySelector('[data-testid="chat-tool-inline"]'), "expected read_file inline row");
     assert(host.querySelector('[data-testid="chatbackend-tool-write_file"]'), "expected write_file card");
     assertIncludes(host, "src/main.ts", "read_file path");
     assertIncludes(host, "src/out.ts", "write_file path");
     assertIncludes(host, "export const ready = true;", "write_file preview");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("read_file renders inline row with pending muted spinner", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "inline-read",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "read_file",
+      toolId: "read-inline-1",
+      toolInput: { path: "/tmp/example.ts" },
+      toolArgs: JSON.stringify({ path: "/tmp/example.ts" }),
+    },
+  ]);
+  try {
+    const inline = host.querySelector('[data-testid="chat-tool-inline"]');
+    assert(inline, "read_file should render inline tool row");
+    assertIncludes(host, "◜", "pending spinner glyph");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -507,6 +770,13 @@ test("chatBackend structured inbound renders sender header and kind badge", asyn
     const badge = host.querySelector('[data-testid="chat-inbound-kind-badge"]');
     assert(badge, "expected inbound kind badge");
     assert((badge.textContent ?? "").includes("pane"), "expected pane badge");
+    const shell = host.querySelector(`[data-testid="${CROSS_PANE_SHELL_TESTID}"]`) as HTMLElement | null;
+    assert(shell, "inbound cross-pane uses shared shell");
+    assert(shell!.className.includes("justify-start"), "inbound cross-pane is left aligned");
+    const bubble = host.querySelector(`[data-testid="${CROSS_PANE_BUBBLE_TESTID}"]`) as HTMLElement | null;
+    assert(bubble, "inbound cross-pane uses shared bubble");
+    assert(bubble!.className === crossPaneBubbleClassName("text-base"), "inbound uses shared cross-pane bubble class");
+    assert(!bubble!.className.includes("border"), "inbound cross-pane bubble has no accent border");
   } finally {
     await act(async () => root.unmount());
     host.remove();

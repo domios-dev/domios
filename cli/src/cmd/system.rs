@@ -436,7 +436,6 @@ mod tests {
 
     #[test]
     fn macos_plist_escapes_path_with_spaces_inside_xml_string() {
-        // We don't escape — XML <string> happily contains spaces. This pins the assumption so a future "helpful" change doesn't add shell-style
         // quoting that would break the plist parser.
         let plist = build_macos_plist(
             "com.codeterm.app",

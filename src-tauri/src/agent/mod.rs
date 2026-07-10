@@ -10,6 +10,7 @@ pub mod models;
 pub mod native_prompt;
 pub mod offline_state_classifier;
 pub mod pane_state;
+pub mod plugin_registrar;
 pub mod prompt;
 pub mod provider;
 pub mod registry;

@@ -1,7 +1,7 @@
 use super::api_map::cli_command_to_api;
 use super::parse_ip_port;
 use super::{MeshAction, MeshPeerAction};
-use crate::{Commands, UpdateAction};
+use crate::{AgentAction, Commands, UpdateAction};
 
 fn update_cmd(action: Option<UpdateAction>, manifest_url: Option<String>) -> Commands {
     Commands::Update {
@@ -317,6 +317,7 @@ fn mem_search_relays_to_search_endpoint_with_query() {
             kind: Some("fact".into()),
             area: None,
             scope: None,
+            project: None,
             limit: 5,
             rerank: false,
         },
@@ -479,6 +480,14 @@ fn pane_new_relays_cmd_field() {
 }
 
 #[test]
+fn remote_worker_forget_body_matches_registry_delete_contract() {
+    let body = super::relay::remote_worker_forget_body("ROG", "pane_1");
+    assert_eq!(body["peer"], "ROG");
+    assert_eq!(body["remote_pane"], "pane_1");
+    assert!(body.get("orchestrator_pane").is_none());
+}
+
+#[test]
 fn mesh_local_only_mem_subcommands_are_rejected_not_misrouted() {
     use crate::MemAction;
     // Mesh must return errors for local-only mem commands, not fake /api/mem/stats.
@@ -599,6 +608,24 @@ fn send_text_is_fire_and_forget_on_mesh() {
         body.get("verify").is_none(),
         "send must never carry verify — the flag has been removed (#101)"
     );
+}
+
+#[test]
+fn agent_message_uses_send_transport_on_mesh() {
+    let cmd = Commands::Agent {
+        action: AgentAction::Message {
+            text: Some("steer now".into()),
+            pane: "abc123".into(),
+            from_file: None,
+            stdin: false,
+        },
+    };
+    let (m, p, b) = cli_command_to_api(&cmd);
+    assert_eq!(m, "POST");
+    assert_eq!(p, "/api/panes/abc123/send");
+    let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
+    assert_eq!(body["text"], "steer now");
+    assert_eq!(body["enter"], true);
 }
 
 #[test]

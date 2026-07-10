@@ -172,6 +172,15 @@ impl ChatBackendHistory {
         changed
     }
 
+    pub fn remove(&mut self, message_id: &str) -> bool {
+        if self.by_id.remove(message_id).is_none() {
+            return false;
+        }
+        self.order.retain(|id| id != message_id);
+        self.flush();
+        true
+    }
+
     fn flush(&self) {
         let mut out = String::new();
         if let Some(meta) = &self.meta {
@@ -258,7 +267,6 @@ mod tests {
         h.upsert(&[msg("live", "Hello")]);
         h.upsert(&[msg("live", "Hello world")]);
 
-        // Exactly ONE physical line for the streaming message, holding the
         // final content — not three appended snapshots.
         let raw = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
@@ -278,6 +286,17 @@ mod tests {
             !h.upsert(&[msg("1", "a")]),
             "byte-identical upsert is a no-op"
         );
+    }
+
+    #[test]
+    fn remove_allows_a_failed_delivery_to_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        let mut h = ChatBackendHistory::open_at(path.clone());
+        h.upsert(&[msg("request-1", "payload")]);
+        assert!(h.remove("request-1"));
+        assert!(read_messages(&path).is_empty());
+        assert!(h.upsert(&[msg("request-1", "payload")]));
     }
 
     #[test]
@@ -344,7 +363,6 @@ mod tests {
     #[test]
     fn sanitize_blocks_path_escape() {
         let p = session_path("plug/in", "../../etc/passwd");
-        // Separators are mapped to `_`, so no component can climb out of the
         // sessions dir — every component sits directly under it.
         assert!(
             p.starts_with(crate::paths::data_dir().join(SESSIONS_SUBDIR)),
@@ -362,7 +380,6 @@ mod tests {
 
     #[test]
     fn migrate_renames_session_file() {
-        // Hermetic: drive open_at directly on a temp path, then exercise the
         // rename helper on data_dir-rooted paths through a unique plugin id.
         let plugin = "test-migrate-plugin-unique";
         let from = session_path(plugin, "old-sid");

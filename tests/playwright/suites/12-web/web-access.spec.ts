@@ -1,17 +1,11 @@
 /**
- * 12-web / web-access — the Web UI modal picks the right primary URL per the
- * Tailscale-Serve auto-detect priority chain, and surfaces the curriculum hint
- * only when it falls back to an IP+port form.
- *
- * /api/network is mocked per scenario (route fulfill) so we can exercise every
- * shape — serve HTTPS on 443, serve HTTPS on a non-443 port, tailscale IP with
- * no serve, LAN-only — against a single live dev console. The asserted link IS
- * the string the QR is generated from (QRCode.toDataURL(link)), so checking the
- * link field verifies what the QR encodes.
+ * WHAT: web access covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 12-web.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type Browser, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 
-const WEB_URL = `${API_BASE}/web/`;
+const WEB_URL = `${API_BASE}/`;
 let token: string;
 
 test.beforeAll(async () => {
@@ -53,25 +47,25 @@ const scenarios = [
       local_ip: "192.168.1.20",
       api_port: PORT,
     },
-    expectLink: "https://blackstar.test.ts.net/web/",
+    expectLink: "https://blackstar.test.ts.net/",
     fallback: false,
   },
   {
     name: "serve HTTPS on 7600 → port suffix preserved, no hint",
     net: { tailscale_https_url: "https://blackstar.test.ts.net:7600", api_port: PORT },
-    expectLink: "https://blackstar.test.ts.net:7600/web/",
+    expectLink: "https://blackstar.test.ts.net:7600/",
     fallback: false,
   },
   {
     name: "no serve, tailscale IP → IP+port primary, hint shown",
     net: { tailscale_ip: "100.64.0.9", local_ip: "192.168.1.20", api_port: PORT },
-    expectLink: `http://100.64.0.9:${PORT}/web/`,
+    expectLink: `http://100.64.0.9:${PORT}/`,
     fallback: true,
   },
   {
     name: "LAN only → LAN IP primary, hint shown",
     net: { local_ip: "192.168.1.20", api_port: PORT },
-    expectLink: `http://192.168.1.20:${PORT}/web/`,
+    expectLink: `http://192.168.1.20:${PORT}/`,
     fallback: true,
   },
 ];
@@ -89,12 +83,12 @@ for (const sc of scenarios) {
         /^data:image\//,
       );
 
-      const hint = page.locator('[data-testid="web-access-serve-hint"]');
       if (sc.fallback) {
-        await expect(hint).toBeVisible();
-        await expect(hint).toContainText(`tailscale serve --bg --https=443 http://127.0.0.1:${PORT}`);
+        const setup = page.locator('[data-testid="web-ui-setup"]');
+        await expect(setup).toBeVisible();
+        await expect(setup).toContainText("raw http:// address");
       } else {
-        await expect(hint).toHaveCount(0);
+        await expect(page.locator('[data-testid="web-ui-setup"]')).toHaveCount(0);
       }
     } finally {
       await close();

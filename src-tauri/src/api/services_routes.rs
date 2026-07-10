@@ -171,6 +171,25 @@ pub async fn delete_service(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+#[derive(Deserialize)]
+pub struct SmartAddInspectBody {
+    pub url: String,
+}
+
+/// Web-mirror twin of the `services_smart_add_inspect` Tauri command —
+/// probes a URL and suggests service fields for the "Add service" wizard.
+pub async fn smart_add_inspect(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SmartAddInspectBody>,
+) -> Result<Json<crate::service::smart_add::SmartAddResult>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    crate::service::smart_add::inspect(&body.url)
+        .await
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
 pub async fn regenerate_token(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

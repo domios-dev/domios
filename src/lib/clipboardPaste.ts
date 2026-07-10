@@ -42,7 +42,6 @@ export async function classifyClipboardPayload(
       const html = await blob.text();
       if (html) return { kind: "html", html };
     } catch {
-      // ignore
     }
   }
 
@@ -126,7 +125,6 @@ export async function routeClipboardToTerm(term: TermLike): Promise<boolean> {
     return true;
   }
 
-  // 2. Native pasteboard text — works on macOS without WebKit permission
   const nativeText = await readNativeClipboardText();
   if (nativeText) {
     term.paste(nativeText);

@@ -107,7 +107,7 @@ CODETERM_API_URL=http://127.0.0.1:7686 pytest tests/e2e/ -v
 CODETERM_API_URL=http://127.0.0.1:7686 pytest tests/e2e/test_hooks.py -v
 ```
 
-**Windows (BLACKSTAR):**
+**Windows:**
 ```bash
 ./build.sh dev --wait       # starts dev on 7686 and leaves production on 7685 alone
 bash dev.local.sh dev       # local fallback: starts dev and waits for API on 7686
@@ -163,7 +163,7 @@ Operational details live in `tests/playwright/README.md`: CDP setup,
 projects/tags, golden-test policy, web-mirror mode, and prod guards.
 
 The legacy Tauri WebDriver/WDIO harness was removed; do not add new WebDriver
-tests. For browser-mode `/web` coverage, use the `tests/playwright/suites/12-web`
+tests. For browser-mode root web coverage, use the `tests/playwright/suites/12-web`
 suite, which launches a normal browser against the daemon's web mirror.
 
 ## Cross-platform test matrix
@@ -214,7 +214,7 @@ and warm reruns are incremental. To reclaim disk:
 
 Run E2E tests against remote machines:
 ```bash
-# Windows (BLACKSTAR)
+# Windows
 CODETERM_API_URL=http://<REMOTE_IP>:<PORT> CODETERM_API_TOKEN=<TOKEN> pytest tests/e2e/ -v
 ```
 
@@ -362,4 +362,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 11 -->
+<!-- revision: 13 -->

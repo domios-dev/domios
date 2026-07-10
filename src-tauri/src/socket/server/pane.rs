@@ -6,7 +6,7 @@ use tauri::AppHandle;
 use crate::multiplexer::commands::MuxState;
 use crate::service::ServiceState;
 
-use super::{get_string_param, JsonRpcError};
+use super::{get_string_param, opt_string_param, JsonRpcError};
 
 pub(super) fn dispatch(
     method: &str,
@@ -21,6 +21,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e,
+                data: None,
             }),
 
         "pane.create" | "pane.new" => {
@@ -57,14 +58,19 @@ pub(super) fn dispatch(
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })?;
-            Ok(serde_json::json!({
+            let mut resp = serde_json::json!({
                 "id": handle.pane_id,
                 "pane_id": handle.pane_id,
                 "workspace_id": handle.workspace_id,
                 "tab_id": handle.tab_id,
                 "pty_id": handle.pty_id
-            }))
+            });
+            if let Some(ref notice) = handle.budget_notice {
+                resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
+            }
+            Ok(resp)
         }
 
         "pane.focus" => {
@@ -77,19 +83,25 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
         "pane.close" => {
             let pane_id = get_string_param(params, "pane_id")?;
+            let caller_pane_id = opt_string_param(params, "caller_pane_id");
             crate::dispatch::dispatch(
-                &crate::dispatch::Command::PaneClose { pane_id },
+                &crate::dispatch::Command::PaneClose {
+                    pane_id,
+                    caller_pane_id,
+                },
                 svc.as_ref(),
             )
             .map(|r| r.into_json())
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
@@ -99,6 +111,7 @@ pub(super) fn dispatch(
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })
         }
 
@@ -142,20 +155,46 @@ pub(super) fn dispatch(
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })?;
+                if !raw_text.trim().is_empty() {
+                    svc.as_ref()
+                        .maybe_send_owned_plan_reminder(&resolved_target);
+                }
             } else {
                 svc.as_ref()
                     .send_text(&resolved_target, &raw_text, enter)
                     .map_err(|e| JsonRpcError {
                         code: -32603,
                         message: e,
+                        data: None,
                     })?;
+                if !raw_text.trim().is_empty() {
+                    svc.as_ref()
+                        .maybe_send_owned_plan_reminder(&resolved_target);
+                }
             }
             Ok(serde_json::json!({"ok": true}))
         }
 
         "pane.get_output" => {
             let pane_id = get_string_param(params, "pane_id")?;
+            if let Some(src) = params
+                .as_ref()
+                .and_then(|p| p.get("source_pane"))
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            {
+                let (caller, target) = {
+                    let m = mux.write();
+                    (
+                        m.resolve_pane_id(src).unwrap_or_else(|| src.to_string()),
+                        m.resolve_pane_id(&pane_id)
+                            .unwrap_or_else(|| pane_id.clone()),
+                    )
+                };
+                svc.as_ref().maybe_send_polling_nudge(&caller, &target);
+            }
             let max_bytes = params
                 .as_ref()
                 .and_then(|p| p.get("max_bytes"))
@@ -181,6 +220,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
@@ -195,6 +235,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
@@ -212,6 +253,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
@@ -224,6 +266,7 @@ pub(super) fn dispatch(
                 .ok_or_else(|| JsonRpcError {
                     code: -32602,
                     message: "missing cols".into(),
+                    data: None,
                 })? as u16;
             let rows = params
                 .as_ref()
@@ -232,6 +275,7 @@ pub(super) fn dispatch(
                 .ok_or_else(|| JsonRpcError {
                     code: -32602,
                     message: "missing rows".into(),
+                    data: None,
                 })? as u16;
             crate::dispatch::dispatch(
                 &crate::dispatch::Command::PtyResize {
@@ -245,6 +289,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e,
+                data: None,
             })
         }
 
@@ -255,12 +300,14 @@ pub(super) fn dispatch(
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })
         }
 
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),
+            data: None,
         }),
     }
 }

@@ -1,14 +1,32 @@
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import { WebGate } from "./components/WebGate/WebGate";
+import { isMissionControlPrototypeRoute, MissionControlPrototype } from "./components/Canvas/missionControl";
 import { loadBundledPlugins } from "./lib/plugins/loader";
 import "./styles/globals.css";
+import "./components/Canvas/missionControl/missionControl.css";
 
-// Plugins must be registered before any pane renders so the ChatView host can synchronously look up the right renderer for an agent_type.
-loadBundledPlugins();
+const root = document.getElementById("root")!;
+const missionControlPrototype = isMissionControlPrototypeRoute();
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <WebGate>
-    <App />
-  </WebGate>,
-);
+const isGalleryRoute = new URLSearchParams(window.location.search).get("prototype") === "gallery";
+
+if (!missionControlPrototype && !isGalleryRoute) {
+  loadBundledPlugins();
+}
+
+if (isGalleryRoute) {
+  import("./components/Gallery/ComponentGallery").then(({ ComponentGallery }) => {
+    ReactDOM.createRoot(root).render(<ComponentGallery />);
+  });
+} else {
+  ReactDOM.createRoot(root).render(
+    missionControlPrototype ? (
+      <MissionControlPrototype />
+    ) : (
+      <WebGate>
+        <App />
+      </WebGate>
+    ),
+  );
+}

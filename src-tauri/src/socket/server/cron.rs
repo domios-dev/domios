@@ -24,11 +24,13 @@ pub(super) fn dispatch(
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
+                    data: None,
                 })?;
             let jobs = svc.cron_list(&cron_state, ws_id);
             serde_json::to_value(&jobs).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
+                data: None,
             })
         }
 
@@ -39,14 +41,17 @@ pub(super) fn dispatch(
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
+                    data: None,
                 })?;
             let job = svc.cron_get(&cron_state, &id).map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })?;
             serde_json::to_value(&job).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
+                data: None,
             })
         }
 
@@ -54,33 +59,39 @@ pub(super) fn dispatch(
             let p = params.clone().ok_or_else(|| JsonRpcError {
                 code: -32602,
                 message: "params required".into(),
+                data: None,
             })?;
             let create_params: crate::cron::store::CronCreateParams = serde_json::from_value(p)
                 .map_err(|e| JsonRpcError {
                     code: -32602,
                     message: format!("Invalid params: {}", e),
+                    data: None,
                 })?;
             let cron_state = app
                 .try_state::<crate::CronState>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
+                    data: None,
                 })?;
             let cron_wake = app
                 .try_state::<crate::CronWake>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
+                    data: None,
                 })?;
             let job = svc
                 .cron_create(&cron_state, &cron_wake, create_params)
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })?;
             serde_json::to_value(&job).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
+                data: None,
             })
         }
 
@@ -89,33 +100,39 @@ pub(super) fn dispatch(
             let p = params.clone().ok_or_else(|| JsonRpcError {
                 code: -32602,
                 message: "params required".into(),
+                data: None,
             })?;
             let patch: crate::cron::store::CronUpdateParams =
                 serde_json::from_value(p).map_err(|e| JsonRpcError {
                     code: -32602,
                     message: format!("Invalid params: {}", e),
+                    data: None,
                 })?;
             let cron_state = app
                 .try_state::<crate::CronState>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
+                    data: None,
                 })?;
             let cron_wake = app
                 .try_state::<crate::CronWake>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
+                    data: None,
                 })?;
             let job = svc
                 .cron_update(&cron_state, &cron_wake, &id, patch)
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })?;
             serde_json::to_value(&job).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
+                data: None,
             })
         }
 
@@ -126,17 +143,20 @@ pub(super) fn dispatch(
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
+                    data: None,
                 })?;
             let cron_wake = app
                 .try_state::<crate::CronWake>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
+                    data: None,
                 })?;
             svc.cron_delete(&cron_state, &cron_wake, &id)
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })?;
             Ok(serde_json::json!({"ok": true}))
         }
@@ -148,22 +168,26 @@ pub(super) fn dispatch(
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
+                    data: None,
                 })?;
             let cron_wake = app
                 .try_state::<crate::CronWake>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
+                    data: None,
                 })?;
             let job = svc
                 .cron_enable(&cron_state, &cron_wake, &id, true)
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })?;
             serde_json::to_value(&job).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
+                data: None,
             })
         }
 
@@ -174,22 +198,26 @@ pub(super) fn dispatch(
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
+                    data: None,
                 })?;
             let cron_wake = app
                 .try_state::<crate::CronWake>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
+                    data: None,
                 })?;
             let job = svc
                 .cron_enable(&cron_state, &cron_wake, &id, false)
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })?;
             serde_json::to_value(&job).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
+                data: None,
             })
         }
 
@@ -200,16 +228,19 @@ pub(super) fn dispatch(
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
+                    data: None,
                 })?;
             let run = svc
                 .cron_trigger(&cron_state, &id)
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })?;
             serde_json::to_value(&run).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
+                data: None,
             })
         }
 
@@ -220,12 +251,14 @@ pub(super) fn dispatch(
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
+                    data: None,
                 })?;
             let cancelled =
                 svc.cron_cancel_running(&cron_state, &id)
                     .map_err(|e| JsonRpcError {
                         code: -32603,
                         message: e,
+                        data: None,
                     })?;
             Ok(serde_json::json!({"cancelled": cancelled}))
         }
@@ -237,11 +270,13 @@ pub(super) fn dispatch(
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
+                    data: None,
                 })?;
             let history = svc.cron_history(&cron_state, &id);
             serde_json::to_value(&history).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
+                data: None,
             })
         }
 
@@ -256,17 +291,20 @@ pub(super) fn dispatch(
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
+                    data: None,
                 })?;
             let cron_wake = app
                 .try_state::<crate::CronWake>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
+                    data: None,
                 })?;
             svc.cron_complete(&cron_state, &cron_wake, &run_id, summary)
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })?;
             Ok(serde_json::json!({"ok": true}))
         }
@@ -274,6 +312,7 @@ pub(super) fn dispatch(
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),
+            data: None,
         }),
     }
 }

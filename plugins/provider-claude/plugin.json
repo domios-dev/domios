@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.5.8",
+  "version": "1.7.1",
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "Claude Code",
@@ -71,6 +71,7 @@
   },
   "commands": {
     "compact": "/compact",
+    "freshContext": "/new",
     "exit": "/exit",
     "stopKey": "\u001b",
     "modelSwitchFormat": "/model {model}",

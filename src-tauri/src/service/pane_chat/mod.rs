@@ -74,7 +74,7 @@ fn summarize_tool_input(input: Option<&serde_json::Value>) -> String {
 /// A tool_result block's `content` is a string, an array of `{text}` blocks,
 /// or an arbitrary object — normalize all three to plain text.
 fn extract_tool_result_text(content: Option<&serde_json::Value>) -> String {
-    match content {
+    let text = match content {
         Some(serde_json::Value::String(s)) => s.clone(),
         Some(serde_json::Value::Array(arr)) => arr
             .iter()
@@ -83,7 +83,8 @@ fn extract_tool_result_text(content: Option<&serde_json::Value>) -> String {
             .join("\n"),
         Some(v) => v.to_string(),
         None => String::new(),
-    }
+    };
+    strip_ansi(&text)
 }
 
 /// Detect a single wrapping local-command XML tag, mirroring the desktop
@@ -173,8 +174,6 @@ fn attachment_from_image(data: &serde_json::Value, id: String) -> ChatAttachment
 /// place JSONL providers' rich rendering lives; the desktop renders the same
 /// output, so there is no second parser.
 pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
-    // `base_id` is the monotonic source ordinal (rich-message index in a snapshot,
-    // atomic counter in the stream). Stamp it as `seq` so the client can break
     let mut out = rich_to_chat_msgs_blocks(rich, base_id);
     for m in &mut out {
         m.seq = base_id as i64;
@@ -295,9 +294,9 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                     attachments.push(attachment_from_image(&b.data, aid));
                 }
                 "tool_result" => {
-                    // Real Claude pattern: bash/grep/read output arrives as a
                     // tool_result block in the user turn after the tool_use.
                     emitted_tool_result = true;
+                    let is_error = b.data.get("is_error").and_then(|v| v.as_bool());
                     out.push(ChatMsg {
                         id: format!(
                             "result-{}",
@@ -313,6 +312,7 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                             .and_then(|v| v.as_str())
                             .map(String::from),
                         tool_result: Some(extract_tool_result_text(b.data.get("content"))),
+                        tool_error: is_error,
                         collapsed: true,
                         timestamp: ts.clone(),
                         ..Default::default()
@@ -322,7 +322,6 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
             }
         }
         let content = text_parts.join("\n");
-        // Pure-text user turns may be a local-command echo or an isMeta system
         // row — mirror the desktop's string-content handling.
         if attachments.is_empty() && !emitted_tool_result && !content.is_empty() {
             if rich.is_visible_in_transcript_only == Some(true) {
@@ -466,18 +465,22 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                     ..Default::default()
                 }
             }
-            "tool_result" => ChatMsg {
-                id,
-                kind: "tool_result".into(),
-                tool_id: b
-                    .data
-                    .get("tool_use_id")
-                    .and_then(|v| v.as_str())
-                    .map(String::from),
-                tool_result: Some(extract_tool_result_text(b.data.get("content"))),
-                collapsed: true,
-                ..Default::default()
-            },
+            "tool_result" => {
+                let is_error = b.data.get("is_error").and_then(|v| v.as_bool());
+                ChatMsg {
+                    id,
+                    kind: "tool_result".into(),
+                    tool_id: b
+                        .data
+                        .get("tool_use_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    tool_result: Some(extract_tool_result_text(b.data.get("content"))),
+                    tool_error: is_error,
+                    collapsed: true,
+                    ..Default::default()
+                }
+            }
             "image" => {
                 let source = b.data.get("source");
                 ChatMsg {
@@ -513,8 +516,6 @@ pub fn pane_chat_snapshot(
     pane_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
-    // A chatBackend pane has no agent_type / agent_session_id — its transcript
-    // lives in the plugin session, not a JSONL/sqlite file. Branch on the pane
     let backing = {
         let m = svc.mux.write();
         m.get_pane(pane_id).ok_or("pane not found")?.backing.clone()
@@ -571,7 +572,6 @@ fn chatbackend_snapshot_from(
 ) -> Result<(Vec<ChatMsg>, usize), String> {
     let from_disk = chatbackend_history::read_messages(history_path);
     let all = if from_disk.is_empty() {
-        // No durable history yet ⇒ ask the live session (no cursor ⇒ the full
         // cumulative transcript), exactly like the agent path.
         provider
             .poll(session_id, None)
@@ -682,6 +682,7 @@ mod chat_snapshot_tests {
             Ok(crate::agent::chat_types::StructuredChat {
                 messages: self.messages.clone(),
                 cursor: None,
+                done: None,
             })
         }
         fn close_session(&self, _session_id: &str) -> Result<(), ChatBackendError> {
@@ -722,7 +723,6 @@ mod chat_snapshot_tests {
 
     #[test]
     fn chatbackend_snapshot_reads_hand_written_jsonl() {
-        // Durable JSONL is the source of truth: even when it differs from the
         // live `poll`, the persisted file wins (refresh shows real history).
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("s.jsonl");
@@ -742,7 +742,6 @@ mod chat_snapshot_tests {
 
     #[test]
     fn restored_pane_replays_history_from_jsonl_when_live_map_wiped() {
-        // Simulates a refresh / VM reload: the plugin's in-memory Map is empty
         // (poll → 0 messages) but the JSONL persisted the full transcript.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("s.jsonl");
@@ -775,8 +774,6 @@ mod chat_snapshot_tests {
 
     #[test]
     fn snapshot_after_poll_flush_includes_host_inbound_and_reply() {
-        // BUG B end-to-end at the snapshot layer: after the gateway writes a host
-        // inbound and the poll loop flushes the reply through the SHARED mirror,
         let plugin = "test-snapshot-single-writer-unique";
         let session = "snap-sw-sid";
         let path = chatbackend_history::session_path(plugin, session);
@@ -811,7 +808,6 @@ mod chat_snapshot_tests {
 
     #[test]
     fn chatbackend_snapshot_falls_back_to_live_poll_without_jsonl() {
-        // A brand-new session before the first delta was persisted: no JSONL on
         // disk ⇒ read the live plugin transcript.
         let dir = tempfile::tempdir().unwrap();
         let missing = dir.path().join("nope.jsonl");
@@ -852,6 +848,47 @@ mod chat_snapshot_tests {
             msgs[1].tool_input.as_ref().unwrap()["command"],
             "codeterm pane list"
         );
+    }
+
+    #[test]
+    fn tool_result_propagates_is_error_and_strips_ansi() {
+        let rich = RichMessage {
+            role: "assistant".into(),
+            blocks: vec![MessageBlock {
+                kind: "tool_result".into(),
+                data: json!({
+                    "tool_use_id": "tool-1",
+                    "is_error": true,
+                    "content": "\u{1b}[31mfailed\u{1b}[0m"
+                }),
+            }],
+            ..Default::default()
+        };
+        let msgs = rich_to_chat_msgs(&rich, 0);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].kind, "tool_result");
+        assert_eq!(msgs[0].tool_error, Some(true));
+        assert_eq!(msgs[0].tool_result.as_deref(), Some("failed"));
+    }
+
+    #[test]
+    fn user_turn_tool_result_propagates_is_error() {
+        let rich = RichMessage {
+            role: "user".into(),
+            blocks: vec![MessageBlock {
+                kind: "tool_result".into(),
+                data: json!({
+                    "tool_use_id": "tool-user-1",
+                    "is_error": true,
+                    "content": "boom"
+                }),
+            }],
+            ..Default::default()
+        };
+        let msgs = rich_to_chat_msgs(&rich, 3);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].tool_id.as_deref(), Some("tool-user-1"));
+        assert_eq!(msgs[0].tool_error, Some(true));
     }
 
     #[test]

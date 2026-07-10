@@ -13,7 +13,7 @@ When the user hands you a fresh Telegram bot token to wire up:
    telegram_allowed_users = ["<user_id_as_quoted_string>"]
    ```
 
-   The allow-list now accepts either quoted strings (`["186809246"]`) or bare integers (`[186809246]`) — the deserializer coerces. Older builds (pre v1.2.1) only accepted quoted strings and silently rejected bare ints; if you're on an older build and inbound messages log `[telegram] rejected user <id>` despite the id matching, quote them.
+   The allow-list now accepts either quoted strings (`["123456789"]`) or bare integers (`[123456789]`) — the deserializer coerces. Older builds (pre v1.2.1) only accepted quoted strings and silently rejected bare ints; if you're on an older build and inbound messages log `[telegram] rejected user <id>` despite the id matching, quote them.
 
 3. **Restart the bridge** so the new token / allow-list takes effect:
    ```bash
@@ -93,4 +93,4 @@ codeterm bridge migrate --to PEER [--announce] [--no-rollback] [--force] [--clai
 
 Run on the **source** machine. `--mesh PEER` is rejected (exit 6) because each daemon resolves its own vault and secrets never cross the mesh.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

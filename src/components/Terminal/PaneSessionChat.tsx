@@ -2,22 +2,40 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { MessageBubble } from "@codeterm/chat-ui";
+import { extractPlanRefs } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
-import { useMultiplexer } from "../../store/multiplexer";
+import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import {
+  paneAgentTypesEqual,
+  paneFieldsEqual,
+  paneTitleMapEqual,
+  planNavContextEqual,
+  selectPane,
+  selectPaneAgentTypes,
+  selectPaneTitleMap,
+  selectPlanNavContext,
+} from "../../store/multiplexer/selectors";
+import { usePaneProvider, useShellSessionModel } from "../../lib/usePaneProvider";
+import { formatModelBadge } from "../../lib/formatModelBadge";
+import { usePlanIndexOptional } from "../Canvas/PlansProvider";
+import { findPlanOwnerWorkspace, openPlanDeepLink } from "../Canvas/workspacePlanEntry";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
-import type { PendingPrompt } from "../../lib/types";
+import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { PendingPromptCard } from "./PendingPromptCard";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import type { AgentState } from "./AgentStateIndicator";
 import { useAttachments } from "./useAttachments";
-import { useChatSession } from "./useChatSession";
+import { useChatSession, isCodeTermFrontendTestMode } from "./useChatSession";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
+import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
+import { usePlanRefResolver } from "./usePlanRefResolver";
 
 interface Props {
   paneId: string;
+  api?: ApiConfig;
   onError?: (msg: string) => void;
   onOpenTerminalFallback?: () => void;
   uiFontScale?: number;
@@ -62,22 +80,24 @@ function OriginProviderAvatar({ providerId }: { providerId: string | null | unde
 
 export function PaneSessionChat({
   paneId,
+  api,
   onError,
   onOpenTerminalFallback,
   uiFontScale,
   isVisible = true,
   chatBackend = false,
 }: Props) {
+  if (isCodeTermFrontendTestMode()) {
+    const counts = (window.__renderCounts ??= {});
+    counts[paneId] = (counts[paneId] ?? 0) + 1;
+  }
+
   const touchMode = useTouchOptimizedUi();
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
-  const terminalTextRef = useRef<string | null>(null);
-  const terminalActiveTimerRef = useRef<number | null>(null);
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
-  const [terminalActive, setTerminalActive] = useState(false);
   const [longIdle, setLongIdle] = useState(false);
-  // Shows only when scrolled FAR up — the threshold keeps it clear of the
   // bottom-pinned agent indicator/composer, so it never overlaps streaming output.
   const [showScrollDown, setShowScrollDown] = useState(false);
 
@@ -89,16 +109,25 @@ export function PaneSessionChat({
     setShowScrollDown(false);
   }, []);
 
-  const { state: muxState, setFocusedPane, addNotification } = useMultiplexer();
-  const pane = muxState.panes[paneId];
+  const { setFocusedPane, addNotification, setActiveWorkspace } = useMultiplexer();
+  const paneSelector = useCallback((s: Parameters<typeof selectPane>[0]) => selectPane(s, paneId), [paneId]);
+  const pane = useMuxSelector(paneSelector, paneFieldsEqual);
+  const paneTitleMap = useMuxSelector(selectPaneTitleMap, paneTitleMapEqual);
+  const planNav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
+  const paneAgentTypes = useMuxSelector(selectPaneAgentTypes, paneAgentTypesEqual);
+  const { index: planIndex } = usePlanIndexOptional();
   const paneProvider = pane?.agent_type ?? null;
+  const provider = usePaneProvider(pane);
+  const shellSessionModel = useShellSessionModel(pane);
+  const tabModel = pane?.agent_session_model ?? shellSessionModel;
+  const workingModelBadge = tabModel ? formatModelBadge(tabModel) : null;
   const agentSessionId = pane?.agent_session_id ?? null;
   const currentPtyId = pane?.pty_id ?? null;
+  const backendState = pane?.agent_state ?? null;
   const chatBacking = pane?.backing?.kind === "chat_backend" ? pane.backing : null;
-  // Derive from live pane state so a restored chatBackend pane with a stale
-  // prop (e.g. old snapshot defaulted backing to Pty before chatbackend fields
-  // were persisted) still routes sends correctly.
   const effectiveChatBackend = chatBackend || chatBacking !== null;
+  const watcherSpec = pane?.watcher ?? null;
+  const isWatcherPane = watcherSpec != null;
   const pendingPrompt: PendingPrompt | null = pane?.pending_prompt ?? null;
   const isActive = isVisible;
 
@@ -123,10 +152,9 @@ export function PaneSessionChat({
     loadOlder,
     addOptimistic,
     updateOptimistic,
-  } = useChatSession({ paneId, agentSessionId, onError });
+  } = useChatSession({ paneId, agentSessionId, onError, active: isActive });
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
-  // Optimistically hide the prompt card once answered/cancelled; the backend
   // clears pane.pending_prompt shortly after on the next state poll.
   const [answeredPromptQuestion, setAnsweredPromptQuestion] = useState<string | null>(null);
   const activePrompt = pendingPrompt && pendingPrompt.question !== answeredPromptQuestion ? pendingPrompt : null;
@@ -146,7 +174,6 @@ export function PaneSessionChat({
     [pendingPrompt, paneId, showComposerError],
   );
 
-  // Shell-command decoration: re-run sends the command back through the same PTY
   // input path the composer uses; jump surfaces the live terminal output.
   const handleRerunShellCommand = useCallback((command: string) => {
     if (!currentPtyId) {
@@ -177,9 +204,6 @@ export function PaneSessionChat({
     );
   }, [currentPtyId, showComposerError]);
 
-  // Route an interactive-widget answer back to the agent through the verified PTY
-  // injector, bypassing chatPreprocessor because this is a menu answer, not a
-  // fresh Chat UI user prompt.
   const handleAnswerInteractive = useCallback<InteractiveAnswerHandler>(
     async (text, element) => {
       const answer = text.trim();
@@ -219,87 +243,109 @@ export function PaneSessionChat({
     onError: showComposerError,
   });
 
-  const resolvePaneName = useMemo(() => {
-    const byShort = new Map<string, string>();
-    for (const ws of muxState.workspaces) {
-      for (const tab of ws.tabs) {
-        const name = tab.title?.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "").trim();
-        if (name && tab.pane_id) byShort.set(tab.pane_id.slice(0, 8), name);
+  const resolvePaneName = useCallback(
+    (paneRef: string): string | undefined => paneTitleMap.get(paneRef.slice(0, 8)),
+    [paneTitleMap],
+  );
+
+  const latestFailedToolCallId = useMemo(() => {
+    for (let i = enrichedMessages.length - 1; i >= 0; i -= 1) {
+      const msg = enrichedMessages[i]?.msg;
+      if (msg?.type === "tool_call" && msg.toolError === true) {
+        return msg.id;
       }
     }
-    return (paneRef: string): string | undefined => byShort.get(paneRef.slice(0, 8));
-  }, [muxState.workspaces]);
+    return null;
+  }, [enrichedMessages]);
+
+  const visiblePlanRefs = useMemo(() => {
+    const refs: Array<{ planId: string; targetId?: string; targetKind: "plan" | "task" | "section" }> = [];
+    for (const { msg } of enrichedMessages) {
+      if (msg.type === "tool_result" || msg.type === "system" || msg.type === "local_command") continue;
+      for (const ref of extractPlanRefs(msg.content ?? "")) {
+        refs.push({
+          planId: ref.planId,
+          targetId: ref.targetId,
+          targetKind: ref.targetKind,
+        });
+      }
+    }
+    return refs;
+  }, [enrichedMessages]);
+  const resolvedPlanRefs = usePlanRefResolver(
+    api ?? { enabled: false, host: "127.0.0.1", port: 0, token: null, cors: false },
+    visiblePlanRefs,
+  );
+  const resolvePlanRef = useCallback(
+    (planId: string, targetId?: string, targetKind?: "plan" | "task" | "section") => {
+      const kind = targetKind ?? (targetId ? "task" : "plan");
+      const key = `${kind}:${planId}:${targetId ?? ""}`;
+      const found = resolvedPlanRefs.refs.get(key);
+      if (found) {
+        const ownerWorkspace = findPlanOwnerWorkspace(planId, planIndex, planNav.workspaces);
+        const state = resolvedPlanRefs.unreachable
+          ? "unreachable" as const
+          : (ownerWorkspace ? found.state : "unowned");
+        return {
+          title: found.title,
+          planTitle: found.plan_title,
+          taskTitle: found.task_title,
+          sectionTitle: found.section_title,
+          state,
+          rawLabel: targetId ?? planId,
+          fullRef: targetId ? `${planId}/${targetId}` : planId,
+        };
+      }
+      return {
+        title: targetId ?? planId,
+        planTitle: planId,
+        state: resolvedPlanRefs.unreachable ? "unreachable" as const : "loading" as const,
+        rawLabel: targetId ?? planId,
+        fullRef: targetId ? `${planId}/${targetId}` : planId,
+      };
+    },
+    [resolvedPlanRefs, planIndex, planNav.workspaces],
+  );
+
+  const onOpenPlan = useCallback(
+    (planId: string, taskId?: string) => {
+      openPlanDeepLink(planId, taskId, {
+        index: planIndex,
+        workspaces: planNav.workspaces,
+        activeWorkspaceId: planNav.activeWorkspaceId,
+        setActiveWorkspace,
+        onMissing: undefined,
+      });
+    },
+    [planIndex, planNav.workspaces, planNav.activeWorkspaceId, setActiveWorkspace],
+  );
 
   useEffect(() => {
-    if (!currentPtyId) {
-      terminalTextRef.current = null;
-      setTerminalActive(false);
-      return;
-    }
-    if (!isActive) {
-      setTerminalActive(false);
-      return;
-    }
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const text = await invoke<string>("get_pane_text", { paneId, formatted: false });
-        if (cancelled) return;
-        const previous = terminalTextRef.current;
-        terminalTextRef.current = text;
-        if (previous !== null && previous !== text) {
-          setTerminalActive(true);
-          if (terminalActiveTimerRef.current) {
-            window.clearTimeout(terminalActiveTimerRef.current);
-          }
-          terminalActiveTimerRef.current = window.setTimeout(() => {
-            setTerminalActive(false);
-            terminalActiveTimerRef.current = null;
-          }, 3_000);
-        }
-      } catch {
-        if (!cancelled) setTerminalActive(false);
-      }
-    };
-    void poll();
-    const id = window.setInterval(() => void poll(), 1_500);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-      if (terminalActiveTimerRef.current) {
-        window.clearTimeout(terminalActiveTimerRef.current);
-        terminalActiveTimerRef.current = null;
-      }
-    };
-  }, [currentPtyId, isActive, paneId]);
-
-  // Long-idle ('resting') nuance: once the pane has gone quiet — no terminal
-  // activity, no open prompt — for a stretch, soften the indicator from
-  // 'your turn' to a dormant treatment. Any activity resets it immediately.
-  useEffect(() => {
-    if (terminalActive || pendingPrompt) {
+    if (backendState?.state === "working" || pendingPrompt) {
       setLongIdle(false);
       return;
     }
     const id = window.setTimeout(() => setLongIdle(true), 90_000);
     return () => window.clearTimeout(id);
-  }, [terminalActive, pendingPrompt]);
+  }, [backendState?.state, pendingPrompt]);
 
-  const backendState = pane?.agent_state ?? null;
-
+  // rAF-batched: coalesce streamed-chunk bursts into one scroll write per frame, no per-message reflow.
+  const autoScrollRafRef = useRef(0);
   useEffect(() => {
-    if (!scrollRef.current) return;
-    if (atBottomRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    if (!atBottomRef.current || autoScrollRafRef.current) return;
+    autoScrollRafRef.current = requestAnimationFrame(() => {
+      autoScrollRafRef.current = 0;
+      const el = scrollRef.current;
+      if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
+    });
   }, [allMessages, inlinePrompt?.question, backendState?.state]);
+  useEffect(() => () => {
+    if (autoScrollRafRef.current) cancelAnimationFrame(autoScrollRafRef.current);
+  }, []);
 
-  // Backend state engine is the source of truth (working / idle / question +
-  // subtype). Fall back to the terminal-activity heuristic only until the first
-  // classification arrives. `longIdle` stays frontend-timed and applies only
-  // while idle.
+  // subtype); it arrives via the mux snapshot and events, no local polling needed.
   const liveAgentState: AgentState = useMemo(() => {
-    const kind = backendState?.state ?? (terminalActive ? "working" : "idle");
+    const kind = backendState?.state ?? "idle";
     return {
       state: kind,
       subtype: backendState?.subtype,
@@ -307,7 +353,7 @@ export function PaneSessionChat({
       last_turn_summary: backendState?.last_turn_summary,
       phase: backendState?.phase,
       elapsed_ms: backendState?.elapsed_ms,
-      longIdle: kind === "idle" && !terminalActive && longIdle,
+      longIdle: kind === "idle" && longIdle,
     };
   }, [
     backendState?.state,
@@ -316,7 +362,6 @@ export function PaneSessionChat({
     backendState?.phase,
     backendState?.elapsed_ms,
     backendState?.subtype,
-    terminalActive,
     longIdle,
   ]);
 
@@ -408,10 +453,10 @@ export function PaneSessionChat({
           let originProviderId: string | null | undefined;
           if (origin?.kind === "pane") {
             const idShort = origin.paneIdShort;
-            const fullId = Object.keys(muxState.panes).find((id) => id.startsWith(idShort));
+            const fullId = Object.keys(paneAgentTypes).find((id) => id.startsWith(idShort));
             if (fullId) {
               onOriginClick = () => setFocusedPane(fullId);
-              originProviderId = muxState.panes[fullId]?.agent_type;
+              originProviderId = paneAgentTypes[fullId];
             }
           }
           return (
@@ -422,8 +467,11 @@ export function PaneSessionChat({
             >
               <MessageBubble
                 message={msg}
+                isLatestFailedToolCall={msg.id === latestFailedToolCallId}
                 origin={origin}
                 resolvePaneName={resolvePaneName}
+                onOpenPlan={onOpenPlan}
+                resolvePlanRef={resolvePlanRef}
                 fontScale={uiFontScale}
                 onAnswerInteractive={handleAnswerInteractive}
                 answeredInteractiveIds={answeredInteractiveIds}
@@ -440,11 +488,12 @@ export function PaneSessionChat({
           );
         })}
         {!inlinePrompt && (enrichedMessages.length > 0 || liveAgentState.state === "question") && (
-          // Same centered column as the message rows so the indicator sits flush
           // with the message text instead of the far-left container edge.
           <div className="w-full max-w-4xl min-w-0 mx-auto">
             <AgentStateIndicator
               state={liveAgentState}
+              providerName={provider?.displayName ?? null}
+              model={workingModelBadge}
               onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
               onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
               onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
@@ -466,6 +515,17 @@ export function PaneSessionChat({
         </button>
       )}
       </div>
+      {isWatcherPane && watcherSpec ? (
+        <WatcherReadOnlyBar
+          watcher={watcherSpec}
+          modelBubble={effectiveChatBackend && chatBacking ? (
+            <>
+              <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} readOnly />
+              <ChatPresetBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} readOnly />
+            </>
+          ) : undefined}
+        />
+      ) : (
       <ChatComposer
         paneId={paneId}
         paneProvider={paneProvider}
@@ -489,6 +549,7 @@ export function PaneSessionChat({
           </>
         ) : undefined}
       />
+      )}
     </div>
   );
 }

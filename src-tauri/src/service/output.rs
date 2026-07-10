@@ -8,8 +8,6 @@ use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 use std::time::Instant;
 
-use tauri::Emitter;
-
 use super::ServiceContext;
 use crate::agent::detector::AgentEvent;
 use crate::agent::prompt::PromptDecision;
@@ -83,6 +81,7 @@ impl ServiceContext {
         };
         if changed {
             self.emit_state_changed();
+            self.schedule_planner_replay(&pane_id);
         }
     }
 
@@ -115,6 +114,7 @@ impl ServiceContext {
             shell_nonce,
             pane_cwd,
             agent_session_id,
+            is_planner,
         ) = {
             let mux = self.mux.read();
             let pid = mux.pane_id_for_pty(pty_id);
@@ -130,6 +130,7 @@ impl ServiceContext {
             let nonce = pane.and_then(|p| p.shell_integration_nonce.clone());
             let cwd = pane.and_then(|p| p.cwd.clone());
             let sid = pane.and_then(|p| p.agent_session_id.clone());
+            let planner = pane.is_some_and(|p| p.role_profile.as_deref() == Some("planner"));
             (
                 pid,
                 at,
@@ -140,12 +141,10 @@ impl ServiceContext {
                 nonce,
                 cwd,
                 sid,
+                planner,
             )
         };
 
-        // Shell-integration capability layer (additive, runs for every pane):
-        // fold OSC 133/633/7 markers from this RAW chunk into the pane's
-        // command/cwd accumulators and surface lifecycle changes to chat.
         self.process_shell_markers(pty_id, pane_id.as_deref(), shell_nonce, data);
 
         let exclude_rows = agent_type
@@ -188,17 +187,12 @@ impl ServiceContext {
             static UNDETECT_COUNT: std::sync::atomic::AtomicU64 =
                 std::sync::atomic::AtomicU64::new(0);
             let count = UNDETECT_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if count % 50 == 0 {
+            if is_planner || count % 50 == 0 {
                 // Keep a short grace after session-tagging so early prompt snapshots don't trigger false exits.
                 // Locked panes skip output-based clearing because slow startup can leave stale prompt text visible.
-                if in_grace_cached || locked_cached {
+                if in_grace_cached || (locked_cached && !is_planner) {
                     agent_type
                 } else {
-                    // Debounce window: a still-running TUI can flash a marker-less,
-                    // shell-prompt-looking frame for an instant (a WebView reload /
-                    // resize redraw). Require the prompt to persist this long before
-                    // declaring the agent gone, so one transient frame can't clear it.
-                    const EXIT_DEBOUNCE_SECS: u64 = 2;
                     let screen = self
                         .screen_state
                         .lock()
@@ -212,11 +206,15 @@ impl ServiceContext {
                             let mut mux = self.mux.write();
                             match mux.get_pane_mut(pid) {
                                 Some(pane) => {
-                                    let (clear, next) = exit_debounce(
-                                        pane.exit_suspected_at,
-                                        std::time::Instant::now(),
-                                        std::time::Duration::from_secs(EXIT_DEBOUNCE_SECS),
-                                    );
+                                    let (clear, next) = if is_planner {
+                                        (true, None)
+                                    } else {
+                                        exit_debounce(
+                                            pane.exit_suspected_at,
+                                            std::time::Instant::now(),
+                                            std::time::Duration::from_secs(2),
+                                        )
+                                    };
                                     pane.exit_suspected_at = next;
                                     clear
                                 }
@@ -258,15 +256,11 @@ impl ServiceContext {
         };
 
         if let (Some(ref pid), Some(ref at)) = (&pane_id, &agent_type) {
-            // Hookless, non-injecting providers (cursor) can't report their
-            // session id — detect it on disk post-launch and pin it, or the chat
-            // view never binds (chat_start stays pending). No-op once found.
             self.maybe_detect_agent_session(pid, at);
             if let Ok(raw) = std::str::from_utf8(data) {
                 let chunk_text = crate::pty::ansi::clean_terminal_output(raw);
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
 
-                // Read screen text if markers found OR if there's an active prompt (need screen text to detect when user answers prompt in terminal). For
                 // auto_approve panes (GA), always read screen — chunk fragmentation can split markers across reads, so we check full screen every time.
                 let check_screen = has_markers || has_active_prompt || is_auto_approve;
                 let (native_prompt_input, mut clean_text) = {
@@ -278,14 +272,6 @@ impl ServiceContext {
                             .flatten(),
                     )
                 };
-                // STRUCTURED beats raw PTY: when the provider exposes a
-                // structured prompt source in this run mode, build the prompt
-                // from THAT (clean question + options) and only fall back to
-                // the native attributed-grid PTY detector otherwise. Gated by
-                // capability (never a provider-id branch) + the same
-                // marker/active-prompt signal that already gates the screen
-                // read, and throttled, so the bounded JSONL tail read stays off
-                // the per-chunk hot path.
                 let structured = if check_screen {
                     self.structured_pending_prompt(
                         pid,
@@ -296,12 +282,6 @@ impl ServiceContext {
                 } else {
                     None
                 };
-                // HARD RESTRICTION: pending_prompt (the card) comes ONLY from STRUCTURED
-                // handles (API/SSE — claude interactive[], opencode SSE). Raw-PTY picker
-                // parsing (native detect_picker) is intentionally NOT a fallback: it
-                // false-positives on provider startup/status chrome across every provider.
-                // Known console-only question states (rate_limit/auth) are surfaced by the
-                // state classifier as agent_state, never as a fabricated card.
                 let parsed = structured;
                 let prompt_signal = parsed.is_some();
                 if prompt_signal && clean_text.is_none() {
@@ -314,10 +294,6 @@ impl ServiceContext {
                     parsed,
                 );
 
-                // Cards come ONLY from structured handles (opencode SSE). The
-                // raw-PTY settle-poll that re-parsed the screen was removed: it
-                // fabricated phantom cards (→ a bogus "question" / "needs your
-                // attention" state) on normal claude/codex/cursor output.
                 self.apply_prompt_decision_with_screen(&decision, clean_text.as_deref());
 
                 if has_markers {
@@ -335,14 +311,11 @@ impl ServiceContext {
             }
         }
 
-        // Live 3-state classification (working / idle / question + subtype) for
-        // the chat-view indicator. Agent panes only; cheap + non-blocking (one
-        // grid text read + a pure classify over signals already computed above).
         if agent_type.is_some() {
             self.recompute_agent_state(pty_id);
         }
 
-        (prev_status, current_status)
+        (prev_status, self.agent_tracker.lock().get_status(pty_id))
     }
 
     /// Build a pending prompt from the provider's STRUCTURED handle, if it has
@@ -372,14 +345,6 @@ impl ServiceContext {
         {
             return None;
         }
-        // PUSH handles only (real-time API/SSE — e.g. opencode SSE bus): a background
-        // subscriber has already parsed the event into the store; in-memory read.
-        //
-        // NOTE: the claude transcript PULL was removed deliberately. claude writes the
-        // AskUserQuestion `interactive[]` to the session JSONL POST-FACTUM (after the
-        // question is resolved), so reading it never reflects a LIVE active prompt — it
-        // would surface a stale card at the wrong moment. claude has no real-time
-        // structured handle in interactive-PTY mode, so it gets no card from here.
         crate::service::structured_prompt::pending_for_pane(pane_id)
     }
 
@@ -498,6 +463,7 @@ impl ServiceContext {
         };
         if changed {
             self.emit_state_changed();
+            self.schedule_planner_replay(&pane_id);
         }
     }
 
@@ -515,7 +481,6 @@ impl ServiceContext {
         if events.is_empty() {
             return;
         }
-        // No mapped pane (transient race) — accumulators still updated, just
         // nothing to surface to a chat view yet.
         let Some(pane_id) = pane_id else {
             return;
@@ -560,14 +525,6 @@ impl ServiceContext {
         if cwd.is_empty() {
             return;
         }
-        // On-disk/db detection for providers with no session injection path.
-        // Enabled for:
-        //   - providers without hooks (e.g. cursor) — original path
-        //   - providers WITH hooks that use a structured DB (e.g. opencode) — fallback
-        //     when the hook doesn't fire. Safe: hook-bound sessions are excluded by
-        //     the stale check's exclude list, so a successful hook always wins.
-        // NOT enabled for hook-capable PTY providers (claude, codex): they use
-        // file-based sessions and their hooks are reliable, so no fallback is needed.
         let needs = self
             .agent_registry
             .with_provider(agent_type, |p| {
@@ -594,13 +551,6 @@ impl ServiceContext {
         }
 
         if let Some(old_sid) = current_session {
-            // Stale-session check: after /new, the provider (e.g. cursor) creates a
-            // fresh session directory while the old one stops receiving writes. Search
-            // for a session modified in the last 30s, excluding the currently-pinned
-            // session and all other panes' sessions so we only find THIS pane's new
-            // session. Steady-state: no candidate is found (only session is old_sid,
-            // which is excluded) → no eviction. After /new: new session dir is fresh
-            // → evict old, bind new.
             let mut stale_exclude = self.mux.read().other_session_ids(pane_id);
             stale_exclude.push(old_sid.clone());
             let new_sid = self
@@ -627,9 +577,6 @@ impl ServiceContext {
             return;
         }
 
-        // Initial detection: window the search to sessions touched since the agent
-        // was detected (+30s slack) so a reused cwd's older sessions can't shadow
-        // the fresh one.
         let exclude = self.mux.read().other_session_ids(pane_id);
         let max_age = std::time::Duration::from_secs(set_at_elapsed + 30);
         let found = self
@@ -673,7 +620,8 @@ impl ServiceContext {
             }
             pane.pending_prompt = prompt.clone();
         }
-        let _ = self.app_handle.emit(
+        crate::api::events::emit_everywhere(
+            &self.app_handle,
             "prompt-state-changed",
             serde_json::json!({ "pane_id": pane_id, "prompt": prompt }),
         );
@@ -689,7 +637,6 @@ impl ServiceContext {
             PromptDecision::None => {}
             PromptDecision::NewPrompt { pane_id, prompt }
             | PromptDecision::PromptUpdated { pane_id, prompt } => {
-                // Auto-approve: if pane has auto_approve set, respond immediately
                 let (auto_approve, agent_type, pty_id, is_general_pane) = {
                     let mux = self.mux.read();
                     let is_general_pane = mux
@@ -767,8 +714,8 @@ impl ServiceContext {
                         pane.pending_prompt = Some(prompt.clone());
                     }
                 }
-                // Emit focused event — frontend subscribes directly, no polling needed
-                let _ = self.app_handle.emit(
+                crate::api::events::emit_everywhere(
+                    &self.app_handle,
                     "prompt-state-changed",
                     serde_json::json!({
                         "pane_id": pane_id,
@@ -794,7 +741,8 @@ impl ServiceContext {
                     pane.pending_prompt = None;
                 }
                 drop(mux);
-                let _ = self.app_handle.emit(
+                crate::api::events::emit_everywhere(
+                    &self.app_handle,
                     "prompt-state-changed",
                     serde_json::json!({
                         "pane_id": pane_id,

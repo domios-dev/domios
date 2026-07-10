@@ -1,3 +1,8 @@
+/**
+ * WHAT: Memory panel supports list, detail, edit, and related-item navigation.
+ * WHY: Mem UI changes must preserve the operator workflow for inspecting and maintaining saved facts.
+ * ORACLE: Created mem items appear in UI, open detail/editor surfaces, and related rows resolve to real entities.
+ */
 import { expect, test } from "../../helpers/fixtures";
 
 interface MemItem {

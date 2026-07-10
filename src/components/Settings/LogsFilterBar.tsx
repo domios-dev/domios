@@ -1,5 +1,6 @@
 import type { LogLevel, RangeKey } from "./LogsTab";
 import { ALL_LEVELS, LEVEL_TONE, RANGE_OPTIONS } from "./LogsTab";
+import { Button } from "../shared/Button";
 
 export function LogsFilterBar({
   levels,
@@ -24,26 +25,18 @@ export function LogsFilterBar({
         {ALL_LEVELS.map((l) => {
           const active = levels.has(l);
           const tone = LEVEL_TONE[l];
-          const activeClasses =
-            tone === "green"
-              ? "bg-[var(--ct-green)]/15 text-[var(--ct-green)] border-[var(--ct-green)]/30"
-              : tone === "amber"
-                ? "bg-[var(--ct-yellow)]/15 text-[var(--ct-yellow)] border-[var(--ct-yellow)]/30"
-                : "bg-[var(--ct-red)]/15 text-[var(--ct-red)] border-[var(--ct-red)]/30";
           return (
-            <button
+            <Button
+              variant={active ? (tone === "red" ? "danger" : "accent") : "ghost"}
+              size="compact"
               key={l}
               data-testid="settings-logs-level-filter"
               data-log-level={l}
               onClick={() => onToggleLevel(l)}
-              className={`px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider font-medium border transition-colors ${
-                active
-                  ? activeClasses
-                  : "bg-transparent text-[var(--ct-muted-fg)] border-[var(--ct-border)] hover:text-[var(--ct-fg)]"
-              }`}
+              className="text-[10px] uppercase tracking-wider"
             >
               {l}
-            </button>
+            </Button>
           );
         })}
       </div>
@@ -69,19 +62,17 @@ export function LogsFilterBar({
         {RANGE_OPTIONS.map((opt) => {
           const active = range === opt.key;
           return (
-            <button
+            <Button
+              variant={active ? "accent" : "ghost"}
+              size="compact"
               key={opt.key}
               data-testid="settings-logs-range-filter"
               data-log-range={opt.key}
               onClick={() => onRangeChange(opt.key)}
-              className={`px-2 py-1 text-[10px] uppercase tracking-wider transition-colors ${
-                active
-                  ? "bg-[var(--ct-accent)]/20 text-[var(--ct-accent)]"
-                  : "text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)]"
-              }`}
+              className="rounded-none border-0 text-[10px] uppercase tracking-wider"
             >
               {opt.label}
-            </button>
+            </Button>
           );
         })}
       </div>

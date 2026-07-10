@@ -6,18 +6,16 @@ import type {
   LabelRow,
   SnapshotEdge,
 } from "./snapshotTypes";
-import { IS_WEB, apiHost, currentToken } from "../../lib/webApi";
+import { daemonHttpBase, daemonAuthToken } from "../../lib/webApi";
 
 export class SnapshotUnavailableError extends Error {}
 
 export function baseUrl(api: ApiConfig): string {
-  if (IS_WEB) return apiHost();
-  const host = api.host === "0.0.0.0" ? "127.0.0.1" : api.host;
-  return `http://${host}:${api.port}`;
+  return daemonHttpBase(api);
 }
 
 export function authHeaders(api: ApiConfig): HeadersInit {
-  const token = IS_WEB ? currentToken() : api.token;
+  const token = daemonAuthToken(api);
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -26,10 +24,6 @@ export function jsonHeaders(api: ApiConfig): HeadersInit {
     "Content-Type": "application/json",
     ...authHeaders(api),
   };
-}
-
-export function isTauriEnv(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 export async function fetchGraphFull(

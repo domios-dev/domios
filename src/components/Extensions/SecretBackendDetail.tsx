@@ -38,7 +38,6 @@ export function SecretBackendDetail({
 
   const { base, headers } = apiBaseOf(config);
 
-  // Source of truth is the live status (which backend is actually active), not
   // the config prop — the parent doesn't reload config after a switch.
   const configActive = (config.integrations?.secrets?.backend ?? "local") === backendId;
   const isActive = status ? status.backend === backendId : configActive;

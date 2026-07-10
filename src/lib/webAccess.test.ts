@@ -21,7 +21,6 @@ function assert(label: string, actual: unknown, expected: unknown) {
   }
 }
 
-// ── priority chain ────────────────────────────────────────────────
 console.log("buildWebAccessUrls priority:");
 
 const full = buildWebAccessUrls(
@@ -33,20 +32,20 @@ const full = buildWebAccessUrls(
   },
   9999,
 );
-assert("https serve is primary", full.primary, "https://host.ts.net/web/");
+assert("https serve is primary", full.primary, "https://host.ts.net/");
 assert("not fallback when https present", full.usingFallback, false);
 assert("full ordered list", full.urls, [
-  "https://host.ts.net/web/",
-  "http://100.64.0.5:7685/web/",
-  "http://192.168.1.10:7685/web/",
-  "http://127.0.0.1:7685/web/",
+  "https://host.ts.net/",
+  "http://100.64.0.5:7685/",
+  "http://192.168.1.10:7685/",
+  "http://127.0.0.1:7685/",
 ]);
 
 const noServe = buildWebAccessUrls(
   { tailscale_ip: "100.64.0.5", local_ip: "192.168.1.10", api_port: 7685 },
   9999,
 );
-assert("tailscale ip primary without serve", noServe.primary, "http://100.64.0.5:7685/web/");
+assert("tailscale ip primary without serve", noServe.primary, "http://100.64.0.5:7685/");
 assert("fallback flag set without serve", noServe.usingFallback, true);
 
 const nonDefaultHttpsPort = buildWebAccessUrls(
@@ -56,41 +55,37 @@ const nonDefaultHttpsPort = buildWebAccessUrls(
 assert(
   "non-443 https port preserved in primary",
   nonDefaultHttpsPort.primary,
-  "https://host.ts.net:7600/web/",
+  "https://host.ts.net:7600/",
 );
 
 const lanOnly = buildWebAccessUrls({ local_ip: "192.168.1.10", api_port: 7685 }, 9999);
-assert("lan ip primary", lanOnly.primary, "http://192.168.1.10:7685/web/");
+assert("lan ip primary", lanOnly.primary, "http://192.168.1.10:7685/");
 
 const empty = buildWebAccessUrls(null, 7685);
-assert("loopback is the floor", empty.primary, "http://127.0.0.1:7685/web/");
+assert("loopback is the floor", empty.primary, "http://127.0.0.1:7685/");
 assert("loopback-only is fallback", empty.usingFallback, true);
 
-assert("api_port from net overrides fallback", buildWebAccessUrls({ api_port: 1234 }, 9999).primary, "http://127.0.0.1:1234/web/");
+assert("api_port from net overrides fallback", buildWebAccessUrls({ api_port: 1234 }, 9999).primary, "http://127.0.0.1:1234/");
 
-// dedup: loopback already implied; ensure no dupes when ips coincide
 const dup = buildWebAccessUrls({ local_ip: "127.0.0.1", api_port: 7685 }, 9999);
-assert("dedups loopback collision", dup.urls, ["http://127.0.0.1:7685/web/"]);
+assert("dedups loopback collision", dup.urls, ["http://127.0.0.1:7685/"]);
 
-// ── token fragment ────────────────────────────────────────────────
 console.log("\nwebLinkWithToken:");
 assert(
   "appends token as fragment on https root",
-  webLinkWithToken("https://host.ts.net/web/", "abc123"),
-  "https://host.ts.net/web/#token=abc123",
+  webLinkWithToken("https://host.ts.net/", "abc123"),
+  "https://host.ts.net/#token=abc123",
 );
 assert(
   "encodes token",
-  webLinkWithToken("http://127.0.0.1:7685/web/", "a b/c"),
-  "http://127.0.0.1:7685/web/#token=a%20b%2Fc",
+  webLinkWithToken("http://127.0.0.1:7685/", "a b/c"),
+  "http://127.0.0.1:7685/#token=a%20b%2Fc",
 );
-assert("no token → unchanged", webLinkWithToken("http://127.0.0.1:7685/web/", null), "http://127.0.0.1:7685/web/");
+assert("no token → unchanged", webLinkWithToken("http://127.0.0.1:7685/", null), "http://127.0.0.1:7685/");
 
-// ── hint carries the live port ────────────────────────────────────
 console.log("\nserveHint:");
 assert("hint includes port", serveHint(7685).includes("127.0.0.1:7685"), true);
 
-// ── planServeSetup (Enable Web Access decision) ────────────────────
 console.log("\nplanServeSetup:");
 
 const notInstalled = planServeSetup(
@@ -121,7 +116,7 @@ assert("can-enable flag set", planLinux.canEnable, true);
 assert("linux runs serve only (no cert step)", planLinux.commands, [
   "tailscale serve --bg --https=443 http://127.0.0.1:7685",
 ]);
-assert("result url uses self dns at root", planLinux.resultUrl, "https://host.ts.net/web/");
+assert("result url uses self dns at root", planLinux.resultUrl, "https://host.ts.net/");
 
 const planMac = planServeSetup(
   { installed: true, active: false, self_dns: "mac.ts.net" },

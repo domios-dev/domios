@@ -59,7 +59,7 @@ Common patterns:
 
 - **Cheap classifier in front of GA.** A small regex/Groq router handles trivial commands (lights, weather, smart-home macros) in <100ms without burning Claude tokens.
 - **Structured intent capture.** Daemon parses "buy 2 kilos of tomatoes" into a structured shopping-list entry and replies "added"; GA never sees it.
-- **Routing across multiple GAs.** Daemon picks which machine's GA should handle a request based on context (e.g. "@blackstar deploy" → routes to BLACKSTAR's GA).
+- **Routing across multiple GAs.** Daemon picks which machine's GA should handle a request based on context (e.g. "@workstation deploy" → routes to that peer's GA).
 
 You don't usually configure text_hooks yourself as the agent — that's the user setting up infrastructure. Your job is to **honor the metadata** when it arrives.
 
@@ -71,4 +71,4 @@ If the user reports "my classifier isn't working":
 3. Tail `~/.codeterm/logs/codeterm.log` — look for `[bridge] text_hook ...` lines showing what the daemon returned.
 4. If daemon returns `{}` or invalid JSON, the bridge falls back to `fallback_on_error` behaviour.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

@@ -36,6 +36,8 @@ pub(crate) fn invalidate_plugin_snapshot() {
         *flight = None;
     }
     SNAPSHOT_EPOCH.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    // while the last-known diff stays visible.
+    super::diff_cache::invalidate_diff();
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,7 +57,12 @@ pub struct PluginManagerAction {
 pub(super) async fn plugin_manager_snapshot_impl(
     svc: tauri::State<'_, crate::service::ServiceState>,
 ) -> Result<Value, String> {
-    let svc = svc.inner().clone();
+    plugin_manager_snapshot_for_service(svc.inner().clone()).await
+}
+
+pub(crate) async fn plugin_manager_snapshot_for_service(
+    svc: crate::service::ServiceState,
+) -> Result<Value, String> {
     cached_plugin_snapshot(Arc::new(move || {
         build_snapshot(None, Some(svc.chatbackend_registry.as_ref()))
     }))
@@ -177,6 +184,14 @@ pub(crate) fn run_action(
                 .as_deref()
                 .ok_or("remove requires pluginId")?;
             crate::config::cleanup_removed_plugin_config(plugin_id)?;
+        }
+        if action.kind == "refresh-channel" {
+            // Explicit refresh: recompute the channel diff synchronously and cache it now,
+            // while any just-added local channel source is still present. Otherwise the
+            // diff is served stale and the background refetch only lands later (possibly
+            // after a volatile source is gone), so a freshly-added local channel never
+            // reaches a served snapshot. Passive snapshot GETs keep the background path.
+            super::snapshot::refresh_channel_diff_now();
         }
         build_snapshot(Some(output), Some(svc.chatbackend_registry.as_ref()))
     })();
@@ -518,9 +533,11 @@ mod tests {
             force: false,
             remove_data: false,
         };
-        assert!(plugin_action_args(&action)
-            .unwrap_err()
-            .contains("pluginId"));
+        assert!(
+            plugin_action_args(&action)
+                .unwrap_err()
+                .contains("pluginId")
+        );
     }
 
     #[test]

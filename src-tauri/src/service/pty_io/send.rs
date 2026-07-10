@@ -3,7 +3,7 @@
 use crate::service::ServiceContext;
 
 /// Bytes written to a fresh pty to launch a shell-level command. On Unix, exec a
-/// temp script via `bash <path>` to bypass bracketed-paste markers — macOS system
+/// temp script via `/bin/bash <path>` to bypass bracketed-paste markers — macOS system
 /// bash 3.2 has no bracketed-paste binding and leaks the markers as literal text.
 /// Script self-cleans via `trap 'rm -f $0' EXIT`.
 #[cfg(unix)]
@@ -18,7 +18,7 @@ pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
         writeln!(f, "{}", cmd)?;
     }
     std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700))?;
-    Ok(format!("bash {}\r", script_path).into_bytes())
+    Ok(format!("/bin/bash {}\r", script_path).into_bytes())
 }
 
 /// Windows keeps bracketed paste (no /bin/bash to script-exec). The leading space
@@ -104,7 +104,103 @@ fn cap_submit_timeout(
     }
 }
 
+fn authenticated_pty_target(
+    pane: &crate::multiplexer::types::Pane,
+    expected_session_id: &str,
+    expected_binding_nonce: &str,
+) -> Result<(String, String), String> {
+    let accepting = match pane.agent_state.as_ref() {
+        Some(state) => matches!(
+            state.state,
+            codeterm_types::pty::TimelineState::Working | codeterm_types::pty::TimelineState::Idle
+        ),
+        None => pane.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady),
+    };
+    let authenticated = pane.agent_type.is_some()
+        && pane.agent_session_id.as_deref() == Some(expected_session_id)
+        && pane.session_binding_nonce.as_deref() == Some(expected_binding_nonce)
+        && pane.reported_session_binding_nonce.as_deref() == Some(expected_binding_nonce)
+        && pane.chat_view
+        && accepting;
+    if !authenticated {
+        return Err("agent_unavailable: planner session is stale".into());
+    }
+    match &pane.backing {
+        crate::multiplexer::types::PaneBacking::Pty => Ok((
+            pane.pty_id
+                .clone()
+                .ok_or_else(|| "agent_unavailable: planner PTY missing".to_string())?,
+            pane.agent_type.clone().unwrap_or_default(),
+        )),
+        crate::multiplexer::types::PaneBacking::ChatBackend { .. } => {
+            Err("agent_unavailable: planner is not PTY-backed".into())
+        }
+    }
+}
+
+fn submit_authenticated_pty_input<T>(
+    pane: &crate::multiplexer::types::Pane,
+    expected_session_id: &str,
+    expected_binding_nonce: &str,
+    text: &str,
+    submit: impl FnOnce(&str, &str, &str) -> Result<T, String>,
+) -> Result<T, String> {
+    let (pty_id, provider_id) =
+        authenticated_pty_target(pane, expected_session_id, expected_binding_nonce)?;
+    submit(&pty_id, &provider_id, text)
+}
+
 impl ServiceContext {
+    pub(crate) fn send_to_authenticated_agent_session(
+        &self,
+        pane_id: &str,
+        expected_session_id: &str,
+        expected_binding_nonce: &str,
+        text: &str,
+    ) -> Result<(), String> {
+        let target = || -> Result<(String, String), String> {
+            let mux = self.mux.read();
+            let resolved = mux
+                .resolve_pane_id(pane_id)
+                .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
+            let pane = mux
+                .get_pane(&resolved)
+                .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
+            submit_authenticated_pty_input(
+                pane,
+                expected_session_id,
+                expected_binding_nonce,
+                text,
+                |pty_id, provider_id, _| Ok((pty_id.to_string(), provider_id.to_string())),
+            )
+        };
+
+        let (pty_id, provider_id) = target()?;
+        let strategy = cap_submit_timeout(
+            self.agent_registry
+                .with_provider(&provider_id, |provider| provider.verify_submit_strategy())
+                .ok_or_else(|| "agent_unavailable: unknown planner provider".to_string())?,
+            std::time::Duration::from_secs(3),
+        );
+        if target()? != (pty_id.clone(), provider_id.clone()) {
+            return Err("agent_unavailable: planner transport changed".into());
+        }
+        self.send_text_verified(
+            &pty_id,
+            text,
+            true,
+            strategy,
+            crate::service::inject_verify::VerifyOpts {
+                require_prompt_first: false,
+                verify_echo: false,
+                verify_submit: true,
+                ..Default::default()
+            },
+        )
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+    }
+
     /// Send text to a pane (chatBackend or PTY). PTY link is awaited up to 15s so
     /// scripts can chain `spawn → send` without hitting "no PTY".
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
@@ -187,8 +283,6 @@ impl ServiceContext {
     /// Deliver the initial agent launch command to a bare shell — no verify path
     /// (no agent TUI exists yet). Mirrors general_agent::lifecycle.
     pub fn send_launch_command_to_pty(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
-        // Wait for the prompt (arms PSReadLine's bracketed-paste handler). If it
-        // never renders the shell is likely stuck on an unanswered CSI 6n — xterm
         #[cfg(windows)]
         {
             use std::time::Duration;
@@ -206,12 +300,12 @@ impl ServiceContext {
     }
 
     /// Poll the screen until the provider's TUI fingerprint shows, bounded by `timeout`. Best-effort.
-    fn await_agent_tui_on_screen(
+    pub(crate) fn await_agent_tui_on_screen(
         &self,
         pty_id: &str,
         agent_id: &str,
         timeout: std::time::Duration,
-    ) {
+    ) -> bool {
         let deadline = std::time::Instant::now() + timeout;
         loop {
             let screen = self.screen_state.lock().get_screen_text(pty_id);
@@ -222,11 +316,11 @@ impl ServiceContext {
                         .with_provider(agent_id, |p| p.screen_has_tui(&text))
                         .unwrap_or(false);
                 if ready {
-                    return;
+                    return true;
                 }
             }
             if std::time::Instant::now() >= deadline {
-                return;
+                return false;
             }
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
@@ -439,5 +533,53 @@ impl ServiceContext {
             }
         });
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod planner_delivery_tests {
+    use super::submit_authenticated_pty_input;
+    use crate::multiplexer::state::MultiplexerState;
+
+    #[test]
+    fn pty_planner_input_spy_never_degrades_to_shell_write() {
+        let (mut mux, pane_id) = MultiplexerState::new();
+        let pane = mux.get_pane_mut(&pane_id).unwrap();
+        pane.backing = crate::multiplexer::types::PaneBacking::Pty;
+        pane.pty_id = Some("pty-planner".into());
+        pane.chat_view = true;
+        pane.agent_type = Some("codex".into());
+        pane.agent_session_id = Some("session".into());
+        pane.session_binding_nonce = Some("nonce".into());
+        pane.reported_session_binding_nonce = Some("nonce".into());
+        pane.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+
+        let payload = "- audit `model`\n- <nonexistent>\n$env:X='y'; $(false)";
+        let mut agent_input_spy = Vec::new();
+        submit_authenticated_pty_input(pane, "session", "nonce", payload, |pty, provider, text| {
+            agent_input_spy.push((pty.to_string(), provider.to_string(), text.to_string()));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            agent_input_spy,
+            [("pty-planner".into(), "codex".into(), payload.into())]
+        );
+
+        for shell in ["powershell", "bash", "zsh"] {
+            pane.agent_type = None;
+            pane.agent_session_id = None;
+            pane.reported_session_binding_nonce = None;
+            pane.agent_state = None;
+            pane.boot_stage = Some(codeterm_types::pty::BootStage::ShellReady);
+            let mut shell_write_spy = Vec::new();
+            let result =
+                submit_authenticated_pty_input(pane, "session", "nonce", payload, |_, _, text| {
+                    shell_write_spy.push((shell, text.to_string()));
+                    Ok(())
+                });
+            assert!(result.is_err());
+            assert!(shell_write_spy.is_empty(), "{shell} received planner bytes");
+        }
     }
 }

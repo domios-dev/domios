@@ -1,19 +1,7 @@
 /**
- * Regression: "Chat error: Pane has no PTY" on a fresh pane.
- *
- * Root cause: ChatComposer.tsx threw "Pane has no PTY" before calling
- * chat_send_text when currentPtyId was null — which happens on freshly
- * created panes before the backend links the PTY.  The backend handler
- * (send_text_when_ready → await_pty_link_blocking) already waits up to
- * 15s for the PTY, so the frontend guard was wrong.
- *
- * Fix: move the currentPtyId guard inside the fallbackCommand branch only
- * (CLI fallback commands write_pty_string directly and DO need the id).
- * Regular sends go through chat_send_text unconditionally.
- *
- * RED before fix: sending immediately after a fresh chat-view pane renders
- * produces a "Chat error: Pane has no PTY" notification toast.
- * GREEN after fix: no such toast; the backend waits for the PTY internally.
+ * WHAT: send on fresh pane covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 16-chat-view.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 
@@ -27,7 +15,6 @@ test(
       title: `pw-fresh-pane-send-${Date.now()}`,
     });
 
-    // Set agent_type + enable chat-view.  Each call emits a mux state-changed
     // event; the pane still has no pty_id at this point.
     await api.post(`/panes/${pane.id}/agent-type`, { agent_type: "claude" });
     await api.post(`/panes/${pane.id}/chat-view`, { enabled: true });
@@ -47,8 +34,6 @@ test(
       await tab.click();
     }
 
-    // Wait for the chat view to render.  The comment in TerminalPane says
-    // "No session-readiness gate" — PaneSessionChat renders immediately,
     const chat = ui.page.locator(
       `[data-testid="pane-session-chat"][data-pane-id="${pane.id}"]`,
     );
@@ -57,13 +42,13 @@ test(
     const composer = chat.locator('[data-testid="chat-composer"]');
     await expect(composer).toBeVisible({ timeout: 10_000 });
 
-    // Send a message immediately — this is the race window where pty_id may
     // still be null, which would have triggered "Pane has no PTY" before the fix.
     const marker = `pw-fresh-no-pty-send-${Date.now()}`;
     await composer.fill(marker);
     await composer.press("Enter");
 
     // Give any error notification time to appear.
+    // PW_JUSTIFIED_SLEEP: fixed 1_500ms sampling/settle window; no app event exists for this probe.
     await ui.page.waitForTimeout(1_500);
 
     // Assert: no "Pane has no PTY" toast.
@@ -72,8 +57,6 @@ test(
       .filter({ hasText: "Pane has no PTY" });
     await expect(paneHasNoPtyToast).toHaveCount(0);
 
-    // Assert: the optimistic user message was added to the chat history
-    // (addOptimistic fires before the backend call, so this confirms the send
     const userMsg = chat
       .locator('[data-testid="chat-message"][data-message-role="user"]')
       .filter({ hasText: marker });

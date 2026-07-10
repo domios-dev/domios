@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { invoke } from "../../lib/bridge";
 import type { MeshPeersResponse, DiscoveredPeer, MeshPairingRequest, PairedPeer } from "../../lib/types";
 import { UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
+import { BusySpinner } from "../shared/BusyState";
 
 const ACTION_BTN_CLASS = `${UI_BUTTON.ghost} ${UI_BUTTON.compact}`;
 const PRIMARY_BTN_CLASS = `${UI_BUTTON.accent} ${UI_BUTTON.compact}`;
@@ -185,7 +186,7 @@ export default function AddPeerPanel() {
             className={`${ACTION_BTN_CLASS} text-[var(--ct-muted)] disabled:opacity-40`}
           >
             {scanning ? (
-              <span className="w-2.5 h-2.5 border border-[var(--ct-accent)] border-t-transparent rounded-full animate-spin" />
+              <BusySpinner size={10} />
             ) : (
               <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <path d="M13.5 2.5A6.5 6.5 0 1 1 2.5 8" strokeLinecap="round" />
@@ -353,7 +354,7 @@ function DiscoveredPeerRow({
         </div>
         {isPending ? (
           <div className="flex items-center gap-2 flex-shrink-0">
-            <div className="w-3 h-3 border-2 border-[var(--ct-accent)] border-t-transparent rounded-full animate-spin" />
+            <BusySpinner size={12} />
             <span className="text-[10px] text-[var(--ct-muted-fg)]">
               Waiting… {elapsed}s
             </span>

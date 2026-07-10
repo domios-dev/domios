@@ -76,13 +76,10 @@ export function useAttachments({
 
   const handlePasteEvent = useCallback(async (e: ClipboardEvent) => {
     const cd = e.clipboardData;
-    // Capture the sync image File now — clipboardData is only valid during the
     // synchronous event dispatch; the async reads below would see it emptied.
     const syncImageFile = cd
       ? (Array.from(cd.items).find((it) => it.kind === "file" && it.type.startsWith("image/"))?.getAsFile() ?? null)
       : null;
-    // When the image is visible synchronously, stop the default paste AND the
-    // terminal's own window paste handler now (both can't be cancelled after an
     if (syncImageFile) {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -100,8 +97,6 @@ export function useAttachments({
       // Not in Tauri, or no files on the clipboard — continue.
     }
 
-    // 2. Screenshot / image. The synchronous paste event omits clipboard image
-    //    DATA on WebView2 / WKWebView, so a pasted screenshot never attached and
     const image = await readClipboardImage(syncImageFile);
     if (image) {
       e.preventDefault();

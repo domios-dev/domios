@@ -65,6 +65,10 @@ function loadCodexWithHost(host: unknown) {
   return context.module.exports.default;
 }
 
+function fixtureText(name: string): string {
+  return fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", name), "utf8");
+}
+
 const manifestSeed = {
   models: [
     { id: "seed-model", displayName: "Seed Model", description: "Manifest fallback" },
@@ -75,6 +79,8 @@ const baseHost = (over: Record<string, unknown>) => ({
   manifestJson: () => JSON.stringify(manifestSeed),
   homeDir: () => "/tmp/home",
   platform: () => "linux",
+  unixNowMs: () => 1_000_000,
+  path: { equal: (a: string, b: string) => a === b },
   expandHome: (v: string) => v.replace(/^~/, "/tmp/home"),
   envGet: () => null,
   log: () => {},
@@ -85,6 +91,7 @@ const baseHost = (over: Record<string, unknown>) => ({
     readJson: () => null,
     writeJson: () => true,
     writeFile: () => true,
+    walkDir: () => [],
   },
   ...over,
 });
@@ -117,6 +124,135 @@ assert(!plugin.detect({ bytes: "claude code", title: "claude" }), "claude title 
 console.log("\n--- statusOf ---\n");
 eq(plugin.statusOf({ kind: "anything" }), null, "statusOf always returns null (PTY-driven status)");
 
+console.log("\n--- sessions ---\n");
+{
+  const files = [
+    {
+      isFile: true,
+      name: "rollout-2026-05-01T10-00-00-11111111-1111-1111-1111-111111111111.jsonl",
+      path: "/sessions/old.jsonl",
+      modifiedMs: 990000,
+    },
+    {
+      isFile: true,
+      name: "rollout-2026-05-01T10-05-00-22222222-2222-2222-2222-222222222222.jsonl",
+      path: "/sessions/new.jsonl",
+      modifiedMs: 999000,
+    },
+  ];
+  const host = baseHost({
+    fs: {
+      fileExists: (p: string) => p === "/sessions",
+      readFile: (p: string) => {
+        if (p === "/sessions/old.jsonl") {
+          return '{"type":"session_meta","payload":{"id":"11111111-1111-1111-1111-111111111111","cwd":"/work/proj"}}\n';
+        }
+        if (p === "/sessions/new.jsonl") {
+          return '{"type":"session_meta","payload":{"id":"22222222-2222-2222-2222-222222222222","cwd":"/work/proj"}}\n';
+        }
+        return null;
+      },
+      readJson: () => null,
+      writeJson: () => true,
+      writeFile: () => true,
+      walkDir: () => files,
+    },
+    envGet: (k: string) => k === "CODETERM_CODEX_SESSIONS_ROOT" ? "/sessions" : null,
+  });
+  const p = loadCodexWithHost(host);
+  eq(
+    p.detectSessionId("/work/proj", ["11111111-1111-1111-1111-111111111111"], 300000),
+    "22222222-2222-2222-2222-222222222222",
+    "detectSessionId returns newest matching unclaimed rollout",
+  );
+  eq(p.detectSessionId("/other/proj", [], 300000), null, "detectSessionId filters cwd");
+}
+
+console.log("\n--- parseUsage (/status screen) ---\n");
+{
+  const evp = loadHostPlugin();
+  const nowMs = new Date(2026, 5, 14, 12, 0, 0, 0).getTime();
+  const statusScreen = fixtureText("codex-status-legacy.txt");
+  const snap = evp.parseUsage(statusScreen, nowMs) as Record<string, unknown>;
+  eq(snap.session_pct, 42, "legacy fixture maps % left to % used for 5h limit");
+  eq(snap.weekly_pct, 28, "legacy fixture maps % left to % used for weekly limit");
+  assert(snap.session_resets_at_ms != null, "session reset timestamp parsed");
+  assert(snap.weekly_resets_at_ms != null, "weekly reset timestamp parsed");
+  eq(evp.parseUsage("OpenAI Codex\nloading…", nowMs), null, "parseUsage null without gauges");
+}
+
+console.log("\n--- parseUsage: /status gauges ---\n");
+{
+  const p = loadHostPlugin();
+  const now = new Date(2026, 5, 13, 10, 0, 0, 0).getTime();
+  const screen = fixtureText("codex-status-v0-142-4.txt");
+  const usage = p.parseUsage(screen, now);
+  eq(usage?.session_pct, 82, "v0.142.4 fixture keeps GENERAL family as session (not model)");
+  eq(usage?.weekly_pct, 56, "v0.142.4 fixture keeps weekly family on explicit label");
+  eq(
+    usage?.session_resets_at_ms,
+    new Date(2026, 5, 13, 23, 17, 0, 0).getTime(),
+    "session reset keeps local host-time mapping",
+  );
+  eq(
+    usage?.weekly_resets_at_ms,
+    new Date(2026, 6, 14, 7, 45, 0, 0).getTime(),
+    "weekly reset keeps local day/month mapping in host timezone",
+  );
+}
+
+console.log("\n--- parseUsage: robustness matrix (structural, not literal-copy) ---\n");
+{
+  const p = loadHostPlugin();
+  const now = new Date(2026, 5, 14, 12, 0, 0, 0).getTime();
+
+  // Deliberately shifted format: extra whitespace, reordered spacing,
+  // % used + % remaining in one screen, Month-Day reset order.
+  const shiftedText = fixtureText("codex-status-shifted.txt");
+  const shifted = p.parseUsage(shiftedText, now);
+  eq(shifted?.session_pct, 99, "shifted: '% used' passes through unchanged");
+  eq(shifted?.weekly_pct, 75, "shifted: weekly '25% remaining' inverts to 75 used");
+  assert(shifted?.session_resets_at_ms != null, "shifted: session reset parsed despite padding");
+  eq(
+    shifted?.weekly_resets_at_ms,
+    new Date(2026, 7, 3, 6, 0, 0, 0).getTime(),
+    "shifted: 'Aug 3' Month-Day reset order parsed",
+  );
+
+  // Alternate 5-hour label word form + '% remaining' + DD-Mon reset order.
+  const word = p.parseUsage(fixtureText("codex-status-wordlabel.txt"), now);
+  eq(word?.session_pct, 65, "wordlabel: '5 hour limit' + '35% remaining' -> 65 used");
+  eq(word?.weekly_pct, 20, "wordlabel: weekly '80% left' -> 20 used");
+  assert(word?.session_resets_at_ms != null, "wordlabel: session reset parsed");
+  assert(word?.weekly_resets_at_ms != null, "wordlabel: '14 Jun' DD-Mon reset parsed");
+
+  // Same shifted screen with carriage returns must not break parsing.
+  const shiftedCrlf = p.parseUsage(shiftedText.replace(/\n/g, "\r\n"), now);
+  eq(shiftedCrlf?.session_pct, shifted?.session_pct, "crlf: shifted session survives CRLF");
+  eq(shiftedCrlf?.weekly_pct, shifted?.weekly_pct, "crlf: shifted weekly survives CRLF");
+
+  // CRLF-only inline variant with a dash label.
+  const crlf = p.parseUsage(
+    "OpenAI Codex\r\n5-hour limit ██░ 40% left (resets 19:59)\r\n" +
+      "Weekly limit █░ 30% used (resets 19:59 on 14 Jun)\r\n",
+    now,
+  );
+  eq(crlf?.session_pct, 60, "crlf: '5-hour' dash label + '40% left' -> 60 used");
+  eq(crlf?.weekly_pct, 30, "crlf: weekly '30% used' passes through");
+
+  // Percent-used semantics guard: 'left'/'remaining' invert, 'used' does not.
+  eq(
+    p.parseUsage("General 5h limit █ 10% left (resets 19:59)", now)?.session_pct,
+    90,
+    "semantics: '10% left' -> 90 used",
+  );
+  eq(
+    p.parseUsage("General 5h limit █ 10% used (resets 19:59)", now)?.session_pct,
+    10,
+    "semantics: '10% used' -> 10 used",
+  );
+}
+
 console.log("\n--- actions ---\n");
 eq(plugin.actions, [], "no actions defined yet");
 
@@ -125,7 +261,6 @@ assert(plugin.titlePattern instanceof RegExp, "titlePattern is RegExp");
 assert(plugin.titlePattern!.test("codex"), "titlePattern matches 'codex'");
 assert(Array.isArray(plugin.noisePatterns) && plugin.noisePatterns.length > 0, "noisePatterns non-empty");
 
-// No image-send strategy → path fallback used by host
 assert(plugin.imageSend === undefined, "imageSend undefined (host falls back to path strategy)");
 
 console.log("\n--- hasEventMarkers: picker/menu screens gate a screen read (/model) ---\n");
@@ -309,6 +444,60 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
   );
 }
 
+{
+  const patchBody = [
+    "*** Begin Patch",
+    "*** Update File: cli/src/cmd/mem/mod.rs",
+    "@@",
+    "-old",
+    "+new",
+    "*** End Patch",
+  ].join("\n");
+  const structuredChunk = [
+    JSON.stringify({
+      type: "response_item",
+      timestamp: "2026-06-23T18:05:59.394Z",
+      payload: {
+        type: "custom_tool_call",
+        name: "apply_patch",
+        call_id: "call_patch_1",
+        input: patchBody,
+      },
+    }),
+    JSON.stringify({
+      type: "event_msg",
+      timestamp: "2026-06-23T18:05:59.398Z",
+      payload: {
+        type: "patch_apply_end",
+        call_id: "call_patch_1",
+        stdout: "Success. Updated the following files:\nM cli/src/cmd/mem/mod.rs\n",
+        success: true,
+      },
+    }),
+    JSON.stringify({
+      type: "response_item",
+      timestamp: "2026-06-23T18:06:00.000Z",
+      payload: {
+        type: "function_call",
+        name: "exec_command",
+        arguments: JSON.stringify({ cmd: 'rg -n "needle" src' }),
+      },
+    }),
+  ].join("\n");
+  const structuredParsed = hostPlugin.parseSessionDelta(structuredChunk) as { messages: any[] };
+  eq(structuredParsed.messages.length, 3, "apply_patch + patch_apply_end + exec_command survive parseSessionDelta");
+  eq(structuredParsed.messages[0].blocks[0].kind, "tool_use", "custom_tool_call maps to tool_use");
+  eq(structuredParsed.messages[0].blocks[0].data.name, "apply_patch", "apply_patch name preserved");
+  assert(
+    String(structuredParsed.messages[0].blocks[0].data.input.patch).includes("*** Begin Patch"),
+    "apply_patch input stored as patch text",
+  );
+  eq(structuredParsed.messages[0].blocks[0].data.id, "call_patch_1", "call_id forwarded as tool id");
+  eq(structuredParsed.messages[1].blocks[0].kind, "tool_result", "patch_apply_end maps to tool_result");
+  eq(structuredParsed.messages[1].blocks[0].data.tool_use_id, "call_patch_1", "patch result links to call_id");
+  eq(structuredParsed.messages[2].blocks[0].data.input.command, 'rg -n "needle" src', "exec_command still parses");
+}
+
 console.log("\n--- discoverModels ---\n");
 
 {
@@ -361,7 +550,6 @@ console.log("\n--- discoverModels ---\n");
 
 console.log("\n--- binding nonce (install + outdated detection) ---\n");
 
-// Install must emit the X-CodeTerm-Binding-Nonce header so the provider's
 // session-start report can prove pane ownership (release/1.4.6 binding-nonce).
 {
   let writtenJson: any = null;
@@ -385,7 +573,6 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
   );
 }
 
-// A hook lacking the nonce header is pre-nonce → must read as not-current so
 // startup reinstalls it; a hook carrying it is current.
 {
   const sessionStartHook = (cmd: string) =>
@@ -413,6 +600,56 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
     current.checkIntegration().session_start_hook === true,
     "hook carrying the binding-nonce header reads as current",
   );
+}
+
+{
+  const hooksPath = "/tmp/home/.codex/hooks.json";
+  const configPath = "/tmp/home/.codex/config.toml";
+  const hookJson = {
+    hooks: {
+      SessionStart: [{
+        hooks: [{
+          command:
+            "curl -s -X POST http://localhost:7686/api/panes/$CODETERM_PANE_ID/hook/session_start " +
+            "-H 'X-CodeTerm-Agent-Provider: codex' " +
+            '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" --data-binary @-',
+        }],
+      }],
+    },
+  };
+  let config = [
+    "[hooks.state]",
+    "",
+    `[hooks.state."${hooksPath}:session_start:0:0"]`,
+    'trusted_hash = "sha256:test"',
+    "enabled = false",
+    "",
+  ].join("\n");
+  const p = loadCodexWithHost(
+    baseHost({
+      fs: {
+        fileExists: (p: string) => p === hooksPath || p === configPath,
+        readJson: (p: string) => (p === hooksPath ? hookJson : null),
+        readFile: (p: string) => (p === configPath ? config : ""),
+        writeJson: () => true,
+        writeFile: (p: string, body: string) => {
+          if (p === configPath) {
+            config = body;
+          }
+          return true;
+        },
+      },
+    }),
+  );
+
+  const status = p.checkIntegration();
+  assert(status.session_start_hook === false, "disabled Codex hook trust makes integration unhealthy");
+  assert(status.hook_trust_enabled === false, "disabled Codex hook trust is surfaced explicitly");
+
+  const repaired = p.ensureIntegrationOnStartup(7686);
+  assert(repaired.ok === true, "ensureIntegrationOnStartup repairs disabled hook trust");
+  assert(config.indexOf("enabled = true") !== -1, "disabled hook trust is re-enabled in config.toml");
+  assert(p.checkIntegration().session_start_hook === true, "re-enabled hook trust makes integration healthy");
 }
 
 {

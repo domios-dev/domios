@@ -378,11 +378,9 @@ mod tests {
         assert_eq!(v.value.expose_secret(), "sk-abc");
         assert_eq!(v.name, "openai-prod");
 
-        // case-insensitive name lookup
         let v2 = store.get("OPENAI-PROD").await.unwrap();
         assert_eq!(v2.value.expose_secret(), "sk-abc");
 
-        // by id
         let v3 = store.get(&r.item_id).await.unwrap();
         assert_eq!(v3.value.expose_secret(), "sk-abc");
 
@@ -421,7 +419,6 @@ mod tests {
 
         let all = store.list(ListFilter::default()).await.unwrap();
         assert_eq!(all.len(), 3);
-        // sorted alphabetically
         assert_eq!(all[0].name, "openai-prod");
         assert_eq!(all[1].name, "openai-staging");
         assert_eq!(all[2].name, "slack-webhook");

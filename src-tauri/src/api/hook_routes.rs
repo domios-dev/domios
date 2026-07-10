@@ -3,6 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::api::routes::{resolve_pane, AppState};
 
@@ -10,6 +11,14 @@ use crate::api::routes::{resolve_pane, AppState};
 struct SessionStartClaim {
     prev: Option<String>,
     changed: bool,
+    nonce_verified: bool,
+}
+
+fn epoch_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// Ensure agent state is set when a hook fires.
@@ -28,7 +37,6 @@ fn ensure_agent_state(state: &AppState, pane_id: &str) {
 
     let agent_changed = agent_type.is_none();
     if agent_changed {
-        // TODO(plugin-prep): when plugins can register HTTP routes, move this whole hook handler into plugin/agent_claude/ and let each provider own
         // its own hook endpoints.
         state
             .svc
@@ -136,7 +144,6 @@ pub async fn hook_permission(
             if !matches!(decision, crate::agent::prompt::PromptDecision::None) {
                 decision
             } else {
-                // Fallback: raw output buffer (preserves UTF-8, contains ANSI). VT100 parser can garble multi-byte chars (C1 byte stripping), so we try the
                 // raw buffer with ANSI stripped as a second source.
                 let raw = state
                     .svc
@@ -250,10 +257,9 @@ pub async fn hook_session_start(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
     let body = body.map(|Json(v)| v).unwrap_or(serde_json::Value::Null);
-    let session_id = body
-        .get("session_id")
-        .and_then(|v| v.as_str())
-        .map(String::from);
+    let session_id = session_start_string(&body, &["session_id"])
+        .or_else(|| session_start_string(&body, &["payload", "session_id"]))
+        .or_else(|| session_start_string(&body, &["payload", "id"]));
     let source = body
         .get("source")
         .and_then(|v| v.as_str())
@@ -306,11 +312,14 @@ pub async fn hook_session_start(
         )?
     };
 
-    // Capture the freshly-bound session onto the hidden run's record (worker / cron) immediately, so a LIVE run is renderable in the read-only chat-ui
     // while it runs — not only after completion.
     propagate_run_session(&state, &pane_id, &sid);
 
     if !claim.changed {
+        if claim.nonce_verified {
+            state.svc.bind_planner_session(&pane_id);
+            state.svc.schedule_planner_replay(&pane_id);
+        }
         return Ok(Json(serde_json::json!({"ok": true, "changed": false})));
     }
 
@@ -322,7 +331,41 @@ pub async fn hook_session_start(
         claim.prev.as_deref().unwrap_or("-"),
         sid
     );
+    if let Ok(Some(resume)) =
+        state
+            .svc
+            .plan_store
+            .observe_handoff_session_start(&pane_id, &sid, epoch_ms())
+    {
+        match state.svc.send_text(&resume.pane_id, &resume.text, true) {
+            Ok(()) => {
+                let _ = state.svc.plan_store.mark_handoff_resume_sent(
+                    &resume.plan_id,
+                    &resume.handoff_id,
+                    epoch_ms(),
+                );
+                let _ = state.svc.plan_store.ack_handoff_resume(
+                    &resume.plan_id,
+                    &resume.handoff_id,
+                    epoch_ms(),
+                );
+                crate::api::events::emit_everywhere(
+                    &state.svc.app_handle,
+                    "plan-changed",
+                    serde_json::json!({ "plan_id": resume.plan_id }),
+                );
+            }
+            Err(e) => log::warn!(
+                "[handoff_reseed] resume send failed pane={} handoff={}: {}",
+                resume.pane_id,
+                resume.handoff_id,
+                e
+            ),
+        }
+    }
     state.svc.chat_registry.shutdown_pane(&pane_id);
+    state.svc.bind_planner_session(&pane_id);
+    state.svc.schedule_planner_replay(&pane_id);
     state.svc.emit_state_changed();
     Ok(Json(serde_json::json!({"ok": true, "changed": true})))
 }
@@ -331,10 +374,21 @@ fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     headers.get(name).and_then(|v| v.to_str().ok())
 }
 
+fn session_start_string(body: &serde_json::Value, path: &[&str]) -> Option<String> {
+    let mut cur = body;
+    for key in path {
+        cur = cur.get(*key)?;
+    }
+    cur.as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+}
+
 /// Push the just-bound session id (+cwd) onto whatever hidden run owns this pane
 /// (mem worker or cron run), so the read-only chat-ui can render it live.
 fn propagate_run_session(state: &AppState, pane_id: &str, sid: &str) {
-    use tauri::{Emitter, Manager};
+    use tauri::Manager;
 
     let (worker_id, cwd) = {
         let mux = state.svc.mux.write();
@@ -351,7 +405,11 @@ fn propagate_run_session(state: &AppState, pane_id: &str, sid: &str) {
             .workers
             .set_run_session(&wid, sid.to_string(), cwd.clone());
         if let Some(info) = state.svc.workers.get(&wid) {
-            let _ = state.svc.app_handle.emit("graph-worker-progress", &info);
+            crate::api::events::emit_everywhere(
+                &state.svc.app_handle,
+                "graph-worker-progress",
+                &info,
+            );
         }
     }
 
@@ -364,7 +422,7 @@ fn propagate_run_session(state: &AppState, pane_id: &str, sid: &str) {
             cron_state
                 .lock()
                 .set_run_session(&job_id, &run_id, sid, cwd.as_deref());
-            let _ = state.svc.app_handle.emit("cron-state-changed", ());
+            crate::api::events::emit_everywhere(&state.svc.app_handle, "cron-run-finished", ());
         }
     }
 }
@@ -420,8 +478,6 @@ fn bind_reported_session(
     }
     let cwd = pane.cwd.clone().unwrap_or_default();
 
-    // A verified launch nonce already proves ownership; the session file just hasn't
-    // been persisted yet (fresh agent spawn at session_start). Only gate nonce-less /
     let exists = nonce_verified
         || registry
             .with_provider(provider_id, |p| p.session_exists(&cwd, sid))
@@ -474,7 +530,13 @@ fn bind_reported_session(
     if changed {
         pane.agent_session_id = Some(sid.to_string());
     }
-    Ok(SessionStartClaim { prev, changed })
+    pane.reported_session_binding_nonce =
+        nonce_verified.then(|| report_nonce.unwrap_or_default().to_string());
+    Ok(SessionStartClaim {
+        prev,
+        changed,
+        nonce_verified,
+    })
 }
 
 #[cfg(test)]
@@ -579,6 +641,7 @@ mod tests {
             SessionStartClaim {
                 prev: None,
                 changed: true,
+                nonce_verified: false,
             }
         );
 
@@ -589,6 +652,7 @@ mod tests {
             SessionStartClaim {
                 prev: Some("sid-a".into()),
                 changed: true,
+                nonce_verified: false,
             }
         );
         let pane = mux.get_pane(&pane_id).unwrap();
@@ -603,6 +667,7 @@ mod tests {
             SessionStartClaim {
                 prev: Some("sid-b".into()),
                 changed: false,
+                nonce_verified: false,
             }
         );
     }
@@ -738,8 +803,6 @@ mod tests {
 
     #[test]
     fn fresh_launch_with_matching_nonce_accepts_unpersisted_session() {
-        // P0.2 regression: a session WE just launched carries a valid per-launch
-        // nonce but is not yet on disk at session_start time. A matching nonce is
         let (mut mux, pane_id) = MultiplexerState::new();
         let pane = mux.get_pane_mut(&pane_id).unwrap();
         pane.cwd = Some("/tmp/project".into());
@@ -767,8 +830,32 @@ mod tests {
     }
 
     #[test]
+    fn session_start_string_reads_codex_session_meta_payload() {
+        let body = serde_json::json!({
+            "type": "session_meta",
+            "payload": {
+                "session_id": "sid-from-payload",
+                "id": "sid-from-id"
+            }
+        });
+
+        assert_eq!(
+            session_start_string(&body, &["payload", "session_id"]).as_deref(),
+            Some("sid-from-payload")
+        );
+
+        let fallback = serde_json::json!({
+            "type": "session_meta",
+            "payload": { "id": "sid-from-id" }
+        });
+        assert_eq!(
+            session_start_string(&fallback, &["payload", "id"]).as_deref(),
+            Some("sid-from-id")
+        );
+    }
+
+    #[test]
     fn pane_with_nonce_but_nonceless_report_rejects_unpersisted_session() {
-        // CB181 preserved: without a matching nonce, an unknown/unpersisted sid is
         // still gated by session_exists — a nonce-less report is not proof-of-ownership.
         let (mut mux, pane_id) = MultiplexerState::new();
         let pane = mux.get_pane_mut(&pane_id).unwrap();
@@ -786,7 +873,6 @@ mod tests {
 
     #[test]
     fn fresh_launch_with_matching_nonce_still_rejects_already_claimed_sid() {
-        // A valid nonce skips session_exists, but the already-claimed guard must
         // still fire — two panes cannot own the same live session.
         let (mut mux, pane_a) = MultiplexerState::new();
         mux.get_pane_mut(&pane_a).unwrap().cwd = Some("/tmp/project".into());

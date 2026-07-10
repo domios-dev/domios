@@ -152,7 +152,6 @@ export interface HostWorkspace {
   panes(workspaceId: string): PaneRef[];
 }
 
-// Long-lived agent sessions the plugin owns and reaps: spawn (fresh), resume (a stored
 // session), get (the plugin's key→session map). send/poll is the job-id bridge — the VM never blocks.
 export interface HostAgent {
   spawn(
@@ -183,7 +182,6 @@ export interface HostProgressOpts {
 }
 
 export interface Host {
-  // ── Identity / paths ──
   platform(): string;
   homeDir(): string | null;
   expandHome(path: string): string | null;
@@ -192,7 +190,6 @@ export interface Host {
   unixNowMs(): number;
   md5(s: string): string;
 
-  // ── Filesystem (raw bindings) ──
   fileExists(path: string): boolean;
   readFile(path: string): string | null;
   writeFile(path: string, contents: string): boolean;
@@ -203,14 +200,11 @@ export interface Host {
   writeTempFile(contents: string, suffix?: string): string | null;
   sqliteQueryAllJson(db: string, sql: string, paramsJson?: string | null): string | null;
 
-  // ── Shell / process ──
   shellQuote(s: string): string;
   shellQuoteFor(s: string, platform: string): string;
 
-  // ── Logging ──
   log(level: "trace" | "debug" | "info" | "warn" | "error", msg: string): void;
 
-  // ── host_api v2: subprocess / network / secrets / settings ──
   settingsJson(): string;
   exec: HostExec;
   execStart(optsJson: string): string;
@@ -227,11 +221,9 @@ export interface Host {
   // (`none`) is never confused with "broken call" (`malformed`, must be retried) vs `ok`.
   toolcallParse(rawText: string, schemaJson: string): string;
 
-  // ── Manifest (raw + parsed via preamble) ──
   manifestJson(): string | null;
   manifest(): unknown;
 
-  // ── Preamble convenience layer ──
   fs: HostFs;
   shell: HostShell;
   path: HostPath;
@@ -239,7 +231,6 @@ export interface Host {
   toolcall: { parse(rawText: string, schemaJson: string): string };
   progress(opts: HostProgressOpts): void;
 
-  // ── host compute base (permissioned; job-id/poll bridge) ──
   worker: HostWorker;
   workspace: HostWorkspace;
   agent: HostAgent;

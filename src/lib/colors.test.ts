@@ -45,9 +45,7 @@ assertHex("0.5 = midpoint", blendColor("#000000", "#ffffff", 0.5), "#808080");
 console.log("\nderiveColor:");
 const darkDerived = deriveColor("#0d1117", 10);
 const lightDerived = deriveColor("#f0f0f0", 10);
-// Dark color should get lighter
 assert("dark gets lighter", parseHex(darkDerived)[0] > parseHex("#0d1117")[0], true);
-// Light color should get darker
 assert("light gets darker", parseHex(lightDerived)[0] < parseHex("#f0f0f0")[0], true);
 
 // ── adjustBrightness ─────────────────────────────────────────────

@@ -164,7 +164,6 @@ pub async fn backfill(
     let start = body.before_offset.saturating_sub(max_bytes);
     let end = body.before_offset;
 
-    // Read the bounded slice directly so we don't re-ship messages past `before_offset`. parse_session_delta(path, from) reads to EOF — that's the
     // wrong semantics for backfill. Slice + temp file gives us a hard upper bound without changing the trait.
     let bytes = std::fs::read(&path)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "read jsonl failed"))?;
@@ -214,6 +213,8 @@ pub async fn backfill(
 pub struct ChatQuery {
     #[serde(default)]
     pub since: usize,
+    #[serde(default)]
+    pub caller: Option<String>,
 }
 
 /// GET /api/panes/:id/chat?since=N — stateless normalized-chat read (no tailer).
@@ -224,6 +225,9 @@ pub async fn snapshot(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    if let Some(caller) = q.caller.as_deref().filter(|s| !s.is_empty()) {
+        state.svc.maybe_send_polling_nudge(caller, &pane_id);
+    }
     let (messages, total) =
         crate::service::pane_chat::pane_chat_snapshot(&state.svc, &pane_id, q.since)
             .map_err(|_| (StatusCode::BAD_REQUEST, "chat snapshot failed"))?;

@@ -36,7 +36,6 @@ export function useTabCompletion({
   const trackerRef = useRef<InputTracker | null>(null);
   const engineRef = useRef<CompletionEngine | null>(null);
 
-  // Init completion engine once
   useEffect(() => {
     const tracker = new InputTracker();
     const engine = new CompletionEngine();

@@ -10,11 +10,22 @@ use super::provider::{AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskD
 
 pub struct MockProvider {
     id: String,
+    supports_chat_ui: bool,
 }
 
 impl MockProvider {
     pub fn new(id: &str) -> Self {
-        Self { id: id.to_string() }
+        Self {
+            id: id.to_string(),
+            supports_chat_ui: false,
+        }
+    }
+
+    pub fn with_chat_ui(id: &str) -> Self {
+        Self {
+            id: id.to_string(),
+            supports_chat_ui: true,
+        }
     }
 }
 
@@ -32,6 +43,9 @@ impl AgentProvider for MockProvider {
         ReadinessStrategy::FixedDelay {
             duration: Duration::from_millis(0),
         }
+    }
+    fn supports_chat_ui(&self) -> bool {
+        self.supports_chat_ui
     }
     fn task_delivery(&self) -> TaskDelivery {
         TaskDelivery::PtyInput

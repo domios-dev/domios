@@ -191,7 +191,6 @@ pub async fn mesh_disconnect_peer(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing instance_id".to_string()))?
         .to_string();
 
-    // Accept either a UUID (paired_peers map key) or an instance_name. CLI users typically copy names from `mesh peers` output; resolving here
     // keeps the API forgiving without bloating the CLI.
     let (instance_id, peer, signed_token, our_id) = {
         let m = state.mesh.lock();

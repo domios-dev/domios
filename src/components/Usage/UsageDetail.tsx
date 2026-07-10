@@ -9,7 +9,7 @@ import {
   type SessionProjection,
   type WeeklyProjection,
 } from "../../hooks/useUsageSnapshot";
-import { formatRelative, formatResetsAt } from "./format";
+import { formatRelative, formatResetsAt, formatSpend } from "./format";
 import {
   activeWeeklyCycle,
   buildWeekBuckets,
@@ -160,6 +160,84 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: Usag
           <span>Full view</span>
           <ArrowRight size={11} />
         </button>
+      </div>
+    </div>
+  );
+}
+
+// the cycle spend and reset instead of the gauge/projection machinery.
+export function UsageSpendDetail({ snapshot, flipUp, onRefresh }: UsageDetailProps) {
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshStartRef = useRef<number>(0);
+  const now = Date.now();
+  const isStale = now - snapshot.captured_at > STALE_MS;
+  const remainingCents = snapshot.spend_remaining_cents;
+  const limitCents = snapshot.spend_limit_cents;
+  const hasQuota = remainingCents != null || limitCents != null;
+
+  useEffect(() => {
+    if (!refreshing) return;
+    if (snapshot.captured_at > refreshStartRef.current) {
+      setRefreshing(false);
+      return;
+    }
+    const t = setTimeout(() => setRefreshing(false), REFRESH_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [snapshot.captured_at, refreshing]);
+
+  const handleRefresh = async () => {
+    if (refreshing) return;
+    refreshStartRef.current = Date.now();
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } catch {
+      setRefreshing(false);
+    }
+  };
+
+  return (
+    <div className={`ct-usage-popover ${flipUp ? "up" : "down"}`} role="dialog" aria-label="usage details">
+      <div className="head">
+        <span className="title">{snapshot.provider} usage</span>
+        <button
+          type="button"
+          className={`ico-btn ${refreshing ? "spin" : ""}`}
+          onClick={handleRefresh}
+          title={refreshing ? "Refreshing…" : "Refresh"}
+          aria-label="Refresh usage"
+          aria-busy={refreshing}
+          disabled={refreshing}
+        >
+          <RefreshCw />
+        </button>
+      </div>
+
+      {isStale && (
+        <div className="ct-usage-stale-banner">
+          Data may be outdated — last updated {formatRelative(now, snapshot.captured_at)}
+        </div>
+      )}
+
+      <div className="ct-usage-spend">
+        <span className="amount">{formatSpend(snapshot.spend_cents ?? 0)}</span>
+        <span className="caption">spent this cycle</span>
+        {hasQuota && (
+          <div className="quota">
+            <span>{remainingCents != null ? formatSpend(remainingCents) : "—"} left</span>
+            <span>{limitCents != null ? `${formatSpend(limitCents)} limit` : "limit —"}</span>
+          </div>
+        )}
+        <span className="reset">
+          {snapshot.spend_resets_at ? formatResetsAt(snapshot.spend_resets_at, now) : "—"}
+        </span>
+      </div>
+
+      <div className="ct-usage-foot">
+        <span className="live">
+          <span className="pulse" />
+          <span>last updated {formatRelative(now, snapshot.captured_at)}</span>
+        </span>
       </div>
     </div>
   );

@@ -16,7 +16,6 @@ export function computeTreeLayout(
 ): void {
   if (nodes.size === 0) return;
 
-  // Build adjacency: parentId -> children
   const children = new Map<string | null, SwarmNode[]>();
   const roots: SwarmNode[] = [];
 
@@ -31,11 +30,9 @@ export function computeTreeLayout(
   }
 
   if (roots.length === 0) {
-    // All nodes have parents but parents are missing — treat all as roots
     for (const node of nodes.values()) roots.push(node);
   }
 
-  // Measure subtree widths for centering
   function subtreeWidth(nodeId: string): number {
     const kids = children.get(nodeId) || [];
     if (kids.length === 0) return NODE_W;
@@ -44,7 +41,6 @@ export function computeTreeLayout(
     return Math.max(NODE_W, totalKids + gaps);
   }
 
-  // Position a node and its descendants
   function positionSubtree(node: SwarmNode, cx: number, y: number): void {
     node.targetX = cx - NODE_W / 2;
     node.targetY = y;
@@ -63,7 +59,6 @@ export function computeTreeLayout(
     }
   }
 
-  // Position all root trees side by side, centered horizontally
   const totalRootsW = roots.reduce((sum, r) => sum + subtreeWidth(r.id), 0)
     + (roots.length - 1) * H_GAP;
   let startX = canvasW / 2 - totalRootsW / 2;

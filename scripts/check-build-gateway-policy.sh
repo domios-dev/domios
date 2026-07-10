@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+TEST_ROOT="$ROOT/.research/build-perf/gateway-policy-$$"
+export CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$TEST_ROOT/state"
+mkdir -p "$TEST_ROOT"
+cleanup() {
+  local rc="$?"
+  [ "$rc" -ne 0 ] || rm -rf "$TEST_ROOT"
+  return "$rc"
+}
+trap cleanup EXIT
+
+if CODETERM_BUILD_GATEWAY_DIR="$TEST_ROOT/alternate" ./build.sh gateway-fake spoof 0 success \
+    > "$TEST_ROOT/alternate-gateway.log" 2>&1; then
+  echo "alternate production gateway scope unexpectedly passed" >&2
+  exit 1
+fi
+grep -q "cannot redirect the machine build gateway" "$TEST_ROOT/alternate-gateway.log"
+
+if CT_BUILD_GATEWAY_SCOPE=fixture ./build.sh gateway-fake spoof 0 success \
+    > "$TEST_ROOT/forged-fixture-scope.log" 2>&1; then
+  echo "forged internal fixture scope unexpectedly passed" >&2
+  exit 1
+fi
+grep -q "internal to fake gateway commands" "$TEST_ROOT/forged-fixture-scope.log"
+
+if CODETERM_INTEGRATION_WORKTREE="$ROOT" ./build.sh gateway-policy-probe integration-owner \
+    > "$TEST_ROOT/self-designated-integration.log" 2>&1; then
+  echo "self-designated integration worktree unexpectedly passed" >&2
+  exit 1
+fi
+grep -q "cannot designate build ownership" "$TEST_ROOT/self-designated-integration.log"
+
+if scripts/qa-prep.sh > "$TEST_ROOT/direct-qa-prep.log" 2>&1; then
+  echo "direct qa-prep unexpectedly bypassed the gateway" >&2
+  exit 1
+fi
+grep -q "internal build.sh child" "$TEST_ROOT/direct-qa-prep.log"
+
+if CODETERM_BUILD_GATEWAY_ACTIVE=1 CODETERM_BUILD_GATEWAY_JOB_ID=forged scripts/qa-prep.sh \
+    > "$TEST_ROOT/forged-qa-env.log" 2>&1; then
+  echo "forged QA environment markers unexpectedly passed" >&2
+  exit 1
+fi
+grep -q "environment gateway markers are not accepted" "$TEST_ROOT/forged-qa-env.log"
+
+source scripts/build-gateway.sh
+forged_parent_start="$(ct_gateway_process_start_token "$$")"
+if scripts/qa-prep.sh --gateway-context forged "$$" "$forged_parent_start" qa-prep --probe-only \
+    > "$TEST_ROOT/forged-qa-parent.log" 2>&1; then
+  echo "non-build.sh QA parent unexpectedly passed" >&2
+  exit 1
+fi
+grep -q "parent is not build.sh" "$TEST_ROOT/forged-qa-parent.log"
+
+CT_BUILD_JOB_ID=qa-child ./build.sh gateway-policy-probe qa-child > "$TEST_ROOT/qa-child.log"
+grep -q "parent/lock/worktree/command/source verified" "$TEST_ROOT/qa-child.log"
+
+if CODETERM_EXPECTED_BUILD_SHA=definitely-wrong ./build.sh gateway-policy-probe release-source \
+    > "$TEST_ROOT/release-mismatch.log" 2>&1; then
+  echo "release source mismatch unexpectedly passed" >&2
+  exit 1
+fi
+grep -q "release source mismatch" "$TEST_ROOT/release-mismatch.log"
+
+CT_BUILD_JOB_ID=release-policy ./build.sh gateway-policy-probe release-target > "$TEST_ROOT/release-policy.log"
+grep -q "incremental=0" "$TEST_ROOT/release-policy.log"
+grep -q "/targets/release/release-policy" "$TEST_ROOT/release-policy.log"
+
+FAKE_BIN="$TEST_ROOT/fake-bin"
+mkdir -p "$FAKE_BIN"
+printf '#!/usr/bin/env bash\ncase "${1:-}" in --show-stats) echo fake-stats;; --version) echo sccache-fixture;; esac\n' > "$FAKE_BIN/sccache"
+chmod +x "$FAKE_BIN/sccache"
+CT_BUILD_JOB_ID=worktree-policy PATH="$FAKE_BIN:$PATH" \
+  ./build.sh gateway-policy-probe worktree-target > "$TEST_ROOT/worktree-policy.log"
+grep -q "incremental=0" "$TEST_ROOT/worktree-policy.log"
+grep -q "/targets/exceptional/" "$TEST_ROOT/worktree-policy.log"
+grep -q "wrapper=sccache" "$TEST_ROOT/worktree-policy.log"
+
+./build.sh gateway-status > "$TEST_ROOT/status.json"
+node - <<'JS' "$TEST_ROOT/status.json"
+const status = require(process.argv[2]);
+if (status.state !== "idle" || status.queue.length !== 0 || status.active !== null) throw new Error("policy probes left gateway occupied");
+for (const id of ["qa-child", "release-policy", "worktree-policy"]) {
+  const job = status.recent.find((item) => item.job_id === id);
+  if (job?.state !== "completed") throw new Error(`${id} did not complete through gateway`);
+}
+JS
+
+echo "PASS build gateway ownership, exceptional cache, release freshness, and SHA policy"

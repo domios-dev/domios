@@ -22,7 +22,7 @@ pub async fn list_panes(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let result = crate::dispatch::dispatch(&crate::dispatch::Command::PaneList, &state.svc)
+    let result = crate::dispatch::dispatch(&crate::dispatch::Command::PaneList, state.svc.as_ref())
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list panes"))?;
     Ok(Json(result.into_json()))
 }
@@ -60,12 +60,8 @@ pub async fn create_shell_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     use crate::service::spawn::{PaneCommand, PaneVisibility, SpawnPaneSpec};
-    // P1: a chatBackend pane is the production entry point for plugin-driven
-    // chat. Build PaneCommand::ChatBackend so spawn routes through
     let command = match body.chat_backend {
         Some(plugin_id) => {
-            // Validate the id BEFORE building the pane. The old path accepted any
-            // string and 200'd even for unknown / non-spawnable backends; the async
             validate_chat_backend_spawn(&state.svc.provider_registry, &plugin_id)
                 .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
             let mut config = body.config.unwrap_or(serde_json::Value::Null);
@@ -73,6 +69,9 @@ pub async fn create_shell_pane(
                 body.system_prompt.as_deref(),
                 body.preset.as_deref(),
                 body.model.as_deref(),
+                None,
+                None,
+                None,
             );
             if let (Some(base), Some(extra)) = (config.as_object_mut(), overrides.as_object()) {
                 for (key, value) in extra {
@@ -81,7 +80,16 @@ pub async fn create_shell_pane(
             } else if !overrides.as_object().map(|o| o.is_empty()).unwrap_or(true) {
                 config = overrides;
             }
-            PaneCommand::ChatBackend { plugin_id, config }
+            crate::service::spawn::reject_direct_watcher_chatbackend_config(&config)
+                .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+            PaneCommand::ChatBackend {
+                plugin_id,
+                config,
+                role: None,
+                role_profile: None,
+                can_spawn: None,
+                watcher: None,
+            }
         }
         None => PaneCommand::Shell,
     };
@@ -104,7 +112,6 @@ pub async fn create_shell_pane(
         })
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     if let Some(cmd) = body.cmd {
-        // Script-exec path: bypasses bracketed-paste markers that leak into
         // bare shells which haven't armed DECSET ?2004 yet.
         state
             .svc
@@ -119,15 +126,18 @@ pub async fn create_shell_pane(
                 )
             })?;
     }
-    // Mirror `pane_id` as `id` so the conventional CRUD idiom (`jq '.id'`, resp.get("id")) reaches the new pane without anyone having to learn our
     // per-resource naming. Both fields hold the same value.
-    Ok(Json(serde_json::json!({
+    let mut resp = serde_json::json!({
         "id": handle.pane_id,
         "pane_id": handle.pane_id,
         "workspace_id": handle.workspace_id,
         "tab_id": handle.tab_id,
         "pty_id": handle.pty_id,
-    })))
+    });
+    if let Some(ref notice) = handle.budget_notice {
+        resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
+    }
+    Ok(Json(resp))
 }
 
 /// Validate a `chat_backend` spawn target for POST /api/panes. `Ok(())` ⇒ the id
@@ -190,16 +200,12 @@ pub async fn stop_pane(
             ));
         }
     }
-    // Real interrupt key. No built-in provider declares `stop_keystroke()` (trait
-    // default is None), so without a fallback the REST/CLI stop would send NOTHING
     let key: String = state
         .svc
         .agent_registry
         .with_provider(&aid, |p| p.stop_keystroke().map(|s| s.to_string()))
         .flatten()
         .unwrap_or_else(|| "\x1b".to_string());
-    // Stop/Cancel is a user intent to halt: force Idle + clear any pending question
-    // immediately (with the suppression window). write_raw bypasses the manual-Esc
     if let Ok(pty_id) = resolve_pty_id_with_fallback(&state, &raw_pane_id) {
         state.svc.mark_agent_interrupted(&pty_id);
     }
@@ -217,9 +223,11 @@ pub async fn focus_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    let result =
-        crate::dispatch::dispatch(&crate::dispatch::Command::PaneFocus { pane_id }, &state.svc)
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+    let result = crate::dispatch::dispatch(
+        &crate::dispatch::Command::PaneFocus { pane_id },
+        state.svc.as_ref(),
+    )
+    .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
     Ok(Json(result.into_json()))
 }
 
@@ -269,7 +277,6 @@ pub async fn exec_in_pane(
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
 
-    // A freshly-spawned (lazy) pane has no PTY yet; ensure it before polling for
     // the link, else await_pty_link waits for a PTY nothing triggered and fails.
     state
         .svc
@@ -291,7 +298,6 @@ pub async fn exec_in_pane(
         .map(|t| t.len())
         .unwrap_or(0);
 
-    // Branch on agent presence: agent panes use the verified bracketed-paste
     // path; plain shell panes use script-exec so markers never leak literally.
     let has_agent = {
         let mux = state.svc.mux.write();
@@ -372,13 +378,37 @@ pub async fn close_pane(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(raw_pane_id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    let result =
-        crate::dispatch::dispatch(&crate::dispatch::Command::PaneClose { pane_id }, &state.svc)
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let caller_pane_id = caller_pane_header(&headers);
+    let result = crate::dispatch::dispatch(
+        &crate::dispatch::Command::PaneClose {
+            pane_id,
+            caller_pane_id,
+        },
+        state.svc.as_ref(),
+    )
+    .map_err(map_close_error)?;
     Ok(Json(result.into_json()))
+}
+
+pub(crate) fn caller_pane_header(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("X-CodeTerm-Pane-Id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// A self-termination refusal is a 403 (authenticated but forbidden); anything
+/// else from a close is a missing target.
+pub(crate) fn map_close_error(e: String) -> (StatusCode, String) {
+    if e.starts_with(crate::service::pane::SELF_CLOSE_REFUSAL_PREFIX) {
+        (StatusCode::FORBIDDEN, e)
+    } else {
+        (StatusCode::NOT_FOUND, e)
+    }
 }
 
 #[derive(Deserialize)]
@@ -399,7 +429,7 @@ pub async fn rename_pane(
             pane_id,
             title: body.title,
         },
-        &state.svc,
+        state.svc.as_ref(),
     )
     .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
     Ok(Json(result.into_json()))
@@ -423,7 +453,7 @@ pub async fn describe_pane(
             pane_id,
             description: body.description,
         },
-        &state.svc,
+        state.svc.as_ref(),
     )
     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(result.into_json()))
@@ -449,7 +479,7 @@ pub async fn resize_pane(
             cols: body.cols,
             rows: body.rows,
         },
-        &state.svc,
+        state.svc.as_ref(),
     )
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to resize PTY"))?;
     Ok(Json(result.into_json()))
@@ -474,8 +504,6 @@ pub async fn stream_pane_output(
     (StatusCode, &'static str),
 > {
     check_auth(&state, &headers)?;
-    // A chatBackend pane has no PTY output buffer — it streams transcript via the
-    // `pane-chat-msg-{id}` Tauri event (StructuredSink), not this SSE. Keep the
     let chat = state.svc.pane_chat_backing(&raw_pane_id).is_some();
     let pty_id = if chat {
         String::new()
@@ -610,6 +638,8 @@ fn resolve_pty_id_with_fallback(
 pub(crate) struct GetTextQuery {
     #[serde(default)]
     formatted: bool,
+    #[serde(default)]
+    caller: Option<String>,
 }
 
 pub async fn get_pane_usage(
@@ -655,6 +685,10 @@ pub async fn get_pane_text(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
+    if let Some(caller) = query.caller.as_deref().filter(|s| !s.is_empty()) {
+        let caller = resolve_pane(&state, caller).unwrap_or_else(|_| caller.to_string());
+        state.svc.maybe_send_polling_nudge(&caller, &pane_id);
+    }
     let cmd = crate::dispatch::Command::GetText {
         pane_id: pane_id.clone(),
         formatted: query.formatted,
@@ -769,6 +803,23 @@ pub async fn stop_capture(
         "cast": out.to_string_lossy(),
         "screen": screen_path.to_string_lossy(),
     })))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct LinkPtyBody {
+    pty_id: String,
+}
+
+/// Web-mirror twin of `mux_link_pty` — bind a spawned PTY to its pane record.
+pub async fn link_pty(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(pane_id): Path<String>,
+    Json(body): Json<LinkPtyBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    state.svc.link_pty(&pane_id, body.pty_id);
+    Ok(Json(serde_json::json!({"ok": true})))
 }
 
 #[cfg(test)]

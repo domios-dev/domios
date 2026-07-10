@@ -1,11 +1,7 @@
 /**
- * 06-mem core — save/get/update/delete + search + graph relate against the
- * dev console's OWN mem store (~/.codeterm-dev — fully isolated from prod
- * mem). Every item this suite creates is deleted in afterAll.
- *
- * Search assertions are rank-tolerant by design (§3.6): vector scores are
- * float-fuzzy and the embedding worker is async, so tests assert "top-K
- * contains id", never exact rank.
+ * WHAT: mem core covers its Playwright acceptance contract.
+ * WHY: This spec protects the live CodeTerm workflow from regressions in 06-mem.
+ * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
 import { pollUntil } from "../../helpers/poll";
@@ -83,7 +79,6 @@ test("@golden delete removes the item from get and search", async ({ api }) => {
   const del = await api.request<{ deleted: boolean }>("DELETE", `/mem/items/${id}`);
   expect(del.deleted).toBe(true);
 
-  // get must 404 now
   let status = 200;
   try {
     await api.get(`/mem/items/${id}`);

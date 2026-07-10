@@ -202,16 +202,22 @@ function analyzeFile(file) {
     if (ts.isCallExpression(node)) {
       const name = calleeName(node.expression);
       if (name === "waitForTimeout") {
-        addFinding(
-          findings,
-          sourceFile,
-          file,
-          node,
-          "sleep:waitForTimeout",
-          "waitForTimeout is a hard sleep; use web-first assertions or pollUntil",
-          tests,
-          "error",
-        );
+        const start = node.getFullStart();
+        const lineStart = sourceFile.text.lastIndexOf("\n", start) + 1;
+        const previousLineStart = sourceFile.text.lastIndexOf("\n", Math.max(0, lineStart - 2)) + 1;
+        const prefix = sourceFile.text.slice(previousLineStart, node.getStart(sourceFile));
+        if (!/PW_JUSTIFIED_SLEEP:\s+\S/.test(prefix)) {
+          addFinding(
+            findings,
+            sourceFile,
+            file,
+            node,
+            "sleep:waitForTimeout",
+            "waitForTimeout is a hard sleep; use web-first assertions or pollUntil",
+            tests,
+            "error",
+          );
+        }
       }
       if (ts.isIdentifier(node.expression) && node.expression.text === "setTimeout") {
         addFinding(
