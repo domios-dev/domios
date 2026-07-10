@@ -178,7 +178,7 @@ pub(super) fn dispatch(
                 now,
             )
             .map_err(plan_rpc_err)?;
-        let brief = build_brief(&detail.task, &detail.sections);
+        let brief = build_brief_with_claimed_persona(&detail.task, &detail.sections, &spawn.title);
         svc.send_text(&pane_id, &brief, true)
             .map_err(|e| JsonRpcError {
                 code: -32603,
@@ -208,6 +208,16 @@ pub(super) fn dispatch(
         result["warnings"] = json!(warnings);
     }
     Ok(result)
+}
+
+fn build_brief_with_claimed_persona(
+    task: &Task,
+    sections: &[TaskSection],
+    claimed_title: &str,
+) -> String {
+    let mut claimed_task = task.clone();
+    claimed_task.personality = Some(claimed_title.to_string());
+    build_brief(&claimed_task, sections)
 }
 
 fn set_in_progress(
