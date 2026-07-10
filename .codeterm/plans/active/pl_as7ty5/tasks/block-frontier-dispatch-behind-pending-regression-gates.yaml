@@ -1,0 +1,217 @@
+id: task_v01lg4
+name: Block frontier dispatch behind pending regression gates
+type: implement
+model: gpt-5.4
+model_rationale: This is a bounded orchestration-enforcement and status-surface change with focused CLI/state tests; gpt-5.4 is sufficient after the existing QA policy has already been accepted.
+personality: Lamport
+personality_provenance: null
+acceptance_criteria:
+- A non-blocker plan task cannot dispatch while pending_regression_gates is nonempty; no worker/pane is created and the response names the blocking gate(s).
+- Plan/orchestrator status visibly reports pending gates and the current dispatch block reason, preserving per-group evidence as groups clear.
+- Only an explicit, authorized, reasoned override can bypass a gate; it records actor, timestamp, reason, and gate list and remains visible in status/history.
+- Gate-clearing or explicitly release-blocking work follows a narrow visible exception policy; no implicit bypass exists.
+- When no pending gates exist, ordinary dispatch semantics remain unchanged.
+- Focused tests, diff check, and file-size check pass without rewriting the existing authoritative QA prose or performing local heavy/release builds.
+test_plan: 'Oracle: seeded plan fixtures plus CLI/status integration tests. 1. Seed a plan with each of Discovery, persona-allocator-review, review-gate, and web-ui-serve-discovery pending; attempt non-blocker dispatch. Pass: no worker/pane is created, command exits with a structured block reason naming every relevant gate, and plan/orchestrator status shows the same gates. 2. Clear one group at a time through the existing QA completion path. Pass: status retains remaining gates and dispatch stays blocked until the final relevant gate is green. 3. Exercise a gate-clearing/release-blocking task. Pass: it remains dispatchable only under the explicitly defined policy and its exception is visible/audited. 4. Exercise explicit authorized override. Pass: command requires an explicit reason, records actor/time/gates/reason, and status shows the override; ordinary callers cannot bypass. 5. Exercise no-pending-gate control fixture. Pass: dispatch behavior is unchanged. 6. Run exact focused cargo/CLI tests discovered from dispatch/gate modules, git diff --check, and scripts/check-file-sizes.sh; pass: all exit 0. No local heavy/release build.'
+correctness: QA policy enforcement at actual dispatch boundary; no accidental worker spawn under pending gates; truthful status; audited exceptional override; per-group evidence preservation; compatibility for green plans; no policy-document duplication.
+status: in_progress
+review_stage: review
+qa_state: null
+status_label: needs-integration
+priority: p1
+created_at: 1783666895441
+updated_at: 1783715946501
+status_changed_at: 1783709977141
+handle: block-frontier-dispatch-behind-pending-regression-gates
+tags:
+- 1.7.2
+section_ids:
+- sec_rlqrqc
+body: Implement the missing product enforcement for existing QA policy; do not rewrite qa_pipeline_discipline.md, orchestrator_suffix.md, heartbeat.rs, docs/PLANNER.md, docs/ORCHESTRATION.md, or docs/LANES.md. When a plan has pending_regression_gates, milestone/group transition or plan task dispatch must visibly block before spawning a non-blocker worker and name the blocking gate(s) in plan/orchestrator status and command output. Provide an explicit, auditable override only for an authorized Orchestrator decision, recording actor, reason, gate list, and timestamp; no implicit bypass. Preserve dispatch for work that itself clears the named gate or is explicitly classified release-blocking by the existing policy. This plan currently requires task_odejzc to reach accepted implementation evidence, then one serialized warm integration QA run to satisfy Discovery, persona-allocator-review, review-gate, and web-ui-serve-discovery with per-group evidence before further non-blocker dispatch. Own dispatch/gate-state/status/CLI tests discovered by trace; do not alter QA prose or broad scheduler/reminder behavior. Work from origin/develop in D:/Developer/codeterm-worktrees/regression-gate-enforcement on branch lane/regression-gate-enforcement.
+role_guidance: 'You are an orchestration policy enforcement engineer. Make existing pending regression gates operational at dispatch and status boundaries, with a narrow auditable override. Red line: never silently dispatch a non-blocker past pending gates or obscure which gate blocks the frontier; do not duplicate policy prose.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: bd8f3648
+lane:
+  pane_id: bd8f3648
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:/Developer/codeterm-worktrees/regression-gate-enforcement
+  branch: lane/regression-gate-enforcement
+  base: origin/develop
+  destination: null
+  cleanup_status: pending
+  cleanup_hints:
+  - Retain worktree until the implementation is reviewed and the warm integration QA run has recorded all four group outcomes.
+taken_by_role: null
+peer: null
+group: qa-gate-enforcement
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_zycjr4
+  from:
+    pane_id: 37894ae1
+    session_id: 019f4b26-7750-7372-87a2-5932ea03d509
+    title: enforce regression gates
+  kind: status_update
+  text: 'STATUS: partial\nCHANGES: Enforced pending regression gates before worker spawn; added explicit task-tag exceptions, owner-only reasoned overrides with append-only audit history, and plan-state/CLI visibility.\nTESTS RUN: rustfmt --check; git diff --check; scripts/check-file-sizes.sh (pass). Cargo/CLI integration tests intentionally not run in this source-only lane; centralized QA required.'
+  ts: 1783672819504
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_k6evef
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: qa
+  text: 'enqueue: QA-ready from source-only regression gate report: run focused Cargo/CLI integration tests for pending regression gate enforcement.'
+  ts: 1783694940030
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_e9dm8y
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: BOUNCE from queued QA
+  text: ' lane/regression-gate-enforcement is missing locally or not integrated into feat/1.7.2-stability. Next exit: recover/integrate the lane, then run seeded regression-gate CLI/status fixtures before QA pass.'
+  ts: 1783707772246
+  links:
+  - key:1212061a546692a4
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_omrw54
+  from:
+    pane_id: bd8f3648
+    session_id: fa1aebc7-e410-4cc2-b8d0-c88072dfa6a3
+    title: Lamport
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: Made pending_regression_gates operational at the plan-task dispatch boundary. A non-blocker worker is now refused BEFORE any pane spawns, with a structured error naming every blocking gate; enforcement also surfaces in plan status and next-actions. Added narrow tag exceptions (regression-gate / release-blocking) surfaced as an audited dispatch exemption, and an owner-only, reason-required override with an append-only RegressionGateOverride audit trail that re-arms when a group re-closes past the waiver. New RPC plan.qa.override + CLI 'plan qa override'; plan-state renders pending/blocking gates + overrides. Fixed 2 stale next_actions tests that never accounted for the pre-existing Continue action. Commit daf380e86 on lane/regression-gate-enforcement (12 files). No QA prose / heartbeat.rs / docs touched.
+    TESTS RUN: codeterm-plan targeted 23/23 green (8 new gate/override tests + 2 fixed next_actions); prior full codeterm-plan run 422 passed. Only failure anywhere is pre-existing plan::peer::fallback_when_planner_gone in untouched peer.rs (unrelated planner resolution). cargo check --tests exit 0 on main 'codeterm' crate (socket wiring) and on 'codeterm-cli'. git diff --check clean; scripts/check-file-sizes.sh --fail exit 0; rustfmt --check clean on all 12 files. No local heavy/release build — centralized warm integration QA (Discovery, persona-allocator-review, review-gate, web-ui-serve-discovery) remains the orchestrator's serialized gate.
+  ts: 1783715942273
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_up0fck
+  from:
+    pane_id: bd8f3648
+    session_id: fa1aebc7-e410-4cc2-b8d0-c88072dfa6a3
+    title: Lamport
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: Made pending_regression_gates operational at the plan-task dispatch boundary. A non-blocker worker is now refused BEFORE any pane spawns, with a structured error naming every blocking gate; enforcement also surfaces in plan status and next-actions. Added narrow tag exceptions (regression-gate / release-blocking) surfaced as an audited dispatch exemption, and an owner-only, reason-required override with an append-only RegressionGateOverride audit trail that re-arms when a group re-closes past the waiver. New RPC plan.qa.override + CLI 'plan qa override'; plan-state renders pending/blocking gates + overrides. Fixed 2 stale next_actions tests that never accounted for the pre-existing Continue action. Commit daf380e86 on lane/regression-gate-enforcement (12 files). No QA prose / heartbeat.rs / docs touched.
+    TESTS RUN: codeterm-plan targeted 23/23 green (8 new gate/override tests + 2 fixed next_actions); prior full codeterm-plan run 422 passed. Only failure anywhere is pre-existing plan::peer::fallback_when_planner_gone in untouched peer.rs (unrelated planner resolution). cargo check --tests exit 0 on main 'codeterm' crate (socket wiring) and on 'codeterm-cli'. git diff --check clean; scripts/check-file-sizes.sh --fail exit 0; rustfmt --check clean on all 12 files. No local heavy/release build — centralized warm integration QA (Discovery, persona-allocator-review, review-gate, web-ui-serve-discovery) remains the orchestrator's serialized gate.
+  ts: 1783715946501
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_xsgmyp
+  executor_pane_id: 37894ae1
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.4
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/regression-gate-enforcement
+  worktree_path: D:/Developer/codeterm-worktrees/regression-gate-enforcement
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783672819762
+    message: 'STATUS: partial\nCHANGES: Enforced pending regression gates before worker spawn; added explicit task-tag exceptions, owner-only reasoned overrides with append-only audit history, and plan-state/CLI visibility.\nTESTS RUN: rustfmt --check; git diff --check; scripts/check-file-sizes.sh (pass). Cargo/CLI integration tests intentionally not run in this source-only lane; centralized QA required.'
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783672235646
+  reported_at: 1783672819762
+  reviewed_at: null
+  closed_at: 1783672834955
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_83lq59
+  executor_pane_id: bd8f3648
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.4
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/regression-gate-enforcement
+  worktree_path: D:/Developer/codeterm-worktrees/regression-gate-enforcement
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783715947202
+    message: |-
+      STATUS: done
+      CHANGES: Made pending_regression_gates operational at the plan-task dispatch boundary. A non-blocker worker is now refused BEFORE any pane spawns, with a structured error naming every blocking gate; enforcement also surfaces in plan status and next-actions. Added narrow tag exceptions (regression-gate / release-blocking) surfaced as an audited dispatch exemption, and an owner-only, reason-required override with an append-only RegressionGateOverride audit trail that re-arms when a group re-closes past the waiver. New RPC plan.qa.override + CLI 'plan qa override'; plan-state renders pending/blocking gates + overrides. Fixed 2 stale next_actions tests that never accounted for the pre-existing Continue action. Commit daf380e86 on lane/regression-gate-enforcement (12 files). No QA prose / heartbeat.rs / docs touched.
+      TESTS RUN: codeterm-plan targeted 23/23 green (8 new gate/override tests + 2 fixed next_actions); prior full codeterm-plan run 422 passed. Only failure anywhere is pre-existing plan::peer::fallback_when_planner_gone in untouched peer.rs (unrelated planner resolution). cargo check --tests exit 0 on main 'codeterm' crate (socket wiring) and on 'codeterm-cli'. git diff --check clean; scripts/check-file-sizes.sh --fail exit 0; rustfmt --check clean on all 12 files. No local heavy/release build — centralized warm integration QA (Discovery, persona-allocator-review, review-gate, web-ui-serve-discovery) remains the orchestrator's serialized gate.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783709977141
+  reported_at: 1783715947202
+  reviewed_at: null
+  closed_at: null
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

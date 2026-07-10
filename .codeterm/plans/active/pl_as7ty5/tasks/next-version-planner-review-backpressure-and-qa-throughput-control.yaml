@@ -1,0 +1,60 @@
+id: task_rh7xg6
+name: Next-version planner review-backpressure and QA throughput control
+type: implement
+model: gpt-5.6-sol
+model_rationale: GPT-5.6 Sol is the discovered highest-capability Codex model and suits cross-cutting orchestration state, lifecycle correctness, and backpressure design.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- Configurable review WIP default 5 blocks ordinary implementation dispatch when review capacity or review-credit policy is exceeded, with a structured visible reason.
+- in_review is accepted only with executable exact QA or independent-review evidence; BOUNCE atomically exits in_review; stale-review escalation and authorized override are durable and auditable.
+- Read-only review verdicts attach to the owning implementation task and three ACCEPT/BOUNCE reviews for one implementation create zero broad gates while preserving one compatible QA batch with separate review evidence.
+- Acceptance oracle is fixed before review; default maximum two rounds rejects scope-expanding correction review, routes passing tests plus residual risk to integration QA, and permits a third/P0 round only with owner, reason, concrete reproduction, and audit.
+test_plan: 'Oracle: deterministic seeded-plan fixtures plus CLI/API/status assertions. 1. Seed 5 in_review tasks with executable QA evidence and complete implementation credit; attempt a sixth ordinary implementation dispatch; pass: structured review_wip_exceeded block, no worker/pane, and heartbeat/status exposes debt/capacity/reason. 2. Close one review and retry; pass: credit/capacity advances exactly once. 3. Attempt in_review without exact QA or independent review evidence; pass: validation rejects it. 4. Record BOUNCE; pass: one atomic transition removes in_review, records actionable destination/reason, and leaves no stale QA claim. 5. Age a review beyond threshold; pass: telemetry/escalation appears and frontier stays blocked according to policy. 6. Seed compatible and incompatible QA gates; pass: compatible tasks become one named wave with distinct task records, while duplicate broad-suite creation is rejected. 7. Seed one implementation with three read-only ACCEPT/BOUNCE review tasks; pass: each verdict attaches to that implementation as separate evidence, produces zero extra broad gates, and leaves exactly one compatible QA batch. 8. Change executable surfaces or define a distinct oracle in a review fixture; pass: only then can the review request a new explicit gate. 9. Seed fixed oracle plus first-round blockers; submit a second review that expands scope without new reproducible release-impact evidence; pass: rejection names scope expansion. 10. After two rounds with specified tests passing and residual risk recorded; pass: task routes to integration QA and further hardening becomes a separate follow-up. 11. Submit third/P0 exception with missing owner/reason/reproduction; pass: reject. Submit all four fields; pass: authorized immutable audit records the exception. 12. Exercise owner override, heavy-owner, and zero-worker continuation fixtures; pass: policy is not bypassed. 13. Run focused Rust/CLI/API/UI tests created for review WIP, attachment, depth, transition, wave, and status modules, then git diff --check and scripts/check-file-sizes.sh; pass: all exit 0. No release build.'
+correctness: Bounded review WIP and depth; fixed oracle; lossless atomic lifecycle; attached review evidence; no gate leaks or threat-model churn; auditable exceptions; deduplicated QA; one-heavy-owner preservation.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783677230306
+updated_at: 1783694752744
+status_changed_at: 1783677230306
+handle: next-version-planner-review-backpressure-and-qa-throughput-control
+tags:
+- next-version
+- review-backpressure
+section_ids:
+- sec_rlqrqc
+body: |-
+  NEXT-VERSION ONLY. Implement planner/orchestrator review-backpressure so review throughput constrains implementation frontier refill. Add a configurable review WIP limit (default 5 unless recorded evidence changes it), implementation-completion versus review-closure ratio/credit accounting, and automatic frontier block when capacity is exceeded. Entering in_review must require either an executable exact QA plan or independently recorded review evidence. A BOUNCE must atomically leave in_review and return to the correct actionable state. Expose stale-review age, owner, required gate, escalation, review credit/debt, blocked-frontier reason, and heavy-owner state through heartbeat/status. Group batch-compatible QA into named waves with separately retained task evidence and prohibit duplicate broad suites. Read-only review tasks attach verdict evidence to their owning implementation task and cannot create a broad regression gate unless they changed executable surfaces or define a distinct oracle. Bound review depth: fix the acceptance oracle before the first review; first review may identify in-scope blockers; correction review verifies only those blockers and cannot expand the threat model without new reproducible release-impact evidence; default maximum is two review rounds. After two rounds, passing specified tests plus documented residual risk routes to integration QA and further hardening becomes a separate follow-up. A P0 exception requires owner, reason, concrete reproduction, and immutable audit record. Permit only owner-authorized reasoned overrides with immutable audit. Preserve the one-heavy-owner rule and support zero-worker continuation. Own planner/orchestrator state, task lifecycle, QA queue/status, CLI/API/UI surfaces, and deterministic fixtures; do not change 1.7.2 release state.
+
+  Takeover durability addition: every planner/orchestrator heartbeat and status summary must include canonical_repo, canonical_branch, and release_alias when the effort spans release branches or restored plans. These fields must come from durable plan metadata or verified git state, not chat memory, and should be present before any handoff, review-batch dispatch, or plan restoration mutation.
+role_guidance: 'You are an orchestration-state engineer. Implement only next-version review WIP, credit, lifecycle, QA-wave, and status behavior. Red line: do not mutate 1.7.2 release state, silently bypass capacity, or leave BOUNCE in in_review.'
+executor_role: fullstack-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:/Developer/codeterm-worktrees/review-backpressure-next
+  branch: next/review-backpressure
+  base: origin/develop
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: next-version-review-backpressure
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+park_reason: null
+attachments: []

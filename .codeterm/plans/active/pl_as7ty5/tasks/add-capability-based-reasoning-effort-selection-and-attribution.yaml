@@ -1,0 +1,53 @@
+id: task_ydysmh
+name: Add capability-based reasoning-effort selection and attribution
+type: implement
+model: gpt-5.6-terra
+model_rationale: GPT-5.6 Terra is the discovered default and fits a bounded cross-layer implementation with established provider/model-picker seams.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- A dispatch can explicitly select a provider-supported reasoning effort, records planned/requested/resolved/actual provenance, and rejects unsupported effort without silent downgrade.
+test_plan: 'Oracle: capability fixture plus an isolated provider dispatch. 1. Define a provider fixture with declared low, medium, high levels and one with no effort capability; pass: discovery/API/CLI/UI surface exact supported levels or no selector. 2. Dispatch a task with a supported effort; pass: provider receives the documented launch/switch instruction and task attempt, pane/session, and report carry planned/requested/resolved/actual effort provenance. 3. Dispatch unsupported effort and effort to a provider without capability; pass: structured validation error and no agent launch/PTY write. 4. Restore and concurrently launch sessions with different efforts; pass: session-scoped effort remains truthful with no stale cross-pane value. 5. Verify model-only current behavior is unchanged and task_korvfm model attribution fixtures still pass. 6. Run focused Rust/TypeScript/provider tests discovered during trace, git diff --check, and scripts/check-file-sizes.sh; pass: all exit 0. Use no broad release build.'
+correctness: Capability-based effort control; explicit validation; no silent fallback; session-scoped planned/requested/resolved/actual effort provenance; model behavior preserved.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783676898214
+updated_at: 1783676898214
+status_changed_at: 1783676898214
+handle: add-capability-based-reasoning-effort-selection-and-attribution
+tags:
+- 1.7.2
+section_ids:
+- sec_rlqrqc
+body: Add first-class, provider-capability-based reasoning-effort selection for agent spawn and plan task dispatch. CodeTerm currently passes only a model selector; Codex exposes effort through an interactive model picker and the CLI rejects scripting that picker. Introduce a provider capability descriptor for supported effort levels and launch/switch semantics; expose discovered levels in CLI/API/UI; accept an explicit reasoning-effort at task routing and dispatch; preserve planned/requested/resolved/actual effort provenance on task, execution attempt, pane/session, and report; and reject unsupported combinations structurally rather than silently falling back. Keep model identity ownership coordinated with task_korvfm but do not duplicate its requested-versus-actual model fixtures. Support providers by capabilities, never provider-id branching. Own the minimal CLI, service/API, provider interface, and UI surfaces found during trace.
+role_guidance: 'You are a provider-capability full-stack engineer. Add explicit reasoning-effort selection and provenance across routing, dispatch, runtime, and reporting. Red line: no provider-id branching, no interactive PTY automation as the generic API, and no silent unsupported-effort fallback.'
+executor_role: fullstack-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: provider-model-identity
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+park_reason: null
+attachments: []

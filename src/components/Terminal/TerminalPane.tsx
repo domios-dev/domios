@@ -39,8 +39,8 @@ import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { claimResizeOwner, getResizeClientId } from "../../lib/resizeOwner";
 import { shouldShowDropOverlay } from "./dropOverlay";
-import { BusyState } from "../shared/BusyState";
 import { terminalOwnsLivePty, terminalRenderEnabled } from "./terminalOwnership";
+import { PaneBootOverlay, paneBootOverlayView } from "./bootOverlay";
 
 interface TerminalPaneProps {
   paneId: string;
@@ -396,6 +396,12 @@ export const TerminalPane = memo(function TerminalPane({
       : "transparent";
   const terminalBackground = theme.background;
   const terminalKeyBar = <TerminalKeyBar onSendKey={writePty} className="w-full" />;
+  const bootOverlay = paneBootOverlayView(pane);
+  const retryGeneralAgent = useCallback(() => {
+    invoke("restart_general_agent_pane", { paneId }).catch((e) =>
+      console.warn("restart_general_agent_pane failed:", e),
+    );
+  }, [paneId]);
 
   return (
     <div
@@ -695,29 +701,12 @@ export const TerminalPane = memo(function TerminalPane({
       </div>
 
       {/* Loading overlay */}
-      {shell.overlayVisible && (
-        <div
-          className={`absolute inset-0 ${!shell.shellReady ? "terminal-loading-overlay" : ""}`}
-          data-testid="terminal-loading-overlay"
-          style={{
-            background: "var(--ct-bg, #0d1117)",
-            opacity: shell.shellReady ? 0 : 1,
-            transition: "opacity 0.3s ease-out",
-          }}
-        >
-          {!shell.shellReady && (
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
-              <BusyState
-                labelKey="paneBoot"
-                label={pane?.boot_stage ?? undefined}
-                phase="work"
-                data-testid="pane-boot-busy"
-                style={{ color: "var(--ct-muted-fg, #8b949e)", fontSize: 12 }}
-              />
-            </div>
-          )}
-        </div>
-      )}
+      <PaneBootOverlay
+        view={bootOverlay}
+        shellReady={shell.shellReady}
+        overlayVisible={shell.overlayVisible}
+        onRetry={retryGeneralAgent}
+      />
 
       {/* Context menu */}
       {contextMenu && (

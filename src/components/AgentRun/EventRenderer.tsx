@@ -3,6 +3,7 @@ import type {
   ClaudeContentBlock,
   ClaudeStreamEvent,
 } from "./streamParser";
+import { stringifyToolPayload, ToolOutputCard } from "./ToolOutputCard";
 
 interface Props {
   event: ClaudeStreamEvent;
@@ -20,6 +21,7 @@ export function EventRow({ event }: Props) {
       return <ResultRow event={event} />;
     case "rate_limit":
     case "unknown":
+      // Drop SDK-internal deltas (stream_event, content_block_delta, etc) and rate limit chatter — the high-level assistant/user/result events
       // already carry the full content, no need to clutter the timeline.
       return null;
   }
@@ -92,8 +94,8 @@ function ResultRow({
         </span>
       )}
       {event.result && (
-        <span className="opacity-90 truncate flex-1">
-          → {event.result.slice(0, 200)}
+        <span className="opacity-90 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap flex-1">
+          → {event.result}
         </span>
       )}
     </div>
@@ -163,32 +165,12 @@ function Thinking({ text }: { text: string }) {
 }
 
 function ToolUse({ name, input }: { name: string; input: unknown }) {
-  const [open, setOpen] = useState(false);
-  const summary = summarizeToolInput(name, input);
   return (
-    <div className="text-[11px]">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="bg-transparent border-0 text-left cursor-pointer flex items-start gap-1.5 p-0 text-[var(--ct-fg)] hover:text-[var(--ct-accent)] w-full"
-      >
-        <span className="text-[var(--ct-accent)] shrink-0">●</span>
-        <span className="font-medium shrink-0">{name}</span>
-        {summary && (
-          <span className="text-[var(--ct-muted-fg)] break-all flex-1 min-w-0">
-            ({summary})
-          </span>
-        )}
-        <span className="text-[9px] text-[var(--ct-muted-fg)] shrink-0">
-          {open ? "▾" : "▸"}
-        </span>
-      </button>
-      {open && (
-        <pre className="mt-1 ml-3.5 p-2 bg-[var(--ct-bg-alt,rgba(255,255,255,0.03))] rounded text-[10px] whitespace-pre-wrap break-words text-[var(--ct-muted-fg)]">
-          {JSON.stringify(input, null, 2)}
-        </pre>
-      )}
-    </div>
+    <ToolOutputCard
+      kind="call"
+      toolName={name}
+      payload={JSON.stringify(input, null, 2) ?? String(input ?? "")}
+    />
   );
 }
 
@@ -199,68 +181,7 @@ function ToolResult({
   content: unknown;
   isError?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const text = stringifyToolResult(content);
-  const preview = text.slice(0, 280).replace(/\n+/g, " ⏎ ");
-  const truncated = text.length > 280;
-  const color = isError ? "var(--ct-red)" : "var(--ct-muted-fg)";
   return (
-    <div className="text-[10px] ml-3.5">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="bg-transparent border-0 text-left cursor-pointer flex items-start gap-1.5 p-0 w-full"
-        style={{ color }}
-      >
-        <span className="shrink-0">⎿</span>
-        <span className="opacity-95 break-all flex-1 min-w-0">
-          {isError ? "Error: " : ""}
-          {open ? "" : preview}
-          {!open && truncated && "…"}
-        </span>
-      </button>
-      {open && (
-        <pre className="mt-1 p-2 bg-[var(--ct-bg-alt,rgba(255,255,255,0.03))] rounded whitespace-pre-wrap break-words" style={{ color }}>
-          {text}
-        </pre>
-      )}
-    </div>
+    <ToolOutputCard kind="result" payload={stringifyToolPayload(content)} isError={isError} />
   );
-}
-
-function summarizeToolInput(name: string, input: unknown): string {
-  if (!input || typeof input !== "object") return "";
-  const i = input as Record<string, unknown>;
-  if (name === "Bash" && typeof i.command === "string") {
-    return i.command.slice(0, 80);
-  }
-  if ((name === "Read" || name === "Edit" || name === "Write") && typeof i.file_path === "string") {
-    return i.file_path;
-  }
-  if (name === "Glob" && typeof i.pattern === "string") {
-    return i.pattern;
-  }
-  if (name === "Grep" && typeof i.pattern === "string") {
-    return i.pattern;
-  }
-  for (const v of Object.values(i)) {
-    if (typeof v === "string" && v.length > 0) return v.slice(0, 80);
-  }
-  return "";
-}
-
-function stringifyToolResult(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((c) => {
-        if (c && typeof c === "object" && "text" in c && typeof (c as { text: unknown }).text === "string") {
-          return (c as { text: string }).text;
-        }
-        return JSON.stringify(c);
-      })
-      .join("\n");
-  }
-  if (content && typeof content === "object") return JSON.stringify(content, null, 2);
-  return String(content ?? "");
 }

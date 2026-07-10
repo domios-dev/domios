@@ -93,6 +93,19 @@ pub fn run() {
     startup::setup_logging();
 
     log::info!("CodeTerm starting...");
+    let startup_recovery = crash::record_startup();
+    if let Some(record) = &startup_recovery.last_crash {
+        log::warn!(
+            "[recovery] previous process classified as {:?}; old_pid={} old_epoch={} new_epoch={} last_healthy_at={} backoff_ms={} loop_protected={}",
+            record.classification,
+            record.previous.pid,
+            record.previous.epoch,
+            record.new_epoch,
+            record.previous.last_healthy_at,
+            record.supervisor_action.backoff_ms,
+            record.supervisor_action.loop_protected
+        );
+    }
 
     // Lift the open-file soft limit before anything opens fds (#186).
     fdlimit::raise_fd_limit();
@@ -176,6 +189,7 @@ pub fn run() {
             commands::get_shell_diagnostics,
             commands::restart_app,
             commands::restart_general_agent,
+            commands::restart_general_agent_pane,
             commands::complete_general_agent_first_run,
             commands::get_network_info,
             commands::get_serve_status,
@@ -321,6 +335,7 @@ pub fn run() {
             commands::usage_daily_rollup,
             commands::usage_projection,
             commands::usage_refresh,
+            crash::get_recovery_state,
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
@@ -717,6 +732,9 @@ pub fn run() {
                     std::collections::HashSet::new(),
                 )),
                 plan_startup_loaded: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                worker_identity_allocator: Arc::new(parking_lot::Mutex::new(
+                    crate::service::WorkerPersonaReservations::default(),
+                )),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             {
@@ -850,6 +868,14 @@ pub fn run() {
                     states.config.lock().api.port,
                 );
             }
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                    if let Err(error) = tokio::task::spawn_blocking(crate::crash::lifecycle::heartbeat).await {
+                        log::warn!("[recovery] heartbeat task failed: {error}");
+                    }
+                }
+            });
             startup::build_system_tray(app)?;
 
             // Catch SIGTERM/SIGINT: run the same graceful cleanup as a Tauri Exit, then exit cleanly. (Windows is covered above.)
@@ -886,6 +912,7 @@ pub fn run() {
                             serde_json::json!({
                                 "dir": dir.to_string_lossy(),
                                 "files": files,
+                                "recovery": crate::crash::lifecycle::recovery_state(),
                             }),
                         );
                     }

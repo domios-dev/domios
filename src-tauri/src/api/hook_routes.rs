@@ -11,6 +11,7 @@ use crate::api::routes::{resolve_pane, AppState};
 struct SessionStartClaim {
     prev: Option<String>,
     changed: bool,
+    nonce_verified: bool,
 }
 
 fn epoch_ms() -> u64 {
@@ -315,6 +316,10 @@ pub async fn hook_session_start(
     propagate_run_session(&state, &pane_id, &sid);
 
     if !claim.changed {
+        if claim.nonce_verified {
+            state.svc.bind_planner_session(&pane_id);
+            state.svc.schedule_planner_replay(&pane_id);
+        }
         return Ok(Json(serde_json::json!({"ok": true, "changed": false})));
     }
 
@@ -359,6 +364,8 @@ pub async fn hook_session_start(
         }
     }
     state.svc.chat_registry.shutdown_pane(&pane_id);
+    state.svc.bind_planner_session(&pane_id);
+    state.svc.schedule_planner_replay(&pane_id);
     state.svc.emit_state_changed();
     Ok(Json(serde_json::json!({"ok": true, "changed": true})))
 }
@@ -523,7 +530,13 @@ fn bind_reported_session(
     if changed {
         pane.agent_session_id = Some(sid.to_string());
     }
-    Ok(SessionStartClaim { prev, changed })
+    pane.reported_session_binding_nonce =
+        nonce_verified.then(|| report_nonce.unwrap_or_default().to_string());
+    Ok(SessionStartClaim {
+        prev,
+        changed,
+        nonce_verified,
+    })
 }
 
 #[cfg(test)]
@@ -628,6 +641,7 @@ mod tests {
             SessionStartClaim {
                 prev: None,
                 changed: true,
+                nonce_verified: false,
             }
         );
 
@@ -638,6 +652,7 @@ mod tests {
             SessionStartClaim {
                 prev: Some("sid-a".into()),
                 changed: true,
+                nonce_verified: false,
             }
         );
         let pane = mux.get_pane(&pane_id).unwrap();
@@ -652,6 +667,7 @@ mod tests {
             SessionStartClaim {
                 prev: Some("sid-b".into()),
                 changed: false,
+                nonce_verified: false,
             }
         );
     }

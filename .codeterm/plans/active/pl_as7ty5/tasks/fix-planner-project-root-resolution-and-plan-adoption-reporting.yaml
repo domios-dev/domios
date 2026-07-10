@@ -1,0 +1,450 @@
+id: task_23fywk
+name: Fix planner project-root resolution and plan adoption reporting
+type: implement
+model: gpt-5.5
+model_rationale: 'Routing rationale: bounded planner CLI/project-root state correctness task with file-backed plan index and restart behavior; gpt-5.4 is appropriate.'
+personality: Lamport
+personality_provenance: null
+acceptance_criteria:
+- A repo-root plan with planner plus three worker tasks (active, in_review, pane absent) survives a prod-like restart with identical canonical_project_path, owner/planner binding, task ids/statuses, lane base/branch/worktree, and attempt history; active restored worker keeps plan/task binding and final report route; absent worker is needs-reassign with history preserved; no task silently becomes parked/pending; move/adopt dry-run and real move preserve/count every sidecar task, id, history, and stride.
+test_plan: 'Oracle: remote Windows prod-like restart fixture preserves canonical planner state and lane semantics. 1. In a repo-root fixture, create a plan with a bound planner and three workers: one in_progress active pane, one in_review, one in_progress pane later absent; record canonical_project_path, owner/planner, task ids/statuses, execution_attempt ids, lane base/branch/worktree, pane/session ids, and report routes. 2. Hard-restart the remote prod-like daemon. Pass: same plan is indexed from workspace cwd with identical canonical_project_path and owner/planner binding. 3. Restore sessions/panes. Pass: active worker regains plan/task binding and can deliver a final report to the same route; in_review remains in_review; absent pane becomes needs-reassign deterministically with attempt history intact. 4. Run codeterm plan state and task show for each task. Pass: no status becomes parked/pending without an explicit transition. 5. Run plan move/adopt --dry-run and then real move on the fixture. Pass: reported task_count equals canonical sidecar task count and every task id/history/stride survives transfer. 6. Run focused Rust/CLI restart/index/reconcile/move-adopt tests remotely with 90s caps. Pass: exit 0. Capture exact commands, IDs, before/after JSON, and no mutation of production plan.'
+correctness: 'Correctness is a durable restart invariant: workspace-repo-root identity, plan indexing, owner/planner binding, pane/session/task/attempt/report-route restoration, deterministic absent-pane reconciliation, and task status must all preserve truth across restart. Move/adopt must preserve and accurately count canonical sidecar task data; no fallback may hide, duplicate, unbind, silently park, or lose plan history.'
+status: in_progress
+review_stage: review
+qa_state: null
+status_label: needs-reassign
+priority: p2
+created_at: 1783655692782
+updated_at: 1783712789323
+status_changed_at: 1783710392481
+handle: fix-planner-project-root-resolution-and-plan-adoption-reporting
+tags: []
+section_ids:
+- sec_rlqrqc
+body: 'Fix all confirmed restart recovery defects in one bounded planner CLI/state lane. (1) Plan creation/resolution must use the workspace repository root, not the AppData pseudo-project. (2) After a production restart, existing plan files must be indexed from workspace cwd and retain owner/planner binding rather than appearing absent/unbound. (3) Every pre-restart in_progress worker task and open execution_attempt must restore pane/task/plan binding, lane base/branch/worktree, liveness classification, and report route when its pane/session restores; an absent pane must deterministically reconcile to needs-reassign without losing attempt history. (4) Task status must never silently drift to parked or pending. (5) Plan move/adopt must count and transfer sidecar task files, preserve task ids/history/strides, and dry-run task_count must equal canonical task count. Exact ownership must be verified before edit across project resolution, plan index/restart, pane/session restore, task attempts/reconcile, and move/adopt services. Dependencies: controlled self-improvement loop; independent review and integration QA before release. Branch/worktree: lane/planner-project-resolution at D:/Developer/codeterm-worktrees/planner-project-resolution from origin/develop. Report contract: STATUS in_review; exact files; pre/post canonical state/attempt IDs; remote restart fixture results; status/liveness/report-route evidence; dry-run/real move counts; no production data mutation.'
+role_guidance: 'You are Lamport, a planner CLI state-consistency engineer. Make project resolution deterministic across restart/workspace cwd and make plan move/adopt dry-run report real sidecar task counts. Red line: a fix that silently chooses a different plan store or loses/miscounts task files fails.'
+executor_role: rust-backend-dev
+competition: null
+intent: Restore deterministic production restart recovery for plan project root/indexing, owner/planner binding, worker lane/attempt/report state, and move/adopt sidecar task preservation without silent task-status drift.
+parent_task_id: null
+depends_on: []
+assigned_pane_id: 29a9490d
+lane:
+  pane_id: 29a9490d
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/planner-project-resolution
+  branch: lane/planner-project-resolution
+  base: origin/develop
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: planner-cli-correctness
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_irvwpo
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Escalate same recovery lane from gpt-5.4 to gpt-5.5 per user; preserve four dirty files and attempt history.
+  ts: 1783657089155
+  links:
+  - key:f01cff515d63f2ee
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_5rwif1
+  from:
+    pane_id: 2261816b
+    session_id: 019f4a3f-8e74-79e1-9834-ed1a29769538
+    title: Nash
+  kind: report_refused
+  text: |-
+    PARTIAL: REPORT NOT SENT
+    readiness report refused: this git worktree has uncommitted lane changes.
+    Next commands:
+      git status --short
+      git add <files>
+      git commit -m "<message>"
+      codeterm agent report --status in_review --sha $(git rev-parse HEAD) "..."
+    Or report WIP with:
+      codeterm agent report --status partial "..."
+    Dirty lane files:
+      src-tauri/crates/codeterm-plan/src/service_plan/canonical_path_tests.rs
+      src-tauri/crates/codeterm-plan/src/service_plan/paths.rs
+      src-tauri/crates/codeterm-plan/src/service_plan/reconcile_fixes.rs
+      src-tauri/crates/codeterm-plan/src/service_plan/tests.rs
+      src-tauri/src/service/plan/adopt.rs
+      src-tauri/src/service/plan/adopt_tests.rs
+
+    Original readiness report that was refused locally:
+    STATUS: in_review
+    CHANGES: src-tauri/crates/codeterm-plan/src/service_plan/paths.rs: project_root now resolves linked worktree/workspace cwd to its own repo root instead of main worktree; src-tauri/crates/codeterm-plan/src/service_plan/canonical_path_tests.rs: regression coverage for linked-worktree sidecar routing and scan_project preserving owner/planner binding; src-tauri/crates/codeterm-plan/src/service_plan/reconcile_fixes.rs: pane-gone lane demotion clears assignment and sets needs-reassign without changing in_progress to pending; src-tauri/crates/codeterm-plan/src/service_plan/tests.rs: regression for no status drift; src-tauri/src/service/plan/adopt.rs: v2 adoption loads the full plan sidecar graph via store_v2, refuses partial task-sidecar loads, reports canonical sidecar task_count, and avoids pruning task files during real adoption; src-tauri/src/service/plan/adopt_tests.rs: dry-run reports task_count=1 and preserves task yaml/jsonl. Pre/post fixture state: plan pl_adoptme task task-with-sidecar remains task_count 1, source task-with-sidecar.yaml/jsonl preserved on dry-run; linked-worktree restart fixture keeps owner orch-pane/orch-session and planner planner-pane/planner-session; watchdog fixture keeps task in_progress with needs-reassign label and closed assignment. Attempt context: prior attempt attempt_f4osde was closed; this pane continued in task_23fywk only.
+    BUILD/TYPECHECK/TESTS: PASS: cargo fmt from src-tauri, then unrelated formatted files restored; PASS: git diff --check; PASS: TEST_CAP_SECS default scripts/test-capped.sh -p codeterm-plan --lib service_plan::canonical_path_tests -- --nocapture (3 passed); PASS: scripts/test-capped.sh -p codeterm-plan --lib lane_demotion_preserves_in_progress_status_and_marks_needs_reassign -- --nocapture (1 passed). BLOCKED LOCAL APP TEST: scripts/test-capped.sh -p codeterm --lib service::plan::adopt_tests -- --nocapture failed before tests because build.rs could not find bundled-embed/codeterm-embed-x86_64-pc-windows-msvc.exe. No dev restart, broad build, remote restart fixture, or production data mutation performed.
+    FOLLOWUP: GATES REQUESTED: in a warm QA checkout with bundled embed present, run scripts/test-capped.sh -p codeterm --lib service::plan::adopt_tests -- --nocapture; run the remote restart recovery fixture to verify pane/session restore liveness/report-route evidence end-to-end; run any serialized planner move/adopt CLI smoke that exercises dry-run and real move counts against sidecar tasks.
+  ts: 1783658087365
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_wcjuxy
+  from:
+    pane_id: 2261816b
+    session_id: 019f4a3f-8e74-79e1-9834-ed1a29769538
+    title: Nash
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: Committed ad17508af921d5f930944ebce73c37d9c6db1a1c. Files: src-tauri/crates/codeterm-plan/src/service_plan/paths.rs: project_root now resolves linked worktree/workspace cwd to its own repo root instead of main worktree; src-tauri/crates/codeterm-plan/src/service_plan/canonical_path_tests.rs: regression coverage for linked-worktree sidecar routing and scan_project preserving owner/planner binding; src-tauri/crates/codeterm-plan/src/service_plan/reconcile_fixes.rs: pane-gone lane demotion clears assignment and sets needs-reassign without changing in_progress to pending; src-tauri/crates/codeterm-plan/src/service_plan/tests.rs: regression for no status drift; src-tauri/src/service/plan/adopt.rs: v2 adoption loads the full plan sidecar graph via store_v2, refuses partial task-sidecar loads, reports canonical sidecar task_count, and avoids pruning task files during real adoption; src-tauri/src/service/plan/adopt_tests.rs: dry-run reports task_count=1 and preserves task yaml/jsonl. Pre/post fixture state: plan pl_adoptme task task-with-sidecar remains task_count 1, source task-with-sidecar.yaml/jsonl preserved on dry-run; linked-worktree restart fixture keeps owner orch-pane/orch-session and planner planner-pane/planner-session; watchdog fixture keeps task in_progress with needs-reassign label and closed assignment. Attempt context: prior attempt attempt_f4osde was closed; this pane continued in task_23fywk only.
+    BUILD/TYPECHECK/TESTS: PASS: cargo fmt from src-tauri, then unrelated formatted files restored before commit; PASS: git diff --check; PASS: TEST_CAP_SECS default scripts/test-capped.sh -p codeterm-plan --lib service_plan::canonical_path_tests -- --nocapture (3 passed); PASS: scripts/test-capped.sh -p codeterm-plan --lib lane_demotion_preserves_in_progress_status_and_marks_needs_reassign -- --nocapture (1 passed). BLOCKED LOCAL APP TEST: scripts/test-capped.sh -p codeterm --lib service::plan::adopt_tests -- --nocapture failed before tests because build.rs could not find bundled-embed/codeterm-embed-x86_64-pc-windows-msvc.exe. No dev restart, broad build, remote restart fixture, or production data mutation performed.
+    FOLLOWUP: GATES REQUESTED: in a warm QA checkout with bundled embed present, run scripts/test-capped.sh -p codeterm --lib service::plan::adopt_tests -- --nocapture; run the remote restart recovery fixture to verify pane/session restore liveness/report-route evidence end-to-end; run any serialized planner move/adopt CLI smoke that exercises dry-run and real move counts against sidecar tasks.
+  ts: 1783658122933
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_1x86do
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: qa
+  text: 'enqueue: Warm checkout: run codeterm app adopt tests with bundled embed; then isolated restart fixture proving owner/planner binding, in_review worker attempt/report history, needs-reassign for absent pane, and dry-run/real move sidecar counts remain intact.'
+  ts: 1783658162453
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_2m668z
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: evidence
+  text: Dispatch accepted nonexistent D:/Developer/codeterm-worktrees/chat-tool-output-cards, pane silently edited C:/Users/User/Source/codeterm. Require atomic worktree create/verify and no fallback cwd.
+  ts: 1783675276780
+  links:
+  - key:f701b0d784253559
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_n4v7ij
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: evidence
+  text: Planner pane 135c0366 remained bound/live by pane existence after agent exited to PowerShell; codeterm send injected planning prose into shell, causing parser errors. Planner liveness must require active agent session/boot state and routed chat delivery, not pane existence.
+  ts: 1783675674708
+  links:
+  - key:1251a22d2f229a99
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_k1gax2
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'P0 planner routing incident: bound pane survived after agent exit; multiline routed messages executed in fallback PowerShell. Require live-agent routing, durable request queue, exactly-once replay after Planner rehydration, and zero shell injection.'
+  ts: 1783675772375
+  links:
+  - key:743bae2d265d50a2
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_281p9b
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: evidence
+  text: 'Recovered incident evidence: dispatch accepted nonexistent D:/Developer/codeterm-worktrees/chat-tool-output-cards and the pane silently edited C:/Users/User/Source/codeterm. Project/worktree recovery must atomically create and verify the requested worktree and forbid fallback cwd.'
+  ts: 1783675843012
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_51dde5
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'Integration invariant from task_2oy6cc: preserve stale PlannerRef pane identity with session_id=None after agent-to-shell transition; rebind only after nonce-verified session reporting; rehydrate authoritative full Plan/Spec/tasks including task milestones and plan strides before replaying durable Planner requests.'
+  ts: 1783678859235
+  links:
+  - key:ffe6e49dfc3d949f
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_mquvm8
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'task_2oy6cc integration refinement: replacement replay consumes canonical project-root full Plan snapshot only after nonce/session/state/provider-chat routability succeeds; preserve every task/stride/decision/gate record.'
+  ts: 1783679997615
+  links:
+  - key:9f8774d3f7484bb8
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_t0fm4t
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'task_2oy6cc final integration contract: restore Plan.planner_inbox and planner_requests before replacement replay; preserve stale PlannerRef; rebind only after authenticated provider session matches session+nonce, accepted state, and chat target; never synthesize binding from pane/PTY existence.'
+  ts: 1783683271963
+  links:
+  - key:9c0fe754d0f9d780
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_q935ct
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'task_2oy6cc rotation invariant: project-root/adoption restore must consume authoritative post-open Planner session+nonce rebind and restored inbox target; do not synthesize or mutate delivery state machine.'
+  ts: 1783683995369
+  links:
+  - key:f04ae9b998c3635c
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_dym6nd
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: qa
+  text: 'claim: QA batch: restore/adopt safety after fixed daemon reload; verify task_count=58 and focused adopt split-sidecar test before pass.'
+  ts: 1783694789000
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_j1rxyk
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: QA claimed after restore. Daemon proof passes
+  text: ' /api/health build_sha=5aff40fcab55ae97b8a4dcdcb246b9316f1142c3 and plan state reports total=58, done=35 after bounded close, open state preserved. Focused capped Rust oracle attempted with TEST_CAP_SECS=90 CARGO_TEST_CMD="cargo test --manifest-path src-tauri/Cargo.toml --lib" scripts/test-capped.sh -- adopt_plan_preserves_task_files_and_clears_stale_runtime_bindings; it did not pass because the cap fired during cold compile and tauri-build then failed with Windows PermissionDenied (OS code 5) on bundled embed. No rerun with larger cap; QA remains open until warm compile/permission issue is resolved or previous accepted evidence is explicitly accepted.'
+  ts: 1783694909194
+  links:
+  - key:7451d9442eb48cc6
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_lzi0xt
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: qa
+  text: 'fail: QA did not pass: focused capped command TEST_CAP_SECS=90 CARGO_TEST_CMD="cargo test --manifest-path src-tauri/Cargo.toml --lib" scripts/test-capped.sh -- adopt_plan_preserves_task_files_and_clears_stale_runtime_bindings hit cold compile/Windows PermissionDenied on bundled embed and no later passing run exists. Next unblock: clear debug embed/resource contention, ensure dev 7686 remains healthy, rerun the same capped focused command once from the warm canonical checkout; pass only with explicit exit 0 and task_count=58 daemon proof.'
+  ts: 1783707635802
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_xi2ez2
+  from:
+    pane_id: watchdog
+    session_id: null
+    title: null
+  kind: decision
+  text: 'watchdog: assigned pane gone and silent for 2721125ms — demoted to pending'
+  ts: 1783710356927
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_v4rx87
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: BOUNCE integration
+  text: ' lane/planner-project-resolution commit ad17508af does not merge cleanly into current feat/1.7.2-stability 768018b31; merge-tree reports content conflict in src-tauri/src/service/plan/adopt.rs. Also lane has generated schema noise (src-tauri/gen/schemas/desktop-schema.json, windows-schema.json) that must be reverted unless intentionally required. Expected next proof: rebase/merge current stability, resolve adopt.rs conflict preserving split-task sidecar adoption fix, clean generated noise, rerun focused codeterm-plan canonical_path tests and app adopt tests with required ignored dist/embed/bootstrap resources, then report exact commands/results.'
+  ts: 1783712789323
+  links:
+  - key:b79485631c3cfcc0
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_f4osde
+  executor_pane_id: cca9f056
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.4
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-project-resolution
+  worktree_path: D:/Developer/codeterm-worktrees/planner-project-resolution
+  base: origin/develop
+  destination: null
+  report: null
+  assigned_at: 1783655942980
+  reported_at: null
+  reviewed_at: null
+  closed_at: 1783657090421
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_8bn8he
+  executor_pane_id: 2261816b
+  executor_title: Nash
+  provider: codex
+  agent_type: codex
+  model: gpt-5.5
+  session_id: null
+  role: worker
+  parent_pane_id: 4c17f607
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-project-resolution
+  worktree_path: D:/Developer/codeterm-worktrees/planner-project-resolution
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783658123278
+    message: |-
+      STATUS: in_review
+      CHANGES: Committed ad17508af921d5f930944ebce73c37d9c6db1a1c. Files: src-tauri/crates/codeterm-plan/src/service_plan/paths.rs: project_root now resolves linked worktree/workspace cwd to its own repo root instead of main worktree; src-tauri/crates/codeterm-plan/src/service_plan/canonical_path_tests.rs: regression coverage for linked-worktree sidecar routing and scan_project preserving owner/planner binding; src-tauri/crates/codeterm-plan/src/service_plan/reconcile_fixes.rs: pane-gone lane demotion clears assignment and sets needs-reassign without changing in_progress to pending; src-tauri/crates/codeterm-plan/src/service_plan/tests.rs: regression for no status drift; src-tauri/src/service/plan/adopt.rs: v2 adoption loads the full plan sidecar graph via store_v2, refuses partial task-sidecar loads, reports canonical sidecar task_count, and avoids pruning task files during real adoption; src-tauri/src/service/plan/adopt_tests.rs: dry-run reports task_count=1 and preserves task yaml/jsonl. Pre/post fixture state: plan pl_adoptme task task-with-sidecar remains task_count 1, source task-with-sidecar.yaml/jsonl preserved on dry-run; linked-worktree restart fixture keeps owner orch-pane/orch-session and planner planner-pane/planner-session; watchdog fixture keeps task in_progress with needs-reassign label and closed assignment. Attempt context: prior attempt attempt_f4osde was closed; this pane continued in task_23fywk only.
+      BUILD/TYPECHECK/TESTS: PASS: cargo fmt from src-tauri, then unrelated formatted files restored before commit; PASS: git diff --check; PASS: TEST_CAP_SECS default scripts/test-capped.sh -p codeterm-plan --lib service_plan::canonical_path_tests -- --nocapture (3 passed); PASS: scripts/test-capped.sh -p codeterm-plan --lib lane_demotion_preserves_in_progress_status_and_marks_needs_reassign -- --nocapture (1 passed). BLOCKED LOCAL APP TEST: scripts/test-capped.sh -p codeterm --lib service::plan::adopt_tests -- --nocapture failed before tests because build.rs could not find bundled-embed/codeterm-embed-x86_64-pc-windows-msvc.exe. No dev restart, broad build, remote restart fixture, or production data mutation performed.
+      FOLLOWUP: GATES REQUESTED: in a warm QA checkout with bundled embed present, run scripts/test-capped.sh -p codeterm --lib service::plan::adopt_tests -- --nocapture; run the remote restart recovery fixture to verify pane/session restore liveness/report-route evidence end-to-end; run any serialized planner move/adopt CLI smoke that exercises dry-run and real move counts against sidecar tasks.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783657098141
+  reported_at: 1783658123278
+  reviewed_at: null
+  closed_at: 1783662836769
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_hn0abl
+  executor_pane_id: 29a9490d
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-project-resolution
+  worktree_path: D:/Developer/codeterm-worktrees/planner-project-resolution
+  base: origin/develop
+  destination: null
+  report: null
+  assigned_at: 1783710392481
+  reported_at: null
+  reviewed_at: null
+  closed_at: null
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

@@ -1,0 +1,268 @@
+id: task_sxq09u
+name: Make Plan a first-class workspace tab surface
+type: implement
+model: gpt-5.5
+model_rationale: 'Routing rationale: high-risk workspace identity/navigation UX requires stronger Codex reasoning.'
+personality: Hopper
+personality_provenance: null
+acceptance_criteria:
+- Each workspace row exposes one stable workspace-plan:<workspace_id> first-class virtual Plan button/tab that opens authoritative Plan surface navigation with no Pane or Workspace.tabs entry.
+- Workspace Plan view cumulatively includes root and nested-root authoritative plans, excludes siblings/outside roots, deduplicates by plan id/canonical sidecar, orders stably, and updates live.
+- Nested-root cascade, dedupe, ordering, live update, and shown sidebar button structure are covered by focused and Playwright fixtures.
+test_plan: 'Oracle: authoritative PlanIndex/PlanStore fixture plus sidebar Playwright. 1. Seed workspace root A/.codeterm/plans with plans A1/A2, nested roots A/packages/p1 and A/tools/p2 with sidecars, sibling B with plan B1, and outside root C with C1; pass: A Plan surface lists A1/A2/p1/p2 only. 2. Seed duplicate plan id and canonical sidecar aliases across root/nested indexes; pass: one canonical entry per plan id/canonical sidecar and stable deterministic order across reloads. 3. Emit plan-changed for nested p1; pass: same workspace-plan:<workspace_id> surface updates in place without duplicate rows or fake Workspace.tabs/Pane state. 4. Render shown sidebar structure; pass: Plan is directly under its workspace row, visually alongside workspace tab entries, with stable data-tab-id/data-tab-kind, aria-pressed, and aria-current only when active. 5. Run focused entry/filter tests and npx playwright test tests/playwright/suites/13-canvas/workspace-plan-entry.spec.ts --config=tests/playwright/playwright.config.ts --project=golden; pass: root/nested inclusion, sibling exclusion, stable ordering, dedupe, click/navigation, and live update assertions pass. 6. Run git diff --check and scripts/check-file-sizes.sh; pass: both exit 0.'
+correctness: Authoritative cumulative workspace-root ownership; no cross-root leakage; canonical dedupe/stability; live virtual-tab updates; no fake pane/tab state.
+status: pending
+review_stage: review
+qa_state: null
+status_label: pane-gone
+priority: p2
+created_at: 1783631778672
+updated_at: 1783689917458
+status_changed_at: 1783689917458
+handle: make-plan-a-first-class-workspace-tab-surface
+tags: []
+section_ids:
+- sec_rlqrqc
+body: 'Implement the Plan control as a first-class button/virtual tab directly under each workspace row, visually alongside workspace tab entries. Clicking opens the authoritative Plan surface for that workspace without creating a Pane-backed or Workspace.tabs entry. The visible list is cumulative: include every authoritative plan under the workspace root''s .codeterm/plans and every plan owned by a nested project root/directory beneath that workspace root, regardless of the nested folder holding the sidecar; exclude sibling and outside-root plans. Preserve PlanIndex/PlanStore as authority. Deduplicate by plan id plus canonical sidecar path, order stably, and update the same virtual Plan surface on live plan-changed events. Own the sidebar selector/entry, authoritative plan-resolution/filtering seam, focused fixtures, and workspace Plan Playwright spec; do not create fake Pane/Workspace.tabs state.'
+role_guidance: 'You are Hopper, a frontend interaction engineer. Refine the existing virtual Plan surface into a tab-level experience. Red line: no fake Pane state or duplicate plan source.'
+executor_role: frontend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/workspace-plan-tab
+  branch: lane/workspace-plan-tab
+  base: origin/develop
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: workspace-plan-ui
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_lczpay
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Worker created an inspection worktree outside the required sibling container before editing. Same worker ordered to verify clean, remove it, delete only its new branch, report cleanup, then continue in canonical task worktree.
+  ts: 1783632571071
+  links:
+  - key:d0d6dcb4f5ed0feb
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_19knfv
+  from:
+    pane_id: 861a95db
+    session_id: 019f48c6-8aa6-79c3-94e0-b1c79c1fc566
+    title: Hopper
+  kind: status_update
+  text: |-
+    STATUS: in_review
+    CHANGES: C:\Developer\codeterm-worktrees\workspace-plan-tab\src\components\Sidebar\WorkspacePlanEntry.tsx - Plan row now exposes stable data-tab-id="workspace-plan:<workspace_id>", data-tab-kind="workspace-plan", role="tab", aria-selected active semantics, and no data-pinned fake action state; still derives entries from PlanIndex via deriveWorkspacePlanEntries/usePlanIndexOptional and opens authoritative canvas shell via openWorkspacePlanForEntries. C:\Developer\codeterm-worktrees\workspace-plan-tab\src\components\Sidebar\sidebarSelection.ts - added workspacePlanTabId(workspaceId) selector helper. C:\Developer\codeterm-worktrees\workspace-plan-tab\src\components\Sidebar\WorkspacePlanEntry.test.tsx - updated focused source assertions for tab identity/selection and no pinned action state. C:\Developer\codeterm-worktrees\workspace-plan-tab\src\components\Sidebar\sidebarSelection.test.ts - added stable workspace-plan:<workspace_id> selector coverage. C:\Developer\codeterm-worktrees\workspace-plan-tab\tests\playwright\suites\13-canvas\workspace-plan-entry.spec.ts - updated golden selector expectations to exact Plan tab identity and aria-selected transition; removed force click. No Pane-backed Workspace.tabs entry added.
+    TESTS RUN: git branch --show-current => lane/workspace-plan-tab; git rev-parse HEAD => 0ba27f17dd663feec3c263e2f44923e366fb5a4e; cleanup: C:\Users\User\Source\codeterm-plan-ui was clean detached HEAD/no branch, removed successfully, path now absent. npx tsx src/components/Sidebar/sidebarSelection.test.ts => 4 passed, 0 failed. npx tsx src/components/Sidebar/WorkspacePlanEntry.test.tsx initially failed because this worktree has no node_modules/react/jsx-runtime; rerun with NODE_PATH=C:\Developer\codeterm\node_modules succeeded => 10 passed, 0 failed. rg evidence: data-pinned remains only in WorkspacePlanEntry.test.tsx negative assertion; workspacePlanTabId/data-tab-kind present in source/specs.
+    DEFERRED CI QA: npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep "workspace-plan-entry|plan-view-shell" (deferred per no-Playwright constraint); cargo/build.ps1/build.sh/dev server/desktop validation deferred per execution constraint.
+    FOLLOWUP: No local blocker for source-level review. Playwright oracle and desktop/Rust/build gates must run on self-hosted CI QA. Note: no separate Playwright file named plan-view-shell exists in this worktree; grep matches workspace-plan-entry only.
+  ts: 1783632771256
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_vj6akz
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: BOUNCE accessibility; isolated role=tab/aria-selected without tablist or matching ordinary tab semantics is invalid. Keep virtual data-tab identity and existing button/pressed/current semantics.
+  ts: 1783632924281
+  links:
+  - key:123e7578546cbbeb
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_p7uhoq
+  from:
+    pane_id: 861a95db
+    session_id: 019f48c6-8aa6-79c3-94e0-b1c79c1fc566
+    title: Hopper
+  kind: status_update
+  text: |-
+    STATUS: in_review
+    CHANGES: Bounce accessibility fix applied in C:\Developer\codeterm-worktrees\workspace-plan-tab. C:\Developer\codeterm-worktrees\workspace-plan-tab\src\components\Sidebar\WorkspacePlanEntry.tsx now keeps the real button, data-tab-id="workspace-plan:<workspace_id>", data-tab-kind="workspace-plan", data-active, aria-pressed, and ActiveTabPill, but removes role="tab" and aria-selected to avoid a partial ARIA tabs widget. It adds aria-current="page" only when the Plan surface is active. C:\Developer\codeterm-worktrees\workspace-plan-tab\src\components\Sidebar\sidebarSelection.ts keeps workspacePlanTabId(workspaceId). Tests/specs updated accordingly: WorkspacePlanEntry.test.tsx asserts no role/aria-selected, inactive no aria-current, active aria-current=page; sidebarSelection.test.ts covers stable id; workspace-plan-entry.spec.ts expects identity/kind/current-location semantics and keeps Playwright deferred. No Workspace.tabs/Pane fake state added; Plan remains PlanIndex/PlansProvider-derived.
+    TESTS RUN: Verified branch/head before edit: git branch --show-current => lane/workspace-plan-tab; git rev-parse HEAD => 0ba27f17dd663feec3c263e2f44923e366fb5a4e. npx tsx src/components/Sidebar/sidebarSelection.test.ts => 4 passed, 0 failed. NODE_PATH=C:\Developer\codeterm\node_modules npx tsx src/components/Sidebar/WorkspacePlanEntry.test.tsx => 10 passed, 0 failed. Source scan: rg role="tab" in Sidebar/workspace-plan-entry spec => no matches; rg aria-selected => only negative assertions in WorkspacePlanEntry.test.tsx and workspace-plan-entry.spec.ts.
+    DEFERRED CI QA: npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep "workspace-plan-entry|plan-view-shell" deferred per no-Playwright constraint. cargo/build.ps1/build.sh/dev server/desktop validation deferred per execution constraint.
+    FOLLOWUP: No source-level blocker. CI QA must run the Playwright oracle and desktop/build gates.
+  ts: 1783632987242
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_yalb9t
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: ACCEPT source diff after accessibility correction; focused TS tests pass, Playwright deferred to CI. Worker owns scoped commit before integration.
+  ts: 1783633029836
+  links:
+  - key:bb848f69330513c4
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_yqungc
+  from:
+    pane_id: 861a95db
+    session_id: 019f48c6-8aa6-79c3-94e0-b1c79c1fc566
+    title: Hopper
+  kind: status_update
+  text: |-
+    STATUS: in_review
+    COMMIT: 4f845b7fbee6a73bdc31530af5dc9890a23ae5c0 feat(canvas): make workspace Plan entry a first-class tab
+    CHANGES: Scoped commit includes exactly five files: src/components/Sidebar/WorkspacePlanEntry.tsx; src/components/Sidebar/sidebarSelection.ts; src/components/Sidebar/WorkspacePlanEntry.test.tsx; src/components/Sidebar/sidebarSelection.test.ts; tests/playwright/suites/13-canvas/workspace-plan-entry.spec.ts. Workspace Plan entry exposes stable data-tab-id="workspace-plan:<workspace_id>", data-tab-kind="workspace-plan", data-active, aria-pressed, existing ActiveTabPill, and aria-current="page" only when active. Removed data-pinned plus invalid role="tab"/aria-selected partial ARIA tab semantics. No fake Workspace.tabs/Pane state added; Plan remains PlanIndex/PlansProvider-derived and opens through the authoritative Plan shell path.
+    TESTS RUN: npx tsx src/components/Sidebar/sidebarSelection.test.ts => 4 passed, 0 failed. NODE_PATH=C:\Developer\codeterm\node_modules npx tsx src/components/Sidebar/WorkspacePlanEntry.test.tsx => 10 passed, 0 failed. Source scan evidence from pre-commit review: rg role="tab" in Sidebar/workspace-plan-entry spec => no matches; rg aria-selected => only negative assertions in WorkspacePlanEntry.test.tsx and workspace-plan-entry.spec.ts. Post-commit: git status --short --branch => lane/workspace-plan-tab...origin/develop [ahead 1], clean; git show --name-only HEAD lists only the five reported files.
+    DEFERRED CI QA: npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep "workspace-plan-entry|plan-view-shell" deferred per no-Playwright constraint. cargo/build.ps1/build.sh/dev server/desktop validation deferred per execution constraint.
+    FOLLOWUP: Do not push from this PC; CI QA must run the Playwright oracle and desktop/build gates.
+  ts: 1783633058435
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_37p8ru
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: qa
+  text: 'enqueue: Source accepted and merged as 21fa7562a; focused TS tests passed; remote CI Playwright remains required'
+  ts: 1783633155226
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_twrevl
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Keep open risk until Playwright golden executes real workspace Plan tab oracle; prior runs failed in setup.
+  ts: 1783641674677
+  links:
+  - key:9be0e79d979ac34a
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_dak0xc
+  executor_pane_id: 861a95db
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/workspace-plan-tab
+  worktree_path: D:/Developer/codeterm-worktrees/workspace-plan-tab
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783633058904
+    message: |-
+      STATUS: in_review
+      COMMIT: 4f845b7fbee6a73bdc31530af5dc9890a23ae5c0 feat(canvas): make workspace Plan entry a first-class tab
+      CHANGES: Scoped commit includes exactly five files: src/components/Sidebar/WorkspacePlanEntry.tsx; src/components/Sidebar/sidebarSelection.ts; src/components/Sidebar/WorkspacePlanEntry.test.tsx; src/components/Sidebar/sidebarSelection.test.ts; tests/playwright/suites/13-canvas/workspace-plan-entry.spec.ts. Workspace Plan entry exposes stable data-tab-id="workspace-plan:<workspace_id>", data-tab-kind="workspace-plan", data-active, aria-pressed, existing ActiveTabPill, and aria-current="page" only when active. Removed data-pinned plus invalid role="tab"/aria-selected partial ARIA tab semantics. No fake Workspace.tabs/Pane state added; Plan remains PlanIndex/PlansProvider-derived and opens through the authoritative Plan shell path.
+      TESTS RUN: npx tsx src/components/Sidebar/sidebarSelection.test.ts => 4 passed, 0 failed. NODE_PATH=C:\Developer\codeterm\node_modules npx tsx src/components/Sidebar/WorkspacePlanEntry.test.tsx => 10 passed, 0 failed. Source scan evidence from pre-commit review: rg role="tab" in Sidebar/workspace-plan-entry spec => no matches; rg aria-selected => only negative assertions in WorkspacePlanEntry.test.tsx and workspace-plan-entry.spec.ts. Post-commit: git status --short --branch => lane/workspace-plan-tab...origin/develop [ahead 1], clean; git show --name-only HEAD lists only the five reported files.
+      DEFERRED CI QA: npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep "workspace-plan-entry|plan-view-shell" deferred per no-Playwright constraint. cargo/build.ps1/build.sh/dev server/desktop validation deferred per execution constraint.
+      FOLLOWUP: Do not push from this PC; CI QA must run the Playwright oracle and desktop/build gates.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783632394298
+  reported_at: 1783633058904
+  reviewed_at: null
+  closed_at: 1783633088128
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_64vayd
+  executor_pane_id: 073a4ee1
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/workspace-plan-tab
+  worktree_path: D:/Developer/codeterm-worktrees/workspace-plan-tab
+  base: origin/develop
+  destination: null
+  report: null
+  assigned_at: 1783689225743
+  reported_at: null
+  reviewed_at: null
+  closed_at: 1783689917100
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

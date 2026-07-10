@@ -1,0 +1,68 @@
+id: task_sjhx4f
+name: Release closeout and archive
+type: cleanup
+model: gpt-5.4-mini
+model_rationale: 'Routing rationale: narrow mechanical closeout; gpt-5.4-mini.'
+personality: Lamport
+personality_provenance: null
+acceptance_criteria:
+- No drift/finished pane/merged lane remains; post-release section covered; final state/reconcile/doctor clean before archive.
+test_plan: 'Oracle commands: codeterm plan state pl_as7ty5 --json; codeterm plan reconcile pl_as7ty5; git worktree list; codeterm pane list; codeterm plan doctor pl_as7ty5 --kind quality. Expected no unresolved drift and cleanup evidence recorded.'
+correctness: 'Correctness vector: closeout removes only finished sibling lanes, leaves dirty/active work intact, and archives only with clean plan state and release evidence.'
+status: parked
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783631793167
+updated_at: 1783659458184
+status_changed_at: 1783638911893
+handle: release-closeout-and-archive-2
+tags: []
+section_ids:
+- sec_i692yk
+body: 'Closeout is an in-scope 1.7.2 phase. After CI publish, public updater verification, and issue reconciliation, close verified tasks, record cleanup status, close finished panes, remove only merged sibling lanes, prune stale strides, and archive only when all gates complete. Keep release/CI and cleanup parked behind dependency completion; preserve the dirty orchestrator checkout and active integration worktree. Exact file ownership: no source ownership; cleanup metadata only. Dependencies: task_pes3i4 CI publish, task_p6kh7f issue reconciliation, and final public updater evidence. Branch/worktree release/post-1.7.2-cleanup at D:/Developer/codeterm-worktrees/post-release-cleanup from origin/develop. Report STATUS in_review with final state, reconcile/doctor output, cleanup commands, and archive evidence.'
+role_guidance: 'You are Lamport, a release-closeout engineer. Clean only finished sibling lanes after public verification. Red line: never delete dirty orchestrator or active integration work.'
+executor_role: release-cleanup
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/post-release-cleanup
+  branch: release/post-1.7.2-cleanup
+  base: origin/develop
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: release-closeout
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_2kcz9v
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'parked: Unblock after v1.7.2 publish and issue reconciliation complete.'
+  ts: 1783638911893
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts: []
+park_reason: Unblock after v1.7.2 publish and issue reconciliation complete.
+attachments: []

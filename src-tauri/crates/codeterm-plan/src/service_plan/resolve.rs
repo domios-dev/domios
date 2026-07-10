@@ -559,6 +559,7 @@ mod tests {
             role_guidance: None,
             intent: None,
             parent_task_id: None,
+            depends_on: vec![],
             assigned_pane_id: None,
             lane: Default::default(),
             taken_by_role: None,
@@ -571,6 +572,7 @@ mod tests {
             execution_attempts: vec![],
             park_reason: None,
             personality: None,
+            personality_provenance: None,
             attachments: vec![],
         }
     }

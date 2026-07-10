@@ -4,8 +4,43 @@ use super::{
     restored_agent_materialization, RestoredAgentMaterialization, SEND_AGENT_BACKEND_COLS,
     SHELL_BACKEND_COLS,
 };
+use crate::service::plan::PlanStore;
 use crate::service::ServiceContext;
 use std::collections::HashMap;
+
+pub(crate) fn active_pane_lane_base(plan_store: &PlanStore, pane_id: &str) -> Option<String> {
+    let (plan_id, task_id) = plan_store.task_binding_for_pane(pane_id)?;
+    plan_store
+        .get(&plan_id)
+        .and_then(|plan| {
+            plan.tasks
+                .iter()
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id.as_str()))
+                .and_then(|task| {
+                    task.execution_attempts
+                        .iter()
+                        .rev()
+                        .find(|attempt| {
+                            attempt.executor_pane_id == pane_id && attempt.closed_at.is_none()
+                        })
+                        .and_then(|attempt| attempt.base.clone())
+                        .or_else(|| task.lane.base.clone())
+                })
+        })
+        .filter(|base| !base.trim().is_empty())
+}
+
+pub(crate) fn pane_task_env(plan_store: &PlanStore, pane_id: &str) -> HashMap<String, String> {
+    let mut env_vars = HashMap::new();
+    if let Some((plan_id, task_id)) = plan_store.task_binding_for_pane(pane_id) {
+        if let Some(base) = active_pane_lane_base(plan_store, pane_id) {
+            env_vars.insert("CODETERM_LANE_BASE".into(), base);
+        }
+        env_vars.insert("CODETERM_PLAN_ID".into(), plan_id);
+        env_vars.insert("CODETERM_TASK_ID".into(), task_id);
+    }
+    env_vars
+}
 
 impl ServiceContext {
     pub(crate) fn pane_env(&self, pane_id: &str) -> HashMap<String, String> {
@@ -51,10 +86,7 @@ impl ServiceContext {
             }
         }
         drop(mux);
-        if let Some((plan_id, task_id)) = self.plan_store.task_binding_for_pane(pane_id) {
-            env_vars.insert("CODETERM_PLAN_ID".into(), plan_id);
-            env_vars.insert("CODETERM_TASK_ID".into(), task_id);
-        }
+        env_vars.extend(pane_task_env(&self.plan_store, pane_id));
         env_vars
     }
 
@@ -254,7 +286,7 @@ impl ServiceContext {
             return self.chatbackend_close(&plugin_id, &session_id);
         }
         let pty_id = self.resolve_pty_id(pane_id)?;
-        self.pty.lock().remove(&pty_id);
+        kill_live_pane_pty(&mut self.pty.lock(), &pty_id)?;
         Ok(())
     }
 
@@ -311,5 +343,44 @@ impl ServiceContext {
             }
         })
         .await;
+    }
+}
+
+pub(crate) fn kill_live_pane_pty(
+    manager: &mut crate::pty::manager::PtyManager,
+    pty_id: &str,
+) -> Result<(), String> {
+    manager.kill(pty_id)
+}
+
+#[cfg(test)]
+mod kill_pane_pty_tests {
+    use std::collections::HashMap;
+
+    use super::kill_live_pane_pty;
+
+    #[test]
+    fn service_kill_pane_pty_helper_uses_kill_semantics() {
+        let mut manager = crate::pty::manager::PtyManager::new();
+        let (pty_id, session) = manager
+            .spawn(None, None, 80, 24, HashMap::new())
+            .expect("spawn default shell");
+
+        kill_live_pane_pty(&mut manager, &pty_id).expect("kill succeeds");
+
+        assert!(
+            manager.get_session(&pty_id).is_none(),
+            "service PTY kill must remove the manager entry"
+        );
+        let exited = session
+            .child
+            .lock()
+            .expect("child lock")
+            .try_wait()
+            .expect("try_wait after kill");
+        assert!(
+            exited.is_some(),
+            "service PTY kill must terminate/reap the child path via PtyManager::kill"
+        );
     }
 }

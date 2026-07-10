@@ -1,0 +1,126 @@
+id: task_ebf6xm
+name: Final P0 review Planner request architecture and replay delta
+type: review
+model: gpt-5.6-sol
+model_rationale: GPT-5.6 Sol is present in the discovered Codex catalog and is appropriate for final adversarial P0 review of durable routing, replay, and lossless rehydration correctness.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- Each architectural BOUNCE finding is independently verified or pinpointed with file/line evidence, ending in one ACCEPT or BOUNCE verdict without lane mutation.
+test_plan: 'Oracle: exact already-passing focused non-heavy tests plus static checks only. 1. Trace every Planner request delivery path; pass: non-routable/dead Planner cannot reach PTY send_text or fallback shell. 2. Inspect routability/rebind; pass: nonce, session, accepted agent state, chat target, and stale PlannerRef rules are explicit. 3. Trace durable lease/claim/ack/release across pre/post-delivery crashes; pass: deterministic request IDs and idempotent completion prevent stranded or duplicate delivery. 4. Inspect rehydration; pass: Plan, Spec, task, milestone, stride, and decision truth is restored, 36 pre-existing task IDs remain preserved, and telemetry is accurate. 5. Run the exact existing focused non-heavy routing/replay tests only if already passing/warm; otherwise run git diff --check and scripts/check-file-sizes.sh. 6. Inspect PowerShell/bash/zsh fixtures; pass: multiline payloads yield zero PTY writes. No cargo build/dev/Playwright. Return severity findings and ACCEPT/BOUNCE with file/line evidence.'
+correctness: No shell fallback; nonce/session/chat-only delivery; bounded replay-safe lifecycle; deterministic idempotency; lossless plan rehydration; truthful telemetry; cross-shell zero-write proof.
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p0
+created_at: 1783679397675
+updated_at: 1783679873626
+status_changed_at: 1783679872700
+handle: final-p0-review-planner-request-architecture-and-replay-delta
+tags:
+- 1.7.2
+section_ids:
+- sec_d52ka9
+body: 'Final P0 read-only review of the corrected task_2oy6cc delta in D:/Developer/codeterm-worktrees/planner-request-liveness. Recheck all prior architectural BOUNCE findings: no Planner PTY send_text or fallback-shell path; nonce/session/state/chat-only routability; stale PlannerRef rebind; bounded durable leases; deterministic chat request IDs; explicit acknowledgement and idempotent completion across pre/post-delivery crash windows; full Plan/Spec/task/milestone/stride/decision rehydration; correct planner_dead/undelivered/recovery telemetry; and 36-task preservation with PowerShell/bash/zsh zero-PTY-write fixtures. Do not edit source, commit, build, start dev, or run Playwright. Run exact already-passing focused non-heavy tests and static checks only. Return severity-ranked ACCEPT or BOUNCE with file/line evidence.'
+role_guidance: 'You are an independent final P0 architecture reviewer. Verify every prior task_2oy6cc BOUNCE against the current delta. Red line: no source edits, commits, build, dev, or Playwright.'
+executor_role: code-reviewer
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:/Developer/codeterm-worktrees/planner-request-liveness
+  branch: lane/planner-request-liveness
+  base: origin/develop
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: planner-correctness
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_2zq945
+  from:
+    pane_id: f5904bb6
+    session_id: 019f4b93-fcc1-7480-b162-51bbaffde362
+    title: Final P0 review Planner request architecture and replay delta
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: none (strictly read-only). BOUNCE: canonical Claude Planner panes are PTY-backed while Planner request routing accepts only ChatBackend backing, so ordinary Planners are permanently non-routable; accepted requests clear their lease and can strand indefinitely on the same session; persisted chat-history dedupe can suppress a message after a crash between history flush and model send; gate creation and request enqueue are separate writes; rehydration is a partial projection with only one spec and ten gates; unknown agent state is accepted; transport-failure telemetry can report planner_dead=false; PowerShell/bash/zsh fixture is only a repeated pure predicate with no payload/delivery/write spy.
+    TESTS RUN: PASS scripts/test-capped.sh -p codeterm-plan planner_requests; PASS focused codeterm-plan live_pane_or_pty_without_agent_chat_is_planner_dead; PASS focused codeterm-plan queued_request_marks_unbound_planner_dead_with_recovery_action; PASS git diff --check; PASS scripts/check-file-sizes.sh --fail. Root codeterm hydration test could not run because the non-warm Tauri build script rejects missing ../dist; no retry/build/dev/Playwright. Final verdict: BOUNCE.
+  ts: 1783679830992
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_eygn9v
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Final P0 review completed with BOUNCE; close review objective and return architectural remediation to task_2oy6cc.
+  ts: 1783679871863
+  links:
+  - key:2707a9eecda62a7e
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_3tl02y
+  executor_pane_id: f5904bb6
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-request-liveness
+  worktree_path: D:/Developer/codeterm-worktrees/planner-request-liveness
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783679831294
+    message: |-
+      STATUS: done
+      CHANGES: none (strictly read-only). BOUNCE: canonical Claude Planner panes are PTY-backed while Planner request routing accepts only ChatBackend backing, so ordinary Planners are permanently non-routable; accepted requests clear their lease and can strand indefinitely on the same session; persisted chat-history dedupe can suppress a message after a crash between history flush and model send; gate creation and request enqueue are separate writes; rehydration is a partial projection with only one spec and ten gates; unknown agent state is accepted; transport-failure telemetry can report planner_dead=false; PowerShell/bash/zsh fixture is only a repeated pure predicate with no payload/delivery/write spy.
+      TESTS RUN: PASS scripts/test-capped.sh -p codeterm-plan planner_requests; PASS focused codeterm-plan live_pane_or_pty_without_agent_chat_is_planner_dead; PASS focused codeterm-plan queued_request_marks_unbound_planner_dead_with_recovery_action; PASS git diff --check; PASS scripts/check-file-sizes.sh --fail. Root codeterm hydration test could not run because the non-warm Tauri build script rejects missing ../dist; no retry/build/dev/Playwright. Final verdict: BOUNCE.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783679413219
+  reported_at: 1783679831294
+  reviewed_at: null
+  closed_at: 1783679872700
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

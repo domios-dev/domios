@@ -1,0 +1,680 @@
+id: task_p2rngf
+name: 'Implement pending dependency semantics for #230'
+type: implement
+model: gpt-5.6-terra
+model_rationale: 'Routing rationale: normal Rust plan-state implementation; gpt-5.4 balances cross-module correctness and bounded scope.'
+personality: Dijkstra
+personality_provenance: null
+acceptance_criteria:
+- Plan A in_progress with dependent B/C pending/waiting and dependency metadata; explicit parked remains distinct.
+test_plan: 'Oracle command: cargo test -p codeterm-plan next_actions -- --nocapture. Expected: dependency tests pass and no parked dependency appears; inspect codeterm plan state pl_as7ty5 --json for pending/waiting output.'
+correctness: 'Correctness vector: dependency waiting is machine-readable and remains pending/waiting, never parked; dependent tasks stay visible in the frontier and explicit park remains distinct.'
+status: done
+review_stage: review
+qa_state: null
+status_label: pane-gone
+priority: p2
+created_at: 1783631697260
+updated_at: 1783686581663
+status_changed_at: 1783686569223
+handle: implement-pending-dependency-semantics-for-230
+tags: []
+section_ids:
+- sec_rlqrqc
+body: 'Implement dependency waiting as pending/waiting distinct from parked; report changed files, exact focused test output, and any gap. Exact file ownership: src-tauri/crates/codeterm-types/src/plan/types.rs; src-tauri/crates/codeterm-plan/src/service_plan/next_actions.rs; src-tauri/crates/codeterm-plan/src/service_plan/state.rs; src-tauri/crates/codeterm-plan/src/service_plan/mutations/task_ops.rs; focused plan tests Dependencies: Discovery task_2zzydz; group planner-correctness. Report contract: report STATUS in_review, CHANGES with exact files, TESTS with exact command/output, FOLLOWUP with blockers and evidence.'
+role_guidance: 'You are Dijkstra, a Rust plan-state engineer. Own only the listed plan type/service files. Red line: normal sequencing must never be represented as parked.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/plan-dependency-ci3
+  branch: lane/plan-dependency-ci3
+  base: release/1.7.2-integration
+  destination: null
+  cleanup_status: deferred
+  cleanup_hints:
+  - Retain dirty lane until release integration overlay is committed or otherwise durably preserved; then remove worktree and branch.
+taken_by_role: null
+peer: null
+group: planner-correctness
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_352gal
+  from:
+    pane_id: 2f2c5100
+    session_id: 019f48c6-65d6-7892-ac4f-8f9df2df0ff6
+    title: Dijkstra
+  kind: status_update
+  text: 'STATUS: in_review\nCHANGES: none; owned files src-tauri/crates/codeterm-types/src/plan/types.rs, src-tauri/crates/codeterm-plan/src/service_plan/next_actions.rs, src-tauri/crates/codeterm-plan/src/service_plan/state.rs, src-tauri/crates/codeterm-plan/src/service_plan/mutations/task_ops.rs do not exist in local checkout C:\Users\User\Source\codeterm on branch plugins-rethink\nTESTS RUN: none; deferred per execution constraint, plus implementation blocked by missing owned files'
+  ts: 1783632494043
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_g73ie3
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: BOUNCE wrong checkout caused missing-file report; same worker redirected to exact task worktree and branch oracle.
+  ts: 1783632523813
+  links:
+  - key:b98313aecd56f330
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_z3texz
+  from:
+    pane_id: 2f2c5100
+    session_id: 019f48c6-65d6-7892-ac4f-8f9df2df0ff6
+    title: Dijkstra
+  kind: status_update
+  text: 'STATUS: in_review\nCHANGES: src-tauri/crates/codeterm-types/src/plan/types.rs; src-tauri/crates/codeterm-plan/src/service_plan/state.rs; src-tauri/crates/codeterm-plan/src/service_plan/next_actions.rs; src-tauri/crates/codeterm-plan/src/service_plan/mutations/task_ops.rs\nTESTS RUN: rustfmt on the four owned files only; cargo/state verification deferred to self-hosted CI QA gate per local execution constraint'
+  ts: 1783632746859
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_4rnge2
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: BOUNCE logic review; parent_task_id is hierarchy and cannot be repurposed as dependency. Require explicit dependency field, mutation/CLI surface, validation, terminal-unblock semantics, and focused tests.
+  ts: 1783632870091
+  links:
+  - key:5a37b9a30c567a3a
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_q00v89
+  from:
+    pane_id: 2f2c5100
+    session_id: 019f48c6-65d6-7892-ac4f-8f9df2df0ff6
+    title: Dijkstra
+  kind: status_update
+  text: 'STATUS: in_review\nCHANGES: cli/src/args/plan/task.rs; cli/src/cmd/plan/task_cmd.rs; cli/src/cmd/plan_task_update.rs; src-tauri/crates/codeterm-plan/src/plan/coverage.rs; src-tauri/crates/codeterm-plan/src/plan/reconcile.rs; src-tauri/crates/codeterm-plan/src/service_plan/batch.rs; src-tauri/crates/codeterm-plan/src/service_plan/body_file_tests.rs; src-tauri/crates/codeterm-plan/src/service_plan/cleanup_debt.rs; src-tauri/crates/codeterm-plan/src/service_plan/digest_rules.rs; src-tauri/crates/codeterm-plan/src/service_plan/gates.rs; src-tauri/crates/codeterm-plan/src/service_plan/hints.rs; src-tauri/crates/codeterm-plan/src/service_plan/mutations/mod.rs; src-tauri/crates/codeterm-plan/src/service_plan/mutations/plan_ops.rs; src-tauri/crates/codeterm-plan/src/service_plan/mutations/task_ops.rs; src-tauri/crates/codeterm-plan/src/service_plan/next_actions.rs; src-tauri/crates/codeterm-plan/src/service_plan/readback.rs; src-tauri/crates/codeterm-plan/src/service_plan/resolve.rs; src-tauri/crates/codeterm-plan/src/service_plan/state.rs; src-tauri/crates/codeterm-plan/src/service_plan/state/lane_rows/tests.rs; src-tauri/crates/codeterm-plan/src/service_plan/subtask_close_tests.rs; src-tauri/crates/codeterm-plan/src/service_plan/tag_model.rs; src-tauri/crates/codeterm-plan/src/service_plan/tests.rs; src-tauri/crates/codeterm-plan/src/service_plan/types.rs; src-tauri/crates/codeterm-types/src/plan/types.rs; src-tauri/src/api/plan_routes/tasks.rs; src-tauri/src/service/hierarchy/plan_reminder_nudge.rs; src-tauri/src/service/plan/types.rs; src-tauri/src/socket/server/plan_task_rpc.rs\nTESTS RUN: rustfmt --edition 2021 on changed Rust files only; cargo/state verification deferred to self-hosted CI QA gate per execution constraint'
+  ts: 1783633321307
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_k1vgqv
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'BOUNCE round-trip gap: task update CLI cannot clear depends_on because empty Vec is treated as omitted; require explicit clear contract and parameter tests.'
+  ts: 1783633367829
+  links:
+  - key:8b313ab8c39246d1
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_8h3alw
+  from:
+    pane_id: 2f2c5100
+    session_id: 019f48c6-65d6-7892-ac4f-8f9df2df0ff6
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    STATUS: in_review
+    CHANGES: src-tauri/crates/codeterm-types/src/plan/types.rs; src-tauri/crates/codeterm-plan/src/service_plan/next_actions.rs; src-tauri/crates/codeterm-plan/src/service_plan/state.rs; src-tauri/crates/codeterm-plan/src/service_plan/mutations/task_ops.rs; cli/src/args/plan/task.rs; cli/src/cmd/plan/task_cmd.rs; cli/src/cmd/plan_task_update.rs; cli/src/subcommand_contract_tests/plan.rs; src-tauri/src/api/plan_routes/tasks.rs; src-tauri/src/socket/server/plan_task_rpc.rs
+    TESTS RUN: rustfmt --edition 2021 <10 files>; cargo/API/RPC validation deferred to CI per local execution constraint
+  ts: 1783633678179
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_1z3q51
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'BOUNCE graph-integrity gap: rm_task can delete a referenced dependency and silently unblock waiter via filter_map; require structured rejection, atomicity, and corruption-defense tests.'
+  ts: 1783633690263
+  links:
+  - key:6ffd25d927fb9563
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_sx73x9
+  from:
+    pane_id: 2f2c5100
+    session_id: 019f48c6-65d6-7892-ac4f-8f9df2df0ff6
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    STATUS: in_review
+    CHANGES: src-tauri/crates/codeterm-types/src/plan/types.rs; src-tauri/crates/codeterm-plan/src/service_plan/types.rs; src-tauri/crates/codeterm-plan/src/service_plan/readback.rs; src-tauri/crates/codeterm-plan/src/service_plan/task_remove.rs; src-tauri/crates/codeterm-plan/src/service_plan/next_actions.rs; src-tauri/crates/codeterm-plan/src/service_plan/state.rs; src-tauri/crates/codeterm-plan/src/service_plan/mutations/task_ops.rs; cli/src/args/plan/task.rs; cli/src/cmd/plan/task_cmd.rs; cli/src/cmd/plan_task_update.rs; cli/src/subcommand_contract_tests/plan.rs; src-tauri/src/api/plan_routes/tasks.rs; src-tauri/src/socket/server/plan_task_rpc.rs
+    TESTS RUN: rustfmt --edition 2021 on touched Rust files only; cargo/API/RPC/state execution deferred to CI per local execution constraint
+  ts: 1783633827548
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_hy7rim
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'ACCEPT source after three review corrections: explicit dependency graph, CLI clear roundtrip, removal integrity, dangling corruption visibility, atomic validation, pending frontier suppression; rustfmt passed, full Rust/CLI tests deferred to CI.'
+  ts: 1783633846397
+  links:
+  - key:b350c6c053fdddee
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_cbzd2c
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: qa
+  text: 'enqueue: Source accepted and merged after dependency/CLI/removal integrity review; full Rust/CLI/API/RPC CI required'
+  ts: 1783633903646
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_iluypb
+  from:
+    pane_id: 4a9bb672
+    session_id: 019f492d-36b5-74c1-8b06-fcdcb76ac83a
+    title: Dijkstra dependency CI fix
+  kind: report_refused
+  text: |-
+    PARTIAL: REPORT NOT SENT
+    readiness report refused: this git worktree has uncommitted lane changes.
+    Next commands:
+      git status --short
+      git add <files>
+      git commit -m "<message>"
+      codeterm agent report --status in_review --sha $(git rev-parse HEAD) "..."
+    Or report WIP with:
+      codeterm agent report --status partial "..."
+    Dirty lane files:
+      src-tauri/crates/codeterm-plan/src/service_plan/task_remove.rs
+
+    Original readiness report that was refused locally:
+    STATUS: in_review
+    CHANGES: src-tauri/crates/codeterm-plan/src/service_plan/task_remove.rs
+    BUILD/TYPECHECK/TESTS: rustfmt --edition 2021 src-tauri/crates/codeterm-plan/src/service_plan/task_remove.rs (passed); no cargo/build/test run per task constraint and CI bounce scope
+    FOLLOWUP: Exact CI fix only. Updated task_remove.rs test fixture from obsolete PlanStore::new(dir.path()).unwrap() to PlanStore::new_for_test(dir.path()) with no behavior change.
+  ts: 1783639179025
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_no6lm1
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: ACCEPT CI constructor correction; obsolete PlanStore test fixture call replaced by new_for_test and rustfmt passed
+  ts: 1783639249304
+  links:
+  - key:b2ffd9a33b355f01
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_6hg22e
+  from:
+    pane_id: 4a9bb672
+    session_id: 019f492d-36b5-74c1-8b06-fcdcb76ac83a
+    title: Dijkstra dependency CI fix
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: src-tauri/crates/codeterm-plan/src/service_plan/task_remove.rs
+    BUILD/TYPECHECK/TESTS: rustfmt --edition 2021 src-tauri/crates/codeterm-plan/src/service_plan/task_remove.rs (passed); git status --short after commit (clean); no cargo/build/test run per task constraint and CI bounce scope
+    FOLLOWUP: Exact CI fix only. Committed fixture constructor update as 665ab00a68eb901355245033628a8931078d09b0 with no behavior change.
+  ts: 1783639271116
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_mfj9n4
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: ACCEPT merged CI constructor correction 665ab00a
+  ts: 1783639296773
+  links:
+  - key:bb3ec930091490b8
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_ta9f25
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: ACCEPT CI2 plan compile correction; create_plan fixture supplies empty kinds and all dependency validation errors map explicitly to HTTP 400
+  ts: 1783643504943
+  links:
+  - key:2e97440d7359b8aa
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_fn5kvq
+  from:
+    pane_id: '72853886'
+    session_id: 019f4935-4303-7352-93c9-6a20f1036f3e
+    title: Plan fixture CI2
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: src-tauri/crates/codeterm-plan/src/service_plan/task_remove.rs; src-tauri/src/api/task_routes.rs; commit 66d0f9a77c32cc5c9ae8ce40a6c622ed85b779e7
+    BUILD/TYPECHECK/TESTS: none (per task instruction: no local cargo/build/test run)
+    FOLLOWUP: CI2 compile blockers addressed in lane/plan-dependency-ci2. task_remove.rs create_plan fixture now supplies vec![] MilestoneKind default; src-tauri/src/api/task_routes.rs now maps DependencyTaskNotFound, DependencyTaskReferenced, DependencySelfReference, and DependencyCycle explicitly to HTTP 400. git status --short is clean after commit.
+  ts: 1783645397975
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_62luij
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: ACCEPT merged CI2 plan correction 66d0f9a77; worker report delivery missing despite clean accepted commit
+  ts: 1783645408507
+  links:
+  - key:73a726a32a67d1af
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_le5lpd
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: qa
+  text: 'enqueue: Merged #230 dependency semantics and CI2 compile corrections; plan/CLI/API regression suite required'
+  ts: 1783656070297
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_5tf2ma
+  from:
+    pane_id: 76426b89
+    session_id: 019f4a46-8826-7903-9126-f3aaffe9d79b
+    title: Mira
+  kind: report_refused
+  text: |-
+    PARTIAL: REPORT NOT SENT
+    readiness report refused: this git worktree has uncommitted lane changes.
+    Next commands:
+      git status --short
+      git add <files>
+      git commit -m "<message>"
+      codeterm agent report --status in_review --sha $(git rev-parse HEAD) "..."
+    Or report WIP with:
+      codeterm agent report --status partial "..."
+    Dirty lane files:
+      src-tauri/crates/codeterm-plan/src/service_plan/mutations/task_ops.rs
+      src-tauri/crates/codeterm-plan/src/service_plan/next_actions.rs
+      src-tauri/crates/codeterm-plan/src/service_plan/state.rs
+      src-tauri/crates/codeterm-types/src/plan/types.rs
+
+    Original readiness report that was refused locally:
+    STATUS: in_review
+    CHANGES: src-tauri/crates/codeterm-types/src/plan/types.rs; src-tauri/crates/codeterm-plan/src/service_plan/state.rs; src-tauri/crates/codeterm-plan/src/service_plan/next_actions.rs; src-tauri/crates/codeterm-plan/src/service_plan/mutations/task_ops.rs
+    BUILD/TYPECHECK/TESTS: 1) bash -lc 'cd /c/Developer/codeterm-worktrees/plan-dependency-ci3/src-tauri && TEST_CAP_SECS=90 ../scripts/test-capped.sh -p codeterm-plan service_plan::state::tests::explicit_dependency_waits_without_becoming_parked -- --exact --nocapture' => running 1 test; test service_plan::state::tests::explicit_dependency_waits_without_becoming_parked ... ok; test result: ok. 1 passed; 0 failed; 411 filtered out. 2) bash -lc 'cd /c/Developer/codeterm-worktrees/plan-dependency-ci3/src-tauri && TEST_CAP_SECS=90 ../scripts/test-capped.sh -p codeterm-plan service_plan::next_actions::tests::dispatch_rule_skips_pending_lane_waiting_on_dependency -- --exact --nocapture' => running 1 test; test service_plan::next_actions::tests::dispatch_rule_skips_pending_lane_waiting_on_dependency ... ok; test result: ok. 1 passed; 0 failed; 411 filtered out. 3) bash -lc 'cd /c/Developer/codeterm-worktrees/plan-dependency-ci3/src-tauri && TEST_CAP_SECS=90 ../scripts/test-capped.sh -p codeterm-plan service_plan::mutations::task_ops::fill_lane_tests::explicit_dependencies_surface_waiting_pending_semantics -- --exact --nocapture' => running 1 test; test service_plan::mutations::task_ops::fill_lane_tests::explicit_dependencies_surface_waiting_pending_semantics ... ok; test result: ok. 1 passed; 0 failed; 411 filtered out. All three runs emitted existing unrelated warnings in codeterm-plan tests: unused import TaskStatus in convert_storage.rs, unused variable root in batch/tests.rs, dead code assert_markdown_identity in body_file_tests.rs.
+    FOLLOWUP: No blocker in this lane. CI3 compile break was a moved TaskStatus in next_actions test helper after adding pending subtype semantics; fixed locally by computing pending_state before moving status. No commit created per instruction.
+  ts: 1783657931817
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_9d5czt
+  from:
+    pane_id: 76426b89
+    session_id: 019f4a46-8826-7903-9126-f3aaffe9d79b
+    title: Mira
+  kind: status_update
+  text: |-
+    PARTIAL: STATUS: partial
+    CHANGES: src-tauri/crates/codeterm-types/src/plan/types.rs; src-tauri/crates/codeterm-plan/src/service_plan/state.rs; src-tauri/crates/codeterm-plan/src/service_plan/next_actions.rs; src-tauri/crates/codeterm-plan/src/service_plan/mutations/task_ops.rs
+    BUILD/TYPECHECK/TESTS: 1) bash -lc 'cd /c/Developer/codeterm-worktrees/plan-dependency-ci3/src-tauri && TEST_CAP_SECS=90 ../scripts/test-capped.sh -p codeterm-plan service_plan::state::tests::explicit_dependency_waits_without_becoming_parked -- --exact --nocapture' => running 1 test; test service_plan::state::tests::explicit_dependency_waits_without_becoming_parked ... ok; test result: ok. 1 passed; 0 failed; 411 filtered out. 2) bash -lc 'cd /c/Developer/codeterm-worktrees/plan-dependency-ci3/src-tauri && TEST_CAP_SECS=90 ../scripts/test-capped.sh -p codeterm-plan service_plan::next_actions::tests::dispatch_rule_skips_pending_lane_waiting_on_dependency -- --exact --nocapture' => running 1 test; test service_plan::next_actions::tests::dispatch_rule_skips_pending_lane_waiting_on_dependency ... ok; test result: ok. 1 passed; 0 failed; 411 filtered out. 3) bash -lc 'cd /c/Developer/codeterm-worktrees/plan-dependency-ci3/src-tauri && TEST_CAP_SECS=90 ../scripts/test-capped.sh -p codeterm-plan service_plan::mutations::task_ops::fill_lane_tests::explicit_dependencies_surface_waiting_pending_semantics -- --exact --nocapture' => running 1 test; test service_plan::mutations::task_ops::fill_lane_tests::explicit_dependencies_surface_waiting_pending_semantics ... ok; test result: ok. 1 passed; 0 failed; 411 filtered out. All three runs emitted existing unrelated warnings in codeterm-plan tests: unused import TaskStatus in convert_storage.rs, unused variable root in batch/tests.rs, dead code assert_markdown_identity in body_file_tests.rs.
+    FOLLOWUP: Implemented pending subtype semantics and fixed the CI3 moved-TaskStatus test compile break. Could not send in_review because codeterm agent report now refuses dirty worktrees for in_review and requires a committed --sha; not committed because instruction says no commit before ACCEPT. Diagnostic refusal id: 4d99b313-19e5-419b-9045-100b61f2cc6d.
+  ts: 1783657953315
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_uggf5k
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'Core Warm QA BOUNCE exact: dependency_vec_field tests in src/socket/server/plan_task_rpc.rs cannot unwrap Result because JsonRpcError lacks Debug. Add appropriate Debug support or assertion style without weakening error behavior; focused app lib tests must compile. No other scope.'
+  ts: 1783686207005
+  links:
+  - key:cd00f51596da7bcb
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_s30x0z
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: status_update
+  text: Core Warm compile correction integrated; matches!-based assertions remove Debug requirement without runtime behavior change; centralized test pending.
+  ts: 1783686400651
+  links:
+  - key:04859e4f0638a941
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_3vpd7f
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: 'Accepted after centralized Core Warm QA: dependency RPC assertions compile without changing runtime errors and full build.ps1 test passes.'
+  ts: 1783686569223
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_jf9hcc
+  executor_pane_id: 2f2c5100
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.4
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/plan-dependency-230
+  worktree_path: D:/Developer/codeterm-worktrees/plan-dependency-230
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783633828020
+    message: |-
+      STATUS: in_review
+      CHANGES: src-tauri/crates/codeterm-types/src/plan/types.rs; src-tauri/crates/codeterm-plan/src/service_plan/types.rs; src-tauri/crates/codeterm-plan/src/service_plan/readback.rs; src-tauri/crates/codeterm-plan/src/service_plan/task_remove.rs; src-tauri/crates/codeterm-plan/src/service_plan/next_actions.rs; src-tauri/crates/codeterm-plan/src/service_plan/state.rs; src-tauri/crates/codeterm-plan/src/service_plan/mutations/task_ops.rs; cli/src/args/plan/task.rs; cli/src/cmd/plan/task_cmd.rs; cli/src/cmd/plan_task_update.rs; cli/src/subcommand_contract_tests/plan.rs; src-tauri/src/api/plan_routes/tasks.rs; src-tauri/src/socket/server/plan_task_rpc.rs
+      TESTS RUN: rustfmt --edition 2021 on touched Rust files only; cargo/API/RPC/state execution deferred to CI per local execution constraint
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783632384841
+  reported_at: 1783633828020
+  reviewed_at: null
+  closed_at: 1783633904109
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_w1xwnz
+  executor_pane_id: 4a9bb672
+  executor_title: Dijkstra dependency CI fix
+  provider: codex
+  agent_type: codex
+  model: gpt-5.4
+  session_id: null
+  role: worker
+  parent_pane_id: 4c17f607
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/plan-dependency-230
+  worktree_path: D:/Developer/codeterm-worktrees/plan-dependency-230
+  base: release/1.7.2-integration
+  destination: null
+  report:
+    id: report_1783639271672
+    message: |-
+      STATUS: in_review
+      CHANGES: src-tauri/crates/codeterm-plan/src/service_plan/task_remove.rs
+      BUILD/TYPECHECK/TESTS: rustfmt --edition 2021 src-tauri/crates/codeterm-plan/src/service_plan/task_remove.rs (passed); git status --short after commit (clean); no cargo/build/test run per task constraint and CI bounce scope
+      FOLLOWUP: Exact CI fix only. Committed fixture constructor update as 665ab00a68eb901355245033628a8931078d09b0 with no behavior change.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783639118734
+  reported_at: 1783639271672
+  reviewed_at: null
+  closed_at: 1783639299912
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_ljy9xd
+  executor_pane_id: '72853886'
+  executor_title: Plan fixture CI2
+  provider: codex
+  agent_type: codex
+  model: gpt-5.4
+  session_id: null
+  role: worker
+  parent_pane_id: 4c17f607
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/plan-dependency-ci2
+  worktree_path: D:/Developer/codeterm-worktrees/plan-dependency-ci2
+  base: release/1.7.2-integration
+  destination: null
+  report:
+    id: report_1783645398555
+    message: |-
+      STATUS: in_review
+      CHANGES: src-tauri/crates/codeterm-plan/src/service_plan/task_remove.rs; src-tauri/src/api/task_routes.rs; commit 66d0f9a77c32cc5c9ae8ce40a6c622ed85b779e7
+      BUILD/TYPECHECK/TESTS: none (per task instruction: no local cargo/build/test run)
+      FOLLOWUP: CI2 compile blockers addressed in lane/plan-dependency-ci2. task_remove.rs create_plan fixture now supplies vec![] MilestoneKind default; src-tauri/src/api/task_routes.rs now maps DependencyTaskNotFound, DependencyTaskReferenced, DependencySelfReference, and DependencyCycle explicitly to HTTP 400. git status --short is clean after commit.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783639646291
+  reported_at: 1783645398555
+  reviewed_at: null
+  closed_at: 1783645410752
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_1nuoxo
+  executor_pane_id: 76426b89
+  executor_title: Mira
+  provider: codex
+  agent_type: codex
+  model: gpt-5.4
+  session_id: null
+  role: worker
+  parent_pane_id: 4c17f607
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/plan-dependency-ci3
+  worktree_path: D:/Developer/codeterm-worktrees/plan-dependency-ci3
+  base: release/1.7.2-integration
+  destination: null
+  report:
+    id: report_1783657953624
+    message: |-
+      STATUS: partial
+      CHANGES: src-tauri/crates/codeterm-types/src/plan/types.rs; src-tauri/crates/codeterm-plan/src/service_plan/state.rs; src-tauri/crates/codeterm-plan/src/service_plan/next_actions.rs; src-tauri/crates/codeterm-plan/src/service_plan/mutations/task_ops.rs
+      BUILD/TYPECHECK/TESTS: 1) bash -lc 'cd /c/Developer/codeterm-worktrees/plan-dependency-ci3/src-tauri && TEST_CAP_SECS=90 ../scripts/test-capped.sh -p codeterm-plan service_plan::state::tests::explicit_dependency_waits_without_becoming_parked -- --exact --nocapture' => running 1 test; test service_plan::state::tests::explicit_dependency_waits_without_becoming_parked ... ok; test result: ok. 1 passed; 0 failed; 411 filtered out. 2) bash -lc 'cd /c/Developer/codeterm-worktrees/plan-dependency-ci3/src-tauri && TEST_CAP_SECS=90 ../scripts/test-capped.sh -p codeterm-plan service_plan::next_actions::tests::dispatch_rule_skips_pending_lane_waiting_on_dependency -- --exact --nocapture' => running 1 test; test service_plan::next_actions::tests::dispatch_rule_skips_pending_lane_waiting_on_dependency ... ok; test result: ok. 1 passed; 0 failed; 411 filtered out. 3) bash -lc 'cd /c/Developer/codeterm-worktrees/plan-dependency-ci3/src-tauri && TEST_CAP_SECS=90 ../scripts/test-capped.sh -p codeterm-plan service_plan::mutations::task_ops::fill_lane_tests::explicit_dependencies_surface_waiting_pending_semantics -- --exact --nocapture' => running 1 test; test service_plan::mutations::task_ops::fill_lane_tests::explicit_dependencies_surface_waiting_pending_semantics ... ok; test result: ok. 1 passed; 0 failed; 411 filtered out. All three runs emitted existing unrelated warnings in codeterm-plan tests: unused import TaskStatus in convert_storage.rs, unused variable root in batch/tests.rs, dead code assert_markdown_identity in body_file_tests.rs.
+      FOLLOWUP: Implemented pending subtype semantics and fixed the CI3 moved-TaskStatus test compile break. Could not send in_review because codeterm agent report now refuses dirty worktrees for in_review and requires a committed --sha; not committed because instruction says no commit before ACCEPT. Diagnostic refusal id: 4d99b313-19e5-419b-9045-100b61f2cc6d.
+    status: partial
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783657555283
+  reported_at: 1783657953624
+  reviewed_at: null
+  closed_at: 1783662809646
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_yh7obq
+  executor_pane_id: c614a1e1
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-terra
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/plan-dependency-ci3
+  worktree_path: D:/Developer/codeterm-worktrees/plan-dependency-ci3
+  base: release/1.7.2-integration
+  destination: null
+  report: null
+  assigned_at: 1783686300934
+  reported_at: null
+  reviewed_at: null
+  closed_at: 1783686401001
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

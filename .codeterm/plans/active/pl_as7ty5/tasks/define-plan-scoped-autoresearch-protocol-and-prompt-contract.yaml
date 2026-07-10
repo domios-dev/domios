@@ -1,0 +1,187 @@
+id: task_v4djn7
+name: Define plan-scoped autoresearch protocol and prompt contract
+type: planning
+model: gpt-5.5
+model_rationale: 'Routing rationale: cross-cutting planning protocol, prompt diff, compatibility, and test-fixture design requires high-risk synthesis; gpt-5.5 is appropriate and this task is post-release priority.'
+personality: Dijkstra
+personality_provenance: null
+acceptance_criteria:
+- 'The protocol turns an ambiguous or repeatedly bounced task into an evidence-backed clarification path: trigger conditions are explicit; repo-first then bounded external research is recorded with sources/applicability/rejected alternatives; immutable oracle and budget cannot be weakened; keep/discard/supersede and stop rules are machine-checkable; only evidence-backed follow-ups are created; retrospective, stride, orchestrator-learning, and skill-promotion routing is explicit; existing loops remain compatible.'
+test_plan: 'Oracle: protocol fixtures and focused planner tests prove the research path without changing the oracle. 1. Inspect src-tauri/crates/codeterm-plan/src/plan/loop_engine.rs, service_plan/loop_mutations.rs, service_plan/reflection.rs, service_plan/retrospective.rs, planner/orchestrator prompt sources, and CLI plan loop/skill/retrospective commands; pass: each claimed hook exists. 2. Run focused codeterm-plan loop/reflection/retrospective tests with a 90s cap; pass: progress reset, two-stagnation deviation/stop, honest bounce milestone, reflection clearing, latest retrospective, and skill timeline cases pass. 3. Add fixture specifications for ambiguous brief, second bounce, unresolved gate, and repeated test failure; pass: each triggers at most the bounded research budget and records question/hypothesis/sources/applicability/oracle/decision/follow-up. 4. Include source-ranking fixtures: repo/primary docs/issues before secondary discussions; pass: citations and rejected alternatives are retained. 5. Render proposed planner_suffix.md/orchestrator_suffix.md diff; pass: exact commands/routing destinations are named. 6. Verify immutable oracle fixture cannot be improved by editing the evaluator; pass: mutation is rejected or flagged. 7. Run codeterm plan state pl_as7ty5 --json; pass: loop_6c2hy7 remains 0/3, no autoresearch claim is fabricated, and no plan skill is invented.'
+correctness: 'Correctness requires bounded evidence-led bounce unwinding, not autonomous thrashing: repo-first/source-ranked research, immutable oracle, fixed query/experiment budget, applicability analysis, explicit decision and stop rules, safe follow-up creation, and durable routing of evidence to stride/learning/skill/retrospective without weakening existing loop semantics.'
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783658676461
+updated_at: 1783659693323
+status_changed_at: 1783659679979
+handle: define-plan-scoped-autoresearch-protocol-and-prompt-contract
+tags: []
+section_ids:
+- sec_oi6846
+body: 'Design a first-class plan-scoped autoresearch and bounce-unwinding protocol as an in-scope 1.7.2 planning gate. Current evidence: loop_6c2hy7 is 0/3 and the plan has zero skills; do not call the existing loop autoresearch. Define triggers for ambiguous briefs, a second bounce, repeated test failure, unresolved gates, high-risk uncertainty, or an explicit reference request. Require repo/history/tests first, then bounded source-ranked external research. Preserve question/hypothesis, immutable baseline/oracle, budget, sources/applicability/rejected alternatives, keep/discard/supersede, stop rules, evidence-backed follow-up rules, retrospective quality, and routing to stride, orchestrator learning, or plan skill. Provide prompt diff and machine-checkable fixtures; decide additive compatibility for existing loops. Dependencies: accepted protocol evidence only; this planning gate must complete before any autoresearch implementation task. Branch/worktree: planning/autoresearch-protocol at D:/Developer/codeterm-worktrees/autoresearch-protocol from origin/develop. Report STATUS in_review with schema, trigger matrix, prompt diff, migration decision, fixture commands/results, and unresolved decisions.'
+role_guidance: 'You are Dijkstra, a protocol and evaluation-contract designer. Define autoresearch as falsifiable bounded experiments around immutable oracles, not as vague looping. Red line: never weaken, rewrite, or select an oracle after observing results; every keep/discard/supersede decision must be evidence-backed and machine-checkable.'
+executor_role: planning-synthesis
+competition: null
+intent: Define and accept the bounce-unwinding autoresearch protocol before any protocol-driven implementation task in the 1.7.2 frontier.
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/autoresearch-protocol
+  branch: planning/autoresearch-protocol
+  base: origin/develop
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: planning-protocol-1.7.2
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_qfxnon
+  from:
+    pane_id: e88e18c8
+    session_id: null
+    title: null
+  kind: dry_run
+  text: ' research question = can Karpathy-style fixed-surface/fixed-oracle experimentation be adapted to bounce unwinding without turning the planner into unbounded autonomous research? hypothesis = yes, if the surface is the protocol/prompt contract, the oracle is an immutable completeness checklist, the evidence budget is bounded, and external research is repo-first/source-ranked. baseline = pre-audit planner loop behavior: budget/stagnation/reflection/retrospective existed, but no bounce-triggered research schema or source/applicability record. immutable oracle = checklist requiring (1) trigger matrix, (2) falsifiable hypothesis, (3) baseline+immutable oracle, (4) bounded query/experiment budget, (5) evidence with source/applicability/rejected alternatives, (6) keep/discard/supersede, (7) stop rules, (8) follow-up rule, (9) stride/learning/skill/retro routing, (10) LoopSpec migration. experiment budget = one external primary-reference pass plus one protocol revision; no code/build/implementation mutation. evidence = official karpathy/autoresearch README/program.md: one editable train.py, fixed five-minute run, val_bpb metric, results log; secondary generalized patterns: fixed eval harness, budget, confidence/noise, after-run evidence hooks. applicability = keep fixed oracle/budget/log/source ranking; reject direct ML assumptions, infinite loop, and auto-revert as mandatory planner behavior. decision = KEEP the bounded contract additions in task_v4djn7; DISCARD treating current loop_6c2hy7 as autoresearch; no oracle mutation. stop = stop after one protocol revision because all checklist items are present; further iterations require a new evidence gap. routing = this evidence remains a task stride; reusable recipe belongs in a plan skill only after executable check; durable cross-plan orchestration lesson goes to orchestrator learning; quality synthesis belongs in retrospective. compatibility = additive metadata for existing loops; no reinterpretation of old iterations. This is a protocol dry-run, not a claim that the runtime loop executed autoresearch.'
+  ts: 1783659394074
+  links:
+  - key:615cb514dd2760fb
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_8l9tys
+  from:
+    pane_id: e88e18c8
+    session_id: null
+    title: null
+  kind: scope
+  text: ' planner ergonomics and harness friction are in scope for the bounce-unwinding/autoresearch protocol. During each research pass, record any planner CLI/state/canvas/QA-harness friction that impedes evidence collection, task routing, source capture, oracle execution, or retrospective/skill promotion. Classify severity and blast radius; create a bounded 1.7.2 follow-up only when it affects correctness, clarity, reliability, release confidence, or research continuity. Prefer simplifying existing planner primitives and harness selectors over adding new stores or task types. Route reusable procedures to plan skill only after an executable check; route cross-plan orchestration lessons to durable orchestrator learning; route prompt/process defects to Planner prompt changes. Never let convenience alter an immutable oracle or silently mutate task evidence.'
+  ts: 1783659504419
+  links:
+  - key:f8064a0cc38424ce
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_gh5pou
+  from:
+    pane_id: e88e18c8
+    session_id: null
+    title: null
+  kind: protocol_artifact
+  text: ' BOUNCE-UNWIND AUTORESEARCH v1. Research trigger = ambiguous/underspecified brief, second bounce on one task, repeated focused-test failure, unresolved decision gate, high-risk uncertainty, or explicit request for references. Phase 1 question = write one falsifiable question and hypothesis. Phase 2 baseline = capture current source/task/oracle state; freeze the oracle command, expected observation, scope, and metric before edits or external search. Phase 3 research = repo/source/history/tests first, then bounded external primary sources (official docs, upstream repositories, issues/commits), then maintainer discussions, Stack Overflow, Reddit only if needed. Budget = max 5 external queries, max 5 retained sources, max 10 minutes, max 2 candidate approaches, one local experiment; no unbounded browsing. Evidence record fields = question, hypothesis, baseline, immutable_oracle, query/source, source_tier, applicability, differences, rejected_alternative, experiment, observed_result, risk/blast_radius, decision, follow_up, stop_reason. Decision = keep, discard, or supersede; every keep must name the oracle result, every discard must name evidence, every supersede must link the replacement. Stop = success when acceptance oracle passes; stagnation after two no-progress attempts; risk when scope/security/release risk rises; budget when query/source/time/experiment cap is reached. Follow-up = cut a bounded task only if evidence affects correctness, clarity, reliability, release confidence, or research continuity; otherwise record stride. Routing = local evidence/experiment -> task stride; reusable checked recipe -> plan skill; cross-plan process lesson -> orchestrator learning; prompt/process defect -> Planner prompt proposal; group quality synthesis -> retrospective. Planner ergonomics/harness friction is recorded and classified by the same rule, but convenience never changes the oracle.'
+  ts: 1783659642028
+  links:
+  - key:910bbf1155a2f766
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_rbdlsi
+  from:
+    pane_id: e88e18c8
+    session_id: null
+    title: null
+  kind: prompt_diff_proposal
+  text: ' planner_suffix.md add a BOUNCE RESEARCH CHECK before rewriting a bounced task: state trigger, question, hypothesis, frozen oracle, budget, repo-first search, retained sources/applicability, rejected alternatives, decision, stop reason, and next routing destination; require no implementation task until the evidence record is complete. orchestrator_suffix.md add a bounded research handoff rule: on second bounce/uncertainty, route one research pass to Planner, keep task pending (not parked), and require ACCEPT/BLOCKED with evidence before dispatch; never let research rewrite the goal or oracle. planner/orchestrator prompts should name exact commands: codeterm task show, codeterm plan section show, rg/git log/git blame, web search/open, codeterm plan record, codeterm plan skill new/edit, codeterm orchestrator learn, codeterm plan retrospective. This is a proposal only; no prompt files are changed by this task.'
+  ts: 1783659642028
+  links:
+  - key:910bbf1155a2f766
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_oxa52m
+  from:
+    pane_id: e88e18c8
+    session_id: null
+    title: null
+  kind: compatibility_decision
+  text: ' ACCEPT additive compatibility. Existing LoopSpec loops, counts, budgets, stagnation, deviations, strides, and retrospective behavior remain valid and are not reinterpreted. BounceResearch metadata is optional/additive and absent metadata means legacy behavior. Existing loop_6c2hy7 remains a normal bounded self-improvement loop at 0/3, not autoresearch. No runtime engine migration or new loop semantics are required for 1.7.2; any implementation follow-up must be separately approved after this protocol.'
+  ts: 1783659642028
+  links:
+  - key:910bbf1155a2f766
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_88k2k0
+  from:
+    pane_id: e88e18c8
+    session_id: null
+    title: null
+  kind: fixture_plan
+  text: ' machine-checkable fixtures must use immutable evaluator inputs and exact expected outputs. F1 progress/reset: record_iteration(true) resets stagnation/deviation; expected 0/None. F2 two-stagnation: two false iterations produce deviation at threshold 2; expected count/stagnation exact and goal/target preserved. F3 honest bounce: only explicit bounce milestones/strides count; missing bounce records are not fabricated. F4 reflection clearing: pending reflection appears after group close/cadence and disappears only after a recorded heartbeat learning; expected trigger/window exact. F5 retrospective completeness: latest retrospective ignores supersede marker and requires required sections: outcome, evidence, bounces, oracle/test quality, skills/lessons, follow-up. F6 skill promotion: reusable recipe promotes only after check command passes and ledger verdict keep; failed/no-check recipe is not promoted. F7 research trigger: ambiguous brief/second bounce/repeated failure/open gate each yields one bounded research record; repeated trigger cannot exceed budget or create duplicate follow-up. F8 oracle integrity: mutating evaluator/expected value is rejected or flagged; keep/discard cannot be obtained by changing the oracle. F9 routing: stride, orchestrator learning, plan skill, and retrospective each receive only their matching input. F10 legacy loop: LoopSpec without research metadata serializes/deserializes unchanged.'
+  ts: 1783659642028
+  links:
+  - key:910bbf1155a2f766
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_0fsw5b
+  from:
+    pane_id: e88e18c8
+    session_id: null
+    title: null
+  kind: self_review
+  text: ' immutable completeness oracle = ten required protocol dimensions: trigger matrix; falsifiable question/hypothesis; frozen baseline/oracle; bounded budget; structured evidence/source ranking; applicability/rejected alternatives; keep/discard/supersede; success/stagnation/risk/budget stops; follow-up and routing; retrospective/skill/migration compatibility. Result 10/10 present in durable protocol strides. Prompt diff is concrete but intentionally uncommitted; fixtures have exact inputs/outputs and no runtime changes; compatibility is additive; release scope is planning-only. Recommendation: ACCEPT protocol design for Orchestrator review. Bounded 1.7.2 implementation follow-up required only if release chooses to ship the prompt contract/fixtures; cut it as a separate docs/prompt+planner-test task after acceptance. No BLOCKED condition found.'
+  ts: 1783659642028
+  links:
+  - key:910bbf1155a2f766
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_kyf2b7
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: 'ACCEPT: protocol satisfies the immutable 10-dimension completeness oracle, uses bounded repo-first evidence, explicit keep/discard/supersede and stop rules, additive legacy compatibility, and a concrete prompt/fixture implementation contract. Runtime implementation remains a separate 1.7.2 task.'
+  ts: 1783659679979
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts: []
+park_reason: null
+attachments: []

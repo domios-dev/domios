@@ -1,0 +1,492 @@
+id: task_3m6vai
+name: Implement autoresearch prompt contract and planner fixtures
+type: implement
+model: gpt-5.6-sol
+model_rationale: 'Routing rationale: bounded prompt and planner-test implementation following accepted protocol design; gpt-5.4 is appropriate.'
+personality: Dijkstra
+personality_provenance: null
+acceptance_criteria:
+- Planner/Orchestrator prompts contain the accepted protocol with exact commands and routing; F1-F10 fixtures are machine-checkable; immutable oracle mutation is rejected/flagged; existing LoopSpec loops serialize and behave unchanged; prompt regression passes; no new runtime store or speculative engine semantics are introduced; file-size limits pass; independent review scope is explicit.
+test_plan: 'Oracle: prompt regression plus focused planner/CLI fixtures. 1. Run scripts/check-prompts-doc.sh; pass: prompt source/docs consistency. 2. Run evals/loop-deviation/run.sh; pass: loop progress/reset, two-stagnation deviation, bounded budget, and goal anchoring remain green. 3. Run scripts/test-plan-strides-union-merge.sh; pass: stride evidence remains honest and union/merge behavior is unchanged. 4. Run the focused codeterm-plan tests for loop_engine, reflection, retrospective, and serialization with a 90s cap; pass: F1-F6/F10 exact expected outputs. 5. Run protocol fixtures for bounce triggers, source ranking, immutable oracle, keep/discard/supersede, stop rules, follow-up routing, and skill promotion; pass: F7-F9 cannot weaken the oracle or create duplicate/unbounded follow-ups. 6. Run scripts/check-file-sizes.sh; pass: no source file exceeds policy. 7. Run the repository prompt-evaluation/regression command discovered in evals and package scripts; pass: Planner/Orchestrator guidance retains required protocol language. 8. Request independent review of prompt diff and fixture outputs; pass: reviewer confirms no runtime LoopSpec reinterpretation.'
+correctness: Correctness requires the prompt contract and fixtures to make bounce research bounded, falsifiable, oracle-preserving, source-ranked, and correctly routed while preserving legacy LoopSpec behavior and file-size/prompt consistency; no runtime store or speculative engine change is allowed.
+status: done
+review_stage: review
+qa_state: null
+status_label: pane-gone
+priority: p2
+created_at: 1783659723667
+updated_at: 1783688333930
+status_changed_at: 1783688333539
+handle: implement-autoresearch-prompt-contract-and-planner-fixtures
+tags: []
+section_ids:
+- sec_oi6846
+body: 'Implement the accepted task_v4djn7 protocol contract for 1.7.2. Own src-tauri/prompts/planner_suffix.md and src-tauri/prompts/orchestrator_suffix.md plus existing codeterm-plan/CLI fixture surfaces where F1-F10 belong, verified before editing: loop_engine.rs, service_plan/loop_mutations.rs, reflection.rs, retrospective.rs, relevant tests, evals/loop-deviation/run.sh, scripts/test-plan-strides-union-merge.sh, and prompt checks. Add exact guidance for bounce-triggered repo-first bounded external research, immutable baseline/oracle, evidence/source ranking/applicability, keep/discard/supersede, stop/budget rules, follow-up gating, retrospective quality, and stride/orchestrator-learning/plan-skill routing. Do not add a runtime store or reinterpret existing LoopSpec serialization/semantics; use additive protocol metadata only if an existing fixture surface proves it necessary. Dependencies: task_v4djn7 accepted; no dependency on implementation runtime lanes. Branch/worktree: lane/autoresearch-prompt-contract at D:/Developer/codeterm-worktrees/autoresearch-prompt-contract from origin/develop. Report STATUS in_review with exact prompt/test files, prompt diff, fixture results, legacy serialization evidence, file-size results, and independent-review request.'
+role_guidance: 'You are Dijkstra, a prompt-contract and planner-fixture engineer. Implement only the accepted bounce-unwinding protocol in the two source prompts and existing planner/CLI test surfaces. Red line: do not add a runtime store, reinterpret LoopSpec, weaken an oracle, or leave protocol behavior without an executable fixture.'
+executor_role: prompt-engineer
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/autoresearch-prompt-contract
+  branch: lane/autoresearch-prompt-contract
+  base: origin/develop
+  destination: null
+  cleanup_status: deferred
+  cleanup_hints:
+  - Remove autoresearch prompt worktree after integration overlay is durably preserved.
+taken_by_role: null
+peer: null
+group: planning-protocol-1.7.2
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_uv6dvu
+  from:
+    pane_id: a6fd669d
+    session_id: 019f4a68-3ce9-7730-afad-e15cc71c24cc
+    title: Dijkstra
+  kind: status_update
+  text: |
+    STATUS: partial
+    CHANGES: implemented bounce-unwinding contract in planner/orchestrator prompts; added prompt/unit/CLI fixtures; fixed prompt-doc and stride-merge verification surfaces
+    TESTS RUN: scripts/check-prompts-doc.sh; scripts/test-plan-strides-union-merge.sh; scripts/check-file-sizes.sh; focused test-capped cargo tests for codeterm-plan, codeterm-types, and prompts
+  ts: 1783660147560
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_m2dq7c
+  from:
+    pane_id: a6fd669d
+    session_id: eb464136-8a8d-43f8-821b-06a32f4e3ff6
+    title: Dijkstra
+  kind: report_refused
+  text: |
+    PARTIAL: REPORT NOT SENT
+    readiness report refused: this git worktree has uncommitted lane changes.
+    Next commands:
+      git status --short
+      git add <files>
+      git commit -m "<message>"
+      codeterm agent report --status in_review --sha $(git rev-parse HEAD) "..."
+    Or report WIP with:
+      codeterm agent report --status partial "..."
+    Dirty lane files:
+      src-tauri/gen/schemas/desktop-schema.json
+      src-tauri/gen/schemas/windows-schema.json
+
+    Original readiness report that was refused locally:
+    STATUS: in_review
+    CHANGES: bounce-unwinding contract landed in planner/orchestrator prompts; added F1-F10 prompt-eval and unit fixtures; updated prompt-doc/stride verification surfaces; committed as 9c16ef35d0b3eb0c5ab919331b444a158a9eb327
+    TESTS RUN: prompt-evaluator A/B for planner+orchestrator; focused exact cargo tests; cargo fmt --check; cargo check -p codeterm-plan -p codeterm-types; scripts/check-prompts-doc.sh; scripts/test-plan-strides-union-merge.sh; scripts/check-file-sizes.sh; git diff --check
+    GATES REQUESTED: independent review of prompt diff, eval fixtures, and confirmation that no LoopSpec/runtime-store semantics changed
+    FOLLOWUP: root cargo check for package codeterm is still blocked in this worktree by missing bundled-embed resource files; generated schema diffs remain unstaged
+  ts: 1783661196189
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_ojz855
+  from:
+    pane_id: a6fd669d
+    session_id: eb464136-8a8d-43f8-821b-06a32f4e3ff6
+    title: Dijkstra
+  kind: status_update
+  text: |
+    IN_REVIEW: STATUS: in_review
+    CHANGES: accepted implementation commit 9c16ef35d0b3eb0c5ab919331b444a158a9eb327; worktree cleanup restored only src-tauri/gen/schemas/desktop-schema.json and src-tauri/gen/schemas/windows-schema.json to HEAD; worktree now clean
+    TESTS RUN: prompt-evaluator A/B for planner and orchestrator prompts; focused exact cargo tests; cargo fmt --check; cargo check -p codeterm-plan -p codeterm-types; scripts/check-prompts-doc.sh; scripts/test-plan-strides-union-merge.sh; scripts/check-file-sizes.sh; git diff --check
+    A/B EVAL SUMMARY: planner prompt A/B (HEAD~1 vs current): eval1 1/1->1/1, eval2 1/1->1/1, eval3 0/1->1/1, eval4 1/1->1/1, eval5 0/1->1/1, no regressions; orchestrator prompt A/B (HEAD~1 vs current): eval6 1/1->1/1, eval7 1/1->1/1, eval8 1/1->1/1, eval9 1/1->1/1, eval10 0/1->1/1, no regressions
+    GATES REQUESTED: independent review of prompt diff, F1-F10 eval fixtures, and confirmation that no LoopSpec/runtime-store semantics changed
+    FOLLOWUP: root cargo check for package codeterm remains blocked in this worktree by missing bundled-embed resource files; commit was not amended or pushed
+  ts: 1783661264479
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_qad9qk
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'BOUNCE from independent review: encode complete trigger/question/hypothesis/numeric-budget/evidence schema; replace self-instructing LLM-only F1-F10 with immutable exact expected-output assertions and controlled mutation-negative tests; add F5-F9 missing fixtures; correct PROMPTS.md loader claims; remove tautological substring/CRLF checks.'
+  ts: 1783676638010
+  links:
+  - key:a75108545559d207
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_vu2fwm
+  from:
+    pane_id: 350e5576
+    session_id: a30ae59c-acac-414c-a626-3e67f802b728
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: hardened planner/orchestrator bounce records with trigger/question/hypothesis/numeric-budget/evidence schema; added deterministic F1-F10 exact-output and mutation fixtures; corrected PROMPTS loader description; removed tautological prompt substring tests.
+    TESTS RUN: evals/prompt-contract/run.sh; scripts/check-prompts-doc.sh; scripts/test-plan-strides-union-merge.sh; scripts/check-file-sizes.sh; focused prompt-evaluator A/B checks for planner IDs 2/4 and orchestrator ID 6.
+    LEGACY SERIALIZATION: git diff HEAD~1 -- src-tauri/crates/codeterm-types/src/plan/types.rs src-tauri/crates/codeterm-plan/src/plan/loop_engine.rs src-tauri/crates/codeterm-plan/src/service_plan/loop_mutations.rs is empty; existing legacy LoopSpec JSON round-trip fixture remains in codeterm-types.
+    GATES REQUESTED: independent review of prompt diff and F1-F10 fixture outputs; confirm no LoopSpec/runtime-store semantics changed.
+    FOLLOWUP: root build check is blocked by missing src-tauri/dist Tauri resource; dev-dependent evals/loop-deviation/run.sh could not run because 7686 was unavailable.
+  ts: 1783678006179
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_8sg8kf
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Corrected implementation is review-ready. Independent delta review must verify deterministic exact-output and mutation-negative fixtures, protocol completeness, prompt authority/bloat, and unchanged LoopSpec/runtime-store semantics before acceptance.
+  ts: 1783678019990
+  links:
+  - key:6c3de16d98b50f3c
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_lylkjb
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'BOUNCE: correct false centralized-loader claims in docs/PROMPTS.md lines 13, 26, and 90 to describe split authoritative loaders accurately; remove or replace the tautological synthetic CRLF assertion in scripts/test-plan-strides-union-merge.sh lines 91-96 with a controlled mutation-negative check against real input behavior. Preserve passing deterministic protocol fixtures and unchanged LoopSpec/runtime semantics.'
+  ts: 1783678253416
+  links:
+  - key:776df8bf087e9bda
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_xh1xhr
+  from:
+    pane_id: 0134b02d
+    session_id: 1dbbce68-272e-49ca-a9e6-e3370a37e387
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: task_v4djn7 bounce-unwinding contract is implemented across planner/orchestrator prompts and existing planner/CLI fixture surfaces. Review correction e6574d45d fixes split authoritative-loader documentation and replaces the synthetic CRLF identity check with a controlled timestamp mutation against the actual merged JSONL fold. Prompt diff from origin/develop: planner +31/-1; orchestrator +27/-0. F1-F10 deterministic fixtures remain exact and mutation-negative.
+    TESTS RUN: evals/prompt-contract/run.sh PASS (F1-F10 exact records and mutation negatives); scripts/check-prompts-doc.sh PASS (17/17/17); scripts/test-plan-strides-union-merge.sh PASS (real union merge plus exact controlled mutation); scripts/check-file-sizes.sh --fail PASS (no source over 1200); capped codeterm-plan loop_engine PASS; capped codeterm-plan reflection PASS; capped codeterm-plan retrospective PASS; capped codeterm-types legacy_loopspec_json_loads_without_new_interpretation PASS; Planner A/B 5/5 current with F3/F5 improvements and no regressions; Orchestrator A/B F6/F7/F9 current pass, F10 improves, and fresh no-cache F8 immutable-oracle run passes 3/3 expectations.
+    LEGACY SERIALIZATION: origin/develop..HEAD is empty for plan/loop_engine.rs and service_plan/loop_mutations.rs. codeterm-types changes only add the legacy LoopSpec JSON load/default/round-trip test; no LoopSpec fields or serialization semantics changed. No runtime store was added.
+    FILE SIZE: scripts/check-file-sizes.sh --fail reports no files over 1200 lines (two pre-existing advisory mod.rs entries under 1000).
+    GATES REQUESTED: independent review of planner/orchestrator prompt diff, deterministic F1-F10 exact-output and controlled mutation-negative fixtures, split loader claims in docs/PROMPTS.md, and confirmation that no runtime store or LoopSpec/engine reinterpretation was introduced.
+    BLOCKED GATE: evals/loop-deviation/run.sh could not execute because dev port 7686 is unavailable. A safe lane-isolated dev startup reproduced the existing Tauri prerequisite failure: resource path ../dist does not exist. The failed dev pane was closed and generated schema churn was restored.
+  ts: 1783678932804
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_bd2qz7
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Final scoped correction is review-ready. Independent review should verify only split-loader documentation, real-input controlled mutation sensitivity, deterministic F1-F10 outputs, and unchanged LoopSpec/runtime semantics. Dev-dependent loop-deviation remains centralized QA.
+  ts: 1783678945584
+  links:
+  - key:4705af99caf8c831
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_vde1fd
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'BOUNCE final architecture: create one shared bounce_unwinding_contract.md loaded once by app prompts.rs and interpolate it into planner_suffix()/orchestrator_suffix(); remove duplicated shared blocks and retain only role deltas (Planner diagnosis/plan/skill/discovery/retro; Orchestrator bounce/dispatch/external-research/escalation/approval). Correct docs loader authority: seed.rs constants are private; codeterm_rule.md has app and plugin include_str loaders; active injection paths are orchestrator/launch.rs and service/plugin_host.rs. Extend check-prompts-doc.sh inventory to scan seed and codeterm-plugin loaders and prove split ownership. Preserve deterministic fixtures and real-input mutation check.'
+  ts: 1783679330445
+  links:
+  - key:1ba720b411b2ec84
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_lwo0yc
+  from:
+    pane_id: 5aa8aee5
+    session_id: b215b77e-4aef-498c-a915-aed387df696e
+    title: autoresearch prompt contract
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: task_v4djn7 protocol is committed through ce608c133631912d88e1af3fa4a10def84fb25eb. Shared prompt: src-tauri/prompts/bounce_unwinding_contract.md; role prompts: src-tauri/prompts/planner_suffix.md and src-tauri/prompts/orchestrator_suffix.md; loader/render test: src-tauri/src/prompts.rs. Fixture/check surfaces: evals/prompt-contract/{protocol-fixtures.json,run.py,run.sh,planner-evals.json,orchestrator-evals.json}; evals/cli-agent/cases/plan_skill.yaml; scripts/check-prompts-doc.sh; scripts/test-plan-strides-union-merge.sh; codeterm-plan reflection/tests.rs and retrospective.rs; codeterm-types plan/types.rs; .agents/skills/prompt-evaluator/runner.py; docs/PROMPTS.md. Prompt diff vs origin/develop: shared +29/-0, Planner +8/-1, Orchestrator +7/-0.
+    TESTS RUN: evals/prompt-contract/run.sh PASS F1-F10 exact hashes and mutation negatives; scripts/check-prompts-doc.sh PASS 23 files/23 rows/24 loaders; scripts/test-plan-strides-union-merge.sh PASS; scripts/check-file-sizes.sh --fail PASS; capped codeterm-plan loop_engine/reflection/retrospective PASS; capped codeterm-types legacy_loopspec_json_loads_without_new_interpretation PASS; Planner A/B 5/5 no regressions; Orchestrator A/B 5/5 no regressions with F6 improvement; cargo fmt --check and git diff --check PASS. Independent review ACCEPT after ce608c133.
+    LEGACY SERIALIZATION: origin/develop...HEAD has no delta in loop_engine.rs or loop_mutations.rs; LoopSpec change is test-only legacy JSON default/load/round-trip evidence; no fields, serde semantics, runtime store, or engine behavior changed.
+    GATES REQUESTED: accepted independent review covered shared authority/bloat, rendered F1-F10 outputs, controlled oracle/budget/follow-up mutations, split loaders, and unchanged LoopSpec/runtime semantics.
+    BLOCKED GATES: evals/loop-deviation/run.sh unavailable because dev health on 127.0.0.1:7686 is down. Lane-isolated build check reaches the pre-existing Tauri build prerequisite failure: resource path ../dist does not exist. Production port 7685 was not touched.
+  ts: 1783680321769
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_7jx3op
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Source complete at ce608c133 with shared contract and scoped gates passing. Claimed independent ACCEPT is not present as a separate reviewer report for this commit; require one final commit-specific read-only review. Dev-only loop-deviation remains centralized QA.
+  ts: 1783680338525
+  links:
+  - key:56bc48fc1f5d7cf8
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_iemnpd
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Independent ACCEPT at ce608c133. Source review complete; retain in_review only for existing centralized dev-dependent loop-deviation/planning-protocol QA, with no duplicate gate.
+  ts: 1783680572850
+  links:
+  - key:84f3c9bdef09297b
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_6tqsxy
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: 'Accepted and integrated: independent SHA review accepted shared contract; F1-F10 exact mutation fixtures, prompt-doc inventory, stride merge, file-size, and centralized Rust gate pass.'
+  ts: 1783688333539
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_t3x0vj
+  executor_pane_id: a6fd669d
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.4
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/autoresearch-prompt-contract
+  worktree_path: D:/Developer/codeterm-worktrees/autoresearch-prompt-contract
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783661264851
+    message: |
+      STATUS: in_review
+      CHANGES: accepted implementation commit 9c16ef35d0b3eb0c5ab919331b444a158a9eb327; worktree cleanup restored only src-tauri/gen/schemas/desktop-schema.json and src-tauri/gen/schemas/windows-schema.json to HEAD; worktree now clean
+      TESTS RUN: prompt-evaluator A/B for planner and orchestrator prompts; focused exact cargo tests; cargo fmt --check; cargo check -p codeterm-plan -p codeterm-types; scripts/check-prompts-doc.sh; scripts/test-plan-strides-union-merge.sh; scripts/check-file-sizes.sh; git diff --check
+      A/B EVAL SUMMARY: planner prompt A/B (HEAD~1 vs current): eval1 1/1->1/1, eval2 1/1->1/1, eval3 0/1->1/1, eval4 1/1->1/1, eval5 0/1->1/1, no regressions; orchestrator prompt A/B (HEAD~1 vs current): eval6 1/1->1/1, eval7 1/1->1/1, eval8 1/1->1/1, eval9 1/1->1/1, eval10 0/1->1/1, no regressions
+      GATES REQUESTED: independent review of prompt diff, F1-F10 eval fixtures, and confirmation that no LoopSpec/runtime-store semantics changed
+      FOLLOWUP: root cargo check for package codeterm remains blocked in this worktree by missing bundled-embed resource files; commit was not amended or pushed
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783659764932
+  reported_at: 1783661264851
+  reviewed_at: null
+  closed_at: 1783666388917
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_csn817
+  executor_pane_id: 350e5576
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-terra
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/autoresearch-prompt-contract
+  worktree_path: D:/Developer/codeterm-worktrees/autoresearch-prompt-contract
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783678006476
+    message: |-
+      STATUS: in_review
+      CHANGES: hardened planner/orchestrator bounce records with trigger/question/hypothesis/numeric-budget/evidence schema; added deterministic F1-F10 exact-output and mutation fixtures; corrected PROMPTS loader description; removed tautological prompt substring tests.
+      TESTS RUN: evals/prompt-contract/run.sh; scripts/check-prompts-doc.sh; scripts/test-plan-strides-union-merge.sh; scripts/check-file-sizes.sh; focused prompt-evaluator A/B checks for planner IDs 2/4 and orchestrator ID 6.
+      LEGACY SERIALIZATION: git diff HEAD~1 -- src-tauri/crates/codeterm-types/src/plan/types.rs src-tauri/crates/codeterm-plan/src/plan/loop_engine.rs src-tauri/crates/codeterm-plan/src/service_plan/loop_mutations.rs is empty; existing legacy LoopSpec JSON round-trip fixture remains in codeterm-types.
+      GATES REQUESTED: independent review of prompt diff and F1-F10 fixture outputs; confirm no LoopSpec/runtime-store semantics changed.
+      FOLLOWUP: root build check is blocked by missing src-tauri/dist Tauri resource; dev-dependent evals/loop-deviation/run.sh could not run because 7686 was unavailable.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783676697444
+  reported_at: 1783678006476
+  reviewed_at: null
+  closed_at: 1783678020856
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_qih46q
+  executor_pane_id: 0134b02d
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/autoresearch-prompt-contract
+  worktree_path: D:/Developer/codeterm-worktrees/autoresearch-prompt-contract
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783678933096
+    message: |-
+      STATUS: in_review
+      CHANGES: task_v4djn7 bounce-unwinding contract is implemented across planner/orchestrator prompts and existing planner/CLI fixture surfaces. Review correction e6574d45d fixes split authoritative-loader documentation and replaces the synthetic CRLF identity check with a controlled timestamp mutation against the actual merged JSONL fold. Prompt diff from origin/develop: planner +31/-1; orchestrator +27/-0. F1-F10 deterministic fixtures remain exact and mutation-negative.
+      TESTS RUN: evals/prompt-contract/run.sh PASS (F1-F10 exact records and mutation negatives); scripts/check-prompts-doc.sh PASS (17/17/17); scripts/test-plan-strides-union-merge.sh PASS (real union merge plus exact controlled mutation); scripts/check-file-sizes.sh --fail PASS (no source over 1200); capped codeterm-plan loop_engine PASS; capped codeterm-plan reflection PASS; capped codeterm-plan retrospective PASS; capped codeterm-types legacy_loopspec_json_loads_without_new_interpretation PASS; Planner A/B 5/5 current with F3/F5 improvements and no regressions; Orchestrator A/B F6/F7/F9 current pass, F10 improves, and fresh no-cache F8 immutable-oracle run passes 3/3 expectations.
+      LEGACY SERIALIZATION: origin/develop..HEAD is empty for plan/loop_engine.rs and service_plan/loop_mutations.rs. codeterm-types changes only add the legacy LoopSpec JSON load/default/round-trip test; no LoopSpec fields or serialization semantics changed. No runtime store was added.
+      FILE SIZE: scripts/check-file-sizes.sh --fail reports no files over 1200 lines (two pre-existing advisory mod.rs entries under 1000).
+      GATES REQUESTED: independent review of planner/orchestrator prompt diff, deterministic F1-F10 exact-output and controlled mutation-negative fixtures, split loader claims in docs/PROMPTS.md, and confirmation that no runtime store or LoopSpec/engine reinterpretation was introduced.
+      BLOCKED GATE: evals/loop-deviation/run.sh could not execute because dev port 7686 is unavailable. A safe lane-isolated dev startup reproduced the existing Tauri prerequisite failure: resource path ../dist does not exist. The failed dev pane was closed and generated schema churn was restored.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783678260628
+  reported_at: 1783678933096
+  reviewed_at: null
+  closed_at: 1783678946586
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_mars71
+  executor_pane_id: 5aa8aee5
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/autoresearch-prompt-contract
+  worktree_path: D:/Developer/codeterm-worktrees/autoresearch-prompt-contract
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783680322070
+    message: |-
+      STATUS: in_review
+      CHANGES: task_v4djn7 protocol is committed through ce608c133631912d88e1af3fa4a10def84fb25eb. Shared prompt: src-tauri/prompts/bounce_unwinding_contract.md; role prompts: src-tauri/prompts/planner_suffix.md and src-tauri/prompts/orchestrator_suffix.md; loader/render test: src-tauri/src/prompts.rs. Fixture/check surfaces: evals/prompt-contract/{protocol-fixtures.json,run.py,run.sh,planner-evals.json,orchestrator-evals.json}; evals/cli-agent/cases/plan_skill.yaml; scripts/check-prompts-doc.sh; scripts/test-plan-strides-union-merge.sh; codeterm-plan reflection/tests.rs and retrospective.rs; codeterm-types plan/types.rs; .agents/skills/prompt-evaluator/runner.py; docs/PROMPTS.md. Prompt diff vs origin/develop: shared +29/-0, Planner +8/-1, Orchestrator +7/-0.
+      TESTS RUN: evals/prompt-contract/run.sh PASS F1-F10 exact hashes and mutation negatives; scripts/check-prompts-doc.sh PASS 23 files/23 rows/24 loaders; scripts/test-plan-strides-union-merge.sh PASS; scripts/check-file-sizes.sh --fail PASS; capped codeterm-plan loop_engine/reflection/retrospective PASS; capped codeterm-types legacy_loopspec_json_loads_without_new_interpretation PASS; Planner A/B 5/5 no regressions; Orchestrator A/B 5/5 no regressions with F6 improvement; cargo fmt --check and git diff --check PASS. Independent review ACCEPT after ce608c133.
+      LEGACY SERIALIZATION: origin/develop...HEAD has no delta in loop_engine.rs or loop_mutations.rs; LoopSpec change is test-only legacy JSON default/load/round-trip evidence; no fields, serde semantics, runtime store, or engine behavior changed.
+      GATES REQUESTED: accepted independent review covered shared authority/bloat, rendered F1-F10 outputs, controlled oracle/budget/follow-up mutations, split loaders, and unchanged LoopSpec/runtime semantics.
+      BLOCKED GATES: evals/loop-deviation/run.sh unavailable because dev health on 127.0.0.1:7686 is down. Lane-isolated build check reaches the pre-existing Tauri build prerequisite failure: resource path ../dist does not exist. Production port 7685 was not touched.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783679350420
+  reported_at: 1783680322070
+  reviewed_at: null
+  closed_at: 1783680339397
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

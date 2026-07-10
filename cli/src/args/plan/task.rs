@@ -62,6 +62,8 @@ pub enum PlanTaskAction {
         intent_file: Option<String>,
         #[arg(long)]
         parent: Option<String>,
+        #[arg(long = "depends-on")]
+        depends_on: Vec<String>,
         #[arg(long)]
         assign_pane: Option<String>,
         #[arg(long)]
@@ -154,6 +156,10 @@ pub enum PlanTaskAction {
         correctness: Option<String>,
         #[arg(long)]
         parent: Option<String>,
+        #[arg(long = "depends-on", conflicts_with = "clear_dependencies")]
+        depends_on: Vec<String>,
+        #[arg(long = "clear-dependencies")]
+        clear_dependencies: bool,
         #[arg(long)]
         pane: Option<String>,
         #[arg(long)]
