@@ -184,11 +184,11 @@ mod tests {
         assert!(matches!(
             r,
             PeerResolution::OrchestratorFallback { ref bound_pane_id, ref reason }
-            if bound_pane_id == "pane_x" && reason == "planner pane pane_x absent"
+            if bound_pane_id == "pane_x" && reason == "planner pane pane_x gone"
         ));
         assert_eq!(
             resolution_json(&r),
-            r#"{"kind":"orchestrator_fallback","bound_pane_id":"pane_x","reason":"planner pane pane_x absent"}"#
+            r#"{"kind":"orchestrator_fallback","bound_pane_id":"pane_x","reason":"planner pane pane_x gone"}"#
         );
     }
 

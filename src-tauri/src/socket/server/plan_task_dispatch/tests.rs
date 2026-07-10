@@ -1,11 +1,39 @@
 use super::{
     build_brief, build_brief_with_claimed_persona, build_brief_with_personality,
-    dispatch_worker_identity, resolve_dispatch_routing,
+    dispatch_worker_identity, regression_blocked_error, resolve_dispatch_routing,
 };
 use crate::plan::{IdentityProvenance, Task};
+use crate::service::plan::milestone_gates::RegressionGate;
 use crate::service::plan::task_queries::TaskSection;
 use crate::service::SpawnIdentityProvenance;
 use serde_json::json;
+
+#[test]
+fn regression_block_error_names_every_gate_in_message_and_data() {
+    let gates = vec![
+        RegressionGate {
+            key: "phase-1".into(),
+            label: "Phase 1".into(),
+        },
+        RegressionGate {
+            key: "web-ui-serve-discovery".into(),
+            label: "Web UI serve discovery".into(),
+        },
+    ];
+    let err = regression_blocked_error(gates);
+    assert_eq!(err.code, -32010);
+    assert!(err.message.contains("phase-1"));
+    assert!(err.message.contains("web-ui-serve-discovery"));
+    let data = err.data.expect("structured block data");
+    assert_eq!(data["type"], "regression_gate_blocked");
+    let keys: Vec<&str> = data["blocking_gates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|g| g["key"].as_str().unwrap())
+        .collect();
+    assert_eq!(keys, vec!["phase-1", "web-ui-serve-discovery"]);
+}
 
 fn providers() -> Vec<String> {
     vec!["claude".into(), "codex".into(), "opencode".into()]
