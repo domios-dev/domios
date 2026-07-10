@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
-use super::{body_files, paths, PlanError, PlanStore};
+use super::{body_files, paths, store_v2, PlanError, PlanStore};
 use crate::plan::{OrchestratorRef, Plan, PlanStatus, PlannerRef};
 
 #[derive(Debug, Clone, Default)]
@@ -107,12 +107,7 @@ fn source_plan_dir(source: &Path) -> Result<PathBuf, PlanError> {
 
 fn load_source_plan(source_dir: &Path) -> Result<Plan, PlanError> {
     if source_dir.join("plan.yaml").is_file() {
-        let yaml = std::fs::read_to_string(source_dir.join("plan.yaml"))
-            .map_err(|e| PlanError::Io(e.to_string()))?;
-        let mut plan: Plan =
-            serde_yaml::from_str(&yaml).map_err(|e| PlanError::Io(e.to_string()))?;
-        body_files::hydrate_and_migrate(&mut plan).map_err(|e| PlanError::Io(e.to_string()))?;
-        return Ok(plan);
+        return store_v2::load_plan(source_dir).map_err(|e| PlanError::Io(e.to_string()));
     }
     let json_path = source_dir.join("plan.json");
     let json = std::fs::read_to_string(&json_path).map_err(|e| PlanError::Io(e.to_string()))?;
