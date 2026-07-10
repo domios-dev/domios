@@ -127,6 +127,82 @@ pub enum PlannerRef {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PlannerRequestState {
+    Queued,
+    Accepted,
+    InProgress,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PlannerDeliveryPhase {
+    #[default]
+    PreSend,
+    SendStarted,
+    ProviderAccepted,
+    PlannerAcked,
+    DeliveryUncertain,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PlannerDeliveryTransport {
+    PtyAgent,
+    ChatBackend,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlannerInboxEntry {
+    pub request_id: String,
+    #[serde(default)]
+    pub phase: PlannerDeliveryPhase,
+    #[serde(default)]
+    pub pane_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub binding_nonce: Option<String>,
+    #[serde(default)]
+    pub transport: Option<PlannerDeliveryTransport>,
+    #[serde(default)]
+    pub last_error: Option<String>,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PlannerRequest {
+    pub request_id: String,
+    pub payload: String,
+    #[serde(default)]
+    pub payload_blob: Option<String>,
+    #[serde(default)]
+    pub caller_pane_id: Option<String>,
+    #[serde(default)]
+    pub caller_session_id: Option<String>,
+    pub state: PlannerRequestState,
+    pub created_at: u64,
+    #[serde(default)]
+    pub accepted_at: Option<u64>,
+    #[serde(default)]
+    pub lease_expires_at: Option<u64>,
+    #[serde(default)]
+    pub delivery_attempts: u32,
+    #[serde(default)]
+    pub completed_at: Option<u64>,
+    #[serde(default)]
+    pub failed_at: Option<u64>,
+    #[serde(default)]
+    pub delivered_to_pane_id: Option<String>,
+    #[serde(default)]
+    pub delivered_to_session_id: Option<String>,
+    #[serde(default)]
+    pub delivered_with_binding_nonce: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct TaskLaneMetadata {
     #[serde(default)]
@@ -637,6 +713,10 @@ pub struct Plan {
     pub planning_log: Vec<super::planning_state::PlanningTransition>,
     #[serde(default)]
     pub gates: Vec<super::gates::DecisionGate>,
+    #[serde(default)]
+    pub planner_requests: Vec<PlannerRequest>,
+    #[serde(default)]
+    pub planner_inbox: Vec<PlannerInboxEntry>,
     // Plan-level, task-less working points (e.g. skill ledger entries). Append-only.
     #[serde(default)]
     pub strides: Vec<Milestone>,
@@ -676,6 +756,8 @@ impl Plan {
             planning_state: super::planning_state::PlanningState::default(),
             planning_log: vec![],
             gates: vec![],
+            planner_requests: vec![],
+            planner_inbox: vec![],
             strides: vec![],
         }
     }
@@ -870,6 +952,32 @@ mod tests {
         }"#;
         let p: Plan = serde_json::from_str(raw).unwrap();
         assert_eq!(p.planner, None);
+    }
+
+    #[test]
+    fn legacy_loopspec_json_loads_without_new_interpretation() {
+        let raw = r#"{
+            "id":"loop_1",
+            "target":"accepted target",
+            "budget":3,
+            "count":1,
+            "stop_when":"oracle holds",
+            "status":"running"
+        }"#;
+        let loop_spec: LoopSpec = serde_json::from_str(raw).unwrap();
+        assert_eq!(loop_spec.id, "loop_1");
+        assert_eq!(loop_spec.target, "accepted target");
+        assert_eq!(loop_spec.budget, 3);
+        assert_eq!(loop_spec.count, 1);
+        assert_eq!(loop_spec.stop_when.as_deref(), Some("oracle holds"));
+        assert_eq!(loop_spec.status, LoopStatus::Running);
+        assert_eq!(loop_spec.stagnation, 0);
+        assert_eq!(loop_spec.deviation, None);
+        assert_eq!(loop_spec.last_iteration_at, None);
+
+        let json = serde_json::to_string(&loop_spec).unwrap();
+        let back: LoopSpec = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, loop_spec);
     }
 
     #[test]

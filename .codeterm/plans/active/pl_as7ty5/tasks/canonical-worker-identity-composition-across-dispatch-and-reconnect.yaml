@@ -1,0 +1,221 @@
+id: task_50muai
+name: Canonical worker identity composition across dispatch and reconnect
+type: implementation
+model: gpt-5.4
+model_rationale: Normal Codex implementation is sufficient for a bounded prompt-composition fix with focused Rust snapshot tests; the behavior is correctness-sensitive but not architecture-heavy.
+personality: Lamport
+acceptance_criteria:
+- Initial dispatch with personality Hopper and guidance beginning You are Hopper... produces one canonical identity prefix, never You are Hopper. You are Hopper....
+- A single canonical composition function is used by initial dispatch, respawn/reconnect, competition, and charter/prepend flows, with snapshot tests proving equivalent semantic ordering.
+- Machine charter wrappers may precede the brief, but role guidance is the first semantic worker instruction after the wrapper and no later generic identity contradicts it.
+- Tasks with no personality, no guidance, or legacy serialized fields retain valid deterministic prompts without invented or contradictory identity text.
+- executor_role remains metadata/routing input and is not duplicated as conflicting worker prose.
+- Focused tests, git diff --check, and file-size checks pass; changed files remain within the declared ownership boundary.
+test_plan: '1. Run the focused Rust test command covering worker brief/charter composition: cargo test -p codeterm --lib plan_task_dispatch -- --nocapture (or the exact narrowed package/filter discovered from the existing test module); pass condition: all composition tests pass. 2. Add/run exact snapshot cases for personality+guidance, no personality, reconnect/charter wrapper, competition, and legacy task fields; pass condition: each expected full prompt equals the canonical fixture and contains one identity, with role guidance immediately after any machine wrapper. 3. Run git diff --check and scripts/check-file-sizes.sh; pass condition: both exit 0 and no source file exceeds the project limit. 4. Run the focused prompt/plan test command required by the touched modules and report exact command/output; no local heavy build or release build is permitted.'
+correctness: Identity uniqueness; semantic ordering after machine wrappers; parity across dispatch/reconnect/competition/charter; legacy serialization compatibility; no routing/storage/runtime semantic changes; exact snapshot oracle rather than substring-only assertions; source-size discipline.
+status: in_review
+review_stage: qa
+qa_state: queued
+status_label: pane-gone
+priority: p1
+created_at: 1783661792517
+updated_at: 1783694940980
+status_changed_at: 1783694940980
+handle: canonical-worker-identity-composition-across-dispatch-and-reconnect
+tags:
+- 1.7.2
+section_ids:
+- sec_oi6846
+body: Unify worker identity and role-guidance composition behind one canonical function used by initial plan-task dispatch, respawn/reconnect, competition, and worker-charter flows. Inspect the existing build_brief and charter/prepend paths before editing. The function must prevent duplicated identity prefixes when personality and guidance both exist, preserve explicit user-supplied persona/title semantics, and keep executor_role as routing metadata rather than injecting conflicting prose. Machine charter wrappers may remain outer framing, but the role guidance must be the first semantic worker instruction after that wrapper. Preserve legacy tasks with missing personality or guidance. Own only the worker brief/charter composition modules and their focused tests; do not change task storage, routing, pane allocation, or runtime LoopSpec semantics. Work from origin/develop in D:/Developer/codeterm-worktrees/worker-identity-composition on branch lane/worker-identity-composition.
+role_guidance: 'You are a prompt-construction engineer. Trace every worker brief entry point, implement one canonical identity composition path, and prove equivalent wording across dispatch, reconnect, competition, and charter flows. Red line: do not alter task routing/storage semantics or hide contradictory identity output behind weak substring assertions.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:/Developer/codeterm-worktrees/worker-identity-composition
+  branch: lane/worker-identity-composition
+  base: origin/develop
+  destination: null
+  cleanup_status: pending
+  cleanup_hints:
+  - After review and integration, remove the sibling worktree only after the Orchestrator records the accepted report and QA result.
+taken_by_role: null
+peer: null
+group: prompt-construction-1.7.2
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_6le70q
+  from:
+    pane_id: 9c01ec70
+    session_id: 019f4a87-8794-71d2-90d1-24b998569e51
+    title: Lamport
+  kind: status_update
+  text: |-
+    STATUS: partial
+    CHANGES: unified worker identity composition via shared plan-crate helper; dispatch, respawn, competition, and worker-charter prepend now share canonical identity ordering and dedup logic; added focused prompt-order tests.
+    TESTS RUN: cargo fmt --all; git diff --check; scripts/check-file-sizes.sh --fail; focused cargo tests blocked locally by tauri build prerequisites (missing bundled resources like bundled-embed/dist/bundled-cli before test compilation).
+  ts: 1783662797484
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_4r9kfd
+  from:
+    pane_id: watchdog
+    session_id: null
+    title: null
+  kind: decision
+  text: 'watchdog: assigned pane gone and silent for 2870151ms — demoted to pending'
+  ts: 1783665667979
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_sved14
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Canonical prompt composition must consume dispatch's atomically claimed effective personality; executor_role remains routing metadata and provenance/storage are owned by task_e1terr.
+  ts: 1783674358785
+  links:
+  - key:31431f00d7fbb50e
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_i0gl9c
+  from:
+    pane_id: 2a30933e
+    session_id: 019f4b44-9457-7fe1-b6e1-671a21d97792
+    title: canonical worker identity
+  kind: status_update
+  text: |-
+    STATUS: partial
+    CHANGES: Added canonical worker identity composition in service_plan::worker_identity; initial dispatch, respawn/reconnect, competition, and worker-charter prepend consume it. Matching persona guidance is emitted once, generic guidance stays first after the charter wrapper, legacy empty fields emit no invented identity, and executor_role is not worker prose. Added build_brief_with_personality for the provenance lane's atomically claimed/rerolled effective persona plus exact source fixtures proving one identity only.
+    TESTS RUN: Source-only by instruction: rustfmt --edition 2021 --check on six touched Rust files PASS; git diff --check PASS; scripts/check-file-sizes.sh --fail PASS (only pre-existing advisory mod.rs notices). Not run: cargo/build/dev/Playwright.
+    FOLLOWUP: Integrate task_e1terr's atomically claimed persona by calling build_brief_with_personality after its claim. Central QA should run the narrowed plan_task_dispatch and codeterm-plan composition tests, including brief_uses_claimed_personality_once_without_mutating_routing_metadata, respawn_prompt_starts_with_canonical_identity_once, competition_prompt_starts_with_same_canonical_identity, and role_guidance_round_trips_and_worker_charter_prepends_it.
+  ts: 1783674470647
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_4a1au7
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: qa
+  text: 'enqueue: QA-ready from source-only worker identity report: run focused plan_task_dispatch and codeterm-plan composition tests.'
+  ts: 1783694940980
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_pskuek
+  executor_pane_id: 9c01ec70
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.4
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/worker-identity-composition
+  worktree_path: D:/Developer/codeterm-worktrees/worker-identity-composition
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783662797828
+    message: |-
+      STATUS: partial
+      CHANGES: unified worker identity composition via shared plan-crate helper; dispatch, respawn, competition, and worker-charter prepend now share canonical identity ordering and dedup logic; added focused prompt-order tests.
+      TESTS RUN: cargo fmt --all; git diff --check; scripts/check-file-sizes.sh --fail; focused cargo tests blocked locally by tauri build prerequisites (missing bundled resources like bundled-embed/dist/bundled-cli before test compilation).
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783661818531
+  reported_at: 1783662797828
+  reviewed_at: null
+  closed_at: 1783665667979
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_kcn3ep
+  executor_pane_id: 2a30933e
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.4
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/worker-identity-composition
+  worktree_path: D:/Developer/codeterm-worktrees/worker-identity-composition
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783674470938
+    message: |-
+      STATUS: partial
+      CHANGES: Added canonical worker identity composition in service_plan::worker_identity; initial dispatch, respawn/reconnect, competition, and worker-charter prepend consume it. Matching persona guidance is emitted once, generic guidance stays first after the charter wrapper, legacy empty fields emit no invented identity, and executor_role is not worker prose. Added build_brief_with_personality for the provenance lane's atomically claimed/rerolled effective persona plus exact source fixtures proving one identity only.
+      TESTS RUN: Source-only by instruction: rustfmt --edition 2021 --check on six touched Rust files PASS; git diff --check PASS; scripts/check-file-sizes.sh --fail PASS (only pre-existing advisory mod.rs notices). Not run: cargo/build/dev/Playwright.
+      FOLLOWUP: Integrate task_e1terr's atomically claimed persona by calling build_brief_with_personality after its claim. Central QA should run the narrowed plan_task_dispatch and codeterm-plan composition tests, including brief_uses_claimed_personality_once_without_mutating_routing_metadata, respawn_prompt_starts_with_canonical_identity_once, competition_prompt_starts_with_same_canonical_identity, and role_guidance_round_trips_and_worker_charter_prepends_it.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783674209063
+  reported_at: 1783674470938
+  reviewed_at: null
+  closed_at: 1783674486723
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

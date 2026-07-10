@@ -528,6 +528,9 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
             Some(r) => r,
             None => {
                 let pair = session.pair.lock().unwrap();
+                let Some(pair) = pair.as_ref() else {
+                    return Ok(Vec::new());
+                };
                 pair.master.try_clone_reader().map_err(|e| e.to_string())?
             }
         }
@@ -846,12 +849,71 @@ pub async fn kill_pty(
     };
     if owned_by_protected {
         log::info!(
-            "[kill_pty] {} is owned by a protected pane — ignoring frontend kill",
+            "[kill_pty] {} is owned by a protected pane - ignoring frontend kill",
             pty_id,
         );
         return Ok(());
     }
     let mut manager = state.lock();
-    manager.remove(&pty_id);
-    Ok(())
+    kill_pty_idempotent(&mut manager, &pty_id)
+}
+
+pub(crate) fn kill_pty_idempotent(
+    manager: &mut crate::pty::manager::PtyManager,
+    pty_id: &str,
+) -> Result<(), String> {
+    match manager.kill(pty_id) {
+        Ok(()) => Ok(()),
+        Err(e) if is_missing_pty_error(pty_id, &e) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+fn is_missing_pty_error(pty_id: &str, error: &str) -> bool {
+    error == format!("PTY {} not found", pty_id)
+}
+
+#[cfg(test)]
+mod kill_pty_tests {
+    use std::collections::HashMap;
+
+    use super::{is_missing_pty_error, kill_pty_idempotent};
+
+    #[test]
+    fn kill_pty_idempotent_kills_child_and_allows_repeat() {
+        let mut manager = crate::pty::manager::PtyManager::new();
+        let (pty_id, session) = manager
+            .spawn(None, None, 80, 24, HashMap::new())
+            .expect("spawn default shell");
+        let child_pid = session.child.lock().expect("child lock").process_id();
+        assert!(child_pid.is_some(), "spawned child should expose a pid");
+
+        kill_pty_idempotent(&mut manager, &pty_id).expect("first kill succeeds");
+        assert!(
+            manager.get_session(&pty_id).is_none(),
+            "kill must remove session from manager"
+        );
+        let exited = session
+            .child
+            .lock()
+            .expect("child lock")
+            .try_wait()
+            .expect("try_wait after kill");
+        assert!(exited.is_some(), "kill must terminate the child");
+
+        kill_pty_idempotent(&mut manager, &pty_id).expect("repeat kill is a no-op");
+        kill_pty_idempotent(&mut manager, "missing-pty").expect("unknown kill is a no-op");
+    }
+
+    #[test]
+    fn kill_pty_idempotent_does_not_swallow_unrelated_errors() {
+        let mut manager = crate::pty::manager::PtyManager::new();
+        let err = manager
+            .kill("real-id")
+            .expect_err("manager should expose exact missing-id error");
+        assert!(is_missing_pty_error("real-id", &err));
+        assert!(!is_missing_pty_error("other-id", &err));
+        assert!(!is_missing_pty_error("real-id", "PTY real-id not found: access denied"));
+        assert!(!is_missing_pty_error("real-id", "wrapped PTY real-id not found"));
+    }
 }

@@ -156,7 +156,18 @@ impl ServiceContext {
     }
 
     pub(crate) fn pane_probe(&self, pane_id: &str) -> PaneProbe {
-        let (exists, role, parent_pane_id, agent_type, pty_id) = {
+        let (
+            exists,
+            role,
+            parent_pane_id,
+            agent_type,
+            session_id,
+            nonce,
+            reported_nonce,
+            state,
+            boot_stage,
+            chat_delivery_target,
+        ) = {
             let mux = self.mux.read();
             match mux.get_pane(pane_id) {
                 Some(pane) => (
@@ -164,31 +175,45 @@ impl ServiceContext {
                     pane.role.map(map_role),
                     pane.parent_pane_id.clone(),
                     pane.agent_type.clone(),
-                    pane.pty_id.clone(),
+                    pane.agent_session_id.clone(),
+                    pane.session_binding_nonce.clone(),
+                    pane.reported_session_binding_nonce.clone(),
+                    pane.agent_state.clone(),
+                    pane.boot_stage,
+                    pane.chat_view
+                        && match &pane.backing {
+                            crate::multiplexer::types::PaneBacking::ChatBackend { .. } => true,
+                            crate::multiplexer::types::PaneBacking::Pty => pane.pty_id.is_some(),
+                        },
                 ),
-                None => (false, None, None, None, None),
+                None => (false, None, None, None, None, None, None, None, None, false),
             }
         };
+        let agent_accepting_work = chat_delivery_target
+            && match state.as_ref() {
+                Some(state) => matches!(
+                    state.state,
+                    crate::agent::offline_state_classifier::TimelineState::Working
+                        | crate::agent::offline_state_classifier::TimelineState::Idle
+                ),
+                None => boot_stage == Some(codeterm_types::pty::BootStage::AgentReady),
+            };
+        let session_binding_valid = nonce.is_some() && nonce == reported_nonce;
         let live_agent = agent_type.is_some()
-            && pty_id
-                .as_deref()
-                .is_some_and(|pty| self.pty_has_live_agent_tui(pty));
+            && session_id.is_some()
+            && session_binding_valid
+            && chat_delivery_target
+            && agent_accepting_work;
         PaneProbe {
             exists,
             live_agent,
+            agent_session_id: session_id,
+            session_binding_valid,
+            chat_delivery_target,
+            agent_accepting_work,
             role,
             parent_pane_id,
         }
-    }
-
-    fn pty_has_live_agent_tui(&self, pty_id: &str) -> bool {
-        let screen = self
-            .screen_state
-            .lock()
-            .get_screen_text(pty_id)
-            .unwrap_or_default();
-        crate::pty::screen_state::screen_has_agent_tui(&screen)
-            || self.agent_registry.any_provider_screen_has_tui(&screen)
     }
 
     fn emit_plan_changed(&self, plan_id: &str) {

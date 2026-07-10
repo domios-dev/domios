@@ -1,0 +1,203 @@
+id: task_j97631
+name: Reconcile terminal state for streamed tool invocations
+type: implement
+model: gpt-5.4
+model_rationale: 'Routing rationale: bounded parser/reducer correlation and transcript hydration correctness task; gpt-5.4 is appropriate.'
+personality: Lamport
+acceptance_criteria:
+- Success, failure, timeout, and cancelled invocations each reach exactly one stable terminal state; late/duplicate events do not regress state; terminal result removes spinner; exec/wait is one logical command or explicit phases; reconnect/history produces the same terminal state; 20 concurrent commands retain unique stable keys.
+test_plan: 'Oracle: deterministic parser/reducer fixtures plus Playwright. 1. Add/run focused streamParser/useAgentRunStream tests for success, timeout, failure, cancelled, late result, duplicate result, exec plus wait, reconnect/history hydration, and 20 concurrent commands. Pass: exact terminal state/key assertions. 2. Run npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep "tool-lifecycle|tool-terminal". Pass: no terminal spinner, linked exec/wait rendering, restored transcript state, and concurrent card stability. 3. Inspect event log fixture. Pass: each invocation has one terminal transition.'
+correctness: Correctness requires an idempotent invocation state machine keyed stably across streaming and history, preserving logical command relationships and eliminating indefinite in-progress visuals without losing results.
+status: in_review
+review_stage: qa
+qa_state: queued
+status_label: needs-reassign
+priority: p2
+created_at: 1783657396281
+updated_at: 1783694942876
+status_changed_at: 1783694942876
+handle: reconcile-terminal-state-for-streamed-tool-invocations
+tags: []
+section_ids:
+- sec_rlqrqc
+body: 'Fix tool lifecycle completion correctness independently of task_6761hn visual output cards. Trace tool_call/tool_result correlation, wait-cell lifecycle, timeout/error/cancel terminal states, reconnect/history hydration, and key stability. Exact ownership: src/components/AgentRun/streamParser.ts; src/components/AgentRun/useAgentRunStream.ts; relevant AgentRun state/reducer/test files discovered by trace; shared invocation identity types only. Do not edit EventRenderer/card layout owned by task_6761hn. Every invocation must transition exactly once to success/failure/timeout/cancelled; late/duplicate events idempotent; no spinner after terminal result; parent exec plus wait continuation reconciles into one logical command or explicitly linked phases; restored transcript derives terminal state. Dependencies: no writer dependency; task_6761hn must consume this terminal contract before its visual work. Branch/worktree lane/tool-lifecycle-terminal at D:/Developer/codeterm-worktrees/tool-lifecycle-terminal from origin/develop. Report STATUS in_review with state diagram, exact files, reducer/parser fixture outputs, invocation-key rationale, and Playwright evidence.'
+role_guidance: 'You are Lamport, a streamed-event state-machine engineer. Make every tool invocation terminal exactly once across live, late, duplicate, timeout, cancel, and restored history events. Red line: any terminal result with a spinner, merged unrelated command, or unstable invocation key fails.'
+executor_role: frontend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/tool-lifecycle-terminal
+  branch: lane/tool-lifecycle-terminal
+  base: origin/develop
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: tool-lifecycle
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_s5oydh
+  from:
+    pane_id: e3a04145
+    session_id: 019f4a65-0041-7873-a04f-d86d5958e420
+    title: Lamport
+  kind: status_update
+  text: |-
+    STATUS: partial
+    CHANGES: Added AgentRun tool-invocation reconciliation in streamParser/useAgentRunStream, added deterministic parser lifecycle tests, added focused Playwright tool-terminal spec.
+    TESTS RUN: npx tsx src/components/AgentRun/streamParser.test.ts; npx tsx packages/chat-ui/src/MessageBubble.providers.test.tsx; npx tsc --noEmit; npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep "tool-lifecycle|tool-terminal" --timeout=30000 --global-timeout=600000 (blocked by dev env/WebView2 startup instability)
+  ts: 1783660925183
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_jxbaw9
+  from:
+    pane_id: watchdog
+    session_id: null
+    title: null
+  kind: decision
+  text: 'watchdog: assigned pane gone and silent for 2822138ms — demoted to pending'
+  ts: 1783663748411
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_0wbbga
+  from:
+    pane_id: 2fd9b216
+    session_id: 019f4b44-6aab-72b3-82de-a890b43ed932
+    title: reconcile tool lifecycle
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: terminal invocation state reconciliation in streamParser; memoized stream contract in useAgentRunStream; deterministic lifecycle fixtures. No EventRenderer/card-layout changes.
+    STATE: running -> success|failure|timeout|cancelled; first terminal wins; late/duplicate terminal -> no-op. Wait phase terminalizes its explicitly linked exec parent only when it is the earliest terminal event; each phase remains terminalTransitionCount=1.
+    FILES: src/components/AgentRun/streamParser.ts; src/components/AgentRun/useAgentRunStream.ts; src/components/AgentRun/streamParser.test.ts.
+    FIXTURE OUTPUT: ok - AgentRun stream parser lifecycle tests. Covers success/failure/timeout/cancelled, duplicate/late, result-before-call, exec+wait including late direct result, restored replay, split chunks, and 20 concurrent commands.
+    KEYS: tool:<tool_use_id>; provider-issued tool-use IDs are transcript-stable across live replay/history hydration and cannot merge unrelated commands.
+    CENTRALIZED QA: run required Playwright tool-lifecycle/tool-terminal checks after the card owner renders this contract; confirm no terminal spinner, linked wait phases, restored state, and concurrent-card key stability.
+  ts: 1783674396589
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_wnqhj1
+  from:
+    pane_id: ''
+    session_id: null
+    title: null
+  kind: qa
+  text: 'enqueue: QA-ready after parser contract: run required Playwright tool lifecycle/terminal checks after card rendering contract.'
+  ts: 1783694942876
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_w8jqbs
+  executor_pane_id: e3a04145
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.4
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/tool-lifecycle-terminal
+  worktree_path: D:/Developer/codeterm-worktrees/tool-lifecycle-terminal
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783660926273
+    message: |-
+      STATUS: partial
+      CHANGES: Added AgentRun tool-invocation reconciliation in streamParser/useAgentRunStream, added deterministic parser lifecycle tests, added focused Playwright tool-terminal spec.
+      TESTS RUN: npx tsx src/components/AgentRun/streamParser.test.ts; npx tsx packages/chat-ui/src/MessageBubble.providers.test.tsx; npx tsc --noEmit; npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep "tool-lifecycle|tool-terminal" --timeout=30000 --global-timeout=600000 (blocked by dev env/WebView2 startup instability)
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783659556294
+  reported_at: 1783660926273
+  reviewed_at: null
+  closed_at: 1783663748411
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_a2n751
+  executor_pane_id: 2fd9b216
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.4
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/tool-lifecycle-terminal
+  worktree_path: D:/Developer/codeterm-worktrees/tool-lifecycle-terminal
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783674396898
+    message: |-
+      STATUS: in_review
+      CHANGES: terminal invocation state reconciliation in streamParser; memoized stream contract in useAgentRunStream; deterministic lifecycle fixtures. No EventRenderer/card-layout changes.
+      STATE: running -> success|failure|timeout|cancelled; first terminal wins; late/duplicate terminal -> no-op. Wait phase terminalizes its explicitly linked exec parent only when it is the earliest terminal event; each phase remains terminalTransitionCount=1.
+      FILES: src/components/AgentRun/streamParser.ts; src/components/AgentRun/useAgentRunStream.ts; src/components/AgentRun/streamParser.test.ts.
+      FIXTURE OUTPUT: ok - AgentRun stream parser lifecycle tests. Covers success/failure/timeout/cancelled, duplicate/late, result-before-call, exec+wait including late direct result, restored replay, split chunks, and 20 concurrent commands.
+      KEYS: tool:<tool_use_id>; provider-issued tool-use IDs are transcript-stable across live replay/history hydration and cannot merge unrelated commands.
+      CENTRALIZED QA: run required Playwright tool-lifecycle/tool-terminal checks after the card owner renders this contract; confirm no terminal spinner, linked wait phases, restored state, and concurrent-card key stability.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783674198443
+  reported_at: 1783674396898
+  reviewed_at: null
+  closed_at: null
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

@@ -1,0 +1,61 @@
+{
+  "skill_name": "planner-suffix-bounce-contract",
+  "description": "Planner suffix contract for bounce unwinding, oracle integrity, bounded research, and retrospective routing.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "planner-repo-first-bounded-research",
+      "prompt": "You are the Planner for plan pl_demo. A worker bounced because the brief cites `resolveLoopBudget()` and nobody knows whether it exists. First verify the repository and the plan surfaces. Only if the repo is insufficient may you do one bounded external-doc lookup. Respond with concrete commands only.",
+      "expected_output": "Searches repo-local and plan-local surfaces first instead of jumping to external research.",
+      "expectations": [
+        "Uses `rg`, `codeterm task show`, `codeterm plan section show`, or `codeterm plan get --sections` before any external lookup.",
+        "Does NOT start with `curl`, `open`, or a browser command.",
+        "Does NOT emit more than one web-style external lookup command such as `curl`, `open`, or `WebSearch`."
+      ]
+    },
+    {
+      "id": 2,
+      "name": "planner-keeps-oracle-immutable",
+      "prompt": "You are the Planner for plan pl_demo. A lane asks you to rewrite the accepted oracle from `cargo test loop_engine::stagnation_deviates_only_after_k` to `cargo test loop_engine` because the narrow check is failing. Preserve the accepted oracle and decide the next commands only.",
+      "expected_output": "Refuses to weaken the oracle and inspects the current task or skill instead.",
+      "expectations": [
+        "Does NOT emit a `codeterm plan task update` or `codeterm plan skill edit` command that replaces `cargo test loop_engine::stagnation_deviates_only_after_k` with a broader or easier oracle.",
+        "Uses `codeterm task show`, `codeterm plan task show`, `codeterm plan skill list`, `codeterm plan skill show`, `codeterm plan section show`, or `rg` before any mutation command.",
+        "Does NOT accept the weakened oracle as the fix."
+      ]
+    },
+    {
+      "id": 3,
+      "name": "planner-keep-discard-supersede-existing-skill",
+      "prompt": "You are the Planner for plan pl_demo. A bounce disproved an old workaround, but the fixed check command remains correct and the plan already has a skill for this area. Update that skill with the keep/discard/supersede outcome. Respond with commands only.",
+      "expected_output": "Improves an existing plan skill instead of creating a duplicate.",
+      "expectations": [
+        "Uses `codeterm plan skill list` before changing the skill.",
+        "Uses `codeterm plan skill show` or `codeterm plan skill edit` for the existing skill.",
+        "Does NOT create a brand-new skill with `codeterm plan skill new` when an existing one already fits."
+      ]
+    },
+    {
+      "id": 4,
+      "name": "planner-bounded-followup-no-duplicates",
+      "prompt": "You are the Planner for plan pl_demo. A bounce revealed one missing API fact and you need a research follow-up. Create only the bounded follow-up needed to answer that one fact, and do not clone the same follow-up twice. Respond with commands only.",
+      "expected_output": "Creates at most one bounded follow-up and avoids duplicate research tasks.",
+      "expectations": [
+        "Uses at most one `codeterm plan task add` command.",
+        "Uses repo-local inspection commands before or alongside follow-up creation.",
+        "Does NOT emit an unbounded 'investigate more' style follow-up."
+      ]
+    },
+    {
+      "id": 5,
+      "name": "planner-retrospective-routes-quality",
+      "prompt": "You are the Planner for completed plan pl_demo. Write the retrospective closeout and promote one reusable verification recipe while preserving the discarded dead-end as evidence. Respond with commands only.",
+      "expected_output": "Routes reusable procedure to plan skill surfaces and end-of-effort quality to retrospective.",
+      "expectations": [
+        "Uses `codeterm plan skill new` or `codeterm plan skill edit` for the reusable recipe.",
+        "Uses `codeterm plan retrospective pl_demo --body` to capture the keep/discard/supersede quality outcome.",
+        "Does NOT invent a new store or markdown side file as the primary home."
+      ]
+    }
+  ]
+}

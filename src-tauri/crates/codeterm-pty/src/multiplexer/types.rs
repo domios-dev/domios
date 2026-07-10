@@ -231,6 +231,11 @@ pub struct Pane {
     /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this pane.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub session_binding_nonce: Option<String>,
+    /// Exact launch nonce echoed by the agent's accepted session-start report.
+    /// This is cleared on every session transition; the configured nonce alone
+    /// never proves that the current agent owns the pane.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub reported_session_binding_nonce: Option<String>,
     /// Per-session nonce (env CODETERM_SHELL_NONCE) guarding OSC 633;E command text against forged output.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shell_integration_nonce: Option<String>,
@@ -331,6 +336,10 @@ pub struct Pane {
     /// hand-built session snapshot omits it).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub boot_stage: Option<codeterm_types::pty::BootStage>,
+    /// Human-readable reason for a failed boot stage. Runtime-only and paired
+    /// with `boot_stage == SpawnFailed`; cleared by any later non-failed stage.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub boot_failure_reason: Option<String>,
 }
 
 fn default_show_in_tabbar() -> bool {
@@ -393,6 +402,7 @@ mod tests {
             agent_session_name: None,
             agent_session_model: None,
             session_binding_nonce: None,
+            reported_session_binding_nonce: None,
             shell_integration_nonce: None,
             role: None,
             role_profile: None,
@@ -421,6 +431,7 @@ mod tests {
             skip_snapshot: false,
             pending_greeting: None,
             boot_stage: None,
+            boot_failure_reason: None,
         }
     }
 
@@ -438,6 +449,7 @@ mod tests {
         p.boot_stage = Some(BootStage::AgentLaunching);
         let v = serde_json::to_value(&p).unwrap();
         assert_eq!(v["boot_stage"], "agent_launching");
+        assert!(v.as_object().unwrap().get("boot_failure_reason").is_none());
 
         // Before any boot progress the field is omitted entirely (skip_if None).
         let idle = pane_with("b", PaneBacking::Pty);

@@ -81,27 +81,85 @@ pub(super) fn dispatch(
                         });
                     match resolution {
                         crate::plan::peer::PeerResolution::Planner { pane_id } => Some(pane_id),
-                        crate::plan::peer::PeerResolution::OrchestratorFallback { .. } => {
-                            pl.owner.pane_id.clone()
-                        }
-                        crate::plan::peer::PeerResolution::Waived { .. }
+                        crate::plan::peer::PeerResolution::OrchestratorFallback { .. }
+                        | crate::plan::peer::PeerResolution::Waived { .. }
                         | crate::plan::peer::PeerResolution::Unbound => None,
                     }
                 })
             };
 
-            let gate = store
-                .ask_gate(
+            let caller_session_id = asked_by.as_deref().and_then(|pane_id| {
+                svc.mux
+                    .read()
+                    .get_pane(pane_id)
+                    .and_then(|pane| pane.agent_session_id.clone())
+            });
+            let (gate, request) = store
+                .ask_gate_with_planner_request(
                     &plan_id,
                     &question,
                     &context,
                     &blocking,
-                    routed_to,
+                    routed_to.clone(),
                     asked_by.as_deref(),
+                    caller_session_id.as_deref(),
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            svc.deliver_gate_question(&plan_id, &gate.id, &gate.question, asked_by.as_deref());
+            let request_id = request.request_id.clone();
+            if let Some(pane_id) = routed_to.as_deref() {
+                svc.replay_planner_requests_if_routable(pane_id);
+            }
+            let request = store
+                .get(&plan_id)
+                .and_then(|plan| {
+                    plan.planner_requests
+                        .into_iter()
+                        .find(|item| item.request_id == request_id)
+                })
+                .unwrap_or(request);
+            if !matches!(
+                request.state,
+                crate::plan::PlannerRequestState::Accepted
+                    | crate::plan::PlannerRequestState::Completed
+            ) {
+                let plan = store.get(&plan_id);
+                let resolution = plan.as_ref().map(|plan| {
+                    crate::plan::peer::resolve_planner_ref(&plan.planner, &plan.owner, |pane_id| {
+                        svc.pane_probe(pane_id)
+                    })
+                });
+                let delivery = plan.as_ref().and_then(|plan| {
+                    plan.planner_inbox
+                        .iter()
+                        .find(|entry| entry.request_id == request.request_id)
+                });
+                let planner_dead = matches!(
+                    resolution,
+                    Some(crate::plan::peer::PeerResolution::OrchestratorFallback { .. })
+                );
+                let recovery_action = if delivery.is_some_and(|entry| {
+                    entry.phase == crate::plan::PlannerDeliveryPhase::DeliveryUncertain
+                }) {
+                    "resolve_delivery_uncertain"
+                } else {
+                    "replace_or_rebind_planner"
+                };
+                emit_plan_changed(app, &plan_id);
+                return Err(JsonRpcError {
+                    code: -32003,
+                    message: "agent_unavailable".into(),
+                    data: Some(json!({
+                        "request_id": request.request_id,
+                        "state": request.state,
+                        "request": request,
+                        "delivery": delivery,
+                        "planner_resolution": resolution,
+                        "planner_dead": planner_dead,
+                        "recovery_action": recovery_action
+                    })),
+                });
+            }
             emit_plan_changed(app, &plan_id);
             to_value(&gate)
         }
@@ -119,6 +177,25 @@ pub(super) fn dispatch(
             svc.nudge_gate_asker(&plan_id, &gate_id, &answer, answered_by.as_deref());
             emit_plan_changed(app, &plan_id);
             to_value(&gate)
+        }
+
+        "plan.decision.ack_request" => {
+            let plan_id = super::plan_refs::resolve_plan(store, params)?;
+            let request_id = super::get_string_param(params, "request_id")?;
+            let pane_id = opt_str(p, "caller_pane_id").ok_or_else(|| JsonRpcError {
+                code: -32602,
+                message: "caller_pane_id is required".into(),
+                data: None,
+            })?;
+            let request = svc
+                .acknowledge_planner_request(&plan_id, &request_id, pane_id)
+                .map_err(|message| JsonRpcError {
+                    code: -32003,
+                    message,
+                    data: Some(json!({ "request_id": request_id })),
+                })?;
+            emit_plan_changed(app, &plan_id);
+            to_value(request)
         }
 
         "plan.decision.list" => {

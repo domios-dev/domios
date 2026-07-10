@@ -130,6 +130,7 @@ export interface PaneAgentState {
 /** Truthful pane-boot progress, emitted by the daemon at real launch
  *  transitions (never timer-driven). Mirrors Rust `service::boot_stage::BootStage`. */
 export type BootStage =
+  | "pty_starting"
   | "pty_spawned"
   | "shell_ready"
   | "agent_launching"
@@ -182,6 +183,7 @@ export interface Pane {
   /** Current agent-boot stage for late attachers reading the live snapshot.
    *  Absent once boot completes or before it begins. */
   boot_stage?: BootStage | null;
+  boot_failure_reason?: string | null;
   /** Frontend-only: a UI-only "New session" picker pane that has NO backend
    *  pane/PTY behind it. Never sent to the backend, never persisted, and never
    *  present in a session snapshot — it exists purely so the picker can render

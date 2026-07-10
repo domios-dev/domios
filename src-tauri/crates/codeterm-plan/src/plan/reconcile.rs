@@ -63,8 +63,27 @@ pub enum PaneRole {
 pub struct PaneProbe {
     pub exists: bool,
     pub live_agent: bool,
+    /// The session which proved it owns this pane through the launch nonce.
+    pub agent_session_id: Option<String>,
+    /// A nonce-verified session binding exists for the reported session.
+    pub session_binding_valid: bool,
+    /// Delivery is directed to an agent chat transport, never a bare shell.
+    pub chat_delivery_target: bool,
+    /// The agent is ready, working, or idle; questions and unknown states do not route work.
+    pub agent_accepting_work: bool,
     pub role: Option<PaneRole>,
     pub parent_pane_id: Option<String>,
+}
+
+impl PaneProbe {
+    pub fn planner_routable_for(&self, expected_session_id: Option<&str>) -> bool {
+        self.live_agent
+            && self.session_binding_valid
+            && self.chat_delivery_target
+            && self.agent_accepting_work
+            && expected_session_id
+                .is_some_and(|expected| self.agent_session_id.as_deref() == Some(expected))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -534,6 +553,7 @@ mod tests {
             live_agent: false,
             role: Some(PaneRole::Worker),
             parent_pane_id: Some("other-orch".into()),
+            ..Default::default()
         });
         assert!(items[0].not_mine);
     }
@@ -618,6 +638,7 @@ mod tests {
                     live_agent: false,
                     role: Some(PaneRole::Worker),
                     parent_pane_id: Some("other-orch".into()),
+                    ..Default::default()
                 }
             });
         assert!(demotions.is_empty());

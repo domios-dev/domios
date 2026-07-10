@@ -1,0 +1,51 @@
+id: task_y74757
+name: Build Mesh header and per-peer Web UI access controls
+type: implement
+model: gpt-5.4
+model_rationale: 'Routing rationale: bounded frontend Mesh header/per-peer UX consuming a defined backend snapshot; gpt-5.4 is appropriate after backend contract.'
+personality: Hopper
+acceptance_criteria:
+- Global Mesh header exposes Web UI with Globe icon, Open action only when healthy, and explicit Ready/Setup required/Conflict/Unhealthy state; setup/status menu and inline progress/errors work; peer action appears only for verified URL; canvas-only label is removed; Settings > Network remains detailed; selectors do not overlap desktop/mobile.
+test_plan: 'Oracle: component tests plus golden Playwright against backend snapshot fixtures. 1. Run focused MeshPanel/Titlebar tests with Ready, Setup required, Conflict, Unhealthy, loading, error, and peer-URL fixtures. Pass: exact selectors and action visibility match backend state. 2. Run npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep "mesh-web-ui|peer-web-ui-open". Pass: desktop/mobile header has no overlap, Open/setup/menu/peer actions work, and no tiny canvas-only label remains. 3. Exercise backend snapshots from Ubuntu operator_bootstrap_required, Mac existing healthy route/skew, and rollacode-bot healthy 7685 URL. Pass: UI displays truthful state/version/URL without inference or toast-only progress.'
+correctness: Correctness requires frontend state to be a direct projection of the backend reconciliation snapshot, exact responsive selectors, truthful action availability, accessible persistent inline status, and consistent desktop/mobile layout with no duplicate or canvas-only Web UI control.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783657551332
+updated_at: 1783657562861
+status_changed_at: 1783657551332
+handle: build-mesh-header-and-per-peer-web-ui-access-controls
+tags: []
+section_ids:
+- sec_rlqrqc
+body: 'Implement gate_bxfzf4 frontend UX after backend task_x7jps4 defines the reconciliation snapshot. Own src/components/MeshPanel/MeshPanel.tsx; src/components/MeshPanel/MeshCanvas.tsx only to remove the tiny canvas-only WEB UI label; verified Mesh header component under src/components/Titlebar; contextual peer action in MeshPanel/ServiceRow.tsx or PeerTerminal.tsx; src/components/MeshPanel/NetworkTab.tsx configuration boundary; tests/styles. Add global Mesh header control beside peer/service counts: Globe icon + Web UI + compact Ready, Setup required, Conflict, Unhealthy state; primary Open only when healthy; adjacent Setup/Repair/Copy URL/Disable menu and inline progress/errors. Add peer Open Web UI only for verified URL. Use data-testid=mesh-web-ui-action, data-web-ui-state, mesh-web-ui-menu, peer-web-ui-open; no overlap narrow widths, no marketing card or toast-only loading. Keep Settings > Network detailed. Dependency: task_x7jps4 backend snapshot contract; task_zl68wp evidence accepted. Branch/worktree lane/mesh-web-ui-header at D:/Developer/codeterm-worktrees/mesh-web-ui-header from origin/develop. Report STATUS in_review with selectors, responsive screenshots, backend fixtures, and Playwright output.'
+role_guidance: 'You are Hopper, a responsive operational UI engineer. Render the backend web-access snapshot without inferring state from peer cards or hiding controls in the canvas. Red line: overlap, toast-only progress, a marketing card, or a control that contradicts backend truth fails.'
+executor_role: frontend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/mesh-web-ui-header
+  branch: lane/mesh-web-ui-header
+  base: origin/develop
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: web-ui-serve-implementation
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+park_reason: null
+attachments: []

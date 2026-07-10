@@ -1,0 +1,131 @@
+id: task_7rnsvc
+name: Independently review worker persona allocator commit
+type: review
+model: gpt-5.5
+model_rationale: High-risk read-only review of cross-cutting identity allocation, persistence, concurrency, and spawn lifecycle behavior requires the strongest review model.
+personality: Dijkstra
+acceptance_criteria:
+- All 41 touched files are reviewed against origin/develop with file/line evidence; no source changes are introduced by the reviewer.
+- Provenance and serialization/API/schema compatibility are verified, including explicit user-supplied identity preservation versus generated suggestions.
+- Reservation lifetime, deadlock risk, failed-spawn rollback, and concurrent dispatch/respawn/competition behavior are traced and tested.
+- Restored attempts remain compatible; deterministic-varying allocation is bounded and testable; Dijkstra is excluded from new automatic/planner assignment.
+- Focused tests cover collision, concurrency, exhaustion fallback, explicit override, and no duplicate auto-names without substring-only assertions.
+- File-size/style checks and exact commands are recorded; final report is an evidence-backed ACCEPT or BOUNCE.
+test_plan: 'Oracle: exact review verdict against commit e54a798c1c7dde7310a84a7039261f41f122bea4. 1. In the isolated worktree run git diff --check and git diff --stat origin/develop...e54a798c1c7dde7310a84a7039261f41f122bea4; pass: clean diff and all 41 touched files accounted for. 2. Read every touched file and map provenance fields, serialization/API/schema changes, reservation acquire/release, rollback, dispatch/respawn/competition, restore, and explicit user identity paths; pass: written findings with file/line references and no unreviewed touched file. 3. Run the exact focused allocator unit/concurrency test command and inspect tests for live+recent collision, 20 parallel workers, exhaustion suffixes, Dijkstra exclusion, and explicit user override; pass: tests execute and assertions are non-tautological. 4. Run the relevant cargo/TS typecheck or focused suite required by touched surfaces, plus scripts/check-file-sizes.sh; pass: commands and results are reported. 5. Verify clean review worktree and issue ACCEPT or BOUNCE with severity-ranked findings and concrete evidence.'
+correctness: No duplicate auto identities under concurrent allocation; explicit user identity immutable; generated provenance collision-checked; reservation releases on all failures; no deadlock/lock-order violation; restore and serialization compatibility; Dijkstra never newly assigned; deterministic variation before suffix exhaustion; no source ownership or review mutation.
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783664486787
+updated_at: 1783665051953
+status_changed_at: 1783665038210
+handle: independently-review-worker-persona-allocator-commit
+tags:
+- 1.7.2
+section_ids:
+- sec_rlqrqc
+body: Read-only independent review of task_e1terr commit e54a798c1c7dde7310a84a7039261f41f122bea4. Inspect all 41 touched files and compare against origin/develop without modifying source. Review provenance compatibility, serialization/API/schema effects, reservation lifetime and deadlocks, failed-spawn rollback, concurrent dispatch/respawn/competition, restored attempt compatibility, deterministic-varying seed quality, explicit user identity preservation, Dijkstra exclusion, and file-size/style discipline. Use an isolated sibling review worktree; no source ownership and no dispatch.
+role_guidance: 'You are an adversarial code reviewer. Review every touched file and trace identity allocation through persistence, reservation, spawn failure, concurrency, restore, and explicit-user override paths. Red line: do not accept substring-only evidence or infer safety from one happy-path test; issue ACCEPT or BOUNCE with severity-ranked findings.'
+executor_role: code-reviewer
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:/Developer/codeterm-worktrees/review-worker-persona-allocator
+  branch: review/worker-persona-allocator
+  base: origin/develop
+  destination: null
+  cleanup_status: done
+  cleanup_hints:
+  - Clean the isolated review worktree only after the Orchestrator records ACCEPT/BOUNCE and QA disposition.
+taken_by_role: null
+peer: null
+group: persona-allocator-review
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_smr6jm
+  from:
+    pane_id: b2793ee2
+    session_id: 019f4ab1-e61d-7ba2-babe-f6dfc6a8b9a5
+    title: review persona allocator
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: none (read-only review)
+    TESTS RUN: git diff --check origin/develop...e54a798c1c7dde7310a84a7039261f41f122bea4; git diff --stat/name-only; scripts/check-file-sizes.sh --fail; build.ps1 check (blocked by missing ../dist after reaching Rust build script); cargo check --lib in codeterm-plan and codeterm-types; capped test wrapper invocations attempted but output capture was blank under this PowerShell/Git Bash path
+  ts: 1783664955091
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_1cfjy6
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: BOUNCE review report lacks ACCEPT/BOUNCE verdict and substantive findings for 41-file persona allocator change
+  ts: 1783664976171
+  links:
+  - key:0ab559455801413b
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_2jh714
+  executor_pane_id: b2793ee2
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: review/worker-persona-allocator
+  worktree_path: D:/Developer/codeterm-worktrees/review-worker-persona-allocator
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783664955546
+    message: |-
+      STATUS: done
+      CHANGES: none (read-only review)
+      TESTS RUN: git diff --check origin/develop...e54a798c1c7dde7310a84a7039261f41f122bea4; git diff --stat/name-only; scripts/check-file-sizes.sh --fail; build.ps1 check (blocked by missing ../dist after reaching Rust build script); cargo check --lib in codeterm-plan and codeterm-types; capped test wrapper invocations attempted but output capture was blank under this PowerShell/Git Bash path
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783664595999
+  reported_at: 1783664955546
+  reviewed_at: null
+  closed_at: 1783665038210
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []
