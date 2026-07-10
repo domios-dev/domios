@@ -161,6 +161,7 @@ impl PlanStore {
         plan_id: &str,
         task_id: &str,
         personality: Option<Option<&str>>,
+        provenance: Option<Option<crate::plan::IdentityProvenance>>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
@@ -171,6 +172,9 @@ impl PlanStore {
                 .ok_or(PlanError::TaskNotFound)?;
             if let Some(name) = personality {
                 task.personality = name.map(str::to_string);
+            }
+            if let Some(provenance) = provenance {
+                task.personality_provenance = provenance;
             }
             task.updated_at = now_ms;
             Ok(())

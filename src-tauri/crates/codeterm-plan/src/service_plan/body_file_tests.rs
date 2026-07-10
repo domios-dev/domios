@@ -130,6 +130,7 @@ fn personality_persists_across_yaml_sidecar_and_reload() {
                 name: "Implement".into(),
                 kind: "implement".into(),
                 personality: Some("Hopper".into()),
+                personality_provenance: None,
                 competition: None,
                 ..Default::default()
             },
@@ -204,6 +205,7 @@ fn corrupt_markdown_sidecar_keeps_plan_indexed_with_json_body() {
         execution_attempts: vec![],
         park_reason: None,
         personality: None,
+        personality_provenance: None,
         attachments: vec![],
     });
     let json_path = paths::plan_json_path(&project, &plan.status, &plan.id).unwrap();
@@ -671,6 +673,7 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
         execution_attempts: vec![],
         park_reason: None,
         personality: None,
+        personality_provenance: None,
     });
     plan.elements.push(CanvasElement {
         id: "el_discussion".into(),
@@ -772,6 +775,7 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
         execution_attempts: vec![],
         park_reason: None,
         personality: None,
+        personality_provenance: None,
     });
     let json_path = paths::plan_json_path(&project, &plan.status, &plan.id).unwrap();
     std::fs::write(&json_path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();

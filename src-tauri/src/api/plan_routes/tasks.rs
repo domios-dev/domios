@@ -7,9 +7,12 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::api::routes::{check_auth, AppState};
-use crate::plan::{AgentRef, OrchestratorRef, TaskCompetitionMetadata, TaskLaneMetadata};
+use crate::plan::{
+    AgentRef, IdentityProvenance, OrchestratorRef, TaskCompetitionMetadata, TaskLaneMetadata,
+};
 use crate::service::plan::task_attempts::TaskRespawnRequest;
 use crate::service::plan::{NewTask, TaskLaneUpdate};
+use crate::service::SpawnIdentityProvenance;
 
 use super::{
     emit_plan_changed, epoch_ms, optional_string_field, plan_err, text_err, PlanRouteResult,
@@ -91,6 +94,8 @@ pub(crate) struct TaskAddBody {
     executor_role: Option<String>,
     #[serde(default)]
     personality: Option<String>,
+    #[serde(default)]
+    personality_provenance: Option<IdentityProvenance>,
     #[serde(default)]
     competition: Option<TaskCompetitionMetadata>,
     #[serde(default)]
@@ -179,6 +184,7 @@ pub async fn task_add(
                 role_guidance: body.role_guidance,
                 executor_role: body.executor_role,
                 personality: body.personality,
+                personality_provenance: body.personality_provenance,
                 competition: body.competition,
                 intent: body.intent,
                 parent_task_id: body.parent,
@@ -280,7 +286,16 @@ pub async fn task_update(
             )
             .map_err(plan_err)?;
     }
-    if body.get("personality").is_some() {
+    if body.get("personality").is_some() || body.get("personality_provenance").is_some() {
+        let provenance = body
+            .get("personality_provenance")
+            .cloned()
+            .map(|value| {
+                serde_json::from_value(value)
+                    .map_err(|e| format!("invalid personality_provenance: {e}"))
+            })
+            .transpose()
+            .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
         state
             .svc
             .plan_store
@@ -288,6 +303,7 @@ pub async fn task_update(
                 &id,
                 &tid,
                 optional_string_field(&body, "personality"),
+                provenance,
                 epoch_ms(),
             )
             .map_err(plan_err)?;
@@ -447,7 +463,8 @@ pub async fn task_respawn(
             crate::service::SpawnAgentParams {
                 agent: Some(draft.provider.clone()),
                 cwd: Some(draft.cwd.clone()),
-                title: Some(draft.title.clone()),
+                title: draft.title.clone(),
+                title_provenance: Some(SpawnIdentityProvenance::Suggested),
                 role: Some("Worker".into()),
                 parent_pane_id: draft.parent_pane_id.clone(),
                 task: Some(draft.task_prompt.clone()),

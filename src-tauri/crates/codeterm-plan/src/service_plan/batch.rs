@@ -418,6 +418,7 @@ impl PlanStore {
                                     execution_attempts: vec![],
                                     park_reason: None,
                                     personality: None,
+                                    personality_provenance: None,
                                     attachments: vec![],
                                 };
                                 working.tasks.push(task);

@@ -52,7 +52,7 @@ pub struct TaskRespawnDraft {
     pub model: Option<String>,
     pub parent_pane_id: Option<String>,
     pub workspace_id: Option<String>,
-    pub title: String,
+    pub title: Option<String>,
     pub cwd: String,
     pub task_prompt: String,
     pub report_command: String,
@@ -68,7 +68,7 @@ pub struct TaskCompeteDraft {
     pub model: Option<String>,
     pub parent_pane_id: Option<String>,
     pub workspace_id: Option<String>,
-    pub title: String,
+    pub title: Option<String>,
     pub cwd: String,
     pub task_prompt: String,
     pub report_command: String,
@@ -400,6 +400,73 @@ fn attempt_view(
 }
 
 impl PlanStore {
+    pub fn recent_worker_attempt_titles(
+        &self,
+        workspace_id: &str,
+        session_id: Option<&str>,
+        limit: usize,
+    ) -> Vec<String> {
+        let workspace_id = workspace_id.trim();
+        if workspace_id.is_empty() || limit == 0 {
+            return Vec::new();
+        }
+        let target_session = session_id.map(str::trim).filter(|value| !value.is_empty());
+        let mut entries: Vec<(u64, String)> = self
+            .list_full()
+            .into_iter()
+            .filter(|plan| plan.status == crate::plan::PlanStatus::Active)
+            .flat_map(|plan| plan.tasks.into_iter())
+            .filter(|task| task.lane.workspace_id.as_deref() == Some(workspace_id))
+            .flat_map(|task| task.execution_attempts.into_iter())
+            .filter(|attempt| attempt.role.as_deref() == Some("worker"))
+            .filter_map(|attempt| {
+                let title = attempt.executor_title?.trim().to_string();
+                if title.is_empty() {
+                    return None;
+                }
+                if let Some(target_session) = target_session {
+                    if attempt.session_id.as_deref() != Some(target_session) {
+                        return None;
+                    }
+                }
+                Some((attempt.assigned_at.or(attempt.reported_at).unwrap_or(0), title))
+            })
+            .collect();
+        entries.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+        entries.truncate(limit);
+        entries.into_iter().map(|(_, title)| title).collect()
+    }
+
+    pub fn update_attempt_executor_identity(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        pane_id: &str,
+        title: Option<&str>,
+        session_id: Option<&str>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        let title = title.map(str::trim).filter(|value| !value.is_empty());
+        let session_id = session_id.map(str::trim).filter(|value| !value.is_empty());
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            let attempt = task
+                .execution_attempts
+                .iter_mut()
+                .rev()
+                .find(|attempt| attempt.executor_pane_id == pane_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            attempt.executor_title = title.map(str::to_string);
+            attempt.session_id = session_id.map(str::to_string);
+            task.updated_at = now_ms;
+            Ok(())
+        })
+    }
+
     pub fn build_task_compete_drafts(
         &self,
         plan_id: &str,
@@ -479,7 +546,7 @@ impl PlanStore {
                     .workspace_id
                     .clone()
                     .or(task.lane.workspace_id.clone()),
-                title: format!("{} attempt {}", task.name, lane),
+                title: None,
                 cwd: cwd.clone(),
                 task_prompt,
                 report_command: report_command.clone(),
@@ -564,9 +631,6 @@ impl PlanStore {
             .unwrap_or_else(|| "claude".into());
         let model = request.model.or(source.model.clone()).or(task_model);
         let report_command = task_report_command(plan_id, &task.id);
-        let title = request
-            .title
-            .unwrap_or_else(|| format!("{} retry", task.name));
         let cwd = source
             .worktree_path
             .clone()
@@ -591,7 +655,7 @@ impl PlanStore {
                 .or(source.parent_pane_id.clone())
                 .or(plan.owner.pane_id),
             workspace_id: request.workspace_id.or(task.lane.workspace_id.clone()),
-            title,
+            title: request.title,
             cwd,
             task_prompt,
             report_command,
@@ -623,7 +687,7 @@ impl PlanStore {
             attempt.provider = Some(draft.provider.clone());
             attempt.agent_type = Some(draft.provider.clone());
             attempt.model = draft.model.clone();
-            attempt.executor_title = Some(draft.title.clone());
+            attempt.executor_title = draft.title.clone();
             attempt.parent_pane_id = draft.parent_pane_id.clone();
             task.execution_attempts.push(attempt.clone());
             created = Some(attempt);
@@ -662,7 +726,7 @@ impl PlanStore {
             attempt.provider = Some(draft.provider.clone());
             attempt.agent_type = Some(draft.provider.clone());
             attempt.model = draft.model.clone();
-            attempt.executor_title = Some(draft.title.clone());
+            attempt.executor_title = draft.title.clone();
             attempt.parent_pane_id = draft.parent_pane_id.clone();
             attempt.competition_group_id = Some(draft.competition_group_id.clone());
             attempt.competition_lane = Some(draft.lane);

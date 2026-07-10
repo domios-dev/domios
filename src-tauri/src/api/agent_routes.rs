@@ -194,6 +194,7 @@ pub async fn spawn_agent(
         args: body.args,
         cwd: body.cwd,
         title: body.title,
+        title_provenance: Some(crate::service::SpawnIdentityProvenance::UserSupplied),
         description: body.description,
         role: role_probe.role,
         role_profile: role_probe.role_profile,

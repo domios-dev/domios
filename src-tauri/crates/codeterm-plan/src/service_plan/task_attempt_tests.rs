@@ -260,6 +260,68 @@ fn terminal_status_update_leaves_history_but_no_active_presence() {
 }
 
 #[test]
+fn recent_worker_attempt_titles_filters_workspace_session_and_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Recent titles".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "task".into(),
+                kind: "implement".into(),
+                lane: TaskLaneMetadata {
+                    workspace_id: Some("ws_target".into()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .assign_task_with_role(&plan.id, &task_id, "pane-1", None, Some("worker"), 3)
+        .unwrap();
+    store
+        .update_attempt_executor_identity(
+            &plan.id,
+            &task_id,
+            "pane-1",
+            Some("Ada"),
+            Some("sess-1"),
+            4,
+        )
+        .unwrap();
+    store
+        .assign_task_with_role(&plan.id, &task_id, "pane-2", None, Some("worker"), 5)
+        .unwrap();
+    store
+        .update_attempt_executor_identity(
+            &plan.id,
+            &task_id,
+            "pane-2",
+            Some("Bea"),
+            Some("sess-2"),
+            6,
+        )
+        .unwrap();
+
+    assert_eq!(
+        store.recent_worker_attempt_titles("ws_target", Some("sess-1"), 10),
+        vec!["Ada".to_string()]
+    );
+    assert_eq!(
+        store.recent_worker_attempt_titles("ws_target", None, 1),
+        vec!["Bea".to_string()]
+    );
+}
+
+#[test]
 fn reconcile_assignment_cleanup_closes_live_attempt_history() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());

@@ -93,6 +93,7 @@ mod tests {
             model: None,
             model_rationale: None,
             personality: None,
+            personality_provenance: None,
             acceptance_criteria: vec![],
             test_plan: None,
             correctness: None,

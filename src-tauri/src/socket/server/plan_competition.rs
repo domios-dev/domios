@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 use tauri::AppHandle;
 
 use crate::plan::TaskCompetitionMetadata;
-use crate::service::ServiceState;
+use crate::service::{ServiceState, SpawnIdentityProvenance};
 
 use super::plan::{emit_plan_changed, plan_rpc_err};
 use super::plan_fields::pane_role;
@@ -88,7 +88,8 @@ pub(super) fn compete(
         let spawn_params = crate::service::SpawnAgentParams {
             agent: Some(draft.provider.clone()),
             cwd: Some(draft.cwd.clone()),
-            title: Some(draft.title.clone()),
+            title: draft.title.clone(),
+            title_provenance: Some(SpawnIdentityProvenance::Suggested),
             role: Some("Worker".into()),
             parent_pane_id: draft.parent_pane_id.clone(),
             task: Some(draft.task_prompt.clone()),
@@ -111,6 +112,21 @@ pub(super) fn compete(
                 &spawn.pane_id,
                 &draft,
                 pane_role(svc, &spawn.pane_id),
+                now,
+            )
+            .map_err(plan_rpc_err)?;
+        let session_id = svc
+            .mux
+            .read()
+            .get_pane(&spawn.pane_id)
+            .and_then(|pane| pane.agent_session_id.clone());
+        store
+            .update_attempt_executor_identity(
+                &id,
+                &tid,
+                &spawn.pane_id,
+                Some(&spawn.title),
+                session_id.as_deref(),
                 now,
             )
             .map_err(plan_rpc_err)?;
