@@ -32,7 +32,7 @@ async function openWebUiWithNetwork(browser: Browser, net: NetShape): Promise<{ 
     .waitFor({ timeout: 20_000 });
 
   await page.click('[data-testid="nav-mesh"]');
-  await page.click('[data-testid="web-ui-trigger"]');
+  await page.click('[data-testid="mesh-web-ui-surface"]');
   await page.waitForSelector('[data-testid="web-ui-modal"]', { timeout: 10_000 });
   return { page, close: () => ctx.close() };
 }
