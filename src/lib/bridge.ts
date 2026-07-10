@@ -541,6 +541,19 @@ async function invokeRaw<T>(cmd: string, args?: Args): Promise<T> {
 
 const IPC_SLOW_MS = 300;
 type IpcSample = { cmd: string; ms: number; at: number };
+type IpcPerf = {
+  invokes: number;
+  invokeMs: number;
+  events: number;
+  byCommand: Record<string, number>;
+  byEvent: Record<string, number>;
+};
+
+declare global {
+  interface Window {
+    __ipcPerf?: IpcPerf;
+  }
+}
 
 // Diagnostic: report any main-thread block (render / term.write / sync JS) >300ms.
 if (typeof PerformanceObserver !== "undefined") {
@@ -570,6 +583,12 @@ export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
     }
     throw err;
   } finally {
+    const perf = window.__ipcPerf;
+    if (perf) {
+      perf.invokes += 1;
+      perf.invokeMs += performance.now() - t0;
+      perf.byCommand[cmd] = (perf.byCommand[cmd] ?? 0) + 1;
+    }
     if (!invokeForTest) {
       const ms = performance.now() - t0;
       if (ms >= IPC_SLOW_MS) {
@@ -611,9 +630,17 @@ export async function listen<T>(
   event: string,
   handler: (e: { payload: T }) => void,
 ): Promise<UnlistenFn> {
-  if (listenForTest) return listenForTest(event, handler);
+  const counted = (e: { payload: T }) => {
+    const perf = window.__ipcPerf;
+    if (perf) {
+      perf.events += 1;
+      perf.byEvent[event] = (perf.byEvent[event] ?? 0) + 1;
+    }
+    handler(e);
+  };
+  if (listenForTest) return listenForTest(event, counted);
   if (!IS_WEB) {
-    return tauriListen<T>(event, handler);
+    return tauriListen<T>(event, counted);
   }
-  return webListen(event, handler as (e: { payload: unknown }) => void);
+  return webListen(event, counted as (e: { payload: unknown }) => void);
 }
