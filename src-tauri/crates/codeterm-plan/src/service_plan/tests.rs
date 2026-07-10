@@ -647,6 +647,63 @@ fn pane_gone_cleanup_clears_lane_pane() {
 }
 
 #[test]
+fn lane_demotion_preserves_in_progress_status_and_marks_needs_reassign() {
+    let (store, id, tid) = store_with_task(&["status_update"]);
+    store.assign_task(&id, &tid, "pane-live", None, 20).unwrap();
+    store
+        .update_task(
+            &id,
+            &tid,
+            None,
+            None,
+            None,
+            None,
+            Some("in_progress"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            21,
+        )
+        .unwrap();
+
+    let fixes = store
+        .apply_lane_demotions(
+            &id,
+            &[crate::plan::reconcile::LaneDemotion {
+                task_id: tid.clone(),
+                plan_id: id.clone(),
+                reason: "pane missing after restart".into(),
+            }],
+            30,
+        )
+        .unwrap();
+
+    assert_eq!(fixes.len(), 1);
+    assert_eq!(fixes[0].action, "cleared_assignment_set_needs_reassign");
+    let p = store.get(&id).unwrap();
+    let t = p.tasks.iter().find(|t| t.id == tid).unwrap();
+    assert_eq!(t.status, TaskStatus::InProgress);
+    assert_eq!(
+        t.status_label.as_deref(),
+        Some(crate::plan::reconcile::NEEDS_REASSIGN_LABEL)
+    );
+    assert!(t.assigned_pane_id.is_none());
+    assert!(t.lane.pane_id.is_none());
+    assert!(t
+        .milestones
+        .iter()
+        .any(|milestone| milestone.text == "pane missing after restart"));
+}
+
+#[test]
 fn close_task_unknown_task_errors() {
     let (store, id, _) = store_with_task(&["status_update"]);
     let err = store
