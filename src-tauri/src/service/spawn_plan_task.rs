@@ -83,6 +83,25 @@ impl ServiceContext {
             pane_id,
             epoch_ms(),
         )?;
+        let now_ms = epoch_ms();
+        let (title, session_id) = {
+            let mux = self.mux.read();
+            let title = mux.display_label_for_pane(pane_id);
+            let session_id = mux
+                .get_pane(pane_id)
+                .and_then(|pane| pane.agent_session_id.clone());
+            (title, session_id)
+        };
+        self.plan_store
+            .update_attempt_executor_identity(
+                &plan_id,
+                task_ref,
+                pane_id,
+                Some(&title),
+                session_id.as_deref(),
+                now_ms,
+            )
+            .map_err(|e| e.to_string())?;
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "plan-changed",

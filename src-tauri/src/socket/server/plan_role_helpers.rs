@@ -50,12 +50,28 @@ pub(super) fn update_personality_if_present(
     params: Option<&Value>,
     now: u64,
 ) -> Result<(), JsonRpcError> {
-    if params.and_then(|x| x.get("personality")).is_some() {
+    if params.and_then(|x| x.get("personality")).is_some()
+        || params
+            .and_then(|x| x.get("personality_provenance"))
+            .is_some()
+    {
+        let provenance = params
+            .and_then(|x| x.get("personality_provenance"))
+            .cloned()
+            .map(|value| {
+                serde_json::from_value(value).map_err(|e| JsonRpcError {
+                    code: -32602,
+                    message: format!("invalid personality_provenance: {e}"),
+                    data: None,
+                })
+            })
+            .transpose()?;
         store
             .update_task_personality(
                 plan_id,
                 task_id,
                 optional_string_field(params, "personality"),
+                provenance,
                 now,
             )
             .map_err(plan_rpc_err)?;
