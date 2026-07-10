@@ -1,6 +1,11 @@
 //! Agent hierarchy: roles, reports, status queries.
 
 mod plan_reminder_nudge;
+mod planner_delivery;
+
+use planner_delivery::{
+    epoch_ms, planner_rehydrate_payload, planner_request_payload, planner_specs_for_plan,
+};
 
 use serde::Serialize;
 
@@ -16,6 +21,303 @@ pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
 }
 
 impl ServiceContext {
+    pub(crate) fn schedule_planner_replay(&self, pane_id: &str) {
+        let svc = self.clone();
+        let pane_id = pane_id.to_string();
+        std::thread::spawn(move || svc.replay_planner_requests_if_routable(&pane_id));
+    }
+
+    pub(crate) fn clear_dead_planner_binding(&self, pane_id: &str) {
+        let now_ms = epoch_ms();
+        for plan in self.plan_store.list_full() {
+            let Some(crate::plan::PlannerRef::Pane {
+                pane_id: bound,
+                title,
+                ..
+            }) = &plan.planner
+            else {
+                continue;
+            };
+            if bound == pane_id {
+                let _ = self.plan_store.set_planner_ref(
+                    &plan.id,
+                    Some(crate::plan::PlannerRef::Pane {
+                        pane_id: pane_id.to_string(),
+                        session_id: None,
+                        title: title.clone(),
+                    }),
+                    now_ms,
+                );
+            }
+        }
+    }
+
+    pub(crate) fn replay_planner_requests_if_routable(&self, pane_id: &str) {
+        let now_ms = epoch_ms();
+        for plan in self.plan_store.list_full() {
+            let Some(crate::plan::PlannerRef::Pane {
+                pane_id: bound,
+                session_id: Some(session_id),
+                ..
+            }) = &plan.planner
+            else {
+                continue;
+            };
+            if bound != pane_id {
+                continue;
+            }
+            let resolution =
+                crate::plan::peer::resolve_planner_ref(&plan.planner, &plan.owner, |id| {
+                    self.pane_probe(id)
+                });
+            if !matches!(
+                resolution,
+                crate::plan::peer::PeerResolution::Planner { .. }
+            ) {
+                continue;
+            }
+            let Some(binding_nonce) = self
+                .mux
+                .read()
+                .get_pane(pane_id)
+                .and_then(|pane| pane.reported_session_binding_nonce.clone())
+            else {
+                continue;
+            };
+            if plan
+                .planner_requests
+                .iter()
+                .all(|request| matches!(request.state, crate::plan::PlannerRequestState::Completed))
+            {
+                continue;
+            }
+            let Ok(requests) = self.plan_store.claim_planner_requests(
+                &plan.id,
+                pane_id,
+                session_id,
+                &binding_nonce,
+                now_ms,
+            ) else {
+                continue;
+            };
+            if requests.is_empty() {
+                continue;
+            }
+            let binding = match self.prepare_planner_delivery_binding(pane_id) {
+                Ok(binding) => binding,
+                Err(_) => {
+                    let (observed_session_id, observed_binding_nonce) =
+                        self.observed_planner_identity(pane_id);
+                    for request in &requests {
+                        let _ = self.plan_store.release_planner_request(
+                            &plan.id,
+                            &request.request_id,
+                            session_id,
+                            &binding_nonce,
+                            epoch_ms(),
+                        );
+                        if let (Some(session_id), Some(observed_nonce)) =
+                            (&observed_session_id, &observed_binding_nonce)
+                        {
+                            let _ = self.plan_store.release_planner_request(
+                                &plan.id,
+                                &request.request_id,
+                                session_id,
+                                observed_nonce,
+                                epoch_ms(),
+                            );
+                        }
+                    }
+                    self.clear_dead_planner_binding(pane_id);
+                    continue;
+                }
+            };
+            let Some(rebound_plan) = self.plan_store.get(&plan.id) else {
+                continue;
+            };
+            let rehydrate = planner_rehydrate_payload(
+                &rebound_plan,
+                planner_specs_for_plan(&self.plan_store, &rebound_plan),
+            );
+            let rehydrate_id = format!("planner-rehydrate-{}-{}", plan.id, binding.session_id);
+            if self
+                .deliver_to_routable_planner(
+                    &plan.id,
+                    pane_id,
+                    &binding.session_id,
+                    &binding.binding_nonce,
+                    "planner-recovery",
+                    &rehydrate,
+                    rehydrate_id,
+                )
+                .is_err()
+            {
+                let (observed_session_id, observed_binding_nonce) =
+                    self.observed_planner_identity(pane_id);
+                for request in &requests {
+                    let _ = self.plan_store.release_planner_request(
+                        &plan.id,
+                        &request.request_id,
+                        &binding.session_id,
+                        &binding.binding_nonce,
+                        epoch_ms(),
+                    );
+                    if let (Some(session_id), Some(binding_nonce)) =
+                        (&observed_session_id, &observed_binding_nonce)
+                    {
+                        let _ = self.plan_store.release_planner_request(
+                            &plan.id,
+                            &request.request_id,
+                            session_id,
+                            binding_nonce,
+                            epoch_ms(),
+                        );
+                    }
+                }
+                self.clear_dead_planner_binding(pane_id);
+                continue;
+            }
+            for request in requests {
+                if self
+                    .plan_store
+                    .start_planner_request_delivery(
+                        &plan.id,
+                        &request.request_id,
+                        &binding.session_id,
+                        &binding.binding_nonce,
+                        binding.transport,
+                        epoch_ms(),
+                    )
+                    .is_err()
+                {
+                    continue;
+                }
+                let body = planner_request_payload(&plan.id, &request);
+                let message_id = format!("planner-request-{}", request.request_id);
+                match self.deliver_to_routable_planner(
+                    &plan.id,
+                    pane_id,
+                    &binding.session_id,
+                    &binding.binding_nonce,
+                    "planner-request",
+                    &body,
+                    message_id,
+                ) {
+                    Ok(_) => {
+                        let _ = self.plan_store.accept_planner_request(
+                            &plan.id,
+                            &request.request_id,
+                            &binding.session_id,
+                            &binding.binding_nonce,
+                            epoch_ms(),
+                        );
+                    }
+                    Err(error) => {
+                        let (observed_session_id, observed_binding_nonce) =
+                            self.observed_planner_identity(pane_id);
+                        let _ = self.plan_store.mark_planner_delivery_uncertain(
+                            &plan.id,
+                            &request.request_id,
+                            &error,
+                            observed_session_id.as_deref(),
+                            observed_binding_nonce.as_deref(),
+                            epoch_ms(),
+                        );
+                        self.clear_dead_planner_binding(pane_id);
+                    }
+                }
+            }
+        }
+    }
+
+    fn deliver_to_routable_planner(
+        &self,
+        plan_id: &str,
+        pane_id: &str,
+        expected_session_id: &str,
+        expected_binding_nonce: &str,
+        context: &str,
+        body: &str,
+        message_id: String,
+    ) -> Result<(), String> {
+        let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
+        let matches_binding = matches!(
+            &plan.planner,
+            Some(crate::plan::PlannerRef::Pane { pane_id: bound, session_id: Some(session), .. })
+                if bound == pane_id && session == expected_session_id
+        );
+        if !matches_binding
+            || !self
+                .pane_probe(pane_id)
+                .planner_routable_for(Some(expected_session_id))
+        {
+            return Err("agent_unavailable".into());
+        }
+        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder(context);
+        crate::service::messenger::Messenger::deliver_planner_session(
+            self,
+            pane_id,
+            expected_session_id,
+            expected_binding_nonce,
+            envelope,
+            body,
+            message_id,
+        )
+        .map(|_| ())
+    }
+
+    pub(crate) fn acknowledge_planner_request(
+        &self,
+        plan_id: &str,
+        request_id: &str,
+        pane_id: &str,
+    ) -> Result<crate::plan::PlannerRequest, String> {
+        let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
+        let request = plan
+            .planner_requests
+            .iter()
+            .find(|request| request.request_id == request_id)
+            .cloned()
+            .ok_or("planner request not found")?;
+        if request.state == crate::plan::PlannerRequestState::Completed {
+            return Ok(request);
+        }
+        let (session_id, binding_nonce) = {
+            let mux = self.mux.read();
+            let pane = mux.get_pane(pane_id).ok_or("agent_unavailable")?;
+            (
+                pane.agent_session_id.clone().ok_or("agent_unavailable")?,
+                pane.reported_session_binding_nonce
+                    .clone()
+                    .ok_or("agent_unavailable")?,
+            )
+        };
+        let delivered_here = request.delivered_to_pane_id.as_deref() == Some(pane_id)
+            && request.delivered_to_session_id.as_deref() == Some(session_id.as_str())
+            && request.delivered_with_binding_nonce.as_deref() == Some(binding_nonce.as_str());
+        if !matches!(
+            request.state,
+            crate::plan::PlannerRequestState::InProgress
+                | crate::plan::PlannerRequestState::Accepted
+        ) || !delivered_here
+            || !self
+                .pane_probe(pane_id)
+                .planner_routable_for(Some(&session_id))
+        {
+            return Err("agent_unavailable".into());
+        }
+        self.plan_store
+            .complete_planner_request(plan_id, request_id, epoch_ms())
+            .map_err(|error| error.to_string())?;
+        self.plan_store
+            .get(plan_id)
+            .and_then(|plan| {
+                plan.planner_requests
+                    .into_iter()
+                    .find(|request| request.request_id == request_id)
+            })
+            .ok_or_else(|| "planner request not found".into())
+    }
     pub fn set_pane_role(
         &self,
         pane_id: &str,
@@ -393,48 +695,6 @@ impl ServiceContext {
         let _ = crate::service::messenger::Messenger::deliver(self, owner, envelope, &text);
     }
 
-    /// Deliver a decision gate question to the resolved planner/orchestrator pane.
-    /// Uses plan's `planner` field via `resolve_planner_ref`; falls back to owner.
-    /// Returns the pane_id that was delivered to (if any).
-    pub fn deliver_gate_question(
-        &self,
-        plan_id: &str,
-        gate_id: &str,
-        question: &str,
-        asked_by_pane: Option<&str>,
-    ) -> Option<String> {
-        let plan = self.plan_store.get(plan_id)?;
-        let resolution =
-            crate::plan::peer::resolve_planner_ref(&plan.planner, &plan.owner, |pane_id| {
-                self.pane_probe(pane_id)
-            });
-        let pane_id = match &resolution {
-            crate::plan::peer::PeerResolution::Planner { pane_id } => pane_id.clone(),
-            crate::plan::peer::PeerResolution::OrchestratorFallback { .. } => {
-                plan.owner.pane_id.clone()?
-            }
-            crate::plan::peer::PeerResolution::Waived { .. } => return None,
-            crate::plan::peer::PeerResolution::Unbound => plan.owner.pane_id.clone()?,
-        };
-        if Some(pane_id.as_str()) == asked_by_pane {
-            return None; // no self-deliver
-        }
-        let who = asked_by_pane.unwrap_or("orchestrator");
-        let text = format!(
-            "[decision gate {gate_id}] '{question}'\nAsked by {who}. Answer with: \
-             codeterm plan decision answer {plan_id} {gate_id} --answer \"<your answer>\""
-        );
-        let text = crate::service::orchestrator_digests::prepend_orchestrator_heartbeat(
-            self,
-            plan_id,
-            Some(&pane_id),
-            &text,
-        );
-        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("plan");
-        let _ = crate::service::messenger::Messenger::deliver(self, &pane_id, envelope, &text);
-        Some(pane_id)
-    }
-
     /// Nudge the gate asker pane when a gate is answered.
     pub fn nudge_gate_asker(
         &self,
@@ -673,13 +933,6 @@ fn milestone_text(message: &str, status: Option<ReportStatus>) -> String {
         Some(ReportStatus::Blocked) => format!("BLOCKED: {message}"),
         None => message.to_string(),
     }
-}
-
-fn epoch_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 fn epoch_seconds() -> u64 {

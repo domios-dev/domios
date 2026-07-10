@@ -36,6 +36,7 @@ fn lane_task(id: &str, status: TaskStatus, lane: TaskLaneMetadata, changed: u64)
         competition: None,
         intent: None,
         parent_task_id: None,
+        depends_on: vec![],
         assigned_pane_id: None,
         lane,
         taken_by_role: None,
@@ -46,6 +47,7 @@ fn lane_task(id: &str, status: TaskStatus, lane: TaskLaneMetadata, changed: u64)
         execution_attempts: vec![],
         park_reason: None,
         personality: None,
+        personality_provenance: None,
         attachments: vec![],
     }
 }
@@ -58,6 +60,7 @@ fn probe_map(present: &[&str], working: &[&str]) -> impl FnMut(&str) -> PaneProb
         live_agent: working.iter().any(|p| p == pane),
         role: None,
         parent_pane_id: None,
+        ..Default::default()
     }
 }
 

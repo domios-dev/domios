@@ -37,8 +37,6 @@ All commands go through `build.sh`. Safe on Windows: never kills production Code
 
 ```bash
 ./build.sh dev              # incremental dev (port 7686, hot reload, auto-builds CLI)
-./build.sh dev --wait       # same, but backgrounds the process and blocks until /api/health
-                            # responds — use in scripts/benches/CI
 ./build.sh check            # cargo check (~2s incremental)
 ./build.sh test             # Rust unit tests
 ./build.sh build            # production build
@@ -48,9 +46,18 @@ All commands go through `build.sh`. Safe on Windows: never kills production Code
 source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 ```
 
+`./build.sh dev --wait` is automation-only. Use it inside scripts/benches/CI
+that need a bounded health gate; never use it as an interactive Windows/macOS
+dev session or as evidence that a visible window launched.
+
 **Run Rust tests ONLY through `scripts/test-capped.sh`.** A bare `cargo test` in a lane worktree is a violation — the script kills the entire process group (cargo + all spawned `*/target/*/deps/*` test binaries) so no orphans survive a hang. If the 90s cap fires, read the code; do not re-run with a bigger cap.
 
 **Run ONE test at a time.** All `cargo test`/`build.sh test` runs share a single `target/.cargo-lock`; launching a second while one is in flight makes them queue (not parallelize) and looks like a multi-minute "hang" — narrow the filter, run it once in the background, wait for it; never fire concurrent runs.
+
+For 1.7.2, `feat/1.7.2-stability` in the canonical project root is the sole
+heavy build/test/dev owner. A registered `release/*-integration` worktree is
+only a fallback when that branch is absent. Do not keep testing an obsolete
+integration checkout after the stability branch has been established.
 
 ## Build speed (worktrees, tests, profiles)
 
@@ -96,18 +103,23 @@ through the integration gate instead. Each worktree executes its own
 checked-out copy of `.githooks/`, so live lanes pick the current hook up on
 their next rebase onto integration.
 
-**Interactive dev restart from inside CodeTerm: prefer a visible pane.** On
-macOS/Tauri, `./build.sh dev --wait` can briefly report healthy and then lose the
-launcher process when the detached PTY goes away. For user-facing dev sessions,
-start dev in its own visible CodeTerm tab so the process keeps an owning PTY:
+**Interactive dev restart from inside CodeTerm: use one visible pane.** Never use
+`dev --wait` for user-visible Windows/macOS verification: it is a script/CI
+readiness path, and its detached lifetime owner is easy to mistake for a build
+still running. First confirm 7686 is free and no old checkout process remains,
+then start exactly one foreground dev command in its own visible CodeTerm tab:
 
 ```bash
 ./build.sh kill
 codeterm pane new --cmd "cd $(pwd) && ./build.sh dev"
 ```
 
-Then verify `http://127.0.0.1:7686/api/health`. Keep `./build.sh dev --wait` for
-scripts/benches/CI where a background readiness gate is needed.
+On Windows/PowerShell the equivalent visible command is
+`Set-Location '<checkout>'; .\build.ps1 dev`. Keep that tab open. Verify port
+7686, exact `build_sha`/instance from `/api/health`, and a responsive nonzero
+`MainWindowHandle` before declaring the build ready. The remaining Cargo process
+is the expected `tauri dev` watcher owned by that tab; a second Cargo/build owner
+is a failure. Keep `./build.sh dev --wait` only for scripts/benches/CI.
 
 **Before debugging, always verify the running build matches your code:**
 

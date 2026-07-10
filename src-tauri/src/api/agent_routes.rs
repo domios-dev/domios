@@ -194,6 +194,7 @@ pub async fn spawn_agent(
         args: body.args,
         cwd: body.cwd,
         title: body.title,
+        title_provenance: Some(crate::service::SpawnIdentityProvenance::UserSupplied),
         description: body.description,
         role: role_probe.role,
         role_profile: role_probe.role_profile,
@@ -662,6 +663,37 @@ pub async fn restart_general_agent(
         );
     });
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub async fn restart_general_agent_pane(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    axum::extract::Path(pane_id): axum::extract::Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let svc = state.svc.clone();
+    let mux = svc.mux.clone();
+    let should_restart =
+        crate::service::general_agent::claim_general_agent_pane_retry(&pane_id, &mux)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    if !should_restart {
+        return Ok(Json(serde_json::json!({"ok": true, "restarted": false})));
+    }
+    let pty = svc.pty.clone();
+    let screen_state = svc.screen_state.clone();
+    let config = state.config.clone();
+    let app = svc.app_handle.clone();
+    std::thread::spawn(move || {
+        crate::service::general_agent::restart_general_agent(
+            &svc,
+            &mux,
+            &pty,
+            &screen_state,
+            &config,
+            &app,
+        );
+    });
+    Ok(Json(serde_json::json!({"ok": true, "restarted": true})))
 }
 
 #[derive(serde::Deserialize)]

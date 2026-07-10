@@ -1,0 +1,176 @@
+id: task_k749y0
+name: Independent adversarial frontier review
+type: review
+model: gpt-5.5
+model_rationale: 'Routing rationale: high-risk cross-lane adversarial review; gpt-5.5 is required.'
+personality: Dijkstra
+personality_provenance: null
+acceptance_criteria:
+- No unowned blast-radius risk, or every finding is routed to a concrete bounce/follow-up; seven closed issues untouched.
+test_plan: 'Oracle commands: git diff --check; git diff --stat; rg -n "provider|session|lock|workspace-plan|gitRepos" touched files; rerun each lane''s focused command. Expected: evidence-backed review report.'
+correctness: 'Correctness vector: independent review actively falsifies state, cache, provider, traversal, attribution, and issue-boundary claims with evidence-backed findings.'
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783631788264
+updated_at: 1783638827093
+status_changed_at: 1783638825913
+handle: independent-adversarial-frontier-review
+tags: []
+section_ids:
+- sec_d52ka9
+body: 'Refute identity, cache, provider session, traversal, planner state, report attribution, and issue-boundary assumptions; report findings with file/line and exact reproducing command. Exact file ownership: All accepted implementation task diffs; no source ownership Dependencies: Depends on implementation lanes in_review; group review-gate. Review only, no edits. Report contract: report STATUS in_review, CHANGES with exact files, TESTS with exact command/output, FOLLOWUP with blockers and evidence.'
+role_guidance: 'You are Dijkstra, an adversarial reviewer. Refute the frontier using real diffs/tests. Red line: a narrative approval without evidence fails.'
+executor_role: code-reviewer
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/review-1.7.2-frontier
+  branch: review/1.7.2-frontier
+  base: release/1.7.2-integration
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: review-gate
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_gke1bw
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Reviewer base advanced to final accepted integration head; read-only lane, no writer ownership.
+  ts: 1783636405760
+  links:
+  - key:ef2cc6be17146151
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_in9ug5
+  from:
+    pane_id: d28c52f9
+    session_id: 019f4903-c2ea-7823-84ff-8448dd165cf2
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: review only; no edits. BOUNCE reported to pane 4c17f607 for report attribution regression in cli/src/cmd/report_guard.rs:148-152, cli/src/args/agent.rs:91-93, src-tauri/crates/codeterm-plan/src/service_plan/task_attempts.rs:104-107, src-tauri/src/socket/server/plan_task_dispatch/tests.rs:161-163.
+    TESTS RUN: git diff --check origin/develop...HEAD (exit 0); git diff --stat origin/develop...HEAD (58 files, 2450 insertions, 247 deletions); git diff --name-only origin/develop...HEAD; rg requested risk terms across changed files; changed-source file-size line count check (no >1200); no TS tests because node_modules absent.
+  ts: 1783636544649
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_exwoyj
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'BOUNCE review P1 incomplete: must account for active_pane_lane_base PTY env injection and prove an uncovered dispatch/respawn/compete/restore path or withdraw finding.'
+  ts: 1783636555568
+  links:
+  - key:09137309ad15baa7
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_wayjjn
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Reviewer recheck requested at 8afe51f22 after fallback fix 049b78db6; same reviewer owns final verdict.
+  ts: 1783638747264
+  links:
+  - key:5fd5b028fa89a7fb
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_17yu0l
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: ACCEPT final adversarial review at 8afe51f22; no blocking findings after backend fallback correction.
+  ts: 1783638825375
+  links:
+  - key:61e9824a7da0a723
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_oc8vm5
+  executor_pane_id: d28c52f9
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: review/1.7.2-frontier
+  worktree_path: D:/Developer/codeterm-worktrees/review-1.7.2-frontier
+  base: release/1.7.2-integration
+  destination: null
+  report:
+    id: report_1783636545102
+    message: |-
+      STATUS: done
+      CHANGES: review only; no edits. BOUNCE reported to pane 4c17f607 for report attribution regression in cli/src/cmd/report_guard.rs:148-152, cli/src/args/agent.rs:91-93, src-tauri/crates/codeterm-plan/src/service_plan/task_attempts.rs:104-107, src-tauri/src/socket/server/plan_task_dispatch/tests.rs:161-163.
+      TESTS RUN: git diff --check origin/develop...HEAD (exit 0); git diff --stat origin/develop...HEAD (58 files, 2450 insertions, 247 deletions); git diff --name-only origin/develop...HEAD; rg requested risk terms across changed files; changed-source file-size line count check (no >1200); no TS tests because node_modules absent.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783636406378
+  reported_at: 1783636545102
+  reviewed_at: null
+  closed_at: 1783638825913
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

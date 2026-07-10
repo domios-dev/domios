@@ -178,6 +178,87 @@ fn open_subtasks(plan: &Plan, parent_task_id: &str) -> Vec<OpenSubtask> {
         .collect()
 }
 
+pub(super) fn normalized_dependency_ids(ids: &[String]) -> Vec<String> {
+    let mut normalized = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for id in ids {
+        let trimmed = id.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if seen.insert(trimmed.to_string()) {
+            normalized.push(trimmed.to_string());
+        }
+    }
+    normalized
+}
+
+fn dependency_cycle_reaches(
+    plan: &Plan,
+    current: &str,
+    target: &str,
+    override_task_id: &str,
+    override_dependencies: &[String],
+    seen: &mut std::collections::HashSet<String>,
+) -> bool {
+    if current == target {
+        return true;
+    }
+    if !seen.insert(current.to_string()) {
+        return false;
+    }
+    let Some(task) = plan.tasks.iter().find(|task| task.id == current) else {
+        return false;
+    };
+    let next = if current == override_task_id {
+        override_dependencies
+    } else {
+        &task.depends_on
+    };
+    next.iter().any(|dep| {
+        dependency_cycle_reaches(
+            plan,
+            dep,
+            target,
+            override_task_id,
+            override_dependencies,
+            seen,
+        )
+    })
+}
+
+pub(super) fn validate_task_dependencies(
+    plan: &Plan,
+    task_id: &str,
+    depends_on: &[String],
+) -> Result<Vec<String>, PlanError> {
+    let normalized = normalized_dependency_ids(depends_on);
+    for dependency_id in &normalized {
+        if dependency_id == task_id {
+            return Err(PlanError::DependencySelfReference);
+        }
+        if !plan.tasks.iter().any(|task| task.id == *dependency_id) {
+            return Err(PlanError::DependencyTaskNotFound {
+                task_id: dependency_id.clone(),
+            });
+        }
+    }
+    for dependency_id in &normalized {
+        let mut seen = std::collections::HashSet::new();
+        if dependency_cycle_reaches(
+            plan,
+            dependency_id,
+            task_id,
+            task_id,
+            &normalized,
+            &mut seen,
+        ) {
+            return Err(PlanError::DependencyCycle);
+        }
+    }
+    Ok(normalized)
+}
+
 pub(super) fn reject_done_with_open_subtasks(plan: &Plan, task_id: &str) -> Result<(), PlanError> {
     let subtasks = open_subtasks(plan, task_id);
     if subtasks.is_empty() {

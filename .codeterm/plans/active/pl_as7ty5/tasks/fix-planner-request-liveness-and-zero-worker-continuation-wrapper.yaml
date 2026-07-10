@@ -1,0 +1,625 @@
+id: task_2oy6cc
+name: Fix Planner request liveness and zero-worker continuation wrapper
+type: implement
+model: gpt-5.6-sol
+model_rationale: GPT-5.6 Terra is the discovered default and is appropriate for a cross-cutting P0 routing, durable-state, and recovery contract.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- Dead Planner sends return agent_unavailable without shell injection, retain a durable request, and replay it exactly once after a live replacement rehydrates the plan.
+test_plan: 'Oracle: deterministic dead-Planner routing regression. 1. Bind a Planner/Manager then make its agent exit into PowerShell; pass: routing marks planner_dead and the binding is stale despite a live pane/PTY. 2. Send the exact multiline model-audit payload containing bullets, backticks, and <nonexistent>; pass: structured agent_unavailable, zero shell input/parser errors, and one durable queued request with full payload. 3. Trigger bounded Planner replacement/rebind; pass: replacement rehydrates plan id, owner, goal/spec/sections, all task IDs, strides, and recent decisions before delivery. 4. Replay; pass: queued request reaches chat exactly once and becomes completed, with no duplicate plan mutation/report/reindex/move/adoption/task. 5. Repeat against bash/zsh fallback. 6. Assert orchestrator status shows planner_dead, undelivered count, and recovery action. 7. Run focused Rust/TypeScript routing fixtures discovered from ownership plus git diff --check and scripts/check-file-sizes.sh; pass: all exit 0. Windows fixture must preserve all 36 pre-existing task IDs and strides.'
+correctness: Live-session-only planner routability; structured non-delivery; durable exactly-once request replay; immediate stale-binding detection; shell-safe payload transport; lossless plan recovery.
+status: done
+review_stage: review
+qa_state: null
+status_label: pane-gone
+priority: p0
+created_at: 1783675810316
+updated_at: 1783689883380
+status_changed_at: 1783689883380
+handle: fix-planner-request-liveness-and-zero-worker-continuation-wrapper
+tags:
+- 1.7.2
+section_ids:
+- sec_rlqrqc
+body: Implement durable Planner request routing and zero-worker continuation recovery. A Planner/Manager binding is routable only with a live agent session, valid session-binding nonce, agent state agent_ready|working|idle, and a chat delivery target; pane or PTY existence alone never qualifies. A send to an exited/dead Planner must return structured agent_unavailable, durably queue request_id/payload-or-blob/caller pane+session/state, and trigger bounded replacement/rebind or an explicit Orchestrator recovery action. On replacement, rehydrate plan id, owner, goal, spec, sections, tasks, strides, and recent decisions, then replay each uncompleted request exactly once. Detect agent-to-shell transition immediately, clear stale binding, and expose planner_dead, undelivered count, and recovery action in orchestrator status. Preserve multiline and metacharacter-bearing payloads as chat data; never write them to a fallback shell. Coordinate project-root recovery with task_23fywk and reminder telemetry with task_4d5ay7 without taking their source ownership.
+role_guidance: 'You are a Rust routing and recovery engineer. Own only Planner liveness validation, durable request delivery, replacement replay, and shell-safety fixtures. Red line: no pane-existence liveness test and no fallback-shell write.'
+executor_role: fullstack-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:/Developer/codeterm-worktrees/planner-request-liveness
+  branch: lane/planner-request-liveness
+  base: origin/develop
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: planner-correctness
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_egah5w
+  from:
+    pane_id: e00064ce
+    session_id: 019f4b5e-90af-7122-9f76-e9607ac6d6cc
+    title: planner liveness recovery
+  kind: status_update
+  text: |-
+    STATUS: partial
+    CHANGES: Tightened Planner routing to require a nonce-verified session, matching bound session ID, accepted agent state, and chat delivery target; live pane/PTY alone is planner_dead. Planner gate routes now retain persisted gates without owner/shell fallback delivery. Added deterministic resolver fixtures for a live shell/PTY and stale session binding.
+    TESTS RUN: git diff --check; scripts/check-file-sizes.sh (pass; advisory pre-existing mod.rs notices). Per lane constraint, no cargo/build/dev/Playwright runs.
+    INTEGRATION: task_23fywk should replay persisted undelivered gate/request records only after a replacement meets PaneProbe::planner_routable_for; task_4d5ay7 can surface the resolver's planner_dead reason and queued count/recovery action.
+  ts: 1783676130244
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_8hdwia
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: BOUNCE resolver-only partial; P0 requires durable request queue, no-shell send path, exactly-once rehydration replay, immediate zero-worker continuation, stale-heartbeat replacement, and cross-shell regression in the same lane.
+  ts: 1783676150880
+  links:
+  - key:5564fdc654324caa
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_4ver3c
+  from:
+    pane_id: e00064ce
+    session_id: 019f4b5e-90af-7122-9f76-e9607ac6d6cc
+    title: planner liveness recovery
+  kind: status_update
+  text: |-
+    STATUS: partial
+    CHANGES: Added durable Plan.planner_requests records (request_id, payload/blob field, caller pane/session, queued/in_progress/completed/failed lifecycle), structured API/socket agent_unavailable queueing for non-routable Planner gate sends, nonce/session-gated rehydrate+exactly-once claim/replay, immediate stale binding clear on agent-to-shell transition, planner_dead/undelivered/recovery fields in plan state, and zero-worker continuation action distinct from QA-only work. Added source fixtures for stale shell/PTY routing, payload preservation, durable claim-once, and continuation classification.
+    TESTS RUN: git diff --check; scripts/check-file-sizes.sh (pass; only pre-existing advisory mod.rs notices). No cargo/build/dev/Playwright by source-only lane rule.
+    REMAINING RISK: focused runtime/Windows 36-task and delayed-heartbeat fixture execution still needs central QA; no runtime verification was permitted.
+  ts: 1783676506042
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_qz0hiy
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Source implementation complete; route to centralized focused QA for durable request replay, Windows 36-task preservation, cross-shell safety, heartbeat delivery, and isolated daemon recovery. No worker-local heavy build.
+  ts: 1783676533438
+  links:
+  - key:df190c25d3e30754
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_hq0sxj
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'BOUNCE from independent review: fix moved-value compile errors in both gate transports; replace crash-stranding in_progress lifecycle with replayable lease/claim semantics; verify actual reported nonce rather than field presence; make routing+delivery atomic or revalidate and propagate delivery errors; repair bounded clear/rebind flow; correct planner_dead telemetry for session-bound and unbound failures; hydrate full plan/task/stride truth; add PowerShell/bash/zsh delivery and zero-PTY-write proofs.'
+  ts: 1783676897928
+  links:
+  - key:524f3cbb874de76f
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_6nfmmo
+  from:
+    pane_id: 6f5a9b17
+    session_id: 019f4b6d-cf51-7390-90ef-06f1990e6c51
+    title: Fix Planner request liveness and zero-worker continuation wrapper
+  kind: status_update
+  text: 'STATUS: partial\nCHANGES: Hardened Planner liveness with nonce-echo verification, session-bound chat-only delivery, durable request leasing/release/replacement replay, rehydration snapshot fidelity, and atomic error-to-queue handling for HTTP/socket gate routes.\nTESTS RUN: scripts/test-capped.sh -p codeterm-plan planner_requests (pass); scripts/test-capped.sh -p codeterm-pty multiplexer::types (pass); cargo fmt --check (pass); git diff --check (pass); scripts/check-file-sizes.sh (pass, pre-existing advisory notices). build.ps1 check was blocked before project compilation because this worktree has no dist resource directory.\nFOLLOWUP: Central QA should run daemon-level PowerShell/bash/zsh delivery and Windows 36-task fixture once a built worktree is available.'
+  ts: 1783677488860
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_estp2e
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Corrected source passes focused planner-request and PTY tests. Move to independent delta review; centralized daemon PowerShell/bash/zsh and 36-task restart oracle remains mandatory.
+  ts: 1783677505479
+  links:
+  - key:d359dc2857e79a00
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_hlkaa4
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'Second BOUNCE: remove Planner delivery from PTY send_text entirely; implement durable request-id acknowledgement/idempotency so crash before/after delivery cannot strand InProgress or duplicate mutation; preserve a stale PlannerRef that can rebind instead of clearing to None; keep planner_dead true with recovery action after unbind/failure; rehydrate authoritative full plan/task/stride state before replay rather than comma-separated IDs; add delivery-level PowerShell/bash/zsh fixtures proving chat-only delivery and zero PTY writes.'
+  ts: 1783677776684
+  links:
+  - key:ccadeafc919133b4
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_qr3v9e
+  from:
+    pane_id: 84956bc0
+    session_id: 019f4b7b-2258-79b3-89c9-5c0d77ae6768
+    title: planner request liveness
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: Enforced nonce/session/state/chat-only Planner routability; retained stale PlannerRef for verified rebind; added durable request queue with bounded nonce-keyed leases, deterministic chat IDs, explicit ack/idempotent completion, full Plan/Spec/task/stride/decision rehydration, structured agent_unavailable, planner_dead telemetry, and zero-worker continuation. Planner delivery cannot call PTY send_text or fallback shells. Coordinated integration invariants for task_23fywk and task_4d5ay7 through the owning Orchestrator.
+    TESTS RUN: scripts/test-capped.sh -p codeterm-plan planner_requests; focused stale-session/PTY-dead/status tests; focused codeterm 36-task hydration, metacharacter payload, nonce verification, and PowerShell/bash/zsh zero-PTY-write tests; build.ps1 check with non-bundling TAURI_CONFIG; cargo check CLI; cargo fmt checks; git diff --check; scripts/check-file-sizes.sh. All pass; only pre-existing keepawake dead_code and advisory mod.rs notices.
+  ts: 1783679314484
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_q3mbtm
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Architectural correction is review-ready after focused 36-task hydration, nonce, cross-shell zero-PTY-write, request lease/ack/idempotency, CLI check, and build check. Route to final independent delta review before centralized runtime QA.
+  ts: 1783679347842
+  links:
+  - key:307d0c0bee23d7f6
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_unjx3t
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'Repeated-bounce research gate: before editing, trace the canonical UI/pane-chat in-process delivery path for PTY-backed Claude/Codex Planner sessions and prove it cannot degrade to shell bytes after agent exit. Replace ChatBackend-only routability with authenticated provider-session delivery supporting PTY agents while rejecting unknown state. Make gate creation+request enqueue one atomic durable mutation. Use stable request IDs plus receiver acknowledgement/idempotency and expiring leases so accepted requests cannot strand and crash between history persistence/model submission cannot suppress or duplicate effects. Rehydrate all plan/spec/task/milestone/stride/decision/gate truth, not capped projection. Transport failure must set planner_dead/recovery truthfully. Add real PTY-backed Planner input spy + shell-write spy fixtures for PowerShell/bash/zsh payloads.'
+  ts: 1783679875432
+  links:
+  - key:55056604e2e41c65
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_2ti2fu
+  from:
+    pane_id: b8927481
+    session_id: 019f4b9b-3133-7643-bf56-ac4a8b78b0e0
+    title: planner request liveness
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: done
+    CHANGES: Implemented nonce/session/state/chat-gated Planner routing for PTY-backed and chatBackend sessions; immediate Planner-to-shell stale-binding clear; atomic gate+durable request creation; identity-bound expiring request leases; replacement rehydration with full Plan/spec/task/milestone/stride/gate truth; stable request IDs and acknowledgement; truthful planner_dead/undelivered/recovery telemetry; zero-worker continuation; and PowerShell/bash/zsh zero-shell-write fixtures. Coordinated project-root preservation with task_23fywk and reminder/retry telemetry with task_4d5ay7 through the owning Orchestrator without editing either lane.
+    TESTS RUN: scripts/test-capped.sh -p codeterm-plan planner_requests (6 passed); atomic gate/request fixture (1 passed); focused hierarchy 36-task hydration and metacharacter payload fixtures (2 passed); PTY Planner input/shell-write spy (1 passed); build.ps1 check with non-bundling TAURI_CONFIG (pass); cargo check CLI (pass); cargo fmt checks (pass); git diff --check (pass); scripts/check-file-sizes.sh --fail (pass, two pre-existing advisory mod.rs notices).
+  ts: 1783681417206
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_27szzx
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Corrected PTY-backed Planner architecture is final-review-ready after focused atomic gate/request, 36-task hydration, metacharacter, PTY input/shell-write spy, build check, and CLI check. Review actual dirty overlay; formal changed_files/SHA is known wrong under task_qdwix5.
+  ts: 1783681434018
+  links:
+  - key:b93b74ad664a4bb4
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_neij3z
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'P0 BOUNCE exact: establish/persist authenticated in-process chatBackend provider-session binding on open/reopen and bind PlannerRef to it. Add durable receiver inbox keyed by request_id; PTY/chatBackend replay consults inbox. Persist delivery phases including pre_send/send_started/provider_accepted/planner_acked; never auto-resend send_started uncertainty without provider idempotency—surface delivery_uncertain/recovery action. Cover four crash windows for PTY/chatBackend. Hydrate full Plan plus uncapped all linked/owned Specs, tasks, nested milestones, strides/decisions, gates. Persist/return actual transport phase/error and derive live/unavailable/stale/dead only from resolver, no hardcoded planner_dead. Replace label-only shell predicate with real Claude/Codex PTY provider-input + shell-write spies and chatBackend input fixture proving payload reaches canonical agent input and zero PowerShell/bash/zsh shell bytes. Cold main test remains centralized QA, not source blocker.'
+  ts: 1783682002464
+  links:
+  - key:4492e912bbf64a49
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_sa10f0
+  from:
+    pane_id: f3226291
+    session_id: 019f4bbb-a2c9-71a1-a881-90fd69f55579
+    title: planner request liveness
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: Added authenticated Planner routing for PTY and chatBackend provider sessions; in-process chatBackend open/reopen session+nonce binding; atomic gate/request/inbox persistence; durable request-id receiver inbox with pre_send, send_started, provider_accepted, planner_acked, and delivery_uncertain phases; expiring pre-send leases without ambiguous resend; stable request IDs and explicit acknowledgement; stale PlannerRef preservation and replacement rebind; full uncapped plan, owned/linked specs, sections, tasks, nested milestones, strides, decisions, gates, and inbox hydration; resolver-derived planner_dead/undelivered/recovery telemetry; structured transport phase/error responses; zero-worker continuation; and real PTY/chatBackend provider-input fixtures proving multiline metacharacter payloads never reach PowerShell/bash/zsh shell writes. Coordinated project-root recovery invariants for task_23fywk and reminder telemetry invariants for task_4d5ay7 through the owning Orchestrator without editing those lanes.
+    TESTS RUN: scripts/test-capped.sh -p codeterm-plan planner_requests (8 passed); atomic gate/request/inbox fixture (1 passed); Windows 36-task plus owned/linked-spec hydration fixture (1 passed); PTY provider-input and PowerShell/bash/zsh zero-write fixture (1 passed); chatBackend provider-input fixture (1 passed); chatBackend open/reopen authenticated binding fixture (1 passed); stale Planner resolver/status fixture (1 passed); build.ps1 check with non-bundling TAURI_CONFIG (pass); cargo fmt --all -- --check (pass); git diff --check (pass); scripts/check-file-sizes.sh --fail (pass; two pre-existing advisory mod.rs notices). Only pre-existing keepawake dead_code and unrelated codeterm-plan test warnings remain.
+  ts: 1783683425861
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_8o3j4r
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Provider inbox/uncertainty architecture is final-review-ready after 8 plan-request tests, atomic inbox fixture, 36-task multi-spec hydration, PTY/chatBackend provider-input, open/reopen binding, stale resolver, build check, and formatting gates. Route to final independent acceptance review.
+  ts: 1783683449055
+  links:
+  - key:fa5f4675ce22bbda
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_ey1atx
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'P0 BOUNCE: chatBackend open/reopen may rotate session+nonce after preflight. Delivery must obtain the authoritative post-open provider binding, then transactionally update PlannerRef, request lease/inbox target, and acceptance identity before model send. Revalidate immediately before send; persist provider_accepted/planner_acked against the actual delivered binding so the new session can ack. If binding rotates after send start, record delivery_uncertain with actual observed identities and never mark accepted against stale binding or auto-replay. Add deterministic rotate-after-preflight/open fixture and ack/replay proof. Missing-dist main fixture belongs to task_odejzc.'
+  ts: 1783683934096
+  links:
+  - key:3bd44c699e1c0cee
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_5vv0mm
+  from:
+    pane_id: 34b2dd50
+    session_id: 019f4bd9-113e-7e93-b156-d94702b9568f
+    title: planner binding rotation
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: Fixed chatBackend rotate-after-preflight/open by reopening before delivery identity finalization, then atomically rebinding PlannerRef plus pre_send request lease/inbox acceptance identity to the authoritative provider session+nonce. Added immediate pre/post-send binding revalidation; post-send rotation records delivery_uncertain with sent and observed identities, is never accepted against stale identity, and never auto-replays. Preserved PTY/chatBackend chat-only delivery, full hydration, stale-ref recovery, planner_dead telemetry, and task_23fywk/task_4d5ay7 ownership boundaries. Split binding preparation into hierarchy/planner_delivery.rs to keep hierarchy.rs below 1200 lines.
+    TESTS RUN: scripts/test-capped.sh -p codeterm-plan planner_requests (pass, including post-open retarget/ack and post-send uncertainty no-replay); focused codeterm chatBackend rotation fixture (pass); chatBackend metacharacter provider-input fixture (pass); PTY PowerShell/bash/zsh zero-shell-write fixture (pass); Windows 36-task/stride hydration fixture (pass); build.ps1 check with TAURI_CONFIG non-bundling resources (pass); cargo fmt --check (pass); git diff --check (pass); scripts/check-file-sizes.sh --fail (pass; two pre-existing advisory mod.rs notices).
+  ts: 1783684754484
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_xdek7h
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Final source correction complete. Stop review ping-pong; integrate actual overlay into shared release checkout and verify in centralized Core QA.
+  ts: 1783684785677
+  links:
+  - key:05a9854c35d7f970
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_vw4zm6
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: Accepted and integrated after corrected provider-session rotation/inbox delivery; focused fixtures and centralized Core Warm Rust gate pass.
+  ts: 1783689883380
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_3rmjag
+  executor_pane_id: e00064ce
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-terra
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-request-liveness
+  worktree_path: D:/Developer/codeterm-worktrees/planner-request-liveness
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783676506361
+    message: |-
+      STATUS: partial
+      CHANGES: Added durable Plan.planner_requests records (request_id, payload/blob field, caller pane/session, queued/in_progress/completed/failed lifecycle), structured API/socket agent_unavailable queueing for non-routable Planner gate sends, nonce/session-gated rehydrate+exactly-once claim/replay, immediate stale binding clear on agent-to-shell transition, planner_dead/undelivered/recovery fields in plan state, and zero-worker continuation action distinct from QA-only work. Added source fixtures for stale shell/PTY routing, payload preservation, durable claim-once, and continuation classification.
+      TESTS RUN: git diff --check; scripts/check-file-sizes.sh (pass; only pre-existing advisory mod.rs notices). No cargo/build/dev/Playwright by source-only lane rule.
+      REMAINING RISK: focused runtime/Windows 36-task and delayed-heartbeat fixture execution still needs central QA; no runtime verification was permitted.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783675912193
+  reported_at: 1783676506361
+  reviewed_at: null
+  closed_at: 1783676534999
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_txg2tr
+  executor_pane_id: 6f5a9b17
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-terra
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-request-liveness
+  worktree_path: D:/Developer/codeterm-worktrees/planner-request-liveness
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783677489174
+    message: 'STATUS: partial\nCHANGES: Hardened Planner liveness with nonce-echo verification, session-bound chat-only delivery, durable request leasing/release/replacement replay, rehydration snapshot fidelity, and atomic error-to-queue handling for HTTP/socket gate routes.\nTESTS RUN: scripts/test-capped.sh -p codeterm-plan planner_requests (pass); scripts/test-capped.sh -p codeterm-pty multiplexer::types (pass); cargo fmt --check (pass); git diff --check (pass); scripts/check-file-sizes.sh (pass, pre-existing advisory notices). build.ps1 check was blocked before project compilation because this worktree has no dist resource directory.\nFOLLOWUP: Central QA should run daemon-level PowerShell/bash/zsh delivery and Windows 36-task fixture once a built worktree is available.'
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783676911012
+  reported_at: 1783677489174
+  reviewed_at: null
+  closed_at: 1783677507243
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_vprx1u
+  executor_pane_id: 84956bc0
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-request-liveness
+  worktree_path: D:/Developer/codeterm-worktrees/planner-request-liveness
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783679314801
+    message: |-
+      STATUS: done
+      CHANGES: Enforced nonce/session/state/chat-only Planner routability; retained stale PlannerRef for verified rebind; added durable request queue with bounded nonce-keyed leases, deterministic chat IDs, explicit ack/idempotent completion, full Plan/Spec/task/stride/decision rehydration, structured agent_unavailable, planner_dead telemetry, and zero-worker continuation. Planner delivery cannot call PTY send_text or fallback shells. Coordinated integration invariants for task_23fywk and task_4d5ay7 through the owning Orchestrator.
+      TESTS RUN: scripts/test-capped.sh -p codeterm-plan planner_requests; focused stale-session/PTY-dead/status tests; focused codeterm 36-task hydration, metacharacter payload, nonce verification, and PowerShell/bash/zsh zero-PTY-write tests; build.ps1 check with non-bundling TAURI_CONFIG; cargo check CLI; cargo fmt checks; git diff --check; scripts/check-file-sizes.sh. All pass; only pre-existing keepawake dead_code and advisory mod.rs notices.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783677784306
+  reported_at: 1783679314801
+  reviewed_at: null
+  closed_at: 1783679349641
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_1dvy6g
+  executor_pane_id: b8927481
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-request-liveness
+  worktree_path: D:/Developer/codeterm-worktrees/planner-request-liveness
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783681417553
+    message: |-
+      STATUS: done
+      CHANGES: Implemented nonce/session/state/chat-gated Planner routing for PTY-backed and chatBackend sessions; immediate Planner-to-shell stale-binding clear; atomic gate+durable request creation; identity-bound expiring request leases; replacement rehydration with full Plan/spec/task/milestone/stride/gate truth; stable request IDs and acknowledgement; truthful planner_dead/undelivered/recovery telemetry; zero-worker continuation; and PowerShell/bash/zsh zero-shell-write fixtures. Coordinated project-root preservation with task_23fywk and reminder/retry telemetry with task_4d5ay7 through the owning Orchestrator without editing either lane.
+      TESTS RUN: scripts/test-capped.sh -p codeterm-plan planner_requests (6 passed); atomic gate/request fixture (1 passed); focused hierarchy 36-task hydration and metacharacter payload fixtures (2 passed); PTY Planner input/shell-write spy (1 passed); build.ps1 check with non-bundling TAURI_CONFIG (pass); cargo check CLI (pass); cargo fmt checks (pass); git diff --check (pass); scripts/check-file-sizes.sh --fail (pass, two pre-existing advisory mod.rs notices).
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783679885230
+  reported_at: 1783681417553
+  reviewed_at: null
+  closed_at: 1783681434882
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_v9pi2c
+  executor_pane_id: f3226291
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-request-liveness
+  worktree_path: D:/Developer/codeterm-worktrees/planner-request-liveness
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783683426164
+    message: |-
+      STATUS: done
+      CHANGES: Added authenticated Planner routing for PTY and chatBackend provider sessions; in-process chatBackend open/reopen session+nonce binding; atomic gate/request/inbox persistence; durable request-id receiver inbox with pre_send, send_started, provider_accepted, planner_acked, and delivery_uncertain phases; expiring pre-send leases without ambiguous resend; stable request IDs and explicit acknowledgement; stale PlannerRef preservation and replacement rebind; full uncapped plan, owned/linked specs, sections, tasks, nested milestones, strides, decisions, gates, and inbox hydration; resolver-derived planner_dead/undelivered/recovery telemetry; structured transport phase/error responses; zero-worker continuation; and real PTY/chatBackend provider-input fixtures proving multiline metacharacter payloads never reach PowerShell/bash/zsh shell writes. Coordinated project-root recovery invariants for task_23fywk and reminder telemetry invariants for task_4d5ay7 through the owning Orchestrator without editing those lanes.
+      TESTS RUN: scripts/test-capped.sh -p codeterm-plan planner_requests (8 passed); atomic gate/request/inbox fixture (1 passed); Windows 36-task plus owned/linked-spec hydration fixture (1 passed); PTY provider-input and PowerShell/bash/zsh zero-write fixture (1 passed); chatBackend provider-input fixture (1 passed); chatBackend open/reopen authenticated binding fixture (1 passed); stale Planner resolver/status fixture (1 passed); build.ps1 check with non-bundling TAURI_CONFIG (pass); cargo fmt --all -- --check (pass); git diff --check (pass); scripts/check-file-sizes.sh --fail (pass; two pre-existing advisory mod.rs notices). Only pre-existing keepawake dead_code and unrelated codeterm-plan test warnings remain.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783682011519
+  reported_at: 1783683426164
+  reviewed_at: null
+  closed_at: 1783683450806
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_l5jxnm
+  executor_pane_id: 34b2dd50
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-request-liveness
+  worktree_path: D:/Developer/codeterm-worktrees/planner-request-liveness
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783684754807
+    message: |-
+      STATUS: done
+      CHANGES: Fixed chatBackend rotate-after-preflight/open by reopening before delivery identity finalization, then atomically rebinding PlannerRef plus pre_send request lease/inbox acceptance identity to the authoritative provider session+nonce. Added immediate pre/post-send binding revalidation; post-send rotation records delivery_uncertain with sent and observed identities, is never accepted against stale identity, and never auto-replays. Preserved PTY/chatBackend chat-only delivery, full hydration, stale-ref recovery, planner_dead telemetry, and task_23fywk/task_4d5ay7 ownership boundaries. Split binding preparation into hierarchy/planner_delivery.rs to keep hierarchy.rs below 1200 lines.
+      TESTS RUN: scripts/test-capped.sh -p codeterm-plan planner_requests (pass, including post-open retarget/ack and post-send uncertainty no-replay); focused codeterm chatBackend rotation fixture (pass); chatBackend metacharacter provider-input fixture (pass); PTY PowerShell/bash/zsh zero-shell-write fixture (pass); Windows 36-task/stride hydration fixture (pass); build.ps1 check with TAURI_CONFIG non-bundling resources (pass); cargo fmt --check (pass); git diff --check (pass); scripts/check-file-sizes.sh --fail (pass; two pre-existing advisory mod.rs notices).
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783683940125
+  reported_at: 1783684754807
+  reviewed_at: null
+  closed_at: 1783684787371
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

@@ -1,0 +1,171 @@
+id: task_wpqbjl
+name: Independently review autoresearch prompt contract commit
+type: review
+model: gpt-5.6-sol
+model_rationale: GPT-5.6 Sol is the verified high-capability route for independent adversarial review of prompt contracts, evaluator validity, and runtime-semantics preservation.
+personality: Dijkstra
+personality_provenance: null
+acceptance_criteria:
+- Independent review proves or refutes every oracle dimension; all findings are severity-ranked with file/line evidence; no source changes are made; verdict is exactly ACCEPT or BOUNCE with required remediation.
+test_plan: 'Oracle: reproducible read-only diff and fixture review. 1. In the isolated worktree, run git diff --check and git diff origin/develop...9c16ef35d0b3eb0c5ab919331b444a158a9eb327; pass: diff is scoped to task_3m6vai and prompt/docs/fixture changes are identified. 2. Run scripts/check-prompts-doc.sh; pass: prompt/docs consistency exits 0. 3. Run scripts/test-plan-strides-union-merge.sh; pass: script behavior is justified by the changed stride fixture and exits 0. 4. Run focused codeterm-plan tests for loop_engine, reflection, retrospective, serialization with 90s caps; pass: F1-F6/F10 outputs match immutable expected values. 5. Inspect F7-F9 fixtures and A/B evaluator files manually plus git diff --word-diff; pass: evaluator inputs/expected outputs are not generated from the implementation under test, and tests fail under a controlled bad implementation. 6. Search prompt diff for orchestration-authority conflicts, duplicate instructions, and substring-only assertions; pass: no material conflict/bloat or hidden regression. 7. Run repository prompt-evaluation/regression command discovered from evals/package scripts; pass: relevant Planner/Orchestrator cases remain green. 8. Run git status --short; pass: review worktree remains clean. Report exact commands, outputs, severity findings, and ACCEPT/BOUNCE.'
+correctness: Correctness requires adversarial evidence that the accepted protocol is faithfully encoded, evaluators are independent and immutable, legacy planner semantics are preserved, documentation is consistent, and prompts remain authoritative, concise, and regression-safe.
+status: done
+review_stage: review
+qa_state: null
+status_label: needs-reassign
+priority: p2
+created_at: 1783661307799
+updated_at: 1783676661536
+status_changed_at: 1783676636064
+handle: independently-review-autoresearch-prompt-contract-commit
+tags: []
+section_ids:
+- sec_d52ka9
+body: 'Review implementation task_3m6vai at commit 9c16ef35d0b3eb0c5ab919331b444a158a9eb327 read-only. Compare origin/develop...9c16ef35d0b3eb0c5ab919331b444a158a9eb327 in isolated sibling worktree D:/Developer/codeterm-worktrees/review-autoresearch-prompt-contract from origin/develop. Review oracle: prompt diff faithfully encodes accepted task_v4djn7 bounce-research contract; F1-F10 fixtures are non-tautological; A/B evaluator inputs and expected outputs are immutable and reproducible; no LoopSpec/runtime-store semantics changed; stride union-merge script is justified; docs revision/check is correct; no prompt bloat or conflict with orchestration authority; no regression hidden by substring-only assertions. No source ownership and no edits. Report STATUS in_review with exact commands, findings by severity/file, evidence, and explicit ACCEPT or BOUNCE verdict.'
+role_guidance: 'You are Dijkstra, an adversarial read-only prompt and planner-contract reviewer. Refute the claimed protocol with immutable fixtures and exact commands. Red line: do not edit source, accept tautological tests, or let substring assertions hide missing/conflicting guidance.'
+executor_role: code-reviewer
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/review-autoresearch-prompt-contract
+  branch: review/autoresearch-prompt-contract
+  base: origin/develop
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: planning-protocol-review
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_7djsx7
+  from:
+    pane_id: watchdog
+    session_id: null
+    title: null
+  kind: decision
+  text: 'watchdog: assigned pane gone and silent for 2703190ms — demoted to pending'
+  ts: 1783664049165
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_khm0ud
+  from:
+    pane_id: 7754fe1e
+    session_id: 019f4b65-8825-7763-aeee-067666bf88df
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: none; read-only review of 9c16ef35d0b3eb0c5ab919331b444a158a9eb327 against origin/develop. VERDICT: BOUNCE.
+    TESTS RUN: git diff --check origin/develop...9c16ef35d0b3eb0c5ab919331b444a158a9eb327 (exit 0); target scripts/check-prompts-doc.sh via disposable git archive (exit 0: 17/17/17); target scripts/test-plan-strides-union-merge.sh via disposable git archive (exit 0); JSON parse/ID check (1-10 unique); git status --short (clean). Per routed constraint, no cargo/build/dev/Playwright or live LLM eval was run.
+    GATES REQUESTED: BOUNCE remediation: encode the complete accepted trigger/question/hypothesis/numeric-budget/evidence schema in prompts; replace self-instructing LLM-only F1-F10 cases with immutable exact oracles and a controlled mutation-negative test; add F5 completeness, F6 promotion, F7 trigger/budget, F8 oracle-mutation, and F9 exclusive-routing fixtures; correct PROMPTS.md loader-source claims and remove/replace tautological substring/CRLF checks.
+    FOLLOWUP: independent reviewer found no LoopSpec/runtime-store semantic changes; only tests changed in reflection/retrospective/types. Prompt additions are +315 words (+39.7%) planner and +249 (+19.7%) orchestrator, yet omit accepted contract fields. Implementation's own A/B report says 7/10 cases pass unchanged baseline, proving low sensitivity.
+  ts: 1783676605712
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_yz3zg3
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Independent review completed with BOUNCE. Review objective achieved; close review task. Remediation belongs to task_3m6vai.
+  ts: 1783676635282
+  links:
+  - key:f650e3f61db0b3bd
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_y42xc5
+  executor_pane_id: 48a9c2dd
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: review/autoresearch-prompt-contract
+  worktree_path: D:/Developer/codeterm-worktrees/review-autoresearch-prompt-contract
+  base: origin/develop
+  destination: null
+  report: null
+  assigned_at: 1783661345975
+  reported_at: null
+  reviewed_at: null
+  closed_at: 1783664049165
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_3jiobj
+  executor_pane_id: 7754fe1e
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: review/autoresearch-prompt-contract
+  worktree_path: D:/Developer/codeterm-worktrees/review-autoresearch-prompt-contract
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783676606012
+    message: |-
+      STATUS: in_review
+      CHANGES: none; read-only review of 9c16ef35d0b3eb0c5ab919331b444a158a9eb327 against origin/develop. VERDICT: BOUNCE.
+      TESTS RUN: git diff --check origin/develop...9c16ef35d0b3eb0c5ab919331b444a158a9eb327 (exit 0); target scripts/check-prompts-doc.sh via disposable git archive (exit 0: 17/17/17); target scripts/test-plan-strides-union-merge.sh via disposable git archive (exit 0); JSON parse/ID check (1-10 unique); git status --short (clean). Per routed constraint, no cargo/build/dev/Playwright or live LLM eval was run.
+      GATES REQUESTED: BOUNCE remediation: encode the complete accepted trigger/question/hypothesis/numeric-budget/evidence schema in prompts; replace self-instructing LLM-only F1-F10 cases with immutable exact oracles and a controlled mutation-negative test; add F5 completeness, F6 promotion, F7 trigger/budget, F8 oracle-mutation, and F9 exclusive-routing fixtures; correct PROMPTS.md loader-source claims and remove/replace tautological substring/CRLF checks.
+      FOLLOWUP: independent reviewer found no LoopSpec/runtime-store semantic changes; only tests changed in reflection/retrospective/types. Prompt additions are +315 words (+39.7%) planner and +249 (+19.7%) orchestrator, yet omit accepted contract fields. Implementation's own A/B report says 7/10 cases pass unchanged baseline, proving low sensitivity.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783676368707
+  reported_at: 1783676606012
+  reviewed_at: null
+  closed_at: 1783676636064
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

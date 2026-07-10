@@ -1,0 +1,446 @@
+id: task_e7mes1
+name: Restore General Agent PTY launch and runtime identity
+type: implement
+model: gpt-5.6-sol
+model_rationale: GPT-5.6 Sol is the verified model for release-critical Windows ConPTY, process ownership, stale-daemon identity, and retry/orphan diagnosis; inherit task model without dispatch override.
+personality: Dijkstra
+personality_provenance: null
+acceptance_criteria:
+- Current release-head General Agent launch must produce no externally visible Windows Terminal/console windows from helper/provider/test subprocesses, exactly one pane-owned PTY/provider process, and bounded first output with Chat/Terminal attachment. First prove stale-daemon, PTY bytes, provider env/session, and renderer causes; child environment scrubs parent-agent markers while preserving CodeTerm bindings. Actual ConPTY child must retain STARTF_USESHOWWINDOW/SW_HIDE behavior, never regress to historical CREATE_NO_WINDOW. Any worker/test process must run through its worker PTY/build.ps1 or --manifest-path src-tauri/Cargo.toml; wt/Start-Process is forbidden.
+test_plan: 'Oracle: Windows remote packaged-candidate launch plus process-window and historical regression fixtures. 1. Inspect current release ancestry for 671a339e47b7 ConPTY fix, d161a861 env stripping, d616ef3ad reader race, ba12fe3fc binding nonce, 8b62f17a5 restart detection, 9bfe02e6/5cbf29f6, a407932ef; pass: no duplicate cherry-pick and current applicability recorded. 2. Run conpty_shell_produces_output via worker PTY/build.ps1 or cargo --manifest-path src-tauri/Cargo.toml with 90s cap; pass: bytes arrive within 8s. 3. Launch one General Agent in clean packaged candidate; capture pane id, daemon/provider PID, PTY state, window list, and build/daemon identity. Pass: exactly one pane-owned PTY/provider process and zero externally visible Windows Terminal/console windows; helper/test subprocesses create no visible windows. 4. Verify child env scrubs CLAUDE_CODE_SESSION_ID, CLAUDE_CODE_CHILD_SESSION, AI_AGENT while preserving CODETERM_SESSION_BINDING_NONCE and pane/task/plan vars. 5. Verify first output and Chat/Terminal same session within bounded timeout. 6. Exercise stale 1.6.2 daemon, PTY absent, provider exit, buffered output, renderer unmounted, and launch failure; pass: explicit starting/reconnecting/failed/ready state. 7. Retry; pass: no duplicate provider or external window. Close only self-created windows; never use wt/Start-Process. Record exact commands, redacted env, PIDs, pane, window observations, and logs.'
+correctness: Correctness requires one pane-owned PTY/provider process with no visible helper/provider/test console windows, preserved ConPTY STARTF_USESHOWWINDOW/SW_HIDE semantics, parent-agent env scrubbing with CodeTerm binding preservation, truthful runtime identity, bounded output attachment, and idempotent retry.
+status: done
+review_stage: review
+qa_state: null
+status_label: pane-gone
+priority: p2
+created_at: 1783658112078
+updated_at: 1783689856971
+status_changed_at: 1783689856971
+handle: restore-general-agent-pty-launch-and-runtime-identity
+tags: []
+section_ids:
+- sec_rlqrqc
+body: 'Fix the Windows 1.7.2 user-visible regression where a newly created General Agent pane f10f4ae8/Main marked ORCHESTRATOR has agent=claude status=Idle but Terminal is completely blank. Canonical evidence simultaneously reports API 7685 version=1.6.2 build=dev and CLI 1.7.1 despite a claimed 1.7.2 packaged window, so treat launch/runtime identity as a first-class defect. Trace General Agent creation through pane/tab creation, PTY materialization, provider spawn, first output, xterm attachment, and daemon instance selection. Distinguish PTY absent, child exited, output buffered before attach, renderer not mounted, provider launch failure, and UI connected to stale daemon. Add visible bounded states starting, reconnecting, failed with actionable retry/details, and ready so blank cannot persist silently. Enforce one authoritative running build/version/instance identity and surface/reject skew rather than attaching a 1.7.2 window to stale 1.6.2 dev. Preserve session identity and avoid duplicate provider processes on retry. Initial ownership to verify: src-tauri/src/commands/mux_commands.rs; src-tauri/src/service/pane.rs; src-tauri/src/service/pty_lifecycle.rs; src-tauri/src/service/pty_io/lifecycle.rs; src-tauri/src/service/orchestrator/launch.rs; src-tauri/src/service/orchestrator/spawn.rs; src-tauri/src/startup/servers.rs; src-tauri/src/liveness.rs; src/hooks/terminal/usePtyConnection.ts; src/components/Terminal and ChatView attachment surfaces; focused tests. Coordinate with task_523k8i close/reap ownership and task_23fywk restart/recovery ownership; do not duplicate their scopes. Branch/worktree lane/windows-launch-runtime at D:/Developer/codeterm-worktrees/windows-launch-runtime from origin/develop. Report STATUS in_review with exact call graph/files, identity mismatch evidence, state transition diagram, provider process/session evidence, and retry behavior.'
+role_guidance: 'You are Dijkstra, a Windows launch/runtime identity engineer. Trace pane creation through PTY materialization, provider spawn, first output, and xterm attachment as one bounded state machine. Red line: a blank terminal, stale-daemon attachment, duplicate provider retry, or unclassified launch failure is not acceptable.'
+executor_role: fullstack-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/windows-launch-runtime
+  branch: lane/windows-launch-runtime
+  base: origin/develop
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: windows-launch-runtime
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_l8g9q1
+  from:
+    pane_id: e88e18c8
+    session_id: null
+    title: null
+  kind: evidence
+  text: ' historical incident hypothesis added before mechanism design. Parent Claude worker markers CLAUDE_CODE_SESSION_ID, CLAUDE_CODE_CHILD_SESSION, and AI_AGENT can leak into spawned agents and suppress transcript/force child-session mode; regression must scrub them while preserving CodeTerm-owned binding vars. Required read-only commit checks: d616ef3ad PTY reader race claim stream before pane link; ba12fe3fc session binding nonce; 8b62f17a5 TUI-aware bare-shell detection; a407932ef restart contract. ROG pane 915fae8e historical evidence requested.'
+  ts: 1783658146340
+  links:
+  - key:327a892a0c397595
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_giw3p7
+  from:
+    pane_id: e88e18c8
+    session_id: null
+    title: null
+  kind: evidence
+  text: ' ROG historical report resolved. Windows ConPTY blank output fix is already in current ancestry at 671a339e47b7: remove CREATE_NO_WINDOW from pty-fork Win CreateProcessW; use STARTF_USESHOWWINDOW + SW_HIDE; regression conpty_shell_produces_output expects bytes within 8s. Also inspect d161a861 CI/CONTINUOUS_INTEGRATION stripping. Fresh fetch confirms 671a339e, 9bfe02e6 desktop spawn, and 5cbf29f6 picker hang are ancestors of origin/develop and origin/release/1.7.2-integration; no duplicate cherry-pick task. Current task must reproduce against release head and distinguish stale 1.6.2 daemon attachment, PTY byte absence, and provider env/session launch failure despite merged fixes.'
+  ts: 1783658425997
+  links:
+  - key:9f5a89dae02c1325
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_cimj3g
+  from:
+    pane_id: 62fd91e7
+    session_id: 019f4a54-1345-72e2-ae7a-9dccd6641eae
+    title: Dijkstra
+  kind: report_refused
+  text: |-
+    PARTIAL: REPORT NOT SENT
+    readiness report refused: this git worktree has uncommitted lane changes.
+    Next commands:
+      git status --short
+      git add <files>
+      git commit -m "<message>"
+      codeterm agent report --status in_review --sha $(git rev-parse HEAD) "..."
+    Or report WIP with:
+      codeterm agent report --status partial "..."
+    Dirty lane files:
+      src-tauri/crates/codeterm-pty/src/multiplexer/state/mod.rs
+      src-tauri/crates/codeterm-pty/src/multiplexer/state/pane.rs
+      src-tauri/crates/codeterm-pty/src/multiplexer/state/snapshot/mod.rs
+      src-tauri/crates/codeterm-pty/src/multiplexer/types.rs
+      src-tauri/crates/codeterm-pty/src/pty/manager.rs
+      src-tauri/crates/codeterm-types/src/pty/boot_stage.rs
+      src-tauri/src/service/boot_stage.rs
+      src-tauri/src/service/orchestrator/launch.rs
+
+    Original readiness report that was refused locally:
+    STATUS: in_review
+    CHANGES: Added AI_AGENT to the interactive PTY scrub list while preserving CodeTerm pane/session binding env; extended boot stages with pty_starting plus persisted boot_failure_reason; wired pane-boot-stage into the frontend store; TerminalPane now shows Starting/Launch failed with failure details and GA retry instead of silent blank. Evidence: direct .sh test invocation from PowerShell was the likely external-window trigger; no live WindowsTerminal/wt or failed cargo-test process remained to close; prod 7685 left untouched.
+    TESTS RUN: cargo test --manifest-path src-tauri/Cargo.toml -p codeterm-pty stripped_pty_env_drops_parent_agent_markers; cargo test --manifest-path src-tauri/Cargo.toml -p codeterm-pty conpty_shell_produces_output; cargo check --manifest-path src-tauri/Cargo.toml -p codeterm-types -p codeterm-pty; cargo fmt --manifest-path src-tauri/Cargo.toml; bash scripts/check-file-sizes.sh --fail. BLOCKED/NOT RUN: packaged candidate UI/Playwright not run; full .\\build.ps1 check reached app build.rs and failed because dist/ is absent; JS lint/typecheck blocked because node_modules/.bin lacks biome/tsc in this worktree.
+  ts: 1783658849750
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_qhzams
+  from:
+    pane_id: 62fd91e7
+    session_id: 019f4a54-1345-72e2-ae7a-9dccd6641eae
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    PARTIAL: STATUS: partial
+    CHANGES: Added AI_AGENT to the interactive PTY scrub list while preserving CodeTerm pane/session binding env; extended boot stages with pty_starting plus persisted boot_failure_reason; wired pane-boot-stage into the frontend store; TerminalPane now shows Starting/Launch failed with failure details and GA retry instead of silent blank. Evidence: direct .sh test invocation from PowerShell was the likely external-window trigger; no live WindowsTerminal/wt or failed cargo-test process remained to close; prod 7685 left untouched.
+    TESTS RUN: cargo test --manifest-path src-tauri/Cargo.toml -p codeterm-pty stripped_pty_env_drops_parent_agent_markers; cargo test --manifest-path src-tauri/Cargo.toml -p codeterm-pty conpty_shell_produces_output; cargo check --manifest-path src-tauri/Cargo.toml -p codeterm-types -p codeterm-pty; cargo fmt --manifest-path src-tauri/Cargo.toml; bash scripts/check-file-sizes.sh --fail. BLOCKED/NOT RUN: packaged candidate UI/Playwright not run; full .\\build.ps1 check reached app build.rs and failed because dist/ is absent; JS lint/typecheck blocked because node_modules/.bin lacks biome/tsc in this worktree; in_review report refused until commit/sha.
+  ts: 1783658866538
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_d3kaqo
+  from:
+    pane_id: 62fd91e7
+    session_id: 019f4a54-1345-72e2-ae7a-9dccd6641eae
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    STATUS: partial
+    CHANGES: added pane boot state hydration/failure reason persistence; scrubbed AI_AGENT with Claude parent markers while preserving CodeTerm binding vars; added visible Starting/Launch failed overlay with keyboard Retry; replaced terminal Retry with pane-scoped restart_general_agent_pane API/route/bridge guarded to reject wrong pane and no-op during launch; extended stale runtime guard to classify version skew such as 1.7.2 UI attached to 1.6.2 daemon; added reducer/event/overlay/build-mismatch/retry guard tests.
+    TESTS RUN: cargo fmt --manifest-path src-tauri/Cargo.toml; pnpm install --frozen-lockfile; pnpm exec tsx src/store/multiplexer/reducer.test.ts; pnpm exec tsx src/store/multiplexer/bootStageEvent.test.ts; pnpm exec tsx src/components/Terminal/bootOverlay.test.tsx; pnpm exec tsx src/lib/buildMismatchGuard.test.ts; pnpm exec tsc --noEmit; pnpm build; cargo test --manifest-path src-tauri/Cargo.toml -p codeterm-pty stripped_pty_env_drops_parent_agent_markers -- --nocapture; cargo test --manifest-path src-tauri/Cargo.toml -p codeterm-pty conpty_shell_produces_output -- --nocapture; cargo test --manifest-path src-tauri/Cargo.toml -p codeterm pane_scoped_retry -- --nocapture; bash scripts/check-file-sizes.sh --fail.
+    BLOCKERS: did not run packaged-candidate Windows oracle/Playwright General Agent creation because no packaged candidate path or clean test instance was provided/started in this turn; exact exited WindowsTerminal parent command cannot be recovered from live process state because Windows process audit logs contain no matching 4688/process events and the processes are gone. Current process snapshot shows no WindowsTerminal/wt process; only pre-existing cargo PID 20116 from 07:30:47 remains, not killed.
+  ts: 1783659729176
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_napr5p
+  from:
+    pane_id: watchdog
+    session_id: null
+    title: null
+  kind: decision
+  text: 'watchdog: assigned pane gone and silent for 3039537ms — demoted to pending'
+  ts: 1783662768994
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_34nada
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: BOUNCE current isolated branch still emits only four control bytes from WindowsApps pwsh and times out; require exact pwsh env/profile regression and root-cause fix
+  ts: 1783663859302
+  links:
+  - key:0c36763a79c60f3d
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_lhec9g
+  from:
+    pane_id: 62fd91e7
+    session_id: 019f4a54-1345-72e2-ae7a-9dccd6641eae
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    STATUS: partial
+    CHANGES: traced blank terminal to Windows ConPTY process std-handle inheritance and PowerShell startup, not stale daemon/UI. Restored STARTF_USESTDHANDLES with INVALID std handles while keeping SW_HIDE and no CREATE_NO_WINDOW; disabled ConPTY passthrough flags to require real shell output through the PTY; stopped adding Windows PowerShell -NoExit -Command prompt override; made WindowsApps pwsh PATH entries ineligible for default shell detection; backend pre-attach reader now answers CSI 6n and DA queries when no renderer owns the PTY. Added regressions requiring cmd.exe and PowerShell prompt bytes beyond control negotiation, plus WindowsApps rejection and cursor-query policy tests.
+    TESTS RUN: cargo fmt --manifest-path src-tauri/Cargo.toml; CODETERM_CONPTY_DIR=.cargo-target-isolated/debug/conpty/x64 cargo test --manifest-path src-tauri/Cargo.toml -p codeterm-pty conpty_cmd_produces_prompt_beyond_control_bytes -- --nocapture; CODETERM_CONPTY_DIR=.cargo-target-isolated/debug/conpty/x64 cargo test --manifest-path src-tauri/Cargo.toml -p codeterm-pty conpty_pwsh_prompt_produces_output_beyond_cursor_query -- --nocapture; CODETERM_CONPTY_DIR=.cargo-target-isolated/debug/conpty/x64 cargo test --manifest-path src-tauri/Cargo.toml -p codeterm-pty conpty_shell_does_not_spawn_legacy_child_conhost -- --nocapture; cargo test --manifest-path src-tauri/Cargo.toml -p codeterm-pty conpty_shell_produces_output -- --nocapture; cargo test --manifest-path src-tauri/Cargo.toml -p codeterm-pty windowsapps_paths_are_rejected_for_default_shell_lookup -- --nocapture; cargo test --manifest-path src-tauri/Cargo.toml -p codeterm pty_lifecycle::tests::cursor_query -- --nocapture.
+    BLOCKERS: GA API/output oracle was not rerun against the fix because isolated dev PID 57916 is still the pre-fix .cargo-target-isolated debug binary and user instructed to keep it alive. Process snapshot confirms PID 57916 remains running; no WindowsTerminal/wt processes are present. Need authorization to restart 7686 or launch a second isolated port to prove one pane-owned PTY/provider, bounded first output, Chat/Terminal shared session, and idempotent retry in the live app.
+  ts: 1783664998661
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_f58eus
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: authorized dev-only live restart/or isolated 7698 oracle for ConPTY fix; prod 7685 forbidden
+  ts: 1783665021241
+  links:
+  - key:955772e8067a70c1
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_8spz0j
+  from:
+    pane_id: 62fd91e7
+    session_id: 019f4a54-1345-72e2-ae7a-9dccd6641eae
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    STATUS: partial
+    CHANGES: fixed ConPTY std-handle regression, avoided WindowsApps pwsh default shell, removed Windows PowerShell prompt injection, answered pre-attach terminal queries, added real-prompt PTY regressions, added pane-scoped retry claim/stale PTY guard/GA agent_ready emission.
+    TESTS RUN: cargo fmt --manifest-path src-tauri/Cargo.toml; cargo check --manifest-path src-tauri/Cargo.toml -p codeterm; focused codeterm-pty conpty prompt tests and pty_lifecycle cursor-query tests earlier; live e7oracle 7698 oracle. Live oracle passes prompt/output and duplicate-provider retry, but still leaves an old OpenConsole host after retry, so packaged QA remains open.
+  ts: 1783667810168
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_rb8b0g
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: CONTINUE 7698 prompt/output and duplicate-provider retry pass, but old OpenConsole survives retry; require bounded host/job kill+reap regression and zero orphan descendants
+  ts: 1783667841518
+  links:
+  - key:2cf98e2ea554ea77
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_4lr49x
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: PAUSED concurrent Cargo sequence stopped; task_odejzc exclusively owns heavy machine gate until build isolation oracle completes
+  ts: 1783668995959
+  links:
+  - key:5225c08a4ec862ef
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_w8i878
+  from:
+    pane_id: b54aaa79
+    session_id: 019f4b50-53f5-73e2-bbb7-239267b591bf
+    title: Dijkstra
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: Preserved the dirty PTY lane and closed the remaining GA retry ownership gap. Each Windows ConPTY shell is now created suspended, assigned to a pane-scoped Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, then resumed; provider descendants inherit the job. Termination uses TerminateJobObject, closes writer/reader/channel/HPCON ownership, and exposes a PtyReaper. GA retry waits at most 5s for both job-empty and backend-reader EOF; timeout/error emits SpawnFailed with details, clears agent_booting, and does not spawn a replacement. Retry claim remains single-owner/idempotent. Spawn logs now join pty_id to child_pid. STARTF_USESTDHANDLES + STARTF_USESHOWWINDOW + SW_HIDE remain; CREATE_NO_WINDOW is absent.
+    CALL GRAPH: POST /api/agents/general/{pane_id}/restart -> claim_general_agent_pane_retry -> restart_general_agent -> PtyManager::begin_kill -> WinChild::kill/TerminateJobObject -> drop PTY pair/ClosePseudoConsole -> PtyReaper::wait_bounded(job empty + BackendReaderLease EOF) -> start_general_agent -> build_session -> PsuedoCon::spawn_command(CREATE_SUSPENDED -> AssignProcessToJobObject -> ResumeThread) -> register_session(child_pid log) -> link_pty -> backend reader -> shell/provider launch -> AgentReady.
+    STATE MACHINE: failed|idle -> claim -> PtyStarting; duplicate retry while agent_booting/launch stage -> no-op; teardown success -> PtySpawned -> ShellReady -> AgentLaunching -> AgentReady; teardown error or 5s timeout -> SpawnFailed(reason), agent_booting=false, no new provider.
+    IDENTITY EVIDENCE: supplied incident is 1.7.2 window vs API 7685 version=1.6.2 build=dev; this pane's codeterm identify returned CLI 1.7.1. No live identity probe was rerun under the source-only restriction. Existing stale-runtime guard changes were preserved.
+    CENTRAL WINDOWS QA ORACLE (run only against the packaged candidate, never prod 7685; launch candidate manually, no wt/Start-Process): set $Port to candidate port; $Health=Invoke-RestMethod http://127.0.0.1:$Port/api/health; $Daemon=(Get-NetTCPConnection -State Listen -LocalPort $Port).OwningProcess; load candidate token and set $H=@{Authorization="Bearer $Token"}; $Ga=(Invoke-RestMethod -Headers $H http://127.0.0.1:$Port/api/panes | Where-Object protected | Select-Object -First 1); capture $Before=Get-CimInstance Win32_Process | Select ProcessId,ParentProcessId,Name,CommandLine. From log record '[general-agent] PTY <pty> linked to pane <pane>' plus 'Spawned PTY <pty> ... child_pid=Some(<root>)'. Recursively walk Win32_Process ParentProcessId from <root>; require one shell root, one provider descendant, matching pane/session binding log, and exactly one OpenConsole.exe with ParentProcessId=$Daemon. POST Invoke-RestMethod -Method Post -Headers $H http://127.0.0.1:$Port/api/agents/general/$($Ga.id)/restart twice concurrently. Poll process census and logs for <=5s: first response restarted=true, second restarted=false; every old root descendant and old OpenConsole PID absent before the new child_pid appears; exactly one new OpenConsole and one provider descendant; no conhost.exe child with CommandLine '*conhost.exe 0x4*'; MainWindowHandle=0 for all new helper/provider processes. On timeout require pane boot_stage=spawn_failed with boot_failure_reason and no new root PID.
+    FILES: src-tauri/pty-fork/Cargo.toml(.orig), src-tauri/pty-fork/src/win/{mod.rs,psuedocon.rs}, src-tauri/crates/codeterm-pty/src/pty/manager.rs, src-tauri/src/service/pty_lifecycle.rs, src-tauri/src/service/general_agent/lifecycle.rs. Earlier dirty lane files for env scrub, prompt bytes, retry route, and UI state were preserved.
+    TESTS RUN: rustfmt direct --check on focused Rust sources; git diff --check; bash scripts/check-file-sizes.sh --fail; PowerShell static invariant scan for SW_HIDE/STARTF_USESTDHANDLES/CREATE_SUSPENDED/job assignment-before-resume/TerminateJobObject/bounded wait/no CREATE_NO_WINDOW. All pass.
+    NOT RUN: cargo, build, dev, Playwright, packaged candidate, or live process oracle, per explicit source-only instruction. No commit created.
+  ts: 1783675596465
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_moyoqr
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: 'Accepted after integration and real Windows WebView2 oracle: visible PowerShell prompt, Claude launch output, model banner, and interactive input render; prior CSI-only blank terminal is gone.'
+  ts: 1783689856971
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_3srgnx
+  executor_pane_id: 62fd91e7
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/windows-launch-runtime
+  worktree_path: D:/Developer/codeterm-worktrees/windows-launch-runtime
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783659729457
+    message: |-
+      STATUS: partial
+      CHANGES: added pane boot state hydration/failure reason persistence; scrubbed AI_AGENT with Claude parent markers while preserving CodeTerm binding vars; added visible Starting/Launch failed overlay with keyboard Retry; replaced terminal Retry with pane-scoped restart_general_agent_pane API/route/bridge guarded to reject wrong pane and no-op during launch; extended stale runtime guard to classify version skew such as 1.7.2 UI attached to 1.6.2 daemon; added reducer/event/overlay/build-mismatch/retry guard tests.
+      TESTS RUN: cargo fmt --manifest-path src-tauri/Cargo.toml; pnpm install --frozen-lockfile; pnpm exec tsx src/store/multiplexer/reducer.test.ts; pnpm exec tsx src/store/multiplexer/bootStageEvent.test.ts; pnpm exec tsx src/components/Terminal/bootOverlay.test.tsx; pnpm exec tsx src/lib/buildMismatchGuard.test.ts; pnpm exec tsc --noEmit; pnpm build; cargo test --manifest-path src-tauri/Cargo.toml -p codeterm-pty stripped_pty_env_drops_parent_agent_markers -- --nocapture; cargo test --manifest-path src-tauri/Cargo.toml -p codeterm-pty conpty_shell_produces_output -- --nocapture; cargo test --manifest-path src-tauri/Cargo.toml -p codeterm pane_scoped_retry -- --nocapture; bash scripts/check-file-sizes.sh --fail.
+      BLOCKERS: did not run packaged-candidate Windows oracle/Playwright General Agent creation because no packaged candidate path or clean test instance was provided/started in this turn; exact exited WindowsTerminal parent command cannot be recovered from live process state because Windows process audit logs contain no matching 4688/process events and the processes are gone. Current process snapshot shows no WindowsTerminal/wt process; only pre-existing cargo PID 20116 from 07:30:47 remains, not killed.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783658447153
+  reported_at: 1783659729457
+  reviewed_at: null
+  closed_at: 1783662768994
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_574dga
+  executor_pane_id: 62fd91e7
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.5
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/windows-launch-runtime
+  worktree_path: D:/Developer/codeterm-worktrees/windows-launch-runtime
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783667810472
+    message: |-
+      STATUS: partial
+      CHANGES: fixed ConPTY std-handle regression, avoided WindowsApps pwsh default shell, removed Windows PowerShell prompt injection, answered pre-attach terminal queries, added real-prompt PTY regressions, added pane-scoped retry claim/stale PTY guard/GA agent_ready emission.
+      TESTS RUN: cargo fmt --manifest-path src-tauri/Cargo.toml; cargo check --manifest-path src-tauri/Cargo.toml -p codeterm; focused codeterm-pty conpty prompt tests and pty_lifecycle cursor-query tests earlier; live e7oracle 7698 oracle. Live oracle passes prompt/output and duplicate-provider retry, but still leaves an old OpenConsole host after retry, so packaged QA remains open.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783663873993
+  reported_at: 1783667810472
+  reviewed_at: null
+  closed_at: 1783669854896
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_xkz6fx
+  executor_pane_id: b54aaa79
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/windows-launch-runtime
+  worktree_path: D:/Developer/codeterm-worktrees/windows-launch-runtime
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783675596738
+    message: |-
+      STATUS: in_review
+      CHANGES: Preserved the dirty PTY lane and closed the remaining GA retry ownership gap. Each Windows ConPTY shell is now created suspended, assigned to a pane-scoped Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, then resumed; provider descendants inherit the job. Termination uses TerminateJobObject, closes writer/reader/channel/HPCON ownership, and exposes a PtyReaper. GA retry waits at most 5s for both job-empty and backend-reader EOF; timeout/error emits SpawnFailed with details, clears agent_booting, and does not spawn a replacement. Retry claim remains single-owner/idempotent. Spawn logs now join pty_id to child_pid. STARTF_USESTDHANDLES + STARTF_USESHOWWINDOW + SW_HIDE remain; CREATE_NO_WINDOW is absent.
+      CALL GRAPH: POST /api/agents/general/{pane_id}/restart -> claim_general_agent_pane_retry -> restart_general_agent -> PtyManager::begin_kill -> WinChild::kill/TerminateJobObject -> drop PTY pair/ClosePseudoConsole -> PtyReaper::wait_bounded(job empty + BackendReaderLease EOF) -> start_general_agent -> build_session -> PsuedoCon::spawn_command(CREATE_SUSPENDED -> AssignProcessToJobObject -> ResumeThread) -> register_session(child_pid log) -> link_pty -> backend reader -> shell/provider launch -> AgentReady.
+      STATE MACHINE: failed|idle -> claim -> PtyStarting; duplicate retry while agent_booting/launch stage -> no-op; teardown success -> PtySpawned -> ShellReady -> AgentLaunching -> AgentReady; teardown error or 5s timeout -> SpawnFailed(reason), agent_booting=false, no new provider.
+      IDENTITY EVIDENCE: supplied incident is 1.7.2 window vs API 7685 version=1.6.2 build=dev; this pane's codeterm identify returned CLI 1.7.1. No live identity probe was rerun under the source-only restriction. Existing stale-runtime guard changes were preserved.
+      CENTRAL WINDOWS QA ORACLE (run only against the packaged candidate, never prod 7685; launch candidate manually, no wt/Start-Process): set $Port to candidate port; $Health=Invoke-RestMethod http://127.0.0.1:$Port/api/health; $Daemon=(Get-NetTCPConnection -State Listen -LocalPort $Port).OwningProcess; load candidate token and set $H=@{Authorization="Bearer $Token"}; $Ga=(Invoke-RestMethod -Headers $H http://127.0.0.1:$Port/api/panes | Where-Object protected | Select-Object -First 1); capture $Before=Get-CimInstance Win32_Process | Select ProcessId,ParentProcessId,Name,CommandLine. From log record '[general-agent] PTY <pty> linked to pane <pane>' plus 'Spawned PTY <pty> ... child_pid=Some(<root>)'. Recursively walk Win32_Process ParentProcessId from <root>; require one shell root, one provider descendant, matching pane/session binding log, and exactly one OpenConsole.exe with ParentProcessId=$Daemon. POST Invoke-RestMethod -Method Post -Headers $H http://127.0.0.1:$Port/api/agents/general/$($Ga.id)/restart twice concurrently. Poll process census and logs for <=5s: first response restarted=true, second restarted=false; every old root descendant and old OpenConsole PID absent before the new child_pid appears; exactly one new OpenConsole and one provider descendant; no conhost.exe child with CommandLine '*conhost.exe 0x4*'; MainWindowHandle=0 for all new helper/provider processes. On timeout require pane boot_stage=spawn_failed with boot_failure_reason and no new root PID.
+      FILES: src-tauri/pty-fork/Cargo.toml(.orig), src-tauri/pty-fork/src/win/{mod.rs,psuedocon.rs}, src-tauri/crates/codeterm-pty/src/pty/manager.rs, src-tauri/src/service/pty_lifecycle.rs, src-tauri/src/service/general_agent/lifecycle.rs. Earlier dirty lane files for env scrub, prompt bytes, retry route, and UI state were preserved.
+      TESTS RUN: rustfmt direct --check on focused Rust sources; git diff --check; bash scripts/check-file-sizes.sh --fail; PowerShell static invariant scan for SW_HIDE/STARTF_USESTDHANDLES/CREATE_SUSPENDED/job assignment-before-resume/TerminateJobObject/bounded wait/no CREATE_NO_WINDOW. All pass.
+      NOT RUN: cargo, build, dev, Playwright, packaged candidate, or live process oracle, per explicit source-only instruction. No commit created.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783674978762
+  reported_at: 1783675596738
+  reviewed_at: null
+  closed_at: 1783675619952
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

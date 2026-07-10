@@ -1,0 +1,68 @@
+id: task_p6kh7f
+name: Issue reconciliation
+type: verification
+model: gpt-5.4
+model_rationale: 'Routing rationale: bounded evidence reconciliation; gpt-5.4.'
+personality: Lamport
+personality_provenance: null
+acceptance_criteria:
+- Every retained item has classification, severity/blast radius, oracle output, ancestry/CI evidence, and close/follow-up action.
+test_plan: 'Oracle commands: gh issue view 230 --repo rollacode/codeterm --json number,state,url; repeat for 209,203,185,179; git log --oneline origin/develop; codeterm plan state pl_as7ty5 --json. Expected matrix agrees with live issue state/evidence.'
+correctness: 'Correctness vector: every retained issue status is traceable to a live oracle and integrated evidence; closed issues remain closed without duplicate lanes.'
+status: parked
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783631790208
+updated_at: 1783638910175
+status_changed_at: 1783638910175
+handle: issue-reconciliation-2
+tags: []
+section_ids:
+- sec_3dtg4b
+body: 'Reconcile #230/#209/#203/#185/#179 and planner/Git/plugin/model/report/doctor follow-ups; preserve seven closed issues; report final matrix and URLs. Exact file ownership: Issue evidence and integrated git metadata; no source ownership Dependencies: Depends on verification tasks, review, and integration QA; group issue-reconciliation. Report contract: report STATUS in_review, CHANGES with exact files, TESTS with exact command/output, FOLLOWUP with blockers and evidence.'
+role_guidance: 'You are Lamport, an issue reconciler. Tie each status to a live oracle. Red line: no closure on ancestry alone or duplicate closed lane.'
+executor_role: issue-reconciler
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/issue-reconciliation
+  branch: verify/issue-reconciliation
+  base: origin/develop
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: issue-reconciliation
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_zja5vq
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'parked: Unblock after CI and four issue verification tasks have verdicts.'
+  ts: 1783638910175
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts: []
+park_reason: Unblock after CI and four issue verification tasks have verdicts.
+attachments: []

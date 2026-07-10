@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SpawnIdentityProvenance {
+    #[default]
+    Suggested,
+    UserSupplied,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct BatchOp {
     pub method: String,
@@ -38,6 +46,7 @@ pub struct SpawnAgentParams {
     pub args: Option<Vec<String>>,
     pub cwd: Option<String>,
     pub title: Option<String>,
+    pub title_provenance: Option<SpawnIdentityProvenance>,
     pub description: Option<String>,
     pub role: Option<String>,
     pub role_profile: Option<String>,

@@ -1,0 +1,126 @@
+id: task_sfaz9w
+name: Final P0 race review paused conversion dirty overlay
+type: review
+model: gpt-5.6-sol
+model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and fits adversarial P0 review of concurrent transactional migration safety.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- All race, drift, journal, lock, rollback, and preserved transactional invariants are independently verified or pinpointed against the actual dirty overlay, with one ACCEPT or BOUNCE verdict and actual diff paths.
+test_plan: 'Oracle: 18 converter tests, adversarial static probes, and actual git-diff paths only. 1. Inspect git diff in the target worktree; pass: report only real changed paths and do not trust task_qdwix5 attribution. 2. Run all 18 converter tests; pass: exclusive lock, prepared-journal recovery, source hashes, duplicate/malformed audit rejection, and prior 15 invariants pass. 3. Inject drift before first replace, at files 1/2/3, and at every remaining-source boundary; pass: full-batch revalidation detects it and concurrent edits are preserved. 4. Inspect rollback journal; pass: rollback touches only files already replaced and restores them exactly. 5. Exercise prepared-journal/lock recovery; pass: stale recovery is deterministic and cannot resume against mismatched sources. 6. Run git diff --check and scripts/check-file-sizes.sh. No build/dev/Playwright/live conversion. Return file/line findings, actual diff paths, and ACCEPT/BOUNCE.'
+correctness: Exclusive race-safe conversion; drift-preserving atomic batch boundary; scoped exact rollback; truthful journal recovery; real-overlay review attribution.
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p0
+created_at: 1783681021901
+updated_at: 1783681362066
+status_changed_at: 1783681360934
+handle: final-p0-race-review-paused-conversion-dirty-overlay
+tags:
+- 1.7.2
+section_ids:
+- sec_d52ka9
+body: Final P0 read-only race review of the actual dirty overlay for task_yxlkl8 at D:/Developer/codeterm-worktrees/task-state-paused. Ignore the known-wrong readiness SHA/changed_files attributed by task_qdwix5. Do not edit source, commit, build, start dev, run Playwright, or apply live conversion. Verify exclusive migration locks, journal source hashes, full-batch pre-first-replace revalidation, remaining-source boundary revalidation, concurrent drift preservation, rollback only already-replaced files, deterministic mutation probes at files 1/2/3 and every boundary, prepared-journal/lock recovery, and unchanged prior 15 transactional invariants. Run 18 converter tests, adversarial static probes, and actual git-diff inspection. Return severity-ranked ACCEPT or BOUNCE with actual diff paths and file/line evidence.
+role_guidance: 'You are an independent final P0 read-only race reviewer. Inspect actual dirty diff and transactional race boundaries only. Red line: no edits, commits, build, dev, Playwright, or live conversion; ignore known-wrong changed-file attribution.'
+executor_role: code-reviewer
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:/Developer/codeterm-worktrees/task-state-paused
+  branch: lane/task-state-paused
+  base: origin/develop
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: planner-correctness
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_m5zzwh
+  from:
+    pane_id: 455499a8
+    session_id: 019f4bac-c31c-70f1-838f-4ba48230be27
+    title: Final P0 race review paused conversion dirty overlay
+  kind: status_update
+  text: |-
+    STATUS: done | blocked | partial
+    CHANGES: Read-only final P0 race review completed; no source edits, commits, builds, dev, Playwright, or live conversion. Verdict BOUNCE: check-to-replace drift is lost at files 1/2/3; rollback loses concurrent edits to already-replaced files at boundaries 2/3; stale prepared journal/lock has no deterministic recovery path.
+    TESTS RUN: 18/18 converter unit tests passed; adversarial temporary-directory probes reproduced all three race/recovery gaps; git diff --check passed; scripts/check-file-sizes.sh passed.
+  ts: 1783681227397
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_9bxvkn
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Race review completed with BOUNCE plus accepted remediation algorithm; close review objective and return OS-lock/atomic-replace/hash-recovery implementation to task_yxlkl8.
+  ts: 1783681360031
+  links:
+  - key:a54566be221fca16
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_ccyp1e
+  executor_pane_id: 455499a8
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/task-state-paused
+  worktree_path: D:/Developer/codeterm-worktrees/task-state-paused
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783681227735
+    message: |-
+      STATUS: done | blocked | partial
+      CHANGES: Read-only final P0 race review completed; no source edits, commits, builds, dev, Playwright, or live conversion. Verdict BOUNCE: check-to-replace drift is lost at files 1/2/3; rollback loses concurrent edits to already-replaced files at boundaries 2/3; stale prepared journal/lock has no deterministic recovery path.
+      TESTS RUN: 18/18 converter unit tests passed; adversarial temporary-directory probes reproduced all three race/recovery gaps; git diff --check passed; scripts/check-file-sizes.sh passed.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783681036753
+  reported_at: 1783681227735
+  reviewed_at: null
+  closed_at: 1783681360934
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-prod_inherited_output="$(CODETERM_API_PORT=7685 ./build.sh kill 2>&1)"
+prod_inherited_output="$(CODETERM_TEST_KILL_DRY_RUN=1 CODETERM_API_PORT=7685 ./build.sh kill 2>&1)"
 if ! grep -q "Done." <<< "$prod_inherited_output"; then
   echo "expected inherited prod port to fall back to canonical dev kill" >&2
   echo "$prod_inherited_output" >&2
@@ -37,5 +37,30 @@ if ! grep -Eq 'refusing to (target prod CodeTerm port|run kill against prod port
   echo "$named_prod_output" >&2
   exit 1
 fi
+
+default_policy="$(CODETERM_TEST_PRINT_BUILD_CACHE_POLICY=1 ./build.sh gateway-instance-policy)"
+named_policy="$(CODETERM_INSTANCE=provider-model-oracle CODETERM_API_PORT=7787 CODETERM_TEST_PRINT_BUILD_CACHE_POLICY=1 ./build.sh gateway-instance-policy)"
+grep -q "identifier=com.codeterm.dev$" <<< "$default_policy" || {
+  echo "default instance identifier changed unexpectedly" >&2
+  echo "$default_policy" >&2
+  exit 1
+}
+grep -q "identifier=com.codeterm.dev.provider.model.oracle" <<< "$named_policy" || {
+  echo "named instance must have its own WebView2 identifier" >&2
+  echo "$named_policy" >&2
+  exit 1
+}
+grep -q "api_port=7787" <<< "$named_policy" || {
+  echo "named instance must preserve requested API port" >&2
+  echo "$named_policy" >&2
+  exit 1
+}
+if grep -q "CARGO_TARGET_DIR=.*codeterm-worktrees" <<< "$named_policy"; then
+  echo "default policy must not inject a shared canonical target dir" >&2
+  echo "$named_policy" >&2
+  exit 1
+fi
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-windows-dev-cleanup-selection.ps1
 
 echo "build kill safety check passed"

@@ -1,0 +1,126 @@
+id: task_22js7m
+name: Independently review Planner request liveness recovery diff
+type: review
+model: gpt-5.6-sol
+model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and is appropriate for adversarial cross-cutting review of a P0 durable-routing diff.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- The review returns severity-ranked evidence and an ACCEPT or BOUNCE verdict for the uncommitted task_2oy6cc diff without modifying the lane.
+test_plan: 'Oracle: source-level review against the task_2oy6cc contract; no cargo/build/dev/Playwright. 1. Inspect PlannerRequest record/lifecycle and serde surfaces; pass: request_id, payload/blob, caller pane/session, accepted/progress/completed/failed states are durable and compatible. 2. Trace claim/restart/replay; pass: one atomic claim and exactly-once replay proof, including restart failure boundaries. 3. Trace routing guards and PTY send path; pass: nonce, bound session, allowed agent state, chat target, and dead-agent-to-shell rejection prove zero PTY writes. 4. Inspect payload tests/fixtures for multiline PowerShell/bash/zsh metacharacters; pass: payload stays chat data. 5. Inspect replacement/rebind and plan hydration; pass: bounded action plus preservation assertion for all pre-existing task IDs/strides. 6. Inspect status telemetry and continuation classification; pass: planner_dead, undelivered count, recovery action, and zero-worker vs QA-only distinction are observable. 7. Run only git diff --check and scripts/check-file-sizes.sh if they are non-mutating and available; report exact output. Conclude ACCEPT or BOUNCE with severity-ranked findings.'
+correctness: Independent, read-only release review; durable request truth; exactly-once replay; no fallback-shell write; lossless plan recovery; observable recovery state; explicit continuation classification.
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p0
+created_at: 1783676579554
+updated_at: 1783676896091
+status_changed_at: 1783676895187
+handle: independently-review-planner-request-liveness-recovery-diff
+tags:
+- 1.7.2
+section_ids:
+- sec_d52ka9
+body: 'Independently review only the current uncommitted diff for task_2oy6cc in D:/Developer/codeterm-worktrees/planner-request-liveness. Read-only: do not edit source, do not create commits, and do not take implementation ownership. Inspect durable PlannerRequest lifecycle and serde shape; atomic claim/exactly-once replay across restart; nonce/session/chat-target routing; dead agent-to-shell rejection with zero PTY writes; multiline PowerShell/bash/zsh payload safety; bounded replacement/rebind; plan rehydration preserving every pre-existing task ID and stride; planner_dead/undelivered/recovery telemetry; and zero-worker continuation versus QA-only classification. Return severity-ranked findings and one ACCEPT or BOUNCE verdict.'
+role_guidance: 'You are an independent read-only reviewer of the task_2oy6cc lane. Produce severity-ranked evidence and ACCEPT or BOUNCE only. Red line: no source edits, no commits, no cargo/build/dev/Playwright, and no implementation ownership.'
+executor_role: code-reviewer
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:/Developer/codeterm-worktrees/planner-request-liveness
+  branch: lane/planner-request-liveness
+  base: origin/develop
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: planner-correctness
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_6n3pib
+  from:
+    pane_id: 3b0de20f
+    session_id: 019f4b69-1f11-7ff2-aef5-6ecfd1b17bb4
+    title: Independently review Planner request liveness recovery diff
+  kind: status_update
+  text: |-
+    STATUS: done | blocked | partial
+    CHANGES: Read-only independent review completed; no source edits or commits. Verdict: BOUNCE. Blocking evidence includes moved-value compile errors in both gate transports, non-replayable InProgress crash windows, nonce-presence routing, delivery TOCTOU/ignored errors, broken clear/rebind flow, and incorrect planner_dead telemetry.
+    TESTS RUN: git diff --check (exit 0; LF-to-CRLF warnings only); scripts/check-file-sizes.sh (exit 0; no files over 1200 lines; two advisory mod.rs over 800). No cargo/build/dev/Playwright per review constraints.
+  ts: 1783676847566
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_xk474x
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Independent review completed with BOUNCE; review objective achieved. Remediation returns to task_2oy6cc.
+  ts: 1783676894370
+  links:
+  - key:5cedd12cc56fae97
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_093gvk
+  executor_pane_id: 3b0de20f
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-request-liveness
+  worktree_path: D:/Developer/codeterm-worktrees/planner-request-liveness
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783676847842
+    message: |-
+      STATUS: done | blocked | partial
+      CHANGES: Read-only independent review completed; no source edits or commits. Verdict: BOUNCE. Blocking evidence includes moved-value compile errors in both gate transports, non-replayable InProgress crash windows, nonce-presence routing, delivery TOCTOU/ignored errors, broken clear/rebind flow, and incorrect planner_dead telemetry.
+      TESTS RUN: git diff --check (exit 0; LF-to-CRLF warnings only); scripts/check-file-sizes.sh (exit 0; no files over 1200 lines; two advisory mod.rs over 800). No cargo/build/dev/Playwright per review constraints.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783676603911
+  reported_at: 1783676847842
+  reviewed_at: null
+  closed_at: 1783676895187
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

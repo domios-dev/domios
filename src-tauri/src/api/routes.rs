@@ -107,6 +107,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/plans",
             get(plan_routes::list).post(plan_routes::create),
         )
+        .route("/api/plans/resolve-refs", post(plan_routes::resolve_refs))
         .route(
             "/api/specs",
             get(plan_routes::spec::list).post(plan_routes::spec::create),
@@ -744,6 +745,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/agents/general/restart",
             post(agent_routes::restart_general_agent),
+        )
+        .route(
+            "/api/agents/general/{pane_id}/restart",
+            post(agent_routes::restart_general_agent_pane),
         )
         .route(
             "/api/agents/general/complete-first-run",

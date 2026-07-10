@@ -1,0 +1,1 @@
+1.6.3 stability work must add automated gates for Windows shell storms and web capability gating where practical. GitHub issues should be updated or created with evidence, not speculation. 1.6.3 naming must be kept separate from parallel 1.6.2 canvas work.

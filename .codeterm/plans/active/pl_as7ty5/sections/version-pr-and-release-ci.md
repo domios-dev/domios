@@ -1,0 +1,1 @@
+After accepted integration and issue reconciliation, prepare version/release metadata only when discovery proves a source change is needed. Do not commit, push, tag, or publish without explicit user authorization. CI and self-hosted release machines perform build, signing, notarization, and publishing; require the GitHub CI matrix.

@@ -33,6 +33,7 @@ fn add_child(store: &PlanStore, plan_id: &str, parent_id: &str) -> String {
                 name: "child".into(),
                 kind: "implement".into(),
                 parent_task_id: Some(parent_id.into()),
+                depends_on: vec![],
                 competition: None,
                 ..Default::default()
             },

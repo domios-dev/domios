@@ -1,0 +1,238 @@
+id: task_6761hn
+name: Bound shared chat tool-output cards and normalize transport envelopes
+type: implement
+model: gpt-5.6-terra
+model_rationale: GPT-5.6 Terra is the verified default for shared Chat/Terminal renderer parity and responsive accessibility work; inherit task model without dispatch override.
+personality: Hopper
+personality_provenance: null
+acceptance_criteria:
+- At exact 959x279, long unbroken JSON is rendered in a deliberate collapsed representation of at most two visual lines with ellipsis/chevron and an accessible Expand control; it is never silently hard-clipped.
+- At a narrower mobile viewport, min-width:0 and overflow rules prevent horizontal overflow, overlap, and layout shift while preserving the same compact affordance.
+- Keyboard and pointer expansion expose the complete original payload in a bounded internally scrollable region; collapse restores the compact representation.
+- Copy full output returns the exact complete stored payload, while accessibility text, error detection, and structured exit/status metadata remain intact.
+- The shared renderer behavior is covered for exec/wait, SSH, mesh, and plugin cards, with lifecycle semantics delegated to task_j97631 and no ownership overlap.
+- Focused Playwright, diff, and file-size checks pass in remote/isolated QA.
+test_plan: 'Oracle: focused Playwright UI spec and screenshot/golden at exact 959x279 Mac-Air shell dimensions plus a narrower mobile viewport. 1. Render a one-line result and a long unbroken JSON tool-call payload in the shared card; pass: one-line output remains unchanged, long collapsed content is exactly at most two visual lines with ellipsis/chevron and a visible Expand control, no hard clip or overflow. 2. Set viewport to 959x279 and then the specified mobile width; pass: min-width:0, white-space/overflow/text-overflow behavior prevents horizontal overflow, overlap, or layout shift. 3. Activate Expand with mouse and keyboard; pass: control has accessible name/state, focus is visible, expanded payload contains the complete original JSON in a bounded internal-scroll region, and collapse restores compact state. 4. Activate Copy full output; pass: clipboard payload exactly equals the stored untruncated result. 5. Cover success, failure, timeout, and tool-call cards for exec/wait, SSH, mesh, and plugin variants; pass: structured exit/status metadata remains outside the collapsed body and error detection is unchanged. 6. Run the focused Playwright command: npx playwright test tests/playwright/suites/16-chat-view/tool-output-cards.spec.ts --config=tests/playwright/playwright.config.ts --project=golden; pass: all selectors and layout assertions pass at desktop and mobile widths. 7. Run git diff --check and scripts/check-file-sizes.sh; pass: both exit 0. Heavy UI QA remains remote/isolated and no local release build is run.'
+correctness: No payload truncation in storage/accessibility/error detection/copy; collapsed visual bound <=2 lines; complete expanded payload; keyboard accessibility; no overflow/layout shift at 959px and mobile; stable lifecycle/status metadata; shared renderer parity across tool surfaces; renderer-only ownership.
+status: done
+review_stage: review
+qa_state: null
+status_label: pane-gone
+priority: p2
+created_at: 1783657255013
+updated_at: 1783694713713
+status_changed_at: 1783694704090
+handle: bound-shared-chat-tool-output-cards-and-normalize-transport-envelopes
+tags: []
+section_ids:
+- sec_rlqrqc
+body: Own only shared tool-output card rendering and its focused UI tests/styles. Preserve the existing dependency on task_j97631 for terminal lifecycle semantics. For collapsed shell tool-call rows, render a deliberate compact representation of at most two visual text lines with a visible ellipsis/chevron and an explicit accessible Expand control; never hard-clip long JSON without affordance. Expanded state must expose the complete stored payload in a height-bounded internally scrollable region with Copy full output, without truncating or mutating the payload used for accessibility, error detection, or copying. Cover exec/wait, SSH, mesh, and plugin tool cards through the shared renderer. Own only src/components/AgentRun/EventRenderer.tsx, the shared output-card component/styles, and focused tests; do not edit streamParser/useAgentRunStream, outputStream, ChatComposer, or multiplexer stores.
+role_guidance: 'You are Hopper, a dense operational chat UI engineer. Bound rendered output without losing data, metadata, accessibility, error detection, or copy payload across every tool transport. Red line: truncating stored output, hiding failures, or implementing a one-off card path fails.'
+executor_role: frontend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/chat-tool-output-cards
+  branch: lane/chat-tool-output-cards
+  base: origin/develop
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: chat-output-ux
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_5i1sse
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: evidence
+  text: Mac-Air 959px collapsed shell tool row hard-clips long JSON; require two-line ellipsis plus accessible expand and complete non-overflow expanded payload at desktop/narrow widths
+  ts: 1783664472968
+  links:
+  - key:1ece620bfdbc3af4
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_o7lbvi
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: evidence
+  text: 'Same Mac live event differs across Chat 1289x952 and Terminal 1027x849: Chat clips raw shell prefix and loses +12-lines/status cue; require adapter parity for tool name, bounded preview, line-count cue, result state, discoverable keyboard/pointer expansion, full payload/result, and Working-state layout'
+  ts: 1783664581280
+  links:
+  - key:fc2b578804e98a65
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_0d3kjy
+  from:
+    pane_id: e9787bf8
+    session_id: 019f4b4c-3350-7341-b1e7-6e6d9b25951d
+    title: Hopper
+  kind: status_update
+  text: |-
+    PARTIAL: STATUS: partial
+    CHANGES: Added shared transport-agnostic ToolOutputCard and routed AgentRun tool calls/results through it. Collapsed payloads use a two-line, overflow-safe preview with visible ellipsis/chevron and accessible Expand; expanded payloads retain full original text in a bounded internal scroller with exact Copy full output. Structured envelopes are serialized without dropping metadata; status/error remains in the card header. Added focused DOM/source coverage for exec/wait, SSH, mesh, plugin envelopes, expand/collapse, and exact copy.
+    TESTS RUN: git diff --check (passed). Focused npx tsx src/components/AgentRun/ToolOutputCard.test.tsx could not run because this checkout has no node_modules/happy-dom (MODULE_NOT_FOUND). scripts/check-file-sizes.sh was attempted but did not complete within the 30s source-only command bound. No cargo/build/dev/Playwright run; no commit.
+    CENTRALIZED VISUAL QA REQUIRED: Run tests/playwright/suites/16-chat-view/tool-output-cards.spec.ts at 959x279 and mobile; assert two visual preview lines, no horizontal overflow/layout shift, visible keyboard focus, full bounded scroll content after pointer/keyboard expand, exact clipboard payload, and success/failure/timeout coverage across exec/wait, SSH, mesh, and plugin transports.
+  ts: 1783675151009
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_tc15g7
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'UI Golden BOUNCE before execution: required tests/playwright/suites/16-chat-view/tool-output-cards.spec.ts is absent from lane overlay. Add the exact 959x279/mobile pointer+keyboard expand/copy/status spec; no new review round.'
+  ts: 1783688396585
+  links:
+  - key:2f3cefc10f6e2a26
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_2afi27
+  from:
+    pane_id: 21011e5a
+    session_id: 019f4c1d-1183-7ec0-8309-24b1d3191b3f
+    title: bound tool output cards
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: Added tests/playwright/suites/16-chat-view/tool-output-cards.spec.ts. It mounts the existing shared ToolOutputCard via Vite and covers exact 959x279 plus mobile bounded previews, pointer/keyboard expand/collapse, exact clipboard payload, and exec/wait/SSH/mesh/plugin with success/failure/timeout states. Existing implementation files were left untouched in this correction scope.
+    TESTS RUN: git diff --check (passed); scripts/check-file-sizes.sh (passed); TypeScript check skipped because node_modules is absent. Per instruction, no dev/build/Cargo/Playwright run and no commit.
+  ts: 1783688532584
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_je9t7u
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: 'ACCEPT: worker added bounded ToolOutputCard Playwright coverage after the orchestrator pre-bounce; git diff --check and file-size checks passed, and the prior instruction explicitly required no new review round.'
+  ts: 1783694704090
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_xpgs0n
+  executor_pane_id: e9787bf8
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-terra
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/chat-tool-output-cards
+  worktree_path: D:/Developer/codeterm-worktrees/chat-tool-output-cards
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783675151345
+    message: |-
+      STATUS: partial
+      CHANGES: Added shared transport-agnostic ToolOutputCard and routed AgentRun tool calls/results through it. Collapsed payloads use a two-line, overflow-safe preview with visible ellipsis/chevron and accessible Expand; expanded payloads retain full original text in a bounded internal scroller with exact Copy full output. Structured envelopes are serialized without dropping metadata; status/error remains in the card header. Added focused DOM/source coverage for exec/wait, SSH, mesh, plugin envelopes, expand/collapse, and exact copy.
+      TESTS RUN: git diff --check (passed). Focused npx tsx src/components/AgentRun/ToolOutputCard.test.tsx could not run because this checkout has no node_modules/happy-dom (MODULE_NOT_FOUND). scripts/check-file-sizes.sh was attempted but did not complete within the 30s source-only command bound. No cargo/build/dev/Playwright run; no commit.
+      CENTRALIZED VISUAL QA REQUIRED: Run tests/playwright/suites/16-chat-view/tool-output-cards.spec.ts at 959x279 and mobile; assert two visual preview lines, no horizontal overflow/layout shift, visible keyboard focus, full bounded scroll content after pointer/keyboard expand, exact clipboard payload, and success/failure/timeout coverage across exec/wait, SSH, mesh, and plugin transports.
+    status: partial
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783674708700
+  reported_at: 1783675151345
+  reviewed_at: null
+  closed_at: 1783675271792
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_px87od
+  executor_pane_id: 21011e5a
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-terra
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/chat-tool-output-cards
+  worktree_path: D:/Developer/codeterm-worktrees/chat-tool-output-cards
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783688532892
+    message: |-
+      STATUS: done
+      CHANGES: Added tests/playwright/suites/16-chat-view/tool-output-cards.spec.ts. It mounts the existing shared ToolOutputCard via Vite and covers exact 959x279 plus mobile bounded previews, pointer/keyboard expand/collapse, exact clipboard payload, and exec/wait/SSH/mesh/plugin with success/failure/timeout states. Existing implementation files were left untouched in this correction scope.
+      TESTS RUN: git diff --check (passed); scripts/check-file-sizes.sh (passed); TypeScript check skipped because node_modules is absent. Per instruction, no dev/build/Cargo/Playwright run and no commit.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783688396925
+  reported_at: 1783688532892
+  reviewed_at: null
+  closed_at: 1783688547563
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

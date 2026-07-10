@@ -1,0 +1,126 @@
+id: task_nc4ju1
+name: Delta-review corrected autoresearch prompt contract
+type: review
+model: gpt-5.6-sol
+model_rationale: GPT-5.6 Sol is available in the discovered Codex catalog and is suitable for independent adversarial review of prompt contract and deterministic evaluation evidence.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- Every prior BOUNCE concern is verified against commit c87a63b0b with exact file/line evidence, and the review returns one severity-ranked ACCEPT or BOUNCE without modifying the lane.
+test_plan: 'Oracle: deterministic prompt fixtures and static diff review only. 1. Inspect prompt/schema and F1-F10 fixtures; pass: trigger, question, hypothesis, numeric budget, and evidence are complete and expected outputs are immutable/exact. 2. Run controlled mutation-negative fixture; pass: the oracle rejects the deliberate defect, proving sensitivity. 3. Verify F5-F9 coverage and inspect prompt authority/word growth; pass: no self-instructing or bloat-only substitute for contract fields. 4. Run deterministic prompt fixture scripts plus docs loader check; pass: loader claims match actual source. 5. Scan tests for tautological substring/CRLF-only assertions; pass: none serve as acceptance proof. 6. Diff LoopSpec/runtime-store surfaces; pass: no semantic change. 7. Run git diff --check and scripts/check-file-sizes.sh only; no cargo/build/dev/Playwright. Return ACCEPT or BOUNCE with severity findings and file/line evidence.'
+correctness: Immutable sensitive prompt oracles; complete contract schema; accurate loader documentation; no tautological tests; no unrelated LoopSpec/runtime-store semantic drift.
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783678095116
+updated_at: 1783678251716
+status_changed_at: 1783678250816
+handle: delta-review-corrected-autoresearch-prompt-contract
+tags:
+- 1.7.2
+section_ids:
+- sec_d52ka9
+body: 'Read-only delta review of corrected task_3m6vai commit c87a63b0b in D:/Developer/codeterm-worktrees/autoresearch-prompt-contract. Recheck every prior BOUNCE: complete trigger/question/hypothesis/numeric-budget/evidence schema; immutable exact F1-F10 expected outputs; controlled mutation-negative sensitivity; F5-F9 completeness; prompt authority and bloat; corrected loader documentation; absence of tautological substring/CRLF checks; and no LoopSpec/runtime-store semantic changes. Do not edit source, commit, build, start dev, or run Playwright. Run deterministic prompt-fixture scripts and non-heavy checks only. Return severity-ranked ACCEPT or BOUNCE with exact file/line findings.'
+role_guidance: 'You are an independent read-only prompt-contract reviewer. Recheck every prior BOUNCE against commit c87a63b0b with deterministic evidence. Red line: no source edits, commits, build, dev, or Playwright.'
+executor_role: code-reviewer
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:/Developer/codeterm-worktrees/autoresearch-prompt-contract
+  branch: lane/autoresearch-prompt-contract
+  base: origin/develop
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: autoresearch-prompt-contract
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_cjvvsc
+  from:
+    pane_id: 3fc59cee
+    session_id: 019f4b80-1ae4-7a61-b2e2-bde56336504a
+    title: Delta-review corrected autoresearch prompt contract
+  kind: status_update
+  text: |-
+    STATUS: done
+    CHANGES: Read-only review; no files modified. BOUNCE: docs/PROMPTS.md retains false centralized-loader claims at lines 13, 26, and 90 despite split loaders; scripts/test-plan-strides-union-merge.sh retains a tautological synthetic CRLF check at lines 91-96.
+    TESTS RUN: evals/prompt-contract/run.sh PASS; scripts/check-prompts-doc.sh PASS; git diff --check PASS; scripts/check-file-sizes.sh --fail PASS; static diff confirms LoopSpec/runtime-store production semantics unchanged.
+  ts: 1783678234774
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_ede7ft
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Independent delta review completed with BOUNCE; close review task and return two scoped remediation items to task_3m6vai.
+  ts: 1783678250027
+  links:
+  - key:515af583c31728a5
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_4dbluv
+  executor_pane_id: 3fc59cee
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/autoresearch-prompt-contract
+  worktree_path: D:/Developer/codeterm-worktrees/autoresearch-prompt-contract
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783678235061
+    message: |-
+      STATUS: done
+      CHANGES: Read-only review; no files modified. BOUNCE: docs/PROMPTS.md retains false centralized-loader claims at lines 13, 26, and 90 despite split loaders; scripts/test-plan-strides-union-merge.sh retains a tautological synthetic CRLF check at lines 91-96.
+      TESTS RUN: evals/prompt-contract/run.sh PASS; scripts/check-prompts-doc.sh PASS; git diff --check PASS; scripts/check-file-sizes.sh --fail PASS; static diff confirms LoopSpec/runtime-store production semantics unchanged.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783678110120
+  reported_at: 1783678235061
+  reviewed_at: null
+  closed_at: 1783678250816
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

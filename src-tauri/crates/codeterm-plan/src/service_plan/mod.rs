@@ -25,6 +25,7 @@ pub mod next_actions;
 pub mod paths;
 pub mod peer_mandate;
 pub mod plan_skills;
+pub mod planner_requests;
 pub mod ports;
 pub mod prompts_plan;
 pub mod qa;

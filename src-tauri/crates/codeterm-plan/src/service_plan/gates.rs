@@ -1,12 +1,74 @@
 use crate::plan::gates::{DecisionGate, GateAnswer, GateStatus, STALE_GATE_MS};
 use crate::plan::ids::mint_id;
-use crate::plan::{AgentRef, Milestone, TaskStatus};
+use crate::plan::{
+    AgentRef, Milestone, PlannerDeliveryPhase, PlannerInboxEntry, PlannerRequest,
+    PlannerRequestState, TaskStatus,
+};
 
 use super::mutations::plan_contains_id;
 use super::{PlanError, PlanStore};
 
 fn gate_id_taken(plan: &crate::plan::Plan, candidate: &str) -> bool {
     plan_contains_id(plan, candidate) || plan.gates.iter().any(|g| g.id == candidate)
+}
+
+fn create_gate(
+    plan: &mut crate::plan::Plan,
+    question: &str,
+    context: &str,
+    blocking_task_ids: &[String],
+    routed_to_pane_id: Option<String>,
+    asked_by_pane_id: Option<&str>,
+    now_ms: u64,
+) -> DecisionGate {
+    let gid = mint_id("gate", |candidate| gate_id_taken(plan, candidate));
+    let park_reason = format!(
+        "gate:{gid}: {}",
+        question.chars().take(80).collect::<String>()
+    );
+    for task_id in blocking_task_ids {
+        let milestone_id = mint_id("ms", |candidate| plan_contains_id(plan, candidate));
+        if let Some(task) = plan
+            .tasks
+            .iter_mut()
+            .find(|task| &task.id == task_id || task.handle.as_deref() == Some(task_id))
+        {
+            if !task.status.is_terminal() {
+                task.status = TaskStatus::Parked;
+                task.park_reason = Some(park_reason.clone());
+                task.status_changed_at = now_ms;
+                task.updated_at = now_ms;
+                task.milestones.push(Milestone {
+                    id: milestone_id,
+                    from: AgentRef::from_pane(asked_by_pane_id.unwrap_or("orchestrator")),
+                    kind: "decision".into(),
+                    text: format!("parked: {park_reason}"),
+                    ts: now_ms,
+                    links: vec![],
+                    loop_id: None,
+                    iteration: None,
+                    canvas: Default::default(),
+                    attachments: vec![],
+                });
+            }
+        }
+    }
+
+    let gate = DecisionGate {
+        id: gid,
+        question: question.to_string(),
+        context: context.trim().to_string(),
+        blocking_task_ids: blocking_task_ids.to_vec(),
+        routed_to_pane_id,
+        asked_by_pane_id: asked_by_pane_id.map(str::to_string),
+        asked_at: now_ms,
+        status: GateStatus::Open,
+        answer: None,
+        escalated_at: None,
+        escalation_note: None,
+    };
+    plan.gates.push(gate.clone());
+    gate
 }
 
 /// Create a decision gate, park all `blocking_task_ids`, and return the gate.
@@ -27,61 +89,77 @@ impl PlanStore {
         if question.is_empty() {
             return Err(PlanError::GateRequiresQuestion);
         }
-        let mut result: Option<DecisionGate> = None;
         self.with_plan(plan_id, now_ms, |plan| {
-            let gid = mint_id("gate", |c| gate_id_taken(plan, c));
+            Ok(create_gate(
+                plan,
+                question,
+                context,
+                blocking_task_ids,
+                routed_to_pane_id,
+                asked_by_pane_id,
+                now_ms,
+            ))
+        })
+    }
 
-            // Park blocking tasks.
-            let park_reason = format!(
-                "gate:{gid}: {}",
-                question.chars().take(80).collect::<String>()
+    pub fn ask_gate_with_planner_request(
+        &self,
+        plan_id: &str,
+        question: &str,
+        context: &str,
+        blocking_task_ids: &[String],
+        routed_to_pane_id: Option<String>,
+        asked_by_pane_id: Option<&str>,
+        caller_session_id: Option<&str>,
+        now_ms: u64,
+    ) -> Result<(DecisionGate, PlannerRequest), PlanError> {
+        let question = question.trim();
+        if question.is_empty() {
+            return Err(PlanError::GateRequiresQuestion);
+        }
+        self.with_plan(plan_id, now_ms, |plan| {
+            let gate = create_gate(
+                plan,
+                question,
+                context,
+                blocking_task_ids,
+                routed_to_pane_id,
+                asked_by_pane_id,
+                now_ms,
             );
-            for tid in blocking_task_ids {
-                let mid = mint_id("ms", |c| plan_contains_id(plan, c));
-                if let Some(task) = plan
-                    .tasks
-                    .iter_mut()
-                    .find(|t| &t.id == tid || t.handle.as_deref() == Some(tid))
-                {
-                    if !task.status.is_terminal() {
-                        task.status = TaskStatus::Parked;
-                        task.park_reason = Some(park_reason.clone());
-                        task.status_changed_at = now_ms;
-                        task.updated_at = now_ms;
-                        task.milestones.push(Milestone {
-                            id: mid,
-                            from: AgentRef::from_pane(asked_by_pane_id.unwrap_or("orchestrator")),
-                            kind: "decision".into(),
-                            text: format!("parked: {park_reason}"),
-                            ts: now_ms,
-                            links: vec![],
-                            loop_id: None,
-                            iteration: None,
-                            canvas: Default::default(),
-                            attachments: vec![],
-                        });
-                    }
-                }
-            }
-
-            let gate = DecisionGate {
-                id: gid,
-                question: question.to_string(),
-                context: context.trim().to_string(),
-                blocking_task_ids: blocking_task_ids.to_vec(),
-                routed_to_pane_id: routed_to_pane_id.clone(),
-                asked_by_pane_id: asked_by_pane_id.map(str::to_string),
-                asked_at: now_ms,
-                status: GateStatus::Open,
-                answer: None,
-                escalated_at: None,
-                escalation_note: None,
+            let request = PlannerRequest {
+                request_id: format!("gate:{}", gate.id),
+                payload: format!(
+                    "[decision gate {}]\n{}\n{}\n\nAnswer with:\ncodeterm plan decision answer {} {} --answer \"<your answer>\"",
+                    gate.id, gate.question, context, plan_id, gate.id
+                ),
+                payload_blob: None,
+                caller_pane_id: asked_by_pane_id.map(str::to_string),
+                caller_session_id: caller_session_id.map(str::to_string),
+                state: PlannerRequestState::Queued,
+                created_at: now_ms,
+                accepted_at: None,
+                lease_expires_at: None,
+                delivery_attempts: 0,
+                completed_at: None,
+                failed_at: None,
+                delivered_to_pane_id: None,
+                delivered_to_session_id: None,
+                delivered_with_binding_nonce: None,
             };
-            plan.gates.push(gate.clone());
-            result = Some(gate);
-            Ok(())
-        })?;
-        result.ok_or_else(|| PlanError::Io("ask_gate produced no result".into()))
+            plan.planner_requests.push(request.clone());
+            plan.planner_inbox.push(PlannerInboxEntry {
+                request_id: request.request_id.clone(),
+                phase: PlannerDeliveryPhase::PreSend,
+                pane_id: None,
+                session_id: None,
+                binding_nonce: None,
+                transport: None,
+                last_error: None,
+                updated_at: now_ms,
+            });
+            Ok((gate, request))
+        })
     }
 
     /// Record an answer, unpark blocking tasks, return the updated gate.
@@ -344,6 +422,33 @@ mod tests {
     }
 
     #[test]
+    fn gate_and_durable_request_share_one_plan_mutation() {
+        let (_dir, store, plan_id, task_ids) = store_with_tasks(&["blocked-task"]);
+        let (gate, request) = store
+            .ask_gate_with_planner_request(
+                &plan_id,
+                "Audit the model?",
+                "- preserve `ticks`\n- reject <nonexistent>",
+                &task_ids,
+                Some("planner".into()),
+                Some("caller"),
+                Some("caller-session"),
+                1000,
+            )
+            .unwrap();
+
+        let plan = store.get(&plan_id).unwrap();
+        assert_eq!(plan.gates.len(), 1);
+        assert_eq!(plan.planner_requests.len(), 1);
+        assert_eq!(plan.planner_inbox.len(), 1);
+        assert_eq!(request.request_id, format!("gate:{}", gate.id));
+        assert_eq!(plan.planner_requests[0], request);
+        assert_eq!(plan.planner_inbox[0].request_id, request.request_id);
+        assert!(request.payload.contains("- preserve `ticks`"));
+        assert_eq!(plan.tasks[0].status, TaskStatus::Parked);
+    }
+
+    #[test]
     fn answer_gate_unparks_tasks_and_is_immutable() {
         let (_dir, store, pid, tids) = store_with_tasks(&["blocked-task"]);
         let t1 = tids[0].clone();
@@ -406,6 +511,7 @@ mod tests {
             status: TaskStatus::Parked,
             park_reason: None,
             personality: None,
+            personality_provenance: None,
             model: None,
             model_rationale: None,
             acceptance_criteria: vec![],
@@ -427,6 +533,7 @@ mod tests {
             competition: None,
             intent: None,
             parent_task_id: None,
+            depends_on: vec![],
             assigned_pane_id: None,
             lane: Default::default(),
             taken_by_role: None,

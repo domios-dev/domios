@@ -1,0 +1,492 @@
+id: task_0m0g0y
+name: Fix present-idle planner resolution
+type: implement
+model: gpt-5.4-mini
+model_rationale: 'Routing rationale: narrow Rust conditional and regression task; gpt-5.4-mini is sufficient and efficient.'
+personality: Lamport
+personality_provenance: null
+acceptance_criteria:
+- Present idle pane resolves as planner; absent pane falls back with explicit reason; active behavior unchanged.
+test_plan: 'Oracle command: cargo test -p codeterm-plan peer -- --nocapture. Expected: present-idle and absent-pane cases pass; capture codeterm plan state pl_as7ty5 --json.'
+correctness: 'Correctness vector: resolver distinguishes pane existence from live-agent status; present idle resolves planner, absent resolves explicit orchestrator fallback, active behavior is unchanged.'
+status: done
+review_stage: review
+qa_state: null
+status_label: pane-gone
+priority: p2
+created_at: 1783631779621
+updated_at: 1783688371384
+status_changed_at: 1783688371384
+handle: fix-present-idle-planner-resolution
+tags: []
+section_ids:
+- sec_rlqrqc
+body: 'Make planner resolution distinguish existing idle pane from absent pane; report both regression results and exact state output. Exact file ownership: src-tauri/crates/codeterm-plan/src/plan/peer.rs; peer resolution unit/service tests Dependencies: Discovery task_2y4p6q; group planner-correctness. Report contract: report STATUS in_review, CHANGES with exact files, TESTS with exact command/output, FOLLOWUP with blockers and evidence.'
+role_guidance: 'You are Lamport, a state-machine correctness engineer. Change only resolver semantics and tests. Red line: an existing idle planner cannot be reported absent.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: release-1.7.2-integration
+  worktree_path: D:/Developer/codeterm-worktrees/planner-resolution-ci2
+  branch: lane/planner-resolution-ci2
+  base: release/1.7.2-integration
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: worker
+peer: null
+group: planner-correctness
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_j39kae
+  from:
+    pane_id: cb7efbf3
+    session_id: 019f48d3-0a87-73f1-8960-bdad9081f4b7
+    title: Lamport planner resolution followup
+  kind: report_refused
+  text: |-
+    PARTIAL: REPORT NOT SENT
+    readiness report refused: this git worktree has uncommitted lane changes.
+    Next commands:
+      git status --short
+      git add <files>
+      git commit -m "<message>"
+      codeterm agent report --status in_review --sha $(git rev-parse HEAD) "..."
+    Or report WIP with:
+      codeterm agent report --status partial "..."
+    Dirty lane files:
+      src-tauri/crates/codeterm-plan/src/plan/peer.rs
+
+    Original readiness report that was refused locally:
+    STATUS: in_review
+    CHANGES: src-tauri/crates/codeterm-plan/src/plan/peer.rs - resolve_planner_ref now classifies any existing pane as Planner, only genuinely absent panes fall back to OrchestratorFallback with reason "planner pane {pane_id} absent"; tests now cover idle-but-present vs gone and assert exact serde_json state output for both variants.
+    BUILD/TYPECHECK/TESTS: rustfmt src-tauri/crates/codeterm-plan/src/plan/peer.rs (passed; rustfmt emitted only the existing LF->CRLF working-copy warning). No cargo/build/test runs per worker constraint.
+    FOLLOWUP: CI should validate the changed resolver semantics against the peer-resolution unit/service test surface; I did not run broader verification locally.
+    GATES REQUESTED: codeterm lane CI / targeted cargo test for codeterm-plan peer-resolution tests in a warm checkout, plus any downstream service-plan test slice that exercises resolve_planner_pane.
+  ts: 1783633319789
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_jprqh5
+  from:
+    pane_id: cb7efbf3
+    session_id: 019f48d3-0a87-73f1-8960-bdad9081f4b7
+    title: Lamport planner resolution followup
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: src-tauri/crates/codeterm-plan/src/plan/peer.rs - resolve_planner_ref now classifies any existing pane as Planner, only genuinely absent panes fall back to OrchestratorFallback with reason "planner pane {pane_id} absent"; tests now cover idle-but-present vs gone and assert exact serde_json state output for both variants.
+    BUILD/TYPECHECK/TESTS: rustfmt src-tauri/crates/codeterm-plan/src/plan/peer.rs (passed; rustfmt emitted only the existing LF->CRLF working-copy warning). No cargo/build/test runs per worker constraint.
+    FOLLOWUP: CI should validate the changed resolver semantics against the peer-resolution unit/service test surface; I did not run broader verification locally.
+    GATES REQUESTED: codeterm lane CI / targeted cargo test for codeterm-plan peer-resolution tests in a warm checkout, plus any downstream service-plan test slice that exercises resolve_planner_pane.
+  ts: 1783633335854
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_jqrwl3
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: 'ACCEPT source semantics: present idle pane resolves Planner, absent pane falls back with exact reason; rustfmt passed, cargo deferred to CI. Request scoped commit.'
+  ts: 1783633396240
+  links:
+  - key:2c94d95d198f2a74
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_rj0xiy
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: qa
+  text: 'enqueue: Source accepted and merged; rustfmt passed; remote targeted cargo test required'
+  ts: 1783633455989
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_jujd5m
+  from:
+    pane_id: 3eb9dbd1
+    session_id: 019f492d-3874-7402-b36e-b561ff450dc3
+    title: Lamport peer CI fix
+  kind: report_refused
+  text: |-
+    PARTIAL: REPORT NOT SENT
+    readiness report refused: this git worktree has uncommitted lane changes.
+    Next commands:
+      git status --short
+      git add <files>
+      git commit -m "<message>"
+      codeterm agent report --status in_review --sha $(git rev-parse HEAD) "..."
+    Or report WIP with:
+      codeterm agent report --status partial "..."
+    Dirty lane files:
+      src-tauri/crates/codeterm-plan/src/plan/peer.rs
+
+    Original readiness report that was refused locally:
+    STATUS: in_review
+    CHANGES: src-tauri/crates/codeterm-plan/src/plan/peer.rs - updated peer-resolution tests to borrow pane_id and reason inside matches! so the idle-present and absent cases compile without moving values; resolver semantics remain unchanged and still distinguish a live-but-idle planner pane from an absent pane.
+    BUILD/TYPECHECK/TESTS: rustfmt src-tauri/crates/codeterm-plan/src/plan/peer.rs (passed). No cargo/build/test runs per lane constraint.
+    FOLLOWUP: CI should run targeted codeterm-plan peer-resolution tests and any downstream service-plan slice that exercises resolve_planner_pane to confirm the existing idle planner resolves as Planner and only the absent case falls back with reason "planner pane {pane_id} absent".
+  ts: 1783639200588
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_kiz16x
+  from:
+    pane_id: 3eb9dbd1
+    session_id: 019f492d-3874-7402-b36e-b561ff450dc3
+    title: Lamport peer CI fix
+  kind: status_update
+  text: |-
+    PARTIAL: STATUS: partial
+    CHANGES: src-tauri/crates/codeterm-plan/src/plan/peer.rs - updated peer-resolution tests to borrow pane_id and reason inside matches! so the idle-present and absent cases compile without moving values; resolver semantics remain unchanged and still distinguish a live-but-idle planner pane from an absent pane.
+    BUILD/TYPECHECK/TESTS: rustfmt src-tauri/crates/codeterm-plan/src/plan/peer.rs (passed). No cargo/build/test runs per lane constraint.
+    FOLLOWUP: CI should run targeted codeterm-plan peer-resolution tests and any downstream service-plan slice that exercises resolve_planner_pane to confirm the existing idle planner resolves as Planner and only the absent case falls back with reason "planner pane {pane_id} absent". No commit yet; waiting for ACCEPT.
+  ts: 1783639212944
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_ae8lrq
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: ACCEPT CI compile correction; matches patterns borrow fields only and resolver semantics are unchanged
+  ts: 1783639270045
+  links:
+  - key:31232dcf15a9bc8a
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_iazf76
+  from:
+    pane_id: 3eb9dbd1
+    session_id: 019f492d-3874-7402-b36e-b561ff450dc3
+    title: Lamport peer CI fix
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: src-tauri/crates/codeterm-plan/src/plan/peer.rs - peer-resolution tests now borrow pane_id and reason in matches! so the idle-present and absent assertions compile without moving values; resolver semantics remain unchanged and still distinguish an existing idle planner pane from an absent pane.
+    BUILD/TYPECHECK/TESTS: rustfmt src-tauri/crates/codeterm-plan/src/plan/peer.rs (passed). No cargo/build/test runs per lane constraint.
+    FOLLOWUP: CI should run targeted codeterm-plan peer-resolution tests and any downstream service-plan slice that exercises resolve_planner_pane to confirm the existing idle planner resolves as Planner and only the absent case falls back with reason "planner pane {pane_id} absent".
+    CLEAN: git status --short returned clean after commit.
+  ts: 1783639288326
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_vubyks
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: ACCEPT merged CI peer compile correction a771cb35
+  ts: 1783639313756
+  links:
+  - key:fe32f072734bc7ce
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_j57k1s
+  from:
+    pane_id: 8911ca85
+    session_id: 019f4935-4b07-7fb3-b0d0-fbb659af2c64
+    title: Peer compile CI2
+  kind: report_refused
+  text: "PARTIAL: REPORT NOT SENT\nreadiness report refused: this git worktree has uncommitted lane changes.\nNext commands:\n  git status --short\n  git add <files>\n  git commit -m \"<message>\"\n  codeterm agent report --status in_review --sha $(git rev-parse HEAD) \"...\"\nOr report WIP with:\n  codeterm agent report --status partial \"...\"\nDirty lane files:\n  src-tauri/crates/codeterm-plan/src/plan/peer.rs\n\nOriginal readiness report that was refused locally:\nSTATUS: in_review\nCHANGES: src-tauri/crates/codeterm-plan/src/plan/peer.rs - changed the idle-present planner test to borrow pane_id in matches! (PeerResolution::Planner { ref pane_id }) so the later \resolution_json(&r) borrow no longer conflicts with a partial move; the fallback and waived cases already borrow or do not reuse the moved field.\nBUILD/TYPECHECK/TESTS: none; per lane instruction, no cargo build/test was run.\nFOLLOWUP: waiting for ACCEPT before commit; CI 29057180359’s reported partial-move on the idle-present assertion should be resolved by this one-line test-only diff."
+  ts: 1783639692099
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_ro1gen
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: ACCEPT CI2 one-line peer test borrow correction; exact failing idle-present assertion fixed without semantic change
+  ts: 1783639711794
+  links:
+  - key:6ba43e057bf30665
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_5gtst4
+  from:
+    pane_id: 8911ca85
+    session_id: 019f4935-4b07-7fb3-b0d0-fbb659af2c64
+    title: Peer compile CI2
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: src-tauri/crates/codeterm-plan/src/plan/peer.rs - changed the idle-present planner test to borrow pane_id in matches! so the later resolution_json(&r) borrow no longer conflicts with a partial move; the absent fallback and waived branches were already consistent with the intended resolver semantics.
+    BUILD/TYPECHECK/TESTS: none; no cargo/build/test run in this lane.
+    FOLLOWUP: worktree is clean at commit 48302dfe2eaff21345c7148a3c917e27171ee4a1; no push performed.
+  ts: 1783643519805
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_k3fobq
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: ACCEPT merged CI2 peer correction 48302dfe2
+  ts: 1783643535005
+  links:
+  - key:3341c221a3613fd0
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_bm6fzq
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: qa
+  text: 'enqueue: Merged peer-resolution fix; targeted codeterm-plan tests and cross-platform compile required'
+  ts: 1783656069911
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_r0qr07
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: Accepted merged peer-resolution fix; centralized release-integration build.ps1 test passed.
+  ts: 1783688371384
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_4gxb4h
+  executor_pane_id: 63b52059
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.4-mini
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-resolution-idle
+  worktree_path: D:/Developer/codeterm-worktrees/planner-resolution-idle
+  base: origin/develop
+  destination: null
+  report: null
+  assigned_at: 1783632403894
+  reported_at: null
+  reviewed_at: null
+  closed_at: 1783688371384
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_embm6l
+  executor_pane_id: cb7efbf3
+  executor_title: Lamport planner resolution followup
+  provider: codex
+  agent_type: codex
+  model: gpt-5.4-mini
+  session_id: null
+  role: worker
+  parent_pane_id: 4c17f607
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-resolution-idle
+  worktree_path: D:/Developer/codeterm-worktrees/planner-resolution-idle
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783633336340
+    message: |-
+      STATUS: in_review
+      CHANGES: src-tauri/crates/codeterm-plan/src/plan/peer.rs - resolve_planner_ref now classifies any existing pane as Planner, only genuinely absent panes fall back to OrchestratorFallback with reason "planner pane {pane_id} absent"; tests now cover idle-but-present vs gone and assert exact serde_json state output for both variants.
+      BUILD/TYPECHECK/TESTS: rustfmt src-tauri/crates/codeterm-plan/src/plan/peer.rs (passed; rustfmt emitted only the existing LF->CRLF working-copy warning). No cargo/build/test runs per worker constraint.
+      FOLLOWUP: CI should validate the changed resolver semantics against the peer-resolution unit/service test surface; I did not run broader verification locally.
+      GATES REQUESTED: codeterm lane CI / targeted cargo test for codeterm-plan peer-resolution tests in a warm checkout, plus any downstream service-plan test slice that exercises resolve_planner_pane.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783633208398
+  reported_at: 1783633336340
+  reviewed_at: null
+  closed_at: 1783633456484
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_jnufem
+  executor_pane_id: 3eb9dbd1
+  executor_title: Lamport peer CI fix
+  provider: codex
+  agent_type: codex
+  model: gpt-5.4-mini
+  session_id: null
+  role: worker
+  parent_pane_id: 4c17f607
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-resolution-idle
+  worktree_path: D:/Developer/codeterm-worktrees/planner-resolution-idle
+  base: release/1.7.2-integration
+  destination: null
+  report:
+    id: report_1783639288823
+    message: |-
+      STATUS: in_review
+      CHANGES: src-tauri/crates/codeterm-plan/src/plan/peer.rs - peer-resolution tests now borrow pane_id and reason in matches! so the idle-present and absent assertions compile without moving values; resolver semantics remain unchanged and still distinguish an existing idle planner pane from an absent pane.
+      BUILD/TYPECHECK/TESTS: rustfmt src-tauri/crates/codeterm-plan/src/plan/peer.rs (passed). No cargo/build/test runs per lane constraint.
+      FOLLOWUP: CI should run targeted codeterm-plan peer-resolution tests and any downstream service-plan slice that exercises resolve_planner_pane to confirm the existing idle planner resolves as Planner and only the absent case falls back with reason "planner pane {pane_id} absent".
+      CLEAN: git status --short returned clean after commit.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783639119246
+  reported_at: 1783639288823
+  reviewed_at: null
+  closed_at: 1783639317054
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_8hy4o3
+  executor_pane_id: 8911ca85
+  executor_title: Peer compile CI2
+  provider: codex
+  agent_type: codex
+  model: gpt-5.4-mini
+  session_id: null
+  role: worker
+  parent_pane_id: 4c17f607
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-resolution-ci2
+  worktree_path: D:/Developer/codeterm-worktrees/planner-resolution-ci2
+  base: release/1.7.2-integration
+  destination: null
+  report:
+    id: report_1783643520314
+    message: |-
+      STATUS: in_review
+      CHANGES: src-tauri/crates/codeterm-plan/src/plan/peer.rs - changed the idle-present planner test to borrow pane_id in matches! so the later resolution_json(&r) borrow no longer conflicts with a partial move; the absent fallback and waived branches were already consistent with the intended resolver semantics.
+      BUILD/TYPECHECK/TESTS: none; no cargo/build/test run in this lane.
+      FOLLOWUP: worktree is clean at commit 48302dfe2eaff21345c7148a3c917e27171ee4a1; no push performed.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783639648396
+  reported_at: 1783643520314
+  reviewed_at: null
+  closed_at: 1783643536711
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

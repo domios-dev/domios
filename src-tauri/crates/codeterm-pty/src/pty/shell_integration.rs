@@ -130,16 +130,9 @@ pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
 
     #[cfg(target_os = "windows")]
     {
-        // Windows pwsh injection is owned by the ROG track; leave it untouched.
-        let shell_lower = shell.to_lowercase();
-        if shell_lower.contains("pwsh") || shell_lower.contains("powershell") {
-            cmd.arg("-NoExit");
-            cmd.arg("-Command");
-            cmd.arg(
-                "function prompt { $f = $pwd.Path.Replace('\\', '/'); \
-                 \"$([char]27)]7;file:///$f$([char]7)PS $pwd> \" }",
-            );
-        }
+        // Windows PowerShell startup must stay argument-free under ConPTY.
+        let _ = cmd;
+        let _ = shell;
         let _ = dir;
     }
 }

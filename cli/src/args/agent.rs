@@ -88,6 +88,9 @@ pub struct ReportArgs {
     /// Commit SHA produced
     #[arg(long)]
     pub sha: Option<String>,
+    /// Base commit/ref for changed-file attribution (`base..HEAD` plus dirty overlay)
+    #[arg(long, env = "CODETERM_LANE_BASE")]
+    pub base: Option<String>,
     /// Changed files (comma-separated or repeat the flag)
     #[arg(long, value_delimiter = ',')]
     pub changed_files: Option<Vec<String>>,
@@ -421,6 +424,7 @@ mod tests {
                 assert!(args.status.is_none());
                 assert!(args.branch.is_none());
                 assert!(args.sha.is_none());
+                assert!(args.base.is_none());
                 assert!(args.changed_files.is_none());
                 assert!(args.test_cmd.is_none());
                 assert!(args.test_result.is_none());
@@ -437,6 +441,8 @@ mod tests {
             "in_review",
             "--branch",
             "lane/report-cli-planning",
+            "--base",
+            "abc123",
             "ready",
         ])
         .expect("top-level report parses");
@@ -444,6 +450,7 @@ mod tests {
         assert_eq!(args.message.as_deref(), Some("ready"));
         assert_eq!(args.status.expect("status set").as_str(), "in_review");
         assert_eq!(args.branch.as_deref(), Some("lane/report-cli-planning"));
+        assert_eq!(args.base.as_deref(), Some("abc123"));
     }
 
     #[test]

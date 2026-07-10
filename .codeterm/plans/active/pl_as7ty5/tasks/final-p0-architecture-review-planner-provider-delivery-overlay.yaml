@@ -1,0 +1,126 @@
+id: task_nnbu3l
+name: Final P0 architecture review Planner provider delivery overlay
+type: review
+model: gpt-5.6-sol
+model_rationale: GPT-5.6 Sol is present in the discovered Codex catalog and is appropriate for final adversarial P0 architecture review across provider transports and durable recovery.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- Every named routing, lease, hydration, telemetry, and cross-transport invariant is verified or pinpointed against actual overlay paths, with one ACCEPT or BOUNCE verdict and no lane mutation.
+test_plan: 'Oracle: actual diff paths, exact focused existing tests, and static checks only. 1. Inspect target git diff; pass: report cites only actual changed files, ignoring task_qdwix5 attribution. 2. Trace UI/in-process provider-session delivery for PTY Claude/Codex and chatBackend; pass: unknown state rejects and no raw shell fallback exists. 3. Trace atomic gate/request persistence, identity-bound expiring lease, request ID, acknowledgement, and crash-window idempotency; pass: no duplicate or lost delivery. 4. Trace stale PlannerRef rebind plus uncapped rehydration of Plan, all specs/tasks/milestones/strides/decisions/gates; pass: full truth and 36 pre-existing tasks preserved. 5. Inspect transport-failure telemetry and real PTY input/shell-write PowerShell/bash/zsh fixtures; pass: truthful state and zero fallback writes. 6. Run exact existing focused routing/replay tests only, git diff --check, and scripts/check-file-sizes.sh. No build/dev/Playwright. Return actual paths, file/line findings, and ACCEPT/BOUNCE.'
+correctness: Provider-agnostic chat-only delivery; durable atomic idempotency; verified rebind; uncapped lossless rehydration; truthful failures; cross-shell no-fallback safety.
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p0
+created_at: 1783681471703
+updated_at: 1783682000667
+status_changed_at: 1783681999732
+handle: final-p0-architecture-review-planner-provider-delivery-overlay
+tags:
+- 1.7.2
+section_ids:
+- sec_d52ka9
+body: 'Final P0 architecture review of the actual dirty overlay for task_2oy6cc at D:/Developer/codeterm-worktrees/planner-request-liveness. Ignore the known-wrong task_qdwix5 report SHA/files. Do not edit source, commit, build, start dev, or run Playwright. Recheck the last BOUNCE and all prior invariants: canonical UI/in-process provider-session delivery supports PTY-backed Claude/Codex and chatBackend without raw shell fallback; unknown states reject; atomic gate-plus-request durable write; identity-bound expiring leases; stable request IDs and receiver acknowledgement/idempotency across pre/post-history/model-send crashes; stale PlannerRef verified rebind; full uncapped Plan/all specs/tasks/milestones/strides/decisions/gates hydration; truthful transport-failure telemetry; and 36-task plus real PTY input/shell-write PowerShell/bash/zsh fixtures. Run exact focused tests and static checks only. Return severity-ranked ACCEPT or BOUNCE with actual diff paths and file/line evidence.'
+role_guidance: 'You are an independent final P0 architecture reviewer. Audit actual dirty paths and all specified provider/recovery invariants. Red line: no edits, commits, build, dev, or Playwright; ignore known-wrong changed-file attribution.'
+executor_role: code-reviewer
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:/Developer/codeterm-worktrees/planner-request-liveness
+  branch: lane/planner-request-liveness
+  base: origin/develop
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: planner-correctness
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_mgu4as
+  from:
+    pane_id: c61f5beb
+    session_id: 019f4bb3-c042-78b3-a4df-aa494ad221e1
+    title: Final P0 architecture review Planner provider delivery overlay
+  kind: status_update
+  text: |-
+    STATUS: done | blocked | partial
+    CHANGES: none (independent read-only P0 review); verdict BOUNCE
+    TESTS RUN: git diff --check PASS; scripts/check-file-sizes.sh --fail PASS; codeterm-plan focused gate/lease/session tests PASS; codeterm main planner_rehydrate focused test NOT RUN to assertion (90s capped cold compile timeout, exit 124); no build/dev/Playwright
+  ts: 1783681888772
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_l835kc
+  from:
+    pane_id: 4c17f607
+    session_id: null
+    title: null
+  kind: decision
+  text: Final architecture review completed with BOUNCE and exact evidence; close review objective and return remediation to task_2oy6cc.
+  ts: 1783681998905
+  links:
+  - key:ed0ad413044c63ac
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_zuyujq
+  executor_pane_id: c61f5beb
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-sol
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/planner-request-liveness
+  worktree_path: D:/Developer/codeterm-worktrees/planner-request-liveness
+  base: origin/develop
+  destination: null
+  report:
+    id: report_1783681889092
+    message: |-
+      STATUS: done | blocked | partial
+      CHANGES: none (independent read-only P0 review); verdict BOUNCE
+      TESTS RUN: git diff --check PASS; scripts/check-file-sizes.sh --fail PASS; codeterm-plan focused gate/lease/session tests PASS; codeterm main planner_rehydrate focused test NOT RUN to assertion (90s capped cold compile timeout, exit 124); no build/dev/Playwright
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783681494694
+  reported_at: 1783681889092
+  reviewed_at: null
+  closed_at: 1783681999732
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []

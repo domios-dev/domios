@@ -6,7 +6,11 @@ use axum::{
 use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
-use crate::update::apply::{check_and_apply, ApplyOptions};
+use crate::update::apply::{
+    check_and_apply, check_stage_deb_update, debian_preflight_status, gate_staged_deb_async,
+    ApplyOptions, ApplyResult, DebianElevationStatus, DebianStageGate,
+};
+use crate::update::InstallMethod;
 use crate::update::UpdatePhase;
 
 #[derive(Deserialize)]
@@ -127,6 +131,120 @@ pub async fn install_update(
         };
         let manifest_url = q.manifest_url.clone();
         let update_state = state.update_state.clone();
+        if install_method == InstallMethod::Deb {
+            {
+                let mut us = update_state.lock();
+                us.set_phase(UpdatePhase::Checking);
+                us.clear_error();
+            }
+            let opts = ApplyOptions {
+                channel,
+                manifest_url,
+                install_method,
+            };
+            let plan = match check_stage_deb_update(&app, &opts, update_state.clone()).await {
+                Ok(plan) => plan,
+                Err(e) => {
+                    update_state.lock().set_error(e.clone());
+                    return Ok(Json(serde_json::json!({
+                        "status": "blocked",
+                        "message": e,
+                        "install_method": "deb"
+                    })));
+                }
+            };
+
+            let gate = match gate_staged_deb_async(plan, debian_preflight_status).await {
+                Ok(gate) => gate,
+                Err(e) => {
+                    update_state.lock().set_error(e.clone());
+                    return Ok(Json(serde_json::json!({
+                        "status": "blocked",
+                        "message": e,
+                        "install_method": "deb"
+                    })));
+                }
+            };
+            let (version, path) = match gate {
+                DebianStageGate::NoUpdate => {
+                    update_state.lock().set_phase(UpdatePhase::Idle);
+                    return Ok(Json(serde_json::json!({
+                        "status": "no_update",
+                        "message": "No update available."
+                    })));
+                }
+                DebianStageGate::Ready { version, path } => (version, path),
+                DebianStageGate::NotReady(preflight) => match preflight.status {
+                    DebianElevationStatus::Ready => unreachable!(),
+                    DebianElevationStatus::ElevationRequired => {
+                        let reason = preflight.reason.unwrap_or_else(|| {
+                            "Debian update requires authorized elevation".to_string()
+                        });
+                        update_state.lock().set_error(reason.clone());
+                        return Ok(Json(serde_json::json!({
+                            "status": "elevation_required",
+                            "message": reason,
+                            "install_method": "deb"
+                        })));
+                    }
+                    DebianElevationStatus::Blocked => {
+                        let reason = preflight.reason.unwrap_or_else(|| {
+                            "Debian update cannot obtain GUI/session elevation".to_string()
+                        });
+                        update_state.lock().set_error(reason.clone());
+                        return Ok(Json(serde_json::json!({
+                            "status": "blocked",
+                            "message": reason,
+                            "install_method": "deb"
+                        })));
+                    }
+                },
+            };
+            {
+                let mut us = update_state.lock();
+                us.set_phase(UpdatePhase::Applying);
+                us.clear_error();
+            }
+            std::thread::spawn(move || {
+                let rt = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(rt) => rt,
+                    Err(e) => {
+                        let msg = format!("tokio runtime build failed: {}", e);
+                        log::error!("[updater] {}", msg);
+                        update_state.lock().set_error(msg);
+                        return;
+                    }
+                };
+                rt.block_on(async move {
+                    match crate::update::apply::install_staged_deb_and_restart(
+                        &app,
+                        version.clone(),
+                        path,
+                    )
+                    .await
+                    {
+                        Ok(()) => {
+                            update_state.lock().set_phase(UpdatePhase::Success);
+                            log::info!(
+                                "[updater] Debian v{} installed — restart imminent",
+                                version
+                            );
+                        }
+                        Err(e) => {
+                            log::error!("[updater] Debian install failed: {}", e);
+                            update_state.lock().set_error(e);
+                        }
+                    }
+                });
+            });
+            return Ok(Json(serde_json::json!({
+                "status": "updating",
+                "message": "Verified Debian package staged. Authorized installer is applying it."
+            })));
+        }
         {
             let mut us = update_state.lock();
             us.set_phase(UpdatePhase::Checking);
@@ -152,15 +270,16 @@ pub async fn install_update(
                     install_method,
                 };
                 match check_and_apply(&app, opts.clone(), update_state.clone()).await {
-                    Ok(applied) => {
-                        if applied {
+                    Ok(result) => match result {
+                        ApplyResult::Restarting => {
                             update_state.lock().set_phase(UpdatePhase::Success);
                             log::info!("[updater] check_and_apply success — restart imminent");
-                        } else {
+                        }
+                        ApplyResult::NoUpdate => {
                             update_state.lock().set_phase(UpdatePhase::Idle);
                             log::info!("[updater] check_and_apply: no update available");
                         }
-                    }
+                    },
                     Err(e) => {
                         log::error!("[updater] check_and_apply failed: {}", e);
                         update_state.lock().set_error(e);

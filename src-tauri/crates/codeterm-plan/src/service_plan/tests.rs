@@ -307,6 +307,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         competition: None,
         intent: None,
         parent_task_id: None,
+        depends_on: vec![],
         assigned_pane_id: None,
         lane: Default::default(),
         taken_by_role: None,
@@ -317,6 +318,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         execution_attempts: vec![],
         park_reason: None,
         personality: None,
+        personality_provenance: None,
         attachments: vec![],
     });
     let json_path = paths::plan_json_path(&project, &plan.status, &plan.id).unwrap();
@@ -406,6 +408,7 @@ fn show_task_includes_parent_label_for_subtasks() {
                 name: "Child".into(),
                 kind: "implement".into(),
                 parent_task_id: Some(parent_id.clone()),
+                depends_on: vec![],
                 competition: None,
                 ..Default::default()
             },
@@ -428,6 +431,7 @@ fn add_task_persists_parent_task_id() {
                 name: "Child".into(),
                 kind: "implement".into(),
                 parent_task_id: Some(parent_id.clone()),
+                depends_on: vec![],
                 competition: None,
                 ..Default::default()
             },

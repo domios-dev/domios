@@ -1,0 +1,1 @@
+In /web/ connected to this host, Plugins, Memory, Mesh, and Settings must be enabled when auth and capabilities are valid. Web UI connection loss must be diagnosed separately from local capability gating. The mobile sidebar screenshot with disabled bottom nav is a reproduction target.

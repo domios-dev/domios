@@ -16,6 +16,7 @@ pub enum NextActionKind {
     ClaimQa,
     SpawnTester,
     RegressionGate,
+    Continue,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -129,6 +130,27 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         });
     }
 
+    let has_unblocked_work = s
+        .open_lanes
+        .iter()
+        .any(|lane| lane.status == TaskStatus::Pending);
+    let qa_only = !s.open_lanes.is_empty()
+        && s.open_lanes.iter().all(|lane| {
+            lane.status == TaskStatus::InReview && lane.review_stage == ReviewStage::Qa
+        });
+    if s.execution_tasks_unlocked && has_unblocked_work && s.live_agents.is_empty() && !qa_only {
+        actions.push(NextAction {
+            priority: 1,
+            kind: NextActionKind::Continue,
+            task_id: None,
+            loop_id: None,
+            message: format!(
+                "continue plan {}: open unblocked work has zero live workers",
+                s.plan_id
+            ),
+        });
+    }
+
     for l in &s.loops {
         if loop_near_limit(l) {
             actions.push(NextAction {
@@ -145,7 +167,7 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
     }
 
     for lane in &s.open_lanes {
-        if lane.status == TaskStatus::Pending {
+        if lane.status == TaskStatus::Pending && !lane.waiting_on_dependencies {
             let message = if let Some(summary) = lane.competition.as_deref() {
                 format!(
                     "{} {} ({summary}): plan.task.compete route for plan {} task {}",
@@ -186,6 +208,8 @@ mod tests {
             live_competition_attempts: 0,
             review_stage: ReviewStage::Review,
             qa_state: None,
+            waiting_on_dependencies: false,
+            dependency_waits: vec![],
         }
     }
 
@@ -217,6 +241,9 @@ mod tests {
             owner: Default::default(),
             planner: None,
             planner_resolution: crate::plan::peer::PeerResolution::Unbound,
+            planner_dead: false,
+            undelivered_request_count: 0,
+            planner_recovery_action: None,
             goal: None,
             task_counts: Default::default(),
             percent_done: 0.0,
@@ -304,6 +331,40 @@ mod tests {
         assert_eq!(a.len(), 1);
         assert_eq!(a[0].kind, NextActionKind::Dispatch);
         assert_eq!(a[0].task_id.as_deref(), Some("tp"));
+    }
+
+    #[test]
+    fn dispatch_rule_skips_pending_lane_waiting_on_dependency() {
+        let mut s = empty();
+        let mut waiting = lane("tp", TaskStatus::Pending);
+        waiting.waiting_on_dependencies = true;
+        waiting.dependency_waits = vec![super::super::state::DependencyWait {
+            task_id: "ta".into(),
+            name: "name-ta".into(),
+            status: Some(TaskStatus::InProgress),
+            missing: false,
+        }];
+        s.open_lanes = vec![waiting];
+        assert!(compute_next_actions(&s)
+            .iter()
+            .all(|action| action.kind != NextActionKind::Dispatch));
+    }
+
+    #[test]
+    fn zero_worker_open_work_emits_continuation_but_qa_only_does_not() {
+        let mut s = empty();
+        s.open_lanes = vec![lane("pending", TaskStatus::Pending)];
+        assert!(compute_next_actions(&s)
+            .iter()
+            .any(|action| action.kind == NextActionKind::Continue));
+        s.open_lanes = vec![OpenLane {
+            review_stage: ReviewStage::Qa,
+            qa_state: Some(QaState::Queued),
+            ..lane("qa", TaskStatus::InReview)
+        }];
+        assert!(compute_next_actions(&s)
+            .iter()
+            .all(|action| action.kind != NextActionKind::Continue));
     }
 
     #[test]
