@@ -186,6 +186,14 @@ fn build_prompt(
 ) -> String {
     let (last_report, last_status, _) = last_report_for_attempt(task, source);
     let mut out = String::new();
+    if let Some(identity) = super::worker_identity::compose_worker_identity(
+        task.personality.as_deref(),
+        task.role_guidance.as_deref(),
+        Some(task.name.as_str()),
+    ) {
+        out.push_str(&identity);
+        out.push_str("\n\n");
+    }
     out.push_str("You are a CodeTerm Worker respawned from a prior task attempt.\n");
     out.push_str(
         "Work only on this one task. Do not reactivate or reuse the old historical attempt.\n\n",
@@ -196,15 +204,7 @@ fn build_prompt(
     if let Some(model) = model {
         out.push_str(&format!("/{model}"));
     }
-    if let Some(guidance) = task
-        .role_guidance
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-    {
-        out.push_str("\n\nRole guidance:\n");
-        out.push_str(guidance.trim());
-        out.push('\n');
-    }
+    out.push('\n');
     if let Some(strides) = super::stride_context::render_worker_strides(&task.milestones) {
         out.push('\n');
         out.push_str(&strides);
@@ -257,6 +257,14 @@ fn build_compete_prompt(
     report_command: &str,
 ) -> String {
     let mut out = String::new();
+    if let Some(identity) = super::worker_identity::compose_worker_identity(
+        task.personality.as_deref(),
+        task.role_guidance.as_deref(),
+        Some(task.name.as_str()),
+    ) {
+        out.push_str(&identity);
+        out.push_str("\n\n");
+    }
     out.push_str(crate::service_plan::competition::COMPETITION_WORKER_ISOLATION_PROMPT);
     out.push_str("\n\n");
     out.push_str(&format!("Plan: {plan_id}\nTask: {}\n", task.id));
@@ -265,15 +273,6 @@ fn build_compete_prompt(
     ));
     out.push_str(&format!("Model: {model_label}\n"));
     out.push_str(&format!("Task name: {}\n", task.name));
-    if let Some(guidance) = task
-        .role_guidance
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-    {
-        out.push_str("\nRole guidance:\n");
-        out.push_str(guidance.trim());
-        out.push('\n');
-    }
     if let Some(hint) = task
         .competition
         .as_ref()
