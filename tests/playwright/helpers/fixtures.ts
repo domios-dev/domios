@@ -168,7 +168,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
           normalize: options.normalize ?? false,
           includeChatMessages: options.includeChatMessages ?? false,
         },
-        { timeout: options.timeout ?? 240_000, polling: options.polling ?? 1_000 },
+        { timeout: options.timeout ?? 240_000, polling: options.polling ?? 250 },
       );
     });
   },

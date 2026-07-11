@@ -12,6 +12,7 @@ import {
   openCanvas,
   setCanvasScale,
   setCanvasScaleOn,
+  waitForCanvasSettled,
 } from "../../helpers/canvas-inspect";
 
 const PERF_KEY = "canvas.perfFixtureN";
@@ -35,8 +36,7 @@ async function reachPlanWorld(page: Page, target: string, scales: number[]): Pro
   let band = await planWorld(page);
   for (const s of scales) {
     await setCanvasScaleOn(page, PLAN_SEL, s);
-    // PW_JUSTIFIED_SLEEP: fixed 220ms sampling/settle window; no app event exists for this probe.
-    await page.waitForTimeout(220);
+    await waitForCanvasSettled(page);
     band = await planWorld(page);
     if (band === target) break;
   }
@@ -67,13 +67,11 @@ test("@golden @canvas-plan-document plan section reads as a document with spec b
   await expect(page.locator(PLAN_SEL).first()).toBeVisible({ timeout: 30_000 });
 
   await setCanvasScale(page, 0.12);
-  // PW_JUSTIFIED_SLEEP: fixed 250ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(250);
+  await waitForCanvasSettled(page);
   const w0 = await planWorld(page);
   const farFile = await shot(page, "plan-doc-W0");
   await setCanvasScale(page, 0.5);
-  // PW_JUSTIFIED_SLEEP: fixed 250ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(250);
+  await waitForCanvasSettled(page);
   const w1 = await planWorld(page);
   await shot(page, "plan-doc-W1");
 
@@ -111,8 +109,7 @@ test("@golden @canvas-plan-document plan section reads as a document with spec b
   expect(overflows, `zero overflow on plan/task cards: ${JSON.stringify(overflows)}`).toEqual([]);
 
   await firstBubble.evaluate((el) => (el as HTMLElement).click());
-  // PW_JUSTIFIED_SLEEP: fixed 2200ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(2200);
+  await waitForCanvasSettled(page, 3_000);
   await shot(page, "plan-doc-spec-arrival");
   const specCount = await page.locator('[data-testid="canvas-spec-node"]').count();
   expect(specCount, "camera flew to the spec node after clicking a spec-reference bubble").toBeGreaterThan(0);

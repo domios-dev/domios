@@ -21,7 +21,7 @@ export async function pollUntil<T>(
 
     const sleepMs = Math.min(delay, deadline - now);
     await new Promise((resolve) => setTimeout(resolve, sleepMs));
-    delay = Math.min(Math.ceil(delay * 1.5), 2000);
+    delay = Math.min(Math.ceil(delay * 1.5), 1000);
   }
 }
 

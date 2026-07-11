@@ -15,6 +15,7 @@ import {
   openCanvas,
   pickProbeTaskId,
   setCanvasScaleOnTask,
+  waitForCanvasSettled,
 } from "../../helpers/canvas-inspect";
 
 type Box = { width: number; height: number };
@@ -66,8 +67,7 @@ async function readbackScale(page: Page, taskId: string): Promise<number> {
 
 async function sampleTask(page: Page, taskId: string, requested: number): Promise<Sample> {
   await setCanvasScaleOnTask(page, taskId, requested);
-  // PW_JUSTIFIED_SLEEP: fixed 180ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(180);
+  await waitForCanvasSettled(page);
   const actualScale = await readbackScale(page, taskId);
   const sample = await page.evaluate((id) => {
     const card = document.querySelector(`[data-testid="canvas-task-card"][data-task-id="${id}"]`) as HTMLElement | null;

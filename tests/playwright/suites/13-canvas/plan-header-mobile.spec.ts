@@ -10,6 +10,7 @@ import {
   openInlineWorkspaceCanvas,
   seedPerfFixtureAndOpenInlineCanvas,
   CANVAS_ART_DIR,
+  waitForCanvasSettled,
 } from "../../helpers/canvas-inspect";
 import type { ApiClient } from "../../helpers/api-client";
 import type { Locator, Page } from "@playwright/test";
@@ -291,8 +292,7 @@ test(
       const opener = page.locator('[data-testid="web-sidebar-open"]');
       if (await opener.count()) {
         await opener.first().click();
-        // PW_JUSTIFIED_SLEEP: fixed 500ms sampling/settle window; no app event exists for this probe.
-        await page.waitForTimeout(500);
+        await waitForCanvasSettled(page, 2_500);
       }
 
       // Every rendered interactive sidebar row must be a >=44px coarse target.

@@ -11,6 +11,7 @@ import {
   panBy,
   panToMountTaskCards,
   setCanvasScaleOnTask,
+  waitForCanvasSettled,
 } from "../../helpers/canvas-inspect";
 
 const PERF_KEY = "canvas.perfFixtureN";
@@ -45,8 +46,7 @@ async function reachTaskWorld(page: Page, id: string, target: string, scales: nu
   let band = await taskWorld(page, id);
   for (const s of scales) {
     await setCanvasScaleOnTask(page, id, s);
-    // PW_JUSTIFIED_SLEEP: fixed 200ms sampling/settle window; no app event exists for this probe.
-    await page.waitForTimeout(200);
+    await waitForCanvasSettled(page);
     band = await taskWorld(page, id);
     if (band === target) break;
   }
