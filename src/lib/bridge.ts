@@ -583,13 +583,13 @@ export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
     }
     throw err;
   } finally {
-    const perf = window.__ipcPerf;
+    const perf = typeof window !== "undefined" ? window.__ipcPerf : undefined;
     if (perf) {
       perf.invokes += 1;
       perf.invokeMs += performance.now() - t0;
       perf.byCommand[cmd] = (perf.byCommand[cmd] ?? 0) + 1;
     }
-    if (!invokeForTest) {
+    if (!invokeForTest && typeof window !== "undefined") {
       const ms = performance.now() - t0;
       if (ms >= IPC_SLOW_MS) {
         // eslint-disable-next-line no-console
