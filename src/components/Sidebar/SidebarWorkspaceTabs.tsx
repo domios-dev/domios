@@ -234,33 +234,37 @@ export function SidebarWorkspaceTabs({
                 count={sectionCounts.workers}
                 showHeader={shouldShowSectionHeader("worker", sectionCounts)}
               >
-                <HierarchyTree
-                  nodes={workerNodes}
-                  depth={0}
-                  renderRow={(node) => {
-                    const childTab = sortedTabs.find((t) => t.pane_id === node.pane.id);
-                    if (!childTab) return null;
-                    return (
-                      <SidebarSingleTabRow
-                        key={childTab.id}
-                        tab={childTab}
-                        index={childTabs.indexOf(childTab)}
-                        pane={node.pane}
-                        paneIds={collectPaneIds(childTab, panes)}
-                        activity={resolvePaneTabActivity(planIndex, node.pane.id, panes)}
-                        activeWork={activeWork}
-                        reportCount={0}
-                        isClosing={closingTabIds.has(childTab.id)}
-                        isAppearing={appearingTabIds.has(childTab.id)}
-                        group="child"
-                        groupKey={firstPane.id}
-                        items={childIds}
-                        pinnedIds={[]}
-                        {...sharedRow}
-                      />
-                    );
-                  }}
-                />
+                {workerNodes.length > 0 && (
+                  <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
+                    <HierarchyTree
+                      nodes={workerNodes}
+                      depth={0}
+                      renderRow={(node) => {
+                        const childTab = sortedTabs.find((t) => t.pane_id === node.pane.id);
+                        if (!childTab) return null;
+                        return (
+                          <SidebarSingleTabRow
+                            key={childTab.id}
+                            tab={childTab}
+                            index={childTabs.indexOf(childTab)}
+                            pane={node.pane}
+                            paneIds={collectPaneIds(childTab, panes)}
+                            activity={resolvePaneTabActivity(planIndex, node.pane.id, panes)}
+                            activeWork={activeWork}
+                            reportCount={0}
+                            isClosing={closingTabIds.has(childTab.id)}
+                            isAppearing={appearingTabIds.has(childTab.id)}
+                            group="child"
+                            groupKey={firstPane.id}
+                            items={childIds}
+                            pinnedIds={[]}
+                            {...sharedRow}
+                          />
+                        );
+                      }}
+                    />
+                  </SortableContext>
+                )}
               </OrchestrationGroupSection>
             </div>
           )
