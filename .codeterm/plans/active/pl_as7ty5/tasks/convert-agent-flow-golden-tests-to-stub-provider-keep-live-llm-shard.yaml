@@ -18,7 +18,7 @@ qa_state: null
 status_label: planner-owned
 priority: p1
 created_at: 1783782175703
-updated_at: 1783807704715
+updated_at: 1783808465918
 status_changed_at: 1783807668860
 handle: convert-agent-flow-golden-tests-to-stub-provider-keep-live-llm-shard
 tags: []
@@ -38,7 +38,7 @@ lane:
   workspace_id: null
   workspace_name: null
   worktree_path: null
-  branch: null
+  branch: feat/1.7.2-stability
   base: null
   destination: null
   cleanup_status: null
@@ -50,7 +50,55 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_xtblbv
+  from:
+    pane_id: 56827f12
+    session_id: 8b418573-4e9d-492c-8858-27e3cd74d945
+    title: planner-playwright-stability
+  kind: status_update
+  text: |-
+    PARTIAL: task_k16xu0 SLICE 1 done at 36878bdf6 — inventory + chat-tailer red-green (the piece task_dycecc scoped here).
+
+    CHAT-TAILER PARITY (red-green per charter): the pane chat pipeline reads provider SESSION FILES, not PTY bytes. The replayer now writes scripted claude turns as real-shaped jsonl records into ~/.claude/projects/<dash-encoded-cwd>/<sid>.jsonl. Oracle is the live tailer itself: GET /panes/{id}/chat returns the turn classified assistant. RED demoed (persistence disabled -> exact 45s tailer-poll timeout), GREEN x2 (27.7s/27.6s). Found+fixed on the way: dash-encoding regex dropped backslashes on Windows (files landed in nested dirs invisible to the tailer).
+
+    INVENTORY (real-agent-spawning specs, conversion targets):
+    - 20-new-session/picker.spec.ts — 17 golden, ~14 pair-spawns x180s = the single biggest time sink. Plumbing-class (UI flow) -> single-stub conversion.
+    - 03-agents/agents.spec.ts — 5 golden (300-420s каждый): spawn/report, multi-turn+tool DOM, restart resume, DOM live. Provider-SENSITIVE -> matrix over stub:claude/codex/opencode.
+    - 03-agents/cross-pane-chat.spec.ts — 1 golden 420s, chat oracles -> needs chat parity (claude ready now).
+    - 12-web/web.spec.ts — 12 golden, only 2-3 spawn agents (live mobile GA, web chat stream); rest untouched.
+    - 12-web chat-image-paste / voice-indicator / voice-warm-mic — spawn GA but oracles are media-mock UI; single-stub.
+    - 16-chat-view cursor-new-rebinds (cursor provider — stub emulation NOT built, keep live or add cursor cast), opencode-assistant-replies (matrix candidate), watcher-pane.
+    - (07-cron real runs live in the restart project; 10-restore consumes an external manifest — out of conversion scope.)
+    LIVE SHARD candidates (3-5 real-provider, outside golden): agents.spec spawn-report round-trip (claude), one multi-turn tool loop (claude), restart-resume (claude), plus one real codex and one real opencode boot from 16-chat-view files.
+
+    NEXT SLICE: convert 03-agents/agents.spec.ts golden tests to stub matrix + right-size caps, isolated x2 timing before/after. No broadening to k9/kb per your instruction.
+  ts: 1783808445828
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_em7gyr
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: partial
+  text: ' slice 1 landed at 36878bdf6. Completed inventory of real-agent spawning specs and chat-tailer red-green parity for claude stub sessions. Replayer now writes real-shaped Claude JSONL records under ~/.claude/projects/<dash-encoded-cwd>/<sid>.jsonl; live GET /panes/{id}/chat classifies assistant turn. Red demo: persistence disabled -> 45s tailer-poll timeout. Green x2: stub-chat-parity 27.7s/27.6s on gated dev. Byte-parity regression still 3/3; tsc no new errors.'
+  ts: 1783808465918
+  links:
+  - key:6ebaaaf44b249c68
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 pause_reason: null
 attachments: []

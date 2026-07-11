@@ -111,7 +111,7 @@ owner:
 project_path: \\?\D:\Developer\codeterm
 canonical_project_path: \\?\D:\Developer\codeterm
 created_at: 1783628878496
-updated_at: 1783807804962
+updated_at: 1783808465918
 milestone_kinds:
 - key: discovery
   label: discovery
@@ -248,6 +248,9 @@ milestone_kinds:
 - key: accepted
   label: accepted
   color: null
+- key: partial
+  label: partial
+  color: null
 loops:
 - id: loop_6c2hy7
   target: Every reproducible in-scope planner, lane, report, canvas, plugin, CLI, or release-workflow defect is either disproven/out-of-scope or has evidence, severity/blast radius, a bounded regression-backed follow-up, independent review, and an updated issue/release decision.
@@ -360,7 +363,7 @@ primary_spec_id: sp_o6l6of
 lineage: []
 goal: null
 heartbeat:
-  current_focus: task_dycecc closed at 0775ab616; task_k16xu0 assigned to Planner for agent-flow golden conversion; dependent perf/sharding tasks wait
+  current_focus: task_k16xu0 slice 1 complete at 36878bdf6; Planner continues next slice converting 03-agents/agents.spec.ts to stub matrix; perf/sharding wait
   active_lanes:
   - task_k16xu0
   rules:
@@ -430,7 +433,7 @@ owner_history:
 planner:
   kind: pane
   pane_id: 56827f12
-  session_id: a232d132-c442-4a8c-995c-382163d96bbf
+  session_id: 8b418573-4e9d-492c-8858-27e3cd74d945
 planning_state: approved
 planning_log:
 - from: drafting
