@@ -387,6 +387,8 @@ start_dev_wait_process() {
     echo "screen:$session"
     return
   fi
+  local pid spawn_status
+  set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
       "${cmd[@]}" </dev/null >> "$log" 2>&1 &
@@ -395,7 +397,14 @@ start_dev_wait_process() {
       nohup "${cmd[@]}" </dev/null >> "$log" 2>&1 &
       ;;
   esac
-  echo $!
+  pid=$!
+  spawn_status=$?
+  set -e
+  if [ -z "$pid" ]; then
+    echo "Failed to spawn dev process (status=$spawn_status)" >&2
+    return "${spawn_status:-1}"
+  fi
+  echo "$pid"
 }
 
 dev_wait_process_alive() {
