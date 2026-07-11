@@ -106,6 +106,13 @@ pub(crate) fn parse_duration_secs(value: &str, flag: &str) -> Result<u64, String
 
 pub(crate) const MAX_PANE_DESCRIPTION_CHARS: usize = 200;
 
+pub(crate) fn join_cli_words(value: Option<Vec<String>>) -> Option<String> {
+    value
+        .map(|words| words.join(" "))
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn refusal_next_commands() -> Vec<&'static str> {
     vec![
         "git status --short",
@@ -712,10 +719,10 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             let mut body = serde_json::json!({
                 "agent": agent,
             });
-            if let Some(t) = title {
+            if let Some(t) = join_cli_words(title) {
                 body["title"] = serde_json::json!(t);
             }
-            if let Some(d) = description {
+            if let Some(d) = join_cli_words(description) {
                 match normalize_pane_description(&d) {
                     Ok(Some(d)) => body["description"] = serde_json::json!(d),
                     Ok(None) => body["description"] = serde_json::json!(""),

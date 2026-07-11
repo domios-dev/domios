@@ -19,6 +19,13 @@ set -euo pipefail
 TEST_CAP_SECS="${TEST_CAP_SECS:-90}"
 CARGO_TEST_CMD="${CARGO_TEST_CMD:-cargo test}"
 
+ARGS_JOINED=" $* "
+if [[ "$ARGS_JOINED" == *" --manifest-path cli/Cargo.toml "* && "$ARGS_JOINED" == *" --lib "* ]]; then
+    printf 'error: cli/Cargo.toml is a binary crate and has no --lib test target.\n' >&2
+    printf 'hint: use scripts/test-capped.sh --manifest-path cli/Cargo.toml <test-filter>\n' >&2
+    exit 2
+fi
+
 # Job control: gives each background job its own process group.
 # cargo becomes the PGID leader; all test binaries it spawns inherit that PGID.
 set -m

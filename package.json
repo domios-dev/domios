@@ -5,6 +5,11 @@
   "main": "index.js",
   "scripts": {
     "dev": "vite",
+    "task": "node scripts/task.mjs",
+    "task:cli": "node scripts/task.mjs cli",
+    "task:check": "node scripts/task.mjs check",
+    "task:sizes": "node scripts/task.mjs sizes",
+    "task:test-cli": "node scripts/task.mjs test-cli",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
