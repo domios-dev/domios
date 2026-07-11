@@ -9,14 +9,14 @@ acceptance_criteria:
 - The four named 13-canvas failures pass on macOS/eight web-mode, or each is explicitly rebaselined/updated with rationale and artifacts. Do not weaken unrelated mission-control/world-canvas deletion assertions. A bounded 13-canvas golden run or split equivalent confirms no remaining deterministic failures in the preserved 13-canvas suite.
 test_plan: On eight, run the failing files in isolation with --project=golden --timeout=30000 --global-timeout=600000, then run the preserved 13-canvas shard. For visual updates, include before/after diff artifact paths and explain the accepted visual change.
 correctness: Separate true product/visual drift from test drift. Do not use blanket screenshot threshold loosening. Keep the preserved current-surface canvas coverage meaningful.
-status: in_review
+status: done
 review_stage: review
 qa_state: null
 status_label: shard-gate-requested
 priority: p1
 created_at: 1783799488075
-updated_at: 1783800824891
-status_changed_at: 1783800727743
+updated_at: 1783801080919
+status_changed_at: 1783801080922
 handle: fix-remaining-preserved-13-canvas-golden-failures
 tags:
 - canvas
@@ -31,9 +31,9 @@ competition: null
 intent: null
 parent_task_id: null
 depends_on: []
-assigned_pane_id: 41f38901
+assigned_pane_id: null
 lane:
-  pane_id: 41f38901
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: null
@@ -42,7 +42,7 @@ lane:
   destination: null
   cleanup_status: deferred
   cleanup_hints:
-  - Shared-checkout worker on eight; dev 7686 intentionally warm from prior canvas gate; cleanup deferred until worker reports final git/dev/prod state.
+  - eight dev 7686 intentionally left warm for next QA lane per worker recommendation; worker tab cleanup pending.
 taken_by_role: null
 peer: null
 group: playwright-stability
@@ -85,6 +85,22 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_apiish
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: 'DONE. Pushed 707ac89a to origin/feat/1.7.2-stability with normal push and full integration gate passed: shell guards, file-size, cargo check, cargo fmt, clippy. Preserved 13-canvas shard passed 29/2/0 before push. Visual golden guard was satisfied by deterministic regenerate run and reviewed tests/playwright/visual-goldens-reviewed-diff.md explaining Park-button/metadata rebaseline plus age-mask rationale. Working tree clean, local in sync with origin. Dev 7686 intentionally left warm at build_sha 195436df for next QA lane; prod 7685 untouched.'
+  ts: 1783801080922
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_j4lvym
   executor_pane_id: 41f38901
@@ -105,7 +121,7 @@ execution_attempts:
   assigned_at: 1783799619749
   reported_at: null
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783801080922
   competition_group_id: null
   competition_lane: null
   judge_verdict: null
