@@ -15,7 +15,7 @@ qa_state: null
 status_label: running-on-eight
 priority: p1
 created_at: 1783795619376
-updated_at: 1783799619749
+updated_at: 1783799664588
 status_changed_at: 1783799582298
 handle: migrate-or-retire-remaining-world-canvas-golden-specs
 tags:
@@ -179,6 +179,23 @@ milestones:
   text: DONE. Pushed 195436df0 after full pre-push passed on eight. Retired 19 dead world-canvas specs; tag guard green; 13-canvas gate showed 25 passed / 2 skipped / 4 deterministic failures proven pre-existing/byte-identical to origin. Mission-control-live/current-surface coverage preserved. Remaining four failures split to task_ygjf13. eight tree clean; prod 7685 untouched; dev 7686 intentionally left warm for follow-up.
   ts: 1783799582298
   links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_d29kte
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: cleanup
+  text: ' eight confirmed worker tab closed. Note from eight: live pane id was 98ce7d77, not spawn-reported 98f41b3a; closed the correct live worker. dev 7686 intentionally left warm at build_sha 195436df for task_ygjf13. prod 7685 untouched. task_ygjf13 worker 41f38901 remains running.'
+  ts: 1783799664588
+  links:
+  - key:a701ebd531f03bb3
   loop_id: null
   iteration: null
   canvas:
