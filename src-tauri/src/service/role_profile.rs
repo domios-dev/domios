@@ -49,6 +49,7 @@ impl SpawnAgentParams {
             skip_permissions: params.get("skip_permissions").and_then(|v| v.as_bool()),
             spawned_by_pane_id: json_str(params, "spawned_by_pane_id"),
             model: json_str(params, "model"),
+            planned_model: json_str(params, "planned_model"),
             system_prompt: json_str(params, "system_prompt").or_else(|| json_str(params, "system")),
             preset: json_str(params, "preset"),
             resume_session_id: json_str(params, "resume_session_id"),

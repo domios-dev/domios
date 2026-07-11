@@ -353,6 +353,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: None,
             warning: None,
+            model_fallback: None,
             budget_notice,
         })
     }

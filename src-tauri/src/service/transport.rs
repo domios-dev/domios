@@ -90,17 +90,23 @@ impl AgentTransport for PtyTransport {
         svc: &ServiceContext,
         ctx: &TransportLaunchCtx<'_>,
     ) -> Result<Option<String>, String> {
-        let model_args = crate::service::spawn::resolve_fresh_agent_model(
+        let model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
             &svc.agent_registry,
             ctx.provider_id,
             ctx.model.map(str::to_string),
             None,
-        )
-        .and_then(|model| {
-            svc.agent_registry
-                .with_provider(ctx.provider_id, |p| p.model_launch_args(&model))
-        })
-        .unwrap_or_default();
+        );
+        if let Some(pane) = svc.mux.write().get_pane_mut(ctx.pane_id) {
+            crate::service::spawn::persist_model_launch_identity(pane, None, &model_resolution);
+        }
+        let model_args = model_resolution
+            .model
+            .as_deref()
+            .and_then(|model| {
+                svc.agent_registry
+                    .with_provider(ctx.provider_id, |p| p.model_launch_args(model))
+            })
+            .unwrap_or_default();
         let cwd = svc
             .mux
             .read()
@@ -248,6 +254,12 @@ impl ServiceContext {
                 if let Some(ref dir) = resolved_cwd {
                     pane.cwd = Some(dir.clone());
                 }
+                pane.agent_requested_model = params
+                    .model
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|m| !m.is_empty())
+                    .map(str::to_string);
                 if chat_view {
                     pane.chat_view = true;
                 }

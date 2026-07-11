@@ -54,13 +54,15 @@ fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
             &task_id,
             task_attempts::TaskRespawnRequest {
                 attempt_id: attempt.attempt_id.clone(),
+                model: Some("gpt-override".into()),
                 ..Default::default()
             },
         )
         .unwrap();
 
     assert_eq!(draft.provider, "codex");
-    assert_eq!(draft.model.as_deref(), Some("gpt-5.5"));
+    assert_eq!(draft.planned_model.as_deref(), Some("codex/gpt-5.5"));
+    assert_eq!(draft.model.as_deref(), Some("gpt-override"));
     assert_eq!(draft.cwd, "/tmp/worktree");
     assert!(draft.task_prompt.starts_with(
         "Act as planner; do not implement.\n\nYou are a CodeTerm Worker respawned from a prior task attempt."
@@ -216,6 +218,51 @@ fn task_respawn_draft_omitted_title_stays_provisional() {
 
     assert_eq!(draft.title, None);
     assert!(!draft.explicit_title);
+}
+
+#[test]
+fn competition_keeps_planned_model_separate_from_lane_requests() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Competition".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "compare models".into(),
+                kind: "implement".into(),
+                model: Some("codex/model-planned".into()),
+                competition: Some(crate::plan::TaskCompetitionMetadata {
+                    enabled: true,
+                    attempts: Some(2),
+                    models: vec!["model-a".into(), "model-b".into()],
+                    judge_hint: None,
+                }),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+
+    let drafts = store
+        .build_task_compete_drafts(
+            &plan.id,
+            &task_id,
+            task_attempts::TaskCompeteRequest::default(),
+        )
+        .unwrap();
+
+    assert_eq!(drafts.len(), 2);
+    assert!(drafts
+        .iter()
+        .all(|draft| draft.planned_model.as_deref() == Some("codex/model-planned")));
+    assert_eq!(drafts[0].model.as_deref(), Some("model-a"));
+    assert_eq!(drafts[1].model.as_deref(), Some("model-b"));
 }
 
 #[test]

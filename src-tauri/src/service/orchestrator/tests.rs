@@ -107,6 +107,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: None,
+        planned_model: None,
         system_prompt: None,
         preset: None,
         resume_session_id: None,

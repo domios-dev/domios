@@ -16,10 +16,10 @@ pub(crate) use super::spawn_params::{
 
 #[path = "spawn_model.rs"]
 mod spawn_model;
-#[cfg(test)]
-pub(crate) use spawn_model::ModelFallbackNotice;
+pub use spawn_model::ModelFallbackNotice;
 pub(crate) use spawn_model::{
-    model_fallback_notice_title, resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice,
+    attach_planned_model, model_fallback_notice_title, persist_model_launch_identity,
+    resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice,
 };
 
 #[path = "spawn_hidden_delivery.rs"]
@@ -79,6 +79,8 @@ pub enum PaneCommand {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct AgentSpawnSpec {
     pub provider: String,
+    #[serde(default)]
+    pub planned_model: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
     #[serde(default)]
@@ -161,6 +163,8 @@ pub struct PaneHandle {
     pub worker_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_fallback: Option<ModelFallbackNotice>,
     /// Advisory workspace pane-budget nudge (task_4d649dfd). Set once the
     /// post-create workspace pane count crosses the soft budget. Never blocks.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -233,13 +237,14 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
         }
-        let model_resolution = resolve_fresh_agent_model_with_notice(
+        let mut model_resolution = resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent_cmd,
             agent.model.clone(),
             agent.resume_session_id.as_deref(),
         );
-        let launch_model = model_resolution.model;
+        attach_planned_model(&mut model_resolution, agent.planned_model.as_deref());
+        let launch_model = model_resolution.model.clone();
         validate_agent_model(&self.agent_registry, &agent_cmd, launch_model.as_deref())?;
         if let Some(ref notice) = model_resolution.fallback_notice {
             self.create_notification(model_fallback_notice_title(notice), None, Some("warning"));
@@ -386,10 +391,8 @@ impl ServiceContext {
         } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&pane_id, Some(sid.clone()));
         }
-        if let Some(ref model) = launch_model {
-            if let Some(pane) = self.mux.write().get_pane_mut(&pane_id) {
-                pane.agent_session_model = Some(model.clone());
-            }
+        if let Some(pane) = self.mux.write().get_pane_mut(&pane_id) {
+            persist_model_launch_identity(pane, agent.planned_model.as_deref(), &model_resolution);
         }
         self.emit_state_changed();
 
@@ -448,6 +451,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: agent.worker_id.clone(),
             warning,
+            model_fallback: model_resolution.fallback_notice,
             budget_notice,
         })
     }
@@ -509,6 +513,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: None,
             warning,
+            model_fallback: None,
             budget_notice,
         })
     }
@@ -610,6 +615,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: None,
             warning: None,
+            model_fallback: None,
             budget_notice,
         })
     }
@@ -633,13 +639,14 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn.hidden] {}", warning);
         }
-        let model_resolution = resolve_fresh_agent_model_with_notice(
+        let mut model_resolution = resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent.provider,
             agent.model.clone(),
             agent.resume_session_id.as_deref(),
         );
-        let launch_model = model_resolution.model;
+        attach_planned_model(&mut model_resolution, agent.planned_model.as_deref());
+        let launch_model = model_resolution.model.clone();
         validate_agent_model(
             &self.agent_registry,
             &agent.provider,
@@ -679,9 +686,11 @@ impl ServiceContext {
                 if let Some(ref dir) = resolved_cwd {
                     pane.cwd = Some(dir.clone());
                 }
-                if let Some(ref model) = launch_model {
-                    pane.agent_session_model = Some(model.clone());
-                }
+                persist_model_launch_identity(
+                    pane,
+                    agent.planned_model.as_deref(),
+                    &model_resolution,
+                );
                 if let Some(ref rtid) = agent.report_target_pane_id {
                     pane.report_target_pane_id = Some(rtid.clone());
                 }
@@ -907,6 +916,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: agent.worker_id.clone(),
             warning: cli_warning,
+            model_fallback: model_resolution.fallback_notice,
             budget_notice,
         })
     }

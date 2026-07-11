@@ -95,6 +95,7 @@ pub(super) fn compete(
             task: Some(draft.task_prompt.clone()),
             workspace_id: draft.workspace_id.clone(),
             model: draft.model.clone(),
+            planned_model: draft.planned_model.clone(),
             spawned_by_pane_id: draft.parent_pane_id.clone(),
             ..Default::default()
         };

@@ -529,6 +529,7 @@ fn bind_reported_session(
     let changed = prev.as_deref() != Some(sid);
     if changed {
         pane.agent_session_id = Some(sid.to_string());
+        crate::service::pane::clear_runtime_model_evidence(pane);
     }
     pane.reported_session_binding_nonce =
         nonce_verified.then(|| report_nonce.unwrap_or_default().to_string());
@@ -644,6 +645,12 @@ mod tests {
                 nonce_verified: false,
             }
         );
+        {
+            let pane = mux.get_pane_mut(&pane_id).unwrap();
+            pane.agent_requested_model = Some("model-requested".into());
+            pane.agent_provider_resolved_model = Some("model-resolved".into());
+            pane.agent_session_model = Some("model-stale".into());
+        }
 
         let second =
             bind_reported_session(&mut mux, &registry, &pane_id, "codex", "sid-b", None).unwrap();
@@ -658,6 +665,15 @@ mod tests {
         let pane = mux.get_pane(&pane_id).unwrap();
         assert_eq!(pane.agent_type.as_deref(), Some("codex"));
         assert_eq!(pane.agent_session_id.as_deref(), Some("sid-b"));
+        assert_eq!(
+            pane.agent_requested_model.as_deref(),
+            Some("model-requested")
+        );
+        assert_eq!(
+            pane.agent_provider_resolved_model.as_deref(),
+            Some("model-resolved")
+        );
+        assert!(pane.agent_session_model.is_none());
         assert!(pane.agent_type_locked);
 
         let unchanged =

@@ -214,6 +214,7 @@ pub async fn spawn_agent(
         skip_permissions: body.skip_permissions,
         spawned_by_pane_id: body.spawned_by_pane_id,
         model: body.model,
+        planned_model: None,
         system_prompt: body.system_prompt,
         preset: body.preset,
         resume_session_id: None,
@@ -237,6 +238,10 @@ pub async fn spawn_agent(
         "pty_id": result.pty_id,
         "agent": result.agent,
         "model": result.model,
+        "planned_model": result.planned_model,
+        "requested_model": result.requested_model,
+        "provider_resolved_model": result.provider_resolved_model,
+        "actual_model": result.actual_model,
         "title": result.title,
         "description": result.description,
         "role": result.role,
@@ -244,6 +249,9 @@ pub async fn spawn_agent(
     });
     if let Some(ref warning) = result.warning {
         resp["warning"] = serde_json::json!(warning);
+    }
+    if let Some(ref fallback) = result.model_fallback {
+        resp["model_fallback"] = serde_json::json!(fallback);
     }
     if let Some(ref notice) = result.budget_notice {
         resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();

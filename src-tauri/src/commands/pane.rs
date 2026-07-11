@@ -317,11 +317,12 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     {
         let claimed = {
             let mut mux = svc.mux.write();
-            if mux.other_session_ids(&pane_id).contains(&active_sid) {
+            if active_sid == session_id || mux.other_session_ids(&pane_id).contains(&active_sid) {
                 false
             } else if let Some(pane) = mux.get_pane_mut(&pane_id) {
                 if pane.agent_type.as_deref() == Some(provider_id.as_str()) {
                     pane.agent_session_id = Some(active_sid.clone());
+                    crate::service::pane::clear_runtime_model_evidence(pane);
                     true
                 } else {
                     false

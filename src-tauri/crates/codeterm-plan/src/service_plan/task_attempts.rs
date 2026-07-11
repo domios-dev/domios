@@ -49,6 +49,7 @@ pub struct TaskRespawnDraft {
     pub task_id: String,
     pub source_attempt: TaskExecutionAttempt,
     pub provider: String,
+    pub planned_model: Option<String>,
     pub model: Option<String>,
     pub parent_pane_id: Option<String>,
     pub workspace_id: Option<String>,
@@ -66,6 +67,7 @@ pub struct TaskCompeteDraft {
     pub competition_group_id: String,
     pub lane: u32,
     pub provider: String,
+    pub planned_model: Option<String>,
     pub model: Option<String>,
     pub parent_pane_id: Option<String>,
     pub workspace_id: Option<String>,
@@ -542,6 +544,7 @@ impl PlanStore {
                 competition_group_id: group_id.clone(),
                 lane,
                 provider,
+                planned_model: task.model.clone(),
                 model,
                 parent_pane_id: request
                     .parent_pane_id
@@ -655,6 +658,7 @@ impl PlanStore {
             task_id: task.id.clone(),
             source_attempt: source.clone(),
             provider,
+            planned_model: task.model.clone(),
             model,
             parent_pane_id: request
                 .parent_pane_id

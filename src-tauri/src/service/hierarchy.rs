@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use super::{ReportResult, ServiceContext, ServiceState};
 use crate::agent::ledger::LedgerRow;
-use crate::agent::reports::{ReportDetails, ReportStatus};
+use crate::agent::reports::{ReportDetails, ReportModelIdentity, ReportStatus};
 use crate::multiplexer::types::AgentRole;
 use crate::plan::AgentRef;
 use tauri::Manager;
@@ -416,7 +416,7 @@ impl ServiceContext {
         let (eff_plan_id, eff_task_id) =
             resolve_plan_ctx(&self.plan_store, pane_id, plan_id, task_id, &mut notices)?;
 
-        let (from_title, default_target_opt, model, from_ref, role) = {
+        let (from_title, default_target_opt, model_identity, from_ref, role) = {
             let mux = self.mux.read();
             let (from_title, target_opt) = match resolve_report_target(&mux, pane_id) {
                 Ok(resolved) => resolved,
@@ -424,7 +424,14 @@ impl ServiceContext {
                 Err(e) => return Err(e),
             };
             let pane = mux.get_pane(pane_id);
-            let model = pane.and_then(|p| p.agent_session_model.clone());
+            let model_identity = pane.map(|p| ReportModelIdentity {
+                actual_model: p.agent_session_model.clone(),
+                planned_model: p.agent_planned_model.clone(),
+                requested_model: p.agent_requested_model.clone(),
+                provider_resolved_model: p.agent_provider_resolved_model.clone(),
+                fallback: p.model_fallback.clone(),
+                mismatch: p.model_identity_mismatch.clone(),
+            });
             let from_ref = pane.map_or_else(
                 || AgentRef::from_pane(pane_id),
                 |p| AgentRef {
@@ -434,8 +441,11 @@ impl ServiceContext {
                 },
             );
             let role = pane.and_then(|p| p.role);
-            (from_title, target_opt, model, from_ref, role)
+            (from_title, target_opt, model_identity, from_ref, role)
         };
+        let model = model_identity
+            .as_ref()
+            .and_then(|identity| identity.actual_model.clone());
         // Capture mesh peer before default_target_opt is consumed by .or().
         let default_mesh_peer = match &default_target_opt {
             Some(ReportTarget::Mesh { peer, .. }) => Some(peer.clone()),
@@ -588,20 +598,20 @@ impl ServiceContext {
             "No report target for this pane. You are not attached to an orchestrator, report target, or spawning pane. Ask for the target pane id, then use `codeterm send [--mesh <peer>] --pane <pane-or-alias> \"...\"`, or spawn with a report target.".to_string()
         })?;
         let storage_key = target.storage_key();
-        let report = self.report_store.lock().add_detailed(
+        let report = self.report_store.lock().add_detailed_with_model_identity(
             &storage_key,
             pane_id,
             &from_title,
             message,
             details,
-            model.as_deref(),
+            model_identity,
         );
 
         self.events.broadcast(
             "agent.report",
             serde_json::json!({
                 "target_pane_id": storage_key,
-                "report": report,
+                "report": report.clone(),
             }),
         );
         crate::api::events::emit_everywhere(
@@ -612,6 +622,7 @@ impl ServiceContext {
                 "from_pane_id": pane_id,
                 "from_title": from_title,
                 "message": message,
+                "report": report.clone(),
             }),
         );
 
