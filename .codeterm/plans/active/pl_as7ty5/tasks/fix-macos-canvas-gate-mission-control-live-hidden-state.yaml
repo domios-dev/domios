@@ -1,0 +1,72 @@
+id: task_olo5rn
+name: Fix macOS canvas gate mission-control-live hidden state
+type: impl
+model: opus
+model_rationale: macOS/eight canvas verification for the Playwright speedup lane is blocked by a reproducible mission-control-live hidden state unrelated to sleep/polling changes; fixing it restores the canvas gate signal needed before further Playwright-stability frontier work.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- On macOS/eight at origin/feat/1.7.2-stability HEAD, /api/health build_sha equals HEAD, tests/playwright/suites/13-canvas/canvas-nav.spec.ts --project=golden passes in isolation with --timeout=30000 --global-timeout=600000, and the touched 13-canvas verification shard no longer fails at mission-control-live hidden. Any remaining failures must be different, recorded with artifacts, and classified.
+test_plan: 1. On eight, ff-pull feat/1.7.2-stability and restart dev 7686; verify build_sha==HEAD. 2. Run npx playwright test --config=tests/playwright/playwright.config.ts --project=golden tests/playwright/suites/13-canvas/canvas-nav.spec.ts --reporter=line --timeout=30000 --global-timeout=600000. 3. Rerun a bounded canvas subset including canvas-calm-ux, canvas-nav, canvas-plan-document, and plan-header-mobile; if healthy, rerun the full 16-spec canvas verification shard with a realistic global budget or split shards. 4. Report exact SHA, health, pass/fail, artifacts, and final git status.
+correctness: Do not hide the mission-control-live wait or weaken the oracle. The UI must become visible through the same user-visible path the canvas tests exercise. Keep prod 7685 untouched on remote machines.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783793589957
+updated_at: 1783793608023
+status_changed_at: 1783793589957
+handle: fix-macos-canvas-gate-mission-control-live-hidden-state
+tags:
+- canvas
+- playwright
+- macos
+section_ids:
+- sec_f6g3fr
+body: 'macOS/eight verification for task_luatne exposed a reproducible canvas gate blocker unrelated to the sleep/polling lane: mission-control-live mounts but remains hidden, so helpers/canvas-inspect.ts ensureCanvasBoard waits 30s and fails. Full 16-spec canvas command hit 600s global timeout; canvas-nav isolation reproduces in 32s. Diagnose whether this is app-render state, fixture setup, route/visibility state, or macOS web-mode harness drift. Keep the fix scoped to the canvas/mission-control visibility path or test fixture that owns it; do not change sleep/polling logic unless new evidence ties it to the regression.'
+role_guidance: 'You are a frontend/canvas engineer. Reproduce the macOS web-mode mission-control-live hidden failure first, then fix the actual visibility/fixture cause. Red line: changing the test to ignore hidden mission-control-live is not a fix.'
+executor_role: frontend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: playwright-stability
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_ieqanc
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: source
+  text: ' created from task_luatne macOS/eight gate. Full 16-spec canvas gate hit 600s timeout; canvas-nav isolation failed in 32s at unchanged mission-control-live visibility wait with mounted-but-hidden element. This is now a separate canvas/fixture/platform task, not a blocker on closed sleep-polling task_luatne.'
+  ts: 1783793608023
+  links:
+  - key:bc6513e8c96055e9
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts: []
+pause_reason: null
+attachments: []
