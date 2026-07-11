@@ -1,11 +1,12 @@
 import { chromium, test as base, type Browser, type Page } from "@playwright/test";
 import { ApiClient, readDevToken } from "./api-client";
-import { apiReset } from "./reset";
+import { apiReset, diffReset, snapshotBaseline } from "./reset";
 import { API_BASE, connectUi, isHealthy, type UiSession } from "./dev-console";
 
 type WorkerFixtures = {
   uiSession: ManagedUiSession;
   webBrowser: Browser;
+  resetTracker: { lastFile: string };
 };
 
 export type ManagedUiSession = UiSession & {
@@ -96,12 +97,26 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await use(uiSession);
   },
 
-  api: async ({}, use) => {
+  resetTracker: [
+    async ({}, use) => {
+      await use({ lastFile: "" });
+    },
+    { scope: "worker" },
+  ],
+
+  // Diff-based teardown closes only what the test created; the blanket sweep
+  // runs once per spec file as a stray-state safety net.
+  api: async ({ resetTracker }, use, testInfo) => {
     const client = new ApiClient();
+    if (resetTracker.lastFile !== testInfo.file) {
+      resetTracker.lastFile = testInfo.file;
+      await apiReset(client);
+    }
+    const baseline = await snapshotBaseline(client);
     try {
       await use(client);
     } finally {
-      await apiReset(client);
+      await diffReset(client, baseline);
     }
   },
 

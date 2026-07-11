@@ -25,15 +25,24 @@ export default defineConfig({
   use: postMortemArtifacts,
   globalSetup: "./helpers/global-setup",
   projects: [
-    { name: "smoke", grep: /@smoke/, grepInvert: /@quarantine/, retries: 0 },
+    // Daemon kill/restart tests run only in the serial `restart` project, so
+    // every other shard keeps its daemon alive for the whole run.
+    { name: "smoke", grep: /@smoke/, grepInvert: /@quarantine|@restart/, retries: 0 },
     {
       name: "golden",
       grep: /@golden/,
+      grepInvert: /@quarantine|@restart/,
+      retries: 0,
+      timeout: 300_000,
+    },
+    { name: "full", grepInvert: /@quarantine|@restart/, retries: 0 },
+    {
+      name: "restart",
+      grep: /@restart/,
       grepInvert: /@quarantine/,
       retries: 0,
       timeout: 300_000,
     },
-    { name: "full", grepInvert: /@quarantine/, retries: 0 },
     { name: "quarantine", grep: /@quarantine/, retries: 0 },
   ],
 });

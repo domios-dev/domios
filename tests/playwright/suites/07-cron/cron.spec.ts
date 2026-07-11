@@ -33,14 +33,14 @@ test.beforeEach(async ({ api }) => {
   expect(await clockMocked(api), "mock clock gate did not activate").toBe(true);
 });
 
-test("@smoke debug clock reports mocked state and advances", async ({ api }) => {
+test("@smoke debug clock reports mocked state and advances @restart", async ({ api }) => {
   const before = await api.get<{ mocked: boolean; now_ms: number }>("/debug/clock");
   expect(before.mocked).toBe(true);
   const advanced = await api.post<{ now_ms: number }>("/debug/clock/advance", { ms: 1_000 });
   expect(advanced.now_ms).toBeGreaterThanOrEqual(before.now_ms + 1_000);
 });
 
-test("@golden oneshot cron fires via time travel and spawns a real run", async ({ api }) => {
+test("@golden oneshot cron fires via time travel and spawns a real run @restart", async ({ api }) => {
   test.setTimeout(300_000);
 
   const ws = (await api.get<{ id: string; is_active: boolean }[]>("/workspaces")).find(
@@ -106,7 +106,7 @@ test("@golden oneshot cron fires via time travel and spawns a real run", async (
   }
 });
 
-test("@golden recurring cron fires exactly per boundary, not per advance call", async ({ api }) => {
+test("@golden recurring cron fires exactly per boundary, not per advance call @restart", async ({ api }) => {
   test.setTimeout(300_000);
 
   const ws = (await api.get<{ id: string; is_active: boolean }[]>("/workspaces")).find(
