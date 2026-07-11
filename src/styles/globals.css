@@ -2821,7 +2821,7 @@ button.plan-peer-chip:focus-visible {
 .plan-list-row-done {
   opacity: 0.55;
 }
-.plan-list-row-parked {
+.plan-list-row-paused {
   color: color-mix(in srgb, var(--ct-fg) 78%, var(--ct-muted-fg));
   background: color-mix(in srgb, var(--ct-muted-fg) 5%, transparent);
 }
@@ -2845,7 +2845,7 @@ button.plan-peer-chip:focus-visible {
   font-size: 0.78rem;
   line-height: 1.3;
 }
-.plan-list-parked-chip {
+.plan-list-paused-chip {
   flex-shrink: 0;
   padding: 0.04rem 0.34rem;
   border: 1px solid color-mix(in srgb, var(--ct-muted-fg) 36%, transparent);
@@ -3010,7 +3010,7 @@ button.plan-peer-chip:focus-visible {
   padding: 0.42rem 0.48rem;
   background: var(--ct-bg-elev, var(--ct-surface));
 }
-.plan-board-task-card-parked {
+.plan-board-task-card-paused {
   border-style: dashed;
   background: color-mix(in srgb, var(--ct-bg-elev, var(--ct-surface)) 92%, var(--ct-muted-fg));
 }
@@ -3035,7 +3035,7 @@ button.plan-peer-chip:focus-visible {
   color: var(--ct-bg, #0d1117);
   white-space: nowrap;
 }
-.plan-board-task-status-parked {
+.plan-board-task-status-paused {
   color: var(--ct-fg);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-muted-fg) 35%, transparent);
 }

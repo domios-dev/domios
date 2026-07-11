@@ -1,6 +1,6 @@
 # Lane Lifecycle Standard
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
 
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not CodeTerm's own repository layout.
@@ -34,7 +34,7 @@ about lifecycle and evidence, not CodeTerm's own repository layout.
    pushes must not run build gates.
 8. Before every milestone or release close, run a stale-lane sweep: every branch
    and worktree gets one verdict: merged and cleaned, bounced, intentionally
-   parked with unblocker, or abandoned with rationale.
+   paused with a reason, or abandoned with rationale.
 
 Mechanism ownership:
 

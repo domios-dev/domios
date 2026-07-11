@@ -1,0 +1,24 @@
+id: task_inline_milestones
+name: Inline milestone comment fixture
+status: parked
+park_reason: null # retain the legacy field comment on rename
+assigned_pane_id: pane_inline
+lane:
+  pane_id: pane_inline
+milestones: [] # keep this audit-list comment
+execution_attempts:
+  - id: attempt_inline
+    details:
+      checkpoints:
+        - label: first
+          evidence: [one, two]
+        - label: second
+          evidence:
+            nested:
+              - alpha
+              - beta
+    closed_at: null
+unknown:
+  sequence:
+    - mapping:
+        values: [1, 2, 3]

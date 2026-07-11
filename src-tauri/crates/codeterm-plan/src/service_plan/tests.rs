@@ -316,7 +316,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         canvas: Default::default(),
         milestones: vec![],
         execution_attempts: vec![],
-        park_reason: None,
+        pause_reason: None,
         personality: None,
         personality_provenance: None,
         attachments: vec![],

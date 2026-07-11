@@ -57,7 +57,7 @@ fn task_status_label(status: &crate::plan::TaskStatus) -> &'static str {
         crate::plan::TaskStatus::InProgress => "in_progress",
         crate::plan::TaskStatus::InReview => "in_review",
         crate::plan::TaskStatus::Blocked => "blocked",
-        crate::plan::TaskStatus::Parked => "parked",
+        crate::plan::TaskStatus::Paused => "paused",
         crate::plan::TaskStatus::Done => "done",
         crate::plan::TaskStatus::Cancelled => "cancelled",
     }
@@ -116,7 +116,7 @@ mod tests {
             canvas: Default::default(),
             milestones: vec![],
             execution_attempts: vec![],
-            park_reason: None,
+            pause_reason: None,
             personality: None,
             personality_provenance: None,
             attachments: vec![],

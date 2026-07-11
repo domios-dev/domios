@@ -60,7 +60,7 @@ fn canonical_project(project_path: &str) -> String {
 }
 
 fn is_active_task(status: &TaskStatus) -> bool {
-    !matches!(status, TaskStatus::Done | TaskStatus::Cancelled)
+    status.counts_as_open_work()
 }
 
 fn collect_sections(sections: &[Section], ids: &HashSet<&str>, out: &mut Vec<TaskSection>) {

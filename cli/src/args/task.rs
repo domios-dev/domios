@@ -22,7 +22,7 @@ pub enum TaskAction {
         plan: Option<String>,
         #[arg(
             long,
-            help = "Task status: pending | in_progress | in_review | blocked | done | cancelled"
+            help = "Task status: pending | in_progress | in_review | blocked | paused | done | cancelled"
         )]
         status: Option<String>,
     },

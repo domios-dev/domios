@@ -37,9 +37,19 @@ fn renders_bad_status_fix() {
     )
     .unwrap();
     assert!(msg.contains("valid task statuses"));
-    assert!(msg.contains("pending|in_progress|in_review|blocked|done|cancelled"));
+    assert!(msg.contains("pending|in_progress|in_review|blocked|paused|done|cancelled"));
     assert!(msg.contains("codeterm plan task update plan_1 task_1 --status pending"));
     assert!(msg.contains("--status-label"));
+}
+
+#[test]
+fn renders_task_pause_reason_fix() {
+    let msg = render_plan_error(
+        &json!({ "type": "task_pause_requires_reason" }),
+        &json!({ "plan_id": "plan_1", "task_id": "task_1" }),
+    )
+    .unwrap();
+    assert!(msg.contains("codeterm plan task pause plan_1 task_1 --reason"));
 }
 
 #[test]

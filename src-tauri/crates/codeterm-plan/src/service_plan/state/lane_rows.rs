@@ -49,7 +49,7 @@ where
         .clone()
         .or_else(|| task.assigned_pane_id.clone());
     let has_peer = task.peer.is_some();
-    // Local-only v1: a mesh/peer lane is parked as offline (no mesh probe),
+    // Local-only v1: a mesh/peer lane is treated as offline (no mesh probe),
     // never guessed gone — a sleeping peer must not read as dead.
     let probe = pane_id.as_deref().map(|p| pane_probe(p));
     let inputs = LaneInputs {

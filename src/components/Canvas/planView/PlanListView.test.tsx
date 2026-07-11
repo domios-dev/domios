@@ -156,28 +156,28 @@ test("status filter chip limits visible tasks", async () => {
   await unmount();
 });
 
-test("parked tasks stay in pending group with parked chip and reason title", async () => {
+test("paused tasks stay in pending group with paused chip and reason title", async () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     sections: [FIXTURE_SECTION],
     tasks: [
       {
         ...FIXTURE_TASK,
-        id: "t-parked",
-        status: TaskStatus.Parked,
+        id: "t-paused",
+        status: TaskStatus.Paused,
         name: "Deferred lane",
-        park_reason: "Provider quotas exhausted",
+        pause_reason: "Provider quotas exhausted",
       },
     ],
   };
   const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
   const group = host.querySelector('[data-testid="plan-list-plan-section"]') as HTMLElement;
-  assert(group?.textContent?.includes("Pending"), "parked task grouped under pending");
+  assert(group?.textContent?.includes("Pending"), "paused task grouped under pending");
   const row = host.querySelector('[data-testid="plan-list-task"]') as HTMLElement;
-  assert(row?.getAttribute("data-task-id") === "t-parked", "parked task visible");
-  assert(row.className.includes("plan-list-row-parked"), "parked row style");
-  assert(row.getAttribute("title") === "Parked: Provider quotas exhausted", "park reason title");
-  assert(row.querySelector('[data-testid="plan-list-parked-chip"]')?.textContent === "parked", "parked chip");
+  assert(row?.getAttribute("data-task-id") === "t-paused", "paused task visible");
+  assert(row.className.includes("plan-list-row-paused"), "paused row style");
+  assert(row.getAttribute("title") === "Paused: Provider quotas exhausted", "pause reason title");
+  assert(row.querySelector('[data-testid="plan-list-paused-chip"]')?.textContent === "paused", "paused chip");
   await unmount();
 });
 

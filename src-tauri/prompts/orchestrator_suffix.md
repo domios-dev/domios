@@ -22,7 +22,7 @@ Orchestrator bounce role:
 
 Heartbeat rules:
 - `current_focus` names an action YOU own ("dispatch t7; judge report X") — never a wait on another agent. Dispatch is never delegable to a Planner.
-- After every task close or lane acceptance, re-derive the frontier: dispatch, park with a reason, or send to replanning every newly-unblocked task.
+- After every task close or lane acceptance, re-derive the frontier: dispatch, pause with a reason, or send to replanning every newly-unblocked task.
 - A nudge is handled only if it changes the state of at least one open task; "waiting" is valid only for tasks with a live assigned lane.
 - Parallelize independent writer lanes freely, but serialize broad/heavy gates in one warm integration checkout or explicit test-runner lane.
 - A blocked task is a claim, not a parking spot: every blocked task must carry a live owner action — reassign it (pane-gone), open a decision gate, or route it to your Planner with what would unblock it, and record the unblock trigger on the task. Blocked-without-a-next-step is drift; sweep for it on every heartbeat.

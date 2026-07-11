@@ -61,7 +61,7 @@ export function VariantAssemblyLine({
         </div>
         <div className="mc-assembly-tail">
           <DoneShelf count={snapshot.doneCount} recent={snapshot.doneRecent} lod={lod} onTaskClick={onTaskClick} />
-          <SideRail title="Parked" tasks={snapshot.parked} lod={lod} onTaskClick={onTaskClick} />
+          <SideRail title="Paused" tasks={snapshot.paused} lod={lod} onTaskClick={onTaskClick} />
           <SideRail title="Blocked" tasks={snapshot.blocked} lod={lod} tone="warn" onTaskClick={onTaskClick} />
         </div>
       </div>

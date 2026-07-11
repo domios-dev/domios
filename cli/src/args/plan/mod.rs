@@ -280,7 +280,7 @@ pub enum PlanAction {
         sections: Option<String>,
         #[arg(
             long,
-            help = "Task status: pending | in_progress | in_review | blocked | done | cancelled"
+            help = "Task status: pending | in_progress | in_review | blocked | paused | done | cancelled"
         )]
         status: Option<String>,
         #[arg(long, value_name = "PATH")]

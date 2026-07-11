@@ -476,7 +476,7 @@ fn quality_errors_for_underspecified_tasks() {
 }
 
 #[test]
-fn quality_errors_for_parked_without_reason() {
+fn quality_errors_for_paused_without_reason() {
     let plan = json!({
         "id": "pl_1",
         "title": "Plan",
@@ -488,7 +488,7 @@ fn quality_errors_for_parked_without_reason() {
         "tasks": [{
             "id": "task_1",
             "name": "Do work",
-            "status": "parked",
+            "status": "paused",
             "section_ids": ["sec_1"],
             "body": "b",
             "acceptance_criteria": ["c"],
@@ -498,7 +498,7 @@ fn quality_errors_for_parked_without_reason() {
         }]
     });
     let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
-    assert!(findings.iter().any(|f| f.kind == "parked_without_reason"
+    assert!(findings.iter().any(|f| f.kind == "paused_without_reason"
         && f.task_id.as_deref() == Some("task_1")
         && f.severity == "error"));
 }

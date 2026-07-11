@@ -224,29 +224,29 @@ test("done column collapses to recent N with show-all toggle", async () => {
   assert(expandedCards?.length === doneTasks.length, `expanded cards=${expandedCards?.length}`);
 });
 
-test("parked tasks render in pending column with distinct status and reason title", async () => {
+test("paused tasks render in pending column with distinct status and reason title", async () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     tasks: [
       task({
-        id: "task-parked",
-        status: TaskStatus.Parked,
+        id: "task-paused",
+        status: TaskStatus.Paused,
         name: "Deferred lane",
-        park_reason: "Provider quotas exhausted",
+        pause_reason: "Provider quotas exhausted",
       }),
       task({ id: "task-pending", status: TaskStatus.Pending, name: "Queue next" }),
     ],
   };
   const { host } = await render(<PlanBoardView mode="focus" planId={plan.id} plans={[plan]} panes={PANES} />);
-  assert(!host.querySelector('[data-testid="plan-board-column"][data-column="parked"]'), "no parked column");
+  assert(!host.querySelector('[data-testid="plan-board-column"][data-column="paused"]'), "no paused column");
   const pendingCol = host.querySelector('[data-testid="plan-board-column"][data-column="pending"]');
   assert(pendingCol, "pending column");
   assert(pendingCol?.querySelector('[data-testid="plan-board-column-count"]')?.textContent === "2", "pending count");
-  const parkedCard = pendingCol?.querySelector('[data-task-id="task-parked"]') as HTMLElement;
-  assert(parkedCard, "parked card in pending");
-  assert(parkedCard.className.includes("plan-board-task-card-parked"), "parked card style");
-  assert(parkedCard.getAttribute("title") === "Parked: Provider quotas exhausted", "park reason title");
-  assert(parkedCard.querySelector('[data-testid="status-chip"]')?.textContent === "parked", "parked status chip");
+  const pausedCard = pendingCol?.querySelector('[data-task-id="task-paused"]') as HTMLElement;
+  assert(pausedCard, "paused card in pending");
+  assert(pausedCard.className.includes("plan-board-task-card-paused"), "paused card style");
+  assert(pausedCard.getAttribute("title") === "Paused: Provider quotas exhausted", "pause reason title");
+  assert(pausedCard.querySelector('[data-testid="status-chip"]')?.textContent === "paused", "paused status chip");
 });
 
 test("done task card shows historical executor without active executor row", async () => {

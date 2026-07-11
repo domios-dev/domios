@@ -58,7 +58,7 @@ export function VariantControlRoom({ snapshot }: VariantProps) {
           <DoneShelf count={snapshot.doneCount} recent={snapshot.doneRecent} />
         </div>
         <div style={{ gridColumn: 1, gridRow: 3, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <SideRail title="Parked" tasks={snapshot.parked} />
+          <SideRail title="Paused" tasks={snapshot.paused} />
           <SideRail title="Blocked" tasks={snapshot.blocked} tone="warn" />
         </div>
       </div>

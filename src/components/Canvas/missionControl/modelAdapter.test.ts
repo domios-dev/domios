@@ -98,15 +98,15 @@ test("modelToSnapshot caps stream events", () => {
   assert(snap.events.length <= 4, `events capped: ${snap.events.length}`);
 });
 
-test("modelToSnapshot splits blocked vs parked in side rails", () => {
+test("modelToSnapshot splits blocked vs paused in side rails", () => {
   const plan = mkPlan([
     mkTask({ id: "t-b", status: TaskStatus.Blocked }),
-    mkTask({ id: "t-p", status: TaskStatus.Parked }),
+    mkTask({ id: "t-p", status: TaskStatus.Paused }),
   ]);
   const model = buildMissionControl(plan, {}, NOW);
   const snap = modelToSnapshot({ plan, model });
   assert(snap.blocked.length === 1 && snap.blocked[0]!.id === "t-b", "blocked");
-  assert(snap.parked.length === 1 && snap.parked[0]!.id === "t-p", "parked");
+  assert(snap.paused.length === 1 && snap.paused[0]!.id === "t-p", "paused");
 });
 
 let passed = 0;
