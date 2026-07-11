@@ -33,17 +33,25 @@ const DEFAULT_CASTS = {
 function parseArgv(argv) {
   const sep = argv.indexOf("--");
   const own = sep === -1 ? argv : argv.slice(0, sep);
-  const original = sep === -1 ? [] : argv.slice(sep + 1);
+  const rest = sep === -1 ? [] : argv.slice(sep + 1);
+  // The provider CLI puts the task positionally after its OWN `--`
+  // (the shell has already expanded the task-file expression into text).
+  const taskSep = rest.indexOf("--");
+  const original = taskSep === -1 ? rest : rest.slice(0, taskSep);
+  const task = taskSep === -1 ? null : rest.slice(taskSep + 1).join(" ");
   const provider = own[own.indexOf("--stub-provider") + 1] || "claude";
-  const modelIdx = original.findIndex((a) => a === "--model" || a === "-m");
-  const model = modelIdx !== -1 ? original[modelIdx + 1] : null;
-  const resumeIdx = original.findIndex((a) => a === "--resume" || a === "-r");
-  const resumeSid = resumeIdx !== -1 ? original[resumeIdx + 1] : null;
-  return { provider, original, model, resumeSid };
+  const flag = (name) => {
+    const i = original.findIndex((a) => a === name);
+    return i !== -1 ? original[i + 1] : null;
+  };
+  const model = flag("--model") ?? flag("-m");
+  const resumeSid = flag("--resume") ?? flag("-r");
+  const presetSid = flag("--session-id");
+  return { provider, original, model, resumeSid, presetSid, task };
 }
 
-const { provider, original, model, resumeSid } = parseArgv(process.argv.slice(2));
-const sessionId = resumeSid || randomUUID();
+const { provider, original, model, resumeSid, presetSid, task } = parseArgv(process.argv.slice(2));
+const sessionId = resumeSid || presetSid || randomUUID();
 const paneId = process.env.CODETERM_PANE_ID || "";
 const apiUrl = (process.env.CODETERM_API_URL || "").replace(/\/$/, "");
 const apiToken = process.env.CODETERM_API_TOKEN || "";
@@ -166,12 +174,27 @@ function persistTurn(userText, assistantText) {
   }
 }
 
+function submitReport(message) {
+  if (!apiUrl || !apiToken || !paneId) return;
+  fetch(`${apiUrl}/api/panes/${paneId}/report`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiToken}` },
+    body: JSON.stringify({ message }),
+    signal: AbortSignal.timeout(10000),
+  }).catch(() => {});
+}
+
 function handleLine(line) {
   const echo = line.match(/STUB_ECHO\s+(\S+)/);
   const tool = line.match(/STUB_TOOL\s+(\S+)/);
+  const report = line.match(/STUB_REPORT\s+(\S+)/);
   if (line.trim() === "/exit") {
     out("");
     process.exit(0);
+  } else if (report) {
+    submitReport(report[1]);
+    out(style.turn(`reported ${report[1]}`));
+    persistTurn(line.trim(), `reported ${report[1]}`);
   } else if (echo) {
     out(style.turn(`ack ${echo[1]}`));
     persistTurn(line.trim(), `ack ${echo[1]}`);
@@ -191,8 +214,8 @@ out(`session: ${sessionId}${resumeSid ? " (resumed)" : ""}`);
 if (original.length) out(`[2margv: ${original.join(" ")}[0m`);
 replayCast();
 await announceSession();
-const initialTask = process.env.CODETERM_STUB_TASK;
-if (initialTask) handleLine(initialTask);
+const initialTask = process.env.CODETERM_STUB_TASK || task;
+if (initialTask) handleLine(initialTask.replace(/\r?\n/g, " "));
 process.stdout.write(style.idle);
 
 let buf = "";
