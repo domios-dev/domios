@@ -387,7 +387,14 @@ start_dev_wait_process() {
     echo "screen:$session"
     return
   fi
-  nohup "${cmd[@]}" </dev/null >> "$log" 2>&1 &
+  case "$OSTYPE" in
+    msys*|cygwin*|win32)
+      "${cmd[@]}" </dev/null >> "$log" 2>&1 &
+      ;;
+    *)
+      nohup "${cmd[@]}" </dev/null >> "$log" 2>&1 &
+      ;;
+  esac
   echo $!
 }
 
