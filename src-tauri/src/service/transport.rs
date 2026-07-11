@@ -128,7 +128,9 @@ impl AgentTransport for PtyTransport {
             structured_prompt_server,
         };
         svc.agent_registry
-            .with_provider(ctx.provider_id, |p| p.build_launch_command(&params))
+            .with_provider(ctx.provider_id, |p| {
+                crate::agent::stub_launch::apply(ctx.provider_id, p.build_launch_command(&params))
+            })
             .map(Some)
             .ok_or_else(|| format!("Unknown agent provider: {}", ctx.provider_id))
     }

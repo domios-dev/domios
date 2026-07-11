@@ -335,11 +335,14 @@ pub async fn spawn_pty_core(
                     .filter(|m| !m.trim().is_empty())
                     .map(|m| p.model_launch_args(m))
                     .filter(|a| !a.is_empty());
-                p.build_launch_command(&crate::agent::provider::AgentLaunchParams {
-                    skip_permissions: skip_perms,
-                    args,
-                    ..Default::default()
-                })
+                crate::agent::stub_launch::apply(
+                    &provider_id,
+                    p.build_launch_command(&crate::agent::provider::AgentLaunchParams {
+                        skip_permissions: skip_perms,
+                        args,
+                        ..Default::default()
+                    }),
+                )
             });
             if let Some(cmd) = launch_cmd {
                 let pty_id_for_poll = pty_id.clone();

@@ -342,10 +342,9 @@ pub fn start_general_agent(
                 &ga_cwd,
             ),
         };
-        match svc
-            .agent_registry
-            .with_provider(provider_name, |p| p.build_launch_command(&params))
-        {
+        match svc.agent_registry.with_provider(provider_name, |p| {
+            crate::agent::stub_launch::apply(provider_name, p.build_launch_command(&params))
+        }) {
             Some(cmd) => cmd,
             None => {
                 log::error!(
