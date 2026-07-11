@@ -17,7 +17,7 @@ qa_state: null
 status_label: release-blocking
 priority: p0
 created_at: 1783795693431
-updated_at: 1783796497203
+updated_at: 1783796568433
 status_changed_at: 1783795693431
 handle: windows-daemon-terminates-at-oneshot-cron-completion-intermittent
 tags:
@@ -63,6 +63,23 @@ milestones:
   ts: 1783796497203
   links:
   - key:0043cdfafdc6b096
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_n2rtrw
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: dispatch-request
+  text: ' asked ROG Main to spawn a Windows rust-backend worker in C:/Users/amigo/Developer/codeterm-worktrees/pw-172-stability. Atomic remote plan dispatch is local-only, so ROG should run local dispatch or fallback direct claude/opus spawn with the full task brief and report tab id/blocker back to BLACKSTAR/e3fa0754.'
+  ts: 1783796568433
+  links:
+  - key:1368d62f7a8e2cbf
   loop_id: null
   iteration: null
   canvas:
