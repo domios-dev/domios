@@ -91,6 +91,7 @@ export function usePtyConnection({
   const webReplayedPtysRef = useRef<Set<string>>(new Set());
   // xterm instance is keep-alive (never destroyed on tab switch); replay scrollback only once per pane lifetime.
   const replayDoneRef = useRef<Set<string>>(new Set());
+  const visibleResyncDoneRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     localFitEnabledRef.current = localFitEnabled;
@@ -114,6 +115,16 @@ export function usePtyConnection({
       term.scrollToBottom();
     });
   }, [renderEnabled, termRef, paneId]);
+
+  useEffect(() => {
+    if (!renderEnabled || !termReady || !ptyId) return;
+    if (hiddenBufRef.current.size > 0) return;
+    if (visibleResyncDoneRef.current.has(ptyId)) return;
+    const term = termRef.current;
+    if (!term) return;
+    visibleResyncDoneRef.current.add(ptyId);
+    void resyncPaneHistory(term, paneId);
+  }, [renderEnabled, termReady, ptyId, paneId, termRef]);
 
   useEffect(() => () => {
     cancelVisibleReplayRef.current?.();
@@ -157,7 +168,13 @@ export function usePtyConnection({
         if (!replayDoneRef.current.has(ptyId)) {
           replayDoneRef.current.add(ptyId);
           const history = await fetchPaneHistory(paneId);
-          if (history) writeTerminalStringInFrames(term, history);
+          if (history) {
+            if (renderEnabledRef.current) {
+              writeTerminalStringInFrames(term, history);
+            } else {
+              hiddenBufRef.current.push(new TextEncoder().encode(history));
+            }
+          }
         }
         // One fit() + resize on every (re)connect to sync PTY dimensions.
         requestAnimationFrame(() => {

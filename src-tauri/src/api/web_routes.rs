@@ -36,10 +36,26 @@ pub async fn tab_focus(
     Path((workspace_id, tab_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let pane_id = state
+        .svc
+        .mux
+        .read()
+        .snapshot()
+        .workspaces
+        .into_iter()
+        .find(|ws| ws.id == workspace_id)
+        .and_then(|ws| ws.tabs.into_iter().find(|tab| tab.id == tab_id))
+        .map(|tab| tab.pane_id);
     state
         .svc
         .set_active_tab(&workspace_id, &tab_id)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    if let Some(pane_id) = pane_id {
+        state
+            .svc
+            .focus_pane(&pane_id)
+            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    }
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
