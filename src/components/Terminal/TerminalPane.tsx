@@ -384,6 +384,14 @@ export const TerminalPane = memo(function TerminalPane({
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
+  const openTerminalFallback = useCallback(() => {
+    setTerminalFallbackOpen(true);
+    requestAnimationFrame(() => {
+      claimTerminalOwnership(true);
+      termRef.current?.focus();
+    });
+  }, [claimTerminalOwnership, termRef]);
+
   const contextMenuActions: ContextMenuAction[] = [
     { label: "Copy", shortcut: "Ctrl+Shift+C", onClick: copySelection },
     { label: "Paste", shortcut: "Ctrl+Shift+V", onClick: pasteFromClipboard },
@@ -556,13 +564,7 @@ export const TerminalPane = memo(function TerminalPane({
               // client-mode store here or the pane gets pinned to terminal.
               setUiMode("terminal");
             }}
-            onOpenTerminalFallback={() => {
-              setTerminalFallbackOpen(true);
-              requestAnimationFrame(() => {
-                claimTerminalOwnership(true);
-                termRef.current?.focus();
-              });
-            }}
+            onOpenTerminalFallback={openTerminalFallback}
           />
         </div>
       )}
