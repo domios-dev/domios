@@ -4,6 +4,7 @@ type: implementation
 model: opus
 model_rationale: Once the three shards produce classified failures, each platform owner must fix what it can reproduce and land stabilized specs/code, with shared-UI failures triaged as real regressions vs flake.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - Each classified failure is either fixed with green evidence or recorded as a bounded blocker with exact repro command
 - Fixes land on feat/1.7.2-stability; each fixed test passes twice in isolation on the reproducing platform
@@ -29,6 +30,7 @@ executor_role: playwright-fix-owner
 competition: null
 intent: null
 parent_task_id: null
+depends_on: []
 assigned_pane_id: null
 lane:
   pane_id: null
@@ -150,5 +152,5 @@ execution_attempts:
   judge_reason: null
   judged_at: null
   winner: false
-park_reason: null
+pause_reason: null
 attachments: []

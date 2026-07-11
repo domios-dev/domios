@@ -4,6 +4,7 @@ type: discovery
 model: opus
 model_rationale: The golden suite is 183 serial tests across many suites; without a balanced shard map and per-shard time budgets, platform runs are unbounded and not comparable.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - Every golden suite directory from 02-multiplexer through 20-new-session is assigned to exactly one shard
 - Each shard has a name, a -g or file selector, test count, risk class (real-agent/LLM vs deterministic), and a --global-timeout budget
@@ -28,6 +29,7 @@ executor_role: test-inventory-analyst
 competition: null
 intent: null
 parent_task_id: null
+depends_on: []
 assigned_pane_id: null
 lane:
   pane_id: null
@@ -262,5 +264,5 @@ execution_attempts:
   judge_reason: null
   judged_at: null
   winner: false
-park_reason: null
+pause_reason: null
 attachments: []

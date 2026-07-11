@@ -99,6 +99,16 @@ test("deriveWorkspacePlanEntries matches project-local plans", () => {
   assert(entries[0].plan_id === FIXTURE_PLAN.id, "fixture plan id");
 });
 
+test("deriveWorkspacePlanEntries matches Windows verbatim plan paths", () => {
+  const windowsWorkspace = { ...workspace, cwd: "D:\\Developer\\codeterm" };
+  const entries = deriveWorkspacePlanEntries(
+    [indexEntry({ file_path: "\\\\?\\D:\\Developer\\codeterm\\.codeterm\\plans\\active\\pl_as7ty5\\plan.yaml" })],
+    windowsWorkspace,
+    panes,
+  );
+  assert(entries.length === 1, "verbatim Windows path belongs to workspace");
+});
+
 test("deriveWorkspacePlanEntries ignores archived plans", () => {
   const archived = indexEntry({ status: "archived" });
   const entries = deriveWorkspacePlanEntries([archived], workspace, panes);

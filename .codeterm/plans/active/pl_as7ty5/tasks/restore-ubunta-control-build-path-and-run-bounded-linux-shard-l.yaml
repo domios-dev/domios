@@ -1,0 +1,55 @@
+id: task_e6ib76
+name: Restore ubunta control/build path and run bounded Linux Shard L
+type: qa
+model: sonnet
+model_rationale: 'User resumed the deferred Linux objective: the prior blocker was infra (stale checkout at 33c284096, libsqlite3-sys build stall, no healthy 7686, broken tab control path), not an app failure. Linux web-mode signal is still missing from the cross-platform picture.'
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- ubunta checkout fast-forwarded to current origin/feat/1.7.2-stability with recorded sha
+- 'dev on ubunta healthy: /api/health status ok and build_sha equals HEAD'
+- Shard L runs bounded to completion with per-test and global timeouts, producing a pass/fail/flaky table, or a bounded infra blocker is documented with the exact failing command
+test_plan: 'On ubunta via mesh, every step bounded: 1) git fetch origin and git reset --hard origin/feat/1.7.2-stability; record sha. 2) Rebuild dev: ./build.sh dev --wait with a hard cap; if libsqlite3-sys stalls again, capture the exact cargo line + last 50 log lines as the blocker artifact. 3) curl -s http://127.0.0.1:7686/api/health: status ok, build_sha==HEAD. 4) npx playwright install chromium; curl /web/ 200. 5) Run Shard L: npx playwright test --config=tests/playwright/playwright.config.ts --project=golden <Shard L selector> --global-timeout=<budget> --reporter=line. 6) Report result table + artifacts, failures classified Linux-only vs shared-UI.'
+correctness: All evidence read on ubunta itself; build_sha==HEAD before any test result is trusted; every command capped so the lane can never hang silently.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783782660155
+updated_at: 1783782660155
+status_changed_at: 1783782660155
+handle: restore-ubunta-control-build-path-and-run-bounded-linux-shard-l
+tags: []
+section_ids:
+- sec_ga5tvr
+- sec_f6g3fr
+body: 'Resume Linux coverage. Restore the ubunta control/build path: fast-forward the stale checkout (33c284096) to current origin/feat/1.7.2-stability, complete the previously stalling build (libsqlite3-sys was the last visible unit), prove dev 7686 health with build_sha==HEAD, then execute bounded Shard L per the task_rhbf8k shard table. If infra breaks again, deliver the bounded blocker artifact (exact command + log tail) instead of an open-ended retry loop.'
+role_guidance: 'You are the ubunta Linux platform owner working only on ubunta via mesh; never run builds or tests on the local orchestrator. Red line: bounded caps on every command — a build or test allowed to sit unbounded is a violation; report infra facts you observed, never assumed ones.'
+executor_role: linux-platform-owner
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: playwright-stability
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

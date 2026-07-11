@@ -4,6 +4,7 @@ type: implementation
 model: opus
 model_rationale: 'User-reported: clicking Task/Section chips in a chat message does not select or navigate into the plan, and the plan panel shows Plan unavailable / not found for a plan that provably exists in the same daemon (CLI + disk + API all resolve pl_as7ty5). This is a planning-UX defect in the plan chip resolver/navigation, not data loss.'
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - On dev 1.7.2 (7686), clicking a Task/Section/Plan chip in a chat message selects it and opens the referenced plan/task in the plan panel
 - Plan panel resolves an existing plan id (pl_as7ty5) instead of showing Plan unavailable / not found
@@ -30,6 +31,7 @@ executor_role: frontend-dev
 competition: null
 intent: null
 parent_task_id: null
+depends_on: []
 assigned_pane_id: null
 lane:
   pane_id: null
@@ -102,5 +104,5 @@ milestones:
     collapsed: false
   attachments: []
 execution_attempts: []
-park_reason: null
+pause_reason: null
 attachments: []

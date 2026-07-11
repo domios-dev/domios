@@ -1,0 +1,54 @@
+id: task_luatne
+name: Purge fixed sleeps and tighten polling across Playwright suites
+type: qa
+model: sonnet
+model_rationale: '88 fixed sleeps across suites/helpers (hotspots: canvas-inspect x11, pin-general x8, tab-switch-latency x7, canvas-perf x6) waste 30-45s, violate the charter, and cause flake; pollMarkerInDom polls at 1000ms with 240s default and pollUntil backs off to 2000ms — late detection across 100+ marker waits adds tens of seconds.'
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- Zero fixed sleeps remain in suites/ and helpers/ except explicitly justified animation/debounce waits each carrying a one-line justification
+- pollMarkerInDom polling tightened to 250ms and pollUntil backoff capped at 1000ms with all dependent tests still green in isolation
+- Every touched spec passes twice in isolation on the owning platform before commit
+test_plan: '1) grep -rn (waitForTimeout|setTimeout\(r,) tests/playwright/{suites,helpers} -> inventory. 2) Replace each with a condition-wait (expect.poll / waitForFunction / locator waits) tied to the state the sleep was masking. 3) Tighten helpers/poll.ts backoff cap to 1000ms and fixtures.ts pollMarkerInDom polling to 250ms. 4) For each touched file: npx playwright test <file> --timeout=30000 --global-timeout=600000 --reporter=line twice, green both. 5) Final grep proves zero unjustified sleeps.'
+correctness: No behavioral coverage lost; waits observe real conditions; per-file green x2 in isolation on the platform that runs that suite.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783782090747
+updated_at: 1783782090747
+status_changed_at: 1783782090747
+handle: purge-fixed-sleeps-and-tighten-polling-across-playwright-suites
+tags: []
+section_ids:
+- sec_f6g3fr
+body: 'Mechanical hygiene pass over tests/playwright: replace all 88 fixed sleeps with condition-waits, tighten pollMarkerInDom (1000ms->250ms) and pollUntil backoff (2000ms cap ->1000ms). Also refresh the stale AUDIT.md static audit against the current 183-test inventory as the closing hygiene gate. Revision doc section B.5/B.7.'
+role_guidance: 'You are a test-author. docs/contributing/test-authoring.md is your operating charter — read it fully before writing the first test. Non-negotiables: oracle-first, red-green demo in your report, condition-waits never sleeps, agent-readiness gates, bounded everything, smoke-run every harness script against the real CLI.'
+executor_role: test-author
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: pw-speedup
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

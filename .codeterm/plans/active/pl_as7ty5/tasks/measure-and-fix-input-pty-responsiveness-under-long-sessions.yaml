@@ -4,6 +4,7 @@ type: implementation
 model: opus
 model_rationale: User reports composer input stalls every few seconds and PTY output scroll/replay stays slow under long Codex sessions; this needs a reproducible latency oracle and targeted hotspot fixes, not broad rebuilds.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - 'A reproducible oracle exists: keystroke-to-render latency and PTY write/replay latency measured under a long transcript/session'
 - Before/after numbers show input stall removed and PTY replay frame-bounded; focused TS unit/perf checks added and green
@@ -30,6 +31,7 @@ executor_role: perf-responsiveness-dev
 competition: null
 intent: null
 parent_task_id: null
+depends_on: []
 assigned_pane_id: null
 lane:
   pane_id: null
@@ -219,5 +221,5 @@ milestones:
     collapsed: false
   attachments: []
 execution_attempts: []
-park_reason: null
+pause_reason: null
 attachments: []

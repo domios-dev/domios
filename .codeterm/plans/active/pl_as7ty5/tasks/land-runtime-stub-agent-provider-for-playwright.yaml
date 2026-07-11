@@ -1,0 +1,60 @@
+id: task_dycecc
+name: Land runtime stub agent provider for Playwright
+type: implementation
+model: opus
+model_rationale: 25+ golden tests spawn REAL Claude agents (180-420s each) because the live daemon has no stub provider (MockProvider is cfg(test)-only); this is 60-80% of golden wall-clock. A dev-build scripted stub converts minutes to seconds per test — the single biggest speedup.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- A stub provider is spawnable via POST /agents/spawn in a dev build with the env gate set, and absent (400) without it or in prod builds
+- 'Stub supports scripted deterministic replies: instant readiness, echo/scripted assistant text, a scripted tool round-trip, and marker emission into the PTY/chat surface'
+- Existing provider capability tests still green; no provider-id branching leaked into core
+test_plan: '1) cargo test agent:: (narrow, capped 90s via scripts/test-capped.sh) for registry/dispatch with the stub registered. 2) On a dev daemon with the gate: curl POST /api/agents/spawn {agent:"stub", script:...} -> pane appears, scripted reply lands in pane output within 5s (poll /panes/:id/output). 3) Without gate: same spawn returns 4xx. 4) One Playwright smoke microtest spawning the stub and asserting the marker in DOM, run in isolation with --timeout=30000.'
+correctness: Stub is unreachable outside gated dev builds; scripted output is deterministic; capability seam stays clean per AGENTS.md plugin discipline.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783782059284
+updated_at: 1783782218588
+status_changed_at: 1783782059284
+handle: land-runtime-stub-agent-provider-for-playwright
+tags: []
+section_ids:
+- sec_rlqrqc
+body: 'Implement a runtime stub agent provider so Playwright can exercise agent UI/plumbing without real LLM calls. Model on src-tauri/src/agent/test_provider.rs::MockProvider but as a live registered provider (dev-build + env-gated). Must support: instant readiness, scripted assistant replies, scripted tool-call round-trip, marker emission readable in PTY buffer and ChatView. Downstream task converts golden tests to it. See attached revision doc section B.1.'
+role_guidance: 'You are a Rust backend engineer in src-tauri/. Follow the plugin/capability discipline: the stub is a real AgentProvider registered only in dev builds behind an env gate (e.g. CODETERM_ENABLE_STUB_AGENT=1), never reachable in prod. Red line: core must keep asking capabilities, never match a stub id in core code; parity_test.rs gains a case if any trait surface grows.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: pw-speedup
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments:
+- id: att_jjcerr
+  name: playwright-perf-revision.md
+  path: attachments/tasks/task_dycecc/att_jjcerr-playwright-perf-revision.md
+  media_type: text/plain
+  size_bytes: 5974
+  created_at: 1783782218588

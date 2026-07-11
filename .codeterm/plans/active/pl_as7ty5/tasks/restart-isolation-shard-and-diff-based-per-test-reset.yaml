@@ -1,0 +1,54 @@
+id: task_cgoixr
+name: Restart-isolation shard and diff-based per-test reset
+type: qa
+model: opus
+model_rationale: Daemon kill/restart tests (02-multiplexer, 15-extensions, 18-reorder, 10-restore) cost 30-60s+ each and poison future parallelism; apiReset sweeps every workspace+pane over REST after EVERY of the 183 tests even when the test created nothing.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- All daemon-restart tests carry a dedicated tag (e.g. @restart) and a config project runs them as one serial shard; no other golden shard contains a daemon restart
+- Per-test teardown closes only tracked resources the test created (panes AND workspaces); blanket apiReset runs only at file boundaries
+- Golden project minus @restart passes with the new reset on at least one platform, and measured suite time drops vs the shard-table baseline
+test_plan: '1) Tag restart tests; add a restart project to playwright.config.ts mirroring golden grep + @restart. 2) Extend helpers/fixtures.ts: workspace tracking analogous to paneCleanup; api fixture teardown closes tracked-only; move blanket apiReset to a per-file afterAll. 3) Run a deterministic shard (06-mem + 11-api + 02-multiplexer minus restart) before/after: npx playwright test --project=golden <selector> --global-timeout=1800000 -> green + timing delta recorded. 4) Run the @restart shard alone -> green.'
+correctness: 'No cross-test leakage: a test that creates nothing must not be able to see a prior test''s workspaces; restart tests still fully covered, just isolated.'
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783782091095
+updated_at: 1783782091095
+status_changed_at: 1783782091095
+handle: restart-isolation-shard-and-diff-based-per-test-reset
+tags: []
+section_ids:
+- sec_f6g3fr
+body: 'Two structural changes from revision doc B.2/B.4: (1) isolate every daemon kill/restart test into a dedicated serial @restart shard run last, so ordinary shards never lose the daemon; (2) replace the per-test blanket apiReset with diff-based teardown (track-and-close what the test created), keeping the blanket sweep at file boundary as safety net. Record before/after shard timing as evidence.'
+role_guidance: 'You are a test-author. docs/contributing/test-authoring.md is your operating charter — read it fully before writing the first test. Non-negotiables: oracle-first, red-green demo in your report, condition-waits never sleeps, agent-readiness gates, bounded everything, smoke-run every harness script against the real CLI.'
+executor_role: test-author
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: pw-speedup
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

@@ -47,7 +47,7 @@ function planBelongsToWorkspacePath(entry: PlanIndexEntry, workspace: Workspace)
 }
 
 function normalizePath(path: string): string {
-  return path.replace(/\\/g, "/").replace(/\/+$/, "");
+  return path.replace(/\\/g, "/").replace(/^\/\/\?\//, "").replace(/\/+$/, "");
 }
 
 function hasWorkspacePlanContent(entry: PlanIndexEntry): boolean {
