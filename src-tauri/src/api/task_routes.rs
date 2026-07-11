@@ -28,7 +28,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::HeartbeatRequiresExecution
         | PlanError::InProgressRequiresPane
         | PlanError::BlockedRequiresLabel
-        | PlanError::ParkRequiresReason
+        | PlanError::TaskPauseRequiresReason
         | PlanError::PauseRequiresReason
         | PlanError::QaNoteRequired
         | PlanError::QaSlotUnavailable

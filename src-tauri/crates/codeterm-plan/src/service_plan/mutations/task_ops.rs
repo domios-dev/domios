@@ -64,8 +64,8 @@ impl PlanStore {
                     p.mode = PlanMode::Execution;
                 }
                 super::qa::normalize_task_review_fields(task);
-                if task.status != TaskStatus::Parked {
-                    task.park_reason = None;
+                if task.status != TaskStatus::Paused {
+                    task.pause_reason = None;
                 }
                 if is_terminal_task_status(&task.status) {
                     let assigned = task.assigned_pane_id.clone();

@@ -426,7 +426,7 @@ pub(super) fn run_task(
             }
             call(client, "plan.task.close", params).map(Some)
         }
-        PlanTaskAction::Park {
+        PlanTaskAction::Pause {
             plan_id,
             task_id,
             reason,
@@ -440,9 +440,9 @@ pub(super) fn run_task(
             if let Some(pid) = plan_ref {
                 params["plan_id"] = json!(pid);
             }
-            call(client, "plan.task.park", params).map(Some)
+            call(client, "plan.task.pause", params).map(Some)
         }
-        PlanTaskAction::Unpark { plan_id, task_id } => {
+        PlanTaskAction::Resume { plan_id, task_id } => {
             let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
             let mut params = json!({
                 "task_id": task_ref,
@@ -451,7 +451,7 @@ pub(super) fn run_task(
             if let Some(pid) = plan_ref {
                 params["plan_id"] = json!(pid);
             }
-            call(client, "plan.task.unpark", params).map(Some)
+            call(client, "plan.task.resume", params).map(Some)
         }
         PlanTaskAction::Assign {
             plan_id,

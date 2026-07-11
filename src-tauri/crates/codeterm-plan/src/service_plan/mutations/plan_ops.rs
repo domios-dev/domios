@@ -340,7 +340,7 @@ impl PlanStore {
             canvas: Default::default(),
             milestones: vec![],
             execution_attempts: vec![],
-            park_reason: None,
+            pause_reason: None,
             attachments: vec![],
         };
         let verify_sections = !task.section_ids.is_empty();

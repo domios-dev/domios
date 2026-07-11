@@ -434,7 +434,7 @@ impl PlanStore {
                                     canvas: Default::default(),
                                     milestones: vec![],
                                     execution_attempts: vec![],
-                                    park_reason: None,
+                                    pause_reason: None,
                                     personality,
                                     personality_provenance,
                                     attachments: vec![],

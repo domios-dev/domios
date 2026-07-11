@@ -79,7 +79,7 @@ These are candidate bounces the run will confirm or refute on live dev:
   charter, not enforced in the service. Promotion *does* reject panes that
   already have a parent (`validate_make_orchestrator`). H2 confirms/bounces this.
 - **`planner_unpaired` doctor rule** was not located in the quality-doctor
-  finding set (`service/plan/gates.rs` emits `parked_task_missing_reason`,
+  finding set (`service/plan/gates.rs` emits `paused_task_missing_reason`,
   `stale_open_gate`, …). If absent on live dev, G bounces to the doctor/QA
   enforcement lane `task_084e2148`.
 

@@ -558,7 +558,7 @@ fn is_plan_complete_predicate_covers_execution_all_done_and_explicit_complete() 
 }
 
 #[test]
-fn is_plan_complete_rejects_parked_and_blocked_tasks() {
+fn is_plan_complete_rejects_paused_and_blocked_tasks() {
     use super::heartbeat::is_plan_complete;
 
     let dir = tempfile::tempdir().unwrap();
@@ -573,11 +573,11 @@ fn is_plan_complete_rejects_parked_and_blocked_tasks() {
         )
         .unwrap();
     store.set_mode(&plan.id, PlanMode::Execution, 2).unwrap();
-    let parked_id = store
+    let paused_id = store
         .add_task(
             &plan.id,
             NewTask {
-                name: "parked".into(),
+                name: "paused".into(),
                 kind: "impl".into(),
                 ..Default::default()
             },
@@ -585,19 +585,19 @@ fn is_plan_complete_rejects_parked_and_blocked_tasks() {
         )
         .unwrap();
     store
-        .park_task(
+        .pause_task(
             &plan.id,
-            &parked_id,
+            &paused_id,
             "waiting for quota reset",
             AgentRef::from_pane("orch"),
             4,
         )
         .unwrap();
 
-    let parked_plan = store.get(&plan.id).unwrap();
+    let paused_plan = store.get(&plan.id).unwrap();
     assert!(
-        !is_plan_complete(&parked_plan),
-        "parked work is deferred, not complete"
+        !is_plan_complete(&paused_plan),
+        "paused work is deferred, not complete"
     );
 
     let blocked_id = store

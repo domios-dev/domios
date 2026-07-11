@@ -35,7 +35,7 @@ pub struct TaskCounts {
     pub in_progress: usize,
     pub in_review: usize,
     pub blocked: usize,
-    pub parked: usize,
+    pub paused: usize,
     pub done: usize,
     pub cancelled: usize,
     pub total: usize,
@@ -159,7 +159,7 @@ fn task_counts(plan: &Plan) -> TaskCounts {
             TaskStatus::InProgress => c.in_progress += 1,
             TaskStatus::InReview => c.in_review += 1,
             TaskStatus::Blocked => c.blocked += 1,
-            TaskStatus::Parked => c.parked += 1,
+            TaskStatus::Paused => c.paused += 1,
             TaskStatus::Done => c.done += 1,
             TaskStatus::Cancelled => c.cancelled += 1,
         }
@@ -167,12 +167,12 @@ fn task_counts(plan: &Plan) -> TaskCounts {
     c
 }
 
-// Completion over non-cancelled, non-parked tasks: both are out of active scope.
+// Completion over non-cancelled, non-paused tasks: both are out of active scope.
 fn percent_done(counts: &TaskCounts) -> f64 {
     let denom = counts
         .total
         .saturating_sub(counts.cancelled)
-        .saturating_sub(counts.parked);
+        .saturating_sub(counts.paused);
     if denom == 0 {
         0.0
     } else {
@@ -596,7 +596,7 @@ mod tests {
             canvas: Default::default(),
             milestones: vec![],
             execution_attempts: vec![],
-            park_reason: None,
+            pause_reason: None,
             personality: None,
             personality_provenance: None,
             attachments: vec![],
@@ -770,7 +770,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_dependency_waits_without_becoming_parked() {
+    fn explicit_dependency_waits_without_becoming_paused() {
         let mut plan = fixture();
         let dependency = task("t_dependency", TaskStatus::InProgress, &["s1"]);
         let mut child = task("t_child", TaskStatus::Pending, &["s1"]);
@@ -790,7 +790,7 @@ mod tests {
         );
 
         assert_eq!(snap.task_counts.pending, 1);
-        assert_eq!(snap.task_counts.parked, 0);
+        assert_eq!(snap.task_counts.paused, 0);
         let child_lane = snap
             .open_lanes
             .iter()

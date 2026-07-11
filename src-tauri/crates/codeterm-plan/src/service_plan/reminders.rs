@@ -66,10 +66,10 @@ pub fn polling_nudge_text() -> String {
 }
 
 // Verbatim heartbeat/nudge contract — MUST appear in every open-work nudge.
-pub const CONTRACT: &str = "repeats until every open task is dispatched, parked with a reason, or sent to replanning; silence is not an option.";
+pub const CONTRACT: &str = "repeats until every open task is dispatched, paused with a reason, or sent to replanning; silence is not an option.";
 
 // The five sanctioned exits for an open task.
-pub const EXITS: &str = "(1) dispatch it to a worker, (2) park with a reason (`codeterm plan task park <plan> <task> --reason \"<why>\"`), (3) judge an in_review task to done or bounce it, (4) send it to replanning, (5) escalate to a smarter model";
+pub const EXITS: &str = "(1) dispatch it to a worker, (2) pause with a reason (`codeterm plan task pause <plan> <task> --reason \"<why>\"`), (3) judge an in_review task to done or bounce it, (4) send it to replanning, (5) escalate to a smarter model";
 
 fn next_interval(base: u32, last_nudge: u32) -> u32 {
     if last_nudge == 0 {
@@ -341,9 +341,9 @@ mod tests {
     fn open_work_nudges_carry_contract_and_five_exits() {
         for kind in [NudgeKind::Orchestrator, NudgeKind::Escalated] {
             let text = nudge_text(kind);
-            assert!(text.contains("repeats until every open task is dispatched, parked with a reason, or sent to replanning; silence is not an option."));
+            assert!(text.contains("repeats until every open task is dispatched, paused with a reason, or sent to replanning; silence is not an option."));
             assert!(text.contains("dispatch"));
-            assert!(text.contains("park with a reason"));
+            assert!(text.contains("pause with a reason"));
             assert!(text.contains("judge"));
             assert!(text.contains("replanning"));
             assert!(text.contains("escalate to a smarter model"));

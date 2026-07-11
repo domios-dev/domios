@@ -9,3 +9,7 @@ docs/cli-manifest.json text eol=lf
 # the golden expectations on Windows). CRLF-robustness itself is covered by the
 # classify-pane-state CRLF regression tests, which synthesize \r\n at runtime.
 plugins/**/tests/fixtures/pane-state/*.txt text eol=lf
+
+# Legacy plan-state converter fixtures assert byte-exact \n structure
+# preservation; force LF so the golden expectations hold on Windows checkouts.
+tests/fixtures/plan-state/*.yaml text eol=lf

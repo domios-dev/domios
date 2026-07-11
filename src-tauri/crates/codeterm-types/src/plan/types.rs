@@ -29,7 +29,7 @@ pub enum TaskStatus {
     InProgress,
     InReview,
     Blocked,
-    Parked,
+    Paused,
     Done,
     Cancelled,
 }
@@ -54,7 +54,7 @@ impl TaskStatus {
         matches!(self, TaskStatus::Done | TaskStatus::Cancelled)
     }
 
-    // counts as open work only while it is non-terminal AND not parked.
+    // Paused work is deliberately excluded from the heartbeat open-work set.
     pub fn counts_as_open_work(&self) -> bool {
         matches!(
             self,
@@ -588,7 +588,7 @@ pub struct Task {
     #[serde(default)]
     pub execution_attempts: Vec<TaskExecutionAttempt>,
     #[serde(default)]
-    pub park_reason: Option<String>,
+    pub pause_reason: Option<String>,
     #[serde(default)]
     pub attachments: Vec<AttachmentRef>,
 }

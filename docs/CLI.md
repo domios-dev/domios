@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1410,7 +1410,7 @@ Decision gates — structured blocking questions routed to the planner
 
 #### `codeterm plan decision answer`
 
-Answer an open gate (immutable audit record, unparks blocked tasks)
+Answer an open gate (immutable audit record, resumes paused tasks)
 
 - `--answer`
 - `--answered_by_pane`
@@ -1419,10 +1419,10 @@ Answer an open gate (immutable audit record, unparks blocked tasks)
 
 #### `codeterm plan decision ask`
 
-Create a decision gate, park blocking tasks, and route the question to the planner
+Create a decision gate, pause blocking tasks, and route the question to the planner
 
 - `--asked_by_pane`
-- `--blocking_task_ids` — Task ids (or handles) to park until this gate is answered
+- `--blocking_task_ids` — Task ids (or handles) to pause until this gate is answered
 - `--context`
 - `<plan_id>`
 - `--question`
@@ -1901,7 +1901,7 @@ Record task progress with one atomic plan write
 - `--name`
 - `<plan_id>` — Plan id (if available from pane binding or env)
 - `--sections`
-- `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
+- `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
 - `--steps`
 - `--task`
 - `--upsert_task`
@@ -2165,11 +2165,11 @@ Link a task to one or more plan sections (CSV)
 List a plan's tasks, optionally filtered by status
 
 - `<plan_id>`
-- `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
+- `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
 
-#### `codeterm plan task park`
+#### `codeterm plan task pause`
 
-Park a task (defers it out of the heartbeat open-work set; requires --reason)
+Pause a task (explicit operator hold outside the heartbeat open-work set; requires --reason)
 
 - `<plan_id>`
 - `--reason`
@@ -2195,6 +2195,13 @@ Respawn a worker from one prior execution attempt
 - `--title`
 - `--workspace`
 
+#### `codeterm plan task resume`
+
+Resume a paused task (returns it to dependency-waiting pending)
+
+- `<plan_id>`
+- `<task_id>`
+
 #### `codeterm plan task retag`
 
 Replace facet/topic tags and regenerate the task handle
@@ -2212,13 +2219,6 @@ Remove a task from the plan, or --all to reset generated tasks
 - `<plan_id>`
 - `<task_id>`
 - `--yes`
-
-#### `codeterm plan task unpark`
-
-Unpark a task (returns it to pending)
-
-- `<plan_id>`
-- `<task_id>`
 
 #### `codeterm plan task update`
 
@@ -2252,7 +2252,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--role_guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Dijkstra; property tests come before implementation; red line: a lock claim without a test is not proof."
 - `--role_guidance_file`
 - `--sections`
-- `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
+- `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
 - `--status_label`
 - `--tags`
 - `<task_id>`
@@ -2682,7 +2682,7 @@ List tasks across active plans
 - `--all`
 - `--mine`
 - `--plan`
-- `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
+- `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
 - `--unassigned`
 - `--workspace`
 
