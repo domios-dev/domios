@@ -1,0 +1,55 @@
+id: task_ygjf13
+name: Fix remaining preserved 13-canvas golden failures
+type: implement
+model: claude/opus
+model_rationale: Requires macOS visual/Canvas frontend judgment and artifact review for deterministic golden failures; opus/frontend-dev is appropriate.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- The four named 13-canvas failures pass on macOS/eight web-mode, or each is explicitly rebaselined/updated with rationale and artifacts. Do not weaken unrelated mission-control/world-canvas deletion assertions. A bounded 13-canvas golden run or split equivalent confirms no remaining deterministic failures in the preserved 13-canvas suite.
+test_plan: On eight, run the failing files in isolation with --project=golden --timeout=30000 --global-timeout=600000, then run the preserved 13-canvas shard. For visual updates, include before/after diff artifact paths and explain the accepted visual change.
+correctness: Separate true product/visual drift from test drift. Do not use blanket screenshot threshold loosening. Keep the preserved current-surface canvas coverage meaningful.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783799488075
+updated_at: 1783799497430
+status_changed_at: 1783799488075
+handle: fix-remaining-preserved-13-canvas-golden-failures
+tags:
+- canvas
+- visual-regression
+- playwright
+section_ids:
+- sec_f6g3fr
+body: 'The world-canvas cleanup gate on eight at 195436df proved four remaining 13-canvas golden failures are deterministic and pre-existing on origin: visual-regression board seeded plan golden (6063px diff), visual-regression list seeded plan golden (11361px diff), plan-done-heavy done shelf pollUntil timeout, and plan-card-metadata desktop board+list metadata album. The failing spec files are byte-identical between origin and the cleanup commit, so these are separate from world-canvas deletion. Triage and fix or rebaseline with visual sign-off.'
+role_guidance: null
+executor_role: frontend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: playwright-stability
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []
