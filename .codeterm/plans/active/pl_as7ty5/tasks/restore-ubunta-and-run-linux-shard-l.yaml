@@ -1,0 +1,54 @@
+id: task_s6m026
+name: Restore ubunta and run Linux Shard L
+type: qa
+model: sonnet
+model_rationale: 'User reopened Linux after prior deferral. This is the release-blocking Linux signal: restore ubunta control/build path, prove dev 7686 matches HEAD, then run bounded Shard L.'
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- ubunta checkout at /home/rollacode/Developer/codeterm is on feat/1.7.2-stability and HEAD equals origin/feat/1.7.2-stability
+- dev 7686 on ubunta is healthy and /api/health build_sha exactly equals that HEAD before Playwright starts
+- 'Shard L command either passes, or fails with artifacts and a concrete classification: app regression, Playwright harness failure, or ubunta infra/control/build blocker'
+test_plan: '1) On ubunta: git fetch origin feat/1.7.2-stability && git pull --ff-only origin feat/1.7.2-stability && git rev-parse HEAD. 2) Export PATH with /home/rollacode/.local/node-v22.21.1-linux-x64/bin first; record node/pnpm/npx versions. 3) Stop only dev 7686 via ./build.sh kill; start ./build.sh dev --wait; curl /api/health and compare build_sha to HEAD. 4) Run: npx playwright test --config=tests/playwright/playwright.config.ts --project=golden tests/playwright/suites/18-reorder/reorder.spec.ts tests/playwright/suites/18-reorder/pin-general.spec.ts tests/playwright/suites/15-extensions/extensions.spec.ts tests/playwright/suites/14-memory-ui/memory-panel.spec.ts tests/playwright/suites/13-settings/settings.spec.ts --timeout=30000 --global-timeout=600000 --reporter=line. 5) Stop dev 7686 after the run and report artifacts/log paths.'
+correctness: No local Windows build/test evidence substitutes for Linux. Prod 7685 on ubunta must remain untouched. A timeout without logs is not acceptable evidence; collect dev log, Playwright output, and process/listener state.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p0
+created_at: 1783782660074
+updated_at: 1783782671600
+status_changed_at: 1783782660074
+handle: restore-ubunta-and-run-linux-shard-l
+tags: []
+section_ids:
+- sec_f6g3fr
+body: Restore the ubunta Linux test path and produce a real Linux app-test signal. Work only on ubunta via mesh, using /home/rollacode/Developer/codeterm. Fast-forward feat/1.7.2-stability to origin, ensure Node PATH includes /home/rollacode/.local/node-v22.21.1-linux-x64/bin if needed, stop only dev 7686, start dev 7686, verify /api/health build_sha equals HEAD, then run Shard L (ui-misc) with mandatory Playwright caps. If dev build or CodeTerm control fails, collect exact logs and classify it as infra/control/build, not an app failure.
+role_guidance: 'You are the Linux QA owner for ubunta. Do not run broad suites or change app code unless you have a reproducible Linux-only failure and a narrow fix. Your red line: never touch prod 7685; verify build_sha before any Playwright run; every blocker needs exact logs and next command.'
+executor_role: remote-linux-qa
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: linux-shard
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

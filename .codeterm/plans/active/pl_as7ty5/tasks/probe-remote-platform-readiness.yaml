@@ -4,6 +4,7 @@ type: discovery
 model: sonnet
 model_rationale: Every shard result is worthless unless ROG, eight, and ubunta each run against the right branch, a matching build, and reachable Playwright ports; verify readiness before dispatching any run.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - 'For ROG, eight, ubunta: branch is feat/1.7.2-stability and HEAD sha recorded'
 - Each machine dev health at 127.0.0.1:7686 returns ok with .build equal to its HEAD sha
@@ -28,6 +29,7 @@ executor_role: remote-platform-owner
 competition: null
 intent: null
 parent_task_id: null
+depends_on: []
 assigned_pane_id: null
 lane:
   pane_id: null
@@ -99,5 +101,5 @@ milestones:
     collapsed: false
   attachments: []
 execution_attempts: []
-park_reason: null
+pause_reason: null
 attachments: []

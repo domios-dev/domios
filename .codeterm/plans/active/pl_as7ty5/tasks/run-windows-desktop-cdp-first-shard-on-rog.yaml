@@ -4,6 +4,7 @@ type: qa
 model: sonnet
 model_rationale: Windows CDP attach to the real WebView2 window is the only faithful desktop/PTY path; the first shard establishes the Windows pass/fail and timing baseline.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - First shard runs to completion on ROG with per-test 300s and --global-timeout from the shard plan
 - Every test recorded as pass, fail, or flaky with duration; failures retain trace/video/screenshot under tests/playwright/artifacts
@@ -28,6 +29,7 @@ executor_role: windows-platform-owner
 competition: null
 intent: null
 parent_task_id: null
+depends_on: []
 assigned_pane_id: null
 lane:
   pane_id: null
@@ -236,5 +238,5 @@ milestones:
     collapsed: false
   attachments: []
 execution_attempts: []
-park_reason: null
+pause_reason: null
 attachments: []

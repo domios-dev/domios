@@ -4,6 +4,7 @@ type: implementation
 model: opus
 model_rationale: ROG patched responsiveness pass on 243c2694 preserved clean composer input and improved paint stability, but terminal command API-output p95 remains ~2979ms with no browser long tasks; the hotspot is before frontend paint.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - On ROG patched build, the same bounded responsiveness driver shows terminal command API-output p95 materially below the 2979ms baseline or produces a precise bounded blocker naming the backend segment responsible.
 - Composer input must remain under 100ms p95 and no browser long-task regression is introduced.
@@ -31,6 +32,7 @@ executor_role: rust-backend-dev
 competition: null
 intent: null
 parent_task_id: null
+depends_on: []
 assigned_pane_id: null
 lane:
   pane_id: null
@@ -102,5 +104,5 @@ milestones:
     collapsed: false
   attachments: []
 execution_attempts: []
-park_reason: null
+pause_reason: null
 attachments: []

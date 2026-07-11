@@ -1,0 +1,54 @@
+id: task_k16xu0
+name: Convert agent-flow golden tests to stub provider, keep live LLM shard
+type: qa
+model: opus
+model_rationale: Once the runtime stub lands, the 25+ real-LLM golden tests (03-agents, cross-pane-chat, 20-new-session pair spawns, 12-web live chats, 10-restore, 07-cron) can verify the same UI/plumbing in seconds; only a handful must stay truly end-to-end.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- Every converted test uses the stub provider and keeps its original oracle (same DOM/API assertions), with per-test caps right-sized from 300-420s down to 60-90s
+- 3-5 true end-to-end tests remain on real Claude under a live tag with their own project; golden excludes live
+- Converted golden shard total time drops by at least 50 percent vs the task_rhbf8k shard-table baseline, measured on one platform
+test_plan: '1) Inventory all specs spawning real agents (spawnAgent/spawnWorker/waitForOrchestrator/waitForSingleAgent across 8 files). 2) Per test decide: convert (verifies plumbing/UI) vs keep live (verifies real provider behavior: one spawn-report round-trip, one multi-turn tool loop, one restore-resume). 3) Convert: agent_type stub + scripted transcript; keep identical final assertions; drop setTimeout caps to 60-90s. 4) Each converted spec green twice in isolation with --timeout=90000. 5) Run the converted golden shard with --global-timeout and record before/after wall-clock. 6) live project runs its 3-5 tests green once as proof.'
+correctness: Oracles unchanged — only the agent transport is scripted; real-provider behavior still covered by the live shard; no test silently weakened.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783782175703
+updated_at: 1783782175703
+status_changed_at: 1783782175703
+handle: convert-agent-flow-golden-tests-to-stub-provider-keep-live-llm-shard
+tags: []
+section_ids:
+- sec_f6g3fr
+body: Convert agent-flow golden tests to the runtime stub provider from task_dycecc (revision doc B.1/B.6). Preserve every oracle; only replace the LLM transport. Keep a minimal live shard (3-5 tests) covering genuine end-to-end provider behavior, excluded from golden and run on its own cadence. Right-size all converted timeout caps and update the shard table budgets.
+role_guidance: 'You are a test-author. docs/contributing/test-authoring.md is your operating charter — read it fully before writing the first test. Non-negotiables: oracle-first, red-green demo in your report, condition-waits never sleeps, agent-readiness gates, bounded everything, smoke-run every harness script against the real CLI.'
+executor_role: test-author
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: pw-speedup
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

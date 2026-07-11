@@ -4,6 +4,7 @@ type: qa
 model: sonnet
 model_rationale: Linux web-mode is the third shared-UI signal; its first shard sets the Linux baseline and triangulates shared-UI failures against macOS and Windows.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - First shard runs to completion on ubunta with per-test 300s and shard --global-timeout
 - Every test recorded pass/fail/flaky with duration; failure artifacts retained
@@ -31,6 +32,7 @@ executor_role: linux-platform-owner
 competition: null
 intent: null
 parent_task_id: null
+depends_on: []
 assigned_pane_id: null
 lane:
   pane_id: null
@@ -272,5 +274,5 @@ milestones:
     collapsed: false
   attachments: []
 execution_attempts: []
-park_reason: null
+pause_reason: null
 attachments: []

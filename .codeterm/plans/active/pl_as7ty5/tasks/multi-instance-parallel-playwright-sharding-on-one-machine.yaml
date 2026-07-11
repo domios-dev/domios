@@ -1,0 +1,55 @@
+id: task_kb1ncv
+name: Multi-instance parallel Playwright sharding on one machine
+type: implementation
+model: opus
+model_rationale: workers:1 is the structural ceiling — all tests share one daemon and UI focus. CODETERM_INSTANCE already gives each dev daemon its own data dir and port; pinning one Playwright worker per instance yields true same-machine parallelism once restart tests are isolated.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- Harness can boot N gated dev instances (CODETERM_INSTANCE=pw1..pwN, distinct ports) and each Playwright worker is pinned to exactly one instance for its whole lifetime
+- A 2-worker run of two disjoint deterministic shards passes with zero cross-instance interference and measurable wall-clock reduction vs serial
+- 'All instances are provably dead after the run: no orphan daemons, ports freed'
+test_plan: '1) Extend helpers (dev-console/api-client/global-setup) to resolve port and token per worker from instance env. 2) Config: workers N with a worker-scoped fixture binding workerIndex to instance. 3) Proof run on one remote machine: shards 06-mem+11-api vs a 13-canvas subset in parallel (2 workers), both green, wall-clock less than serial sum. 4) Post-run: netstat shows no listener on instance ports; no codeterm dev processes remain. 5) Serial mode workers:1 still works unchanged for golden default.'
+correctness: No shared state across workers — each instance owns data dir, port, UI page; teardown always reached even on failure; prod untouched.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783782192088
+updated_at: 1783782192088
+status_changed_at: 1783782192088
+handle: multi-instance-parallel-playwright-sharding-on-one-machine
+tags: []
+section_ids:
+- sec_rlqrqc
+- sec_f6g3fr
+body: 'Break the workers:1 ceiling (revision doc B.3): teach the Playwright harness to run N workers, each against its own env-gated dev instance (CODETERM_INSTANCE, own port and data dir), with restart tests already quarantined by task_cgoixr. Deliver the harness change plus a 2-worker proof run with timing evidence. Serial golden remains the default until platform owners adopt N-worker runs.'
+role_guidance: 'You are a test-author with infra scope over tests/playwright/helpers. docs/contributing/test-authoring.md is your charter. Red line: never touch prod 7685; every spawned instance uses CODETERM_INSTANCE with its own port and is torn down by the harness; a leaked daemon is a failed task.'
+executor_role: test-author
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: pw-speedup
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

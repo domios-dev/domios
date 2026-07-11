@@ -4,6 +4,7 @@ type: qa
 model: sonnet
 model_rationale: macOS web-mode drives Chromium against the web mirror and validates shared React/web logic; the first shard sets the macOS baseline and cross-checks Windows shared-UI results.
 personality: null
+personality_provenance: null
 acceptance_criteria:
 - First shard runs to completion on eight with per-test 300s and shard --global-timeout
 - Every test recorded pass/fail/flaky with duration; failure artifacts retained
@@ -28,6 +29,7 @@ executor_role: macos-platform-owner
 competition: null
 intent: null
 parent_task_id: null
+depends_on: []
 assigned_pane_id: null
 lane:
   pane_id: null
@@ -65,5 +67,5 @@ milestones:
     collapsed: false
   attachments: []
 execution_attempts: []
-park_reason: null
+pause_reason: null
 attachments: []
