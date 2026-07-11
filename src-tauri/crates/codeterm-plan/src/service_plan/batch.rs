@@ -407,6 +407,11 @@ impl PlanStore {
                                         .unwrap_or(TaskStatus::Pending),
                                     review_stage: Default::default(),
                                     qa_state: None,
+                                    review_round: 0,
+                                    review_oracle: None,
+                                    review_evidence: vec![],
+                                    review_override: None,
+                                    review_audit: vec![],
                                     status_label: None,
                                     priority: priority
                                         .as_deref()

@@ -72,6 +72,7 @@ Send a report to your parent in the hierarchy
 
 - `--acknowledge_dirty` — Acknowledge unrelated dirty files in the worktree and proceed with the readiness report. Stride is recorded acknowledging the override
 - `--attachments` — File to attach to the report milestone; repeat for multiple files
+- `--base` — Base commit/ref for changed-file attribution (`base..HEAD` plus dirty overlay)
 - `--branch` — Git branch the work landed on
 - `--changed_files` — Changed files (comma-separated or repeat the flag)
 - `--doc` — Markdown document to append to the report milestone
@@ -1924,6 +1925,53 @@ Write the plan completion retrospective (plan-level stride, kind retrospective)
 - `--body_file`
 - `<plan_id>`
 
+#### `codeterm plan review`
+
+Review-backpressure: WIP/credit status, waves, overrides, accept/bounce
+
+#### `codeterm plan review accept`
+
+Read-only ACCEPT verdict: attaches evidence without closing the task
+
+- `--changed_executable_surfaces`
+- `--distinct_oracle`
+- `--note`
+- `<plan_id>`
+- `--residual_risk` — Past the default round bound, routes residual risk to a follow-up task
+- `<task_id>`
+
+#### `codeterm plan review bounce`
+
+BOUNCE: atomically exits in_review back to in_progress
+
+- `--changed_executable_surfaces`
+- `--distinct_oracle`
+- `--note`
+- `<plan_id>`
+- `<task_id>`
+
+#### `codeterm plan review override`
+
+Record a P0 exception authorizing the next over-round-limit review entry
+
+- `--owner`
+- `<plan_id>`
+- `--reason`
+- `--reproduction`
+- `<task_id>`
+
+#### `codeterm plan review status`
+
+Show review-backpressure status: WIP count/limit, credit, blocked reason
+
+- `<plan_id>`
+
+#### `codeterm plan review waves`
+
+Show batch-compatible QA waves (grouped by task group)
+
+- `<plan_id>`
+
 #### `codeterm plan search`
 
 Search synced plan/spec/task/stride history for this project
@@ -2061,6 +2109,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--cleanup_status`
 - `--correctness`
 - `--criterion`
+- `--depends_on`
 - `--destination`
 - `--executor_role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
 - `--force`
@@ -2220,8 +2269,10 @@ Update task metadata, status, quality fields, or lane assignment
 - `--branch`
 - `--cleanup_hints`
 - `--cleanup_status`
+- `--clear_dependencies`
 - `--correctness`
 - `--criterion`
+- `--depends_on`
 - `--destination`
 - `--executor_role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
 - `--group`
@@ -2388,6 +2439,7 @@ Report worker progress to the owning orchestrator or plan
 
 - `--acknowledge_dirty` — Acknowledge unrelated dirty files in the worktree and proceed with the readiness report. Stride is recorded acknowledging the override
 - `--attachments` — File to attach to the report milestone; repeat for multiple files
+- `--base` — Base commit/ref for changed-file attribution (`base..HEAD` plus dirty overlay)
 - `--branch` — Git branch the work landed on
 - `--changed_files` — Changed files (comma-separated or repeat the flag)
 - `--doc` — Markdown document to append to the report milestone

@@ -1,3 +1,4 @@
+use super::review::{ReviewAuditEntry, ReviewEvidence, ReviewOverride, ReviewPolicy};
 use serde::{Deserialize, Serialize};
 
 pub const INBOX_PLAN_ID: &str = "inbox";
@@ -533,6 +534,16 @@ pub struct Task {
     pub review_stage: ReviewStage,
     #[serde(default)]
     pub qa_state: Option<QaState>,
+    #[serde(default)]
+    pub review_round: u32,
+    #[serde(default)]
+    pub review_oracle: Option<String>,
+    #[serde(default)]
+    pub review_evidence: Vec<ReviewEvidence>,
+    #[serde(default)]
+    pub review_override: Option<ReviewOverride>,
+    #[serde(default)]
+    pub review_audit: Vec<ReviewAuditEntry>,
     pub status_label: Option<String>,
     #[serde(default)]
     pub priority: TaskPriority,
@@ -711,6 +722,8 @@ pub struct Plan {
     #[serde(default)]
     pub heartbeat: OrchestratorHeartbeat,
     #[serde(default)]
+    pub review_policy: ReviewPolicy,
+    #[serde(default)]
     pub canvas: PlanCanvas,
     #[serde(default)]
     pub owner_history: Vec<TransferRecord>,
@@ -759,6 +772,7 @@ impl Plan {
             lineage: vec![],
             goal: None,
             heartbeat: OrchestratorHeartbeat::default(),
+            review_policy: ReviewPolicy::default(),
             canvas: PlanCanvas::default(),
             owner_history: vec![],
             planner: None,
@@ -801,6 +815,7 @@ impl Spec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plan::review::{ReviewVerdict, DEFAULT_REVIEW_WIP_LIMIT};
 
     #[test]
     fn plan_roundtrips_and_defaults() {
@@ -1006,6 +1021,115 @@ mod tests {
             super::super::planning_state::PlanningState::Drafting
         );
         assert!(p.planning_log.is_empty());
+    }
+
+    #[test]
+    fn old_plan_without_review_policy_defaults_to_wip_5() {
+        let raw = r#"{
+            "id": "pl_old4",
+            "title": "Old",
+            "status": "active",
+            "owner": {},
+            "project_path": "/repo",
+            "created_at": 1,
+            "updated_at": 2,
+            "tasks": [
+                {"id":"task_1","name":"n","type":"implement","model":null,
+                 "model_rationale":null,"status":"in_review","status_label":null,
+                 "section_ids":[],"body":"","intent":null,"assigned_pane_id":null,
+                 "peer":null}
+            ]
+        }"#;
+        let p: Plan = serde_json::from_str(raw).unwrap();
+        assert_eq!(p.review_policy.wip_limit, DEFAULT_REVIEW_WIP_LIMIT);
+        assert_eq!(p.review_policy.credit, 0);
+        assert_eq!(p.tasks[0].review_round, 0);
+        assert_eq!(p.tasks[0].review_oracle, None);
+        assert!(p.tasks[0].review_evidence.is_empty());
+        assert_eq!(p.tasks[0].review_override, None);
+        assert!(p.tasks[0].review_audit.is_empty());
+    }
+
+    #[test]
+    fn review_evidence_and_policy_roundtrip() {
+        let mut p = Plan::new("P".into(), "/r".into(), Default::default());
+        p.review_policy = ReviewPolicy {
+            wip_limit: 3,
+            credit: -2,
+        };
+        let mut t = Task {
+            id: "task_1".into(),
+            name: "n".into(),
+            kind: "implement".into(),
+            model: None,
+            model_rationale: None,
+            personality: None,
+            personality_provenance: None,
+            acceptance_criteria: vec!["ac".into()],
+            test_plan: Some("Oracle: run x".into()),
+            correctness: None,
+            status: TaskStatus::InReview,
+            review_stage: ReviewStage::Review,
+            qa_state: None,
+            review_round: 1,
+            review_oracle: Some("sig".into()),
+            review_evidence: vec![ReviewEvidence {
+                id: "rev_1".into(),
+                from: OrchestratorRef::from_pane("qa1"),
+                verdict: ReviewVerdict::Bounce,
+                note: "needs fix".into(),
+                at: 5,
+                changed_executable_surfaces: false,
+                distinct_oracle: false,
+            }],
+            review_override: Some(ReviewOverride {
+                owner: "andrey".into(),
+                reason: "P0 hotfix".into(),
+                reproduction: "steps to repro".into(),
+                at: 6,
+            }),
+            review_audit: vec![ReviewAuditEntry {
+                id: "aud_1".into(),
+                owner: "andrey".into(),
+                reason: "P0 hotfix".into(),
+                reproduction: "steps to repro".into(),
+                round: 2,
+                at: 7,
+            }],
+            status_label: None,
+            priority: TaskPriority::P1,
+            created_at: 0,
+            updated_at: 0,
+            status_changed_at: 0,
+            handle: None,
+            tags: vec![],
+            section_ids: vec![],
+            body: String::new(),
+            role_guidance: None,
+            executor_role: None,
+            competition: None,
+            intent: None,
+            parent_task_id: None,
+            depends_on: vec![],
+            assigned_pane_id: None,
+            lane: TaskLaneMetadata::default(),
+            taken_by_role: None,
+            peer: None,
+            group: None,
+            canvas: ElementCanvas::default(),
+            milestones: vec![],
+            execution_attempts: vec![],
+            park_reason: None,
+            attachments: vec![],
+        };
+        t.review_round = 1;
+        p.tasks.push(t);
+        let json = serde_json::to_string(&p).unwrap();
+        let back: Plan = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.review_policy, p.review_policy);
+        assert_eq!(back.tasks[0].review_evidence, p.tasks[0].review_evidence);
+        assert_eq!(back.tasks[0].review_override, p.tasks[0].review_override);
+        assert_eq!(back.tasks[0].review_audit, p.tasks[0].review_audit);
     }
 
     #[test]

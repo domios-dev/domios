@@ -122,6 +122,38 @@ After approval/execution starts, set heartbeat with:\n\
         "waiting_focus_requires_open_gate" => Some(format!(
             "✗ waiting_focus status requires an open decision gate.\nfix: ask a gate question first, then set the focus:\n  codeterm plan decision ask {plan_id} \"<question>\"\n  codeterm orchestrator heartbeat set --plan {plan_id} --focus waiting_focus"
         )),
+        "review_wip_exceeded" => {
+            let wip_count = data.get("wip_count").and_then(|v| v.as_u64()).unwrap_or(0);
+            let wip_limit = data.get("wip_limit").and_then(|v| v.as_u64()).unwrap_or(0);
+            let credit = data.get("credit").and_then(|v| v.as_i64()).unwrap_or(0);
+            Some(format!(
+                "✗ review WIP exceeded: {wip_count}/{wip_limit} tasks in_review (credit={credit}).\nfix: close a review first, then retry dispatch:\n  codeterm plan review status {plan_id}\n  codeterm plan review accept {plan_id} <task_id> --note \"<verdict>\""
+            ))
+        }
+        "review_evidence_required" => Some(format!(
+            "✗ in_review requires evidence: an executable exact QA plan (acceptance_criteria + test_plan) or attached independent review evidence.\nfix: set both fields, or record review evidence first:\n  codeterm plan task update {plan_id} {} --status in_review",
+            task_id.unwrap_or("<task_id>")
+        )),
+        "review_round_exceeded" => {
+            let round = data.get("round").and_then(|v| v.as_u64()).unwrap_or(0);
+            let max_rounds = data.get("max_rounds").and_then(|v| v.as_u64()).unwrap_or(0);
+            Some(format!(
+                "✗ review round {round} exceeds the default max of {max_rounds}.\nfix: record a P0 exception first:\n  codeterm plan review override {plan_id} {} --owner <you> --reason \"<why>\" --reproduction \"<repro steps>\"",
+                task_id.unwrap_or("<task_id>")
+            ))
+        }
+        "review_oracle_scope_expansion" => Some(format!(
+            "✗ correction review cannot expand the fixed acceptance oracle without new reproducible release-impact evidence.\nfix: record a P0 override to justify the scope change:\n  codeterm plan review override {plan_id} {} --owner <you> --reason \"<why>\" --reproduction \"<repro steps>\"",
+            task_id.unwrap_or("<task_id>")
+        )),
+        "review_override_incomplete" => Some(
+            "✗ review override requires non-empty --owner, --reason, and --reproduction.".into(),
+        ),
+        "review_not_in_review" => Some(format!(
+            "✗ task '{}' is not in_review.\nfix: codeterm plan task update {plan_id} {} --status in_review",
+            task_id.unwrap_or("<task_id>"),
+            task_id.unwrap_or("<task_id>")
+        )),
         "write_pending" => render_write_pending(data, plan_id, task_id),
         "readback_mismatch" => render_readback_mismatch(data, plan_id, task_id),
         "io" => Some(render_io(data, plan_id, params)),
