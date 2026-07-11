@@ -312,16 +312,27 @@ impl ServiceContext {
                 self.run_watcher.mark_completed_externally(pid);
             }
 
-            let _ = self.close_pane(&pane_id);
-
-            if is_oneshot {
-                log::info!("Oneshot cron auto-deleting: job={}", job_id);
-                if let Err(e) = self.cron_delete(cron, wake, &job_id) {
-                    log::error!("Failed to auto-delete oneshot cron: {}", e);
+            // The `codeterm cron complete` CLI client that drove this request is a
+            // child of the pane we're about to kill. Killing it before the caller
+            // writes the JSON-RPC response would break the pipe mid-write, which
+            // interprocess escalates to std::process::abort(). Defer the teardown
+            // so the response reaches the live client and it disconnects first.
+            let svc = self.clone();
+            let cron = cron.clone();
+            let wake = wake.clone();
+            let pane_id = pane_id.clone();
+            let job_id = job_id.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                let _ = svc.close_pane(&pane_id);
+                if is_oneshot {
+                    log::info!("Oneshot cron auto-deleting: job={}", job_id);
+                    if let Err(e) = svc.cron_delete(&cron, &wake, &job_id) {
+                        log::error!("Failed to auto-delete oneshot cron: {}", e);
+                    }
                 }
-            }
-
-            self.emit_cron_changed();
+                svc.emit_cron_changed();
+            });
             Ok(())
         } else {
             Err(format!("No cron run found for run_id: {}", run_id))
