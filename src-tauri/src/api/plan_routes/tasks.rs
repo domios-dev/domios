@@ -566,6 +566,7 @@ pub async fn task_respawn(
                 workspace_id: draft.workspace_id.clone(),
                 spawned_by_pane_id: draft.parent_pane_id.clone(),
                 model: draft.model.clone(),
+                planned_model: draft.planned_model.clone(),
                 ..Default::default()
             },
             None,

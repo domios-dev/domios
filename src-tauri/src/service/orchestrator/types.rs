@@ -22,8 +22,17 @@ pub struct SpawnResult {
     pub tab_id: String,
     pub pty_id: String,
     pub agent: String,
+    /// Legacy launch-model field. Never runtime proof; `actual_model` is set
+    /// only from provider-owned session evidence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub planned_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_resolved_model: Option<String>,
+    pub actual_model: Option<String>,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -33,6 +42,8 @@ pub struct SpawnResult {
     /// Warning when agent cwd differs from workspace cwd
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_fallback: Option<crate::service::spawn::ModelFallbackNotice>,
     /// Advisory workspace pane-budget nudge (task_4d649dfd), computed via the
     /// shared `ServiceContext::workspace_pane_budget_notice` helper. Never blocks.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -92,6 +103,8 @@ pub struct SpawnAgentParams {
     pub spawned_by_pane_id: Option<String>,
     /// Provider decides flag syntax via `AgentProvider::model_launch_args`.
     pub model: Option<String>,
+    /// Plan/task routing model before a launch-time model override.
+    pub planned_model: Option<String>,
     pub system_prompt: Option<String>,
     pub preset: Option<String>,
     pub resume_session_id: Option<String>,

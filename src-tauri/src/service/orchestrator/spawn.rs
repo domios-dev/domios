@@ -76,7 +76,6 @@ impl ServiceContext {
             .clone()
             .or_else(|| params.agent_name.clone())
             .unwrap_or_else(|| agent.clone());
-        let model = params.model.clone();
         self.classify_spawn_target_for_params(&agent, &params)?;
         let bind_params = params.clone();
         let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params_with_chatbackends(
@@ -84,6 +83,8 @@ impl ServiceContext {
             params,
         );
         let handle = self.spawn_pane_with_ready(spec, ready_tx)?;
+        self.persist_unresolved_plugin_model_request(&handle.pane_id, &bind_params);
+        let model_identity = self.pane_model_identity(&handle.pane_id);
         match self.bind_worker_plan_task_at_spawn(&bind_params, &handle.pane_id) {
             Ok(_) => {}
             Err(e) => {
@@ -100,12 +101,17 @@ impl ServiceContext {
             tab_id: handle.tab_id,
             pty_id: handle.pty_id.unwrap_or_default(),
             agent,
-            model,
+            model: model_identity.2.clone(),
+            planned_model: model_identity.0,
+            requested_model: model_identity.1,
+            provider_resolved_model: model_identity.2,
+            actual_model: model_identity.3,
             title,
             description: handle.description,
             role,
             role_profile,
             warning: handle.warning,
+            model_fallback: handle.model_fallback,
             budget_notice: handle.budget_notice,
         })
     }
@@ -161,6 +167,12 @@ impl ServiceContext {
                 params,
             );
             let handle = self.spawn_pane_with_ready(spec, ready_tx)?;
+            self.persist_unresolved_plugin_model_request(&handle.pane_id, &bind_params);
+            let requested_model = model
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
             if let Err(e) = self.bind_worker_plan_task_at_spawn(&bind_params, &handle.pane_id) {
                 let _ = self.close_pane(&handle.pane_id);
                 return Err(e);
@@ -170,12 +182,17 @@ impl ServiceContext {
                 tab_id: handle.tab_id,
                 pty_id: handle.pty_id.unwrap_or_default(),
                 agent: agent_cmd,
-                model,
+                model: None,
+                planned_model: bind_params.planned_model.clone(),
+                requested_model,
+                provider_resolved_model: None,
+                actual_model: None,
                 title,
                 description: handle.description,
                 role,
                 role_profile,
                 warning: handle.warning,
+                model_fallback: handle.model_fallback,
                 budget_notice: handle.budget_notice,
             });
         }
@@ -185,12 +202,17 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
         }
-        params.model = crate::service::spawn::resolve_fresh_agent_model(
+        let mut model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent_cmd,
             params.model.take(),
             params.resume_session_id.as_deref(),
         );
+        crate::service::spawn::attach_planned_model(
+            &mut model_resolution,
+            params.planned_model.as_deref(),
+        );
+        params.model = model_resolution.model.clone();
         crate::service::spawn::validate_agent_model(
             &self.agent_registry,
             &agent_cmd,
@@ -363,10 +385,12 @@ impl ServiceContext {
         } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&pane_id, Some(sid.clone()));
         }
-        if let Some(model) = params.model.as_ref().filter(|m| !m.trim().is_empty()) {
-            if let Some(pane) = self.mux.write().get_pane_mut(&pane_id) {
-                pane.agent_session_model = Some(model.trim().to_string());
-            }
+        if let Some(pane) = self.mux.write().get_pane_mut(&pane_id) {
+            crate::service::spawn::persist_model_launch_identity(
+                pane,
+                params.planned_model.as_deref(),
+                &model_resolution,
+            );
         }
 
         params.structured_prompt_server = crate::service::structured_prompt::ensure_for_spawn(
@@ -471,14 +495,64 @@ impl ServiceContext {
             tab_id,
             pty_id: String::new(), // PTY not yet assigned — happens async
             agent: agent_cmd,
-            model: params.model,
+            model: model_resolution.model.clone(),
+            planned_model: params.planned_model,
+            requested_model: model_resolution.requested_model,
+            provider_resolved_model: model_resolution.model,
+            actual_model: None,
             title,
             description: params.description,
             role: params.role,
             role_profile: params.role_profile,
             warning,
+            model_fallback: model_resolution.fallback_notice,
             budget_notice,
         })
+    }
+
+    fn pane_model_identity(
+        &self,
+        pane_id: &str,
+    ) -> (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) {
+        self.mux
+            .read()
+            .get_pane(pane_id)
+            .map(|pane| {
+                (
+                    pane.agent_planned_model.clone(),
+                    pane.agent_requested_model.clone(),
+                    pane.agent_provider_resolved_model.clone(),
+                    pane.agent_session_model.clone(),
+                )
+            })
+            .unwrap_or_default()
+    }
+
+    fn persist_unresolved_plugin_model_request(&self, pane_id: &str, params: &SpawnAgentParams) {
+        let mut mux = self.mux.write();
+        let Some(pane) = mux.get_pane_mut(pane_id) else {
+            return;
+        };
+        if pane.agent_requested_model.is_some() {
+            return;
+        }
+        pane.agent_planned_model = params
+            .planned_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        pane.agent_requested_model = params
+            .model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
     }
 
     fn bind_planner_spawn(&self, plan_id: Option<&str>, role_profile: Option<&str>, pane_id: &str) {

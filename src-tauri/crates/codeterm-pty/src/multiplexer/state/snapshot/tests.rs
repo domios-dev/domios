@@ -22,6 +22,11 @@ fn chatbackend_leaf(pane_id: &str, plugin_id: &str, session_id: &str) -> SplitNo
         chat_view: Some(true),
         auto_approve: false,
         agent_session_model: None,
+        agent_planned_model: None,
+        agent_requested_model: None,
+        agent_provider_resolved_model: None,
+        model_fallback: None,
+        model_identity_mismatch: None,
         chatbackend_plugin_id: Some(plugin_id.into()),
         chatbackend_session_id: Some(session_id.into()),
         watcher: None,
@@ -150,6 +155,11 @@ fn pty_pane_round_trips_without_chatbackend_fields() {
         chat_view: Some(false),
         auto_approve: false,
         agent_session_model: None,
+        agent_planned_model: None,
+        agent_requested_model: None,
+        agent_provider_resolved_model: None,
+        model_fallback: None,
+        model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
         watcher: None,
@@ -181,6 +191,11 @@ fn pane_description_round_trips_through_snapshot() {
         chat_view: Some(false),
         auto_approve: false,
         agent_session_model: None,
+        agent_planned_model: None,
+        agent_requested_model: None,
+        agent_provider_resolved_model: None,
+        model_fallback: None,
+        model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
         watcher: None,
@@ -229,6 +244,11 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
         chat_view: Some(false),
         auto_approve: false,
         agent_session_model: None,
+        agent_planned_model: None,
+        agent_requested_model: None,
+        agent_provider_resolved_model: None,
+        model_fallback: None,
+        model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
         watcher: None,
@@ -270,6 +290,11 @@ fn legacy_tab_title_seeds_default_provider_pane_title() {
         chat_view: Some(false),
         auto_approve: false,
         agent_session_model: None,
+        agent_planned_model: None,
+        agent_requested_model: None,
+        agent_provider_resolved_model: None,
+        model_fallback: None,
+        model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
         watcher: None,
@@ -510,6 +535,11 @@ fn spawned_by_round_trips_through_snapshot() {
         chat_view: Some(false),
         auto_approve: false,
         agent_session_model: None,
+        agent_planned_model: None,
+        agent_requested_model: None,
+        agent_provider_resolved_model: None,
+        model_fallback: None,
+        model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
         watcher: None,
@@ -527,6 +557,54 @@ fn spawned_by_round_trips_through_snapshot() {
         }
         _ => panic!("expected a leaf"),
     }
+}
+
+#[test]
+fn requested_and_actual_model_identity_round_trips_through_snapshot() {
+    let (mut state, _root) = MultiplexerState::new();
+    let wsid = state.list_workspaces()[0].id.clone();
+    let (_, pane_id) = state.create_tab(&wsid).unwrap();
+    let mismatch = crate::multiplexer::types::ModelIdentityMismatch {
+        planned_model: Some("codex/gpt-5.6-luna".into()),
+        requested_model: "gpt-5.6-luna".into(),
+        provider_resolved_model: Some("gpt-5.6-luna".into()),
+        actual_model: "gpt-5.6-terra".into(),
+        reason: "runtime_session_model_mismatch".into(),
+    };
+    let fallback = crate::multiplexer::types::ModelFallbackNotice {
+        planned_model: Some("codex/gpt-5.6-luna".into()),
+        requested_model: "gpt-5.6-luna".into(),
+        provider_resolved_model: "gpt-5.6-luna".into(),
+        actual_model: Some("gpt-5.6-terra".into()),
+        reason: "runtime_session_model_mismatch".into(),
+    };
+    {
+        let pane = state.get_pane_mut(&pane_id).unwrap();
+        pane.agent_type = Some("codex".into());
+        pane.agent_session_model = Some("gpt-5.6-terra".into());
+        pane.agent_planned_model = Some("codex/gpt-5.6-luna".into());
+        pane.agent_requested_model = Some("gpt-5.6-luna".into());
+        pane.agent_provider_resolved_model = Some("gpt-5.6-luna".into());
+        pane.model_fallback = Some(fallback.clone());
+        pane.model_identity_mismatch = Some(mismatch.clone());
+    }
+
+    let snap = state.to_session_snapshot();
+    let restored = MultiplexerState::from_session_snapshot(&snap);
+    let pane = restored.panes.get(&pane_id).expect("pane restored");
+
+    assert_eq!(pane.agent_session_model.as_deref(), Some("gpt-5.6-terra"));
+    assert_eq!(
+        pane.agent_planned_model.as_deref(),
+        Some("codex/gpt-5.6-luna")
+    );
+    assert_eq!(pane.agent_requested_model.as_deref(), Some("gpt-5.6-luna"));
+    assert_eq!(
+        pane.agent_provider_resolved_model.as_deref(),
+        Some("gpt-5.6-luna")
+    );
+    assert_eq!(pane.model_fallback, Some(fallback));
+    assert_eq!(pane.model_identity_mismatch, Some(mismatch));
 }
 
 // ── Ghost-tab repro harness ───────────────────────────────────────────────

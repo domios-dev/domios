@@ -20,6 +20,28 @@ pub struct Workspace {
     pub sort_order: i32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelIdentityMismatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planned_model: Option<String>,
+    pub requested_model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_resolved_model: Option<String>,
+    pub actual_model: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelFallbackNotice {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planned_model: Option<String>,
+    pub requested_model: String,
+    pub provider_resolved_model: String,
+    #[serde(default)]
+    pub actual_model: Option<String>,
+    pub reason: String,
+}
+
 /// A closed pane retained for browser-style reopen. Captures just enough to
 /// re-materialize the pane with the SAME backing — the `backing` reuses the
 /// existing `PaneBacking` serialization, and `agent_type` / `agent_session_id`
@@ -228,6 +250,23 @@ pub struct Pane {
     /// Current model family on the live session ("Opus"/"Sonnet"/"Haiku").
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_session_model: Option<String>,
+    /// Model selected by plan/task routing before a launch-time override.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub agent_planned_model: Option<String>,
+    /// Model explicitly requested at launch. Advisory only: the pane badge and
+    /// reports use `agent_session_model`, which must come from runtime evidence.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub agent_requested_model: Option<String>,
+    /// Model accepted by provider catalog resolution and passed to launch args.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub agent_provider_resolved_model: Option<String>,
+    /// Structured catalog/runtime fallback provenance. Runtime actual is absent
+    /// until provider-owned session evidence supplies it.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub model_fallback: Option<ModelFallbackNotice>,
+    /// Runtime evidence that the provider ran a different model than requested.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub model_identity_mismatch: Option<ModelIdentityMismatch>,
     /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this pane.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub session_binding_nonce: Option<String>,
@@ -401,6 +440,11 @@ mod tests {
             agent_session_id: None,
             agent_session_name: None,
             agent_session_model: None,
+            agent_planned_model: None,
+            agent_requested_model: None,
+            agent_provider_resolved_model: None,
+            model_fallback: None,
+            model_identity_mismatch: None,
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
             shell_integration_nonce: None,
