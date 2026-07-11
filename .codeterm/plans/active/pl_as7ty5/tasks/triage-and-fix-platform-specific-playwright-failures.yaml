@@ -1,0 +1,137 @@
+id: task_cfkgta
+name: Triage and fix platform-specific Playwright failures
+type: implementation
+model: opus
+model_rationale: Once the three shards produce classified failures, each platform owner must fix what it can reproduce and land stabilized specs/code, with shared-UI failures triaged as real regressions vs flake.
+personality: null
+acceptance_criteria:
+- Each classified failure is either fixed with green evidence or recorded as a bounded blocker with exact repro command
+- Fixes land on feat/1.7.2-stability; each fixed test passes twice in isolation on the reproducing platform
+- Shared-UI failures reproduced on 2+ platforms are treated as real regressions, not silenced as flake; single-platform failures fixed by that owner
+test_plan: 'Per failure: 1) Reproduce on the owning machine with the exact shard command from the run task. 2) Fix root cause (selector/wait/agent-readiness for flake; product code for real regression). 3) Re-run just that test twice: npx playwright test <file> -g "<title>" --timeout=30000 --global-timeout=600000 --reporter=line -> green both times. 4) Commit to feat/1.7.2-stability. Pass = zero unexplained failures; every remaining failure has a documented bounded-blocker entry with repro.'
+correctness: Fixes are verified on the reproducing platform by passing twice; cross-platform failures are not masked; no unrelated behavior regressed.
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783763197389
+updated_at: 1783772153943
+status_changed_at: 1783772147224
+handle: triage-and-fix-platform-specific-playwright-failures
+tags: []
+section_ids:
+- sec_rlqrqc
+- sec_d52ka9
+body: Consume the classified failure lists from the ROG/eight/ubunta shard runs. Route each failure to the platform owner that reproduces it. Fix flake (waits/selectors/readiness gates) or real regressions (product code), landing on feat/1.7.2-stability. Prove each fix by passing the test twice in isolation on the reproducing machine. Document any unfixable failure as a bounded blocker with exact repro. Report fixed vs blocked counts per platform.
+role_guidance: 'You fix on the platform that reproduces the failure, on that machine via mesh; never build/test on the local orchestrator. When you edit a spec, docs/contributing/test-authoring.md is your charter: condition-waits not sleeps, agent-readiness gates, bounded everything. Red line: no fix is done until the target test passes twice in isolation on the reproducing machine.'
+executor_role: playwright-fix-owner
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: done
+  cleanup_hints:
+  - read-only shared-checkout synthesis worker; no files changed, no worktree/dev daemon
+taken_by_role: worker
+peer: null
+group: playwright-stability
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_g1kl7q
+  from:
+    pane_id: 692bb9b7
+    session_id: 8df86a43-ddf9-426e-85c0-2d5eb6caabdc
+    title: triage synthesis
+  kind: status_update
+  text: 'TRIAGE COMPLETE — recommend CLOSE task_cfkgta as done. All classified reproducible app-test failures fixed with green evidence on pushed head f27545622 (origin/feat/1.7.2-stability): macOS/eight Shard A api-core 9/9 in 1.6s; Windows/ROG Shard E mesh 2/2 in 139.9s (only mesh.spec.ts changed; recovery-status-banner intercept fixed, services selected by data-source-peer-id, cleanup click bounded — passes twice in isolation, red line met); responsiveness fix landed 41941c574 with focused benches/tests. No shared-UI failure reproduced on 2+ platforms, nothing silenced as flake. Linux/ubunta Shard L produced ZERO app-test signal — blocked one layer below the test on ubunta CodeTerm/PTY control-path + CLI dev build death at libsqlite3-sys (repo stale 33c284096, no dev 7686, diag tab 48d7d13d 404 scrollback + exec timeout). That is a bounded blocker (task_usmilu, status blocked), a valid triage terminal state — not an unfixed failure in this task''s scope. Keep task_usmilu open. Remaining blockers all on Linux infra: (1) ubunta PTY/control instability, (2) dev build death at libsqlite3-sys, (3) checkout stale needs FF to f27545622. Next release gate before 1.7.2: get a Linux app-test signal — healthy dev 7686 on fast-forwarded checkout, run Shard L ui-misc bounded (--timeout=30000 --global-timeout=600000), green or documented Linux-specific failure. Unblock is a stable-runner/PTY problem, not Playwright; do not raise caps or re-run blind.'
+  ts: 1783772130745
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_mg6pk6
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: ACCEPT
+  text: ' triage complete. Reproducible app-test failures fixed with green evidence on pushed f27545622: macOS/eight api-core 9/9, Windows/ROG Mesh Shard E 2/2 in 139.9s, responsiveness perf fix 41941c574 with focused benches/tests and macOS perf pass green. No shared-UI failure reproduced on 2+ platforms; Linux/ubunta yielded zero app-test signal and is tracked as bounded infra/control-path blocker in task_usmilu.'
+  ts: 1783772146627
+  links:
+  - key:2caf2f09fecff6ae
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_x6w6y1
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: 'Triage complete. Close done: all classified app-test failures fixed/green; Linux remains a bounded environment blocker in task_usmilu, not an unresolved app failure. Next release gate is a real Linux app-test signal after ubunta control/build path is restored.'
+  ts: 1783772147224
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_sdh308
+  executor_pane_id: 692bb9b7
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: opus
+  session_id: null
+  role: worker
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: null
+  report:
+    id: report_1783772131220
+    message: 'TRIAGE COMPLETE — recommend CLOSE task_cfkgta as done. All classified reproducible app-test failures fixed with green evidence on pushed head f27545622 (origin/feat/1.7.2-stability): macOS/eight Shard A api-core 9/9 in 1.6s; Windows/ROG Shard E mesh 2/2 in 139.9s (only mesh.spec.ts changed; recovery-status-banner intercept fixed, services selected by data-source-peer-id, cleanup click bounded — passes twice in isolation, red line met); responsiveness fix landed 41941c574 with focused benches/tests. No shared-UI failure reproduced on 2+ platforms, nothing silenced as flake. Linux/ubunta Shard L produced ZERO app-test signal — blocked one layer below the test on ubunta CodeTerm/PTY control-path + CLI dev build death at libsqlite3-sys (repo stale 33c284096, no dev 7686, diag tab 48d7d13d 404 scrollback + exec timeout). That is a bounded blocker (task_usmilu, status blocked), a valid triage terminal state — not an unfixed failure in this task''s scope. Keep task_usmilu open. Remaining blockers all on Linux infra: (1) ubunta PTY/control instability, (2) dev build death at libsqlite3-sys, (3) checkout stale needs FF to f27545622. Next release gate before 1.7.2: get a Linux app-test signal — healthy dev 7686 on fast-forwarded checkout, run Shard L ui-misc bounded (--timeout=30000 --global-timeout=600000), green or documented Linux-specific failure. Unblock is a stable-runner/PTY problem, not Playwright; do not raise caps or re-run blind.'
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783767575256
+  reported_at: 1783772131220
+  reviewed_at: null
+  closed_at: 1783772147224
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+park_reason: null
+attachments: []
