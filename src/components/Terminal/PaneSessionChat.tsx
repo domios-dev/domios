@@ -46,6 +46,8 @@ interface Props {
   chatBackend?: boolean;
 }
 
+const DISABLED_PLAN_API: ApiConfig = { enabled: false, host: "127.0.0.1", port: 0, token: null, cors: false };
+
 function isMicrophonePermissionError(message: string): boolean {
   const normalized = message.toLowerCase();
   if (normalized.includes("needs https")) return false;
@@ -274,7 +276,7 @@ export function PaneSessionChat({
     return refs;
   }, [deferredEnrichedMessages]);
   const resolvedPlanRefs = usePlanRefResolver(
-    api ?? { enabled: false, host: "127.0.0.1", port: 0, token: null, cors: false },
+    api ?? DISABLED_PLAN_API,
     visiblePlanRefs,
   );
   const resolvePlanRef = useCallback(
