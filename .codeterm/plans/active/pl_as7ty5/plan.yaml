@@ -111,7 +111,7 @@ owner:
 project_path: \\?\D:\Developer\codeterm
 canonical_project_path: \\?\D:\Developer\codeterm
 created_at: 1783628878496
-updated_at: 1783807110038
+updated_at: 1783807151684
 milestone_kinds:
 - key: discovery
   label: discovery
@@ -360,7 +360,7 @@ primary_spec_id: sp_o6l6of
 lineage: []
 goal: null
 heartbeat:
-  current_focus: task_oya3rr accepted at pushed 347821cd; ROG cleanup requested; Planner nudged to finish task_dycecc parity/sid before dependent speedup tasks
+  current_focus: task_oya3rr closed at 347821cd; ROG cleanup requested; task_9sqqjo paused until Windows dev/build owner is free; Planner is working task_dycecc parity/sid
   active_lanes:
   - task_dycecc
   rules:

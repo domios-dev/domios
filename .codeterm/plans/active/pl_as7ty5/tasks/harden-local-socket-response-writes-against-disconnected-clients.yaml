@@ -9,14 +9,14 @@ acceptance_criteria:
 - A synthetic local-socket client can disconnect before reading a response without killing the daemon; cron complete still passes; no regression to normal CLI RPC responses; evidence includes a focused Rust/unit or integration repro that fails before the hardening and passes after.
 test_plan: 1) Add a bounded repro for local socket client disconnect before response read. 2) Implement hardening at the socket response boundary or dependency layer. 3) Run the focused socket repro, cron_complete/restart-project focused test on Windows, and a normal CLI RPC smoke. 4) Record whether interprocess was patched, upgraded, or bypassed.
 correctness: Broken-pipe from one local client is isolated to that connection; daemon never aborts; no swallowed errors for successful clients.
-status: pending
+status: paused
 review_stage: review
 qa_state: null
 status_label: null
 priority: p1
 created_at: 1783806340090
-updated_at: 1783806347394
-status_changed_at: 1783806340090
+updated_at: 1783807145109
+status_changed_at: 1783807145109
 handle: harden-local-socket-response-writes-against-disconnected-clients
 tags: []
 section_ids:
@@ -47,7 +47,23 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_ufuuuc
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: 'paused: Awaiting ROG cleanup after task_oya3rr and a free Windows dev/build owner before dispatching the follow-up socket hardening lane.'
+  ts: 1783807145109
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
-pause_reason: null
+pause_reason: Awaiting ROG cleanup after task_oya3rr and a free Windows dev/build owner before dispatching the follow-up socket hardening lane.
 attachments: []
