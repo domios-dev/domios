@@ -53,7 +53,7 @@ enum DocsOnly {
 struct SendOnly {
     #[arg(allow_hyphen_values = true)]
     text: Option<String>,
-    #[arg(long, alias = "id")]
+    #[arg(long, alias = "id", alias = "session")]
     pane: Option<String>,
     #[arg(long, value_name = "PATH")]
     from_file: Option<String>,
@@ -276,11 +276,39 @@ fn pane_new_without_chat_backend_defaults_to_none() {
 }
 
 #[test]
+fn session_new_is_primary_command_and_pane_alias_still_parses() {
+    let session = Cli::try_parse_from(["codeterm", "session", "new"])
+        .expect("session new parses");
+    assert!(matches!(
+        session.command,
+        Commands::Session {
+            action: PaneAction::New { .. }
+        }
+    ));
+
+    let pane_alias = Cli::try_parse_from(["codeterm", "pane", "new"])
+        .expect("pane alias still parses");
+    assert!(matches!(
+        pane_alias.command,
+        Commands::Session {
+            action: PaneAction::New { .. }
+        }
+    ));
+}
+
+#[test]
 fn send_stdin_without_positional_parses() {
     let parsed = SendOnly::try_parse_from(["send", "--stdin", "--pane", "abc123"])
         .expect("send --stdin parses");
     assert!(parsed.text.is_none());
     assert!(parsed.stdin);
+}
+
+#[test]
+fn send_session_alias_parses_target() {
+    let parsed = SendOnly::try_parse_from(["send", "--stdin", "--session", "abc123"])
+        .expect("send --session parses");
+    assert_eq!(parsed.pane.as_deref(), Some("abc123"));
 }
 
 #[test]
