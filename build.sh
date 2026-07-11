@@ -62,6 +62,7 @@ kill_dev() {
     return
   fi
   kill_web_watch 2>/dev/null || true
+  kill_dev_static_server 2>/dev/null || true
   local session_prefix="codeterm-dev${CT_SUFFIX}-"
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
     if command -v screen >/dev/null 2>&1; then
@@ -443,9 +444,12 @@ handoff_gateway_to_dev() {
 
 # /web browser clients are served the static dist/ bundle, NOT vite HMR.
 # Watch-rebuild it so phone/browser mirrors pick up frontend edits on reload.
-# Tauri's beforeDevCommand owns the live devUrl server on 1420.
 web_watch_pidfile() {
   echo "/tmp/codeterm-web-watch${CT_SUFFIX}.pid"
+}
+
+dev_static_pidfile() {
+  echo "/tmp/codeterm-dev-static${CT_SUFFIX}.pid"
 }
 
 kill_process_tree() {
@@ -473,6 +477,20 @@ kill_orphan_web_watchers() {
   local root pid cwd
   root="$(pwd)"
   for pid in $(pgrep -f "vite build --watch" 2>/dev/null || true); do
+    cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')
+    if [ "$cwd" = "$root" ]; then
+      kill_process_tree "$pid"
+    fi
+  done
+}
+
+kill_orphan_dev_static_servers() {
+  if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
+    return
+  fi
+  local root pid cwd
+  root="$(pwd)"
+  for pid in $(pgrep -f "scripts/dev-static-server.mjs" 2>/dev/null || true); do
     cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')
     if [ "$cwd" = "$root" ]; then
       kill_process_tree "$pid"
@@ -527,6 +545,30 @@ start_web_watch() {
   echo "Web bundle watcher started (dist/ auto-rebuilds, pid $pid, log $log)"
 }
 
+start_dev_static_server() {
+  kill_dev_static_server || true
+  local log="/tmp/codeterm-dev-static${CT_SUFFIX}.log"
+  local pid spawn_status
+  set +e
+  case "$OSTYPE" in
+    msys*|cygwin*|win32)
+      node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
+      ;;
+    *)
+      nohup node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
+      ;;
+  esac
+  pid=$!
+  spawn_status=$?
+  set -e
+  if [ -z "$pid" ] || [ "$spawn_status" -ne 0 ]; then
+    echo "ERROR: dev static server did not start (status=$spawn_status, log $log)" >&2
+    return 1
+  fi
+  echo "$pid" > "$(dev_static_pidfile)"
+  echo "Dev static server started (devUrl port $CT_VITE_PORT, pid $pid, log $log)"
+}
+
 kill_web_watch() {
   local pidfile
   pidfile="$(web_watch_pidfile)"
@@ -535,6 +577,16 @@ kill_web_watch() {
     rm -f "$pidfile"
   fi
   kill_orphan_web_watchers
+}
+
+kill_dev_static_server() {
+  local pidfile
+  pidfile="$(dev_static_pidfile)"
+  if [ -f "$pidfile" ]; then
+    kill_process_tree "$(cat "$pidfile")"
+    rm -f "$pidfile"
+  fi
+  kill_orphan_dev_static_servers
 }
 
 dev_health_status() {
@@ -802,6 +854,7 @@ case "$CMD" in
     export CODETERM_DEV=1
     export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=$CT_CDP_PORT}"
     start_web_watch
+    start_dev_static_server
 
     WAIT=0
     for arg in "${@:2}"; do

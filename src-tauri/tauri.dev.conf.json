@@ -2,7 +2,8 @@
   "identifier": "com.codeterm.dev",
   "productName": "CodeTerm Dev",
   "build": {
-    "devUrl": "http://127.0.0.1:1420"
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeDevCommand": "node scripts/dev-prep.mjs --no-server"
   },
   "app": {
     "withGlobalTauri": true,
