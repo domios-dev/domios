@@ -127,12 +127,30 @@ fn wip_limit_blocks_dispatch_and_closing_a_review_restores_capacity() {
     assert_eq!(gate.wip_limit, 2);
 
     let err = dispatch(&store, &plan_id, &c, "pane_c", 5).unwrap_err();
-    assert!(matches!(err, PlanError::ReviewWipExceeded { wip_count: 2, wip_limit: 2, .. }));
+    assert!(matches!(
+        err,
+        PlanError::ReviewWipExceeded {
+            wip_count: 2,
+            wip_limit: 2,
+            ..
+        }
+    ));
 
     store
-        .accept_review(&plan_id, &a, "looks good", false, false, None, AgentRef::from_pane("rev"), 6)
+        .accept_review(
+            &plan_id,
+            &a,
+            "looks good",
+            false,
+            false,
+            None,
+            AgentRef::from_pane("rev"),
+            6,
+        )
         .unwrap();
-    store.close_task(&plan_id, &a, Some("shipped"), AgentRef::from_pane("rev"), 6).unwrap();
+    store
+        .close_task(&plan_id, &a, Some("shipped"), AgentRef::from_pane("rev"), 6)
+        .unwrap();
 
     let gate = store.review_gate_status(&plan_id).unwrap();
     assert!(!gate.blocked, "closing one review must free capacity");
@@ -148,7 +166,15 @@ fn bounce_review_atomically_exits_in_review_and_leaves_no_stale_qa_claim() {
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
 
     let result = store
-        .bounce_review(&plan_id, &task_id, "needs fixes", false, false, AgentRef::from_pane("rev"), 5)
+        .bounce_review(
+            &plan_id,
+            &task_id,
+            "needs fixes",
+            false,
+            false,
+            AgentRef::from_pane("rev"),
+            5,
+        )
         .unwrap();
     assert_eq!(result.review_round, 1);
 
@@ -159,7 +185,10 @@ fn bounce_review_atomically_exits_in_review_and_leaves_no_stale_qa_claim() {
     assert_eq!(task.qa_state, None);
     assert_eq!(task.review_round, 1);
     assert_eq!(task.review_evidence.len(), 1);
-    assert_eq!(task.review_evidence[0].verdict, crate::plan::ReviewVerdict::Bounce);
+    assert_eq!(
+        task.review_evidence[0].verdict,
+        crate::plan::ReviewVerdict::Bounce
+    );
     // Entering review spent one credit; the bounce closes that round and repays it.
     assert_eq!(plan.review_policy.credit, 0);
 }
@@ -172,25 +201,51 @@ fn review_round_bound_rejects_third_round_without_override_and_accepts_with_one(
 
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
     store
-        .bounce_review(&plan_id, &task_id, "round 1 findings", false, false, AgentRef::from_pane("rev"), 5)
+        .bounce_review(
+            &plan_id,
+            &task_id,
+            "round 1 findings",
+            false,
+            false,
+            AgentRef::from_pane("rev"),
+            5,
+        )
         .unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 6).unwrap();
     store
-        .bounce_review(&plan_id, &task_id, "round 2 findings", false, false, AgentRef::from_pane("rev"), 7)
+        .bounce_review(
+            &plan_id,
+            &task_id,
+            "round 2 findings",
+            false,
+            false,
+            AgentRef::from_pane("rev"),
+            7,
+        )
         .unwrap();
 
     // Third round: default max is 2, so this must be rejected without an override.
     let err = set_status(&store, &plan_id, &task_id, "in_review", 8).unwrap_err();
     assert!(matches!(
         err,
-        PlanError::ReviewRoundExceeded { round: 2, max_rounds: 2 }
+        PlanError::ReviewRoundExceeded {
+            round: 2,
+            max_rounds: 2
+        }
     ));
 
     let err = store.record_review_override(&plan_id, &task_id, "", "reason", "repro", 9);
     assert!(matches!(err, Err(PlanError::ReviewOverrideIncomplete)));
 
     store
-        .record_review_override(&plan_id, &task_id, "andrey", "P0 hotfix", "steps to repro", 9)
+        .record_review_override(
+            &plan_id,
+            &task_id,
+            "andrey",
+            "P0 hotfix",
+            "steps to repro",
+            9,
+        )
         .unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 10).unwrap();
 
@@ -209,14 +264,23 @@ fn oracle_scope_expansion_rejected_without_override() {
     dispatch(&store, &plan_id, &task_id, "pane_impl", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
     store
-        .bounce_review(&plan_id, &task_id, "round 1 findings", false, false, AgentRef::from_pane("rev"), 5)
+        .bounce_review(
+            &plan_id,
+            &task_id,
+            "round 1 findings",
+            false,
+            false,
+            AgentRef::from_pane("rev"),
+            5,
+        )
         .unwrap();
 
     // Expand scope: add a new acceptance criterion after the oracle was fixed.
     store
         .with_plan(&plan_id, 6, |p| {
             let task = p.tasks.iter_mut().find(|t| t.id == task_id).unwrap();
-            task.acceptance_criteria.push("also handles edge case Y".into());
+            task.acceptance_criteria
+                .push("also handles edge case Y".into());
             Ok(())
         })
         .unwrap();
@@ -244,11 +308,27 @@ fn accept_review_past_round_bound_creates_follow_up_and_does_not_touch_status() 
     dispatch(&store, &plan_id, &task_id, "pane_impl", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
     store
-        .bounce_review(&plan_id, &task_id, "round 1", false, false, AgentRef::from_pane("rev"), 5)
+        .bounce_review(
+            &plan_id,
+            &task_id,
+            "round 1",
+            false,
+            false,
+            AgentRef::from_pane("rev"),
+            5,
+        )
         .unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 6).unwrap();
     store
-        .bounce_review(&plan_id, &task_id, "round 2", false, false, AgentRef::from_pane("rev"), 7)
+        .bounce_review(
+            &plan_id,
+            &task_id,
+            "round 2",
+            false,
+            false,
+            AgentRef::from_pane("rev"),
+            7,
+        )
         .unwrap();
     store
         .record_review_override(&plan_id, &task_id, "andrey", "P0", "repro", 8)
@@ -294,10 +374,19 @@ fn stale_review_escalation_is_idempotent() {
     let escalated_again = store
         .escalate_stale_review(&plan_id, &task_id, 1000, AgentRef::from_pane("orch"), 2500)
         .unwrap();
-    assert!(!escalated_again, "already escalated since this review entry");
+    assert!(
+        !escalated_again,
+        "already escalated since this review entry"
+    );
 
     let not_stale_yet = store
-        .escalate_stale_review(&plan_id, &task_id, 100_000, AgentRef::from_pane("orch"), 5000)
+        .escalate_stale_review(
+            &plan_id,
+            &task_id,
+            100_000,
+            AgentRef::from_pane("orch"),
+            5000,
+        )
         .unwrap();
     assert!(!not_stale_yet);
 }

@@ -153,10 +153,7 @@ fn render_review_gate(plan: &Plan, out: &mut String) {
     out.push_str("Review backpressure:\n");
     out.push_str(&format!(
         "- {}\n",
-        status
-            .reason
-            .as_deref()
-            .unwrap_or("review_wip_exceeded")
+        status.reason.as_deref().unwrap_or("review_wip_exceeded")
     ));
 }
 

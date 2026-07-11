@@ -171,7 +171,13 @@ pub fn earn_review_credit(policy: &mut ReviewPolicy) {
     policy.credit += 1;
 }
 
-fn review_milestone(id: String, from: AgentRef, verdict: &ReviewVerdict, note: &str, now_ms: u64) -> Milestone {
+fn review_milestone(
+    id: String,
+    from: AgentRef,
+    verdict: &ReviewVerdict,
+    note: &str,
+    now_ms: u64,
+) -> Milestone {
     Milestone {
         id,
         from,
