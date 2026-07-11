@@ -9,14 +9,14 @@ acceptance_criteria:
 - Every open task has an audited planned/provider model disposition, while launch requested, catalog-resolved, actual session, pane, and report identities remain distinct and truthful.
 test_plan: 'Oracle: provider launch fixture with planned task model gpt-5.6-luna, requested gpt-5.6-luna, configured catalog resolving actual runtime gpt-5.6-terra. 1. Capture task routing, request/config, provider command, catalog resolution, session/runtime metadata, pane metadata, and report metadata; pass: all six provenance values are persisted or explicit null with source and never conflated. 2. Run a matching supported fixture such as gpt-5.5; pass: requested/resolved/actual agree and planned routing is separately retained. 3. Run unavailable/fallback fixture; pass: structured requested_model, resolved_model, actual_model, fallback reason, and no silent substitution. 4. Run concurrent launch/refresh/restored-session fixtures; pass: identity is session-scoped and stale values do not leak. 5. Audit every pending/blocked/in-progress/in-review task against codeterm agent providers and provider model catalogs; pass: each has validated retention, explicit reroute, or blocker recorded. 6. Run focused provider tests and relevant TypeScript tests discovered from ownership, git diff --check, and scripts/check-file-sizes.sh; pass: all exit 0. No local heavy build or release routing.'
 correctness: Planned/requested/resolved/actual provenance; runtime/session truth over UI metadata; explicit fallback/rejection; session-scoped restoration; audited open-task model routing; capability-based provider boundary; no unverified production routing.
-status: in_review
-review_stage: qa
-qa_state: queued
-status_label: pane-gone
+status: done
+review_stage: review
+qa_state: null
+status_label: null
 priority: p0
 created_at: 1783664538494
-updated_at: 1783694941943
-status_changed_at: 1783694941943
+updated_at: 1783733132772
+status_changed_at: 1783733132772
 handle: extend-model-identity-attribution-and-audit-remaining-task-models
 tags:
 - 1.7.2
