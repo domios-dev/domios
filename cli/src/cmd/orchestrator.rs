@@ -161,6 +161,7 @@ fn status(
         },
         "drift": state.get("drift").cloned().unwrap_or_else(|| json!({})),
         "next_actions": state.get("next_actions").cloned().unwrap_or_else(|| json!([])),
+        "reminder": state.get("reminder").cloned().unwrap_or_else(|| json!({})),
     });
     if json_output {
         return Ok(Some(out));
@@ -214,6 +215,14 @@ fn render_status(value: &Value) -> String {
         "live_lanes: open={open} blocked={blocked} agents={live_agents}\n"
     ));
     out.push_str(&format!("drift: {drift}\n"));
+    let reminder = value.get("reminder").cloned().unwrap_or_default();
+    out.push_str(&format!(
+        "reminder: last_tick={:?} last_due={:?} last_delivery={:?} retry_reason={:?}\n",
+        reminder.get("last_tick"),
+        reminder.get("last_due"),
+        reminder.get("last_delivery"),
+        reminder.get("delivery_failure_retry_reason"),
+    ));
     if actions.is_empty() {
         out.push_str("next_actions: none\n");
     } else {

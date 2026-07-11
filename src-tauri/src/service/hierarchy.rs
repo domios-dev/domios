@@ -575,7 +575,7 @@ impl ServiceContext {
                     None,
                     epoch_ms(),
                 );
-                self.plan_turn_counter.reset(pane_id);
+                self.plan_turn_counter.reset_activity(pane_id);
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "plan-changed",

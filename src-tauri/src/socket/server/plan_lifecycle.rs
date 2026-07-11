@@ -30,6 +30,7 @@ pub(super) fn dispatch(
             let milestone_id = store
                 .pause_task(&id, &tid, &reason, from_param(p), now)
                 .map_err(plan_rpc_err)?;
+            svc.reconcile_time_reminder_eligibility();
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true, "plan_id": id, "task_id": tid, "milestone_id": milestone_id }))
         }
@@ -38,6 +39,7 @@ pub(super) fn dispatch(
             let milestone_id = store
                 .resume_task(&id, &tid, from_param(p), now)
                 .map_err(plan_rpc_err)?;
+            svc.reconcile_time_reminder_eligibility();
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true, "plan_id": id, "task_id": tid, "milestone_id": milestone_id }))
         }
@@ -52,6 +54,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
+            svc.reconcile_time_reminder_eligibility();
             emit_plan_changed(app, &id);
             let mut resp = json!({ "ok": true });
             if let Some(plan) = store.get(&id) {

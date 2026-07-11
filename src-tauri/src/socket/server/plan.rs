@@ -459,7 +459,16 @@ pub(super) fn dispatch(
         "plan.state" => {
             let id = plan_refs::resolve_plan(store, params)?;
             let snapshot = svc.build_plan_state(&id, now).map_err(plan_rpc_err)?;
-            Ok(serde_json::to_value(snapshot).unwrap_or_default())
+            let mut value = serde_json::to_value(snapshot).unwrap_or_default();
+            let pane_id = store
+                .get(&id)
+                .and_then(|plan| plan.owner.pane_id)
+                .unwrap_or_default();
+            value["reminder"] = serde_json::to_value(
+                svc.plan_turn_counter.time_reminder_telemetry(&pane_id),
+            )
+            .unwrap_or_default();
+            Ok(value)
         }
 
         "plan.next" => {
