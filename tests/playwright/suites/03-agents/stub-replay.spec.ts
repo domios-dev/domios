@@ -87,24 +87,32 @@ for (const provider of PROVIDERS) {
   });
 }
 
-test("@stub claude: session id materializes via the session_start hook", async ({
-  api,
-  paneCleanup,
-}) => {
-  test.setTimeout(90_000);
-  const spawned = await spawnStub(api, "claude");
-  paneCleanup.track(spawned.pane_id);
+for (const provider of PROVIDERS) {
+  test(`@stub ${provider}: detection binds provider identity and session id`, async ({
+    api,
+    paneCleanup,
+  }) => {
+    test.setTimeout(90_000);
+    const spawned = await spawnStub(api, provider);
+    paneCleanup.track(spawned.pane_id);
 
-  const sid = await pollUntil(
-    async () => {
-      const panes = await api
-        .get<Array<{ id: string; agent_session_id?: string | null }>>("/panes")
-        .catch(() => []);
-      return panes.find((p) => p.id === spawned.pane_id)?.agent_session_id || null;
-    },
-    30_000,
-    250,
-    "claude stub session id",
-  );
-  expect(sid, "stub-announced session id is non-empty").toBeTruthy();
-});
+    // Same trusted-binding path a real CLI uses before its session file lands:
+    // the replayer reports through the nonce-verified session_start hook.
+    const pane = await pollUntil(
+      async () => {
+        const panes = await api
+          .get<Array<{ id: string; agent_type?: string | null; agent_session_id?: string | null }>>(
+            "/panes",
+          )
+          .catch(() => []);
+        const p = panes.find((x) => x.id === spawned.pane_id);
+        return p?.agent_session_id ? p : null;
+      },
+      30_000,
+      250,
+      `${provider} stub session id`,
+    );
+    expect(pane?.agent_type, "pane keeps the real provider identity").toBe(provider);
+    expect(pane?.agent_session_id, "session id bound via session_start hook").toBeTruthy();
+  });
+}
