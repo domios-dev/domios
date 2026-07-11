@@ -1,5 +1,7 @@
 /** Native-only IPC commands — honest web degradation via webCapability(). */
 export const WEB_UNSUPPORTED: Record<string, string> = {
+  get_recovery_state:
+    "Native crash recovery state is sourced from the desktop supervisor",
   get_pane_history_raw:
     "Native xterm scrollback replay on remount; web uses read_pty tail instead",
   materialize_dropped_files:
