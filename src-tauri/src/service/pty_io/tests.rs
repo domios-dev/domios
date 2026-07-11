@@ -1,3 +1,4 @@
+use super::send;
 use super::*;
 use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
 use crate::service::plan::{NewTask, PlanStore, TaskLaneUpdate};
@@ -89,6 +90,24 @@ fn empty_text_enter_true_sends_just_cr() {
 #[test]
 fn empty_text_enter_false_sends_nothing() {
     assert_eq!(apply_enter("", false), "");
+}
+
+#[test]
+fn agent_prompt_sanitizer_strips_escaped_ansi_and_controls() {
+    let leaked = "\x1b]10;rgb:c9c9/d1d1/d9d9\x1b\\ok\x1b[?1;2c\x00!";
+    assert_eq!(send::sanitize_agent_prompt_input(leaked), "ok!");
+}
+
+#[test]
+fn agent_prompt_sanitizer_preserves_literal_reply_text() {
+    let text = "]10;rgb:c9c9/d1d1/d9d9\\ [?1;2c";
+    assert_eq!(send::sanitize_agent_prompt_input(text), text);
+}
+
+#[test]
+fn agent_prompt_sanitizer_preserves_codeterm_prefix_text() {
+    let message = "-=-codeterm:pane label=worker pane=abc123 model=codex-=-run tests";
+    assert_eq!(send::sanitize_agent_prompt_input(message), message);
 }
 
 #[test]
