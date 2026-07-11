@@ -470,7 +470,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                 if let Some(service) =
                                     app_handle.try_state::<crate::service::ServiceState>()
                                 {
-                                    service.plan_turn_counter.reset(&pane_id);
+                                    service.plan_turn_counter.reset_activity(&pane_id);
                                 }
                             }
                         }

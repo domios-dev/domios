@@ -205,7 +205,10 @@ impl ServiceContext {
             return;
         };
 
-        if self.deliver_plan_reminder_target(pane_id, &target, kind) {
+        if self
+            .deliver_plan_reminder_target(pane_id, &target, kind)
+            .is_ok()
+        {
             self.plan_turn_counter.mark_nudged(pane_id, turns);
             self.plan_turn_counter
                 .mark_time_nudged(pane_id, current_epoch_secs());
@@ -215,13 +218,16 @@ impl ServiceContext {
     fn send_due_plan_time_reminders(&self) {
         let cfg = crate::config::load_config().orchestration;
         if !cfg.plan_reminders || cfg.nudge_interval_secs == 0 {
+            self.plan_turn_counter.clear_time_reminders();
             return;
         }
         let now = current_epoch_secs();
         let targets = timed_plan_reminder_targets(&self.plan_store.list_full());
+        self.retain_time_reminder_eligibility(&targets);
         let candidates = targets.len();
         let mut due = 0usize;
         for timed in targets {
+            self.plan_turn_counter.record_time_tick(&timed.pane_id, now);
             if !self
                 .plan_turn_counter
                 .time_nudge_due(&timed.pane_id, now, cfg.nudge_interval_secs)
@@ -229,30 +235,51 @@ impl ServiceContext {
                 continue;
             }
             due += 1;
-            let delivered = self.deliver_plan_reminder_target(
+            self.plan_turn_counter.record_time_due(&timed.pane_id, now);
+            let delivery = self.deliver_plan_reminder_target(
                 &timed.pane_id,
                 &timed.target,
                 timed.target.time_nudge_kind(),
             );
             // A reminder that silently fails to deliver is indistinguishable
             // from the feature not existing — log both outcomes.
-            if delivered {
+            if delivery.is_ok() {
                 log::info!(
                     "[plan-reminder] delivered {:?} nudge to pane {}",
                     timed.target.time_nudge_kind(),
                     timed.pane_id
                 );
                 self.plan_turn_counter.mark_time_nudged(&timed.pane_id, now);
+                self.plan_turn_counter.record_time_delivery(&timed.pane_id, now);
             } else {
+                let reason = delivery.unwrap_err();
                 log::warn!(
-                    "[plan-reminder] FAILED to deliver nudge to pane {} (target {:?})",
+                    "[plan-reminder] FAILED to deliver nudge to pane {} (target {:?}): {}",
                     timed.pane_id,
-                    timed.target
+                    timed.target,
+                    reason
                 );
+                self.plan_turn_counter.record_time_failure(&timed.pane_id, reason);
             }
         }
         log::info!("[plan-reminder] tick: {candidates} candidate pane(s), {due} due");
         self.send_due_complete_wrapup_reminders(now, cfg.nudge_interval_secs);
+    }
+
+    /// Lifecycle mutations use this to clear only deadlines that became
+    /// ineligible (paused, complete, parked/closed with no open work, or
+    /// archived). Active execution owners keep their original deadline.
+    pub(crate) fn reconcile_time_reminder_eligibility(&self) {
+        let targets = timed_plan_reminder_targets(&self.plan_store.list_full());
+        self.retain_time_reminder_eligibility(&targets);
+    }
+
+    fn retain_time_reminder_eligibility(&self, targets: &[TimedPlanReminderTarget]) {
+        let eligible_panes = targets
+            .iter()
+            .map(|target| target.pane_id.clone())
+            .collect();
+        self.plan_turn_counter.retain_time_reminders(&eligible_panes);
     }
 
     fn send_due_complete_wrapup_reminders(&self, now: u64, interval_secs: u64) {
@@ -282,7 +309,7 @@ impl ServiceContext {
         pane_id: &str,
         target: &PlanReminderTarget,
         kind: crate::service::plan::reminders::NudgeKind,
-    ) -> bool {
+    ) -> Result<(), String> {
         let mut text = crate::service::plan::reminders::nudge_text(kind);
         let text = match target {
             PlanReminderTarget::Owner { plan_id } => {
@@ -323,10 +350,10 @@ impl ServiceContext {
         };
         let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
         match crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text) {
-            Ok(_) => true,
+            Ok(_) => Ok(()),
             Err(e) => {
                 log::warn!("[plan-reminder] deliver to {} failed: {}", pane_id, e);
-                false
+                Err(format!("{e}; retry on next scheduler tick"))
             }
         }
     }
@@ -640,6 +667,41 @@ mod tests {
         ];
 
         assert!(timed_plan_reminder_targets(&plans).is_empty());
+    }
+
+    #[test]
+    fn time_targets_preserve_pause_park_completion_and_closure_suppression() {
+        let mut paused = plan(
+            "pl_paused",
+            "paused-owner",
+            PlanMode::Execution,
+            vec![task("open", TaskStatus::Pending, Some("paused-worker"))],
+        );
+        paused.mode = PlanMode::Paused;
+
+        let parked = plan(
+            "pl_parked",
+            "parked-owner",
+            PlanMode::Execution,
+            vec![task("parked", TaskStatus::Parked, Some("parked-worker"))],
+        );
+
+        let mut archived = plan(
+            "pl_closed",
+            "closed-owner",
+            PlanMode::Execution,
+            vec![task("open", TaskStatus::Pending, Some("closed-worker"))],
+        );
+        archived.status = PlanStatus::Archived;
+
+        let no_open_tasks = plan(
+            "pl_complete",
+            "complete-owner",
+            PlanMode::Execution,
+            vec![task("done", TaskStatus::Done, Some("done-worker"))],
+        );
+
+        assert!(timed_plan_reminder_targets(&[paused, parked, archived, no_open_tasks]).is_empty());
     }
 
     #[test]
