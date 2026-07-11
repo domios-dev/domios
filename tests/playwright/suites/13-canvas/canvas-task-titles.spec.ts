@@ -13,6 +13,7 @@ import {
   openCanvas,
   panBy,
   panToMountTaskCards,
+  waitForCanvasSettled,
 } from "../../helpers/canvas-inspect";
 
 const PERF_KEY = "canvas.perfFixtureN";
@@ -99,15 +100,13 @@ test("@golden @canvas-task-titles task cards show full titles, zero overflow, ac
     await panBy(page, -360, -120);
     if ((await collectBoxes(page, "canvas-task-card")).length >= 3) break;
   }
-  // PW_JUSTIFIED_SLEEP: fixed 200ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(200);
+  await waitForCanvasSettled(page);
   await shot(page, "task-titles-cloud-multi");
 
   const seenBands = new Set<string>();
   for (const scale of [1.0, 1.8, 2.6, 3.6, 5.0]) {
     await focusTaskById(page, probe!, scale);
-    // PW_JUSTIFIED_SLEEP: fixed 220ms sampling/settle window; no app event exists for this probe.
-    await page.waitForTimeout(220);
+    await waitForCanvasSettled(page);
 
     const report = (await titleClipReport(page)).filter((r) => r.world);
     if (report.length === 0) continue;

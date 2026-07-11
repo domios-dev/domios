@@ -74,7 +74,7 @@ test("@golden hidden panes do not re-render on unrelated agent_state churn", asy
       const end = Date.now() + 3_000;
       while (Date.now() < end) {
         churn(churnPaneId);
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 50)); // churn pacing: fixed-rate load generation
       }
     },
     { churnPaneId: paneA.id },
@@ -145,7 +145,7 @@ test("@golden hidden panes longtask budget during agent_state churn", async ({ u
       const end = Date.now() + 3_000;
       while (Date.now() < end) {
         churn(churnPaneId);
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 50)); // churn pacing: fixed-rate load generation
       }
     },
     { churnPaneId: paneA.id },

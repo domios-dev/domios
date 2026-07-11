@@ -5,7 +5,9 @@
  */
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
-import { isEmpty, openCanvas, setCanvasScale } from "../../helpers/canvas-inspect";
+import { isEmpty, openCanvas, setCanvasScale,
+  waitForCanvasSettled,
+} from "../../helpers/canvas-inspect";
 
 const PERF_KEY = "canvas.perfFixtureN";
 const SUBSTRATE_KEY = "canvas.substrateV2";
@@ -41,16 +43,14 @@ test("@golden @canvas-nav fly into a task, then Home always returns to the plan"
 
   // At home (the plan) there is no breadcrumb.
   await setCanvasScale(page, 0.55);
-  // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(300);
+  await waitForCanvasSettled(page);
   expect(await page.locator('[data-testid="canvas-breadcrumb"]').count(), "no breadcrumb at home").toBe(0);
 
   // FLY: click a live worker pin → fly to its task (records a nav hop).
   const pin = page.locator('[data-testid="canvas-presence-overlay"]').first();
   await expect(pin).toBeVisible({ timeout: 15_000 });
   await pin.click();
-  // PW_JUSTIFIED_SLEEP: fixed 900ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(900);
+  await waitForCanvasSettled(page, 2_500);
   await shot(page, "nav-deep");
 
   // The return-to-plan affordance is now present: ⌂ home crumb + ≥1 path crumb + Back.
@@ -60,8 +60,7 @@ test("@golden @canvas-nav fly into a task, then Home always returns to the plan"
 
   // HOME: click ⌂ → reframe the plan + clear the path (breadcrumb disappears).
   await page.locator('[data-testid="canvas-breadcrumb-home"]').click();
-  // PW_JUSTIFIED_SLEEP: fixed 900ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(900);
+  await waitForCanvasSettled(page, 2_500);
   await shot(page, "nav-home");
   expect(await page.locator('[data-testid="canvas-breadcrumb"]').count(), "home cleared the path → no breadcrumb").toBe(0);
   await expect(page.locator(PLAN_SEL).first()).toBeVisible();

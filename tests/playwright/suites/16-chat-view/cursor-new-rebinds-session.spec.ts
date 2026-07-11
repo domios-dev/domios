@@ -98,9 +98,8 @@ test(
     }, 1_000);
 
     try {
-      for (let i = 0; i < 30; i++) {
-        // PW_JUSTIFIED_SLEEP: fixed 1_000ms sampling/settle window; no app event exists for this probe.
-        await ui.page.waitForTimeout(1_000);
+      for (let i = 0; i < 120; i++) {
+        await ui.page.waitForTimeout(250); // poll interval (30s budget)
         const panes = await api.get<{ id: string; agent_session_id?: string | null }[]>("/panes");
         const pane = panes.find((p) => p.id === paneId);
         if (pane?.agent_session_id) {
@@ -155,9 +154,8 @@ test(
       );
 
       let reboundSession: string | null = null;
-      for (let i = 0; i < 40; i++) {
-        // PW_JUSTIFIED_SLEEP: fixed 1_000ms sampling/settle window; no app event exists for this probe.
-        await ui.page.waitForTimeout(1_000);
+      for (let i = 0; i < 160; i++) {
+        await ui.page.waitForTimeout(250); // poll interval (40s budget)
         const panes = await api.get<{ id: string; agent_session_id?: string | null }[]>("/panes");
         const pane = panes.find((p) => p.id === paneId);
         if (pane?.agent_session_id && pane.agent_session_id !== session1) {

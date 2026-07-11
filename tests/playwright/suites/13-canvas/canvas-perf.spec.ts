@@ -5,7 +5,9 @@
  */
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
-import { canvasScale, ensureCanvasBoard, isEmpty, panToMountTaskCards, setCanvasScale } from "../../helpers/canvas-inspect";
+import { canvasScale, ensureCanvasBoard, isEmpty, panToMountTaskCards, setCanvasScale,
+  waitForCanvasSettled,
+} from "../../helpers/canvas-inspect";
 
 const PERF_KEY = "canvas.perfFixtureN";
 const SUBSTRATE_KEY = "canvas.substrateV2";
@@ -173,8 +175,7 @@ test("@canvas-perf pan/zoom sustain a smooth frame budget on a populated board",
   // Warm up (JIT + first-paint settle) so the measured windows are steady-state.
   await drivePan(page, 600);
   await driveZoom(page, 600);
-  // PW_JUSTIFIED_SLEEP: fixed 200ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(200);
+  await waitForCanvasSettled(page);
 
   // Idle control: the natural rAF cadence with no gesture.
   await startSampler(page);

@@ -10,6 +10,7 @@ import {
   seedPerfFixtureAndOpenInlineCanvas,
   setCanvasScale,
   visibleCanvasScope,
+  waitForCanvasSettled,
 } from "../../helpers/canvas-inspect";
 
 async function assertCalmPresenceAtFarZoom(page: import("@playwright/test").Page): Promise<void> {
@@ -31,8 +32,7 @@ test("@golden @canvas-calm-ux calm canvas surfaces and progressive presence", as
     await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
 
     await setCanvasScale(page, 0.45);
-    // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
-    await page.waitForTimeout(300);
+    await waitForCanvasSettled(page);
     await assertCalmPresenceAtFarZoom(page);
 
     const firstPin = visibleCanvasScope(page).locator('[data-testid="canvas-presence-overlay"]').first();
@@ -43,8 +43,7 @@ test("@golden @canvas-calm-ux calm canvas surfaces and progressive presence", as
     expect(linksHover, "hover reveals connector").toBeGreaterThan(0);
 
     await setCanvasScale(page, 2.2);
-    // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
-    await page.waitForTimeout(300);
+    await waitForCanvasSettled(page);
     const w2Pins = await visibleCanvasScope(page)
       .locator('[data-testid="canvas-presence-overlay"][data-presence-world="W2"], [data-testid="canvas-presence-overlay"][data-presence-world="W3"]')
       .count();

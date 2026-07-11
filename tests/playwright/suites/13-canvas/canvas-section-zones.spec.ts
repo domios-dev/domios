@@ -5,7 +5,9 @@
  */
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
-import { findOverflows, isEmpty, openCanvas, setCanvasScale, setCanvasScaleOn } from "../../helpers/canvas-inspect";
+import { findOverflows, isEmpty, openCanvas, setCanvasScale, setCanvasScaleOn,
+  waitForCanvasSettled,
+} from "../../helpers/canvas-inspect";
 
 const PERF_KEY = "canvas.perfFixtureN";
 const SUBSTRATE_KEY = "canvas.substrateV2";
@@ -21,8 +23,7 @@ async function reach(page: Page, target: string, scales: number[]): Promise<stri
   let band = await page.getAttribute(PLAN_SEL, "data-world").catch(() => null);
   for (const s of scales) {
     await setCanvasScaleOn(page, PLAN_SEL, s);
-    // PW_JUSTIFIED_SLEEP: fixed 220ms sampling/settle window; no app event exists for this probe.
-    await page.waitForTimeout(220);
+    await waitForCanvasSettled(page);
     band = await page.getAttribute(PLAN_SEL, "data-world").catch(() => null);
     if (band === target) break;
   }
@@ -52,13 +53,11 @@ test("@golden @canvas-section-zones labeled organic territories cluster tasks by
   await expect(page.locator(PLAN_SEL).first()).toBeVisible({ timeout: 30_000 });
 
   await setCanvasScale(page, 0.18);
-  // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(300);
+  await waitForCanvasSettled(page);
   await shot(page, "zones2-W0");
 
   await setCanvasScale(page, 0.5);
-  // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(300);
+  await waitForCanvasSettled(page);
   await shot(page, "zones2-W1");
   const zoneCount = await page.locator('[data-testid="canvas-section-zone"]').count();
   expect(zoneCount, "visible section territory hulls present").toBeGreaterThan(1);

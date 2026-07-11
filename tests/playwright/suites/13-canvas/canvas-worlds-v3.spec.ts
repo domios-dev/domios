@@ -15,6 +15,7 @@ import {
   setCanvasScale,
   setCanvasScaleOnTask,
   zoomTowardTask,
+  waitForCanvasSettled,
 } from "../../helpers/canvas-inspect";
 
 type World = "W0" | "W1" | "W2" | "W3";
@@ -155,8 +156,7 @@ test("@golden @canvas-worlds-v3 worlds-v3 geometry: footprint fixed, body reveal
   const taskFootprints: Array<{ w: number; h: number }> = [];
   for (const s of [1.6, 2.4, 3.2, 4.5, 6.0]) {
     await setCanvasScaleOnTask(page, probeTaskId, s);
-    // PW_JUSTIFIED_SLEEP: fixed 250ms sampling/settle window; no app event exists for this probe.
-    await page.waitForTimeout(250);
+    await waitForCanvasSettled(page);
     const fp = await worldFootprint(page, "canvas-task-card", probeTaskId);
     if (fp) taskFootprints.push(fp);
   }

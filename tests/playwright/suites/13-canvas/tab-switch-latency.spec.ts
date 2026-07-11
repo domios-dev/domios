@@ -9,6 +9,7 @@ import type { Page } from "@playwright/test";
 import { REPO_ROOT } from "../../helpers/dev-console";
 
 const PANE_COUNT = 20; // 10+ per the audit's warm-session requirement, with headroom
+// Fixed waits here are measurement pacing windows of this latency harness.
 const SWITCH_BUDGET_MS = 150;
 
 interface InpSample {

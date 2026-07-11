@@ -7,7 +7,9 @@ import { test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
-import { canvasScale, isEmpty, openCanvas, panToMountTaskCards, setCanvasScaleOn } from "../../helpers/canvas-inspect";
+import { canvasScale, isEmpty, openCanvas, panToMountTaskCards, setCanvasScaleOn,
+  waitForCanvasSettled,
+} from "../../helpers/canvas-inspect";
 
 const PERF_KEY = "canvas.perfFixtureN";
 const SUBSTRATE_KEY = "canvas.substrateV2";
@@ -78,8 +80,7 @@ test("@golden @canvas-visual-sweep capture every band + task cloud for visual re
 
   // orchestrator chip + its connector (only present when owner groups exist).
   await page.locator('[data-testid="canvas-preset-overview"]').click().catch(() => {});
-  // PW_JUSTIFIED_SLEEP: fixed 500ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(500);
+  await waitForCanvasSettled(page, 2_500);
   await shot(page, "sweep-overview");
   const orch = await page.locator('[data-testid="canvas-orchestrator-group"]').count();
   console.log(`SWEEP: orchestrator-group count=${orch} -> /tmp/sweep-overview.png`);

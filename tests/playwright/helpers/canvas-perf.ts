@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import {
   canvasScale,
+  waitForCanvasSettled,
   ensureCanvasBoard,
   isEmpty,
   panToMountTaskCards,
@@ -200,21 +201,21 @@ export async function measureCanvasBaseline(page: Page, fixtureNodes: number): P
   await panToMountTaskCards(page, 1.25);
   await drivePan(page, 450);
   await driveZoom(page, 450);
-  await page.waitForTimeout(150);
+  await waitForCanvasSettled(page);
 
   await startSampler(page);
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(1200); // fixed idle-measurement window, not a wait
   const idle = await stopSampler(page);
 
   await startSampler(page);
   await drivePan(page, 1600);
-  await page.waitForTimeout(180);
+  await waitForCanvasSettled(page);
   const pan = await stopSampler(page);
 
   await setCanvasScale(page, 1.35);
   await startSampler(page);
   await driveZoom(page, 1600);
-  await page.waitForTimeout(180);
+  await waitForCanvasSettled(page);
   const zoom = await stopSampler(page);
 
   return {

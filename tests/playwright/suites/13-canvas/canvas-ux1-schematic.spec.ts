@@ -5,7 +5,9 @@
  */
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
-import { canvasScale, captureBoard, collectBoxes, ensureCanvasBoard, isEmpty, panToMountTaskCards, setCanvasScale } from "../../helpers/canvas-inspect";
+import { canvasScale, captureBoard, collectBoxes, ensureCanvasBoard, isEmpty, panToMountTaskCards, setCanvasScale,
+  waitForCanvasSettled,
+} from "../../helpers/canvas-inspect";
 
 const PERF_KEY = "canvas.perfFixtureN";
 const PERF_N = 40;
@@ -62,13 +64,11 @@ test("@canvas-ux1 schematic task face across scales — title fits, body cut, sc
   };
 
   await setCanvasScale(page, 0.4); // GLANCE — whole board incl. plan/spec/task/subtask
-  // PW_JUSTIFIED_SLEEP: fixed 200ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(200);
+  await waitForCanvasSettled(page);
   await checkBand("glance");
 
   await panToMountTaskCards(page, 1.6); // READING — cards framed in the cloud
-  // PW_JUSTIFIED_SLEEP: fixed 200ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(200);
+  await waitForCanvasSettled(page);
   await checkBand("reading");
 
   // size (the world floor is unit-verified in taskFootprint.test). Logged for evidence.

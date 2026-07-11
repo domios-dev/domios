@@ -11,6 +11,7 @@ import {
   seedPerfFixtureAndOpenInlineCanvas,
   setCanvasScale,
   visibleCanvasScope,
+  waitForCanvasSettled,
 } from "../../helpers/canvas-inspect";
 
 async function shot(page: Page, name: string): Promise<void> {
@@ -31,8 +32,7 @@ test("@golden @canvas-presence live workers render with progressive presence dis
     await expect(page.locator(CANVAS_BOARD_SEL).first()).toBeVisible({ timeout: 30_000 });
 
     await setCanvasScale(page, 0.55);
-    // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
-    await page.waitForTimeout(300);
+    await waitForCanvasSettled(page);
     await shot(page, "presence2-W1");
 
     const board = visibleCanvasScope(page);
@@ -54,8 +54,7 @@ test("@golden @canvas-presence live workers render with progressive presence dis
     expect(linksHover, "hover keeps or reveals connector").toBeGreaterThanOrEqual(linksBeforeHover);
 
     await setCanvasScale(page, 2.0);
-    // PW_JUSTIFIED_SLEEP: fixed 300ms sampling/settle window; no app event exists for this probe.
-    await page.waitForTimeout(300);
+    await waitForCanvasSettled(page);
     await shot(page, "presence2-W2");
     const w2Worlds = await board
       .locator('[data-testid="canvas-presence-overlay"]')

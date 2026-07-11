@@ -4,7 +4,9 @@
  * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
-import { isEmpty, openCanvas, zoomBy } from "../../helpers/canvas-inspect";
+import { isEmpty, openCanvas, zoomBy,
+  waitForCanvasSettled,
+} from "../../helpers/canvas-inspect";
 
 type Page = import("@playwright/test").Page;
 
@@ -113,8 +115,7 @@ test("@golden @canvas-worlds-v2 W0 compressed, opacity-1 content, done sinks, sn
   if ((await row.count()) > 0) {
     const before = await cameraTransform(page);
     await row.click({ position: { x: 8, y: 8 } });
-    // PW_JUSTIFIED_SLEEP: fixed 200ms sampling/settle window; no app event exists for this probe.
-    await page.waitForTimeout(200);
+    await waitForCanvasSettled(page);
     const after = await cameraTransform(page);
     expect(after, "camera transform byte-identical after a section single-click (§31)").toBe(before);
   }

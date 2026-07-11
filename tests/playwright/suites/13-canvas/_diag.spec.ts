@@ -25,7 +25,7 @@ test("@diag audit boxes", async ({ ui }) => {
       await fetch("/api/canvas/focus", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ plan_id: id }) });
     }, p.id);
     // PW_JUSTIFIED_SLEEP: fixed 900ms sampling/settle window; no app event exists for this probe.
-    await page.waitForTimeout(900);
+    await page.waitForTimeout(900); // diag-only spec: fixed observation window
     const r = await page.evaluate((id) => {
       const spec = document.querySelector(`[data-testid="canvas-spec-node"][data-plan-id="${id}"]`);
       const plan = document.querySelector(`[data-testid="canvas-plan-node"][data-plan-id="${id}"]`);

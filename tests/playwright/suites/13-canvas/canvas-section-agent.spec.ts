@@ -5,7 +5,9 @@
  */
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
-import { isEmpty, openCanvas, setCanvasScaleOn } from "../../helpers/canvas-inspect";
+import { isEmpty, openCanvas, setCanvasScaleOn,
+  waitForCanvasSettled,
+} from "../../helpers/canvas-inspect";
 
 const PERF_KEY = "canvas.perfFixtureN";
 const SUBSTRATE_KEY = "canvas.substrateV2";
@@ -21,8 +23,7 @@ async function reachPlanWorld(page: Page, target: string, scales: number[]): Pro
   let band = await page.getAttribute(PLAN_SEL, "data-world").catch(() => null);
   for (const s of scales) {
     await setCanvasScaleOn(page, PLAN_SEL, s);
-    // PW_JUSTIFIED_SLEEP: fixed 220ms sampling/settle window; no app event exists for this probe.
-    await page.waitForTimeout(220);
+    await waitForCanvasSettled(page);
     band = await page.getAttribute(PLAN_SEL, "data-world").catch(() => null);
     if (band === target) break;
   }
@@ -65,8 +66,7 @@ test("@golden @canvas-section-agent section rows show their live agents; click j
   expect(await indicators.first().locator('[data-testid="canvas-agent-stack"]').count(), "indicator uses the agent avatar stack").toBeGreaterThan(0);
 
   await indicators.first().dispatchEvent("click");
-  // PW_JUSTIFIED_SLEEP: fixed 900ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(900);
+  await waitForCanvasSettled(page, 2_500);
   await shot(page, "secagent-jumped");
   await expect(page.locator('[data-testid="canvas-breadcrumb"]'), "clicking the indicator recorded a nav hop").toBeVisible();
 
