@@ -149,16 +149,16 @@ test(
       const missionControl = page.locator('[data-testid="mission-control-live"]');
       await expect(missionControl).toBeVisible({ timeout: 20_000 });
 
-      const doneShelf = missionControl.locator('[data-testid="done-shelf"]');
+      const doneStation = missionControl.locator('[data-testid="flow-station-done"]').first();
       await pollUntil(
-        async () => (await doneShelf.isVisible().catch(() => false)),
+        async () => (await doneStation.isVisible().catch(() => false)),
         15_000,
         250,
-        "mission-control done shelf visible",
+        "mission-control done station visible",
       );
       await screenshot(page, "plan-view-canvas-done-heavy");
 
-      const doneCountText = await doneShelf.locator(".mc-done-count").textContent();
+      const doneCountText = await doneStation.locator(".mc-flow-count").textContent();
       const doneCount = Number(doneCountText?.trim() ?? "0");
       if (doneCount === 0) {
         test.skip(true, "done-heavy fixture produced no done tasks for canvas shelf");
