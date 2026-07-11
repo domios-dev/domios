@@ -38,7 +38,7 @@ import { ToolOutputContent } from "./ToolOutputContent";
 import { isImageOnlyToolOutput } from "./toolImageOutput";
 import { ContextRequestCard } from "./ContextRequestCard";
 import { WatcherVerdictCard } from "./WatcherVerdictCard";
-import { LinkedText, type ResolvedChatPlanRef } from "./codeterm/LinkedText";
+import { LinkedText, PlanRefCards, type ResolvedChatPlanRef } from "./codeterm/LinkedText";
 import { hasPlanRefs } from "./codeterm/planRefs";
 import {
   INBOUND_KIND_LABELS,
@@ -94,6 +94,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
       return (
         <>
           <RichMarkdown text={message.content} fontScale={fontScale} />
+          <PlanRefCards text={message.content} onOpenPlan={onOpenPlan} />
         </>
       );
     }

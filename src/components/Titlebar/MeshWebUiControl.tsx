@@ -7,11 +7,11 @@ import {
   Copy,
   ExternalLink,
   Globe,
-  Loader2,
   Power,
   Settings2,
   Wrench,
 } from "lucide-react";
+import { BusyState } from "../shared/BusyState";
 import type { ServeReconcileSnapshot } from "../../lib/webAccess";
 import { deriveWebUiView, type WebUiTone } from "./meshWebUi";
 
@@ -132,7 +132,7 @@ export function MeshWebUiControl({ snapshot, loading, onOpen, onOpenSurface, onA
           className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none"
           style={{ color: chipColor, background: "color-mix(in srgb, currentColor 12%, transparent)" }}
         >
-          {(loading && !snapshot) && <Loader2 size={9} className="animate-spin" />}
+          {loading && !snapshot && <BusyState label="" inline hideLabel className="scale-50" />}
           {view.tone === "error" && <AlertTriangle size={9} />}
           {view.label}
         </span>
@@ -168,13 +168,13 @@ export function MeshWebUiControl({ snapshot, loading, onOpen, onOpenSurface, onA
           className={`flex ${btnH} w-6 items-center justify-center rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:border-[var(--ct-accent)] cursor-pointer bg-transparent`}
           title="Web UI options"
         >
-          {busyLabel ? <Loader2 size={12} className="animate-spin" /> : <ChevronDown size={12} />}
+          {busyLabel ? <BusyState label="" inline hideLabel className="scale-50" /> : <ChevronDown size={12} />}
         </button>
       )}
 
       {busyLabel && (
         <span data-testid="mesh-web-ui-progress" className="flex items-center gap-1 text-[10px] text-[var(--ct-muted-fg)]">
-          <Loader2 size={10} className="animate-spin" />
+          <BusyState label="" inline hideLabel className="scale-50" />
           {busyLabel}
         </span>
       )}
