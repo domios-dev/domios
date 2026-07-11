@@ -3,5 +3,24 @@
   "productName": "CodeTerm Dev",
   "build": {
     "devUrl": "http://127.0.0.1:1420"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "CodeTerm",
+        "width": 1200,
+        "height": 800,
+        "decorations": false,
+        "transparent": true,
+        "resizable": true,
+        "fullscreen": false,
+        "dragDropEnabled": true,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --remote-debugging-port=9223"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
   }
 }

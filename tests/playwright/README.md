@@ -9,8 +9,8 @@ see [`docs/TESTING.md`](../../docs/TESTING.md).
 ## Tooling decision (spike result, 2026-06-06)
 
 - On Windows the Tauri window is **WebView2**, which speaks the Chrome
-  DevTools Protocol when the app is launched with
-  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9223`.
+  DevTools Protocol when the dev Tauri config launches it with
+  `additionalBrowserArgs` containing `--remote-debugging-port=9223`.
   Playwright attaches via `chromium.connectOverCDP` — full control of the
   actual app UI, real Tauri IPC, no shimming. Verified live: the dev
   console answers `/json/version` on 9223.

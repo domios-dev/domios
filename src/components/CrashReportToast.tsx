@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "../lib/bridge";
 import { listen } from "../lib/bridge";
-import { AlertTriangle, FolderOpen } from "lucide-react";
+import { AlertTriangle, FolderOpen, X } from "lucide-react";
 
 interface CrashPayload {
   dir: string;
@@ -32,6 +32,7 @@ interface RecoveryState {
 export function RecoveryStatusBanner() {
   const [payload, setPayload] = useState<CrashPayload | null>(null);
   const [recovery, setRecovery] = useState<RecoveryState | null>(null);
+  const [dismissedCrashKey, setDismissedCrashKey] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +61,8 @@ export function RecoveryStatusBanner() {
 
   const crash = recovery?.last_crash;
   if (!crash || crash.new_epoch !== recovery?.current.epoch) return null;
+  const crashKey = `${crash.previous.epoch}:${crash.previous.pid}:${crash.new_epoch}`;
+  if (dismissedCrashKey === crashKey) return null;
 
   const openFolder = () => {
     if (payload?.dir) invoke("open_folder", { path: payload.dir }).catch(() => {});
@@ -74,49 +77,66 @@ export function RecoveryStatusBanner() {
     : `previous pid ${crash.previous.pid}, epoch ${crash.previous.epoch.slice(0, 8)}`;
 
   return (
-    <section
+    <aside
       data-testid="recovery-status-banner"
       role="status"
       aria-live="polite"
-      className="fixed top-0 inset-x-0 z-[9997] pointer-events-auto"
+      className="fixed right-3 top-11 z-[85] pointer-events-none"
     >
       <div
-        className="px-4 py-2 border-b shadow-lg flex items-start justify-center gap-2"
+        className="pointer-events-auto w-[min(390px,calc(100vw-1.5rem))] rounded-lg border px-3 py-3 shadow-2xl ct-float"
         style={{
           background: "color-mix(in srgb, var(--ct-red) 12%, var(--ct-surface))",
           borderColor: "color-mix(in srgb, var(--ct-red) 35%, transparent)",
         }}
       >
-        <AlertTriangle size={14} style={{ color: "var(--ct-red)" }} className="shrink-0 mt-0.5" />
-        <div className="flex-1 min-w-0 max-w-3xl">
-          <div className="text-[12px] font-semibold" style={{ color: "var(--ct-fg)" }}>
-            {lead}
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--ct-red)]/15 text-[var(--ct-red)]">
+            <AlertTriangle size={16} />
           </div>
-          <div className="text-[10px] mt-0.5" style={{ color: "var(--ct-muted-fg)" }}>
-            {crash.classification.replaceAll("_", " ")} · backoff {crash.supervisor_action.backoff_ms}ms · count {crash.supervisor_action.crash_count_in_window}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-[var(--ct-fg)]">
+                  {lead}
+                </div>
+                <div className="mt-1 text-[11px] leading-relaxed text-[var(--ct-muted-fg)]">
+                  {crash.classification.replaceAll("_", " ")} · backoff {crash.supervisor_action.backoff_ms}ms · count {crash.supervisor_action.crash_count_in_window}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDismissedCrashKey(crashKey)}
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+                title="Dismiss"
+                aria-label="Dismiss crash recovery"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="mt-1 truncate text-[11px] text-[var(--ct-muted-fg)]">
+              {reportText}
+            </div>
+            <div className="mt-1 text-[11px] leading-relaxed text-[var(--ct-muted-fg)]">
+              Ambiguous work: {crash.work_policy.ambiguous_execution}
+            </div>
+            {payload?.dir && (
+              <button
+                onClick={openFolder}
+                className="mt-2 inline-flex h-6 items-center gap-1 rounded border px-2 text-[11px]"
+                style={{
+                  color: "var(--ct-fg)",
+                  borderColor: "var(--ct-border)",
+                  background: "var(--ct-surface)",
+                }}
+              >
+                <FolderOpen size={12} />
+                Open folder
+              </button>
+            )}
           </div>
-          <div className="text-[10px] mt-0.5 truncate" style={{ color: "var(--ct-muted-fg)" }}>
-            {reportText}
-          </div>
-          <div className="text-[10px] mt-1" style={{ color: "var(--ct-muted-fg)" }}>
-            Ambiguous work: {crash.work_policy.ambiguous_execution}
-          </div>
-          {payload?.dir && (
-            <button
-              onClick={openFolder}
-              className="mt-1.5 inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border"
-              style={{
-                color: "var(--ct-fg)",
-                borderColor: "var(--ct-border)",
-                background: "var(--ct-surface)",
-              }}
-            >
-              <FolderOpen size={10} />
-              Open folder
-            </button>
-          )}
         </div>
       </div>
-    </section>
+    </aside>
   );
 }
