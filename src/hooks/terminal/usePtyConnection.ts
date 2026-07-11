@@ -7,6 +7,11 @@ import { useMuxSelector } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
 import { createHiddenOutputBuffer } from "./hiddenOutputBuffer";
+import {
+  TERMINAL_WRITE_SLICE_BYTES,
+  writeTerminalBytesInFrames,
+  writeTerminalStringInFrames,
+} from "./terminalWriteFrames";
 
 // Trailing hidden-pane output kept for replay on show. Roughly a scrollback's
 // worth: older bytes would scroll off xterm's buffer anyway, so evicting them
@@ -32,7 +37,7 @@ async function fetchPaneHistory(paneId: string): Promise<string> {
 function resyncPaneHistory(term: Terminal, paneId: string): Promise<void> {
   return fetchPaneHistory(paneId).then((history) => {
     term.reset();
-    if (history) term.write(history, () => term.scrollToBottom());
+    if (history) writeTerminalStringInFrames(term, history, () => term.scrollToBottom());
     else term.scrollToBottom();
   });
 }
@@ -81,6 +86,7 @@ export function usePtyConnection({
   const localFitEnabledRef = useRef(localFitEnabled);
   const renderEnabledRef = useRef(renderEnabled);
   const hiddenBufRef = useRef(createHiddenOutputBuffer(HIDDEN_BUFFER_MAX_BYTES));
+  const cancelVisibleReplayRef = useRef<(() => void) | null>(null);
   // Web resets the tail cursor once per mount; toggles resume it.
   const webReplayedPtysRef = useRef<Set<string>>(new Set());
   // xterm instance is keep-alive (never destroyed on tab switch); replay scrollback only once per pane lifetime.
@@ -102,8 +108,17 @@ export function usePtyConnection({
       void resyncPaneHistory(term, paneId);
       return;
     }
-    term.write(payload, () => term.scrollToBottom());
+    cancelVisibleReplayRef.current?.();
+    cancelVisibleReplayRef.current = writeTerminalBytesInFrames(term, payload, () => {
+      cancelVisibleReplayRef.current = null;
+      term.scrollToBottom();
+    });
   }, [renderEnabled, termRef, paneId]);
+
+  useEffect(() => () => {
+    cancelVisibleReplayRef.current?.();
+    cancelVisibleReplayRef.current = null;
+  }, []);
 
   const writePty = useCallback((data: string) => {
     const id = connectedPtyRef.current;
@@ -142,7 +157,7 @@ export function usePtyConnection({
         if (!replayDoneRef.current.has(ptyId)) {
           replayDoneRef.current.add(ptyId);
           const history = await fetchPaneHistory(paneId);
-          if (history) term.write(history);
+          if (history) writeTerminalStringInFrames(term, history);
         }
         // One fit() + resize on every (re)connect to sync PTY dimensions.
         requestAnimationFrame(() => {
@@ -164,6 +179,7 @@ export function usePtyConnection({
       let pendingWriteChunks: Uint8Array[] = [];
       let pendingWriteLength = 0;
       let writeFrame: number | null = null;
+      let cancelActiveWrite: (() => void) | null = null;
       const TRANSIENT_RETRY_BASE_MS = 500;
       const TRANSIENT_RETRY_MAX_MS = 8_000;
       let transientRetryMs = TRANSIENT_RETRY_BASE_MS;
@@ -177,27 +193,29 @@ export function usePtyConnection({
         writeFrame = null;
         if (!reading || disposed || pendingWriteLength === 0) return;
 
-        let payload: Uint8Array;
-        if (pendingWriteChunks.length === 1) {
-          payload = pendingWriteChunks[0];
-        } else {
-          payload = new Uint8Array(pendingWriteLength);
-          let offset = 0;
-          for (const chunk of pendingWriteChunks) {
-            payload.set(chunk, offset);
-            offset += chunk.length;
-          }
+        const targetLength = Math.min(pendingWriteLength, TERMINAL_WRITE_SLICE_BYTES);
+        const payload = new Uint8Array(targetLength);
+        let copied = 0;
+        while (copied < targetLength && pendingWriteChunks.length > 0) {
+          const chunk = pendingWriteChunks[0];
+          const take = Math.min(chunk.length, targetLength - copied);
+          payload.set(chunk.slice(0, take), copied);
+          copied += take;
+          if (take === chunk.length) pendingWriteChunks.shift();
+          else pendingWriteChunks[0] = chunk.slice(take);
         }
+        pendingWriteLength -= targetLength;
 
-        pendingWriteChunks = [];
-        pendingWriteLength = 0;
-
-        term.write(payload, () => {
+        cancelActiveWrite = writeTerminalBytesInFrames(term, payload, () => {
+          cancelActiveWrite = null;
           pendingBytes -= payload.length;
           if (readPaused && pendingBytes < WRITE_HIGH_WATERMARK / 2) {
             readPaused = false;
             resumeResolve?.();
             resumeResolve = null;
+          }
+          if (pendingWriteLength > 0 && writeFrame == null) {
+            writeFrame = requestAnimationFrame(flushPendingWrites);
           }
         });
 
@@ -221,7 +239,7 @@ export function usePtyConnection({
 
         pendingWriteChunks.push(chunk);
         pendingWriteLength += chunk.length;
-        if (writeFrame == null) {
+        if (writeFrame == null && cancelActiveWrite == null) {
           writeFrame = requestAnimationFrame(flushPendingWrites);
         }
       };
@@ -366,6 +384,8 @@ export function usePtyConnection({
         }
         pendingWriteChunks = [];
         pendingWriteLength = 0;
+        cancelActiveWrite?.();
+        cancelActiveWrite = null;
       });
     };
 
