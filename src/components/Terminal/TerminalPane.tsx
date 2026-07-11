@@ -137,7 +137,15 @@ export const TerminalPane = memo(function TerminalPane({
     if (!ownsLivePty && !force) return;
     const term = termRef.current;
     const ptyIdNow = connectedPtyRef.current ?? ptyId ?? null;
-    if (!term || !ptyIdNow || term.cols <= 0 || term.rows <= 0) return;
+    if (!term || !ptyIdNow) return;
+    // Fit to the live container before claiming: a stale cols/rows (from when
+    // this pane was hidden/0-width) would resize the shared PTY to the wrong
+    // width for every client on claim/focus.
+    const el = containerRef.current;
+    if (el && el.clientWidth > 20 && el.clientHeight > 20) {
+      try { fitAddonRef.current?.fit(); } catch { /* ignore */ }
+    }
+    if (term.cols <= 0 || term.rows <= 0) return;
     void claimResizeOwner(paneId, ptyIdNow, resizeClientId, term.cols, term.rows, force)
       .then(() => invoke("resize_pty", {
         ptyId: ptyIdNow,
@@ -146,7 +154,7 @@ export const TerminalPane = memo(function TerminalPane({
         clientId: resizeClientId,
       }))
       .catch(() => {});
-  }, [paneId, ptyId, resizeClientId, ownsLivePty, termRef, connectedPtyRef]);
+  }, [paneId, ptyId, resizeClientId, ownsLivePty, termRef, connectedPtyRef, fitAddonRef, containerRef]);
 
   const { jiggleResize } = useTerminalResize({
     containerRef,
