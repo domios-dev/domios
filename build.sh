@@ -341,8 +341,7 @@ prepare_dev_frontend_dist() {
 }
 
 # Resolve the tauri dev config. For a named instance, generate a derived config
-# whose devUrl points at this instance's vite port (vite reads CODETERM_VITE_PORT,
-# but tauri.dev.conf.json's devUrl can't be templated, so we materialize it).
+# whose devUrl points at this instance's frontend static port.
 dev_conf_path() {
   local base="src-tauri/tauri.dev.conf.json"
   if [ -z "$CT_SUFFIX" ]; then
@@ -350,7 +349,7 @@ dev_conf_path() {
     return
   fi
   local out="src-tauri/tauri.dev.conf${CT_SUFFIX}.json"
-  node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('$base','utf8'));c.identifier=process.env.CODETERM_DEV_IDENTIFIER;c.build=c.build||{};c.build.devUrl='http://127.0.0.1:'+process.env.CODETERM_VITE_PORT;fs.writeFileSync('$out',JSON.stringify(c,null,2));" >&2
+  node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('$base','utf8'));const defaults='--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection';const cdp='--remote-debugging-port=$CT_CDP_PORT';let args=process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS||cdp;if(!args.includes('--remote-debugging-port='))args=[args,cdp].filter(Boolean).join(' ');if(!args.includes('--disable-features='))args=[defaults,args].filter(Boolean).join(' ');c.identifier=process.env.CODETERM_DEV_IDENTIFIER;c.build=c.build||{};c.build.devUrl='http://127.0.0.1:'+process.env.CODETERM_VITE_PORT;c.app=c.app||{};c.app.windows=c.app.windows&&c.app.windows.length?c.app.windows:[{}];c.app.windows[0]={...c.app.windows[0],additionalBrowserArgs:args};fs.writeFileSync('$out',JSON.stringify(c,null,2));" >&2
   echo "$out"
 }
 
@@ -540,6 +539,26 @@ kill_web_watch() {
 
 dev_health_status() {
   curl -s --max-time 2 "http://127.0.0.1:${CT_PORT}/api/health" 2>/dev/null || true
+}
+
+dev_frontend_ready() {
+  if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
+    node scripts/dev-frontend-ready.mjs ready
+    return
+  fi
+  curl -fs --max-time 3 "http://127.0.0.1:${CT_VITE_PORT}/" 2>/dev/null | grep -q "<div id=\"root\""
+}
+
+dev_frontend_snapshot() {
+  if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
+    node scripts/dev-frontend-ready.mjs snapshot || true
+    return
+  fi
+  if curl -fs --max-time 3 "http://127.0.0.1:${CT_VITE_PORT}/" >/tmp/codeterm-frontend-snapshot.html 2>/dev/null; then
+    echo "frontend: vite returned HTML" >&2
+  else
+    echo "frontend: vite did not answer" >&2
+  fi
 }
 
 dev_health_fields() {
@@ -802,6 +821,10 @@ case "$CMD" in
         if [ "$(date +%s)" -gt "$DEADLINE" ]; then
           echo "Timeout after 600s. Last log lines:"
           tail -25 "$LOG"
+          if [ -f "/tmp/codeterm-web-watch${CT_SUFFIX}.log" ]; then
+            echo "Last web-watch log lines:"
+            tail -25 "/tmp/codeterm-web-watch${CT_SUFFIX}.log"
+          fi
           exit 1
         fi
         if ! dev_wait_process_alive "$DEV_PID"; then
@@ -830,6 +853,10 @@ case "$CMD" in
               echo "Dev process became unhealthy immediately after reporting ready. Last log lines:"
               tail -25 "$LOG"
               exit 1
+            fi
+            if ! dev_frontend_ready; then
+              sleep 2
+              continue
             fi
             echo "Dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', launcher pid $DEV_PID, listener pid $(dev_listener_pid)"
             handoff_gateway_to_dev "$DEV_PID"

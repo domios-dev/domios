@@ -73,4 +73,4 @@ if (process.env.REBUILD_EMBED === "1" || embedSize < 1_048_576) {
   console.log(`[dev-prep] skipping codeterm-embed rebuild (bundle exists, ${embedSize} bytes; set REBUILD_EMBED=1 to force)`);
 }
 
-run(pnpm, ["dev"]);
+run(node, ["scripts/dev-static-server.mjs"]);

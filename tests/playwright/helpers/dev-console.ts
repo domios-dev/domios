@@ -3,9 +3,8 @@
  *
  * The dev console is the real Tauri app started via `./build.sh dev --wait`
  * (port 7686, data dir ~/.codeterm-dev/). On Windows its window is WebView2,
- * which exposes the Chrome DevTools Protocol when launched with
- * `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<CDP_PORT>`
- * — Playwright connects to the REAL app over CDP, no separate browser.
+ * which exposes the Chrome DevTools Protocol from the dev Tauri config.
+ * Playwright connects to the REAL app over CDP, no separate browser.
  */
 import { execFileSync } from "node:child_process";
 import { chromium, type Browser, type Page } from "@playwright/test";
@@ -36,6 +35,24 @@ export async function isCdpUp(): Promise<boolean> {
   try {
     const r = await fetch(`${CDP_BASE}/json/version`, { signal: AbortSignal.timeout(3000) });
     return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function isCdpAppReady(timeoutMs = 3000): Promise<boolean> {
+  if (process.platform !== "win32") return true;
+  try {
+    const browser = await chromium.connectOverCDP(CDP_BASE, { timeout: timeoutMs });
+    try {
+      const page = browser.contexts()[0]?.pages()[0];
+      if (!page) return false;
+      await page.waitForLoadState("load", { timeout: timeoutMs });
+      await page.locator("#root > *").first().waitFor({ state: "attached", timeout: timeoutMs });
+      return true;
+    } finally {
+      await browser.close();
+    }
   } catch {
     return false;
   }
@@ -165,7 +182,7 @@ function dumpBuildGatewayLogs(reason: string): void {
  */
 export async function ensureDevConsole(): Promise<void> {
   if (await isHealthy()) {
-    if (process.platform !== "win32" || (await isCdpUp())) return;
+    if (process.platform !== "win32" || ((await isCdpUp()) && (await isCdpAppReady()))) return;
   }
   killDevConsole();
   try {
@@ -186,12 +203,11 @@ export async function ensureDevConsole(): Promise<void> {
   }
   if (process.platform !== "win32") return;
   for (let i = 0; i < 20; i++) {
-    if (await isCdpUp()) return;
+    if ((await isCdpUp()) && (await isCdpAppReady())) return;
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error(
-    `dev console is healthy but CDP (${CDP_BASE}) never came up — ` +
-      "was the app launched without WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS?",
+    `dev console is healthy but WebView2 (${CDP_BASE}) did not finish loading the app`,
   );
 }
 

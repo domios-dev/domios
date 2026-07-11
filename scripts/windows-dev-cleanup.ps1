@@ -70,7 +70,9 @@ foreach ($proc in $all) {
     ($cmd -match 'vite\\bin\\vite\.js|@tauri-apps\\cli\\tauri\.js') -and
     ($cmd.IndexOf(":$VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
       $cmd.IndexOf("--port $VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
-      $cmd.IndexOf("CODETERM_VITE_PORT=$VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0)
+      $cmd.IndexOf("CODETERM_VITE_PORT=$VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+      ($cmd.IndexOf("build", [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+        $cmd.IndexOf("--watch", [StringComparison]::OrdinalIgnoreCase) -ge 0))
   $matchesCdp = $cmd -and
     $cmd.IndexOf("--remote-debugging-port=$CdpPort", [StringComparison]::OrdinalIgnoreCase) -ge 0
 
