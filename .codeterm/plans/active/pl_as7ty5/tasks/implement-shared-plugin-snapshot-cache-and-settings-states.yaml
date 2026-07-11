@@ -9,14 +9,14 @@ acceptance_criteria:
 - First loading, extensions-error, empty, cached reopen, stale refresh, refresh failure preserving rows, and successful mutation invalidation all pass.
 test_plan: 'Oracle commands: npm test -- --run src/components/Extensions/ExtensionsView.test.tsx; npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep "extensions|plugins". Expected: exact state selectors pass and mutation invalidates once.'
 correctness: 'Correctness vector: one shared last-successful snapshot owner serves Tauri/web consumers; loading is contextual, cached rows survive failure, and only real successful mutation invalidates.'
-status: blocked
+status: done
 review_stage: review
 qa_state: null
-status_label: pane-gone
+status_label: null
 priority: p2
 created_at: 1783631781619
-updated_at: 1783662817004
-status_changed_at: 1783657556359
+updated_at: 1783733575851
+status_changed_at: 1783733575851
 handle: implement-shared-plugin-snapshot-cache-and-settings-states
 tags: []
 section_ids:
