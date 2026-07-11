@@ -17,7 +17,7 @@ qa_state: null
 status_label: remote-direct-on-ROG
 priority: p0
 created_at: 1783795693431
-updated_at: 1783807072224
+updated_at: 1783807350879
 status_changed_at: 1783807072224
 handle: windows-daemon-terminates-at-oneshot-cron-completion-intermittent
 tags:
@@ -43,9 +43,9 @@ lane:
   branch: null
   base: null
   destination: null
-  cleanup_status: deferred
+  cleanup_status: done
   cleanup_hints:
-  - ROG worker 84d60f00 verified alive/Working after watchdog false demotion; cleanup deferred until worker reports final git/dev/prod state.
+  - ROG worker stopped dev 7686 via repo-supported kill, confirmed no 7686/9223 listeners, prod 7685 untouched/healthy, git clean, instrumentation reverted, crash.dmp removed, cdb.log retained as evidence.
 taken_by_role: null
 peer: null
 group: playwright-stability
@@ -231,6 +231,23 @@ milestones:
   ts: 1783807072224
   links:
   - key:424b6f3bcd0fc3fa
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_9c2g9c
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: cleanup
+  text: ' ROG confirmed origin/local HEAD 347821cd, full pre-push gate passed without --no-verify, worktree clean, dev 7686 stopped, no CDP 9223 listener, prod 7685 untouched and healthy; cdb.log retained, large dump removed.'
+  ts: 1783807350877
+  links:
+  - key:49e80abe6a95f3c9
   loop_id: null
   iteration: null
   canvas:
