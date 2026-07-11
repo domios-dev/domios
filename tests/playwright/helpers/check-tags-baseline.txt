@@ -8,4 +8,4 @@ tests/playwright/suites/13-canvas/canvas-ux1-schematic.spec.ts:30 Playwright tes
 tests/playwright/suites/13-canvas/canvas-visual-sweep.spec.ts:34 Playwright test has no expect() assertion.
 tests/playwright/suites/13-canvas/canvas-visual.spec.ts:20 Playwright test title is missing @smoke, @golden, or @quarantine.
 tests/playwright/suites/13-canvas/plan-card-metadata.spec.ts:110 Playwright test has no expect() assertion.
-tests/playwright/suites/13-canvas/tab-switch-latency.spec.ts:65 Playwright test title is missing @smoke, @golden, or @quarantine.
+tests/playwright/suites/13-canvas/tab-switch-latency.spec.ts:66 Playwright test title is missing @smoke, @golden, or @quarantine.

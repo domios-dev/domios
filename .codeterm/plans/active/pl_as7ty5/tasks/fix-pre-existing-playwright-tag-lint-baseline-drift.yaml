@@ -9,14 +9,14 @@ acceptance_criteria:
 - check-tags.mjs passes from repo root without weakening the tag/wait policy. Any waitForTimeout kept must be justified according to the existing baseline convention; any baseline count update must match current intended tests. The fix is separated from world-canvas deletion work.
 test_plan: Run node tests/playwright/check-tags.mjs or the project-standard tag lint command that pre-push invokes. Also run git diff --check for touched files.
 correctness: Do not silence the tag-lint guard broadly. Make the minimal baseline or test changes required for the current intended suite.
-status: pending
+status: in_progress
 review_stage: review
 qa_state: null
-status_label: null
+status_label: local-fix-waits-for-canvas-cleanup
 priority: p1
 created_at: 1783798895810
-updated_at: 1783798903662
-status_changed_at: 1783798895810
+updated_at: 1783799008270
+status_changed_at: 1783799008270
 handle: fix-pre-existing-playwright-tag-lint-baseline-drift
 tags:
 - playwright
@@ -31,9 +31,9 @@ competition: null
 intent: null
 parent_task_id: null
 depends_on: []
-assigned_pane_id: null
+assigned_pane_id: e3fa0754
 lane:
-  pane_id: null
+  pane_id: e3fa0754
   workspace_id: null
   workspace_name: null
   worktree_path: null
@@ -49,7 +49,24 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_bykvsn
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: progress
+  text: ' patched the independent chat-view waitForTimeout violations with PW_JUSTIFIED_SLEEP comments and updated tab-switch-latency baseline line 65->66. node tests/playwright/helpers/check-tags.mjs now fails only on world-canvas files being deleted by active task_bdzdn1; push held until that lands or bypass is explicitly chosen.'
+  ts: 1783798995928
+  links:
+  - key:94b3a67bd7849be0
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 pause_reason: null
 attachments: []

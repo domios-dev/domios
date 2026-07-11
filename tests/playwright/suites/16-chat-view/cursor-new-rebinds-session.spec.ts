@@ -99,7 +99,8 @@ test(
 
     try {
       for (let i = 0; i < 120; i++) {
-        await ui.page.waitForTimeout(250); // poll interval (30s budget)
+        // PW_JUSTIFIED_SLEEP: fixed API polling interval within a 30s budget.
+        await ui.page.waitForTimeout(250);
         const panes = await api.get<{ id: string; agent_session_id?: string | null }[]>("/panes");
         const pane = panes.find((p) => p.id === paneId);
         if (pane?.agent_session_id) {
@@ -155,7 +156,8 @@ test(
 
       let reboundSession: string | null = null;
       for (let i = 0; i < 160; i++) {
-        await ui.page.waitForTimeout(250); // poll interval (40s budget)
+        // PW_JUSTIFIED_SLEEP: fixed API polling interval within a 40s budget.
+        await ui.page.waitForTimeout(250);
         const panes = await api.get<{ id: string; agent_session_id?: string | null }[]>("/panes");
         const pane = panes.find((p) => p.id === paneId);
         if (pane?.agent_session_id && pane.agent_session_id !== session1) {
