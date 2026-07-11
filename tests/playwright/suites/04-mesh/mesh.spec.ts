@@ -74,9 +74,12 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
     await expect(peerRow).toHaveAttribute("data-online", "true", { timeout: 15_000 });
 
     await ui.page.locator('[data-testid="mesh-tab-map"]').click();
-    await ui.page.locator('[data-testid="mesh-services-toggle"]').click();
+    const serviceRows = ui.page.locator('[data-testid="service-row"]');
+    if ((await serviceRows.count()) === 0) {
+      await ui.page.locator('[data-testid="mesh-services-toggle"]').click();
+    }
     const stubServices = ui.page.locator(
-      `[data-testid="service-row"][data-source-peer="${stub.instanceName}"]`,
+      `[data-testid="service-row"][data-source-peer-id="${peerId}"]`,
     );
     await expect(stubServices).toHaveCount(3, { timeout: 20_000 });
     await expect(stubServices.first()).toHaveAttribute("data-stale", "false");
@@ -118,7 +121,7 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
     await ui.page
       .locator('[data-testid="workspace-item"]')
       .first()
-      .click()
+      .click({ timeout: 2_000 })
       .catch(() => {});
     if (peerId) {
       await api.post(`/mesh/peers/disconnect/${peerId}`).catch(() => {});
