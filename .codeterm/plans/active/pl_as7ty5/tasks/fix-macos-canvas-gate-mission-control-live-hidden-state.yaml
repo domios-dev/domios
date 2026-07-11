@@ -9,14 +9,14 @@ acceptance_criteria:
 - On macOS/eight at origin/feat/1.7.2-stability HEAD, /api/health build_sha equals HEAD, tests/playwright/suites/13-canvas/canvas-nav.spec.ts --project=golden passes in isolation with --timeout=30000 --global-timeout=600000, and the touched 13-canvas verification shard no longer fails at mission-control-live hidden. Any remaining failures must be different, recorded with artifacts, and classified.
 test_plan: 1. On eight, ff-pull feat/1.7.2-stability and restart dev 7686; verify build_sha==HEAD. 2. Run npx playwright test --config=tests/playwright/playwright.config.ts --project=golden tests/playwright/suites/13-canvas/canvas-nav.spec.ts --reporter=line --timeout=30000 --global-timeout=600000. 3. Rerun a bounded canvas subset including canvas-calm-ux, canvas-nav, canvas-plan-document, and plan-header-mobile; if healthy, rerun the full 16-spec canvas verification shard with a realistic global budget or split shards. 4. Report exact SHA, health, pass/fail, artifacts, and final git status.
 correctness: Do not hide the mission-control-live wait or weaken the oracle. The UI must become visible through the same user-visible path the canvas tests exercise. Keep prod 7685 untouched on remote machines.
-status: pending
+status: in_progress
 review_stage: review
 qa_state: null
-status_label: null
+status_label: running-on-eight
 priority: p1
 created_at: 1783793589957
-updated_at: 1783793664851
-status_changed_at: 1783793589957
+updated_at: 1783794000565
+status_changed_at: 1783794000565
 handle: fix-macos-canvas-gate-mission-control-live-hidden-state
 tags:
 - canvas
@@ -31,17 +31,18 @@ competition: null
 intent: null
 parent_task_id: null
 depends_on: []
-assigned_pane_id: null
+assigned_pane_id: 2c118899
 lane:
-  pane_id: null
+  pane_id: 2c118899
   workspace_id: null
-  workspace_name: null
+  workspace_name: eight:/Users/dev/Developer/codeterm-alpha
   worktree_path: null
   branch: null
   base: null
   destination: null
-  cleanup_status: null
-  cleanup_hints: []
+  cleanup_status: deferred
+  cleanup_hints:
+  - Shared-checkout exception on eight; cleanup is deferred until worker reports final git status and any local commit SHA.
 taken_by_role: null
 peer: null
 group: playwright-stability
@@ -77,6 +78,57 @@ milestones:
   ts: 1783793664851
   links:
   - key:97d17e1aa6a6380a
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_e6dr1g
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: dispatch-request
+  text: ' direct codeterm agent spawn --mesh eight for unbound Worker returned HTTP 500. Fallback used codeterm paste put --mesh eight (paste:gagvcg) and sent eight main a local spawn command for claude opus Worker titled task_olo5rn canvas, with report fallback to e3fa0754 on BLACKSTAR.'
+  ts: 1783793800592
+  links:
+  - key:f710d6009574df6f
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_u5vi5n
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' authorized --allow-shared-checkout on eight for task_olo5rn. Reason: build.sh dev is integration-owner-gated on 1.7.2, so the required macOS dev 7686 reproduction cannot run from a sibling lane worktree. Scope limits sent: canonical checkout only, reproduce first, no push, local commit only if changed and verified, prod untouched, report back to BLACKSTAR/e3fa0754.'
+  ts: 1783793881178
+  links:
+  - key:79bff652fb5cf203
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_l6rt9d
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: dispatch
+  text: ' eight spawned unbound Worker pane 2c118899 (claude/opus, title task_olo5rn canvas) in /Users/dev/Developer/codeterm-alpha with --allow-shared-checkout --task-id task_olo5rn. Parent is eight main 6b13bc78; reports should relay to BLACKSTAR/e3fa0754 if agent report is local-only.'
+  ts: 1783794000117
+  links:
+  - key:d806d6c9adb49392
   loop_id: null
   iteration: null
   canvas:
