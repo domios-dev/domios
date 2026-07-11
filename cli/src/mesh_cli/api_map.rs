@@ -200,7 +200,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             }
             _ => ("GET".into(), "/api/workspaces".into(), None),
         },
-        Commands::Pane { action } => match action {
+        Commands::Session { action } => match action {
             crate::PaneAction::List { .. } => ("GET".into(), "/api/panes".into(), None),
             crate::PaneAction::Current { .. } => ("GET".into(), "/api/panes".into(), None),
             crate::PaneAction::New {

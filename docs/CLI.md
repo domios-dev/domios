@@ -16,36 +16,36 @@ Agent hierarchy management
 
 #### `codeterm agent allow-spawn`
 
-Toggle whether a pane can spawn children
+Toggle whether a session can spawn children
 
 - `--enable` — Enable or disable spawning
-- `--pane` — Pane ID (default: current focused pane)
+- `--pane` — Session ID (default: current focused session)
 
 #### `codeterm agent compact`
 
 Compact agent context (sends /compact to Claude)
 
-- `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `--pane` — Session ID (default: $CODETERM_PANE_ID or focused session)
 
 #### `codeterm agent ledger`
 
 List an orchestrator's workers from the durable ledger (survives daemon restart): branch / model / status / last-seen, one row per worker
 
-- `--pane` — Orchestrator pane ID (default: current focused pane)
+- `--pane` — Orchestrator session ID (default: current focused session)
 
 #### `codeterm agent link`
 
-Link a pane as worker under a parent
+Link a session as worker under a parent
 
-- `--pane` — Pane ID to link (default: current focused pane)
-- `--parent` — Parent pane ID (orchestrator)
+- `--pane` — Session ID to link (default: current focused session)
+- `--parent` — Parent session ID (orchestrator)
 
 #### `codeterm agent message`
 
-Send an immediate message to a running agent pane
+Send an immediate message to a running agent session
 
 - `--from_file` — Read message text from a file instead of the positional arg
-- `--pane` — Target agent pane ID
+- `--pane` — Target agent session ID
 - `--stdin` — Read message text from stdin
 - `<text>` — Message text (positional, or omit and use --from-file/--stdin)
 
@@ -54,7 +54,7 @@ Send an immediate message to a running agent pane
 Switch agent model. Claude only — Codex /model is an interactive picker, respawn with `agent spawn codex --model X` instead
 
 - `<name>` — Model name (Claude: sonnet, haiku, opus). Run `agent models claude` to list
-- `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `--pane` — Session ID (default: $CODETERM_PANE_ID or focused session)
 
 #### `codeterm agent models`
 
@@ -78,7 +78,7 @@ Send a report to your parent in the hierarchy
 - `--doc` — Markdown document to append to the report milestone
 - `--kind` — Milestone kind when writing to --plan/--task
 - `<message>` — Report message (also accepts --message alias)
-- `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `--pane` — Session ID (default: $CODETERM_PANE_ID or focused session)
 - `--plan` — Plan id to append this report to (if available)
 - `--sha` — Commit SHA produced
 - `--skipped` — Anything deliberately skipped
@@ -90,25 +90,25 @@ Send a report to your parent in the hierarchy
 
 #### `codeterm agent reports`
 
-Read reports (for orchestrator panes)
+Read reports (for orchestrator sessions)
 
 - `--clear` — Clear reports after reading
 - `--limit` — Show only the N most recent reports (default: all)
-- `--pane` — Pane ID (default: current focused pane)
+- `--pane` — Session ID (default: current focused session)
 
 #### `codeterm agent restart`
 
-Restart agent (graceful exit; resumes only when the pane has a valid session)
+Restart agent (graceful exit; resumes only when the session has a valid provider session)
 
 - `--force` — Skip the graceful exit and force-kill instead. Use only when the agent is hung
 - `--grace_secs` — Wait this long for graceful exit before force-killing (seconds)
-- `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `--pane` — Session ID (default: $CODETERM_PANE_ID or focused session)
 
 #### `codeterm agent set-orchestrator`
 
-Mark a pane as orchestrator (top-level, can spawn workers)
+Mark a session as orchestrator (top-level, can spawn workers)
 
-- `--pane` — Pane ID (default: current focused pane)
+- `--pane` — Session ID (default: current focused session)
 
 #### `codeterm agent spawn`
 
@@ -122,16 +122,16 @@ Spawn a new agent; roleless unless --role is provided
 - `--charter` — Watcher charter text
 - `--charter_file` — Read watcher charter text from a file
 - `--cwd` — Working directory
-- `--description` — Short pane description (max 200 chars)
+- `--description` — Short session description (max 200 chars)
 - `--interval` — Watcher tick interval, e.g. 90s, 5m, 1h
 - `--max_actions` — Max watcher actions per tick
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
 - `--nudge_cooldown` — Watcher nudge cooldown, e.g. 10m
-- `--parent` — Parent pane ID (for Workers)
+- `--parent` — Parent session ID (for Workers)
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
 - `--plan_task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
-- `--report_to` — Where this worker's `agent report` should land. A pane id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own pane
+- `--report_to` — Where this worker's `agent report` should land. A session id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own pane
 - `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
 - `--system_prompt` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts
@@ -141,9 +141,9 @@ Spawn a new agent; roleless unless --role is provided
 
 #### `codeterm agent unlink`
 
-Remove a pane's role (also orphans children)
+Remove a session's role (also orphans children)
 
-- `--pane` — Pane ID (default: current focused pane)
+- `--pane` — Session ID (default: current focused session)
 
 #### `codeterm bridge`
 
@@ -255,7 +255,7 @@ Mark a cron run as complete (called by agent at end of task)
 Create a cron job
 
 - `--agent` — Agent to spawn (default: claude)
-- `--creator_pane` — Pane ID to receive reports from cron agent (default: $CODETERM_PANE_ID)
+- `--creator_pane` — Session ID to receive reports from cron agent (default: $CODETERM_PANE_ID)
 - `--cwd` — Working directory
 - `--description` — Description
 - `--jitter_max_ms` — Max jitter in milliseconds added to each scheduled fire. 0 = off. Omit for default (10% of interval, clamped to [1m, 30m])
@@ -331,7 +331,7 @@ Queue a delayed message
 - `--at` — Absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
 - `--delay` — Relative delay: 45s, 10m, 1h30m, 2d. Bare number means minutes
 - `--from_file` — Read text from a file instead of the positional arg
-- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `--pane` — Target session ID (default: $CODETERM_PANE_ID or focused session)
 - `--stdin` — Read text from stdin
 - `<text>` — Text to queue (positional, or omit and use --from-file/--stdin)
 
@@ -354,9 +354,9 @@ Edit a queued or failed delayed message
 
 #### `codeterm delayed list`
 
-List delayed messages for a pane
+List delayed messages for a session
 
-- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `--pane` — Target session ID (default: $CODETERM_PANE_ID or focused session)
 
 #### `codeterm delayed send-now`
 
@@ -1212,117 +1212,6 @@ Show orchestration status as reports, live lanes, drift, and next actions
 
 - `--pane`
 - `--plan`
-
-#### `codeterm pane`
-
-Pane management
-
-#### `codeterm pane capture`
-
-Dev-only: tee a pane's raw PTY output into an asciicast v2 `.cast` file
-
-#### `codeterm pane capture start`
-
-Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`
-
-- `--out` — Path of the `.cast` file to write
-- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-
-#### `codeterm pane capture stop`
-
-Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`
-
-- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-
-#### `codeterm pane chat`
-
-Read a pane's parsed chat transcript (text/thinking/tool calls/results)
-
-- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-- `--since` — Only return messages from this index onward
-
-#### `codeterm pane close`
-
-Close a pane by ID
-
-- `<id>` — Pane ID
-
-#### `codeterm pane current`
-
-Print the current (focused) pane ID — no JSON parsing needed
-
-- `--last` — Return the last pane instead of the focused one
-
-#### `codeterm pane describe`
-
-Set a short pane description (empty clears it)
-
-- `--pane` — Pane ID to describe (default: current focused pane)
-- `<summary>` — Short summary, max 200 chars
-
-#### `codeterm pane exec`
-
-Execute a command in a pane and return output
-
-- `<command>` — Command to execute
-- `--pane` — Pane ID (default: current focused pane)
-- `--timeout` — Timeout in milliseconds
-
-#### `codeterm pane focus`
-
-Focus a pane by ID
-
-- `<id>` — Pane ID
-
-#### `codeterm pane get-text`
-
-Get visible terminal text of a pane (what the user sees)
-
-- `--formatted` — Include raw ANSI escape codes (colors, cursor state) instead of plain text
-- `--pane` — Pane ID (default: current focused pane)
-
-#### `codeterm pane list`
-
-List all panes as a workspace-grouped tree. `--agents` filters to agent panes only
-
-- `--agents` — Show only panes running an agent (have an agent_type)
-
-#### `codeterm pane new`
-
-Plain shell pane. For an AI pane use `codeterm agent spawn` instead
-
-- `--chat_backend` — Open a non-PTY chat-backend pane driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`pane get-text` then route to the plugin, not a shell
-- `--cmd` — Spawn a shell that runs this command on start (e.g. `"cd /repo && ./build.sh dev"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created pane
-- `--config` — JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{"model":"llama-3.1-8b"}'`
-- `--cwd` — Working directory for the new pane
-- `--eager` — Spawn the shell PTY immediately on the daemon for headless/API use
-- `--title` — Tab title
-- `--workspace` — Target workspace id (default: current focused)
-
-#### `codeterm pane rename`
-
-Rename a pane tab (default: current pane)
-
-- `--pane` — Pane ID to rename (default: current focused pane)
-- `<title>` — New title
-
-#### `codeterm pane search`
-
-Fuzzy search panes by id-prefix, tab title, friendly session name, pane title, agent type, or current model. Cross-script — "Далтон" matches "Dalton". Add `--mesh PEER` to search a paired peer (#99). `find` kept as alias
-
-- `<pattern>` — Substring or short pattern to match
-
-#### `codeterm pane status`
-
-Show agent status for a pane (type, session, prompt)
-
-- `--pane` — Pane ID (default: current focused pane)
-
-#### `codeterm pane stop`
-
-Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stop_keystroke — Esc for Claude/Codex/OpenCode, Ctrl+C for Cursor. Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here
-
-- `--pane` — Pane ID (default: current focused pane)
 
 #### `codeterm paste`
 
@@ -2406,7 +2295,7 @@ Report worker progress to the owning orchestrator or plan
 - `--doc` — Markdown document to append to the report milestone
 - `--kind` — Milestone kind when writing to --plan/--task
 - `<message>` — Report message (also accepts --message alias)
-- `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `--pane` — Session ID (default: $CODETERM_PANE_ID or focused session)
 - `--plan` — Plan id to append this report to (if available)
 - `--sha` — Commit SHA produced
 - `--skipped` — Anything deliberately skipped
@@ -2418,14 +2307,14 @@ Report worker progress to the owning orchestrator or plan
 
 #### `codeterm send`
 
-Send text to a pane (default: current pane)
+Send text to a session (default: current session)
 
 - `--actions` — Terminal actions to run after optional text, comma-separated. Full key set: enter, esc, tab, backspace, delete, up, down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3). With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it
 - `--at` — Queue for an absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
 - `--delay` — Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes. NOT the normal send path: use only for future delivery the user asked for — plain send is immediate and must never be buffered
 - `--from_file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting
-- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-- `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
+- `--pane` — Target session ID (default: $CODETERM_PANE_ID or focused session)
+- `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --session X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
 - `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
 
 #### `codeterm service`
@@ -2490,6 +2379,119 @@ Show or rotate the push token for a service
 
 - `<id>` — Service ID
 - `--rotate` — Rotate (generate new token, invalidate old)
+
+#### `codeterm session`
+
+Session management
+
+Aliases: pane
+
+#### `codeterm session capture`
+
+Dev-only: tee a session's raw PTY output into an asciicast v2 `.cast` file
+
+#### `codeterm session capture start`
+
+Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`
+
+- `--out` — Path of the `.cast` file to write
+- `--pane` — Target session ID (default: $CODETERM_PANE_ID or focused session)
+
+#### `codeterm session capture stop`
+
+Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`
+
+- `--pane` — Target session ID (default: $CODETERM_PANE_ID or focused session)
+
+#### `codeterm session chat`
+
+Read a session's parsed chat transcript (text/thinking/tool calls/results)
+
+- `--pane` — Target session ID (default: $CODETERM_PANE_ID or focused session)
+- `--since` — Only return messages from this index onward
+
+#### `codeterm session close`
+
+Close a session by ID
+
+- `<id>` — Session ID
+
+#### `codeterm session current`
+
+Print the current focused session ID — no JSON parsing needed
+
+- `--last` — Return the last session instead of the focused one
+
+#### `codeterm session describe`
+
+Set a short session description (empty clears it)
+
+- `--pane` — Session ID to describe (default: current focused session)
+- `<summary>` — Short summary, max 200 chars
+
+#### `codeterm session exec`
+
+Execute a command in a session and return output
+
+- `<command>` — Command to execute
+- `--pane` — Session ID (default: current focused session)
+- `--timeout` — Timeout in milliseconds
+
+#### `codeterm session focus`
+
+Focus a session by ID
+
+- `<id>` — Session ID
+
+#### `codeterm session get-text`
+
+Get visible terminal text of a session (what the user sees)
+
+- `--formatted` — Include raw ANSI escape codes (colors, cursor state) instead of plain text
+- `--pane` — Session ID (default: current focused session)
+
+#### `codeterm session list`
+
+List all sessions as a workspace-grouped tree. `--agents` filters to agent sessions only
+
+- `--agents` — Show only sessions running an agent (have an agent_type)
+
+#### `codeterm session new`
+
+Plain shell session. For an AI session use `codeterm agent spawn` instead
+
+- `--chat_backend` — Open a non-PTY chat-backend session driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`session get-text` then route to the plugin, not a shell
+- `--cmd` — Spawn a shell that runs this command on start (e.g. `"cd /repo && ./build.sh dev"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created pane
+- `--config` — JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{"model":"llama-3.1-8b"}'`
+- `--cwd` — Working directory for the new session
+- `--eager` — Spawn the shell PTY immediately on the daemon for headless/API use
+- `--title` — Tab title
+- `--workspace` — Target workspace id (default: current focused)
+
+#### `codeterm session rename`
+
+Rename a session tab (default: current session)
+
+- `--pane` — Session ID to rename (default: current focused session)
+- `<title>` — New title
+
+#### `codeterm session search`
+
+Fuzzy search sessions by id-prefix, tab title, friendly session name, agent type, or current model. Cross-script — "Далтон" matches "Dalton". Add `--mesh PEER` to search a paired peer (#99). `find` kept as alias
+
+- `<pattern>` — Substring or short pattern to match
+
+#### `codeterm session status`
+
+Show agent status for a session (type, provider session, prompt)
+
+- `--pane` — Session ID (default: current focused session)
+
+#### `codeterm session stop`
+
+Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stop_keystroke — Esc for Claude/Codex/OpenCode, Ctrl+C for Cursor. Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here
+
+- `--pane` — Session ID (default: current focused session)
 
 #### `codeterm sessions`
 

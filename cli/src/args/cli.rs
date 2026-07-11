@@ -97,17 +97,18 @@ pub enum Commands {
         action: OrchestrationAction,
     },
 
-    /// Pane management
-    Pane {
+    /// Session management
+    #[command(name = "session", visible_alias = "pane")]
+    Session {
         #[command(subcommand)]
         action: PaneAction,
     },
 
-    /// Send text to a pane (default: current pane).
+    /// Send text to a session (default: current session).
     ///
-    /// Sending to a SHELL pane delivers raw text/keys verbatim — no agent
+    /// Sending to a SHELL session delivers raw text/keys verbatim — no agent
     /// return-address marker is injected, so the shell runs exactly what you
-    /// send. Sending to an AGENT pane prepends the sender marker so the agent
+    /// send. Sending to an AGENT session prepends the sender marker so the agent
     /// knows who to reply to. Key/sequence examples (use --actions):
     ///   --actions "up,up,enter"   replay last commands
     ///   --actions "ctrl-c"        interrupt
@@ -120,8 +121,8 @@ pub enum Commands {
         #[arg(allow_hyphen_values = true)]
         text: Option<String>,
 
-        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long, alias = "id")]
+        /// Target session ID (default: $CODETERM_PANE_ID or focused session)
+        #[arg(long, alias = "id", alias = "session")]
         pane: Option<String>,
 
         /// Read text from a file instead of the positional arg. Lets you
@@ -131,7 +132,7 @@ pub enum Commands {
 
         /// Read text from stdin. Pair with a single-quoted heredoc to bypass
         /// the shell entirely:
-        ///   codeterm send --pane X --stdin <<'EOF'
+        ///   codeterm send --session X --stdin <<'EOF'
         ///   any `backticks`, $vars, etc — zero interpolation
         ///   EOF
         ///

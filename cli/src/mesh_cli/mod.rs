@@ -163,9 +163,9 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         }
     }
 
-    // pane search needs local fuzzy ranking; relay-only output has no relevance ordering.
+    // session search needs local fuzzy ranking; relay-only output has no relevance ordering.
     // Fetch raw list then rank locally for predictable results.
-    if let Commands::Pane {
+    if let Commands::Session {
         action: super::PaneAction::Search { pattern },
     } = &cli.command
     {
@@ -176,9 +176,9 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         return;
     }
 
-    // `pane list` reuses local formatter: relay raw list, then format locally.
+    // `session list` reuses local formatter: relay raw list, then format locally.
     if !cli.json {
-        if let Commands::Pane {
+        if let Commands::Session {
             action: super::PaneAction::List { agents },
         } = &cli.command
         {
@@ -223,7 +223,7 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         relay::mesh_spawn_and_register(&http, &base, &token, target, body.as_deref(), cli.json);
         return;
     }
-    if let Commands::Pane {
+    if let Commands::Session {
         action: super::PaneAction::Close { id },
     } = &cli.command
     {

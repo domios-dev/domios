@@ -44,24 +44,24 @@ pub enum WorkspaceAction {
 
 #[derive(Subcommand)]
 pub enum PaneAction {
-    /// List all panes as a workspace-grouped tree. `--agents` filters to
-    /// agent panes only.
+    /// List all sessions as a workspace-grouped tree. `--agents` filters to
+    /// agent sessions only.
     ///
-    /// Each pane carries a `backing.kind`: `pty` panes (terminal agents,
+    /// Each session carries a `backing.kind`: `pty` sessions (terminal agents,
     /// shells) have a real shell — `send` injects text you can execute.
-    /// `chat_backend` panes (LLM chat via plugin) have NO shell: `send`
+    /// `chat_backend` sessions (LLM chat via plugin) have NO shell: `send`
     /// delivers a chat message; never instruct them to run shell commands.
     List {
-        /// Show only panes running an agent (have an agent_type).
+        /// Show only sessions running an agent (have an agent_type).
         #[arg(long)]
         agents: bool,
     },
-    /// Plain shell pane. For an AI pane use `codeterm agent spawn` instead.
+    /// Plain shell session. For an AI session use `codeterm agent spawn` instead.
     New {
         /// Target workspace id (default: current focused)
         #[arg(long)]
         workspace: Option<String>,
-        /// Working directory for the new pane
+        /// Working directory for the new session
         #[arg(long)]
         cwd: Option<String>,
         /// Tab title
@@ -75,9 +75,9 @@ pub enum PaneAction {
         /// Spawn the shell PTY immediately on the daemon for headless/API use.
         #[arg(long)]
         eager: bool,
-        /// Open a non-PTY chat-backend pane driven by the given plugin id
+        /// Open a non-PTY chat-backend session driven by the given plugin id
         /// (a plugin declaring the `chatBackend` capability).
-        /// `codeterm send`/`pane get-text` then route to the plugin, not a shell.
+        /// `codeterm send`/`session get-text` then route to the plugin, not a shell.
         #[arg(long, value_name = "PLUGIN_ID")]
         chat_backend: Option<String>,
         /// JSON config object passed to the chat-backend plugin's `openSession`
@@ -85,66 +85,66 @@ pub enum PaneAction {
         #[arg(long, value_name = "JSON")]
         config: Option<String>,
     },
-    /// Print the current (focused) pane ID — no JSON parsing needed
+    /// Print the current focused session ID — no JSON parsing needed
     Current {
-        /// Return the last pane instead of the focused one
+        /// Return the last session instead of the focused one
         #[arg(long)]
         last: bool,
     },
-    /// Focus a pane by ID
+    /// Focus a session by ID
     Focus {
-        /// Pane ID
+        /// Session ID
         id: String,
     },
-    /// Close a pane by ID
+    /// Close a session by ID
     Close {
-        /// Pane ID
+        /// Session ID
         id: String,
     },
-    /// Rename a pane tab (default: current pane)
+    /// Rename a session tab (default: current session)
     Rename {
         /// New title
         title: String,
-        /// Pane ID to rename (default: current focused pane)
-        #[arg(long, alias = "id")]
+        /// Session ID to rename (default: current focused session)
+        #[arg(long, alias = "id", alias = "session")]
         pane: Option<String>,
     },
-    /// Set a short pane description (empty clears it)
+    /// Set a short session description (empty clears it)
     Describe {
         /// Short summary, max 200 chars
         summary: String,
-        /// Pane ID to describe (default: current focused pane)
-        #[arg(long, alias = "id")]
+        /// Session ID to describe (default: current focused session)
+        #[arg(long, alias = "id", alias = "session")]
         pane: Option<String>,
     },
-    /// Get visible terminal text of a pane (what the user sees)
+    /// Get visible terminal text of a session (what the user sees)
     #[command(alias = "get_text", alias = "screen")]
     GetText {
-        /// Pane ID (default: current focused pane)
-        #[arg(long, alias = "id")]
+        /// Session ID (default: current focused session)
+        #[arg(long, alias = "id", alias = "session")]
         pane: Option<String>,
         /// Include raw ANSI escape codes (colors, cursor state) instead of plain text
         #[arg(long)]
         formatted: bool,
     },
-    /// Execute a command in a pane and return output
+    /// Execute a command in a session and return output
     Exec {
         /// Command to execute
         command: String,
-        /// Pane ID (default: current focused pane)
-        #[arg(long, alias = "id")]
+        /// Session ID (default: current focused session)
+        #[arg(long, alias = "id", alias = "session")]
         pane: Option<String>,
         /// Timeout in milliseconds
         #[arg(long, default_value = "10000")]
         timeout: u64,
     },
-    /// Show agent status for a pane (type, session, prompt)
+    /// Show agent status for a session (type, provider session, prompt)
     Status {
-        /// Pane ID (default: current focused pane)
-        #[arg(long, alias = "id")]
+        /// Session ID (default: current focused session)
+        #[arg(long, alias = "id", alias = "session")]
         pane: Option<String>,
     },
-    /// Fuzzy search panes by id-prefix, tab title, friendly session name, pane title,
+    /// Fuzzy search sessions by id-prefix, tab title, friendly session name,
     /// agent type, or current model. Cross-script — "Далтон" matches "Dalton". Add
     /// `--mesh PEER` to search a paired peer (#99). `find` kept as alias.
     #[command(alias = "find")]
@@ -158,22 +158,22 @@ pub enum PaneAction {
     /// Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge
     /// and have it map straight here.
     Stop {
-        /// Pane ID (default: current focused pane)
-        #[arg(long, alias = "id")]
+        /// Session ID (default: current focused session)
+        #[arg(long, alias = "id", alias = "session")]
         pane: Option<String>,
     },
 
-    /// Read a pane's parsed chat transcript (text/thinking/tool calls/results)
+    /// Read a session's parsed chat transcript (text/thinking/tool calls/results)
     Chat {
-        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long, alias = "id")]
+        /// Target session ID (default: $CODETERM_PANE_ID or focused session)
+        #[arg(long, alias = "id", alias = "session")]
         pane: Option<String>,
         /// Only return messages from this index onward
         #[arg(long, default_value = "0")]
         since: usize,
     },
 
-    /// Dev-only: tee a pane's raw PTY output into an asciicast v2 `.cast` file.
+    /// Dev-only: tee a session's raw PTY output into an asciicast v2 `.cast` file.
     Capture {
         #[command(subcommand)]
         action: PaneCaptureAction,
@@ -185,8 +185,8 @@ pub enum PaneAction {
 pub enum PaneCaptureAction {
     /// Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`.
     Start {
-        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long, alias = "id")]
+        /// Target session ID (default: $CODETERM_PANE_ID or focused session)
+        #[arg(long, alias = "id", alias = "session")]
         pane: Option<String>,
         /// Path of the `.cast` file to write.
         #[arg(long)]
@@ -194,8 +194,8 @@ pub enum PaneCaptureAction {
     },
     /// Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`.
     Stop {
-        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long, alias = "id")]
+        /// Target session ID (default: $CODETERM_PANE_ID or focused session)
+        #[arg(long, alias = "id", alias = "session")]
         pane: Option<String>,
     },
 }

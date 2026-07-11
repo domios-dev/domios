@@ -456,7 +456,7 @@ fn main() {
             }
         }
 
-        Commands::Pane { action } => {
+        Commands::Session { action } => {
             cmd::pane::handle_pane(&mut client, cli.json, action);
             return;
         }

@@ -457,7 +457,7 @@ fn mesh_cron_create_forwards_all_advanced_fields() {
 #[test]
 fn pane_new_relays_cmd_field() {
     use crate::PaneAction;
-    let cmd = Commands::Pane {
+    let cmd = Commands::Session {
         action: PaneAction::New {
             workspace: Some("ws_1".into()),
             cwd: Some("C:/Developer/codeterm".into()),

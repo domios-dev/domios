@@ -29,7 +29,7 @@
       "subcommands": [
         {
           "name": "allow-spawn",
-          "about": "Toggle whether a pane can spawn children",
+          "about": "Toggle whether a session can spawn children",
           "aliases": [],
           "args": [
             {
@@ -45,7 +45,7 @@
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Pane ID (default: current focused pane)",
+              "help": "Session ID (default: current focused session)",
               "aliases": []
             }
           ],
@@ -61,7 +61,7 @@
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Pane ID (default: $CODETERM_PANE_ID or focused pane)",
+              "help": "Session ID (default: $CODETERM_PANE_ID or focused session)",
               "aliases": []
             }
           ],
@@ -77,7 +77,7 @@
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Orchestrator pane ID (default: current focused pane)",
+              "help": "Orchestrator session ID (default: current focused session)",
               "aliases": []
             }
           ],
@@ -85,7 +85,7 @@
         },
         {
           "name": "link",
-          "about": "Link a pane as worker under a parent",
+          "about": "Link a session as worker under a parent",
           "aliases": [],
           "args": [
             {
@@ -93,7 +93,7 @@
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Pane ID to link (default: current focused pane)",
+              "help": "Session ID to link (default: current focused session)",
               "aliases": []
             },
             {
@@ -101,7 +101,7 @@
               "positional": false,
               "value_name": "PARENT",
               "default": null,
-              "help": "Parent pane ID (orchestrator)",
+              "help": "Parent session ID (orchestrator)",
               "aliases": []
             }
           ],
@@ -109,7 +109,7 @@
         },
         {
           "name": "message",
-          "about": "Send an immediate message to a running agent pane",
+          "about": "Send an immediate message to a running agent session",
           "aliases": [],
           "args": [
             {
@@ -125,7 +125,7 @@
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Target agent pane ID",
+              "help": "Target agent session ID",
               "aliases": []
             },
             {
@@ -167,7 +167,7 @@
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Pane ID (default: $CODETERM_PANE_ID or focused pane)",
+              "help": "Session ID (default: $CODETERM_PANE_ID or focused session)",
               "aliases": []
             }
           ],
@@ -270,7 +270,7 @@
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Pane ID (default: $CODETERM_PANE_ID or focused pane)",
+              "help": "Session ID (default: $CODETERM_PANE_ID or focused session)",
               "aliases": []
             },
             {
@@ -342,7 +342,7 @@
         },
         {
           "name": "reports",
-          "about": "Read reports (for orchestrator panes)",
+          "about": "Read reports (for orchestrator sessions)",
           "aliases": [],
           "args": [
             {
@@ -366,7 +366,7 @@
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Pane ID (default: current focused pane)",
+              "help": "Session ID (default: current focused session)",
               "aliases": []
             }
           ],
@@ -374,7 +374,7 @@
         },
         {
           "name": "restart",
-          "about": "Restart agent (graceful exit; resumes only when the pane has a valid session)",
+          "about": "Restart agent (graceful exit; resumes only when the session has a valid provider session)",
           "aliases": [],
           "args": [
             {
@@ -398,7 +398,7 @@
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Pane ID (default: $CODETERM_PANE_ID or focused pane)",
+              "help": "Session ID (default: $CODETERM_PANE_ID or focused session)",
               "aliases": []
             }
           ],
@@ -406,7 +406,7 @@
         },
         {
           "name": "set-orchestrator",
-          "about": "Mark a pane as orchestrator (top-level, can spawn workers)",
+          "about": "Mark a session as orchestrator (top-level, can spawn workers)",
           "aliases": [],
           "args": [
             {
@@ -414,7 +414,7 @@
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Pane ID (default: current focused pane)",
+              "help": "Session ID (default: current focused session)",
               "aliases": []
             }
           ],
@@ -494,7 +494,7 @@
               "positional": false,
               "value_name": "DESCRIPTION",
               "default": null,
-              "help": "Short pane description (max 200 chars)",
+              "help": "Short session description (max 200 chars)",
               "aliases": []
             },
             {
@@ -534,7 +534,7 @@
               "positional": false,
               "value_name": "PARENT",
               "default": null,
-              "help": "Parent pane ID (for Workers)",
+              "help": "Parent session ID (for Workers)",
               "aliases": []
             },
             {
@@ -566,7 +566,7 @@
               "positional": false,
               "value_name": "REPORT_TO",
               "default": null,
-              "help": "Where this worker's `agent report` should land. A pane id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own pane",
+              "help": "Where this worker's `agent report` should land. A session id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own pane",
               "aliases": []
             },
             {
@@ -622,7 +622,7 @@
         },
         {
           "name": "unlink",
-          "about": "Remove a pane's role (also orphans children)",
+          "about": "Remove a session's role (also orphans children)",
           "aliases": [],
           "args": [
             {
@@ -630,7 +630,7 @@
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Pane ID (default: current focused pane)",
+              "help": "Session ID (default: current focused session)",
               "aliases": []
             }
           ],
@@ -1028,7 +1028,7 @@
               "positional": false,
               "value_name": "CREATOR_PANE",
               "default": null,
-              "help": "Pane ID to receive reports from cron agent (default: $CODETERM_PANE_ID)",
+              "help": "Session ID to receive reports from cron agent (default: $CODETERM_PANE_ID)",
               "aliases": []
             },
             {
@@ -1356,7 +1356,7 @@
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Target pane ID (default: $CODETERM_PANE_ID or focused pane)",
+              "help": "Target session ID (default: $CODETERM_PANE_ID or focused session)",
               "aliases": []
             },
             {
@@ -1456,7 +1456,7 @@
         },
         {
           "name": "list",
-          "about": "List delayed messages for a pane",
+          "about": "List delayed messages for a session",
           "aliases": [],
           "args": [
             {
@@ -1464,7 +1464,7 @@
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Target pane ID (default: $CODETERM_PANE_ID or focused pane)",
+              "help": "Target session ID (default: $CODETERM_PANE_ID or focused session)",
               "aliases": []
             }
           ],
@@ -4526,366 +4526,6 @@
               "value_name": "PLAN",
               "default": null,
               "help": null,
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        }
-      ]
-    },
-    {
-      "name": "pane",
-      "about": "Pane management",
-      "aliases": [],
-      "args": [],
-      "subcommands": [
-        {
-          "name": "capture",
-          "about": "Dev-only: tee a pane's raw PTY output into an asciicast v2 `.cast` file",
-          "aliases": [],
-          "args": [],
-          "subcommands": [
-            {
-              "name": "start",
-              "about": "Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`",
-              "aliases": [],
-              "args": [
-                {
-                  "name": "out",
-                  "positional": false,
-                  "value_name": "OUT",
-                  "default": null,
-                  "help": "Path of the `.cast` file to write",
-                  "aliases": []
-                },
-                {
-                  "name": "pane",
-                  "positional": false,
-                  "value_name": "PANE",
-                  "default": null,
-                  "help": "Target pane ID (default: $CODETERM_PANE_ID or focused pane)",
-                  "aliases": []
-                }
-              ],
-              "subcommands": []
-            },
-            {
-              "name": "stop",
-              "about": "Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`",
-              "aliases": [],
-              "args": [
-                {
-                  "name": "pane",
-                  "positional": false,
-                  "value_name": "PANE",
-                  "default": null,
-                  "help": "Target pane ID (default: $CODETERM_PANE_ID or focused pane)",
-                  "aliases": []
-                }
-              ],
-              "subcommands": []
-            }
-          ]
-        },
-        {
-          "name": "chat",
-          "about": "Read a pane's parsed chat transcript (text/thinking/tool calls/results)",
-          "aliases": [],
-          "args": [
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Target pane ID (default: $CODETERM_PANE_ID or focused pane)",
-              "aliases": []
-            },
-            {
-              "name": "since",
-              "positional": false,
-              "value_name": "SINCE",
-              "default": "0",
-              "help": "Only return messages from this index onward",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "close",
-          "about": "Close a pane by ID",
-          "aliases": [],
-          "args": [
-            {
-              "name": "id",
-              "positional": true,
-              "value_name": "ID",
-              "default": null,
-              "help": "Pane ID",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "current",
-          "about": "Print the current (focused) pane ID — no JSON parsing needed",
-          "aliases": [],
-          "args": [
-            {
-              "name": "last",
-              "positional": false,
-              "value_name": "LAST",
-              "default": null,
-              "help": "Return the last pane instead of the focused one",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "describe",
-          "about": "Set a short pane description (empty clears it)",
-          "aliases": [],
-          "args": [
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Pane ID to describe (default: current focused pane)",
-              "aliases": []
-            },
-            {
-              "name": "summary",
-              "positional": true,
-              "value_name": "SUMMARY",
-              "default": null,
-              "help": "Short summary, max 200 chars",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "exec",
-          "about": "Execute a command in a pane and return output",
-          "aliases": [],
-          "args": [
-            {
-              "name": "command",
-              "positional": true,
-              "value_name": "COMMAND",
-              "default": null,
-              "help": "Command to execute",
-              "aliases": []
-            },
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Pane ID (default: current focused pane)",
-              "aliases": []
-            },
-            {
-              "name": "timeout",
-              "positional": false,
-              "value_name": "TIMEOUT",
-              "default": "10000",
-              "help": "Timeout in milliseconds",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "focus",
-          "about": "Focus a pane by ID",
-          "aliases": [],
-          "args": [
-            {
-              "name": "id",
-              "positional": true,
-              "value_name": "ID",
-              "default": null,
-              "help": "Pane ID",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "get-text",
-          "about": "Get visible terminal text of a pane (what the user sees)",
-          "aliases": [],
-          "args": [
-            {
-              "name": "formatted",
-              "positional": false,
-              "value_name": "FORMATTED",
-              "default": null,
-              "help": "Include raw ANSI escape codes (colors, cursor state) instead of plain text",
-              "aliases": []
-            },
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Pane ID (default: current focused pane)",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "list",
-          "about": "List all panes as a workspace-grouped tree. `--agents` filters to agent panes only",
-          "aliases": [],
-          "args": [
-            {
-              "name": "agents",
-              "positional": false,
-              "value_name": "AGENTS",
-              "default": null,
-              "help": "Show only panes running an agent (have an agent_type)",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "new",
-          "about": "Plain shell pane. For an AI pane use `codeterm agent spawn` instead",
-          "aliases": [],
-          "args": [
-            {
-              "name": "chat_backend",
-              "positional": false,
-              "value_name": "PLUGIN_ID",
-              "default": null,
-              "help": "Open a non-PTY chat-backend pane driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`pane get-text` then route to the plugin, not a shell",
-              "aliases": []
-            },
-            {
-              "name": "cmd",
-              "positional": false,
-              "value_name": "CMD",
-              "default": null,
-              "help": "Spawn a shell that runs this command on start (e.g. `\"cd /repo && ./build.sh dev\"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created pane",
-              "aliases": []
-            },
-            {
-              "name": "config",
-              "positional": false,
-              "value_name": "JSON",
-              "default": null,
-              "help": "JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{\"model\":\"llama-3.1-8b\"}'`",
-              "aliases": []
-            },
-            {
-              "name": "cwd",
-              "positional": false,
-              "value_name": "CWD",
-              "default": null,
-              "help": "Working directory for the new pane",
-              "aliases": []
-            },
-            {
-              "name": "eager",
-              "positional": false,
-              "value_name": "EAGER",
-              "default": null,
-              "help": "Spawn the shell PTY immediately on the daemon for headless/API use",
-              "aliases": []
-            },
-            {
-              "name": "title",
-              "positional": false,
-              "value_name": "TITLE",
-              "default": null,
-              "help": "Tab title",
-              "aliases": []
-            },
-            {
-              "name": "workspace",
-              "positional": false,
-              "value_name": "WORKSPACE",
-              "default": null,
-              "help": "Target workspace id (default: current focused)",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "rename",
-          "about": "Rename a pane tab (default: current pane)",
-          "aliases": [],
-          "args": [
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Pane ID to rename (default: current focused pane)",
-              "aliases": []
-            },
-            {
-              "name": "title",
-              "positional": true,
-              "value_name": "TITLE",
-              "default": null,
-              "help": "New title",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "search",
-          "about": "Fuzzy search panes by id-prefix, tab title, friendly session name, pane title, agent type, or current model. Cross-script — \"Далтон\" matches \"Dalton\". Add `--mesh PEER` to search a paired peer (#99). `find` kept as alias",
-          "aliases": [],
-          "args": [
-            {
-              "name": "pattern",
-              "positional": true,
-              "value_name": "PATTERN",
-              "default": null,
-              "help": "Substring or short pattern to match",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "status",
-          "about": "Show agent status for a pane (type, session, prompt)",
-          "aliases": [],
-          "args": [
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Pane ID (default: current focused pane)",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "stop",
-          "about": "Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stop_keystroke — Esc for Claude/Codex/OpenCode, Ctrl+C for Cursor. Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here",
-          "aliases": [],
-          "args": [
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Pane ID (default: current focused pane)",
               "aliases": []
             }
           ],
@@ -9373,7 +9013,7 @@
           "positional": false,
           "value_name": "PANE",
           "default": null,
-          "help": "Pane ID (default: $CODETERM_PANE_ID or focused pane)",
+          "help": "Session ID (default: $CODETERM_PANE_ID or focused session)",
           "aliases": []
         },
         {
@@ -9445,7 +9085,7 @@
     },
     {
       "name": "send",
-      "about": "Send text to a pane (default: current pane)",
+      "about": "Send text to a session (default: current session)",
       "aliases": [],
       "args": [
         {
@@ -9485,7 +9125,7 @@
           "positional": false,
           "value_name": "PANE",
           "default": null,
-          "help": "Target pane ID (default: $CODETERM_PANE_ID or focused pane)",
+          "help": "Target session ID (default: $CODETERM_PANE_ID or focused session)",
           "aliases": []
         },
         {
@@ -9493,7 +9133,7 @@
           "positional": false,
           "value_name": "STDIN",
           "default": null,
-          "help": "Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF",
+          "help": "Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --session X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF",
           "aliases": [
             "from-stdin"
           ]
@@ -9790,6 +9430,368 @@
               "value_name": "ROTATE",
               "default": null,
               "help": "Rotate (generate new token, invalidate old)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "session",
+      "about": "Session management",
+      "aliases": [
+        "pane"
+      ],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "capture",
+          "about": "Dev-only: tee a session's raw PTY output into an asciicast v2 `.cast` file",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "start",
+              "about": "Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "out",
+                  "positional": false,
+                  "value_name": "OUT",
+                  "default": null,
+                  "help": "Path of the `.cast` file to write",
+                  "aliases": []
+                },
+                {
+                  "name": "pane",
+                  "positional": false,
+                  "value_name": "PANE",
+                  "default": null,
+                  "help": "Target session ID (default: $CODETERM_PANE_ID or focused session)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "stop",
+              "about": "Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "pane",
+                  "positional": false,
+                  "value_name": "PANE",
+                  "default": null,
+                  "help": "Target session ID (default: $CODETERM_PANE_ID or focused session)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "chat",
+          "about": "Read a session's parsed chat transcript (text/thinking/tool calls/results)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Target session ID (default: $CODETERM_PANE_ID or focused session)",
+              "aliases": []
+            },
+            {
+              "name": "since",
+              "positional": false,
+              "value_name": "SINCE",
+              "default": "0",
+              "help": "Only return messages from this index onward",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "close",
+          "about": "Close a session by ID",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Session ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "current",
+          "about": "Print the current focused session ID — no JSON parsing needed",
+          "aliases": [],
+          "args": [
+            {
+              "name": "last",
+              "positional": false,
+              "value_name": "LAST",
+              "default": null,
+              "help": "Return the last session instead of the focused one",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "describe",
+          "about": "Set a short session description (empty clears it)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Session ID to describe (default: current focused session)",
+              "aliases": []
+            },
+            {
+              "name": "summary",
+              "positional": true,
+              "value_name": "SUMMARY",
+              "default": null,
+              "help": "Short summary, max 200 chars",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "exec",
+          "about": "Execute a command in a session and return output",
+          "aliases": [],
+          "args": [
+            {
+              "name": "command",
+              "positional": true,
+              "value_name": "COMMAND",
+              "default": null,
+              "help": "Command to execute",
+              "aliases": []
+            },
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Session ID (default: current focused session)",
+              "aliases": []
+            },
+            {
+              "name": "timeout",
+              "positional": false,
+              "value_name": "TIMEOUT",
+              "default": "10000",
+              "help": "Timeout in milliseconds",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "focus",
+          "about": "Focus a session by ID",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Session ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "get-text",
+          "about": "Get visible terminal text of a session (what the user sees)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "formatted",
+              "positional": false,
+              "value_name": "FORMATTED",
+              "default": null,
+              "help": "Include raw ANSI escape codes (colors, cursor state) instead of plain text",
+              "aliases": []
+            },
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Session ID (default: current focused session)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List all sessions as a workspace-grouped tree. `--agents` filters to agent sessions only",
+          "aliases": [],
+          "args": [
+            {
+              "name": "agents",
+              "positional": false,
+              "value_name": "AGENTS",
+              "default": null,
+              "help": "Show only sessions running an agent (have an agent_type)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "new",
+          "about": "Plain shell session. For an AI session use `codeterm agent spawn` instead",
+          "aliases": [],
+          "args": [
+            {
+              "name": "chat_backend",
+              "positional": false,
+              "value_name": "PLUGIN_ID",
+              "default": null,
+              "help": "Open a non-PTY chat-backend session driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`session get-text` then route to the plugin, not a shell",
+              "aliases": []
+            },
+            {
+              "name": "cmd",
+              "positional": false,
+              "value_name": "CMD",
+              "default": null,
+              "help": "Spawn a shell that runs this command on start (e.g. `\"cd /repo && ./build.sh dev\"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created pane",
+              "aliases": []
+            },
+            {
+              "name": "config",
+              "positional": false,
+              "value_name": "JSON",
+              "default": null,
+              "help": "JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{\"model\":\"llama-3.1-8b\"}'`",
+              "aliases": []
+            },
+            {
+              "name": "cwd",
+              "positional": false,
+              "value_name": "CWD",
+              "default": null,
+              "help": "Working directory for the new session",
+              "aliases": []
+            },
+            {
+              "name": "eager",
+              "positional": false,
+              "value_name": "EAGER",
+              "default": null,
+              "help": "Spawn the shell PTY immediately on the daemon for headless/API use",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": "Tab title",
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": "Target workspace id (default: current focused)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "rename",
+          "about": "Rename a session tab (default: current session)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Session ID to rename (default: current focused session)",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": true,
+              "value_name": "TITLE",
+              "default": null,
+              "help": "New title",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "search",
+          "about": "Fuzzy search sessions by id-prefix, tab title, friendly session name, agent type, or current model. Cross-script — \"Далтон\" matches \"Dalton\". Add `--mesh PEER` to search a paired peer (#99). `find` kept as alias",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pattern",
+              "positional": true,
+              "value_name": "PATTERN",
+              "default": null,
+              "help": "Substring or short pattern to match",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "status",
+          "about": "Show agent status for a session (type, provider session, prompt)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Session ID (default: current focused session)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "stop",
+          "about": "Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stop_keystroke — Esc for Claude/Codex/OpenCode, Ctrl+C for Cursor. Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Session ID (default: current focused session)",
               "aliases": []
             }
           ],

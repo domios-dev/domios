@@ -70,8 +70,8 @@ pub struct ReportArgs {
     /// Markdown document to append to the report milestone
     #[arg(long, value_name = "PATH")]
     pub doc: Option<String>,
-    /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
-    #[arg(long)]
+    /// Session ID (default: $CODETERM_PANE_ID or focused session)
+    #[arg(long, alias = "session")]
     pub pane: Option<String>,
     /// Plan id to append this report to (if available)
     #[arg(long, env = "CODETERM_PLAN_ID")]
@@ -114,32 +114,32 @@ pub struct ReportArgs {
 
 #[derive(Subcommand)]
 pub enum AgentAction {
-    /// Mark a pane as orchestrator (top-level, can spawn workers)
+    /// Mark a session as orchestrator (top-level, can spawn workers)
     SetOrchestrator {
-        /// Pane ID (default: current focused pane)
-        #[arg(long)]
+        /// Session ID (default: current focused session)
+        #[arg(long, alias = "session")]
         pane: Option<String>,
     },
 
-    /// Link a pane as worker under a parent
+    /// Link a session as worker under a parent
     Link {
-        /// Parent pane ID (orchestrator)
-        #[arg(long)]
+        /// Parent session ID (orchestrator)
+        #[arg(long, alias = "parent-session")]
         parent: String,
-        /// Pane ID to link (default: current focused pane)
-        #[arg(long)]
+        /// Session ID to link (default: current focused session)
+        #[arg(long, alias = "session")]
         pane: Option<String>,
     },
-    /// Remove a pane's role (also orphans children)
+    /// Remove a session's role (also orphans children)
     Unlink {
-        /// Pane ID (default: current focused pane)
-        #[arg(long)]
+        /// Session ID (default: current focused session)
+        #[arg(long, alias = "session")]
         pane: Option<String>,
     },
-    /// Toggle whether a pane can spawn children
+    /// Toggle whether a session can spawn children
     AllowSpawn {
-        /// Pane ID (default: current focused pane)
-        #[arg(long)]
+        /// Session ID (default: current focused session)
+        #[arg(long, alias = "session")]
         pane: Option<String>,
         /// Enable or disable spawning
         #[arg(long, default_value = "true")]
@@ -147,13 +147,13 @@ pub enum AgentAction {
     },
     /// Send a report to your parent in the hierarchy
     Report(ReportArgs),
-    /// Send an immediate message to a running agent pane
+    /// Send an immediate message to a running agent session
     Message {
         /// Message text (positional, or omit and use --from-file/--stdin)
         #[arg(allow_hyphen_values = true)]
         text: Option<String>,
-        /// Target agent pane ID
-        #[arg(long, alias = "id")]
+        /// Target agent session ID
+        #[arg(long, alias = "id", alias = "session")]
         pane: String,
         /// Read message text from a file instead of the positional arg
         #[arg(long, value_name = "PATH")]
@@ -162,10 +162,10 @@ pub enum AgentAction {
         #[arg(long, visible_alias = "from-stdin", conflicts_with = "text")]
         stdin: bool,
     },
-    /// Read reports (for orchestrator panes)
+    /// Read reports (for orchestrator sessions)
     Reports {
-        /// Pane ID (default: current focused pane)
-        #[arg(long)]
+        /// Session ID (default: current focused session)
+        #[arg(long, alias = "session")]
         pane: Option<String>,
         /// Clear reports after reading
         #[arg(long)]
@@ -177,20 +177,20 @@ pub enum AgentAction {
     /// List an orchestrator's workers from the durable ledger (survives daemon
     /// restart): branch / model / status / last-seen, one row per worker.
     Ledger {
-        /// Orchestrator pane ID (default: current focused pane)
-        #[arg(long)]
+        /// Orchestrator session ID (default: current focused session)
+        #[arg(long, alias = "session")]
         pane: Option<String>,
     },
     /// Compact agent context (sends /compact to Claude)
     Compact {
-        /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long)]
+        /// Session ID (default: $CODETERM_PANE_ID or focused session)
+        #[arg(long, alias = "session")]
         pane: Option<String>,
     },
-    /// Restart agent (graceful exit; resumes only when the pane has a valid session)
+    /// Restart agent (graceful exit; resumes only when the session has a valid provider session)
     Restart {
-        /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long)]
+        /// Session ID (default: $CODETERM_PANE_ID or focused session)
+        #[arg(long, alias = "session")]
         pane: Option<String>,
         /// Skip the graceful exit and force-kill instead. Use only when the agent is hung.
         #[arg(long)]
@@ -203,8 +203,8 @@ pub enum AgentAction {
     Model {
         /// Model name (Claude: sonnet, haiku, opus). Run `agent models claude` to list.
         name: String,
-        /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long)]
+        /// Session ID (default: $CODETERM_PANE_ID or focused session)
+        #[arg(long, alias = "session")]
         pane: Option<String>,
     },
     /// List available agent providers (claude, codex, ...) with their
@@ -234,7 +234,7 @@ pub enum AgentAction {
         /// Tab title
         #[arg(long)]
         title: Option<String>,
-        /// Short pane description (max 200 chars)
+        /// Short session description (max 200 chars)
         #[arg(long)]
         description: Option<String>,
         /// Working directory
@@ -243,14 +243,14 @@ pub enum AgentAction {
         /// Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar.
         #[arg(long)]
         role: Option<SpawnRole>,
-        /// Parent pane ID (for Workers)
-        #[arg(long)]
+        /// Parent session ID (for Workers)
+        #[arg(long, alias = "parent-session")]
         parent: Option<String>,
         /// Plan id to bind — required for `--role Planner` to auto-bind
         /// Plan.planner and deliver the peer prompt naming the Orchestrator.
         #[arg(long, env = "CODETERM_PLAN_ID")]
         plan: Option<String>,
-        /// Where this worker's `agent report` should land. A pane id or
+        /// Where this worker's `agent report` should land. A session id or
         /// `main`/`general` alias. With `--mesh PEER` it resolves on that peer,
         /// so a remote worker reports back to the spawning orchestrator. Defaults
         /// to the caller's own pane.

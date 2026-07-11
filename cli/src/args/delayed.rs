@@ -2,10 +2,10 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum DelayedAction {
-    /// List delayed messages for a pane
+    /// List delayed messages for a session
     List {
-        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long, alias = "id")]
+        /// Target session ID (default: $CODETERM_PANE_ID or focused session)
+        #[arg(long, alias = "id", alias = "session")]
         pane: Option<String>,
     },
 
@@ -14,8 +14,8 @@ pub enum DelayedAction {
         /// Text to queue (positional, or omit and use --from-file/--stdin)
         text: Option<String>,
 
-        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long, alias = "id")]
+        /// Target session ID (default: $CODETERM_PANE_ID or focused session)
+        #[arg(long, alias = "id", alias = "session")]
         pane: Option<String>,
 
         /// Relative delay: 45s, 10m, 1h30m, 2d. Bare number means minutes.
