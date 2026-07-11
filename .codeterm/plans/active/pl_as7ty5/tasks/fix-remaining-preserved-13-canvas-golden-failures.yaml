@@ -9,14 +9,14 @@ acceptance_criteria:
 - The four named 13-canvas failures pass on macOS/eight web-mode, or each is explicitly rebaselined/updated with rationale and artifacts. Do not weaken unrelated mission-control/world-canvas deletion assertions. A bounded 13-canvas golden run or split equivalent confirms no remaining deterministic failures in the preserved 13-canvas suite.
 test_plan: On eight, run the failing files in isolation with --project=golden --timeout=30000 --global-timeout=600000, then run the preserved 13-canvas shard. For visual updates, include before/after diff artifact paths and explain the accepted visual change.
 correctness: Separate true product/visual drift from test drift. Do not use blanket screenshot threshold loosening. Keep the preserved current-surface canvas coverage meaningful.
-status: in_progress
+status: in_review
 review_stage: review
 qa_state: null
-status_label: running-on-eight
+status_label: shard-gate-requested
 priority: p1
 created_at: 1783799488075
-updated_at: 1783799620366
-status_changed_at: 1783799620366
+updated_at: 1783800727743
+status_changed_at: 1783800727743
 handle: fix-remaining-preserved-13-canvas-golden-failures
 tags:
 - canvas
@@ -50,7 +50,24 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_0r1t1v
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: in_review
+  text: ' eight worker commit 255364eb fixes four preserved 13-canvas failures. Changes: selectors updated for live flow-station-done and plan-list-task, Darwin visual goldens rebaselined with age masks; no threshold loosening. Focused touched-file gate: 11 passed. Requested preserved 13-canvas shard gate before push.'
+  ts: 1783800727735
+  links:
+  - key:aba5860010d1f070
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_j4lvym
   executor_pane_id: 41f38901
