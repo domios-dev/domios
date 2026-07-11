@@ -15,7 +15,7 @@ qa_state: null
 status_label: null
 priority: p1
 created_at: 1783773540727
-updated_at: 1783774273126
+updated_at: 1783774337086
 status_changed_at: 1783774266057
 handle: instrument-and-reduce-windows-pty-command-output-latency
 tags:
@@ -77,6 +77,23 @@ milestones:
   text: 'Done: attributed Windows PTY/output latency without speculative patch. CodeTerm enqueue/write/first-byte output path is fast at HTTP-level evidence; remaining multi-hundred-ms to ~1s tail is shell command completion/marker generation under Windows PowerShell/ConPTY plus synthetic typing in old metric. Next deeper work, if desired, is Rust internal timestamping below HTTP, not another frontend patch.'
   ts: 1783774266057
   links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_dir97m
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: cleanup
+  text: ' ROG stopped dev 7686 via repo-supported build.ps1 kill; script ignored inherited 7685 and used dev port 7686. Verified no 7686/9223 listeners; prod 7685 remains listening untouched; QA worktree clean on feat/1.7.2-stability.'
+  ts: 1783774337086
+  links:
+  - key:80b7a3fe5b8f6ec7
   loop_id: null
   iteration: null
   canvas:
