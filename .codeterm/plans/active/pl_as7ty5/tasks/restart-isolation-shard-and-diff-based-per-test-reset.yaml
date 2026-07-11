@@ -11,14 +11,14 @@ acceptance_criteria:
 - Golden project minus @restart passes with the new reset on at least one platform, and measured suite time drops vs the shard-table baseline
 test_plan: '1) Tag restart tests; add a restart project to playwright.config.ts mirroring golden grep + @restart. 2) Extend helpers/fixtures.ts: workspace tracking analogous to paneCleanup; api fixture teardown closes tracked-only; move blanket apiReset to a per-file afterAll. 3) Run a deterministic shard (06-mem + 11-api + 02-multiplexer minus restart) before/after: npx playwright test --project=golden <selector> --global-timeout=1800000 -> green + timing delta recorded. 4) Run the @restart shard alone -> green.'
 correctness: 'No cross-test leakage: a test that creates nothing must not be able to see a prior test''s workspaces; restart tests still fully covered, just isolated.'
-status: in_review
+status: in_progress
 review_stage: review
 qa_state: null
-status_label: null
+status_label: bounced-rog-restart-cron-exit
 priority: p1
 created_at: 1783782091095
-updated_at: 1783785857863
-status_changed_at: 1783785856864
+updated_at: 1783793256380
+status_changed_at: 1783793256380
 handle: restart-isolation-shard-and-diff-based-per-test-reset
 tags: []
 section_ids:
@@ -69,6 +69,40 @@ milestones:
     NEXT: task_dycecc (runtime stub provider, Rust) — the big one.
   ts: 1783785856864
   links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_9x47jh
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: gate
+  text: ' sent Windows/ROG verification for Playwright restart project on origin/feat/1.7.2-stability@de099c9e9 with dev 7686 health build_sha check and cleanup.'
+  ts: 1783792551593
+  links:
+  - key:4ea8d51b4bfa5fd0
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_2cs9zl
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: bounce
+  text: ' ROG Windows restart-project gate failed on origin/feat/1.7.2-stability@de099c9e9. Command: node node_modules/@playwright/test/cli.js test -c tests/playwright --project=restart --reporter=list --timeout=30000 --global-timeout=600000. Result: 10 total, 8 passed, 2 failed. Failures in 07-cron @restart: oneshot cron test and recurring cron test both lost dev 7686 with ECONNREFUSED; ROG logs show abnormal app exit during/after cron run, not enough evidence for harness-only acceptance. Bounce sent to planner pane 56827f12 for diagnosis and rerun.'
+  ts: 1783793255972
+  links:
+  - key:ab969658f8f5fe1f
   loop_id: null
   iteration: null
   canvas:
