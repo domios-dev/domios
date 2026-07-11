@@ -15,7 +15,7 @@ qa_state: null
 status_label: running-on-eight
 priority: p1
 created_at: 1783793589957
-updated_at: 1783794000565
+updated_at: 1783795158787
 status_changed_at: 1783794000565
 handle: fix-macos-canvas-gate-mission-control-live-hidden-state
 tags:
@@ -129,6 +129,23 @@ milestones:
   ts: 1783794000117
   links:
   - key:d806d6c9adb49392
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_iy8t66
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' keep helper fix; do not restore unmounted CanvasViewInner/world-canvas. Delete legacy stale golden coverage or retarget only tests that map cleanly to current mission-control flow shell; verify bounded subset and report exact diff before acceptance.'
+  ts: 1783795158787
+  links:
+  - key:72f58d2894570230
   loop_id: null
   iteration: null
   canvas:
