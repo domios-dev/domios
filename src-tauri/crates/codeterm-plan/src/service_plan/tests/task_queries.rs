@@ -62,3 +62,47 @@ fn task_queries_filter_by_status() {
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].task.id, blocked_id);
 }
+
+#[test]
+fn active_task_query_excludes_paused_but_keeps_pending() {
+    let (store, id, paused_id) = store_with_task(&["status_update"]);
+    let pending_id = store
+        .add_task(
+            &id,
+            NewTask {
+                name: "dependency-waiting".into(),
+                kind: "implement".into(),
+                competition: None,
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .pause_task(
+            &id,
+            &paused_id,
+            "operator hold",
+            crate::plan::AgentRef::from_pane("orch"),
+            3,
+        )
+        .unwrap();
+
+    let active = store.list_tasks(TaskListFilter {
+        active_only: true,
+        ..Default::default()
+    });
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].task.id, pending_id);
+
+    let paused = store.list_tasks(TaskListFilter {
+        status: Some(TaskStatus::Paused),
+        ..Default::default()
+    });
+    assert_eq!(paused.len(), 1);
+    assert_eq!(paused[0].task.id, paused_id);
+    assert_eq!(
+        paused[0].task.pause_reason.as_deref(),
+        Some("operator hold")
+    );
+}

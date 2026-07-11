@@ -26,7 +26,7 @@ function collectTaskIds(snap: ReturnType<typeof modelToSnapshot>): Set<string> {
   if (snap.qaRunning) ids.add(snap.qaRunning.id);
   for (const t of snap.doneRecent) ids.add(t.id);
   for (const t of snap.blocked) ids.add(t.id);
-  for (const t of snap.parked) ids.add(t.id);
+  for (const t of snap.paused) ids.add(t.id);
   for (const lane of snap.lanes) {
     for (const t of lane.activeTasks ?? (lane.activeTask ? [lane.activeTask] : [])) ids.add(t.id);
   }

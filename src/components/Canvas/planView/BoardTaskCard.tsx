@@ -33,10 +33,10 @@ function metaTestId(kind: TaskCardMetaRow["kind"]): string {
 export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
   const { task } = card;
   const statusColor = TASK_STATUS_COLORS[task.status];
-  const isParked = task.status === TaskStatus.Parked;
-  const parkReason = task.park_reason?.trim() || null;
-  const parkedTitle = isParked
-    ? `Parked${parkReason ? `: ${parkReason}` : ""}`
+  const isPaused = task.status === TaskStatus.Paused;
+  const pauseReason = task.pause_reason?.trim() || null;
+  const pausedTitle = isPaused
+    ? `Paused${pauseReason ? `: ${pauseReason}` : ""}`
     : undefined;
   const interactive = Boolean(onOpen);
   const metadata = deriveTaskCardMetadata(card);
@@ -55,10 +55,10 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
       data-testid="plan-board-task-card"
       data-task-id={task.id}
       data-task-status={task.status}
-      className={`plan-board-task-card plan-task-selectable${interactive ? " plan-board-task-card-interactive" : ""}${isParked ? " plan-board-task-card-parked" : ""}`}
+      className={`plan-board-task-card plan-task-selectable${interactive ? " plan-board-task-card-interactive" : ""}${isPaused ? " plan-board-task-card-paused" : ""}`}
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? 0 : undefined}
-      title={parkedTitle}
+      title={pausedTitle}
       onPointerDown={interactive ? onPointerDown : undefined}
       onPointerMove={interactive ? onPointerMove : undefined}
       onClick={interactive ? onClick : undefined}
@@ -75,9 +75,9 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
       <TaskExecutionBadges loop={card.loopBadge} competition={card.competeBadge} />
       <span
         data-testid="status-chip"
-        className={`plan-board-task-status${isParked ? " plan-board-task-status-parked" : ""}`}
+        className={`plan-board-task-status${isPaused ? " plan-board-task-status-paused" : ""}`}
         style={{ background: statusColor }}
-        title={parkedTitle}
+        title={pausedTitle}
       >
         {canonicalTaskStatusLabel(task)}
       </span>

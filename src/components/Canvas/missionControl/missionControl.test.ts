@@ -182,16 +182,16 @@ test("done task lands in done_shelf", () => {
   assert(model.activeCount === 0, "done is not active");
 });
 
-test("blocked and parked tasks land in blocked zone", () => {
+test("blocked and paused tasks land in blocked zone", () => {
   const plan = mkPlan({
     tasks: [
       mkTask({ id: "t-blocked", status: TaskStatus.Blocked }),
-      mkTask({ id: "t-parked", status: TaskStatus.Parked }),
+      mkTask({ id: "t-paused", status: TaskStatus.Paused }),
     ],
   });
   const model = buildMissionControl(plan, {}, NOW);
   assert(zoneStations(model, "blocked").length === 2, "two in blocked");
-  assert(model.activeCount === 0, "blocked/parked not active");
+  assert(model.activeCount === 0, "blocked/paused not active");
 });
 
 test("busy active lanes: multiple in_progress with separate panes", () => {

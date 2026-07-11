@@ -312,9 +312,9 @@ pub(super) fn validate_task_status_transition(
             to: next.clone(),
         });
     }
-    // Parking must carry a reason + stride: force `plan task park`, never a bare status set.
-    if matches!(next, TaskStatus::Parked) {
-        return Err(PlanError::ParkRequiresReason);
+    // Pausing must carry a reason + stride: force `plan task pause`, never a bare status set.
+    if matches!(next, TaskStatus::Paused) {
+        return Err(PlanError::TaskPauseRequiresReason);
     }
     Ok(())
 }

@@ -108,11 +108,11 @@ After approval/execution starts, set heartbeat with:\n\
             task_id.unwrap_or("<task_id>")
         )),
         "blocked_requires_label" => Some(format!(
-            "✗ blocked is a claim, not a parking spot.\nfix: say what unblocks it, or open a decision gate:\n  codeterm plan task update {plan_id} {} --status blocked --status-label \"<what unblocks it>\"\n  codeterm plan decision ask {plan_id} \"<question>\"",
+            "✗ blocked is a claim, not an operator hold.\nfix: say what unblocks it, or open a decision gate:\n  codeterm plan task update {plan_id} {} --status blocked --status-label \"<what unblocks it>\"\n  codeterm plan decision ask {plan_id} \"<question>\"",
             task_id.unwrap_or("<task_id>")
         )),
-        "park_requires_reason" => Some(format!(
-            "✗ park requires a reason.\nfix: codeterm plan task update {plan_id} {} --status parked --note \"<reason>\"",
+        "task_pause_requires_reason" => Some(format!(
+            "✗ pause requires a reason.\nfix: codeterm plan task pause {plan_id} {} --reason \"<reason>\"",
             task_id.unwrap_or("<task_id>")
         )),
         "pause_requires_reason" => Some(format!(
@@ -205,7 +205,7 @@ fn render_ref_ambiguous(data: &Value) -> Option<String> {
 fn render_bad_status(plan_id: &str, task_id: Option<&str>, params: &Value) -> String {
     if is_task_status_context(params, task_id) {
         return format!(
-            "✗ invalid task status.\nvalid task statuses: pending|in_progress|in_review|blocked|done|cancelled\nfix: codeterm plan task update {plan_id} {} --status pending\nuse --status-label for free-text nuance.",
+            "✗ invalid task status.\nvalid task statuses: pending|in_progress|in_review|blocked|paused|done|cancelled\nfix: codeterm plan task update {plan_id} {} --status pending\nuse --status-label for free-text nuance.",
             task_id.unwrap_or("<task_id>")
         );
     }

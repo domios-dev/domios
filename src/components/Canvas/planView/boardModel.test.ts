@@ -119,20 +119,20 @@ test("deriveBoardPlanSummary prefers bound planner title over remote fallback", 
   assert(summary.plannerLabel === "Prod planner", "ref title when pane absent");
 });
 
-test("groupTasksIntoColumns folds parked tasks into pending column", () => {
+test("groupTasksIntoColumns folds paused tasks into pending column", () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     tasks: [
-      task({ id: "parked-a", status: TaskStatus.Parked, name: "Deferred auth" }),
-      task({ id: "parked-b", status: TaskStatus.Parked, name: "Wait on API" }),
+      task({ id: "paused-a", status: TaskStatus.Paused, name: "Deferred auth" }),
+      task({ id: "paused-b", status: TaskStatus.Paused, name: "Wait on API" }),
       task({ id: "pending", status: TaskStatus.Pending }),
     ],
   };
   const { columns } = groupTasksIntoColumns(plan, PANES);
-  assert(!columns.map((c) => String(c.key)).includes("parked"), "no separate parked column");
+  assert(!columns.map((c) => String(c.key)).includes("paused"), "no separate paused column");
   const pending = columns.find((c) => c.key === "pending")!;
   assert(pending.cards.length === 3, `pending count=${pending.cards.length}`);
-  assert(pending.cards.filter((card) => card.task.status === TaskStatus.Parked).length === 2, "parked visible in pending");
+  assert(pending.cards.filter((card) => card.task.status === TaskStatus.Paused).length === 2, "paused visible in pending");
 });
 
 test("groupTasksIntoColumns places tasks by status and sorts freshest first", () => {

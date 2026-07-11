@@ -112,20 +112,20 @@ pub(super) fn inspect_task_lifecycle(
 ) {
     let task_id = task.get("id").and_then(Value::as_str).map(str::to_string);
     let status = task.get("status").and_then(Value::as_str).unwrap_or("");
-    if status == "parked" {
+    if status == "paused" {
         let has_reason = task
-            .get("park_reason")
+            .get("pause_reason")
             .and_then(Value::as_str)
             .is_some_and(|s| !s.trim().is_empty());
         if !has_reason {
             findings.push(Finding {
                 severity: "error",
-                kind: "parked_without_reason",
+                kind: "paused_without_reason",
                 plan_id: plan_id(plan, path),
                 path: path.display().to_string(),
                 task_id: task_id.clone(),
-                detail: "task is parked but has no park_reason".into(),
-                fix: "unpark and re-park with a reason: `codeterm plan task park <plan> <task> --reason \"<why>\"`".into(),
+                detail: "task is paused but has no pause_reason".into(),
+                fix: "resume and pause with a reason: `codeterm plan task pause <plan> <task> --reason \"<why>\"`".into(),
             });
         }
     }
@@ -150,7 +150,7 @@ pub(super) fn inspect_task_lifecycle(
             task_id,
             "aged_unstaffed_task",
             "pending task has been unstaffed for over 4h",
-            "dispatch it, park it with a reason, or send it to replanning",
+            "dispatch it, pause it with a reason, or send it to replanning",
         ));
     }
     findings.extend(cleanup::cleanup_debt_findings(path, plan, task));

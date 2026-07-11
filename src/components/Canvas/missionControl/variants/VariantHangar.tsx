@@ -44,7 +44,7 @@ export function VariantHangar({ snapshot }: VariantProps) {
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, minHeight: 0 }}>
           <DoneShelf count={snapshot.doneCount} recent={snapshot.doneRecent} />
-          <SideRail title="Parked" tasks={snapshot.parked} tone="muted" />
+          <SideRail title="Paused" tasks={snapshot.paused} tone="muted" />
           <SideRail title="Blocked" tasks={snapshot.blocked} tone="warn" />
         </div>
       </div>

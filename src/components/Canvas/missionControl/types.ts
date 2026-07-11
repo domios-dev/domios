@@ -62,7 +62,7 @@ export interface MissionControlSnapshot {
   gateQueue: MissionTask[];
   doneCount: number;
   doneRecent: MissionTask[];
-  parked: MissionTask[];
+  paused: MissionTask[];
   blocked: MissionTask[];
   events: StreamEvent[];
 }

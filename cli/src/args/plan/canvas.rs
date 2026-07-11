@@ -203,20 +203,20 @@ pub enum PlanHandoffAction {
 
 #[derive(Subcommand)]
 pub enum PlanDecisionAction {
-    /// Create a decision gate, park blocking tasks, and route the question to the planner
+    /// Create a decision gate, pause blocking tasks, and route the question to the planner
     Ask {
         plan_id: String,
         #[arg(long, allow_hyphen_values = true)]
         question: String,
         #[arg(long, allow_hyphen_values = true, default_value = "")]
         context: String,
-        /// Task ids (or handles) to park until this gate is answered
+        /// Task ids (or handles) to pause until this gate is answered
         #[arg(long = "block")]
         blocking_task_ids: Vec<String>,
         #[arg(long)]
         asked_by_pane: Option<String>,
     },
-    /// Answer an open gate (immutable audit record, unparks blocked tasks)
+    /// Answer an open gate (immutable audit record, resumes paused tasks)
     Answer {
         plan_id: String,
         gate_id: String,

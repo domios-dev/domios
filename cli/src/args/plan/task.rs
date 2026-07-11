@@ -7,7 +7,7 @@ pub enum PlanTaskAction {
         plan_id: Option<String>,
         #[arg(
             long,
-            help = "Task status: pending | in_progress | in_review | blocked | done | cancelled"
+            help = "Task status: pending | in_progress | in_review | blocked | paused | done | cancelled"
         )]
         status: Option<String>,
     },
@@ -113,7 +113,7 @@ pub enum PlanTaskAction {
         why_file: Option<String>,
         #[arg(
             long,
-            help = "Task status: pending | in_progress | in_review | blocked | done | cancelled"
+            help = "Task status: pending | in_progress | in_review | blocked | paused | done | cancelled"
         )]
         status: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
@@ -209,15 +209,15 @@ pub enum PlanTaskAction {
         #[arg(long)]
         mesh: Option<String>,
     },
-    /// Park a task (defers it out of the heartbeat open-work set; requires --reason)
-    Park {
+    /// Pause a task (explicit operator hold outside the heartbeat open-work set; requires --reason)
+    Pause {
         plan_id: String,
         task_id: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         reason: String,
     },
-    /// Unpark a task (returns it to pending)
-    Unpark {
+    /// Resume a paused task (returns it to dependency-waiting pending)
+    Resume {
         plan_id: String,
         task_id: Option<String>,
     },

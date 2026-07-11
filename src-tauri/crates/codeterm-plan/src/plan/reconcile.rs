@@ -18,7 +18,7 @@ pub struct AgedOpenTask {
     pub age_ms: u64,
 }
 
-// non-open (terminal/parked) statuses.
+// non-open (terminal/paused) statuses.
 pub fn stale_threshold_ms(status: &TaskStatus) -> Option<u64> {
     match status {
         TaskStatus::InReview => Some(IN_REVIEW_UNJUDGED_STALE_MS),
@@ -422,7 +422,7 @@ mod tests {
             canvas: Default::default(),
             milestones: vec![],
             execution_attempts: vec![],
-            park_reason: None,
+            pause_reason: None,
             personality: None,
             personality_provenance: None,
             attachments: vec![],
@@ -482,15 +482,15 @@ mod tests {
     }
 
     #[test]
-    fn aged_open_tasks_names_stale_work_and_skips_parked() {
+    fn aged_open_tasks_names_stale_work_and_skips_paused() {
         let mut pending = task("p1", TaskStatus::Pending);
         pending.status_changed_at = 1;
-        let mut parked = task("k1", TaskStatus::Parked);
-        parked.status_changed_at = 1;
+        let mut paused = task("k1", TaskStatus::Paused);
+        paused.status_changed_at = 1;
         let mut fresh = task("f1", TaskStatus::InReview);
         fresh.status_changed_at = PENDING_UNSTAFFED_STALE_MS;
         let now = PENDING_UNSTAFFED_STALE_MS + 10;
-        let aged = aged_open_tasks(&plan(vec![pending, parked, fresh]), now);
+        let aged = aged_open_tasks(&plan(vec![pending, paused, fresh]), now);
         assert_eq!(aged.len(), 1);
         assert_eq!(aged[0].task_id, "p1");
     }
