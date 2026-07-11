@@ -111,7 +111,7 @@ owner:
 project_path: \\?\D:\Developer\codeterm
 canonical_project_path: \\?\D:\Developer\codeterm
 created_at: 1783628878496
-updated_at: 1783790979020
+updated_at: 1783793257220
 milestone_kinds:
 - key: discovery
   label: discovery
@@ -220,6 +220,12 @@ milestone_kinds:
   color: null
 - key: progress
   label: progress
+  color: null
+- key: gate
+  label: gate
+  color: null
+- key: bounce
+  label: bounce
   color: null
 loops:
 - id: loop_6c2hy7
@@ -333,10 +339,10 @@ primary_spec_id: sp_o6l6of
 lineage: []
 goal: null
 heartbeat:
-  current_focus: Linux Shard L complete; review planner-owned in_review tasks and continue pw-speedup frontier
+  current_focus: task_cgoixr bounced on ROG restart cron abnormal exit; task_luatne eight canvas gate still running
   active_lanes:
-  - task_luatne
   - task_cgoixr
+  - task_luatne
   rules:
   - No worker starts cargo/build/dev directly while a machine QA/build owner exists
   learnings:
@@ -384,6 +390,10 @@ heartbeat:
     text: For remote performance/Playwright work, require the worker to verify /api/health build_sha equals the tested commit before measuring and again after any pushed fix; otherwise metrics can describe a stale build even when the branch has advanced.
     ts: 1783776187466
     tag: null
+  - id: learn_wjfrcm
+    text: When a planner-owned Playwright speedup task lands partial focused evidence, immediately assign the missing platform/broad gate to a machine owner before accepting it; otherwise the task sits in_review and creates a regression-gate leak that blocks the next frontier.
+    ts: 1783792491720
+    tag: gate-leak
 canvas:
   viewport: null
 owner_history:

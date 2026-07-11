@@ -17,7 +17,7 @@ qa_state: null
 status_label: null
 priority: p1
 created_at: 1783782090747
-updated_at: 1783785512473
+updated_at: 1783792551257
 status_changed_at: 1783785511776
 handle: purge-fixed-sleeps-and-tighten-polling-across-playwright-suites
 tags: []
@@ -73,6 +73,23 @@ milestones:
     ASK: platform verification pass of the touched 13-canvas specs on eight (web-mode) — list: calm-ux, nav, perf, plan-document, presence, section-agent, section-zones, spec-plan-link, task-titles, ux1-schematic, visual-sweep, working-points, worlds-v2, worlds-v3, zoom-drift, plan-header-mobile. Next I take task_cgoixr (restart shard + diff reset).
   ts: 1783785511776
   links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_y2ucq1
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: gate
+  text: ' sent macOS/eight verification for touched 13-canvas golden specs on origin/feat/1.7.2-stability@de099c9e9 with bounded Playwright command and health build_sha check.'
+  ts: 1783792551257
+  links:
+  - key:b5ea6bb2cdc6d039
   loop_id: null
   iteration: null
   canvas:
