@@ -9,14 +9,14 @@ acceptance_criteria:
 - All remaining 13-canvas golden specs that reference dead world-canvas-only selectors are either converted to current mission-control flow-shell assertions or retired/deleted with a short rationale recorded. A bounded 13-canvas golden verification plan is provided and at least the touched specs pass in isolation with --timeout=30000 --global-timeout=600000. No mission-control-live visibility oracle is weakened.
 test_plan: 1. Grep tests/playwright/suites/13-canvas for canvas-plan-node, spec-node, canvas-presence-pin, world-canvas, CanvasViewInner-era selectors. 2. For each touched file, run npx playwright test --config=tests/playwright/playwright.config.ts --project=golden <file> --reporter=line --timeout=30000 --global-timeout=600000, or prove it is absent from --list after deletion. 3. Run a bounded split 13-canvas golden verification shard on eight/web-mode from a warm checkout.
 correctness: Preserve real current-product coverage. Do not keep tests for unmounted dead UI just to preserve line count. Do not weaken current mission-control flow shell visibility/readiness assertions.
-status: pending
+status: in_progress
 review_stage: review
 qa_state: null
-status_label: null
+status_label: running-on-eight
 priority: p1
 created_at: 1783795619376
-updated_at: 1783798147422
-status_changed_at: 1783795619376
+updated_at: 1783798210948
+status_changed_at: 1783798210948
 handle: migrate-or-retire-remaining-world-canvas-golden-specs
 tags:
 - canvas
@@ -31,17 +31,18 @@ competition: null
 intent: null
 parent_task_id: null
 depends_on: []
-assigned_pane_id: null
+assigned_pane_id: 98ce7d77
 lane:
-  pane_id: null
+  pane_id: 98ce7d77
   workspace_id: null
   workspace_name: null
   worktree_path: null
   branch: null
   base: null
   destination: null
-  cleanup_status: null
-  cleanup_hints: []
+  cleanup_status: deferred
+  cleanup_hints:
+  - Shared-checkout worker on eight canonical checkout; cleanup deferred until final git/dev/prod state is reported.
 taken_by_role: null
 peer: null
 group: playwright-stability
@@ -67,6 +68,49 @@ milestones:
     y: null
     collapsed: false
   attachments: []
-execution_attempts: []
+- id: ms_okgab2
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: dispatch
+  text: ' direct codeterm agent spawn --mesh eight succeeded. Worker tab 98ce7d77, claude/opus, title task_bdzdn1 world canvas cleanup, cwd /Users/kandrey/Developer/codeterm-alpha, --allow-shared-checkout --task-id task_bdzdn1. Uses paste:sxfhpt brief; reports back to BLACKSTAR/e3fa0754 if agent report target is absent.'
+  ts: 1783798210304
+  links:
+  - key:eaa3f5c0845fd2cb
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_8yua4e
+  executor_pane_id: 98ce7d77
+  executor_title: null
+  provider: claude
+  agent_type: claude
+  model: opus
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: null
+  report: null
+  assigned_at: 1783798210303
+  reported_at: null
+  reviewed_at: null
+  closed_at: null
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
 pause_reason: null
 attachments: []
