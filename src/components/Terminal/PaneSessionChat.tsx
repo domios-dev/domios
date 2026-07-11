@@ -261,7 +261,7 @@ export function PaneSessionChat({
 
   const visiblePlanRefs = useMemo(() => {
     const refs: Array<{ planId: string; targetId?: string; targetKind: "plan" | "task" | "section" }> = [];
-    for (const { msg } of enrichedMessages) {
+    for (const { msg } of deferredEnrichedMessages) {
       if (msg.type === "tool_result" || msg.type === "system" || msg.type === "local_command") continue;
       for (const ref of extractPlanRefs(msg.content ?? "")) {
         refs.push({
@@ -272,7 +272,7 @@ export function PaneSessionChat({
       }
     }
     return refs;
-  }, [enrichedMessages]);
+  }, [deferredEnrichedMessages]);
   const resolvedPlanRefs = usePlanRefResolver(
     api ?? { enabled: false, host: "127.0.0.1", port: 0, token: null, cors: false },
     visiblePlanRefs,
