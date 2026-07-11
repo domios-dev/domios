@@ -111,7 +111,7 @@ owner:
 project_path: \\?\D:\Developer\codeterm
 canonical_project_path: \\?\D:\Developer\codeterm
 created_at: 1783628878496
-updated_at: 1783807151684
+updated_at: 1783807350879
 milestone_kinds:
 - key: discovery
   label: discovery
@@ -360,7 +360,7 @@ primary_spec_id: sp_o6l6of
 lineage: []
 goal: null
 heartbeat:
-  current_focus: task_oya3rr closed at 347821cd; ROG cleanup requested; task_9sqqjo paused until Windows dev/build owner is free; Planner is working task_dycecc parity/sid
+  current_focus: task_oya3rr fully closed and cleaned; Planner works task_dycecc parity/sid; task_9sqqjo socket hardening paused until Windows owner is intentionally reopened
   active_lanes:
   - task_dycecc
   rules:
@@ -430,7 +430,7 @@ owner_history:
 planner:
   kind: pane
   pane_id: 56827f12
-  session_id: e0ceb04e-d24d-4f2b-8af5-d69d5d3fa421
+  session_id: a232d132-c442-4a8c-995c-382163d96bbf
 planning_state: approved
 planning_log:
 - from: drafting
