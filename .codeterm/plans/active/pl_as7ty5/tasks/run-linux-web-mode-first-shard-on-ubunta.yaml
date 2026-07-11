@@ -1,0 +1,225 @@
+id: task_usmilu
+name: Run Linux web-mode first shard on ubunta
+type: qa
+model: sonnet
+model_rationale: Linux web-mode is the third shared-UI signal; its first shard sets the Linux baseline and triangulates shared-UI failures against macOS and Windows.
+personality: null
+acceptance_criteria:
+- First shard runs to completion on ubunta with per-test 300s and shard --global-timeout
+- Every test recorded pass/fail/flaky with duration; failure artifacts retained
+- Linux-only failures separated from shared-UI failures and handed to triage with repro commands
+test_plan: 'On ubunta, dev healthy on 7686 and Chromium installed: 1) curl -s http://127.0.0.1:7686/api/health ok. 2) npx playwright test --config=tests/playwright/playwright.config.ts --project=golden <shard selector> --global-timeout=<budget> --reporter=line. 3) On hang, re-run single test --trace on, read selector. Pass = shard result table plus artifact paths.'
+correctness: Web-mode drives /web/ Chromium; results reflect ubunta only; caps bound every run.
+status: blocked
+review_stage: review
+qa_state: null
+status_label: 'blocked: ENVIRONMENT ubunta control path/PTY unavailable'
+priority: p1
+created_at: 1783763162275
+updated_at: 1783767691879
+status_changed_at: 1783764547263
+handle: run-linux-web-mode-first-shard-on-ubunta
+tags:
+- environment
+- linux
+- control-path
+section_ids:
+- sec_f6g3fr
+body: Execute the first golden shard from the inventory plan on ubunta in Linux web-mode. Verify dev health, run with caps + shard --global-timeout, produce pass/fail/flaky+timing table. Classify failures as Linux-specific vs shared-UI; attach traces. Report table + classified failures for triage.
+role_guidance: 'You are the ubunta Linux platform owner. Run only on ubunta via mesh in web-mode. Red line: bounded caps every run, dev health first; capture traces on hang, never raise caps blind.'
+executor_role: linux-platform-owner
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: playwright-stability
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_q57vdc
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: status_update
+  text: ' Dispatched to ubunta main tab 197ecdcb. Linux owner acknowledged and will update the checkout to 33c284096, verify dev 7686 and web mode, then run Shard L ui-misc with bounded Playwright command.'
+  ts: 1783763623528
+  links:
+  - key:6268458188d47aa9
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_wm9jbg
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: status_update
+  text: ' Spawned dedicated ubunta Linux worker fd9c5685 in /home/rollacode/Developer/codeterm for Shard L because ubunta main had a stale socket environment.'
+  ts: 1783763681344
+  links:
+  - key:64c270e281270897
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_92ah9v
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' ubunta live worker was interrupted by unrelated /review prompt after fast-forwarding to 33c284096; re-sent concrete instruction to continue dev 7686 health and Shard L, ignoring the stray prompt.'
+  ts: 1783764004435
+  links:
+  - key:b2a28c901c535276
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_zs3xna
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' BLOCKED. ubunta live worker fast-forwarded to 33c284096 and confirmed prod 7685 untouched, but was interrupted twice by unrelated prompts before starting dev 7686 or Shard L. Previous spawned worker fd9c5685 had no PTY. Next unblock: create a fresh Linux owner tab with a stable PTY or ask ubunta main to spawn a local worker; then run Shard L exact command.'
+  ts: 1783764309246
+  links:
+  - key:4c1942b741776a43
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_c6f4hr
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: status_update
+  text: ' unblocked by replacing unstable ubunta agent with plain shell runner tab 12316c27. Runner executes fetch/pull, dev 7686 --wait, health/web checks, and Shard L exact Playwright command in /home/rollacode/Developer/codeterm.'
+  ts: 1783764376999
+  links:
+  - key:ace79ce318d8df84
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_f2gcmc
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: status_update
+  text: ' started robust ubunta background runner PID 1371846 with log /tmp/codeterm-linux-shard-l.log. It performs fetch/pull, dev 7686 --wait, health/web checks, then Shard L exact Playwright command.'
+  ts: 1783764513407
+  links:
+  - key:07b3a653947f7c75
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_0eiz2u
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' BLOCKED after robust background attempt. ubunta runner PID 1371846 exited; no dev 7686 listener; no cargo/rustc processes; /tmp/codeterm-linux-shard-l.log and gateway job 20260711T100824-1371934-13638.log stop during CLI build at libsqlite3-sys with no explicit error. Next unblock: investigate ubunta process termination/log truncation or run Linux shard on a stable Linux runner.'
+  ts: 1783764547617
+  links:
+  - key:32166695d5108c41
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_qndcgf
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: unblock
+  text: ' spawned ubunta diagnostic worker 48d7d13d to investigate dev 7686 build death/log truncation without running Playwright or touching prod 7685'
+  ts: 1783767328551
+  links:
+  - key:b5ea9c8801882758
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_3dq3px
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' ubunta control path remains unreliable: fresh diagnostic worker 48d7d13d is idle but tab scrollback returns HTTP 404; tab exec produced partial evidence only (repo still at 33c284096, prior log stops at libsqlite3-sys) and a follow-up command timed out. Treat Linux shard as blocked on ubunta CodeTerm/PTY control stability, not on the app test itself.'
+  ts: 1783767402368
+  links:
+  - key:be44477cb4d77600
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_mxcs27
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: blocker
+  text: ' ENVIRONMENT/control-path, not a Linux app regression. Evidence: ubunta checkout stale at 33c284096; dev --wait log stops mid libsqlite3-sys compile with no explicit error; no healthy 7686; diagnostic tab 48d7d13d scrollback returns HTTP 404; follow-up exec timed out. Unblock requires restoring ubunta control/build path, advancing to current origin/feat/1.7.2-stability, proving dev 7686 health, then running Shard L.'
+  ts: 1783767691879
+  links:
+  - key:dfe59701199ade1a
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts: []
+park_reason: null
+attachments: []

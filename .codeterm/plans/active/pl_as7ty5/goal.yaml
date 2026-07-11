@@ -1,11 +1,9 @@
-vector: Every actionable non-roadmap issue is evidence-classified as fixed-and-verified or implementation-required; the shipped develop-to-release candidate proves first-class workspace Plan tabs, nested Git repository discovery, cached and intelligible plugin settings, current discovered OpenAI model capability support, cross-platform regression gates, CI-built v1.7.2 artifacts, and reconciled issue/release evidence.
-vision: Ship CodeTerm 1.7.2 as a focused, evidence-led cleanup that makes planning visible where work happens, restores repository and plugin workflows, exposes supported OpenAI models through provider capabilities, and closes only issues proven fixed.
+vector: Stabilize and accelerate CodeTerm Playwright coverage across Windows, macOS, and Linux using remote platform owners only; success is a pushed feat/1.7.2-stability branch where the golden Playwright suite is understood, split into faster reliable shards, and platform-specific failures are either fixed with passing evidence or documented as bounded blockers with exact repro commands.
+vision: Use this Windows orchestrator pane only for coordination. ROG owns Windows desktop/WebView2/CDP failures, eight owns macOS web-mode/build failures, and ubunta owns Linux web-mode/build failures. Workers may fix code on their platform and report branch/SHA/tests. No broad builds or Playwright runs on this local machine.
 constraints:
-- Start implementation branches from origin/develop; preserve the dirty orchestrator checkout and use sibling worktrees under C:/Developer/codeterm-worktrees/<branch-slug>.
-- Do not build, sign, notarize, or publish release artifacts locally; release artifacts run only on configured GitHub/self-hosted CI build machines.
-- Use English; favor Codex workers, reserving a strong model for architecture/UX synthesis and independent final review.
-- Do not create execution tasks until this structure is reviewed/approved; discovery tasks must feed replanning.
+- Do not run build or broad Playwright gates on this local orchestrator machine.
+- Never kill production CodeTerm on port 7685.
+- Each platform worker fixes only failures reproducible on its platform and reports exact commands, timing, failures, changed files, and SHA.
+- Keep Playwright runs bounded with --timeout=30000 and --global-timeout=600000 unless a specific suite documents a stricter cap.
 postulates:
-- Open issue status is decided from repository and develop evidence, never title, memory, or assumption.
-- Provider support is capability-based and sourced from actual provider discovery/configuration, not hardcoded model guesses.
-- A reproducible tool/workflow defect found in scope is admitted only through the bounded evidence, severity, regression, and independent-review loop.
+- The Desktop report CodeTerm-Playwright-Golden-Test-Plan.md is the current golden-suite inventory baseline.

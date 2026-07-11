@@ -1,0 +1,103 @@
+id: task_d5rv1i
+name: Probe remote platform readiness
+type: discovery
+model: sonnet
+model_rationale: Every shard result is worthless unless ROG, eight, and ubunta each run against the right branch, a matching build, and reachable Playwright ports; verify readiness before dispatching any run.
+personality: null
+acceptance_criteria:
+- 'For ROG, eight, ubunta: branch is feat/1.7.2-stability and HEAD sha recorded'
+- Each machine dev health at 127.0.0.1:7686 returns ok with .build equal to its HEAD sha
+- ROG has CDP 9223 plus WebView2 root; eight and ubunta have Chromium installed and /web/ reachable
+test_plan: 'Per machine via mesh, no suite run: 1) git rev-parse --abbrev-ref HEAD and git rev-parse HEAD. 2) curl -s http://127.0.0.1:7686/api/health then check status ok and build equals sha; if stale or down, restart dev (dev-run) and re-check. 3) ROG: curl -s http://127.0.0.1:9223/json/version has a Browser field. eight/ubunta: npx playwright install chromium then curl -s http://127.0.0.1:7686/web/ returns 200. Pass when all three machines report matching sha, healthy build, and reachable ports.'
+correctness: All readiness values are read on the target machine; a build not equal to HEAD means stale and blocks that shard.
+status: done
+review_stage: review
+qa_state: null
+status_label: 'done: partial readiness, Linux tracked by task_usmilu'
+priority: p1
+created_at: 1783763127503
+updated_at: 1783767682497
+status_changed_at: 1783767542471
+handle: probe-remote-platform-readiness
+tags: []
+section_ids:
+- sec_ga5tvr
+body: 'Confirm the three remote shard hosts are ready. For ROG (Windows desktop/CDP), eight (macOS web-mode), ubunta (Linux web-mode): record branch+sha, dev health with .build==sha, and the platform port preconditions (ROG CDP 9223 + WebView2; eight/ubunta Chromium + /web/). Restart dev on any stale/down machine, then re-verify. Do NOT run the golden suite here. Report a per-machine readiness table. Gates all three shard runs.'
+role_guidance: 'You are the remote readiness prober. Read state directly from each machine via mesh; never run builds or the suite on the local orchestrator. Red line: report only values you read on the machine itself, never assumed ones.'
+executor_role: remote-platform-owner
+competition: null
+intent: null
+parent_task_id: null
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: ROG-readiness
+  worktree_path: null
+  branch: feat/1.7.2-stability
+  base: null
+  destination: feat/1.7.2-stability
+  cleanup_status: done
+  cleanup_hints:
+  - orchestrator-owned readiness probe; no lane worktree or dev daemon owned by this task
+taken_by_role: null
+peer: null
+group: playwright-stability
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_tfqgk5
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: status_update
+  text: ' Readiness evidence so far: eight updated to 33c284096 and passed api-core Shard A with dev 7686 health matching; ROG clean QA worktree is at 33c284096 and guard probe passes, dev build is running; ubunta live worker started Shard L flow after prior spawned worker had no PTY.'
+  ts: 1783763968553
+  links:
+  - key:616d9b832955e0de
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_ispxic
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: 'Partial readiness completed with bounded blocker. ROG: clean QA worktree on feat/1.7.2-stability, dev 7686/CDP 9223 healthy, Windows Shard E passed and pushed f27545622. eight: macOS dev 7686 matched then-current head and api-core Shard A passed 9/9. ubunta: not ready; repo observed stale at 33c284096, no healthy dev 7686, prior dev log stopped during libsqlite3-sys, and fresh diagnostic control path returned HTTP 404/timed out. Linux readiness is tracked by blocked task_usmilu, not claimed green.'
+  ts: 1783767542471
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_x0oqcm
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: planner-adjustment
+  text: ' readiness is terminal but partial by evidence. ROG and eight were ready enough to run their first shards; ubunta readiness was not achieved. Do not read task_d5rv1i as all three machines green; task_usmilu is the single source of truth for incomplete Linux readiness/coverage.'
+  ts: 1783767682474
+  links:
+  - key:34dbfc841d50499c
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts: []
+park_reason: null
+attachments: []
