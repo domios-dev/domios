@@ -17,7 +17,7 @@ qa_state: null
 status_label: remote-direct-on-ROG
 priority: p0
 created_at: 1783795693431
-updated_at: 1783805267594
+updated_at: 1783806310984
 status_changed_at: 1783796613129
 handle: windows-daemon-terminates-at-oneshot-cron-completion-intermittent
 tags:
@@ -180,6 +180,40 @@ milestones:
   ts: 1783805267594
   links:
   - key:012c162556e237de
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_c00igb
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: evidence
+  text: ' ROG root-caused daemon death with cdb: std::process::abort from interprocess CannotUnwind drop during named-pipe JSON-RPC response write after cron_complete killed its own child CLI client via close_pane/TerminateJobObject. Job-object daemon-membership theory disproven. Fix in src-tauri/src/service/cron.rs defers close_pane, oneshot delete, and emit by 250ms so the socket response reaches the cron-complete CLI before its pane tree is killed. Verified 5/5 focused restart-project oneshot runs and 3/3 API-only repro survives after fix; before fix API-only repro died 3/3. Commit 4d75255c local on ROG, push requested before close.'
+  ts: 1783806310769
+  links:
+  - key:7551b4a0b9e812f0
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_pss29p
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: followup
+  text: ' interprocess 2.4.0 exsync_op can abort daemon on any socket response write to a disconnected client; create/route a separate hardening task after the cron-specific release blocker lands.'
+  ts: 1783806310984
+  links:
+  - key:e652052c5f5f4857
   loop_id: null
   iteration: null
   canvas:
