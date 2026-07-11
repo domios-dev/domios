@@ -1,7 +1,7 @@
 import { chromium, test as base, type Browser, type Page } from "@playwright/test";
 import { ApiClient, readDevToken } from "./api-client";
 import { apiReset, diffReset, snapshotBaseline } from "./reset";
-import { API_BASE, connectUi, isHealthy, type UiSession } from "./dev-console";
+import { API_BASE, connectUi, ensureDevConsole, isHealthy, type UiSession } from "./dev-console";
 
 type WorkerFixtures = {
   uiSession: ManagedUiSession;
@@ -105,20 +105,28 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   ],
 
   // Diff-based teardown closes only what the test created; the blanket sweep
-  // runs once per spec file as a stray-state safety net.
-  api: async ({ resetTracker }, use, testInfo) => {
-    const client = new ApiClient();
-    if (resetTracker.lastFile !== testInfo.file) {
-      resetTracker.lastFile = testInfo.file;
-      await apiReset(client);
-    }
-    const baseline = await snapshotBaseline(client);
-    try {
-      await use(client);
-    } finally {
-      await diffReset(client, baseline);
-    }
-  },
+  // runs once per spec file as a stray-state safety net. A daemon that died
+  // mid-previous-test is revived here so one crash fails one test, not a cascade
+  // (own timeout: revival can rebuild dev, which never fits a per-test budget).
+  api: [
+    async ({ resetTracker }, use, testInfo) => {
+      if (!(await isHealthy())) {
+        await ensureDevConsole();
+      }
+      const client = new ApiClient();
+      if (resetTracker.lastFile !== testInfo.file) {
+        resetTracker.lastFile = testInfo.file;
+        await apiReset(client);
+      }
+      const baseline = await snapshotBaseline(client);
+      try {
+        await use(client);
+      } finally {
+        await diffReset(client, baseline).catch(() => {});
+      }
+    },
+    { timeout: 660_000 },
+  ],
 
   paneCleanup: async ({ api }, use) => {
     const paneIds = new Set<string>();
