@@ -35,7 +35,15 @@ export default defineConfig({
       retries: 0,
       timeout: 300_000,
     },
-    { name: "full", grepInvert: /@quarantine|@restart/, retries: 0 },
+    { name: "full", grepInvert: /@quarantine|@restart|@live/, retries: 0 },
+    // Real-provider LLM flows, run on their own cadence outside golden.
+    {
+      name: "live",
+      grep: /@live/,
+      grepInvert: /@quarantine/,
+      retries: 0,
+      timeout: 420_000,
+    },
     {
       name: "restart",
       grep: /@restart/,

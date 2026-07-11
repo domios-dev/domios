@@ -297,6 +297,17 @@ async function connectDesktopUi(): Promise<UiSession> {
     (() => {
       throw new Error("no page exposed over CDP — dev console window missing?");
     })();
+  // xterm a11y text layers (the DOM-oracle surface) are runtime-gated by
+  // ?a11y — force it so oracles never depend on vite env plumbing.
+  try {
+    const url = new URL(page.url());
+    if (!url.searchParams.has("a11y")) {
+      url.searchParams.set("a11y", "1");
+      await page.goto(url.toString(), { waitUntil: "domcontentloaded" });
+    }
+  } catch {
+    /* non-URL page (about:blank) — waitForShell will surface real problems */
+  }
   await waitForShell(page);
   return { browser, page };
 }
