@@ -77,7 +77,17 @@ interface MessageBubbleProps {
 const INTERACTIVE_QUESTIONS_ENABLED = false;
 const TOOL_EXPANDED_BY_ID = new Map<string, boolean>();
 
+// Test-only render counter (opt-in: a harness sets window.__bubbleRenderCounts
+// to {}). No-op in production — a single property read on window.
+function recordBubbleRender(id: string): void {
+  if (typeof window === "undefined") return;
+  const counts = (window as { __bubbleRenderCounts?: Record<string, number> }).__bubbleRenderCounts;
+  if (!counts) return;
+  counts[id] = (counts[id] ?? 0) + 1;
+}
+
 export const MessageBubble = React.memo(function MessageBubble({ message, isLatestFailedToolCall = false, origin, originAvatar, onOriginClick, resolvePaneName, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
+  recordBubbleRender(message.id);
   const isFailedToolCall = message.type === "tool_call" && message.toolError === true;
   const shouldAutoExpand = message.type === "tool_call"
     && (message.toolInput?.content != null
