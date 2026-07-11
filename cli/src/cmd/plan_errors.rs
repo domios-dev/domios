@@ -104,7 +104,7 @@ After approval/execution starts, set heartbeat with:\n\
             ))
         }
         "in_progress_requires_pane" => Some(format!(
-            "✗ in_progress requires an executor pane.\nfix: set status and pane in one command:\n  codeterm plan task update {plan_id} {} --status in_progress --pane <pane-id>\n(emergency override: CODETERM_STATE_INVARIANTS=off)",
+            "✗ in_progress requires an executor tab.\nfix: set status and tab in one command:\n  codeterm plan task update {plan_id} {} --status in_progress --tab <tab-id>\n(emergency override: CODETERM_STATE_INVARIANTS=off)",
             task_id.unwrap_or("<task_id>")
         )),
         "blocked_requires_label" => Some(format!(

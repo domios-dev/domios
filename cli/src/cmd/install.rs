@@ -57,7 +57,7 @@ pub fn run_install_from_file(
             :api_ready\r\n\
             echo [self-install] daemon API ready, waiting 5s for shell+agent resume >> \"%LOG%\"\r\n\
             timeout /t 5 /nobreak > nul\r\n\
-            \"{cli}\" send --pane {pane} --from-file \"{file}\" >> \"%LOG%\" 2>&1\r\n\
+            \"{cli}\" send --tab {pane} --from-file \"{file}\" >> \"%LOG%\" 2>&1\r\n\
             echo [self-install] continue prompt delivered >> \"%LOG%\"\r\n\
             del \"{file}\" 2>nul\r\n\
             :cleanup\r\n",
@@ -104,7 +104,7 @@ pub fn run_install_from_file(
             continue_pane.unwrap_or("?")
         );
     } else if continue_prompt.is_some() {
-        eprintln!("[install --from-file] WARN: --continue-prompt set but no --continue-pane / $CODETERM_PANE_ID — prompt will be DROPPED");
+        eprintln!("[install --from-file] WARN: --continue-prompt set but no --continue-tab / $CODETERM_PANE_ID — prompt will be DROPPED");
     }
     eprintln!("[install --from-file] Detaching. Daemon will go down in ~2s.");
 
@@ -172,7 +172,7 @@ pub fn run_install_from_file(
              done\n\
              echo '[self-install] daemon healthy; waiting 5s for shell+agent resume'\n\
              sleep 5\n\
-             \"{cli}\" send --pane {pane} --from-file \"{file}\"\n\
+             \"{cli}\" send --tab {pane} --from-file \"{file}\"\n\
              echo '[self-install] continue prompt delivered'\n\
              rm -f \"{file}\"\n",
             cli = cli_exe.display(),

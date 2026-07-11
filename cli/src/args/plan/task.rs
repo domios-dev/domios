@@ -64,7 +64,7 @@ pub enum PlanTaskAction {
         parent: Option<String>,
         #[arg(long = "depends-on")]
         depends_on: Vec<String>,
-        #[arg(long)]
+        #[arg(long = "assign-tab")]
         assign_pane: Option<String>,
         #[arg(long)]
         workspace_id: Option<String>,
@@ -160,7 +160,7 @@ pub enum PlanTaskAction {
         depends_on: Vec<String>,
         #[arg(long = "clear-dependencies")]
         clear_dependencies: bool,
-        #[arg(long)]
+        #[arg(long = "tab")]
         pane: Option<String>,
         #[arg(long)]
         workspace_id: Option<String>,
@@ -221,11 +221,11 @@ pub enum PlanTaskAction {
         plan_id: String,
         task_id: Option<String>,
     },
-    /// Assign a task to a pane (exports CODETERM_TASK_ID to that pane)
+    /// Assign a task to a tab (exports CODETERM_TASK_ID to that tab)
     Assign {
         plan_id: String,
         task_id: Option<String>,
-        #[arg(long)]
+        #[arg(long = "tab")]
         pane: String,
         #[arg(long, alias = "peer")]
         mesh: Option<String>,
@@ -238,7 +238,7 @@ pub enum PlanTaskAction {
         agent: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
-        #[arg(long, help = "Parent pane override (defaults to the caller pane)")]
+        #[arg(long = "parent-tab", help = "Parent tab override (defaults to the caller tab)")]
         parent: Option<String>,
         #[arg(long)]
         workspace: Option<String>,

@@ -36,7 +36,13 @@ fn walk(cmd: &Command) -> ManifestCommand {
         .get_arguments()
         .filter(|a| a.get_id() != "help" && a.get_id() != "version")
         .map(|a| ManifestArg {
-            name: a.get_id().to_string(),
+            name: if a.is_positional() {
+                a.get_id().to_string()
+            } else {
+                a.get_long()
+                    .map(|long| long.to_string())
+                    .unwrap_or_else(|| a.get_id().to_string())
+            },
             positional: a.is_positional(),
             value_name: a
                 .get_value_names()
@@ -335,7 +341,7 @@ mod tests {
     fn manifest_has_core_commands() {
         let m = build();
         let names: Vec<&str> = m.subcommands.iter().map(|c| c.name.as_str()).collect();
-        for expected in ["send", "agent", "mem", "session", "cli-manifest"] {
+        for expected in ["send", "agent", "mem", "tab", "cli-manifest"] {
             assert!(
                 names.contains(&expected),
                 "missing top-level command: {expected}"
