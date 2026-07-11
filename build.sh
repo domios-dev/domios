@@ -728,7 +728,7 @@ case "$CMD" in
     require_integration_owner
     enter_build_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist
-    kill_dev
+    kill_dev || echo "WARNING: dev cleanup failed; continuing to startup health gate." >&2
     ensure_deps
     ct_configure_sccache
     echo "Building CLI..."
