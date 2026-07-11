@@ -54,6 +54,7 @@ pub(super) fn dispatch(
                     .set_mode(&id, mode, epoch_ms())
                     .map_err(plan_rpc_err)?,
             }
+            svc.reconcile_time_reminder_eligibility();
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
         }
@@ -70,6 +71,7 @@ pub(super) fn dispatch(
                 .plan_store
                 .pause_plan(&id, &reason, from, epoch_ms())
                 .map_err(plan_rpc_err)?;
+            svc.reconcile_time_reminder_eligibility();
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true, "stride_id": stride_id }))
         }
@@ -79,6 +81,7 @@ pub(super) fn dispatch(
                 .plan_store
                 .resume_plan(&id, epoch_ms())
                 .map_err(plan_rpc_err)?;
+            svc.reconcile_time_reminder_eligibility();
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true, "mode": mode }))
         }
@@ -95,6 +98,7 @@ pub(super) fn dispatch(
             svc.plan_store
                 .set_planning_state(&id, state, by, note.as_deref(), epoch_ms())
                 .map_err(plan_rpc_err)?;
+            svc.reconcile_time_reminder_eligibility();
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true, "planning_state": state.as_str() }))
         }
