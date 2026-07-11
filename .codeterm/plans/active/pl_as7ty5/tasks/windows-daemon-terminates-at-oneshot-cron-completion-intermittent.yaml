@@ -14,10 +14,10 @@ correctness: Fix addresses the identified mechanism; daemon survives oneshot com
 status: in_progress
 review_stage: review
 qa_state: null
-status_label: needs-reassign
+status_label: remote-direct-on-ROG
 priority: p0
 created_at: 1783795693431
-updated_at: 1783805032391
+updated_at: 1783805267594
 status_changed_at: 1783796613129
 handle: windows-daemon-terminates-at-oneshot-cron-completion-intermittent
 tags:
@@ -170,6 +170,23 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_d6lgco
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' ROG worker 84d60f00 is alive and Working via direct mesh spawn, but local plan reconciliation cannot model remote direct-spawn panes as assigned; keep task in_progress with remote-direct-on-ROG label and monitor by explicit codeterm tab status --mesh ROG'
+  ts: 1783805267594
+  links:
+  - key:012c162556e237de
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_7a66zr
   executor_pane_id: 84d60f00
@@ -181,7 +198,7 @@ execution_attempts:
   role: null
   parent_pane_id: null
   orchestrator_pane_id: null
-  mesh_peer: null
+  mesh_peer: ROG
   branch: null
   worktree_path: null
   base: null
@@ -207,7 +224,7 @@ execution_attempts:
   role: null
   parent_pane_id: null
   orchestrator_pane_id: null
-  mesh_peer: null
+  mesh_peer: ROG
   branch: null
   worktree_path: null
   base: null

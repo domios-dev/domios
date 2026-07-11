@@ -17,7 +17,7 @@ qa_state: null
 status_label: null
 priority: p2
 created_at: 1783782192088
-updated_at: 1783782192088
+updated_at: 1783805267564
 status_changed_at: 1783782192088
 handle: multi-instance-parallel-playwright-sharding-on-one-machine
 tags: []
@@ -30,7 +30,8 @@ executor_role: test-author
 competition: null
 intent: null
 parent_task_id: null
-depends_on: []
+depends_on:
+- task_k16xu0
 assigned_pane_id: null
 lane:
   pane_id: null
