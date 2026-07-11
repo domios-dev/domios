@@ -11,14 +11,14 @@ acceptance_criteria:
 - Golden project minus @restart passes with the new reset on at least one platform, and measured suite time drops vs the shard-table baseline
 test_plan: '1) Tag restart tests; add a restart project to playwright.config.ts mirroring golden grep + @restart. 2) Extend helpers/fixtures.ts: workspace tracking analogous to paneCleanup; api fixture teardown closes tracked-only; move blanket apiReset to a per-file afterAll. 3) Run a deterministic shard (06-mem + 11-api + 02-multiplexer minus restart) before/after: npx playwright test --project=golden <selector> --global-timeout=1800000 -> green + timing delta recorded. 4) Run the @restart shard alone -> green.'
 correctness: 'No cross-test leakage: a test that creates nothing must not be able to see a prior test''s workspaces; restart tests still fully covered, just isolated.'
-status: in_progress
+status: in_review
 review_stage: review
 qa_state: null
 status_label: bounced-rog-restart-cron-exit
 priority: p1
 created_at: 1783782091095
-updated_at: 1783793256380
-status_changed_at: 1783793256380
+updated_at: 1783795722617
+status_changed_at: 1783795722617
 handle: restart-isolation-shard-and-diff-based-per-test-reset
 tags: []
 section_ids:
@@ -103,6 +103,38 @@ milestones:
   ts: 1783793255972
   links:
   - key:ab969658f8f5fe1f
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_a8h2ss
+  from:
+    pane_id: 56827f12
+    session_id: e0ceb04e-d24d-4f2b-8af5-d69d5d3fa421
+    title: planner-playwright-stability
+  kind: status_update
+  text: |-
+    IN_REVIEW: BOUNCE RESPONSE task_cgoixr — diagnosed with full evidence chain, harness corrected, runtime defect isolated into task_oya3rr.
+
+    ROOT CAUSE (the daemon disappearance ROG saw): a REAL Windows runtime defect, NOT harness. The dev daemon intermittently dies INSTANTLY right after a oneshot cron run completes. Local repro on this Windows box: 2 deaths / 4 oneshot completions across 3 full restart-project runs + 1 standalone. Exact signature (matches ROG codeterm.log): 'Cron run completed' -> 'Killed PTY <agent> process tree; ConPTY handles closed' -> 'Oneshot cron auto-deleting' -> instant silent death within ~300ms: no panic, no WER dump, no wry teardown lines = TerminateProcess-class. Next start classifies AbnormalExit (ROG 17:59:22Z observation ✓; the nearby WebView2 0x8007139F lines belong to normal killDevConsole teardowns, not the defect).
+
+    HARNESS EXONERATED with accounting: build-gateway job logs show exactly 7 dev-start jobs = 1 multiplexer + 6 extensions; cron beforeEach never killed (every daemon start has the mock-clock line); no harness kill coincides with the death timestamps. Correlation of failing runs: fresh daemon + hidden general-agent ConPTY spawn ~2s before the fatal ConPTY teardown; standalone cron on a warm daemon survives.
+
+    CORRECTIONS LANDED (3b04458a8, on top of d189ea250):
+    1. api fixture self-heals a dead daemon at setup (ensureDevConsole when 7686 down) with a fixture-scoped 660s timeout so revival does not eat the per-test budget — one daemon crash now fails exactly ONE test; the ROG failure #2 cascade class (fetch failed during fixture reset) is eliminated.
+    2. diff-reset teardown tolerates a dead daemon.
+    PROOF: run3 cron 3/3 green including oneshot (daemon survived) and recurring (16ms). Runs 1-2 prove the repro; run3 proves the cascade fix.
+
+    NEW BOUNDED DEFECT: task_oya3rr (rust-backend-dev, p1) — Windows daemon termination at oneshot completion; carries the full evidence, exact bounded repro command, instrumentation plan (Security-4689/ETW terminator capture), suspect surface (codeterm-pty ConPTY teardown racing concurrent ConPTY spawn), and 5-consecutive-clean-runs acceptance.
+
+    REMAINING KNOWN FLAKE (pre-existing infra, not this task): extensions wipe-per-test occasionally hits the dev--wait leftovers race; the retry succeeds but blows their own 180s setTimeout (seen in run3: 2 fails). Fix option if desired: raise extensions per-test caps inside the restart project only.
+
+    ASK: ROG platform owner re-runs the exact gate command at 3b04458a8+ and reports sha/health/pass-fail/artifacts per the bounce checklist. Expected outcome there: 10/10 when the runtime race does not fire, or exactly ONE honest oneshot failure when it does (no cascade) — either is consistent until task_oya3rr lands. Release-blocking classification of task_oya3rr is your call; my recommendation: yes for 1.7.2 (user-facing crash class), scheduled as its own lane.
+  ts: 1783795722617
+  links: []
   loop_id: null
   iteration: null
   canvas:

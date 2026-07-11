@@ -1,0 +1,54 @@
+id: task_oya3rr
+name: 'Windows: daemon terminates at oneshot cron completion (intermittent)'
+type: implementation
+model: opus
+model_rationale: 'Reproducible runtime defect: on Windows the dev daemon intermittently dies instantly (~50%, 2 of 4 observed completions) right after a oneshot cron run completes, killing every test behind it. Blocks trust in the restart Playwright project and is a user-facing crash class.'
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- The terminating mechanism is identified with direct evidence (process-termination audit, procmon trace, debugger, or instrumented build)
+- After the fix, 5 consecutive full restart-project runs on a Windows box show zero daemon deaths at oneshot completion
+- No regression to PTY kill/reap behavior for normal pane close
+test_plan: 'Repro: on Windows, run node node_modules/@playwright/test/cli.js test -c tests/playwright --project=restart --reporter=list --timeout=30000 --global-timeout=600000 — the oneshot test kills the daemon ~50% of runs. Signature in ~/.codeterm-dev/logs/codeterm.log: last lines exactly Cron run completed -> Killed PTY <agent pty> process tree; ConPTY handles closed -> Oneshot cron auto-deleting, then instant silent death (no panic, no WER dump, no wry teardown) within ~300ms; next start classifies AbnormalExit. Eliminated: harness kills (build-gateway job accounting shows no job at death time), mock-clock env, WER crash. Instrument: enable process-termination auditing (Security 4689) or ETW/procmon around the repro loop to catch the terminator; suspect surface: codeterm-pty begin_kill ConPTY pair drop + concurrent ConPTY spawn (hidden general agent boots ~2s prior in failing runs), job-object kill-on-close semantics. Verify per criteria with 5 clean consecutive runs.'
+correctness: Fix addresses the identified mechanism; daemon survives oneshot completion under concurrent ConPTY activity; pane kill semantics unchanged elsewhere.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783795693431
+updated_at: 1783795693431
+status_changed_at: 1783795693431
+handle: windows-daemon-terminates-at-oneshot-cron-completion-intermittent
+tags: []
+section_ids:
+- sec_rlqrqc
+body: 'Diagnose and fix the intermittent Windows daemon termination at oneshot cron completion. Full evidence chain gathered on BLACKSTAR-local repro (2 deaths / 4 completions, two full restart-project runs + one standalone survivor + one full-run survivor) and on ROG (same signature during Windows restart-project verification). Death is TerminateProcess-class: instant, all threads, nothing logged, no WER dump. Harness exonerated: gateway job logs account for every harness kill; none coincide with the death. Correlates with recently restarted daemon and concurrent hidden-agent ConPTY spawn ~2s before the fatal ConPTY teardown.'
+role_guidance: 'You are a Rust engineer on the daemon runtime and codeterm-pty. This is native-level debugging: instrument, capture the terminator, fix the mechanism — no speculative patches. Red line: the fix must be justified by an observed terminator identity or captured native failure, not by a theory that merely sounds plausible.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: playwright-stability
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []
