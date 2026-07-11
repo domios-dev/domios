@@ -143,6 +143,8 @@ Run (any OS, against a healthy dev on 7686): `npx playwright test --config=tests
 per hang).** The failure pattern: specs get written and immediately run as a
 whole suite; one never-verified test awaits a selector that never resolves,
 and the run sits silent for 20+ minutes. Rules, same spirit as the cargo caps:
+Full authoring contract and shipped helper patterns live in
+`docs/contributing/test-authoring.md`.
 
 1. **Verify in isolation first.** A freshly written or edited test runs ALONE
    before it ever joins a batch: `npx playwright test <file> -g "<test title>"
@@ -459,3 +461,5 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/TESTING.md` — full test guide
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
+
+<!-- revision: 1 -->

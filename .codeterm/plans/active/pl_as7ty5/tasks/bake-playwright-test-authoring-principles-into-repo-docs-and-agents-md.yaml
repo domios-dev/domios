@@ -11,14 +11,14 @@ acceptance_criteria:
 - No principle contradicts the existing charter; duplicated guidance is merged, not appended
 test_plan: '1) Read docs/contributing/test-authoring.md and the AGENTS.md Playwright discipline block. 2) Diff-read the landed commits for mechanisms. 3) Write/merge the principles section citing each mechanism by path. 4) Update AGENTS.md pointer + bump revision comments. 5) Oracle: grep confirms each named mechanism (waitForCanvasSettled, restart project, snapshotBaseline/diffReset, CODETERM_STUB_AGENT_CMD) is documented; a reviewer can find every rule from AGENTS.md in two hops.'
 correctness: Docs match the shipped mechanisms exactly (names, paths, env vars); AGENTS.md stays terse per its own style; no stale duplication.
-status: pending
+status: done
 review_stage: review
 qa_state: null
-status_label: null
+status_label: self-run-docs-sync
 priority: p2
 created_at: 1783802748114
-updated_at: 1783802748114
-status_changed_at: 1783802748114
+updated_at: 1783805172591
+status_changed_at: 1783805164672
 handle: bake-playwright-test-authoring-principles-into-repo-docs-and-agents-md
 tags: []
 section_ids:
@@ -39,8 +39,9 @@ lane:
   branch: null
   base: null
   destination: null
-  cleanup_status: null
-  cleanup_hints: []
+  cleanup_status: done
+  cleanup_hints:
+  - docs-only self-run; no dev daemon or worker worktree created
 taken_by_role: null
 peer: null
 group: pw-speedup
@@ -48,7 +49,24 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_0cqpcv
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: evidence
+  text: ' updated docs/contributing/test-authoring.md with Playwright mechanics for waitForCanvasSettled, restart project, snapshotBaseline/diffReset, CODETERM_STUB_AGENT_CMD, and measurement harness separation; AGENTS.md now points to the doc; grep oracle and git diff --check passed'
+  ts: 1783805160283
+  links:
+  - key:543ac52443bcabe6
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 pause_reason: null
 attachments: []
