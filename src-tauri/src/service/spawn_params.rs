@@ -51,6 +51,7 @@ impl SpawnPaneSpec {
         let agent_command = command.unwrap_or_else(|| {
             PaneCommand::Agent(AgentSpawnSpec {
                 provider: params.agent.clone().unwrap_or_default(),
+                planned_model: params.planned_model.clone(),
                 model: params.model.clone(),
                 task: params.task.clone(),
                 agent_name: params.agent_name.clone(),
@@ -120,6 +121,7 @@ impl SpawnPaneSpec {
             skip_permissions: Some(agent.auto_approve),
             spawned_by_pane_id: agent.spawned_by_pane_id.clone(),
             model: agent.model.clone(),
+            planned_model: agent.planned_model.clone(),
             system_prompt: None,
             preset: None,
             resume_session_id: agent.resume_session_id.clone(),

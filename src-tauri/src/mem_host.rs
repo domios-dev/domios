@@ -237,6 +237,7 @@ pub fn spawn_headless_worker(
                 description: None,
                 command: PaneCommand::Agent(AgentSpawnSpec {
                     provider: agent_for_spawn,
+                    planned_model: None,
                     model: if model_for_spawn.is_empty() {
                         None
                     } else {

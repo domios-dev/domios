@@ -106,6 +106,21 @@ pub enum SplitNodeSnapshot {
         /// instead of dropping the pane to the provider default.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent_session_model: Option<String>,
+        /// Plan/task routing model before a dispatch override.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_planned_model: Option<String>,
+        /// Model requested at launch. Advisory; actual identity is agent_session_model.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_requested_model: Option<String>,
+        /// Provider catalog result passed to the launch command.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_provider_resolved_model: Option<String>,
+        /// Structured fallback provenance, including runtime actual once known.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model_fallback: Option<crate::multiplexer::types::ModelFallbackNotice>,
+        /// Provider runtime proved the actual model differs from the request.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model_identity_mismatch: Option<crate::multiplexer::types::ModelIdentityMismatch>,
         /// chatBackend (shell) pane backing — persisted so the pane restores as a
         /// chatBackend (not a PTY) and can lazily re-open its plugin session on
         /// first send. `None` for ordinary PTY panes.
