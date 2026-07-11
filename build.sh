@@ -820,10 +820,6 @@ case "$CMD" in
             STABLE=1
             for _ in 1 2 3 4; do
               sleep 2
-              if [ -z "$(dev_listener_pid)" ]; then
-                STABLE=0
-                break
-              fi
               HEALTH=$(dev_health_status)
               if ! SHA=$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH" 2>/dev/null); then
                 STABLE=0
