@@ -10,14 +10,14 @@ acceptance_criteria:
 - Linux-only failures separated from shared-UI failures and handed to triage with repro commands
 test_plan: 'On ubunta, dev healthy on 7686 and Chromium installed: 1) curl -s http://127.0.0.1:7686/api/health ok. 2) npx playwright test --config=tests/playwright/playwright.config.ts --project=golden <shard selector> --global-timeout=<budget> --reporter=line. 3) On hang, re-run single test --trace on, read selector. Pass = shard result table plus artifact paths.'
 correctness: Web-mode drives /web/ Chromium; results reflect ubunta only; caps bound every run.
-status: blocked
+status: cancelled
 review_stage: review
 qa_state: null
-status_label: 'blocked: ENVIRONMENT ubunta control path/PTY unavailable'
+status_label: 'deferred: external ubunta infra/control path blocker'
 priority: p1
 created_at: 1783763162275
-updated_at: 1783777990031
-status_changed_at: 1783764547263
+updated_at: 1783779780114
+status_changed_at: 1783779780114
 handle: run-linux-web-mode-first-shard-on-ubunta
 tags:
 - environment
@@ -230,6 +230,23 @@ milestones:
   ts: 1783777990031
   links:
   - key:ba8a63e2568e3636
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_d8e85x
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' terminal deferral. This is not an app-test failure and no executable lane remains: ubunta control/build path is broken, prior pause RPC is unavailable, and repeated reminders treat the blocked task as stale active frontier. Marking cancelled/deferred for this effort; unblock trigger remains restore ubunta control/build path, fast-forward checkout to current origin/feat/1.7.2-stability, prove dev 7686 health matches HEAD, then run Shard L with bounded caps.'
+  ts: 1783779779722
+  links:
+  - key:934e2be140a648da
   loop_id: null
   iteration: null
   canvas:

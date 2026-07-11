@@ -16,7 +16,7 @@ qa_state: null
 status_label: null
 priority: p1
 created_at: 1783763197389
-updated_at: 1783772153943
+updated_at: 1783779836440
 status_changed_at: 1783772147224
 handle: triage-and-fix-platform-specific-playwright-failures
 tags: []
@@ -91,6 +91,23 @@ milestones:
   text: 'Triage complete. Close done: all classified app-test failures fixed/green; Linux remains a bounded environment blocker in task_usmilu, not an unresolved app failure. Next release gate is a real Linux app-test signal after ubunta control/build path is restored.'
   ts: 1783772147224
   links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_d69pra
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' attempted audited QA override for planning-ux, playwright-stability, and responsiveness regression-gate advisories with explicit release-CI deferral reason, but current daemon lacks plan.qa.override. Leaving them as advisory next_actions: no full cargo+TS+golden matrix is claimed in this plan; focused remote evidence is complete and full matrix remains a release CI/remote-farm gate before shipping.'
+  ts: 1783779836440
+  links:
+  - key:f5b47bf2dc734335
   loop_id: null
   iteration: null
   canvas:
