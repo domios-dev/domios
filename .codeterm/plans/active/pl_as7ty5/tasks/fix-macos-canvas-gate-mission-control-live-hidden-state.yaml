@@ -15,7 +15,7 @@ qa_state: null
 status_label: running-on-eight
 priority: p1
 created_at: 1783793589957
-updated_at: 1783796183539
+updated_at: 1783796239844
 status_changed_at: 1783796168007
 handle: fix-macos-canvas-gate-mission-control-live-hidden-state
 tags:
@@ -213,6 +213,23 @@ milestones:
   ts: 1783796183536
   links:
   - key:454ffa98d2d4bf83
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_04ifde
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: cleanup
+  text: ' eight confirmed worker tab 2c118899 closed; dev 7686 stopped and free; prod 7685 untouched/healthy; codeterm-alpha HEAD e243ddf3 equals pushed origin and worktree clean; no diagnostic files left.'
+  ts: 1783796239844
+  links:
+  - key:aff25c971e6231b3
   loop_id: null
   iteration: null
   canvas:
