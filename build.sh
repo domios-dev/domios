@@ -556,16 +556,15 @@ dev_health_fields() {
 
 validate_dev_health() {
   local expected_sha="$1" expected_instance="$2" expected_port="$3" expected_vite="$4" expected_cdp="$5" expected_identifier="$6" health="$7"
-  local status sha instance port vite cdp identifier
-  local -a fields=()
-  mapfile -t fields < <(printf '%s' "$health" | dev_health_fields 2>/dev/null || true)
-  status="${fields[0]:-}"
-  sha="${fields[1]:-}"
-  instance="${fields[2]:-}"
-  port="${fields[3]:-}"
-  vite="${fields[4]:-}"
-  cdp="${fields[5]:-}"
-  identifier="${fields[6]:-}"
+  local status sha instance port vite cdp identifier fields
+  fields="$(printf '%s' "$health" | dev_health_fields 2>/dev/null || true)"
+  status="$(printf '%s\n' "$fields" | sed -n '1p')"
+  sha="$(printf '%s\n' "$fields" | sed -n '2p')"
+  instance="$(printf '%s\n' "$fields" | sed -n '3p')"
+  port="$(printf '%s\n' "$fields" | sed -n '4p')"
+  vite="$(printf '%s\n' "$fields" | sed -n '5p')"
+  cdp="$(printf '%s\n' "$fields" | sed -n '6p')"
+  identifier="$(printf '%s\n' "$fields" | sed -n '7p')"
   if [ "$status" != "ok" ]; then
     echo "Health endpoint did not report status=ok" >&2
     return 1
@@ -821,10 +820,6 @@ case "$CMD" in
             STABLE=1
             for _ in 1 2 3 4; do
               sleep 2
-              if ! dev_wait_process_alive "$DEV_PID"; then
-                STABLE=0
-                break
-              fi
               if [ -z "$(dev_listener_pid)" ]; then
                 STABLE=0
                 break
