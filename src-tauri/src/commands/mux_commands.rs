@@ -374,7 +374,9 @@ pub fn build_agent_launch_command(
         structured_prompt_server: None,
     };
     svc.agent_registry
-        .with_provider(&agent_id, |p| p.build_launch_command(&params))
+        .with_provider(&agent_id, |p| {
+            crate::agent::stub_launch::apply(&agent_id, p.build_launch_command(&params))
+        })
         .ok_or_else(|| format!("Unknown agent provider: {}", agent_id))
 }
 

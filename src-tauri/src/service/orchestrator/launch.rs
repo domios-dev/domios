@@ -310,7 +310,9 @@ pub(crate) fn build_agent_command(
         structured_prompt_server: params.structured_prompt_server.clone(),
     };
     let cmd = registry
-        .with_provider(agent_cmd, |p| p.build_launch_command(&launch_params))
+        .with_provider(agent_cmd, |p| {
+            crate::agent::stub_launch::apply(agent_cmd, p.build_launch_command(&launch_params))
+        })
         .unwrap_or_else(|| {
             let mut parts: Vec<String> = vec![agent_cmd.to_string()];
             parts.extend(args.iter().cloned());

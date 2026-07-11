@@ -881,7 +881,12 @@ impl ServiceContext {
             };
             let launch_cmd = svc_outer
                 .agent_registry
-                .with_provider(&provider, |p| p.build_launch_command(&launch_params))
+                .with_provider(&provider, |p| {
+                    crate::agent::stub_launch::apply(
+                        &provider,
+                        p.build_launch_command(&launch_params),
+                    )
+                })
                 .unwrap_or_else(|| format!("{} --dangerously-skip-permissions", provider));
 
             match svc_outer.resolve_pty_id(&pane_id_outer) {

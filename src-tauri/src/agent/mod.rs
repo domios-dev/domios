@@ -22,6 +22,7 @@ pub mod state_reactor;
 #[allow(dead_code)]
 pub mod status;
 pub mod structured_prompt;
+pub mod stub_launch;
 #[cfg(test)]
 pub mod test_provider;
 pub mod usage_parser;
