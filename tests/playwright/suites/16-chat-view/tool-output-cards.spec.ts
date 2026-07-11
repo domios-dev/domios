@@ -67,6 +67,7 @@ test.afterEach(async ({ ui }) => {
 test("@golden shared tool cards bound long exec output at 959x279 and mobile", async ({ ui }) => {
   await ui.page.setViewportSize(DESKTOP);
   await mountCards(ui.page);
+  await expect(ui.page.locator('[data-testid="tool-output-card"][data-tool-name="exec"]')).toBeVisible();
   await expectBoundedPreview(ui.page);
   await ui.page.screenshot({ path: test.info().outputPath("tool-output-cards-959x279.png") });
 
