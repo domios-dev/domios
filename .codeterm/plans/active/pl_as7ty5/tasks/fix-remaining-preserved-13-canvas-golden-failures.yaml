@@ -15,7 +15,7 @@ qa_state: null
 status_label: shard-gate-requested
 priority: p1
 created_at: 1783799488075
-updated_at: 1783801080919
+updated_at: 1783801147803
 status_changed_at: 1783801080922
 handle: fix-remaining-preserved-13-canvas-golden-failures
 tags:
@@ -40,7 +40,7 @@ lane:
   branch: null
   base: null
   destination: null
-  cleanup_status: deferred
+  cleanup_status: done
   cleanup_hints:
   - eight dev 7686 intentionally left warm for next QA lane per worker recommendation; worker tab cleanup pending.
 taken_by_role: null
@@ -94,6 +94,23 @@ milestones:
   text: 'DONE. Pushed 707ac89a to origin/feat/1.7.2-stability with normal push and full integration gate passed: shell guards, file-size, cargo check, cargo fmt, clippy. Preserved 13-canvas shard passed 29/2/0 before push. Visual golden guard was satisfied by deterministic regenerate run and reviewed tests/playwright/visual-goldens-reviewed-diff.md explaining Park-button/metadata rebaseline plus age-mask rationale. Working tree clean, local in sync with origin. Dev 7686 intentionally left warm at build_sha 195436df for next QA lane; prod 7685 untouched.'
   ts: 1783801080922
   links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_1dqwpy
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: cleanup
+  text: ' eight confirmed worker tab 41f38901 closed; dev 7686 kept warm at build_sha 195436df/status ok for next lane; prod 7685 untouched/ok; no worker tabs remain for completed canvas lanes.'
+  ts: 1783801147652
+  links:
+  - key:f8190f3e0cb52f8c
   loop_id: null
   iteration: null
   canvas:
