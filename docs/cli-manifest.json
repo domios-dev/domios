@@ -5178,7 +5178,7 @@
           "subcommands": [
             {
               "name": "answer",
-              "about": "Answer an open gate (immutable audit record, unparks blocked tasks)",
+              "about": "Answer an open gate (immutable audit record, resumes paused tasks)",
               "aliases": [],
               "args": [
                 {
@@ -5218,7 +5218,7 @@
             },
             {
               "name": "ask",
-              "about": "Create a decision gate, park blocking tasks, and route the question to the planner",
+              "about": "Create a decision gate, pause blocking tasks, and route the question to the planner",
               "aliases": [],
               "args": [
                 {
@@ -5234,7 +5234,7 @@
                   "positional": false,
                   "value_name": "BLOCKING_TASK_IDS",
                   "default": null,
-                  "help": "Task ids (or handles) to park until this gate is answered",
+                  "help": "Task ids (or handles) to pause until this gate is answered",
                   "aliases": []
                 },
                 {
@@ -7094,7 +7094,7 @@
               "positional": false,
               "value_name": "STATUS",
               "default": null,
-              "help": "Task status: pending | in_progress | in_review | blocked | done | cancelled",
+              "help": "Task status: pending | in_progress | in_review | blocked | paused | done | cancelled",
               "aliases": []
             },
             {
@@ -8300,15 +8300,15 @@
                   "positional": false,
                   "value_name": "STATUS",
                   "default": null,
-                  "help": "Task status: pending | in_progress | in_review | blocked | done | cancelled",
+                  "help": "Task status: pending | in_progress | in_review | blocked | paused | done | cancelled",
                   "aliases": []
                 }
               ],
               "subcommands": []
             },
             {
-              "name": "park",
-              "about": "Park a task (defers it out of the heartbeat open-work set; requires --reason)",
+              "name": "pause",
+              "about": "Pause a task (explicit operator hold outside the heartbeat open-work set; requires --reason)",
               "aliases": [],
               "args": [
                 {
@@ -8435,6 +8435,30 @@
               "subcommands": []
             },
             {
+              "name": "resume",
+              "about": "Resume a paused task (returns it to dependency-waiting pending)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "retag",
               "about": "Replace facet/topic tags and regenerate the task handle",
               "aliases": [],
@@ -8507,30 +8531,6 @@
                   "name": "yes",
                   "positional": false,
                   "value_name": "YES",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                }
-              ],
-              "subcommands": []
-            },
-            {
-              "name": "unpark",
-              "about": "Unpark a task (returns it to pending)",
-              "aliases": [],
-              "args": [
-                {
-                  "name": "plan_id",
-                  "positional": true,
-                  "value_name": "PLAN_ID",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "task_id",
-                  "positional": true,
-                  "value_name": "TASK_ID",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -8772,7 +8772,7 @@
                   "positional": false,
                   "value_name": "STATUS",
                   "default": null,
-                  "help": "Task status: pending | in_progress | in_review | blocked | done | cancelled",
+                  "help": "Task status: pending | in_progress | in_review | blocked | paused | done | cancelled",
                   "aliases": []
                 },
                 {
@@ -10563,7 +10563,7 @@
               "positional": false,
               "value_name": "STATUS",
               "default": null,
-              "help": "Task status: pending | in_progress | in_review | blocked | done | cancelled",
+              "help": "Task status: pending | in_progress | in_review | blocked | paused | done | cancelled",
               "aliases": []
             },
             {

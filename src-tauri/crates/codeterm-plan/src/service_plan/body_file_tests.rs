@@ -204,7 +204,7 @@ fn corrupt_markdown_sidecar_keeps_plan_indexed_with_json_body() {
         canvas: Default::default(),
         milestones: vec![],
         execution_attempts: vec![],
-        park_reason: None,
+        pause_reason: None,
         personality: None,
         personality_provenance: None,
         attachments: vec![],
@@ -673,7 +673,7 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
             attachments: vec![],
         }],
         execution_attempts: vec![],
-        park_reason: None,
+        pause_reason: None,
         personality: None,
         personality_provenance: None,
     });
@@ -776,7 +776,7 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
             attachments: vec![],
         }],
         execution_attempts: vec![],
-        park_reason: None,
+        pause_reason: None,
         personality: None,
         personality_provenance: None,
     });

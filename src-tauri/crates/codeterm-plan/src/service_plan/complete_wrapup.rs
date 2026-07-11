@@ -66,7 +66,7 @@ mod tests {
     }
 
     #[test]
-    fn wrapup_gate_is_silent_for_parked_only_execution_plan() {
+    fn wrapup_gate_is_silent_for_paused_only_execution_plan() {
         let dir = tempfile::tempdir().unwrap();
         let store = PlanStore::new_for_test(dir.path());
         let plan = store
@@ -91,7 +91,7 @@ mod tests {
             )
             .unwrap();
         store
-            .park_task(
+            .pause_task(
                 &plan.id,
                 &task_id,
                 "provider quota exhausted",
@@ -107,7 +107,7 @@ mod tests {
             .any(|task| task.status.counts_as_open_work()));
         assert!(
             !needs_complete_wrapup(&plan),
-            "parked-only plans have no actionable work, but are not closeout-ready"
+            "paused-only plans have no actionable work, but are not closeout-ready"
         );
     }
 }

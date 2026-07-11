@@ -94,7 +94,7 @@ assert(inflightTooltip(snapshot.entries).includes("Puccini"), "tooltip includes 
 const noPane = selectActiveWork([plan({ tasks: [task({ id: "x", status: TaskStatus.InReview, assigned_pane_id: "gone" })] })], panes, NOW);
 assert(noPane.entries[0]?.executorPresent === false, "missing pane → no presence");
 
-const parked = selectActiveWork([plan({ mode: "paused", tasks: [freshWip] })], panes, NOW);
-assert(parked.entries.length === 0, "parked plans do not contribute active work");
+const paused = selectActiveWork([plan({ mode: "paused", tasks: [freshWip] })], panes, NOW);
+assert(paused.entries.length === 0, "paused plans do not contribute active work");
 
 console.log("activeWork: all assertions passed");

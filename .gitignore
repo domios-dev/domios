@@ -13,6 +13,8 @@ references/
 codeterm-workspace/
 tests/e2e/__pycache__/
 tests/e2e/testdata_*.json
+__pycache__/
+*.pyc
 src-tauri/bundled-cli/
 src-tauri/bundled-embed/
 *.local.sh

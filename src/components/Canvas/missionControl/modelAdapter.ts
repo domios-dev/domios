@@ -265,7 +265,7 @@ export function modelToSnapshot({
   const qaQueueStations = qaStations.filter((s) => s !== qaRunningStation);
 
   const blockedStations = stationsInZone(model, "blocked");
-  const parked = mapStations("blocked").filter((_, i) => blockedStations[i]?.task.status === TaskStatus.Parked);
+  const paused = mapStations("blocked").filter((_, i) => blockedStations[i]?.task.status === TaskStatus.Paused);
   const blocked = mapStations("blocked").filter((_, i) => blockedStations[i]?.task.status === TaskStatus.Blocked);
 
   const doneTasks = mapStations("done_shelf");
@@ -284,7 +284,7 @@ export function modelToSnapshot({
     gateQueue: mapStations("gate"),
     doneCount: doneTasks.length,
     doneRecent: doneTasks.slice(-3).reverse(),
-    parked,
+    paused,
     blocked,
     events: extractStreamEvents(plan),
   };

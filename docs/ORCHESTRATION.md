@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 31 -->
+<!-- revision: 32 -->
 
 Full reference for the `codeterm plan` CLI and orchestration discipline. The *why* (when to spawn, model routing, role contracts) lives here and in your role prompt — this doc is the authority; machine-specific deltas live in mem preferences (kind=preference, area=orchestration).
 
@@ -387,32 +387,32 @@ The orchestrator **heartbeat** is durable state attached to the plan (`current_f
 
 Plan nudges are automatic while an execution-mode plan has unfinished work:
 
-- **Owner orchestrator:** receives a timed reminder while the owned plan has any task that is not `done`, `cancelled`, or `parked`.
+- **Owner orchestrator:** receives a timed reminder while the owned plan has any task that is not `done`, `cancelled`, or `paused`.
 - **Assigned worker:** receives a timed reminder while its task is `pending`, `in_progress`, or `blocked` and it has not reported back.
 - **Event nudges:** pane sends and agent reports still count as activity triggers, but they are not required for the timer to fire.
 - **Cadence:** `[orchestration].nudge_interval_secs` defaults to `1800` (30 minutes). `[orchestration].nudge_after_turns` remains the message-count fallback. `[orchestration].plan_reminders = false` disables both.
 
-### Task lifecycle — PARKED and the relentless nudge contract
+### Task lifecycle — PAUSED and the relentless nudge contract
 
 The open-work set and the heartbeat-stop condition are the **same predicate**:
 a task counts as open only while it is `pending`, `in_progress`, `in_review`,
-or `blocked`. `done` and `cancelled` are terminal; **`parked`** is a
-non-terminal deferral that is *also* excluded from the open-work set — parked
+or `blocked`. `done` and `cancelled` are terminal; **`paused`** is an explicit
+operator hold that is *also* excluded from the open-work set — paused
 tasks do not keep the heartbeat alive and are folded/de-emphasized in read
-models. So there is no nudge dead-zone: while any non-terminal, non-parked task
-is open, the nudge **repeats until every open task is dispatched, parked with a
+models. So there is no nudge dead-zone: while any non-terminal, non-paused task
+is open, the nudge **repeats until every open task is dispatched, paused with a
 reason, or sent to replanning; silence is not an option.**
 
 Every open task must take exactly one of five exits: (1) dispatch it to a
-worker, (2) park with a reason, (3) judge an `in_review` task to done or bounce
+worker, (2) pause with a reason, (3) judge an `in_review` task to done or bounce
 it, (4) send it to replanning, (5) escalate to a smarter model.
 
-- **Park:** `codeterm plan task park <plan> <task> --reason "<why>"` — requires a
-  reason, sets `parked`, clears the lane assignment, and records a working-point
-  stride. Parking with no reason is rejected; a task parked without a reason is a
-  **doctor error** (`parked_without_reason`).
-- **Unpark:** `codeterm plan task unpark <plan> <task>` — returns the task to
-  `pending`, clears `park_reason`, and records a stride.
+- **Pause:** `codeterm plan task pause <plan> <task> --reason "<why>"` — requires a
+  reason, sets `paused`, clears the lane assignment, and records a working-point
+  stride. Pausing with no reason is rejected; a paused task without a reason is a
+  **doctor error** (`paused_without_reason`).
+- **Resume:** `codeterm plan task resume <plan> <task>` — returns the task to
+  dependency-waiting `pending`, clears `pause_reason`, and records a stride.
 - **Age thresholds (drift):** a `pending` task that stays **unstaffed over 4h**,
   or an `in_review` task that stays **unjudged over 2h**, is recorded as drift
   and named explicitly in the escalated nudge so stalled work cannot hide. Doctor
@@ -420,7 +420,7 @@ it, (4) send it to replanning, (5) escalate to a smarter model.
 
 ### Task-status state machine — transitions, preconditions, ownership
 
-Statuses: `pending → in_progress → in_review → done`, with `blocked`, `parked`
+Statuses: `pending → in_progress → in_review → done`, with `blocked`, `paused`
 (non-terminal deferrals) and `cancelled` (terminal) off to the side. Two rules
 keep the board honest about what is actually running:
 
@@ -444,7 +444,7 @@ Who owns each flip:
 - **Worker owns `in_progress → in_review`** — it moves the task to review when
   its work is ready and reports back.
 - **Orchestrator owns the `in_review` gate** — it judges an `in_review` task to
-  `done` or bounces it back; it owns `blocked`/`parked`/replanning decisions.
+  `done` or bounces it back; it owns `blocked`/`paused`/replanning decisions.
 
 ### Event-driven orchestration: no manual wait loops
 
@@ -486,13 +486,13 @@ unchanged at the next nudge."
 
 Every acceptance/close/integration changes which pending tasks are unblocked.
 Immediately after closing a task or accepting a lane, re-check the frontier:
-any task whose precondition just became true gets dispatched NOW, parked with
+any task whose precondition just became true gets dispatched NOW, paused with
 a recorded reason, or routed to replanning. The most common stall: a gating
 task (review/verification) becomes dispatchable at the moment the last lane
 integrates, while the stale focus still describes the finished wave.
 
 A nudge is handled only if it ends in a state change for at least one open
-task: dispatch / park (or a decision stride) / judge a report / bounce a
+task: dispatch / pause (or a decision stride) / judge a report / bounce a
 worker / hand to replanning. "Waiting" is a valid response only for tasks
 with a live assigned lane.
 
@@ -859,16 +859,16 @@ Workers report `in_review` — not `done`. The Orchestrator decides `done` after
 
 ### Heartbeat Discipline
 
-**HEARTBEAT = ACTION, never PARK.** Parking = sinking into over-verifying one change or sitting on a self-imposed gate while the backlog sits untouched.
+**HEARTBEAT = ACTION, never IDLE.** Idling means sinking into over-verifying one change or sitting on a self-imposed gate while the backlog sits untouched.
 
 Each heartbeat:
 1. **Reports first** — process any worker reports (accept/bounce). Don't inspect worker panes if reports arrived.
 2. **Re-scan the whole backlog** — list ALL open tasks; ask "what can I dispatch RIGHT NOW in parallel?"
 3. **Dispatch — if your focus is blocked, switch lanes, never sit.** A blocked/waiting lane is a signal to advance a DIFFERENT open task.
-4. **Timebox verification** — if a gate or test is blocked, record the friction, park that lane WITH A NOTE, and advance other work.
+4. **Timebox verification** — if a gate or test is blocked, record the friction, pause that lane WITH A NOTE, and advance other work.
 5. Keep plan heartbeat current (owner, active assignments, lane metadata, latest handoff).
 6. **Focus names an action YOU own** — never a wait. If blocked on someone: focus = "bounce <agent> re <thing> if unchanged at next nudge."
-7. **Re-derive the frontier after every gate.** Each accept/close unblocks tasks — dispatch, park with a reason, or replan NOW.
+7. **Re-derive the frontier after every gate.** Each accept/close unblocks tasks — dispatch, pause with a reason, or replan NOW.
 
 Do not create delayed self-send heartbeats as normal orchestration. If a worker is silent and overdue, check `pane status`/`pane chat` ONCE, record the lane state, and advance a different open task.
 

@@ -25,13 +25,13 @@ export interface StatusCounts {
   in_progress: number;
   in_review: number;
   blocked: number;
-  parked: number;
+  paused: number;
   done: number;
   cancelled: number;
 }
 
 export function emptyCounts(): StatusCounts {
-  return { pending: 0, in_progress: 0, in_review: 0, blocked: 0, parked: 0, done: 0, cancelled: 0 };
+  return { pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0 };
 }
 
 export function bumpCount(counts: StatusCounts, status: TaskStatus): void {
