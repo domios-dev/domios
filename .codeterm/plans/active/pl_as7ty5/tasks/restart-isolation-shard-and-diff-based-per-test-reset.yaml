@@ -11,14 +11,14 @@ acceptance_criteria:
 - Golden project minus @restart passes with the new reset on at least one platform, and measured suite time drops vs the shard-table baseline
 test_plan: '1) Tag restart tests; add a restart project to playwright.config.ts mirroring golden grep + @restart. 2) Extend helpers/fixtures.ts: workspace tracking analogous to paneCleanup; api fixture teardown closes tracked-only; move blanket apiReset to a per-file afterAll. 3) Run a deterministic shard (06-mem + 11-api + 02-multiplexer minus restart) before/after: npx playwright test --project=golden <selector> --global-timeout=1800000 -> green + timing delta recorded. 4) Run the @restart shard alone -> green.'
 correctness: 'No cross-test leakage: a test that creates nothing must not be able to see a prior test''s workspaces; restart tests still fully covered, just isolated.'
-status: pending
+status: in_review
 review_stage: review
 qa_state: null
 status_label: null
 priority: p1
 created_at: 1783782091095
-updated_at: 1783782091095
-status_changed_at: 1783782091095
+updated_at: 1783785857863
+status_changed_at: 1783785856864
 handle: restart-isolation-shard-and-diff-based-per-test-reset
 tags: []
 section_ids:
@@ -30,13 +30,13 @@ competition: null
 intent: null
 parent_task_id: null
 depends_on: []
-assigned_pane_id: null
+assigned_pane_id: 56827f12
 lane:
-  pane_id: null
+  pane_id: 56827f12
   workspace_id: null
   workspace_name: null
   worktree_path: null
-  branch: null
+  branch: feat/1.7.2-stability
   base: null
   destination: null
   cleanup_status: null
@@ -48,7 +48,34 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_iojgvl
+  from:
+    pane_id: 56827f12
+    session_id: e0ceb04e-d24d-4f2b-8af5-d69d5d3fa421
+    title: planner-playwright-stability
+  kind: status_update
+  text: |-
+    IN_REVIEW: task_cgoixr landed at d189ea250 on feat/1.7.2-stability (local commit, on top of f9fca3c05).
+
+    DONE:
+    1. RESTART ISOLATION: @restart tag on all daemon-killing tests (multiplexer kill/restart, whole 07-cron file — beforeEach restarts into mock clock, whole 15-extensions file — wipeDevState per test). smoke/golden/full now grepInvert @restart; new serial restart project (10 tests in 3 files) runs them alone. Ordinary shards can no longer lose their daemon mid-run — precondition for task_kb1ncv parallelism.
+    2. DIFF-BASED RESET: api fixture snapshots workspace/pane ids before each test and closes ONLY what appeared after; blanket apiReset now runs once per spec file (stray safety net) instead of after every one of 183 tests.
+
+    EVIDENCE: mem+api golden shard 15 passed 6.1s, twice; restart probe passed with daemon healthy on the new sha after the kill/restart cycle; golden --list 177 / restart 10 / smoke 27; tsc unchanged vs HEAD.
+
+    BONUS FINDING (pre-existing): 07-cron leaves the dev daemon with a mocked clock for every subsequent suite in a shared run — now contained by isolation but worth a daemon-side reset eventually.
+
+    NEXT: task_dycecc (runtime stub provider, Rust) — the big one.
+  ts: 1783785856864
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 pause_reason: null
 attachments: []
