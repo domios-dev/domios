@@ -17,7 +17,7 @@ qa_state: null
 status_label: running-on-rog
 priority: p0
 created_at: 1783795693431
-updated_at: 1783796613129
+updated_at: 1783799529088
 status_changed_at: 1783796613129
 handle: windows-daemon-terminates-at-oneshot-cron-completion-intermittent
 tags:
@@ -45,7 +45,7 @@ lane:
   destination: null
   cleanup_status: deferred
   cleanup_hints:
-  - ROG fallback direct worker in QA worktree; cleanup deferred until worker reports final git/dev/prod state.
+  - ROG worker 84d60f00 verified alive/Working after watchdog false demotion; cleanup deferred until worker reports final git/dev/prod state.
 taken_by_role: null
 peer: null
 group: playwright-stability
@@ -105,6 +105,39 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_ofqt07
+  from:
+    pane_id: watchdog
+    session_id: null
+    title: null
+  kind: decision
+  text: 'watchdog: assigned pane gone and silent for 2711570ms — demoted to pending'
+  ts: 1783799324699
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_u20yro
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' watchdog demoted task after thinking assigned pane was gone, but direct mesh checks show ROG tab 84d60f00 still present and Working. Restored assignment/status to running-on-rog.'
+  ts: 1783799528713
+  links:
+  - key:4f3d8cf94e5a7985
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_7a66zr
   executor_pane_id: 84d60f00
@@ -123,6 +156,32 @@ execution_attempts:
   destination: null
   report: null
   assigned_at: 1783796613020
+  reported_at: null
+  reviewed_at: null
+  closed_at: 1783799324699
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_tdou13
+  executor_pane_id: 84d60f00
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: opus
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: null
+  report: null
+  assigned_at: 1783799528710
   reported_at: null
   reviewed_at: null
   closed_at: null

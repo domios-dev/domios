@@ -15,7 +15,7 @@ qa_state: null
 status_label: running-on-eight
 priority: p1
 created_at: 1783795619376
-updated_at: 1783799057121
+updated_at: 1783799529352
 status_changed_at: 1783798210948
 handle: migrate-or-retire-remaining-world-canvas-golden-specs
 tags:
@@ -129,6 +129,40 @@ milestones:
   ts: 1783799057121
   links:
   - key:c0b9b77adda7544d
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_l8ylcs
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' accepted and authorized push of 195436df. Gate result: tag guard green; deleted world-canvas golden specs absent; mission-control-live intact; preserved non-failing 13-canvas tests pass. Four deterministic failures are pre-existing/byte-identical to origin and split into task_ygjf13.'
+  ts: 1783799497433
+  links:
+  - key:9e06cfcbac1b00e6
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_r8o786
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: evidence
+  text: ' eight worker reports world-canvas retirement commit 195436df local/not pushed; tag guard green; warm-dev 13-canvas gate 25 passed / 2 skipped / 4 deterministic failures proven pre-existing/byte-identical to origin. Authorized push; split the 4 preserved-suite failures into task_ygjf13.'
+  ts: 1783799529352
+  links:
+  - key:5ac12bf7cb115584
   loop_id: null
   iteration: null
   canvas:
