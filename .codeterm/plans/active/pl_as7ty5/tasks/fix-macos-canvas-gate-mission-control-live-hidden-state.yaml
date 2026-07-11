@@ -15,7 +15,7 @@ qa_state: null
 status_label: null
 priority: p1
 created_at: 1783793589957
-updated_at: 1783793608023
+updated_at: 1783793664851
 status_changed_at: 1783793589957
 handle: fix-macos-canvas-gate-mission-control-live-hidden-state
 tags:
@@ -60,6 +60,23 @@ milestones:
   ts: 1783793608023
   links:
   - key:bc6513e8c96055e9
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_ajfgjv
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: dispatch-request
+  text: ' remote plan dispatch is target-local only, so asked eight main to run codeterm plan task dispatch pl_as7ty5 task_olo5rn --agent claude --model opus --cwd /Users/dev/Developer/codeterm-alpha --parent-tab main and begin with canvas-nav isolated repro.'
+  ts: 1783793664851
+  links:
+  - key:97d17e1aa6a6380a
   loop_id: null
   iteration: null
   canvas:
