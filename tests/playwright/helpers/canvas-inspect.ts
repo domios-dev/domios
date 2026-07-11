@@ -353,6 +353,8 @@ export async function openWorkspaceCanvasOverlay(page: Page): Promise<void> {
   const btn = page.locator('[data-testid="canvas-toolbar-button"]');
   await btn.waitFor({ state: "visible", timeout: 10_000 });
   if ((await btn.getAttribute("aria-pressed")) !== "true") await btn.click();
+  await page.locator(PLAN_SURFACE_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
+  await switchPlanSurfaceToCanvas(page);
   await waitForVisiblePlanCanvas(page);
   await waitForBoardSurface(page);
 }
@@ -380,6 +382,8 @@ export async function ensureCanvasBoard(page: Page): Promise<void> {
       }
     }
   }
+  await page.locator(PLAN_SURFACE_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
+  await switchPlanSurfaceToCanvas(page);
   await waitForVisiblePlanCanvas(page);
   await waitForBoardSurface(page);
 }
