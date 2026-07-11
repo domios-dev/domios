@@ -45,7 +45,15 @@ impl AdoptPlanExt for PlanStore {
         let mut plan = load_source_plan(&source_dir)?;
         let target_project = paths::project_root(&request.target_project);
         let target_dir = plan_dir_unchecked(&target_project, &plan.status, &plan.id);
-        let warnings = adoption_warnings(&plan, &source_dir, &target_project, self, &request);
+        let task_count = canonical_task_count(&source_dir, &plan);
+        let warnings = adoption_warnings(
+            &plan,
+            &source_dir,
+            &target_project,
+            self,
+            &request,
+            task_count,
+        );
         let report = AdoptPlanReport {
             ok: request.overwrite || !destination_exists(&target_dir, &plan.id),
             dry_run: request.dry_run,
@@ -54,7 +62,7 @@ impl AdoptPlanExt for PlanStore {
             source_dir: source_dir.display().to_string(),
             target_dir: target_dir.display().to_string(),
             target_project: target_project.display().to_string(),
-            task_count: plan.tasks.len(),
+            task_count,
             warnings,
         };
         if request.dry_run {
@@ -107,7 +115,15 @@ fn source_plan_dir(source: &Path) -> Result<PathBuf, PlanError> {
 
 fn load_source_plan(source_dir: &Path) -> Result<Plan, PlanError> {
     if source_dir.join("plan.yaml").is_file() {
-        return store_v2::load_plan(source_dir).map_err(|e| PlanError::Io(e.to_string()));
+        let plan = store_v2::load_plan(source_dir).map_err(|e| PlanError::Io(e.to_string()))?;
+        let task_count = canonical_task_count(source_dir, &plan);
+        if task_count != plan.tasks.len() {
+            return Err(PlanError::Io(format!(
+                "source plan has {task_count} task sidecar file(s), but only {} loaded",
+                plan.tasks.len()
+            )));
+        }
+        return Ok(plan);
     }
     let json_path = source_dir.join("plan.json");
     let json = std::fs::read_to_string(&json_path).map_err(|e| PlanError::Io(e.to_string()))?;
@@ -149,12 +165,29 @@ fn destination_exists(target_dir: &Path, plan_id: &str) -> bool {
             })
 }
 
+fn canonical_task_count(source_dir: &Path, plan: &Plan) -> usize {
+    let tasks_dir = source_dir.join("tasks");
+    let sidecar_count = std::fs::read_dir(&tasks_dir)
+        .ok()
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter(|entry| {
+                    entry.path().extension().and_then(|ext| ext.to_str()) == Some("yaml")
+                })
+                .count()
+        })
+        .unwrap_or(0);
+    sidecar_count.max(plan.tasks.len())
+}
+
 fn adoption_warnings(
     plan: &Plan,
     source_dir: &Path,
     target_project: &Path,
     store: &PlanStore,
     request: &AdoptPlanRequest,
+    task_count: usize,
 ) -> Vec<String> {
     let mut warnings = Vec::new();
     let source_project = paths::project_root(Path::new(
@@ -176,6 +209,12 @@ fn adoption_warnings(
     }
     if matches!(plan.planner, Some(PlannerRef::Pane { .. })) {
         warnings.push("source planner pane binding will be cleared".into());
+    }
+    if task_count != plan.tasks.len() {
+        warnings.push(format!(
+            "source sidecar task count is {task_count} but the loaded plan body contains {} tasks",
+            plan.tasks.len()
+        ));
     }
     let stale_tasks = plan
         .tasks
