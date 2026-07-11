@@ -261,6 +261,13 @@ export function PaneSessionChat({
     return null;
   }, [deferredEnrichedMessages]);
 
+  // Reuse the previous array when the deduped ref-set is unchanged: a fresh
+  // identity every streamed chunk would churn resolvePlanRef and re-render the
+  // whole MessageBubble list (each re-parsing markdown) → composer input stall.
+  const visiblePlanRefsRef = useRef<{
+    key: string;
+    value: Array<{ planId: string; targetId?: string; targetKind: "plan" | "task" | "section" }>;
+  }>({ key: " ", value: [] });
   const visiblePlanRefs = useMemo(() => {
     const refs: Array<{ planId: string; targetId?: string; targetKind: "plan" | "task" | "section" }> = [];
     for (const { msg } of deferredEnrichedMessages) {
@@ -273,6 +280,10 @@ export function PaneSessionChat({
         });
       }
     }
+    const key = refs.map((r) => `${r.targetKind}:${r.planId}:${r.targetId ?? ""}`).join("|");
+    const prev = visiblePlanRefsRef.current;
+    if (key === prev.key) return prev.value;
+    visiblePlanRefsRef.current = { key, value: refs };
     return refs;
   }, [deferredEnrichedMessages]);
   const resolvedPlanRefs = usePlanRefResolver(

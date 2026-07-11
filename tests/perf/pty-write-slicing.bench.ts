@@ -1,10 +1,24 @@
-// Latency oracle: PTY replay/throughput floor imposed by
-// writeTerminalBytesInFrames' one-slice-per-rAF cadence. Mocks term.write as
-// instant to isolate the SCHEDULING cost (real xterm ANSI parse adds on top).
+// Latency oracle: PTY replay/throughput floor of writeTerminalBytesInFrames.
+// Deterministic — a mocked performance.now advances by a synthetic per-slice
+// xterm parse cost, so the frame-time budget logic is exercised repeatably.
+// "before" = the old fixed one-slice-per-rAF cadence (analytical: ceil(bytes/
+// slice) frames). "after" = the current budgeted drainer, measured.
 // Run: `npx tsx tests/perf/pty-write-slicing.bench.ts`.
-import { writeTerminalBytesInFrames, TERMINAL_WRITE_SLICE_BYTES } from "../../src/hooks/terminal/terminalWriteFrames";
+import {
+  writeTerminalBytesInFrames,
+  TERMINAL_WRITE_SLICE_BYTES,
+  TERMINAL_WRITE_FRAME_BUDGET_MS,
+} from "../../src/hooks/terminal/terminalWriteFrames";
 
 const FRAME_MS = 1000 / 60;
+
+// Deterministic clock: term.write advances it by PARSE_MS per 64KB slice.
+let clock = 0;
+let parseMs = 0;
+Object.defineProperty(globalThis, "performance", {
+  configurable: true,
+  value: { now: () => clock },
+});
 
 let rafQueue: Array<() => void> = [];
 (globalThis as unknown as { requestAnimationFrame: (cb: () => void) => number }).requestAnimationFrame = (cb) => {
@@ -13,7 +27,7 @@ let rafQueue: Array<() => void> = [];
 };
 (globalThis as unknown as { cancelAnimationFrame: () => void }).cancelAnimationFrame = () => {};
 
-function pump(maxFrames = 100000): number {
+function pump(maxFrames = 1_000_000): number {
   let frames = 0;
   while (rafQueue.length && frames < maxFrames) {
     const batch = rafQueue;
@@ -24,16 +38,37 @@ function pump(maxFrames = 100000): number {
   return frames;
 }
 
-const term = { write: (_c: Uint8Array, cb?: () => void) => { cb?.(); } };
+const term = { write: (_c: Uint8Array, cb?: () => void) => { clock += parseMs; cb?.(); } };
 
-console.log(`slice = ${TERMINAL_WRITE_SLICE_BYTES / 1024}KB/frame, live cap = ${(TERMINAL_WRITE_SLICE_BYTES * 60 / 1024 / 1024).toFixed(2)} MB/s\n`);
-console.log("Replay-on-show scheduling floor (real xterm parse adds on top):");
-console.log(" payload   frames  wall-clock@60fps");
-for (const kb of [64, 256, 1024, 2048, 4096]) {
+function measure(bytes: number, perSliceMs: number): number {
+  clock = 0;
+  parseMs = perSliceMs;
   rafQueue = [];
-  const payload = new Uint8Array(kb * 1024);
+  const payload = new Uint8Array(bytes);
   let done = false;
   writeTerminalBytesInFrames(term as never, payload, () => { done = true; });
   const frames = pump();
-  console.log(`${String(kb).padStart(5)}KB   ${String(frames).padStart(5)}   ${(frames * FRAME_MS).toFixed(0).padStart(6)}ms  ${done ? "" : "(incomplete!)"}`);
+  if (!done) throw new Error("drain incomplete");
+  return frames;
 }
+
+const slices = (bytes: number) => Math.ceil(bytes / TERMINAL_WRITE_SLICE_BYTES);
+
+console.log(
+  `slice=${TERMINAL_WRITE_SLICE_BYTES / 1024}KB, budget=${TERMINAL_WRITE_FRAME_BUDGET_MS}ms/frame\n`,
+);
+console.log("Frames to drain (lower = faster catch-up). before = 1 slice/frame.\n");
+console.log("payload   parse/slice   before   after   wall before/after @60fps");
+for (const kb of [256, 1024, 4096]) {
+  const bytes = kb * 1024;
+  for (const perSlice of [1, 4, 12]) {
+    const before = slices(bytes);
+    const after = measure(bytes, perSlice);
+    console.log(
+      `${String(kb).padStart(5)}KB   ${String(perSlice).padStart(5)}ms      ${String(before).padStart(5)}   ${String(after).padStart(5)}   ${(before * FRAME_MS).toFixed(0).padStart(5)}ms / ${(after * FRAME_MS).toFixed(0)}ms`,
+    );
+  }
+}
+console.log(
+  `\nAt >=${TERMINAL_WRITE_FRAME_BUDGET_MS}ms/slice the budget caps at 1 slice/frame (== before): no burst-freeze regression.`,
+);

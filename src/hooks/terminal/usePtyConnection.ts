@@ -173,6 +173,9 @@ export function usePtyConnection({
       let firstData = true;
       let staleRespawnStarted = false;
       const WRITE_HIGH_WATERMARK = 128 * 1024;
+      // Hand the frame-budgeted drainer a multi-slice payload so live bursts
+      // catch up faster than the old fixed 64KB/frame; it still yields per frame.
+      const LIVE_FLUSH_MAX_BYTES = TERMINAL_WRITE_SLICE_BYTES * 4;
       let pendingBytes = 0;
       let readPaused = false;
       let resumeResolve: (() => void) | null = null;
@@ -193,7 +196,7 @@ export function usePtyConnection({
         writeFrame = null;
         if (!reading || disposed || pendingWriteLength === 0) return;
 
-        const targetLength = Math.min(pendingWriteLength, TERMINAL_WRITE_SLICE_BYTES);
+        const targetLength = Math.min(pendingWriteLength, LIVE_FLUSH_MAX_BYTES);
         const payload = new Uint8Array(targetLength);
         let copied = 0;
         while (copied < targetLength && pendingWriteChunks.length > 0) {
