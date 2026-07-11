@@ -16,7 +16,7 @@ qa_state: null
 status_label: 'deferred: external ubunta infra/control path blocker'
 priority: p1
 created_at: 1783763162275
-updated_at: 1783779780114
+updated_at: 1783781577910
 status_changed_at: 1783779780114
 handle: run-linux-web-mode-first-shard-on-ubunta
 tags:
@@ -247,6 +247,23 @@ milestones:
   ts: 1783779779722
   links:
   - key:934e2be140a648da
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_3ny29u
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: user-resume
+  text: ' Linux is no longer deferred. Objective now: restore ubunta control/build path, fast-forward checkout to current origin/feat/1.7.2-stability, prove dev 7686 health build_sha==HEAD, then run bounded Shard L and report app-test signal.'
+  ts: 1783781577910
+  links:
+  - key:2bd18452e47e1263
   loop_id: null
   iteration: null
   canvas:
