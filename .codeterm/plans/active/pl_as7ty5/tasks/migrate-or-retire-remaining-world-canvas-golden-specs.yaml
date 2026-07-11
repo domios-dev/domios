@@ -15,7 +15,7 @@ qa_state: null
 status_label: running-on-eight
 priority: p1
 created_at: 1783795619376
-updated_at: 1783798210948
+updated_at: 1783798270425
 status_changed_at: 1783798210948
 handle: migrate-or-retire-remaining-world-canvas-golden-specs
 tags:
@@ -31,9 +31,9 @@ competition: null
 intent: null
 parent_task_id: null
 depends_on: []
-assigned_pane_id: 98ce7d77
+assigned_pane_id: 98f41b3a
 lane:
-  pane_id: 98ce7d77
+  pane_id: 98f41b3a
   workspace_id: null
   workspace_name: null
   worktree_path: null
@@ -42,7 +42,7 @@ lane:
   destination: null
   cleanup_status: deferred
   cleanup_hints:
-  - Shared-checkout worker on eight canonical checkout; cleanup deferred until final git/dev/prod state is reported.
+  - Shared-checkout worker on eight canonical checkout; old blocked tab 98ce7d77 was superseded by active worker 98f41b3a; cleanup deferred until final git/dev/prod state is reported.
 taken_by_role: null
 peer: null
 group: playwright-stability
@@ -85,6 +85,23 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_qqz9nr
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: dispatch-correction
+  text: ' first worker tab 98ce7d77 blocked because paste:sxfhpt was missing/consumed. eight Main spawned replacement worker 98f41b3a with full inline brief, claude/opus, cwd /Users/kandrey/Developer/codeterm-alpha, --allow-shared-checkout --task-id task_bdzdn1. Old tab stopped/ignored; task assigned to 98f41b3a.'
+  ts: 1783798269549
+  links:
+  - key:23b366b7612f4ac3
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_8yua4e
   executor_pane_id: 98ce7d77
@@ -103,6 +120,32 @@ execution_attempts:
   destination: null
   report: null
   assigned_at: 1783798210303
+  reported_at: null
+  reviewed_at: null
+  closed_at: null
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_1lhxwt
+  executor_pane_id: 98f41b3a
+  executor_title: null
+  provider: claude
+  agent_type: claude
+  model: opus
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: null
+  report: null
+  assigned_at: 1783798269568
   reported_at: null
   reviewed_at: null
   closed_at: null
