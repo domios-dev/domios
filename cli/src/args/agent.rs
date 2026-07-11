@@ -403,9 +403,8 @@ mod tests {
 
     #[test]
     fn ledger_parses_pane_and_global_json() {
-        let cli =
-            Cli::try_parse_from(["codeterm", "--json", "agent", "ledger", "--tab", "orch-1"])
-                .expect("ledger should parse");
+        let cli = Cli::try_parse_from(["codeterm", "--json", "agent", "ledger", "--tab", "orch-1"])
+            .expect("ledger should parse");
         assert!(cli.json, "global --json applies to ledger output");
         match cli.command {
             crate::Commands::Agent {
