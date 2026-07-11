@@ -44,3 +44,18 @@ pub async fn clock_advance(
     state.cron_wake.notify_all();
     Ok(Json(serde_json::json!({"now_ms": now_ms})))
 }
+
+pub async fn mark_clean_restart(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    if !cfg!(debug_assertions) || std::env::var("CODETERM_TEST_CLOCK").as_deref() != Ok("1") {
+        return Err((
+            StatusCode::CONFLICT,
+            "clean restart marker is only available in debug test-clock runs".to_string(),
+        ));
+    }
+    crate::crash::record_clean_shutdown(crate::crash::lifecycle::ShutdownReason::Restart);
+    Ok(Json(serde_json::json!({"ok": true})))
+}
