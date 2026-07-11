@@ -15,7 +15,7 @@ qa_state: null
 status_label: null
 priority: p1
 created_at: 1783795619376
-updated_at: 1783795635358
+updated_at: 1783798147422
 status_changed_at: 1783795619376
 handle: migrate-or-retire-remaining-world-canvas-golden-specs
 tags:
@@ -49,7 +49,24 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_02f421
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: dispatch-request
+  text: ' sent task brief via paste:sxfhpt to eight Main. Asked eight to spawn claude/opus worker in /Users/kandrey/Developer/codeterm-alpha, using --allow-shared-checkout if required, to migrate/delete remaining world-canvas golden specs. Must report worker tab id/blocker back to BLACKSTAR/e3fa0754.'
+  ts: 1783798147422
+  links:
+  - key:9e2bedf71cf894db
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 pause_reason: null
 attachments: []
