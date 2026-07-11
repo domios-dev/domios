@@ -812,7 +812,7 @@ case "$CMD" in
         fi
         HEALTH=$(dev_health_status)
         if [ -n "$HEALTH" ]; then
-          STATUS=$(printf '%s' "$HEALTH" | dev_health_fields 2>/dev/null | cut -f1 || true)
+          STATUS=$(printf '%s' "$HEALTH" | dev_health_fields 2>/dev/null | head -n1 || true)
           if [ "$STATUS" = "ok" ]; then
             if ! SHA=$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH"); then
               echo "$HEALTH"
