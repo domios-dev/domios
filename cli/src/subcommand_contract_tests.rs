@@ -231,7 +231,7 @@ fn orchestrator_handoff_reseed_dry_run_parses() {
         } => {
             assert_eq!(plan.as_deref(), Some("pl_1"));
             assert_eq!(task.as_deref(), Some("task_1"));
-                assert_eq!(pane.as_deref(), Some("tab_1"));
+            assert_eq!(pane.as_deref(), Some("tab_1"));
             assert!(reseed);
             assert!(dry_run);
             assert_eq!(mode, "new");

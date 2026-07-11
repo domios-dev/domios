@@ -238,7 +238,10 @@ pub enum PlanTaskAction {
         agent: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
-        #[arg(long = "parent-tab", help = "Parent tab override (defaults to the caller tab)")]
+        #[arg(
+            long = "parent-tab",
+            help = "Parent tab override (defaults to the caller tab)"
+        )]
         parent: Option<String>,
         #[arg(long)]
         workspace: Option<String>,
