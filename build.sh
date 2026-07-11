@@ -502,8 +502,10 @@ windows_dev_leftover_cleanup() {
 }
 
 start_web_watch() {
-  kill_web_watch
+  kill_web_watch || true
   local log="/tmp/codeterm-web-watch${CT_SUFFIX}.log"
+  local pid spawn_status
+  set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
       pnpm exec vite build --watch </dev/null >> "$log" 2>&1 &
@@ -512,8 +514,18 @@ start_web_watch() {
       nohup pnpm exec vite build --watch </dev/null >> "$log" 2>&1 &
       ;;
   esac
-  echo $! > "$(web_watch_pidfile)"
-  echo "Web bundle watcher started (dist/ auto-rebuilds, log $log)"
+  pid=$!
+  spawn_status=$?
+  set -e
+  if [ -z "$pid" ] || [ "$spawn_status" -ne 0 ]; then
+    echo "WARNING: web bundle watcher did not start (status=$spawn_status, log $log); continuing without dist/ auto-rebuilds." >&2
+    return 0
+  fi
+  if ! echo "$pid" > "$(web_watch_pidfile)"; then
+    echo "WARNING: web bundle watcher pidfile was not written; continuing without managed watcher cleanup." >&2
+    return 0
+  fi
+  echo "Web bundle watcher started (dist/ auto-rebuilds, pid $pid, log $log)"
 }
 
 kill_web_watch() {
