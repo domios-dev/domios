@@ -150,6 +150,13 @@ fn submit_authenticated_pty_input<T>(
     submit(&pty_id, &provider_id, text)
 }
 
+pub(crate) fn sanitize_agent_prompt_input(text: &str) -> String {
+    crate::pty::ansi::strip_ansi(text)
+        .chars()
+        .filter(|c| *c != '\0')
+        .collect()
+}
+
 impl ServiceContext {
     pub(crate) fn send_to_authenticated_agent_session(
         &self,
@@ -258,6 +265,7 @@ impl ServiceContext {
             }
         }
         if let Some(ref agent_id) = agent_type {
+            let text = sanitize_agent_prompt_input(text);
             // codex/opencode swallow a `\r` while ingesting the paste, so verification stays — but capped so retries don't stall a minute.
             let strategy = cap_submit_timeout(
                 self.agent_registry
@@ -273,7 +281,7 @@ impl ServiceContext {
                 ..Default::default()
             };
             return self
-                .send_text_verified(pty_id, text, enter, strategy, opts)
+                .send_text_verified(pty_id, &text, enter, strategy, opts)
                 .map(|_| ())
                 .map_err(|e| e.to_string());
         }
