@@ -82,6 +82,7 @@ pub fn spawn_params(provider: &str) -> SpawnAgentParams {
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: None,
+        planned_model: None,
         system_prompt: None,
         preset: None,
         resume_session_id: None,
@@ -372,19 +373,24 @@ fn fresh_agent_model_reports_fallback_notice() {
         &["model-a", "model-b"],
     ));
 
-    let resolved = resolve_fresh_agent_model_with_notice(
+    let mut resolved = resolve_fresh_agent_model_with_notice(
         &registry,
         "model-test-fallback-notice",
         Some("stale".into()),
         None,
     );
+    attach_planned_model(&mut resolved, Some("codex/model-planned"));
 
     assert_eq!(resolved.model.as_deref(), Some("model-a"));
+    assert_eq!(resolved.requested_model.as_deref(), Some("stale"));
     assert_eq!(
         resolved.fallback_notice,
         Some(ModelFallbackNotice {
-            requested: "stale".into(),
-            using: "model-a".into(),
+            planned_model: Some("codex/model-planned".into()),
+            requested_model: "stale".into(),
+            provider_resolved_model: "model-a".into(),
+            actual_model: None,
+            reason: "requested_model_unavailable".into(),
         })
     );
     assert_eq!(
@@ -441,6 +447,7 @@ fn agent_spec_roundtrips_json() {
         visibility: PaneVisibility::Hidden,
         command: PaneCommand::Agent(AgentSpawnSpec {
             provider: "claude".into(),
+            planned_model: None,
             model: Some("opus".into()),
             task: Some("hello".into()),
             role: Some("Worker".into()),
@@ -495,6 +502,7 @@ fn from_agent_params_carries_model_into_spec() {
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: Some("gpt-5.4-mini".into()),
+        planned_model: None,
         system_prompt: None,
         preset: None,
         resume_session_id: None,
@@ -607,6 +615,7 @@ fn from_agent_params_preserves_can_spawn_option() {
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: None,
+        planned_model: None,
         system_prompt: None,
         preset: None,
         resume_session_id: None,
@@ -661,6 +670,7 @@ fn from_agent_params_carries_activate_into_spec() {
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: None,
+        planned_model: None,
         system_prompt: None,
         preset: None,
         resume_session_id: None,

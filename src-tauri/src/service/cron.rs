@@ -199,6 +199,7 @@ impl ServiceContext {
             eager: false,
             command: PaneCommand::Agent(AgentSpawnSpec {
                 provider: agent,
+                planned_model: None,
                 model,
                 task: Some(task_text),
                 role,

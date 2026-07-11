@@ -169,7 +169,7 @@ pub(super) fn dispatch(
     {
         warnings.push(format!(
             "requested model '{}' is not available for provider '{}'; spawning with '{}' instead",
-            notice.requested, resolved_provider, notice.using
+            notice.requested_model, resolved_provider, notice.provider_resolved_model
         ));
     }
 
@@ -187,6 +187,7 @@ pub(super) fn dispatch(
         task_id: Some(task_id.clone()),
         workspace_id: owned_str(p, "workspace_id"),
         model: routing.model.clone(),
+        planned_model: detail.task.model.clone(),
         spawned_by_pane_id: owned_str(p, "caller_pane_id"),
         ..Default::default()
     };
@@ -236,6 +237,7 @@ pub(super) fn dispatch(
     }
 
     emit_plan_changed(app, &plan_id);
+    let model_fallback = spawn.model_fallback.clone();
     let mut result = json!({
         "ok": true,
         "plan_id": plan_id,
@@ -252,6 +254,9 @@ pub(super) fn dispatch(
             "exemption": exemption,
             "reason": exemption.reason(),
         });
+    }
+    if let Some(model_fallback) = model_fallback {
+        result["model_fallback"] = json!(model_fallback);
     }
     Ok(result)
 }

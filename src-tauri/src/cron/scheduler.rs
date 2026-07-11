@@ -195,6 +195,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         eager: false,
         command: PaneCommand::Agent(AgentSpawnSpec {
             provider: agent.to_string(),
+            planned_model: None,
             model,
             task: Some(task_text),
             role: role.map(|s| s.to_string()),

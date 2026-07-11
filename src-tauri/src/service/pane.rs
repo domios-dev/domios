@@ -359,16 +359,12 @@ impl ServiceContext {
     }
 
     fn refresh_session_model_once(&self, pane_id: &str, agent_id: &str) {
-        let (cwd, session_id, current_model) = {
+        let (cwd, session_id) = {
             let mux = self.mux.read();
             let Some(p) = mux.get_pane(pane_id) else {
                 return;
             };
-            (
-                p.cwd.clone(),
-                p.agent_session_id.clone(),
-                p.agent_session_model.clone(),
-            )
+            (p.cwd.clone(), p.agent_session_id.clone())
         };
         let Some(cwd) = cwd else { return };
         // Provider rolled its live session (e.g. opencode /model swap): follow it to the new sid before scanning the model. Provider-owned signal (screen/event), guarded so it never steals a sibling pane's session.
@@ -380,11 +376,12 @@ impl ServiceContext {
             {
                 let claimed = {
                     let mut mux = self.mux.write();
-                    if mux.other_session_ids(pane_id).contains(&new_sid) {
+                    if new_sid == *current || mux.other_session_ids(pane_id).contains(&new_sid) {
                         false
                     } else if let Some(p) = mux.get_pane_mut(pane_id) {
                         if p.agent_type.as_deref() == Some(agent_id) {
                             p.agent_session_id = Some(new_sid.clone());
+                            clear_runtime_model_evidence(p);
                             true
                         } else {
                             false
@@ -412,6 +409,27 @@ impl ServiceContext {
                 .and_then(|p| p.agent_session_id.clone())
         };
         let Some(sid) = sid else { return };
+        let (
+            current_model,
+            planned_model,
+            requested_model,
+            provider_resolved_model,
+            current_fallback,
+            current_mismatch,
+        ) = {
+            let mux = self.mux.read();
+            let Some(pane) = mux.get_pane(pane_id) else {
+                return;
+            };
+            (
+                pane.agent_session_model.clone(),
+                pane.agent_planned_model.clone(),
+                pane.agent_requested_model.clone(),
+                pane.agent_provider_resolved_model.clone(),
+                pane.model_fallback.clone(),
+                pane.model_identity_mismatch.clone(),
+            )
+        };
         // A failed detection (None) must not clobber a known model — restore seeds it from the snapshot and the session file may not name the model yet.
         let Some(model) = self
             .agent_registry
@@ -420,20 +438,57 @@ impl ServiceContext {
         else {
             return;
         };
-        if Some(&model) == current_model.as_ref() {
+        let identity_update = model_identity_update(
+            current_model.as_deref(),
+            planned_model.as_deref(),
+            requested_model.as_deref(),
+            provider_resolved_model.as_deref(),
+            current_fallback.clone(),
+            &model,
+        );
+        let mismatch_changed = identity_update.mismatch != current_mismatch;
+        let fallback_changed = identity_update.fallback != current_fallback;
+        if !identity_update.model_changed && !mismatch_changed && !fallback_changed {
             return;
+        }
+        let should_notify = identity_update.mismatch.is_some() && current_mismatch.is_none();
+        if should_notify {
+            if let Some(mismatch) = identity_update.mismatch.as_ref() {
+                let title = format!(
+                    "model fallback: requested {}, actual {}",
+                    mismatch.requested_model, mismatch.actual_model
+                );
+                self.create_notification(
+                    title,
+                    Some(
+                        "Provider runtime session metadata reported a different model than the launch request."
+                            .to_string(),
+                    ),
+                    Some("warning"),
+                );
+                log::warn!(
+                    "[session-model] pane={} requested_model={} actual_model={} fallback_reason=runtime_session_model_mismatch",
+                    pane_id,
+                    mismatch.requested_model,
+                    mismatch.actual_model
+                );
+            }
         }
         let model = Some(model);
         let mut mux = self.mux.write();
         if let Some(p) = mux.get_pane_mut(pane_id) {
-            if p.agent_type.as_deref() == Some(agent_id) {
-                log::info!(
-                    "[session-model] pane={} {:?} -> {:?}",
-                    pane_id,
-                    p.agent_session_model,
-                    model
-                );
+            if runtime_model_update_matches_session(p, agent_id, &sid) {
+                if identity_update.model_changed {
+                    log::info!(
+                        "[session-model] pane={} {:?} -> {:?}",
+                        pane_id,
+                        p.agent_session_model,
+                        model
+                    );
+                }
                 p.agent_session_model = model;
+                p.model_fallback = identity_update.fallback;
+                p.model_identity_mismatch = identity_update.mismatch;
                 drop(mux);
                 self.emit_state_changed();
             }
@@ -573,8 +628,12 @@ impl ServiceContext {
             }
         }
         if let Some(pane) = mux.get_pane_mut(pane_id) {
+            let changed = pane.agent_session_id != session_id;
             pane.agent_session_id = session_id;
             pane.reported_session_binding_nonce = None;
+            if changed {
+                clear_runtime_model_evidence(pane);
+            }
         }
         drop(mux);
         self.bind_planner_session(pane_id);
@@ -721,6 +780,89 @@ impl ServiceContext {
     }
 }
 
+fn models_match(requested: &str, actual: &str) -> bool {
+    requested.trim().eq_ignore_ascii_case(actual.trim())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ModelIdentityUpdate {
+    model_changed: bool,
+    fallback: Option<crate::multiplexer::types::ModelFallbackNotice>,
+    mismatch: Option<crate::multiplexer::types::ModelIdentityMismatch>,
+}
+
+fn model_identity_update(
+    current_model: Option<&str>,
+    planned_model: Option<&str>,
+    requested_model: Option<&str>,
+    provider_resolved_model: Option<&str>,
+    current_fallback: Option<crate::multiplexer::types::ModelFallbackNotice>,
+    actual_model: &str,
+) -> ModelIdentityUpdate {
+    let actual = actual_model.trim().to_string();
+    let planned = planned_model
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let provider_resolved = provider_resolved_model
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let mismatch = requested_model
+        .map(str::trim)
+        .filter(|requested| !requested.is_empty())
+        .and_then(|requested| {
+            (!models_match(requested, &actual)).then(|| {
+                crate::multiplexer::types::ModelIdentityMismatch {
+                    planned_model: planned.map(str::to_string),
+                    requested_model: requested.to_string(),
+                    provider_resolved_model: provider_resolved.map(str::to_string),
+                    actual_model: actual.clone(),
+                    reason: "runtime_session_model_mismatch".to_string(),
+                }
+            })
+        });
+    let fallback = current_fallback
+        .map(|mut fallback| {
+            fallback.actual_model = Some(actual.clone());
+            fallback
+        })
+        .or_else(|| {
+            mismatch
+                .as_ref()
+                .map(|mismatch| crate::multiplexer::types::ModelFallbackNotice {
+                    planned_model: mismatch.planned_model.clone(),
+                    requested_model: mismatch.requested_model.clone(),
+                    provider_resolved_model: mismatch
+                        .provider_resolved_model
+                        .clone()
+                        .unwrap_or_else(|| mismatch.requested_model.clone()),
+                    actual_model: Some(mismatch.actual_model.clone()),
+                    reason: mismatch.reason.clone(),
+                })
+        });
+    ModelIdentityUpdate {
+        model_changed: current_model.is_none_or(|current| !models_match(current, &actual)),
+        fallback,
+        mismatch,
+    }
+}
+
+pub(crate) fn clear_runtime_model_evidence(pane: &mut crate::multiplexer::types::Pane) {
+    pane.agent_session_model = None;
+    pane.model_identity_mismatch = None;
+    if let Some(fallback) = pane.model_fallback.as_mut() {
+        fallback.actual_model = None;
+    }
+}
+
+fn runtime_model_update_matches_session(
+    pane: &crate::multiplexer::types::Pane,
+    agent_id: &str,
+    session_id: &str,
+) -> bool {
+    pane.agent_type.as_deref() == Some(agent_id)
+        && pane.agent_session_id.as_deref() == Some(session_id)
+}
+
 pub(crate) fn focus_pane_hot_path(
     mux: &crate::multiplexer::commands::MuxState,
     pane_id: &str,
@@ -757,5 +899,130 @@ mod self_close_tests {
     fn plain_worker_is_not_coordinator() {
         assert!(!is_coordinator(Some(AgentRole::Worker), false, false));
         assert!(!is_coordinator(None, false, false));
+    }
+}
+
+#[cfg(test)]
+mod model_identity_tests {
+    use super::*;
+
+    #[test]
+    fn runtime_model_mismatch_records_actual_and_structured_reason() {
+        let update = model_identity_update(
+            None,
+            Some("planned-codex"),
+            Some("gpt-5.6-luna"),
+            Some("gpt-5.6-luna"),
+            None,
+            "gpt-5.6-terra",
+        );
+
+        assert!(update.model_changed);
+        let mismatch = update.mismatch.expect("mismatch must be structured");
+        assert_eq!(mismatch.requested_model, "gpt-5.6-luna");
+        assert_eq!(mismatch.planned_model.as_deref(), Some("planned-codex"));
+        assert_eq!(
+            mismatch.provider_resolved_model.as_deref(),
+            Some("gpt-5.6-luna")
+        );
+        assert_eq!(mismatch.actual_model, "gpt-5.6-terra");
+        assert_eq!(mismatch.reason, "runtime_session_model_mismatch");
+        let fallback = update.fallback.expect("fallback must be surfaced");
+        assert_eq!(fallback.actual_model.as_deref(), Some("gpt-5.6-terra"));
+    }
+
+    #[test]
+    fn repeated_runtime_mismatch_keeps_actual_without_second_model_change() {
+        let update = model_identity_update(
+            Some("gpt-5.6-terra"),
+            None,
+            Some("gpt-5.6-luna"),
+            Some("gpt-5.6-luna"),
+            None,
+            "gpt-5.6-terra",
+        );
+
+        assert!(!update.model_changed);
+        assert_eq!(
+            update.mismatch,
+            Some(crate::multiplexer::types::ModelIdentityMismatch {
+                planned_model: None,
+                requested_model: "gpt-5.6-luna".into(),
+                provider_resolved_model: Some("gpt-5.6-luna".into()),
+                actual_model: "gpt-5.6-terra".into(),
+                reason: "runtime_session_model_mismatch".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn matching_runtime_model_clears_mismatch_shape() {
+        let update = model_identity_update(
+            Some("gpt-5.6-luna"),
+            None,
+            Some("gpt-5.6-luna"),
+            Some("gpt-5.6-luna"),
+            None,
+            "GPT-5.6-LUNA",
+        );
+
+        assert!(!update.model_changed);
+        assert!(update.mismatch.is_none());
+        assert!(update.fallback.is_none());
+    }
+
+    #[test]
+    fn session_change_clears_stale_actual_but_keeps_launch_provenance() {
+        let (mut mux, pane_id) = crate::multiplexer::state::MultiplexerState::new();
+        let pane = mux.get_pane_mut(&pane_id).unwrap();
+        pane.agent_planned_model = Some("codex/gpt-planned".into());
+        pane.agent_requested_model = Some("gpt-requested".into());
+        pane.agent_provider_resolved_model = Some("gpt-resolved".into());
+        pane.agent_session_model = Some("gpt-actual-old".into());
+        pane.model_identity_mismatch = Some(crate::multiplexer::types::ModelIdentityMismatch {
+            planned_model: Some("codex/gpt-planned".into()),
+            requested_model: "gpt-requested".into(),
+            provider_resolved_model: Some("gpt-resolved".into()),
+            actual_model: "gpt-actual-old".into(),
+            reason: "runtime_session_model_mismatch".into(),
+        });
+
+        clear_runtime_model_evidence(pane);
+
+        assert_eq!(
+            pane.agent_planned_model.as_deref(),
+            Some("codex/gpt-planned")
+        );
+        assert_eq!(pane.agent_requested_model.as_deref(), Some("gpt-requested"));
+        assert_eq!(
+            pane.agent_provider_resolved_model.as_deref(),
+            Some("gpt-resolved")
+        );
+        assert!(pane.agent_session_model.is_none());
+        assert!(pane.model_identity_mismatch.is_none());
+    }
+
+    #[test]
+    fn delayed_runtime_model_result_cannot_cross_session_boundary() {
+        let (mut mux, pane_id) = crate::multiplexer::state::MultiplexerState::new();
+        let pane = mux.get_pane_mut(&pane_id).unwrap();
+        pane.agent_type = Some("provider-a".into());
+        pane.agent_session_id = Some("session-new".into());
+
+        assert!(!runtime_model_update_matches_session(
+            pane,
+            "provider-a",
+            "session-old"
+        ));
+        assert!(!runtime_model_update_matches_session(
+            pane,
+            "provider-b",
+            "session-new"
+        ));
+        assert!(runtime_model_update_matches_session(
+            pane,
+            "provider-a",
+            "session-new"
+        ));
     }
 }
