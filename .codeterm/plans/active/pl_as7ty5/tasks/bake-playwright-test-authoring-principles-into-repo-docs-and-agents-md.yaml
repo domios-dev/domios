@@ -1,0 +1,54 @@
+id: task_biad70
+name: Bake Playwright test-authoring principles into repo docs and AGENTS.md
+type: documentation
+model: sonnet
+model_rationale: 'User-directed: the essence of correct Playwright test construction learned in this effort (condition-waits/settle, restart isolation, diff reset, self-heal, bounded caps, stub transport, measurement-vs-flow separation) must be durable in-repo, not only in chat and task history.'
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- 'docs/contributing/test-authoring.md (or a linked page) contains the distilled principles: condition-waits over sleeps with waitForCanvasSettled as the canonical settle, restart isolation via the restart project, diff-based reset + self-heal fixture contract, mandatory caps, stub-agent transport for agent-flow tests, measurement harnesses separated from flow tests'
+- AGENTS.md Playwright discipline section gains a one-line pointer to that doc; revision tag bumped on every touched doc
+- No principle contradicts the existing charter; duplicated guidance is merged, not appended
+test_plan: '1) Read docs/contributing/test-authoring.md and the AGENTS.md Playwright discipline block. 2) Diff-read the landed commits for mechanisms. 3) Write/merge the principles section citing each mechanism by path. 4) Update AGENTS.md pointer + bump revision comments. 5) Oracle: grep confirms each named mechanism (waitForCanvasSettled, restart project, snapshotBaseline/diffReset, CODETERM_STUB_AGENT_CMD) is documented; a reviewer can find every rule from AGENTS.md in two hops.'
+correctness: Docs match the shipped mechanisms exactly (names, paths, env vars); AGENTS.md stays terse per its own style; no stale duplication.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783802748114
+updated_at: 1783802748114
+status_changed_at: 1783802748114
+handle: bake-playwright-test-authoring-principles-into-repo-docs-and-agents-md
+tags: []
+section_ids:
+- sec_h9tsba
+body: 'Distill and bake the Playwright construction principles proven in the pw-speedup effort into the repo docs. Sources: commits f9fca3c05 (settle waits, polling), d189ea250 (restart isolation, diff reset), 3b04458a8 (self-heal fixture), the stub-agent transport (stub_launch.rs + replay.mjs), and the existing test-authoring charter. Land as an updated docs/contributing/test-authoring.md (merge, do not fork a new doc unless size demands) plus an AGENTS.md pointer line.'
+role_guidance: 'You are a docs-sync writer. Distill principles from the landed commits (f9fca3c05, d189ea250, 3b04458a8, stub-launch work) and docs/contributing/test-authoring.md; write rules, not war stories. Red line: every principle must cite the in-repo mechanism that enforces or embodies it (helper, config project, fixture), no aspirational prose.'
+executor_role: docs-sync
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: pw-speedup
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

@@ -13,14 +13,14 @@ acceptance_criteria:
 - Existing provider capability tests still green; no provider-id branching leaked into core
 test_plan: '1) cargo test agent:: (narrow, capped 90s via scripts/test-capped.sh) for registry/dispatch with the stub registered. 2) Fixture capture: record one real transcript per provider (claude, codex, opencode) as raw PTY byte fixtures under tests/playwright/fixtures/provider-transcripts/. 3) Parity test (Rust or TS): feed recorded-real vs stub-replayed bytes through detection + parser; assert identical model/session-id/status detection and identical parsed message blocks, for ALL three providers. 4) On a gated dev daemon: curl POST /api/agents/spawn for each of stub:claude/stub:codex/stub:opencode -> pane appears, scripted reply lands in pane output within 5s, pane agent_type reports the emulated provider. 5) Without gate: spawn returns 4xx. 6) One Playwright smoke microtest per provider spawning the stub and asserting the marker in DOM plus the correct provider badge, run in isolation with --timeout=30000.'
 correctness: Stub is unreachable outside gated dev builds; replayed output is byte-faithful to recorded real sessions so detection/parser/status run real code paths; parity holds for all three providers; capability seam stays clean per AGENTS.md plugin discipline.
-status: pending
+status: in_progress
 review_stage: review
 qa_state: null
 status_label: null
 priority: p1
 created_at: 1783782059284
-updated_at: 1783782997011
-status_changed_at: 1783782059284
+updated_at: 1783804765493
+status_changed_at: 1783801218495
 handle: land-runtime-stub-agent-provider-for-playwright
 tags: []
 section_ids:
@@ -32,13 +32,13 @@ competition: null
 intent: null
 parent_task_id: null
 depends_on: []
-assigned_pane_id: null
+assigned_pane_id: 56827f12
 lane:
-  pane_id: null
+  pane_id: 56827f12
   workspace_id: null
   workspace_name: null
   worktree_path: null
-  branch: null
+  branch: feat/1.7.2-stability
   base: null
   destination: null
   cleanup_status: null
@@ -50,7 +50,54 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_htt3be
+  from:
+    pane_id: 56827f12
+    session_id: e0ceb04e-d24d-4f2b-8af5-d69d5d3fa421
+    title: planner-playwright-stability
+  kind: status_update
+  text: |-
+    PARTIAL: task_dycecc CORE LANDED at 473652df8 — reporting partial: transport + live gates done, parity harness remains.
+
+    DESIGN (deviation from original task letter, satisfies criteria better): NO new provider id. A dev-only env gate (CODETERM_STUB_AGENT_CMD, debug builds) substitutes the FINAL statement of every provider launch command with a transcript replayer, forwarding original argv after '--'. Provider id, model args, resume flags, detection, ChatView parsing, and status tracking are byte-for-byte the REAL code paths — core never sees a stub identity (capability seam untouched; criterion 5 by construction).
+
+    MECHANISM:
+    - src-tauri/src/agent/stub_launch.rs + wraps at all 7 launch sites (spawn, hidden spawn, orchestrator launch, general agent, transport, pty fresh-launch, agent restart incl. resume).
+    - tests/playwright/fixtures/stub-agent/replay.mjs: boots by replaying RECORDED REAL casts (testbench/replays per provider) so structural-fingerprint detection accepts the pane; scripted STUB_ECHO/STUB_TOOL turns; /exit; sid via nonce-verified session_start hook (binding_nonce from pane env — daemon ownership validation passes without touching real provider stores).
+    - suites/03-agents/stub-replay.spec.ts (@stub): probes gate, runs 3-provider matrix + sid test.
+
+    EVIDENCE: 4/4 passed twice on a gated local dev; daemon log shows substitution + accepted hook binding; without the gate spawns are untouched (verified during debugging when a probe launched real claude); release builds compile the gate off.
+
+    FOUND ON THE WAY (fixed): Windows launch commands are PowerShell compounds — naive prefixing executed the real CLI anyway; wrap now applies to the last statement only, unit-tested.
+
+    REMAINING before task close: (1) parity harness — recorded-real vs stub-replayed bytes through the ChatView parser must assert identical message structure per provider; (2) codex/opencode sid materialization (session-store writes, restore-matrix-style); both are the next slice of this task, staying with me. task_k16xu0 (golden conversion) can START on claude-path tests already if you want overlap — the transport it needs is live.
+  ts: 1783804729692
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_p20h54
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' accepted core runtime stub transport at 473652df8 as partial evidence; keep task in_progress until parity harness and codex/opencode sid materialization are implemented and gated'
+  ts: 1783804765493
+  links:
+  - key:7ec3066e49b42cc2
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 pause_reason: null
 attachments:
