@@ -217,11 +217,11 @@ pub enum AgentAction {
         #[arg(default_value = "claude")]
         agent: String,
         /// Tab title
-        #[arg(long)]
-        title: Option<String>,
+        #[arg(long, num_args = 1..)]
+        title: Option<Vec<String>>,
         /// Short tab description (max 200 chars)
-        #[arg(long)]
-        description: Option<String>,
+        #[arg(long, num_args = 1..)]
+        description: Option<Vec<String>>,
         /// Working directory
         #[arg(long)]
         cwd: Option<String>,
@@ -488,6 +488,35 @@ mod tests {
                 assert!(matches!(role, Some(SpawnRole::Worker)));
                 assert_eq!(plan.as_deref(), Some("pl_test"));
                 assert_eq!(plan_task.as_deref(), Some("my-task"));
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn spawn_title_accepts_unquoted_words_until_next_flag() {
+        let cli = Cli::try_parse_from([
+            "codeterm",
+            "agent",
+            "spawn",
+            "claude",
+            "--title",
+            "perf",
+            "brainstorm",
+            "opus",
+            "--task",
+            "review startup",
+        ])
+        .expect("unquoted title words should parse");
+        match cli.command {
+            crate::Commands::Agent {
+                action: AgentAction::Spawn { title, task, .. },
+            } => {
+                assert_eq!(
+                    title.map(|words| words.join(" ")).as_deref(),
+                    Some("perf brainstorm opus")
+                );
+                assert_eq!(task.as_deref(), Some("review startup"));
             }
             _ => panic!("expected agent spawn"),
         }

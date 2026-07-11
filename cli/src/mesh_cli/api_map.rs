@@ -444,13 +444,14 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     }
                 };
                 let agent_name = agent.as_str();
+                let title = crate::cmd::agent::join_cli_words(title.clone());
                 let mut body = serde_json::json!({
                     "agent": agent_name,
                     "title": title,
                     "task": task,
                 });
-                if let Some(d) = description {
-                    match crate::cmd::agent::normalize_pane_description(d) {
+                if let Some(d) = crate::cmd::agent::join_cli_words(description.clone()) {
+                    match crate::cmd::agent::normalize_pane_description(&d) {
                         Ok(Some(d)) => body["description"] = serde_json::json!(d),
                         Ok(None) => body["description"] = serde_json::json!(""),
                         Err(e) => return unsupported(&e),
