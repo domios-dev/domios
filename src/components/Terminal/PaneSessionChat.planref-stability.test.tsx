@@ -9,7 +9,7 @@
 
 import { act } from "react";
 import { Window } from "happy-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createRoot } from "react-dom/client";
 import type { Pane } from "../../lib/types";
 import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
@@ -80,7 +80,7 @@ async function main() {
   const STABLE_COUNT = 6;
   const CHUNKS = 12;
   const paneId = "chat-pane";
-  const initial = [];
+  const initial: ReturnType<typeof assistant>[] = [];
   for (let i = 0; i < STABLE_COUNT; i++) initial.push(assistant(`m${i}`, `stable message ${i}`, i));
   initial.push(assistant("tail", "streaming", STABLE_COUNT));
 
