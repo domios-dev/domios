@@ -16,7 +16,7 @@ qa_state: null
 status_label: 'blocked: ENVIRONMENT ubunta control path/PTY unavailable'
 priority: p1
 created_at: 1783763162275
-updated_at: 1783767691879
+updated_at: 1783777990031
 status_changed_at: 1783764547263
 handle: run-linux-web-mode-first-shard-on-ubunta
 tags:
@@ -213,6 +213,23 @@ milestones:
   ts: 1783767691879
   links:
   - key:dfe59701199ade1a
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_yz4ayu
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' attempted to pause external Linux infra blocker so it would stop appearing as active frontier, but current daemon lacks the pause RPC (Method not found). Keeping status=blocked with explicit unblock trigger: restore ubunta control/build path, fast-forward checkout, prove dev 7686 health, then run Shard L with bounded caps.'
+  ts: 1783777990031
+  links:
+  - key:ba8a63e2568e3636
   loop_id: null
   iteration: null
   canvas:
