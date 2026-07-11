@@ -99,7 +99,7 @@ test(
 
       await switchPlanMode(page, "list");
       await expect(page.locator('[data-testid="plan-list-view"]:visible')).toBeVisible();
-      await expect(page.locator('[data-testid="plan-list-row"]').first()).toBeVisible();
+      await expect(page.locator('[data-testid="plan-list-task"]').first()).toBeVisible();
       await shot(page, "plan-card-metadata-list-desktop");
     } finally {
       await opened.canvas.close();

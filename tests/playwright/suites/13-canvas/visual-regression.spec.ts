@@ -35,10 +35,13 @@ async function stabilize(page: Page): Promise<void> {
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
-async function expectGolden(locator: Locator, name: string): Promise<void> {
+// Relative-age chips ("688mo", "20642d") are wall-clock derived; mask them so
+// the golden asserts layout/content without rotting daily.
+async function expectGolden(locator: Locator, name: string, mask?: Locator[]): Promise<void> {
   await expect(locator).toHaveScreenshot(`${name}.png`, {
     ...DIFF,
     animations: "disabled",
+    ...(mask ? { mask } : {}),
   });
 }
 
@@ -61,7 +64,9 @@ test("@golden @visual-regression board seeded plan matches golden", async ({ api
     const { page } = canvas;
     await switchMode(page, "board");
     await expect(page.locator('[data-testid="plan-board-task-card"]').first()).toBeVisible({ timeout: 20_000 });
-    await expectGolden(page.locator('[data-testid="plan-view-shell"]').first(), "plan-board-seeded");
+    await expectGolden(page.locator('[data-testid="plan-view-shell"]').first(), "plan-board-seeded", [
+      page.locator('[data-testid="plan-board-task-age"]'),
+    ]);
   } finally {
     await close(canvas);
   }
@@ -74,7 +79,9 @@ test("@golden @visual-regression list seeded plan matches golden", async ({ api,
     const { page } = canvas;
     await switchMode(page, "list");
     await expect(page.locator('[data-testid="plan-list-task"]').first()).toBeVisible({ timeout: 20_000 });
-    await expectGolden(page.locator('[data-testid="plan-list-view"]').first(), "plan-list-seeded");
+    await expectGolden(page.locator('[data-testid="plan-list-view"]').first(), "plan-list-seeded", [
+      page.locator('[data-testid="plan-list-age"]'),
+    ]);
   } finally {
     await close(canvas);
   }
