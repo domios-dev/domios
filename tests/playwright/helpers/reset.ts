@@ -44,6 +44,29 @@ export async function apiReset(api: ApiClient): Promise<void> {
   }
 }
 
+export type ResetBaseline = { workspaces: Set<string>; panes: Set<string> };
+
+export async function snapshotBaseline(api: ApiClient): Promise<ResetBaseline> {
+  return {
+    workspaces: new Set((await api.workspaces()).map((w) => w.id)),
+    panes: new Set((await api.panes()).map((p) => p.id)),
+  };
+}
+
+/** Close only what appeared after the baseline; pre-existing state is untouched. */
+export async function diffReset(api: ApiClient, baseline: ResetBaseline): Promise<void> {
+  for (const ws of await api.workspaces()) {
+    if (!ws.protected && !baseline.workspaces.has(ws.id)) {
+      await api.closeWorkspace(ws.id).catch(() => {});
+    }
+  }
+  for (const pane of await api.panes()) {
+    if (!pane.protected && !baseline.panes.has(pane.id)) {
+      await api.closePane(pane.id).catch(() => {});
+    }
+  }
+}
+
 /** Mutable state dirs that may be wiped without losing the token or CLI. */
 const WIPEABLE = [
   "sessions",

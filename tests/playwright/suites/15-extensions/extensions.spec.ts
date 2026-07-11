@@ -205,7 +205,7 @@ test.afterEach(() => {
   rmSync(CHANNEL_ROOT, { recursive: true, force: true });
 });
 
-test("@smoke list and detail panel render channel extension metadata", async ({ ui }) => {
+test("@smoke list and detail panel render channel extension metadata @restart", async ({ ui }) => {
   await openExtensions(ui);
   await addChannel(ui.page, `${fileUrl(WORKTREE)}#main:plugins`);
   await expect(pluginRow(ui.page)).toBeVisible({ timeout: 30_000 });
@@ -219,7 +219,7 @@ test("@smoke list and detail panel render channel extension metadata", async ({ 
   await expect(detail.locator('[data-testid="extensions-capabilities"]')).toContainText("view");
 });
 
-test("@golden installed extension exposes Configure with AI and plugin activity toast", async ({ api, ui }) => {
+test("@golden installed extension exposes Configure with AI and plugin activity toast @restart", async ({ api, ui }) => {
   await openExtensions(ui);
   await addChannel(ui.page, `${fileUrl(WORKTREE)}#main:plugins`);
   await installPlugin(ui.page, api);
@@ -259,7 +259,7 @@ test("@golden installed extension exposes Configure with AI and plugin activity 
   await expect(toast).toHaveCount(0);
 });
 
-test("@smoke uninstall confirmation includes remove-data checkbox", async ({ api, ui }) => {
+test("@smoke uninstall confirmation includes remove-data checkbox @restart", async ({ api, ui }) => {
   await openExtensions(ui);
   await addChannel(ui.page, `${fileUrl(WORKTREE)}#main:plugins`);
   await installPlugin(ui.page, api);
@@ -282,7 +282,7 @@ test("@smoke uninstall confirmation includes remove-data checkbox", async ({ api
   }).toBe(false);
 });
 
-test("@golden channel bump renders update badge; update installs the new version", async ({ api, ui }) => {
+test("@golden channel bump renders update badge; update installs the new version @restart", async ({ api, ui }) => {
   await openExtensions(ui);
   await addChannel(ui.page, `${fileUrl(WORKTREE)}#main:plugins`);
   await installPlugin(ui.page, api);
@@ -310,7 +310,7 @@ test("@golden channel bump renders update badge; update installs the new version
   await expect(row).toHaveAttribute("data-plugin-update-available", "false", { timeout: 30_000 });
 });
 
-test("@golden system channel update renders bundled providers as verified", async ({ ui }) => {
+test("@golden system channel update renders bundled providers as verified @restart", async ({ ui }) => {
   cli("plugin update-system --json");
   await openExtensions(ui);
   const section = ui.page.locator(
@@ -334,7 +334,7 @@ test("@golden system channel update renders bundled providers as verified", asyn
   }
 });
 
-test("@smoke broken channel add surfaces the error banner", async ({ ui }) => {
+test("@smoke broken channel add surfaces the error banner @restart", async ({ ui }) => {
   await openExtensions(ui);
   await ui.page.locator('[data-testid="extensions-filter"][data-extension-filter="channels"]').click();
   await ui.page.locator('[data-testid="extensions-channel-add-open"]').click();
