@@ -16,11 +16,11 @@ test_plan: 'Oracle: deterministic 25-tab fixture plus before/after traces on Win
 correctness: Input responsiveness under sustained 25-tab stream pressure; measured next-frame paint; no controlled-input deferral; no dropped/reordered IME or paste data; transcript and event ordering parity; bounded output; backend lock/queue evidence; Windows WebView2 and web-mode parity; reproducible before/after artifacts; no local heavy-build dependency.
 status: in_progress
 review_stage: review
-qa_state: null
-status_label: pane-gone
+qa_state: queued
+status_label: remote-qa-running
 priority: p2
 created_at: 1783657396520
-updated_at: 1783717841999
+updated_at: 1783734169804
 status_changed_at: 1783710393194
 handle: isolate-composer-input-from-heavy-transcript-output-churn
 tags: []
