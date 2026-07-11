@@ -144,6 +144,7 @@ pub struct PlanStateSnapshot {
     pub live_agents: Vec<LiveAgent>,
     pub recent_strides: Vec<StrideSnapshot>,
     pub pending_regression_gates: Vec<super::milestone_gates::RegressionGate>,
+    pub review_gate: super::review_gate::ReviewGateStatus,
     pub next_actions: Vec<NextAction>,
 }
 
@@ -515,6 +516,7 @@ pub fn build_plan_state_snapshot(
         live_agents,
         recent_strides: recent_strides(plan),
         pending_regression_gates: super::milestone_gates::pending_regression_gates(plan),
+        review_gate: super::review_gate::review_gate_status(plan),
         next_actions: vec![],
     };
     snapshot.next_actions = compute_next_actions(&snapshot);
@@ -568,6 +570,11 @@ mod tests {
             status,
             review_stage: Default::default(),
             qa_state: None,
+            review_round: 0,
+            review_oracle: None,
+            review_evidence: vec![],
+            review_override: None,
+            review_audit: vec![],
             status_label: None,
             priority: Default::default(),
             created_at: 0,

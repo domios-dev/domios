@@ -6,8 +6,8 @@ use super::{
 };
 use crate::plan::{
     AgentRef, Goal, Milestone, MilestoneKind, OrchestratorRef, Plan, PlanMode, PlanStatus,
-    PlannerRef, PlanningAuthor, PlanningState, PlanningTransition, Section, TagFacet, Task,
-    TaskGroup, TaskPriority, TaskStatus, TransferRecord,
+    PlannerRef, PlanningAuthor, PlanningState, PlanningTransition, ReviewEvidence, ReviewVerdict,
+    Section, TagFacet, Task, TaskGroup, TaskPriority, TaskStatus, TransferRecord,
 };
 
 pub(super) fn gen_id(prefix: &str) -> String {
@@ -287,6 +287,24 @@ pub(super) fn validate_task_status_transition(
                 .is_some_and(|p| !p.trim().is_empty());
             if !has_pane {
                 return Err(PlanError::InProgressRequiresPane);
+            }
+            // Only fresh dispatch (claiming new capacity) is throttled; a task
+            // returning to in_progress after a review bounce already holds its
+            // slot and must not get stuck re-queued behind its own review.
+            if matches!(current, TaskStatus::Pending) {
+                let gate = super::review_gate::review_gate_status(plan);
+                if gate.blocked {
+                    return Err(PlanError::ReviewWipExceeded {
+                        wip_count: gate.wip_count,
+                        wip_limit: gate.wip_limit,
+                        credit: gate.credit,
+                    });
+                }
+            }
+        }
+        if matches!(next, TaskStatus::InReview) {
+            if let Some(task) = task {
+                super::review_gate::validate_enter_review(task)?;
             }
         }
         if matches!(next, TaskStatus::Blocked) {

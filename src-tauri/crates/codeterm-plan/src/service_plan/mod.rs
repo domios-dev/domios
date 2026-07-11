@@ -30,6 +30,7 @@ pub mod ports;
 pub mod prompts_plan;
 pub mod qa;
 mod readback;
+pub mod review_gate;
 mod reconcile_fixes;
 pub mod reflection;
 mod relink;

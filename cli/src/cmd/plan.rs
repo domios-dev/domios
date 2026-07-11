@@ -12,6 +12,7 @@ mod adopt_search;
 mod gate_cmd;
 mod qa_cmd;
 mod read_cmd;
+mod review_cmd;
 mod task_cmd;
 use self::adopt_search::{render_adopt_report, render_plan_search, resolve_source_plan};
 #[cfg(test)]
@@ -864,6 +865,8 @@ fn run_plan(
         },
 
         PlanAction::Qa { action } => return qa_cmd::handle(client, json, action),
+
+        PlanAction::Review { action } => return review_cmd::handle(client, json, action),
 
         PlanAction::Decision { action } => return gate_cmd::handle(client, json, action),
 

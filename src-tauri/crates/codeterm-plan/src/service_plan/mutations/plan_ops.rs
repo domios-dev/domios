@@ -315,6 +315,11 @@ impl PlanStore {
             status: TaskStatus::Pending,
             review_stage: Default::default(),
             qa_state: None,
+            review_round: 0,
+            review_oracle: None,
+            review_evidence: vec![],
+            review_override: None,
+            review_audit: vec![],
             status_label: None,
             priority: new.priority.unwrap_or_default(),
             created_at: now_ms,
@@ -377,6 +382,7 @@ impl PlanStore {
                 .ok_or(PlanError::TaskNotFound)?;
             let task_id = p.tasks[task_index].id.clone();
             reject_done_with_open_subtasks(p, &task_id)?;
+            let was_in_review = p.tasks[task_index].status == TaskStatus::InReview;
             let task = &mut p.tasks[task_index];
             if task.status != TaskStatus::Done {
                 task.status_changed_at = now_ms;
@@ -387,6 +393,18 @@ impl PlanStore {
             super::task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
             clear_task_assignment(task);
             task.updated_at = now_ms;
+            if was_in_review {
+                task.review_evidence.push(ReviewEvidence {
+                    id: crate::plan::ids::short_id("rev"),
+                    from: from.clone(),
+                    verdict: ReviewVerdict::Accept,
+                    note: result.unwrap_or("").into(),
+                    at: now_ms,
+                    changed_executable_surfaces: false,
+                    distinct_oracle: false,
+                });
+                crate::service_plan::review_gate::earn_review_credit(&mut p.review_policy);
+            }
             if let Some(text) = result {
                 let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
                 p.tasks[task_index].milestones.push(Milestone {
