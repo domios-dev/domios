@@ -670,7 +670,7 @@ mod tests {
     }
 
     #[test]
-    fn time_targets_preserve_pause_park_completion_and_closure_suppression() {
+    fn time_targets_preserve_pause_completion_and_closure_suppression() {
         let mut paused = plan(
             "pl_paused",
             "paused-owner",
@@ -679,11 +679,11 @@ mod tests {
         );
         paused.mode = PlanMode::Paused;
 
-        let parked = plan(
-            "pl_parked",
-            "parked-owner",
+        let paused_task = plan(
+            "pl_paused_task",
+            "paused-task-owner",
             PlanMode::Execution,
-            vec![task("parked", TaskStatus::Parked, Some("parked-worker"))],
+            vec![task("paused", TaskStatus::Paused, Some("paused-worker"))],
         );
 
         let mut archived = plan(
@@ -701,7 +701,9 @@ mod tests {
             vec![task("done", TaskStatus::Done, Some("done-worker"))],
         );
 
-        assert!(timed_plan_reminder_targets(&[paused, parked, archived, no_open_tasks]).is_empty());
+        assert!(
+            timed_plan_reminder_targets(&[paused, paused_task, archived, no_open_tasks]).is_empty()
+        );
     }
 
     #[test]
