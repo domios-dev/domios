@@ -354,4 +354,7 @@ test("@smoke broken channel add surfaces the error banner @restart", async ({ ui
   const error = ui.page.locator('[data-testid="extensions-error"]');
   await expect(error).toBeVisible({ timeout: 30_000 });
   await expect(error).toContainText(/missing|error|failed|not found/i);
+  // Leave the live dev window clean: the deliberately-broken add is asserted, drop its banner.
+  await ui.page.reload({ waitUntil: "domcontentloaded" });
+  await ui.page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
 });
