@@ -15,7 +15,7 @@ qa_state: null
 status_label: shard-gate-requested
 priority: p1
 created_at: 1783799488075
-updated_at: 1783800727743
+updated_at: 1783800824891
 status_changed_at: 1783800727743
 handle: fix-remaining-preserved-13-canvas-golden-failures
 tags:
@@ -61,6 +61,23 @@ milestones:
   ts: 1783800727735
   links:
   - key:aba5860010d1f070
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_05ht5a
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: evidence
+  text: ' preserved 13-canvas golden shard on eight is green at worker HEAD 255364eb. Command: npx playwright test tests/playwright/suites/13-canvas --config=tests/playwright/playwright.config.ts --project=golden --timeout=30000 --global-timeout=600000. Result: 29 passed, 2 skipped, 0 failed in 55.0s; all four prior failing titles pass. Authorized push.'
+  ts: 1783800824891
+  links:
+  - key:0fe8602c70e3f99f
   loop_id: null
   iteration: null
   canvas:
