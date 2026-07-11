@@ -1,0 +1,55 @@
+id: task_bdzdn1
+name: Migrate or retire remaining world-canvas golden specs
+type: implement
+model: claude/opus
+model_rationale: Needs product-aware frontend test triage across stale canvas golden specs; opus is appropriate because the work is mostly deciding convert-vs-delete and preserving current mission-control coverage.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- All remaining 13-canvas golden specs that reference dead world-canvas-only selectors are either converted to current mission-control flow-shell assertions or retired/deleted with a short rationale recorded. A bounded 13-canvas golden verification plan is provided and at least the touched specs pass in isolation with --timeout=30000 --global-timeout=600000. No mission-control-live visibility oracle is weakened.
+test_plan: 1. Grep tests/playwright/suites/13-canvas for canvas-plan-node, spec-node, canvas-presence-pin, world-canvas, CanvasViewInner-era selectors. 2. For each touched file, run npx playwright test --config=tests/playwright/playwright.config.ts --project=golden <file> --reporter=line --timeout=30000 --global-timeout=600000, or prove it is absent from --list after deletion. 3. Run a bounded split 13-canvas golden verification shard on eight/web-mode from a warm checkout.
+correctness: Preserve real current-product coverage. Do not keep tests for unmounted dead UI just to preserve line count. Do not weaken current mission-control flow shell visibility/readiness assertions.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783795619376
+updated_at: 1783795635358
+status_changed_at: 1783795619376
+handle: migrate-or-retire-remaining-world-canvas-golden-specs
+tags:
+- canvas
+- playwright
+- legacy
+section_ids:
+- sec_f6g3fr
+body: The macOS canvas gate fix proved that several 13-canvas golden specs still target the old unmounted world-canvas surface (CanvasViewInner/canvas-plan-node/spec-node/presence). Triage the remaining world-canvas family one file at a time. Convert tests whose user-visible intent maps cleanly to the current mission-control flow shell; delete or remove from golden tests whose only coverage is dead UI with no product equivalent. Do not restore CanvasViewInner unless the product owner explicitly asks for that surface back.
+role_guidance: null
+executor_role: frontend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: playwright-stability
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []
