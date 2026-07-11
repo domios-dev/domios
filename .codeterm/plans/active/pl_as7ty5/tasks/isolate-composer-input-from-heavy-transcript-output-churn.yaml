@@ -17,10 +17,10 @@ correctness: Input responsiveness under sustained 25-tab stream pressure; measur
 status: in_progress
 review_stage: review
 qa_state: queued
-status_label: remote-qa-running
+status_label: needs-reassign
 priority: p2
 created_at: 1783657396520
-updated_at: 1783734169804
+updated_at: 1783749652950
 status_changed_at: 1783710393194
 handle: isolate-composer-input-from-heavy-transcript-output-churn
 tags: []
@@ -33,9 +33,9 @@ competition: null
 intent: null
 parent_task_id: null
 depends_on: []
-assigned_pane_id: 1e318290
+assigned_pane_id: null
 lane:
-  pane_id: 1e318290
+  pane_id: null
   workspace_id: null
   workspace_name: release-1.7.2-integration
   worktree_path: D:/Developer/codeterm-worktrees/composer-output-performance
@@ -148,6 +148,22 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_1wi2go
+  from:
+    pane_id: watchdog
+    session_id: null
+    title: null
+  kind: decision
+  text: 'watchdog: assigned pane gone and silent for 31809621ms — demoted to pending'
+  ts: 1783749652950
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_m2d0dl
   executor_pane_id: 1b5a2e0c
@@ -245,12 +261,12 @@ execution_attempts:
   assigned_at: 1783712897504
   reported_at: 1783717843329
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783749652950
   competition_group_id: null
   competition_lane: null
   judge_verdict: null
   judge_reason: null
   judged_at: null
   winner: false
-park_reason: null
+pause_reason: null
 attachments: []

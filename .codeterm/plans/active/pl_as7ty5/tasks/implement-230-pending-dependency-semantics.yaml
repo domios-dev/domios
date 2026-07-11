@@ -49,5 +49,5 @@ canvas:
   collapsed: false
 milestones: []
 execution_attempts: []
-park_reason: null
+pause_reason: null
 attachments: []

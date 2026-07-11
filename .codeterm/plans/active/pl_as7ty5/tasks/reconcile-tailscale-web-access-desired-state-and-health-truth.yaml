@@ -214,5 +214,5 @@ execution_attempts:
   judge_reason: null
   judged_at: null
   winner: false
-park_reason: null
+pause_reason: null
 attachments: []
