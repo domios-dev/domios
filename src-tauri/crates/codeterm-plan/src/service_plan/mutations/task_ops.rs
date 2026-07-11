@@ -56,8 +56,8 @@ impl PlanStore {
                 task.model_rationale = w.map(|s| s.into());
             }
             if let Some(status) = parsed_status {
-                let entering_review = task.status != TaskStatus::InReview
-                    && status == TaskStatus::InReview;
+                let entering_review =
+                    task.status != TaskStatus::InReview && status == TaskStatus::InReview;
                 let closing_review =
                     task.status == TaskStatus::InReview && is_terminal_task_status(&status);
                 if task.status != status {
