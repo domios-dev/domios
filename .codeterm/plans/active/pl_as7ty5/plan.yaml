@@ -111,7 +111,7 @@ owner:
 project_path: \\?\D:\Developer\codeterm
 canonical_project_path: \\?\D:\Developer\codeterm
 created_at: 1783628878496
-updated_at: 1783799529088
+updated_at: 1783799621515
 milestone_kinds:
 - key: discovery
   label: discovery
@@ -354,10 +354,10 @@ primary_spec_id: sp_o6l6of
 lineage: []
 goal: null
 heartbeat:
-  current_focus: ROG worker 84d60f00 investigates task_oya3rr; eight spawning task_bdzdn1 world-canvas cleanup; Planner continues pw-speedup frontier
+  current_focus: ROG investigates task_oya3rr; eight fixes preserved 13-canvas reds in task_ygjf13; speedup frontier paused behind active QA lanes
   active_lanes:
   - task_oya3rr
-  - task_bdzdn1
+  - task_ygjf13
   rules:
   - No worker starts cargo/build/dev directly while a machine QA/build owner exists
   learnings:

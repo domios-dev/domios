@@ -9,14 +9,14 @@ acceptance_criteria:
 - check-tags.mjs passes from repo root without weakening the tag/wait policy. Any waitForTimeout kept must be justified according to the existing baseline convention; any baseline count update must match current intended tests. The fix is separated from world-canvas deletion work.
 test_plan: Run node tests/playwright/check-tags.mjs or the project-standard tag lint command that pre-push invokes. Also run git diff --check for touched files.
 correctness: Do not silence the tag-lint guard broadly. Make the minimal baseline or test changes required for the current intended suite.
-status: in_progress
+status: done
 review_stage: review
 qa_state: null
 status_label: local-fix-waits-for-canvas-cleanup
 priority: p1
 created_at: 1783798895810
-updated_at: 1783799056553
-status_changed_at: 1783799008270
+updated_at: 1783799620747
+status_changed_at: 1783799582294
 handle: fix-pre-existing-playwright-tag-lint-baseline-drift
 tags:
 - playwright
@@ -31,16 +31,16 @@ competition: null
 intent: null
 parent_task_id: null
 depends_on: []
-assigned_pane_id: e3fa0754
+assigned_pane_id: null
 lane:
-  pane_id: e3fa0754
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: null
   branch: null
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -77,6 +77,22 @@ milestones:
   ts: 1783799056553
   links:
   - key:7d9c46cd49d6efd9
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_93y1l6
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: DONE. Pushed 3982a4f62 for independent chat-view polling sleep justifications and tab-switch-latency baseline line update; after world-canvas cleanup 195436df, node tests/playwright/helpers/check-tags.mjs passes locally with exit 0. Tag-lint blocker resolved.
+  ts: 1783799582294
+  links: []
   loop_id: null
   iteration: null
   canvas:
