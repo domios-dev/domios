@@ -17,7 +17,7 @@ qa_state: null
 status_label: needs-reassign
 priority: p0
 created_at: 1783795693431
-updated_at: 1783802271381
+updated_at: 1783805032391
 status_changed_at: 1783796613129
 handle: windows-daemon-terminates-at-oneshot-cron-completion-intermittent
 tags:
@@ -39,7 +39,7 @@ lane:
   pane_id: null
   workspace_id: null
   workspace_name: null
-  worktree_path: null
+  worktree_path: C:/Users/amigo/Developer/codeterm-worktrees/pw-172-stability
   branch: null
   base: null
   destination: null
@@ -146,6 +146,22 @@ milestones:
   kind: decision
   text: 'watchdog: assigned pane gone and silent for 2742668ms — demoted to pending'
   ts: 1783802271381
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_8cf1sf
+  from:
+    pane_id: watchdog
+    session_id: null
+    title: null
+  kind: decision
+  text: 'watchdog: assigned pane gone and silent for 2761010ms — demoted to pending'
+  ts: 1783805032391
   links: []
   loop_id: null
   iteration: null
