@@ -22,6 +22,17 @@ async function pairedPeer(api: { get<T>(p: string): Promise<T> }, id: string): P
   return peers.paired.find((p) => p.instance_id === id);
 }
 
+async function dismissRecoveryBannerIfPresent(page: {
+  locator(selector: string): {
+    click(opts?: { timeout?: number }): Promise<void>;
+  };
+}) {
+  await page
+    .locator('[data-testid="recovery-status-banner"] button[aria-label="Dismiss crash recovery"]')
+    .click({ timeout: 1_000 })
+    .catch(() => {});
+}
+
 test("@golden stub peer: pair → online → wedged → offline (hysteresis) → recovered, in API and Mesh-tab UI", async ({ api, ui }) => {
   // Liveness transitions ride the 15s health loop with a 2-miss threshold;
   test.setTimeout(420_000);
@@ -68,6 +79,7 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
 
     // fresh (not stale) in the services drawer.
     await ui.page.locator('[data-testid="nav-mesh"]').click();
+    await dismissRecoveryBannerIfPresent(ui.page);
     await ui.page.locator('[data-testid="mesh-tab-network"]').click();
     const peerRow = ui.page.locator(`[data-testid="mesh-peer"][data-peer-id="${peerId}"]`);
     await expect(peerRow).toBeVisible({ timeout: 15_000 });
