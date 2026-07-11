@@ -38,7 +38,9 @@ test.beforeEach(async ({ api }) => {
     } else {
       const seen = await pollUntil(
         async () => (await paneOutput(api, spawned.pane_id)).includes("stub replay"),
-        20_000,
+        30_000,
+        500,
+        "stub gate probe",
       ).catch(() => false);
       stubActive = Boolean(seen);
       await api.closePane(spawned.pane_id).catch(() => {});

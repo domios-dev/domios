@@ -11,7 +11,8 @@
  * stdin directives so multi-turn/tool tests keep their oracles.
  */
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -110,6 +111,61 @@ function replayCast() {
   }
 }
 
+// Claude persists chats as jsonl in ~/.claude/projects/<dash-encoded-cwd>/;
+// the pane chat tailer reads that file, so scripted turns must land there
+// exactly like the real CLI writes them. Other providers: chat parity TBD.
+const sessionFile = (() => {
+  if (provider !== "claude") return null;
+  const encoded = process.cwd().replace(/[:\\/.]/g, "-");
+  const dir = path.join(os.homedir(), ".claude", "projects", encoded);
+  try {
+    mkdirSync(dir, { recursive: true });
+    return path.join(dir, `${sessionId}.jsonl`);
+  } catch {
+    return null;
+  }
+})();
+
+let turnSeq = 0;
+function persistTurn(userText, assistantText) {
+  if (!sessionFile) return;
+  const ts = new Date().toISOString();
+  const userUuid = randomUUID();
+  const records = [
+    {
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: userText },
+      uuid: userUuid,
+      timestamp: ts,
+      sessionId,
+      cwd: process.cwd(),
+    },
+    {
+      parentUuid: userUuid,
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        model: model ?? "stub",
+        id: `msg_stub_${++turnSeq}`,
+        type: "message",
+        role: "assistant",
+        content: [{ type: "text", text: assistantText }],
+      },
+      uuid: randomUUID(),
+      timestamp: ts,
+      sessionId,
+      cwd: process.cwd(),
+    },
+  ];
+  try {
+    appendFileSync(sessionFile, records.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  } catch {
+    /* chat-parity test will surface a missing turn */
+  }
+}
+
 function handleLine(line) {
   const echo = line.match(/STUB_ECHO\s+(\S+)/);
   const tool = line.match(/STUB_TOOL\s+(\S+)/);
@@ -118,11 +174,14 @@ function handleLine(line) {
     process.exit(0);
   } else if (echo) {
     out(style.turn(`ack ${echo[1]}`));
+    persistTurn(line.trim(), `ack ${echo[1]}`);
   } else if (tool) {
     out(style.tool(tool[1]));
     out(style.turn(`tool round-trip done ${tool[1]}`));
+    persistTurn(line.trim(), `tool round-trip done ${tool[1]}`);
   } else if (line.trim()) {
     out(style.turn(`received: ${line.trim().slice(0, 120)}`));
+    persistTurn(line.trim(), `received: ${line.trim().slice(0, 120)}`);
   }
   process.stdout.write(style.idle);
 }
