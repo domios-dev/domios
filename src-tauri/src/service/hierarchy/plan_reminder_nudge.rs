@@ -250,7 +250,8 @@ impl ServiceContext {
                     timed.pane_id
                 );
                 self.plan_turn_counter.mark_time_nudged(&timed.pane_id, now);
-                self.plan_turn_counter.record_time_delivery(&timed.pane_id, now);
+                self.plan_turn_counter
+                    .record_time_delivery(&timed.pane_id, now);
             } else {
                 let reason = delivery.unwrap_err();
                 log::warn!(
@@ -259,7 +260,8 @@ impl ServiceContext {
                     timed.target,
                     reason
                 );
-                self.plan_turn_counter.record_time_failure(&timed.pane_id, reason);
+                self.plan_turn_counter
+                    .record_time_failure(&timed.pane_id, reason);
             }
         }
         log::info!("[plan-reminder] tick: {candidates} candidate pane(s), {due} due");
@@ -279,7 +281,8 @@ impl ServiceContext {
             .iter()
             .map(|target| target.pane_id.clone())
             .collect();
-        self.plan_turn_counter.retain_time_reminders(&eligible_panes);
+        self.plan_turn_counter
+            .retain_time_reminders(&eligible_panes);
     }
 
     fn send_due_complete_wrapup_reminders(&self, now: u64, interval_secs: u64) {
