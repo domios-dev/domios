@@ -17,7 +17,7 @@ qa_state: null
 status_label: release-blocking
 priority: p0
 created_at: 1783795693431
-updated_at: 1783795817445
+updated_at: 1783796497203
 status_changed_at: 1783795693431
 handle: windows-daemon-terminates-at-oneshot-cron-completion-intermittent
 tags:
@@ -52,7 +52,24 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_aqaa8s
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: evidence
+  text: ' ROG restart-project rerun at 3268c9012 reproduced exactly one oneshot cron daemon-death failure with no cascade. Artifacts on ROG: tests/playwright/artifacts/test-results/07-cron-cron--golden-onesh-25a01-d-spawns-a-real-run-restart-restart/error-context.md and trace.zip. Confirms task_oya3rr remains release-blocking runtime defect, separate from cgoixr harness.'
+  ts: 1783796497203
+  links:
+  - key:0043cdfafdc6b096
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 pause_reason: null
 attachments: []
