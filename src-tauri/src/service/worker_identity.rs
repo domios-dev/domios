@@ -84,6 +84,7 @@ mod tests {
             task_id: task_id.clone(),
             source_attempt: Default::default(),
             provider: "claude".into(),
+            planned_model: None,
             model: None,
             parent_pane_id: None,
             workspace_id: Some("ws".into()),
