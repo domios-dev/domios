@@ -108,10 +108,12 @@ fn render_status(value: &Value) -> String {
     let wip_count = gate.get("wip_count").and_then(|v| v.as_u64()).unwrap_or(0);
     let wip_limit = gate.get("wip_limit").and_then(|v| v.as_u64()).unwrap_or(0);
     let credit = gate.get("credit").and_then(|v| v.as_i64()).unwrap_or(0);
-    let blocked = gate.get("blocked").and_then(|v| v.as_bool()).unwrap_or(false);
-    let mut out = format!(
-        "Review WIP: {wip_count}/{wip_limit}  credit: {credit}  blocked: {blocked}\n"
-    );
+    let blocked = gate
+        .get("blocked")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let mut out =
+        format!("Review WIP: {wip_count}/{wip_limit}  credit: {credit}  blocked: {blocked}\n");
     if let Some(reason) = gate.get("reason").and_then(|v| v.as_str()) {
         out.push_str(&format!("Reason: {reason}\n"));
     }
@@ -129,7 +131,10 @@ fn render_waves(value: &Value) -> String {
     }
     let mut out = String::new();
     for wave in &waves {
-        let key = wave.get("group_key").and_then(|v| v.as_str()).unwrap_or("?");
+        let key = wave
+            .get("group_key")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
         let label = wave.get("label").and_then(|v| v.as_str()).unwrap_or(key);
         let count = wave
             .get("task_ids")
