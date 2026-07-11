@@ -1,0 +1,53 @@
+id: task_9sqqjo
+name: Harden local-socket response writes against disconnected clients
+type: implementation
+model: opus
+model_rationale: Root cause from task_oya3rr exposed a daemon-wide local-socket broken-pipe abort class beyond cron; keep as separate hardening after release-blocking cron fix.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- A synthetic local-socket client can disconnect before reading a response without killing the daemon; cron complete still passes; no regression to normal CLI RPC responses; evidence includes a focused Rust/unit or integration repro that fails before the hardening and passes after.
+test_plan: 1) Add a bounded repro for local socket client disconnect before response read. 2) Implement hardening at the socket response boundary or dependency layer. 3) Run the focused socket repro, cron_complete/restart-project focused test on Windows, and a normal CLI RPC smoke. 4) Record whether interprocess was patched, upgraded, or bypassed.
+correctness: Broken-pipe from one local client is isolated to that connection; daemon never aborts; no swallowed errors for successful clients.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783806340090
+updated_at: 1783806347394
+status_changed_at: 1783806340090
+handle: harden-local-socket-response-writes-against-disconnected-clients
+tags: []
+section_ids:
+- sec_f6g3fr
+body: 'Generalize the task_oya3rr finding: interprocess 2.4.0 can abort the daemon when a JSON-RPC local-socket response write hits a client that disconnected first. Audit src-tauri/src/socket/server handle_connection and either patch/upgrade interprocess usage or wrap response writes so broken-pipe/connection-reset is a normal per-client error, never process abort. Keep the cron-specific deferral fix intact.'
+role_guidance: 'You are a Rust backend engineer. Treat this as process-survival hardening, not a cron feature. Red line: no solution is acceptable unless a disconnected-client repro proves the daemon survives.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on:
+- task_oya3rr
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: playwright-stability
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []
