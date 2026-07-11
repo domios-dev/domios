@@ -47,6 +47,17 @@ const RECONNECT_DEBOUNCE_MS = 50;
 const RECEIVE_TIMEOUT_MS = 30_000;
 const WATCHDOG_INTERVAL_MS = 5_000;
 
+declare global {
+  interface Window {
+    __outputStreamPerf?: {
+      frames: number;
+      bytes: number;
+      batches: number;
+      lastFrameAt: number;
+    };
+  }
+}
+
 const sinks = new Map<string, Set<PaneOutputSink>>();
 const offsets = new Map<string, number>();
 /** Panes whose full history was already streamed into a live xterm this page
@@ -119,6 +130,12 @@ function outputStreamUrl(): string {
 }
 
 function handleFrame(msg: OutputFrame): void {
+  const perf = window.__outputStreamPerf;
+  if (perf) {
+    perf.frames += 1;
+    perf.lastFrameAt = performance.now();
+    if (typeof msg.output === "string") perf.bytes += msg.output.length;
+  }
   if (msg.boot_changed && msg.boot) {
     // boot-scoped offsets and reconnect — the boot-matched cursor full-replays.
     saveBoot(msg.boot);
@@ -131,7 +148,10 @@ function handleFrame(msg: OutputFrame): void {
   const set = sinks.get(pane);
   if (typeof msg.offset === "number" && typeof msg.output === "string") {
     offsets.set(pane, msg.offset);
-    if (set) for (const s of set) s.onOutput(msg.output);
+    if (set) {
+      perf && (perf.batches += 1);
+      for (const s of set) s.onOutput(msg.output);
+    }
     return;
   }
   if (msg.truncated && typeof msg.from === "number") {
