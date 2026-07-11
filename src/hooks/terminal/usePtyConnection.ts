@@ -6,6 +6,36 @@ import { subscribePaneOutput, webOutputStreamActive, type PaneOutputSink } from 
 import { useMuxSelector } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
+import { createHiddenOutputBuffer } from "./hiddenOutputBuffer";
+
+// Trailing hidden-pane output kept for replay on show. Roughly a scrollback's
+// worth: older bytes would scroll off xterm's buffer anyway, so evicting them
+// (and resyncing from the backend instead) avoids a multi-second burst replay.
+const HIDDEN_BUFFER_MAX_BYTES = 4 * 1024 * 1024;
+
+async function fetchPaneHistory(paneId: string): Promise<string> {
+  try {
+    const raw = await invoke<string>("get_pane_history_raw", { paneId });
+    if (raw) return raw;
+  } catch { /* fall back to screen dump */ }
+  try {
+    const formatted = await invoke<string>("get_pane_text", { paneId, formatted: true });
+    if (formatted) return formatted;
+  } catch { /* fall back to plain */ }
+  try {
+    const text = await invoke<string>("get_pane_text", { paneId, formatted: false });
+    if (text) return text;
+  } catch { /* ignore */ }
+  return "";
+}
+
+function resyncPaneHistory(term: Terminal, paneId: string): Promise<void> {
+  return fetchPaneHistory(paneId).then((history) => {
+    term.reset();
+    if (history) term.write(history, () => term.scrollToBottom());
+    else term.scrollToBottom();
+  });
+}
 
 export interface UsePtyConnectionOptions {
   termRef: React.MutableRefObject<Terminal | null>;
@@ -50,7 +80,7 @@ export function usePtyConnection({
   );
   const localFitEnabledRef = useRef(localFitEnabled);
   const renderEnabledRef = useRef(renderEnabled);
-  const hiddenPendingRef = useRef<Uint8Array[]>([]);
+  const hiddenBufRef = useRef(createHiddenOutputBuffer(HIDDEN_BUFFER_MAX_BYTES));
   // Web resets the tail cursor once per mount; toggles resume it.
   const webReplayedPtysRef = useRef<Set<string>>(new Set());
   // xterm instance is keep-alive (never destroyed on tab switch); replay scrollback only once per pane lifetime.
@@ -62,14 +92,18 @@ export function usePtyConnection({
 
   useEffect(() => {
     renderEnabledRef.current = renderEnabled;
-    if (!renderEnabled || hiddenPendingRef.current.length === 0) return;
+    if (!renderEnabled || hiddenBufRef.current.size === 0) return;
     const term = termRef.current;
     if (!term) return;
-    for (const chunk of hiddenPendingRef.current) {
-      term.write(chunk);
+    const { payload, dropped } = hiddenBufRef.current.drain();
+    if (dropped) {
+      // Cap evicted older bytes while hidden; a truncated replay could corrupt
+      // alt-screen/SGR state, so resync from the backend's bounded history.
+      void resyncPaneHistory(term, paneId);
+      return;
     }
-    hiddenPendingRef.current = [];
-  }, [renderEnabled, termRef]);
+    term.write(payload, () => term.scrollToBottom());
+  }, [renderEnabled, termRef, paneId]);
 
   const writePty = useCallback((data: string) => {
     const id = connectedPtyRef.current;
@@ -107,33 +141,8 @@ export function usePtyConnection({
       } else if (ptyId) {
         if (!replayDoneRef.current.has(ptyId)) {
           replayDoneRef.current.add(ptyId);
-
-          let restored = false;
-          try {
-            const raw = await invoke<string>("get_pane_history_raw", { paneId });
-            if (raw) {
-              term.write(raw);
-              restored = true;
-            }
-          } catch { /* fall back to screen dump */ }
-
-          if (!restored) {
-            try {
-              const formatted = await invoke<string>(
-                "get_pane_text",
-                { paneId, formatted: true },
-              );
-              if (formatted) term.write(formatted);
-            } catch {
-              try {
-                const text = await invoke<string>(
-                  "get_pane_text",
-                  { paneId, formatted: false },
-                );
-                if (text) term.write(text);
-              } catch { /* ignore */ }
-            }
-          }
+          const history = await fetchPaneHistory(paneId);
+          if (history) term.write(history);
         }
         // One fit() + resize on every (re)connect to sync PTY dimensions.
         requestAnimationFrame(() => {
@@ -205,7 +214,7 @@ export function usePtyConnection({
         } catch { /* ignore decode errors */ }
 
         if (!renderEnabledRef.current) {
-          hiddenPendingRef.current.push(chunk);
+          hiddenBufRef.current.push(chunk);
           if (firstData) firstData = false;
           return;
         }
