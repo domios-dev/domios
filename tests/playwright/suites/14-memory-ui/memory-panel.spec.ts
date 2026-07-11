@@ -26,7 +26,8 @@ async function memSave(
   return res.id;
 }
 
-test.afterEach(async ({ api }) => {
+test.afterEach(async ({ api, ui }) => {
+  await ui.page.locator('[data-testid="memory-item-close"]').click({ timeout: 1_000 }).catch(() => {});
   for (const id of created) {
     await api.request("DELETE", `/mem/items/${id}`).catch(() => {});
   }
@@ -43,6 +44,20 @@ async function openMemoryList(page: import("../../helpers/fixtures").Page): Prom
     await toggle.click();
   }
   await expect(page.locator('[data-testid="memory-list-tab"]')).toBeVisible();
+}
+
+async function waitForGraphSnapshot(
+  api: { get<T>(p: string): Promise<T>; post<T = unknown>(p: string, body?: unknown): Promise<T> },
+  ids: string[],
+): Promise<void> {
+  await api.post("/mem/graph/layout/rebuild").catch((error) => {
+    if (!String(error).includes("409")) throw error;
+  });
+  await expect.poll(async () => {
+    const snap = await api.get<{ nodes?: Array<{ id?: string }> }>("/mem/graph/snapshot");
+    const present = new Set((snap.nodes ?? []).map((node) => node.id).filter(Boolean));
+    return ids.every((id) => present.has(id));
+  }, { timeout: 30_000, intervals: [250, 500, 1_000] }).toBe(true);
 }
 
 test("@golden MemoryPanel searches saved memory and opens item preview", async ({ api, ui }) => {
@@ -85,23 +100,13 @@ test("@golden MemoryPanel renders graph relations in item detail", async ({ api,
     `Beta relation body ${stamp}`,
   );
   await api.post("/mem/graph/relate", { from: a, rel: "relates_to", to: b });
+  await waitForGraphSnapshot(api, [a, b]);
 
-  await ui.page.evaluate((selectedId) => {
-    window.dispatchEvent(
-      new CustomEvent("codeterm:open-panel", {
-        detail: {
-          panel: "memory",
-          memoryState: {
-            selectedId,
-            feedVisible: false,
-            workerPanelVisible: false,
-            activeTab: "inspect",
-            inspectView: "graph",
-          },
-        },
-      }),
-    );
-  }, a);
+  await openMemoryList(ui.page);
+  await ui.page.locator('[data-testid="memory-list-search"]').fill(`Memory relation alpha ${stamp}`);
+  const row = ui.page.locator(`[data-testid="memory-list-item"][data-memory-id="${a}"]`);
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  await row.locator('[data-testid="memory-list-view-graph"]').click();
 
   await expect(ui.page.locator('[data-testid="memory-panel"]')).toBeVisible();
   const detail = ui.page.locator(`[data-testid="memory-node-detail"][data-memory-id="${a}"]`);

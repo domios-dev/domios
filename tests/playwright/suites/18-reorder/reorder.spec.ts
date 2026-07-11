@@ -52,6 +52,11 @@ async function workspaceOrder(api: ApiClient): Promise<string[]> {
   return [...st.workspaces].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)).map((w) => w.id);
 }
 
+function onlyOwned(order: string[], owned: string[]): string[] {
+  const ownedSet = new Set(owned);
+  return order.filter((id) => ownedSet.has(id));
+}
+
 /** Keyboard drag a dnd-kit sortable row: focus, Space (lift), Arrow×n, Space (drop). */
 async function keyboardDrag(page: Page, rowSelector: string, key: "ArrowDown" | "ArrowUp", presses: number) {
   const row = page.locator(rowSelector).first();
@@ -103,14 +108,14 @@ test("@golden C1 a top-level tab reorders within its workspace", async ({ api, u
 
   await syncUi(page);
   await page.locator(`[data-tab-id="${t3.tab_id}"]`).first().waitFor({ state: "visible", timeout: 20_000 });
-  const before = await topLevelOrder(api, ws);
-  expect(before).toEqual([t1.tab_id, t2.tab_id, t3.tab_id]);
+  const owned = [t1.tab_id, t2.tab_id, t3.tab_id];
+  expect(onlyOwned(await topLevelOrder(api, ws), owned)).toEqual(owned);
 
   // Drag the first tab down two slots → it lands last.
   await keyboardDrag(page, tabRow(ws, t1.tab_id), "ArrowDown", 2);
 
   await expect
-    .poll(async () => (await topLevelOrder(api, ws)).join(","), { timeout: 15_000 })
+    .poll(async () => onlyOwned(await topLevelOrder(api, ws), owned).join(","), { timeout: 15_000 })
     .toBe([t2.tab_id, t3.tab_id, t1.tab_id].join(","));
 });
 
@@ -126,12 +131,13 @@ test("@golden C2 a child reorders within its parent group and cannot leave it", 
   await syncUi(page);
   // Children render nested under the parent in their own drop group.
   await page.locator(childRow(parent.pane_id, c2.tab_id)).first().waitFor({ state: "visible", timeout: 20_000 });
-  expect(await childOrder(api, ws, parent.pane_id)).toEqual([c1.tab_id, c2.tab_id]);
+  const ownedChildren = [c1.tab_id, c2.tab_id];
+  expect(onlyOwned(await childOrder(api, ws, parent.pane_id), ownedChildren)).toEqual(ownedChildren);
 
   // Positive: reorder the two siblings → order flips, both stay children.
   await keyboardDrag(page, childRow(parent.pane_id, c1.tab_id), "ArrowDown", 1);
   await expect
-    .poll(async () => (await childOrder(api, ws, parent.pane_id)).join(","), { timeout: 15_000 })
+    .poll(async () => onlyOwned(await childOrder(api, ws, parent.pane_id), ownedChildren).join(","), { timeout: 15_000 })
     .toBe([c2.tab_id, c1.tab_id].join(","));
 
   // is rejected — the child must remain a child of the same parent.

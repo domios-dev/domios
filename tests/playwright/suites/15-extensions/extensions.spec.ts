@@ -229,17 +229,25 @@ test("@golden installed extension exposes Configure with AI and plugin activity 
   ).toBeVisible();
 
   await expect.poll(async () => {
-    await api.post("/plugins/view-call", {
-      pluginId: PLUGIN_ID,
-      method: "progress",
-      args: { label: "Downloading fixture payload", percent: 42 },
-    });
-    return true;
-  }).toBe(true);
+    try {
+      await api.post("/plugins/view-call", {
+        pluginId: PLUGIN_ID,
+        method: "progress",
+        args: { label: "Downloading fixture payload", percent: 42 },
+      });
+      return true;
+    } catch (error) {
+      if (String(error).includes("no view provider")) return false;
+      throw error;
+    }
+  }, { timeout: 30_000, intervals: [250, 500, 1_000] }).toBe(true);
 
-  const activity = ui.page.locator('[data-testid="extensions-plugin-activity"]').filter({
-    hasText: "Downloading fixture payload",
-  });
+  const activity = ui.page
+    .locator(`[data-testid="extensions-plugin-detail"][data-plugin-id="${PLUGIN_ID}"]`)
+    .locator('[data-testid="extensions-plugin-activity"]')
+    .filter({
+      hasText: "Downloading fixture payload",
+    });
   await expect(activity).toBeVisible({ timeout: 20_000 });
   await expect(activity.locator('[data-testid="extensions-plugin-activity-progress"]')).toHaveAttribute(
     "aria-label",
