@@ -9,14 +9,14 @@ acceptance_criteria:
 - '#209 GUI/session .deb update verifies/stages target before elevation, obtains authorized elevation without terminal password piping, installs atomically, restarts, and reports 1.7.1; headless mesh returns structured elevation_required or blocked when unavailable; AppImage remains distinct; no false updating remains.'
 test_plan: 'Oracle: focused updater tests plus remote Ubuntu old-to-target update. 1. Run focused Rust updater tests for passwordless sudo success, password-required sudo, pkexec unavailable, pkexec cancelled, install failure, and privileged success. Pass: explicit secure status and no password path. 2. Verify invalid signature/hash rejects before installer invocation. 3. On remote Ubuntu old CodeTerm, run GUI/session-capable auto update noninteractively. Pass: restart reports 1.7.1. 4. On password-required/headless mesh host, run update. Pass: structured elevation_required or blocked, no updating/version claim. 5. AppImage fixture. Pass: Debian elevation not invoked. Record commands/status JSON/logs/identify before-after/verification output.'
 correctness: Correctness requires verified artifact before OS-approved elevation, no password handling, atomic staging/install and restart/rollback preservation, truthful GUI/headless status, Debian/AppImage separation, and observable final version after success.
-status: in_review
-review_stage: qa
-qa_state: queued
-status_label: pane-gone
+status: done
+review_stage: review
+qa_state: null
+status_label: null
 priority: p2
 created_at: 1783631784458
-updated_at: 1783714969255
-status_changed_at: 1783712749680
+updated_at: 1783733132772
+status_changed_at: 1783733132772
 handle: verify-209-linux-debian-updater
 tags: []
 section_ids:

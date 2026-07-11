@@ -9,14 +9,14 @@ acceptance_criteria:
 - Only explicitly user-supplied CLI/UI title/persona is immutable. Every system/Planner-generated suggestion carries provenance, is checked against live and recent names atomically, rerolls on collision, and never newly assigns Dijkstra. Unused suggestions are retained; selection varies across available names under a bounded deterministic/testable seed; concurrent claims cannot duplicate; suffix fallback occurs only after exhaustion.
 test_plan: 'Oracle: provenance-aware allocator and concurrent spawn behavior. 1. Run focused allocator/unit tests for explicit user title/persona, generated suggestion, historical Dijkstra, live collision, recent-attempt collision, reroll, deterministic seed, exhaustion suffix, and atomic concurrent claim. Pass: explicit values remain unchanged; generated occupied values reroll; Dijkstra is rejected for new generation; seed produces varied but repeatable selection; suffix appears only after exhaustion. 2. Spawn 20 automatic workers concurrently in one isolated workspace/session. Pass: zero duplicate auto/persona names and no Dijkstra. 3. Spawn explicit user title/persona values colliding with generated pool. Pass: explicit values remain immutable while generated allocator rerolls. 4. Inspect task/pane metadata. Pass: provenance flag distinguishes user-supplied from system/Planner-generated without string guessing. Record exact commands, IDs, seed, pool, and outputs.'
 correctness: 'Correctness is provenance-aware identity allocation: user-authored identity is preserved exactly, generated suggestions are provisional and atomically collision-checked against live and recent state, Dijkstra is excluded from new generation, selection is bounded/repeatable yet varied, and exhaustion fallback is explicit.'
-status: in_review
-review_stage: qa
-qa_state: queued
-status_label: pane-gone
+status: done
+review_stage: review
+qa_state: null
+status_label: null
 priority: p2
 created_at: 1783656650560
-updated_at: 1783712305111
-status_changed_at: 1783712303208
+updated_at: 1783733132772
+status_changed_at: 1783733132772
 handle: allocate-unique-worker-personas-across-live-lanes
 tags: []
 section_ids:

@@ -9,14 +9,14 @@ acceptance_criteria:
 - Success, failure, timeout, and cancelled invocations each reach exactly one stable terminal state; late/duplicate events do not regress state; terminal result removes spinner; exec/wait is one logical command or explicit phases; reconnect/history produces the same terminal state; 20 concurrent commands retain unique stable keys.
 test_plan: 'Oracle: deterministic parser/reducer fixtures plus Playwright. 1. Add/run focused streamParser/useAgentRunStream tests for success, timeout, failure, cancelled, late result, duplicate result, exec plus wait, reconnect/history hydration, and 20 concurrent commands. Pass: exact terminal state/key assertions. 2. Run npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep "tool-lifecycle|tool-terminal". Pass: no terminal spinner, linked exec/wait rendering, restored transcript state, and concurrent card stability. 3. Inspect event log fixture. Pass: each invocation has one terminal transition.'
 correctness: Correctness requires an idempotent invocation state machine keyed stably across streaming and history, preserving logical command relationships and eliminating indefinite in-progress visuals without losing results.
-status: in_review
-review_stage: qa
-qa_state: queued
-status_label: pane-gone
+status: done
+review_stage: review
+qa_state: null
+status_label: null
 priority: p2
 created_at: 1783657396281
-updated_at: 1783710886213
-status_changed_at: 1783710849835
+updated_at: 1783733132772
+status_changed_at: 1783733132772
 handle: reconcile-terminal-state-for-streamed-tool-invocations
 tags: []
 section_ids:
