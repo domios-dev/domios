@@ -12,13 +12,13 @@ acceptance_criteria:
 - Acceptance oracle is fixed before review; default maximum two rounds rejects scope-expanding correction review, routes passing tests plus residual risk to integration QA, and permits a third/P0 round only with owner, reason, concrete reproduction, and audit.
 test_plan: 'Oracle: deterministic seeded-plan fixtures plus CLI/API/status assertions. 1. Seed 5 in_review tasks with executable QA evidence and complete implementation credit; attempt a sixth ordinary implementation dispatch; pass: structured review_wip_exceeded block, no worker/pane, and heartbeat/status exposes debt/capacity/reason. 2. Close one review and retry; pass: credit/capacity advances exactly once. 3. Attempt in_review without exact QA or independent review evidence; pass: validation rejects it. 4. Record BOUNCE; pass: one atomic transition removes in_review, records actionable destination/reason, and leaves no stale QA claim. 5. Age a review beyond threshold; pass: telemetry/escalation appears and frontier stays blocked according to policy. 6. Seed compatible and incompatible QA gates; pass: compatible tasks become one named wave with distinct task records, while duplicate broad-suite creation is rejected. 7. Seed one implementation with three read-only ACCEPT/BOUNCE review tasks; pass: each verdict attaches to that implementation as separate evidence, produces zero extra broad gates, and leaves exactly one compatible QA batch. 8. Change executable surfaces or define a distinct oracle in a review fixture; pass: only then can the review request a new explicit gate. 9. Seed fixed oracle plus first-round blockers; submit a second review that expands scope without new reproducible release-impact evidence; pass: rejection names scope expansion. 10. After two rounds with specified tests passing and residual risk recorded; pass: task routes to integration QA and further hardening becomes a separate follow-up. 11. Submit third/P0 exception with missing owner/reason/reproduction; pass: reject. Submit all four fields; pass: authorized immutable audit records the exception. 12. Exercise owner override, heavy-owner, and zero-worker continuation fixtures; pass: policy is not bypassed. 13. Run focused Rust/CLI/API/UI tests created for review WIP, attachment, depth, transition, wave, and status modules, then git diff --check and scripts/check-file-sizes.sh; pass: all exit 0. No release build.'
 correctness: Bounded review WIP and depth; fixed oracle; lossless atomic lifecycle; attached review evidence; no gate leaks or threat-model churn; auditable exceptions; deduplicated QA; one-heavy-owner preservation.
-status: pending
+status: parked
 review_stage: review
 qa_state: null
-status_label: null
+status_label: deferred-next-version
 priority: p1
 created_at: 1783677230306
-updated_at: 1783694752744
+updated_at: 1783734409036
 status_changed_at: 1783677230306
 handle: next-version-planner-review-backpressure-and-qa-throughput-control
 tags:
@@ -56,5 +56,5 @@ canvas:
   collapsed: false
 milestones: []
 execution_attempts: []
-park_reason: null
+park_reason: 'Deferred out of 1.7.2: branch next/review-backpressure is pushed at ff836a5dc, but the work is explicitly next-version, has known top-level app compile verification gaps, and must not expand the 1.7.2 patch release.'
 attachments: []

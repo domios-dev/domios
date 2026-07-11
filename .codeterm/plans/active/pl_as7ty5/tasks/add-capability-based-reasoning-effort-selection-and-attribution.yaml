@@ -9,13 +9,13 @@ acceptance_criteria:
 - A dispatch can explicitly select a provider-supported reasoning effort, records planned/requested/resolved/actual provenance, and rejects unsupported effort without silent downgrade.
 test_plan: 'Oracle: capability fixture plus an isolated provider dispatch. 1. Define a provider fixture with declared low, medium, high levels and one with no effort capability; pass: discovery/API/CLI/UI surface exact supported levels or no selector. 2. Dispatch a task with a supported effort; pass: provider receives the documented launch/switch instruction and task attempt, pane/session, and report carry planned/requested/resolved/actual effort provenance. 3. Dispatch unsupported effort and effort to a provider without capability; pass: structured validation error and no agent launch/PTY write. 4. Restore and concurrently launch sessions with different efforts; pass: session-scoped effort remains truthful with no stale cross-pane value. 5. Verify model-only current behavior is unchanged and task_korvfm model attribution fixtures still pass. 6. Run focused Rust/TypeScript/provider tests discovered during trace, git diff --check, and scripts/check-file-sizes.sh; pass: all exit 0. Use no broad release build.'
 correctness: Capability-based effort control; explicit validation; no silent fallback; session-scoped planned/requested/resolved/actual effort provenance; model behavior preserved.
-status: pending
+status: parked
 review_stage: review
 qa_state: null
-status_label: null
+status_label: deferred-next-version
 priority: p1
 created_at: 1783676898214
-updated_at: 1783676898214
+updated_at: 1783734409036
 status_changed_at: 1783676898214
 handle: add-capability-based-reasoning-effort-selection-and-attribution
 tags:
@@ -49,5 +49,5 @@ canvas:
   collapsed: false
 milestones: []
 execution_attempts: []
-park_reason: null
+park_reason: 'Deferred out of 1.7.2: branch lane/reasoning-effort-attribution is pushed at 602e0395b, but release integration still needs runtime-confirmed provenance on pane/session/report, plan-task YAML field planning, UI effort picker, live oracle, and reconciliation with model-provenance columns.'
 attachments: []
