@@ -237,7 +237,6 @@ async function exerciseInput(page: Page, paneId: string): Promise<{ cpuStart: nu
   expect(nonInputMarks, "arrows/shortcuts/Enter must not create stale latency marks").toBe(0);
   const cpuStart = await page.evaluate(() => performance.now());
   await composer.pressSequentially(TYPED_TEXT, { delay: 8 });
-  await page.waitForTimeout(250);
   await expect(composer).toHaveValue(TYPED_TEXT);
 
   await composer.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
@@ -355,6 +354,8 @@ test("@golden composer stays next-frame under 25-tab WebView2 load", async ({
 }, testInfo) => {
   await ui.reconnect();
   const { paneIds, tabIds } = await createFixture(api, paneCleanup);
+  expect(paneIds).toHaveLength(PANE_COUNT);
+  expect(tabIds).toHaveLength(PANE_COUNT);
   await runScenario(ui.page, "webview2", paneIds, tabIds, testInfo);
 });
 
@@ -364,6 +365,8 @@ test("@golden composer stays next-frame under 25-tab web-mode load", async ({
   paneCleanup,
 }, testInfo) => {
   const { paneIds, tabIds } = await createFixture(api, paneCleanup);
+  expect(paneIds).toHaveLength(PANE_COUNT);
+  expect(tabIds).toHaveLength(PANE_COUNT);
   const page = await openWebPage(webBrowser);
   try {
     await runScenario(page, "web", paneIds, tabIds, testInfo);
