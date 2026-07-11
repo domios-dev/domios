@@ -464,10 +464,9 @@ pub(super) fn dispatch(
                 .get(&id)
                 .and_then(|plan| plan.owner.pane_id)
                 .unwrap_or_default();
-            value["reminder"] = serde_json::to_value(
-                svc.plan_turn_counter.time_reminder_telemetry(&pane_id),
-            )
-            .unwrap_or_default();
+            value["reminder"] =
+                serde_json::to_value(svc.plan_turn_counter.time_reminder_telemetry(&pane_id))
+                    .unwrap_or_default();
             Ok(value)
         }
 

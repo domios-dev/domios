@@ -190,7 +190,9 @@ impl TurnCounter {
     }
 
     pub fn retain_time_reminders(&self, eligible_panes: &HashSet<String>) {
-        self.timed.lock().retain(|pane_id, _| eligible_panes.contains(pane_id));
+        self.timed
+            .lock()
+            .retain(|pane_id, _| eligible_panes.contains(pane_id));
         self.time_telemetry
             .lock()
             .retain(|pane_id, _| eligible_panes.contains(pane_id));
@@ -465,7 +467,10 @@ mod tests {
         for now in (60..=interval).step_by(60) {
             counter.reset_activity("orch");
             assert_eq!(counter.get("orch"), (0, 0));
-            assert_eq!(counter.time_nudge_due("orch", now, interval), now == interval);
+            assert_eq!(
+                counter.time_nudge_due("orch", now, interval),
+                now == interval
+            );
         }
 
         // Due survives more activity until a delivery acknowledges it.
@@ -492,7 +497,9 @@ mod tests {
         );
         counter.record_time_delivery("orch", 12);
         assert_eq!(
-            counter.time_reminder_telemetry("orch").delivery_failure_retry_reason,
+            counter
+                .time_reminder_telemetry("orch")
+                .delivery_failure_retry_reason,
             None
         );
     }
