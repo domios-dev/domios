@@ -1,0 +1,55 @@
+id: task_4t1ut6
+name: Fix pre-existing Playwright tag-lint baseline drift
+type: implement
+model: claude/opus
+model_rationale: Requires careful Playwright policy/baseline judgment across tag lint and chat-view waits; opus/test-author is appropriate for minimal non-silencing cleanup.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- check-tags.mjs passes from repo root without weakening the tag/wait policy. Any waitForTimeout kept must be justified according to the existing baseline convention; any baseline count update must match current intended tests. The fix is separated from world-canvas deletion work.
+test_plan: Run node tests/playwright/check-tags.mjs or the project-standard tag lint command that pre-push invokes. Also run git diff --check for touched files.
+correctness: Do not silence the tag-lint guard broadly. Make the minimal baseline or test changes required for the current intended suite.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783798895810
+updated_at: 1783798903662
+status_changed_at: 1783798895810
+handle: fix-pre-existing-playwright-tag-lint-baseline-drift
+tags:
+- playwright
+- hygiene
+- pre-push
+section_ids:
+- sec_f6g3fr
+body: 'Pre-existing feat/* pre-push tag-lint blocker observed by task_bdzdn1 on pulled HEAD 6be1a71c, independent of the world-canvas cleanup diff: check-tags.mjs reports tab-switch-latency.spec.ts tag count shifted 65->66 and three unbaselined waitForTimeout violations in 16-chat-view/cursor-new-rebinds-session.ts lines 102/158 and opencode-assistant-replies.ts line 73. Rebaseline or fix these hygiene violations so normal feat/* pushes are unblocked.'
+role_guidance: null
+executor_role: test-author
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: playwright-stability
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

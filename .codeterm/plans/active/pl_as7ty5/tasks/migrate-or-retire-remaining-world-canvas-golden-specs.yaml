@@ -15,7 +15,7 @@ qa_state: null
 status_label: running-on-eight
 priority: p1
 created_at: 1783795619376
-updated_at: 1783798270425
+updated_at: 1783798903671
 status_changed_at: 1783798210948
 handle: migrate-or-retire-remaining-world-canvas-golden-specs
 tags:
@@ -95,6 +95,23 @@ milestones:
   ts: 1783798269549
   links:
   - key:23b366b7612f4ac3
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_08dam6
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' approved worker-requested warm-dev 13-canvas golden gate on eight at local commit 1e4f2eca. Push remains held until gate result; unrelated pre-existing check-tags blocker is split into task_4t1ut6.'
+  ts: 1783798903671
+  links:
+  - key:0e1981d37d574739
   loop_id: null
   iteration: null
   canvas:
