@@ -332,6 +332,10 @@ pub fn create_router(state: AppState) -> Router {
             "/api/debug/clock/advance",
             post(debug_routes::clock_advance),
         );
+    let router = router.route(
+        "/api/debug/shutdown/mark-clean-restart",
+        post(debug_routes::mark_clean_restart),
+    );
     let router = pane_agent_routes::mount(router);
     #[cfg(debug_assertions)]
     let router = router.route(
