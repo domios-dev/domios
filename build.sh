@@ -89,14 +89,14 @@ kill_dev() {
     fi
   else
     local dev_pid
-    dev_pid=$(netstat -ano 2>/dev/null | grep ":$CT_PORT.*LISTEN" | awk '{print $5}' | head -1)
+    dev_pid=$(netstat -ano 2>/dev/null | grep ":$CT_PORT.*LISTEN" | awk '{print $5}' | head -1 || true)
     if [ -n "$dev_pid" ] && [ "$dev_pid" != "0" ]; then
       echo "Killing dev instance (PID $dev_pid on port $CT_PORT)..."
       taskkill //PID "$dev_pid" //T //F 2>/dev/null || true
       sleep 1
     fi
     local vite_pid
-    vite_pid=$(netstat -ano 2>/dev/null | grep ":$CT_VITE_PORT.*LISTEN" | awk '{print $5}' | head -1)
+    vite_pid=$(netstat -ano 2>/dev/null | grep ":$CT_VITE_PORT.*LISTEN" | awk '{print $5}' | head -1 || true)
     if [ -n "$vite_pid" ] && [ "$vite_pid" != "0" ]; then
       taskkill //PID "$vite_pid" //T //F 2>/dev/null || true
     fi
