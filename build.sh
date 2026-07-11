@@ -504,7 +504,14 @@ windows_dev_leftover_cleanup() {
 start_web_watch() {
   kill_web_watch
   local log="/tmp/codeterm-web-watch${CT_SUFFIX}.log"
-  nohup pnpm exec vite build --watch </dev/null >> "$log" 2>&1 &
+  case "$OSTYPE" in
+    msys*|cygwin*|win32)
+      pnpm exec vite build --watch </dev/null >> "$log" 2>&1 &
+      ;;
+    *)
+      nohup pnpm exec vite build --watch </dev/null >> "$log" 2>&1 &
+      ;;
+  esac
   echo $! > "$(web_watch_pidfile)"
   echo "Web bundle watcher started (dist/ auto-rebuilds, log $log)"
 }
