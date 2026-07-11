@@ -19,7 +19,7 @@ qa_state: null
 status_label: null
 priority: p1
 created_at: 1783782059284
-updated_at: 1783804765493
+updated_at: 1783807110038
 status_changed_at: 1783801218495
 handle: land-runtime-stub-agent-provider-for-playwright
 tags: []
@@ -91,6 +91,23 @@ milestones:
   ts: 1783804765493
   links:
   - key:7ec3066e49b42cc2
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_91km8s
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' after task_oya3rr closure, Planner was nudged to continue task_dycecc parity harness and codex/opencode sid materialization before dependent task_k16xu0 starts.'
+  ts: 1783807110038
+  links:
+  - key:1cc9b38c0b217d76
   loop_id: null
   iteration: null
   canvas:
