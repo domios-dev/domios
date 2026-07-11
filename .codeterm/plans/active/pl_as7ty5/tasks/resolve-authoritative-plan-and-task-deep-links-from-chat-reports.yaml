@@ -9,14 +9,14 @@ acceptance_criteria:
 - From a different workspace, clicking valid pl_/task_ references resolves through global PlanIndex, switches/reveals the indexed owner workspace, opens plan-view-shell, and focuses the task; human titles render with compact fallback and full-ID copy/a11y; loading/archived/unowned/stale/missing/permission states are explicit without false deleted toast; safe prose links work while code blocks/commands/URLs/raw tool output remain unlinked; no N+1 or composer lag.
 test_plan: 'Oracle: focused resolver/unit tests plus cross-workspace Playwright. 1. Add/run unit fixtures for global index hit, owner workspace switch, title lookup, cache batch, plan-changed/plans-loaded invalidation, archived/unowned, stale/missing, permission/unreachable, and prose boundary cases. Pass: exact resolver/state assertions and no links inside code/command/URL/raw tool fixtures. 2. Start Playwright in workspace B while indexed plan/task belongs to workspace A; click selectors data-testid=chat-plan-link and data-testid=chat-task-link. Pass: workspace A is revealed, plan-view-shell opens, task focus is visible, and full IDs remain available via tooltip/copy/context menu. 3. Test keyboard Enter/Space and mobile/desktop viewports. Pass: activation works and no overlap. 4. Run npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep "chat-plan-link|chat-task-link|plan-view-shell". Pass: valid links navigate; missing ID stays in explicit missing state without navigation or deleted toast. 5. Inspect request count/trace. Pass: lookup is batched/cached and transcript render causes no N+1.'
 correctness: Correctness requires authoritative global index identity and owner-workspace routing, safe reference parsing, batched/cache-aware live updates, truthful failure states, preserved raw identifiers, and accessible responsive navigation without touching tool-card or composer performance ownership.
-status: in_progress
+status: done
 review_stage: review
 qa_state: null
-status_label: needs-integration
+status_label: null
 priority: p2
 created_at: 1783658038159
-updated_at: 1783711318092
-status_changed_at: 1783711318092
+updated_at: 1783733272901
+status_changed_at: 1783733272901
 handle: resolve-authoritative-plan-and-task-deep-links-from-chat-reports
 tags: []
 section_ids:

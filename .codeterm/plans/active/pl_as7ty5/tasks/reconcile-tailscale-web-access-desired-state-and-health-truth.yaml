@@ -9,14 +9,14 @@ acceptance_criteria:
 - Backend emits one authoritative reconciliation snapshot with URL, state, route/conflict, operator/bootstrap requirement, binary/version, health, and daemon-version skew; existing routes remain intact; Ubuntu operator bootstrap is explicit and never false success; Mac existing routes remain; rollacode-bot-style free-port route and HTTPS health work; disable/reset removes only owned route.
 test_plan: 'Oracle: focused backend tests plus real Ubuntu/Mac/rollacode-bot observations. 1. Run focused codeterm-mesh serve_setup/manager tests with 90s cap; pass: desired-state idempotence, route preservation/conflict, operator_bootstrap_required, unavailable binary, health/version skew, disable/reset cases. 2. On Ubuntu, run tailscale version; tailscale serve status {}; attempt tailscale serve --bg --https=443 http://127.0.0.1:7685 as non-root. Pass: structured operator_bootstrap_required on Access denied and no config mutation; after authorized operator setup, reconcile succeeds without password handling. 3. On Mac-Air, inspect existing 443/8443 routes and curl -fsS --max-time 10 https://<dns>/api/health. Pass: routes preserved and health 200 with daemon skew surfaced. 4. On rollacode-bot, discover app-bundle binary, preserve 443/10443/8443, use free 7685 route, curl final /api/health. Pass: 200 JSON and truthful CLI/live-daemon version comparison. Record exact snapshot JSON and route diffs.'
 correctness: Correctness requires idempotent non-destructive desired-state reconciliation, explicit OS operator elevation, truthful URL/health/version/conflict state, route preservation, Debian/macOS/Linux-aware CLI discovery, and ownership-scoped disable/reset.
-status: in_progress
+status: done
 review_stage: review
 qa_state: null
-status_label: pane-gone
+status_label: null
 priority: p2
 created_at: 1783657550480
-updated_at: 1783712869505
-status_changed_at: 1783710393073
+updated_at: 1783733272901
+status_changed_at: 1783733272901
 handle: reconcile-tailscale-web-access-desired-state-and-health-truth
 tags: []
 section_ids:
