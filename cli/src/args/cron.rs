@@ -34,8 +34,8 @@ pub enum CronAction {
         /// Description
         #[arg(long, allow_hyphen_values = true)]
         description: Option<String>,
-        /// Session ID to receive reports from cron agent (default: $CODETERM_PANE_ID)
-        #[arg(long, alias = "session", env = "CODETERM_PANE_ID")]
+        /// Tab ID to receive reports from cron agent (default: $CODETERM_PANE_ID)
+        #[arg(long = "tab", env = "CODETERM_PANE_ID")]
         creator_pane: Option<String>,
         /// Oneshot: fire once at scheduled time, then auto-delete
         #[arg(long)]

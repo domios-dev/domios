@@ -53,7 +53,7 @@ pub enum ServiceAction {
         /// Description
         #[arg(long)]
         description: Option<String>,
-        /// Enable push API (daemon can write to panes via Bearer token)
+        /// Enable push API (daemon can write to tabs via Bearer token)
         #[arg(long, default_value = "false")]
         push: bool,
     },

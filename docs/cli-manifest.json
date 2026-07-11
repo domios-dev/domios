@@ -29,7 +29,7 @@
       "subcommands": [
         {
           "name": "allow-spawn",
-          "about": "Toggle whether a session can spawn children",
+          "about": "Toggle whether a tab can spawn children",
           "aliases": [],
           "args": [
             {
@@ -41,11 +41,11 @@
               "aliases": []
             },
             {
-              "name": "pane",
+              "name": "tab",
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Session ID (default: current focused session)",
+              "help": "Tab ID (default: current focused tab)",
               "aliases": []
             }
           ],
@@ -57,11 +57,11 @@
           "aliases": [],
           "args": [
             {
-              "name": "pane",
+              "name": "tab",
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Session ID (default: $CODETERM_PANE_ID or focused session)",
+              "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
               "aliases": []
             }
           ],
@@ -73,11 +73,11 @@
           "aliases": [],
           "args": [
             {
-              "name": "pane",
+              "name": "tab",
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Orchestrator session ID (default: current focused session)",
+              "help": "Orchestrator tab ID (default: current focused tab)",
               "aliases": []
             }
           ],
@@ -85,65 +85,23 @@
         },
         {
           "name": "link",
-          "about": "Link a session as worker under a parent",
+          "about": "Link a tab as worker under a parent",
           "aliases": [],
           "args": [
             {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Session ID to link (default: current focused session)",
-              "aliases": []
-            },
-            {
-              "name": "parent",
+              "name": "parent-tab",
               "positional": false,
               "value_name": "PARENT",
               "default": null,
-              "help": "Parent session ID (orchestrator)",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "message",
-          "about": "Send an immediate message to a running agent session",
-          "aliases": [],
-          "args": [
-            {
-              "name": "from_file",
-              "positional": false,
-              "value_name": "PATH",
-              "default": null,
-              "help": "Read message text from a file instead of the positional arg",
+              "help": "Parent tab ID (orchestrator)",
               "aliases": []
             },
             {
-              "name": "pane",
+              "name": "tab",
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Target agent session ID",
-              "aliases": []
-            },
-            {
-              "name": "stdin",
-              "positional": false,
-              "value_name": "STDIN",
-              "default": null,
-              "help": "Read message text from stdin",
-              "aliases": [
-                "from-stdin"
-              ]
-            },
-            {
-              "name": "text",
-              "positional": true,
-              "value_name": "TEXT",
-              "default": null,
-              "help": "Message text (positional, or omit and use --from-file/--stdin)",
+              "help": "Tab ID to link (default: current focused tab)",
               "aliases": []
             }
           ],
@@ -163,11 +121,11 @@
               "aliases": []
             },
             {
-              "name": "pane",
+              "name": "tab",
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Session ID (default: $CODETERM_PANE_ID or focused session)",
+              "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
               "aliases": []
             }
           ],
@@ -202,7 +160,7 @@
           "aliases": [],
           "args": [
             {
-              "name": "acknowledge_dirty",
+              "name": "acknowledge-dirty",
               "positional": false,
               "value_name": "ACKNOWLEDGE_DIRTY",
               "default": null,
@@ -210,7 +168,7 @@
               "aliases": []
             },
             {
-              "name": "attachments",
+              "name": "attach",
               "positional": false,
               "value_name": "PATH",
               "default": null,
@@ -234,7 +192,7 @@
               "aliases": []
             },
             {
-              "name": "changed_files",
+              "name": "changed-files",
               "positional": false,
               "value_name": "CHANGED_FILES",
               "default": null,
@@ -263,14 +221,6 @@
               "value_name": "MESSAGE",
               "default": null,
               "help": "Report message (also accepts --message alias)",
-              "aliases": []
-            },
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Session ID (default: $CODETERM_PANE_ID or focused session)",
               "aliases": []
             },
             {
@@ -306,6 +256,14 @@
               "aliases": []
             },
             {
+              "name": "tab",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
+              "aliases": []
+            },
+            {
               "name": "task",
               "positional": false,
               "value_name": "TASK",
@@ -314,7 +272,7 @@
               "aliases": []
             },
             {
-              "name": "test_cmd",
+              "name": "test-cmd",
               "positional": false,
               "value_name": "TEST_CMD",
               "default": null,
@@ -322,7 +280,7 @@
               "aliases": []
             },
             {
-              "name": "test_result",
+              "name": "test-result",
               "positional": false,
               "value_name": "TEST_RESULT",
               "default": null,
@@ -342,7 +300,7 @@
         },
         {
           "name": "reports",
-          "about": "Read reports (for orchestrator sessions)",
+          "about": "Read reports (for orchestrator tabs)",
           "aliases": [],
           "args": [
             {
@@ -362,11 +320,11 @@
               "aliases": []
             },
             {
-              "name": "pane",
+              "name": "tab",
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Session ID (default: current focused session)",
+              "help": "Tab ID (default: current focused tab)",
               "aliases": []
             }
           ],
@@ -374,7 +332,7 @@
         },
         {
           "name": "restart",
-          "about": "Restart agent (graceful exit; resumes only when the session has a valid provider session)",
+          "about": "Restart agent (graceful exit; resumes only when the tab has a valid provider session)",
           "aliases": [],
           "args": [
             {
@@ -386,7 +344,7 @@
               "aliases": []
             },
             {
-              "name": "grace_secs",
+              "name": "grace-secs",
               "positional": false,
               "value_name": "GRACE_SECS",
               "default": "10",
@@ -394,11 +352,11 @@
               "aliases": []
             },
             {
-              "name": "pane",
+              "name": "tab",
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Session ID (default: $CODETERM_PANE_ID or focused session)",
+              "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
               "aliases": []
             }
           ],
@@ -406,15 +364,15 @@
         },
         {
           "name": "set-orchestrator",
-          "about": "Mark a session as orchestrator (top-level, can spawn workers)",
+          "about": "Mark a tab as orchestrator (top-level, can spawn workers)",
           "aliases": [],
           "args": [
             {
-              "name": "pane",
+              "name": "tab",
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Session ID (default: current focused session)",
+              "help": "Tab ID (default: current focused tab)",
               "aliases": []
             }
           ],
@@ -434,7 +392,7 @@
               "aliases": []
             },
             {
-              "name": "allow_shared_checkout",
+              "name": "allow-shared-checkout",
               "positional": false,
               "value_name": "ALLOW_SHARED_CHECKOUT",
               "default": null,
@@ -450,15 +408,7 @@
               "aliases": []
             },
             {
-              "name": "bound_task",
-              "positional": false,
-              "value_name": "BOUND_TASK",
-              "default": null,
-              "help": "Bound task id for the shared-checkout exception stride",
-              "aliases": []
-            },
-            {
-              "name": "can_spawn",
+              "name": "can-spawn",
               "positional": false,
               "value_name": "CAN_SPAWN",
               "default": null,
@@ -474,7 +424,7 @@
               "aliases": []
             },
             {
-              "name": "charter_file",
+              "name": "charter-file",
               "positional": false,
               "value_name": "PATH",
               "default": null,
@@ -494,7 +444,7 @@
               "positional": false,
               "value_name": "DESCRIPTION",
               "default": null,
-              "help": "Short session description (max 200 chars)",
+              "help": "Short tab description (max 200 chars)",
               "aliases": []
             },
             {
@@ -506,7 +456,7 @@
               "aliases": []
             },
             {
-              "name": "max_actions",
+              "name": "max-actions",
               "positional": false,
               "value_name": "MAX_ACTIONS",
               "default": null,
@@ -522,7 +472,7 @@
               "aliases": []
             },
             {
-              "name": "nudge_cooldown",
+              "name": "nudge-cooldown",
               "positional": false,
               "value_name": "NUDGE_COOLDOWN",
               "default": null,
@@ -530,11 +480,11 @@
               "aliases": []
             },
             {
-              "name": "parent",
+              "name": "parent-tab",
               "positional": false,
               "value_name": "PARENT",
               "default": null,
-              "help": "Parent session ID (for Workers)",
+              "help": "Parent tab ID (for Workers)",
               "aliases": []
             },
             {
@@ -546,7 +496,7 @@
               "aliases": []
             },
             {
-              "name": "plan_task",
+              "name": "plan-task",
               "positional": false,
               "value_name": "PLAN_TASK",
               "default": null,
@@ -562,11 +512,11 @@
               "aliases": []
             },
             {
-              "name": "report_to",
+              "name": "report-to",
               "positional": false,
               "value_name": "REPORT_TO",
               "default": null,
-              "help": "Where this worker's `agent report` should land. A session id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own pane",
+              "help": "Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab",
               "aliases": []
             },
             {
@@ -578,7 +528,7 @@
               "aliases": []
             },
             {
-              "name": "system_prompt",
+              "name": "system",
               "positional": false,
               "value_name": "SYSTEM_PROMPT",
               "default": null,
@@ -594,11 +544,19 @@
               "aliases": []
             },
             {
-              "name": "task_file",
+              "name": "task-file",
               "positional": false,
               "value_name": "PATH",
               "default": null,
               "help": "Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task",
+              "aliases": []
+            },
+            {
+              "name": "task-id",
+              "positional": false,
+              "value_name": "BOUND_TASK",
+              "default": null,
+              "help": "Bound task id for the shared-checkout exception stride",
               "aliases": []
             },
             {
@@ -622,15 +580,15 @@
         },
         {
           "name": "unlink",
-          "about": "Remove a session's role (also orphans children)",
+          "about": "Remove a tab's role (also orphans children)",
           "aliases": [],
           "args": [
             {
-              "name": "pane",
+              "name": "tab",
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Session ID (default: current focused session)",
+              "help": "Tab ID (default: current focused tab)",
               "aliases": []
             }
           ],
@@ -658,7 +616,7 @@
               "aliases": []
             },
             {
-              "name": "announce_chat_id",
+              "name": "announce-chat-id",
               "positional": false,
               "value_name": "ANNOUNCE_CHAT_ID",
               "default": null,
@@ -666,7 +624,7 @@
               "aliases": []
             },
             {
-              "name": "claim_timeout_ms",
+              "name": "claim-timeout-ms",
               "positional": false,
               "value_name": "CLAIM_TIMEOUT_MS",
               "default": "10000",
@@ -682,7 +640,7 @@
               "aliases": []
             },
             {
-              "name": "no_rollback",
+              "name": "no-rollback",
               "positional": false,
               "value_name": "NO_ROLLBACK",
               "default": null,
@@ -722,7 +680,7 @@
               "aliases": []
             },
             {
-              "name": "message_id",
+              "name": "message-id",
               "positional": false,
               "value_name": "MESSAGE_ID",
               "default": null,
@@ -853,21 +811,21 @@
         },
         {
           "name": "focus",
-          "about": "Focus the open canvas on a task, pane, or plan",
+          "about": "Focus the open canvas on a task, tab, or plan",
           "aliases": [],
           "args": [
             {
-              "name": "pane",
+              "name": "plan",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "PLAN",
               "default": null,
               "help": null,
               "aliases": []
             },
             {
-              "name": "plan",
+              "name": "tab",
               "positional": false,
-              "value_name": "PLAN",
+              "value_name": "PANE",
               "default": null,
               "help": null,
               "aliases": []
@@ -992,7 +950,7 @@
           "aliases": [],
           "args": [
             {
-              "name": "run_id",
+              "name": "run-id",
               "positional": false,
               "value_name": "RUN_ID",
               "default": null,
@@ -1024,14 +982,6 @@
               "aliases": []
             },
             {
-              "name": "creator_pane",
-              "positional": false,
-              "value_name": "CREATOR_PANE",
-              "default": null,
-              "help": "Session ID to receive reports from cron agent (default: $CODETERM_PANE_ID)",
-              "aliases": []
-            },
-            {
               "name": "cwd",
               "positional": false,
               "value_name": "CWD",
@@ -1048,7 +998,7 @@
               "aliases": []
             },
             {
-              "name": "jitter_max_ms",
+              "name": "jitter-max-ms",
               "positional": false,
               "value_name": "JITTER_MAX_MS",
               "default": null,
@@ -1088,6 +1038,14 @@
               "aliases": []
             },
             {
+              "name": "tab",
+              "positional": false,
+              "value_name": "CREATOR_PANE",
+              "default": null,
+              "help": "Tab ID to receive reports from cron agent (default: $CODETERM_PANE_ID)",
+              "aliases": []
+            },
+            {
               "name": "task",
               "positional": false,
               "value_name": "TASK",
@@ -1096,7 +1054,7 @@
               "aliases": []
             },
             {
-              "name": "timeout_secs",
+              "name": "timeout-secs",
               "positional": false,
               "value_name": "TIMEOUT_SECS",
               "default": null,
@@ -1192,7 +1150,7 @@
               "aliases": []
             },
             {
-              "name": "jitter_max_ms",
+              "name": "jitter-max-ms",
               "positional": false,
               "value_name": "JITTER_MAX_MS",
               "default": null,
@@ -1232,7 +1190,7 @@
               "aliases": []
             },
             {
-              "name": "timeout_secs",
+              "name": "timeout-secs",
               "positional": false,
               "value_name": "TIMEOUT_SECS",
               "default": null,
@@ -1344,19 +1302,11 @@
               "aliases": []
             },
             {
-              "name": "from_file",
+              "name": "from-file",
               "positional": false,
               "value_name": "PATH",
               "default": null,
               "help": "Read text from a file instead of the positional arg",
-              "aliases": []
-            },
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Target session ID (default: $CODETERM_PANE_ID or focused session)",
               "aliases": []
             },
             {
@@ -1368,6 +1318,14 @@
               "aliases": [
                 "from-stdin"
               ]
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
+              "aliases": []
             },
             {
               "name": "text",
@@ -1418,7 +1376,7 @@
               "aliases": []
             },
             {
-              "name": "from_file",
+              "name": "from-file",
               "positional": false,
               "value_name": "PATH",
               "default": null,
@@ -1456,15 +1414,15 @@
         },
         {
           "name": "list",
-          "about": "List delayed messages for a session",
+          "about": "List delayed messages for a tab",
           "aliases": [],
           "args": [
             {
-              "name": "pane",
+              "name": "tab",
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Target session ID (default: $CODETERM_PANE_ID or focused session)",
+              "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
               "aliases": []
             }
           ],
@@ -1506,7 +1464,7 @@
     },
     {
       "name": "docs",
-      "about": "Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm panes; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING, TEST-AUTHORING)",
+      "about": "Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm tabs; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING, TEST-AUTHORING)",
       "aliases": [],
       "args": [
         {
@@ -1514,7 +1472,7 @@
           "positional": false,
           "value_name": "FULL",
           "default": null,
-          "help": "Print the complete document even inside a CodeTerm pane",
+          "help": "Print the complete document even inside a CodeTerm tab",
           "aliases": []
         },
         {
@@ -1619,7 +1577,7 @@
               "aliases": []
             },
             {
-              "name": "duration_secs",
+              "name": "duration-secs",
               "positional": false,
               "value_name": "DURATION_SECS",
               "default": null,
@@ -1627,7 +1585,7 @@
               "aliases": []
             },
             {
-              "name": "gnome_policy",
+              "name": "gnome-policy",
               "positional": false,
               "value_name": "GNOME_POLICY",
               "default": null,
@@ -1635,7 +1593,7 @@
               "aliases": []
             },
             {
-              "name": "system_block",
+              "name": "system-block",
               "positional": false,
               "value_name": "SYSTEM_BLOCK",
               "default": null,
@@ -1673,7 +1631,7 @@
           "aliases": [],
           "args": [
             {
-              "name": "changed_by",
+              "name": "changed-by",
               "positional": false,
               "value_name": "CHANGED_BY",
               "default": null,
@@ -1791,7 +1749,7 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "db_path",
+                  "name": "db-path",
                   "positional": false,
                   "value_name": "DB_PATH",
                   "default": null,
@@ -1861,15 +1819,15 @@
         },
         {
           "name": "flush",
-          "about": "Flush a pane's PTY scrollback as a kind=conversation mem_item (called by PreCompact hook before context summarization)",
+          "about": "Flush a tab's PTY scrollback as a kind=conversation mem_item (called by PreCompact hook before context summarization)",
           "aliases": [],
           "args": [
             {
-              "name": "pane",
+              "name": "tab",
               "positional": false,
               "value_name": "PANE",
               "default": null,
-              "help": "Pane id (default: $CODETERM_PANE_ID)",
+              "help": "Tab id (default: $CODETERM_PANE_ID)",
               "aliases": []
             },
             {
@@ -1999,7 +1957,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "dry_run",
+                  "name": "dry-run",
                   "positional": false,
                   "value_name": "DRY_RUN",
                   "default": null,
@@ -2014,6 +1972,14 @@
               "about": "Create a graph entity",
               "aliases": [],
               "args": [
+                {
+                  "name": "entity-type",
+                  "positional": false,
+                  "value_name": "type",
+                  "default": null,
+                  "help": "Entity type (Person, Project, Task, Skill, ...)",
+                  "aliases": []
+                },
                 {
                   "name": "id",
                   "positional": false,
@@ -2036,14 +2002,6 @@
                   "value_name": "SCOPE",
                   "default": null,
                   "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "type",
-                  "positional": false,
-                  "value_name": "type",
-                  "default": null,
-                  "help": "Entity type (Person, Project, Task, Skill, ...)",
                   "aliases": []
                 }
               ],
@@ -2079,7 +2037,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "purge_history",
+                  "name": "purge-history",
                   "positional": false,
                   "value_name": "PURGE_HISTORY",
                   "default": null,
@@ -2119,7 +2077,7 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "entity_type",
+                  "name": "entity-type",
                   "positional": false,
                   "value_name": "ENTITY_TYPE",
                   "default": null,
@@ -2159,7 +2117,7 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "group_by",
+                  "name": "group-by",
                   "positional": false,
                   "value_name": "GROUP_BY",
                   "default": "from_id,relation_type,to_id",
@@ -2231,19 +2189,11 @@
                   "aliases": []
                 },
                 {
-                  "name": "db_path",
+                  "name": "db-path",
                   "positional": false,
                   "value_name": "DB_PATH",
                   "default": null,
                   "help": "Override the path to knowledge.db",
-                  "aliases": []
-                },
-                {
-                  "name": "entity_type",
-                  "positional": false,
-                  "value_name": "ENTITY_TYPE",
-                  "default": null,
-                  "help": null,
                   "aliases": []
                 },
                 {
@@ -2255,7 +2205,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "rel_anchor",
+                  "name": "rel-anchor",
                   "positional": false,
                   "value_name": "REL_ANCHOR",
                   "default": "about",
@@ -2263,7 +2213,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "rel_source",
+                  "name": "rel-source",
                   "positional": false,
                   "value_name": "REL_SOURCE",
                   "default": "about",
@@ -2279,9 +2229,17 @@
                   "aliases": []
                 },
                 {
-                  "name": "topic_id",
+                  "name": "topic-id",
                   "positional": false,
                   "value_name": "TOPIC_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "type",
+                  "positional": false,
+                  "value_name": "ENTITY_TYPE",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -2343,7 +2301,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "max_size",
+                  "name": "max-size",
                   "positional": false,
                   "value_name": "MAX_SIZE",
                   "default": "6",
@@ -2415,7 +2373,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "include_invalidated",
+                  "name": "include-invalidated",
                   "positional": false,
                   "value_name": "INCLUDE_INVALIDATED",
                   "default": null,
@@ -2423,7 +2381,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "max_hops",
+                  "name": "max-hops",
                   "positional": false,
                   "value_name": "MAX_HOPS",
                   "default": "4",
@@ -2455,7 +2413,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "dry_run",
+                  "name": "dry-run",
                   "positional": false,
                   "value_name": "DRY_RUN",
                   "default": null,
@@ -2479,7 +2437,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "dry_run",
+                  "name": "dry-run",
                   "positional": false,
                   "value_name": "DRY_RUN",
                   "default": null,
@@ -2503,7 +2461,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "db_path",
+                  "name": "db-path",
                   "positional": false,
                   "value_name": "DB_PATH",
                   "default": null,
@@ -2511,7 +2469,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "dry_run",
+                  "name": "dry-run",
                   "positional": false,
                   "value_name": "DRY_RUN",
                   "default": null,
@@ -2583,7 +2541,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "valid_from",
+                  "name": "valid-from",
                   "positional": false,
                   "value_name": "VALID_FROM",
                   "default": null,
@@ -2591,7 +2549,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "valid_to",
+                  "name": "valid-to",
                   "positional": false,
                   "value_name": "VALID_TO",
                   "default": null,
@@ -2607,7 +2565,7 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "as_of",
+                  "name": "as-of",
                   "positional": false,
                   "value_name": "AS_OF",
                   "default": null,
@@ -2623,7 +2581,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "include_invalidated",
+                  "name": "include-invalidated",
                   "positional": false,
                   "value_name": "INCLUDE_INVALIDATED",
                   "default": null,
@@ -2655,7 +2613,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "dry_run",
+                  "name": "dry-run",
                   "positional": false,
                   "value_name": "DRY_RUN",
                   "default": null,
@@ -2679,7 +2637,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "dry_run",
+                  "name": "dry-run",
                   "positional": false,
                   "value_name": "DRY_RUN",
                   "default": null,
@@ -2695,7 +2653,7 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "db_path",
+                  "name": "db-path",
                   "positional": false,
                   "value_name": "DB_PATH",
                   "default": null,
@@ -2703,7 +2661,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "dry_run",
+                  "name": "dry-run",
                   "positional": false,
                   "value_name": "DRY_RUN",
                   "default": null,
@@ -2727,7 +2685,7 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "db_path",
+                  "name": "db-path",
                   "positional": false,
                   "value_name": "DB_PATH",
                   "default": null,
@@ -2751,7 +2709,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "rel_in",
+                  "name": "rel-in",
                   "positional": false,
                   "value_name": "REL_IN",
                   "default": null,
@@ -2759,7 +2717,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "rel_out",
+                  "name": "rel-out",
                   "positional": false,
                   "value_name": "REL_OUT",
                   "default": null,
@@ -2799,7 +2757,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "include_invalidated",
+                  "name": "include-invalidated",
                   "positional": false,
                   "value_name": "INCLUDE_INVALIDATED",
                   "default": null,
@@ -2815,7 +2773,7 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "as_of",
+                  "name": "as-of",
                   "positional": false,
                   "value_name": "AS_OF",
                   "default": null,
@@ -2839,7 +2797,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "include_invalidated",
+                  "name": "include-invalidated",
                   "positional": false,
                   "value_name": "INCLUDE_INVALIDATED",
                   "default": null,
@@ -2847,7 +2805,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "max_nodes",
+                  "name": "max-nodes",
                   "positional": false,
                   "value_name": "MAX_NODES",
                   "default": "100",
@@ -2863,7 +2821,7 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "include_invalidated",
+                  "name": "include-invalidated",
                   "positional": false,
                   "value_name": "INCLUDE_INVALIDATED",
                   "default": null,
@@ -3016,7 +2974,7 @@
           "aliases": [],
           "args": [
             {
-              "name": "changed_by",
+              "name": "changed-by",
               "positional": false,
               "value_name": "CHANGED_BY",
               "default": null,
@@ -3040,7 +2998,7 @@
           "aliases": [],
           "args": [
             {
-              "name": "db_path",
+              "name": "db-path",
               "positional": false,
               "value_name": "DB_PATH",
               "default": null,
@@ -3080,7 +3038,7 @@
               "aliases": []
             },
             {
-              "name": "body_file",
+              "name": "body-file",
               "positional": false,
               "value_name": "PATH",
               "default": null,
@@ -3128,7 +3086,7 @@
               "aliases": []
             },
             {
-              "name": "skip_extract",
+              "name": "skip-extract",
               "positional": false,
               "value_name": "SKIP_EXTRACT",
               "default": null,
@@ -3136,7 +3094,7 @@
               "aliases": []
             },
             {
-              "name": "source_path",
+              "name": "source-path",
               "positional": false,
               "value_name": "SOURCE_PATH",
               "default": null,
@@ -3200,7 +3158,7 @@
               "aliases": []
             },
             {
-              "name": "body_file",
+              "name": "body-file",
               "positional": false,
               "value_name": "PATH",
               "default": null,
@@ -3746,7 +3704,7 @@
               "aliases": []
             },
             {
-              "name": "body_file",
+              "name": "body-file",
               "positional": false,
               "value_name": "PATH",
               "default": null,
@@ -3754,7 +3712,7 @@
               "aliases": []
             },
             {
-              "name": "changed_by",
+              "name": "changed-by",
               "positional": false,
               "value_name": "CHANGED_BY",
               "default": null,
@@ -3826,7 +3784,7 @@
               "aliases": []
             },
             {
-              "name": "l0_only",
+              "name": "l0-only",
               "positional": false,
               "value_name": "L0_ONLY",
               "default": null,
@@ -3834,7 +3792,7 @@
               "aliases": []
             },
             {
-              "name": "no_l0",
+              "name": "no-l0",
               "positional": false,
               "value_name": "NO_L0",
               "default": null,
@@ -4080,22 +4038,6 @@
           "subcommands": []
         },
         {
-          "name": "panes",
-          "about": "List panes on a remote mesh peer",
-          "aliases": [],
-          "args": [
-            {
-              "name": "target",
-              "positional": true,
-              "value_name": "TARGET",
-              "default": null,
-              "help": "Target peer name or instance ID",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
           "name": "peer",
           "about": "Per-peer address management",
           "aliases": [],
@@ -4169,6 +4111,22 @@
           "about": "Stop broadcasting immediately",
           "aliases": [],
           "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "tabs",
+          "about": "List tabs on a remote mesh peer",
+          "aliases": [],
+          "args": [
+            {
+              "name": "target",
+              "positional": true,
+              "value_name": "TARGET",
+              "default": null,
+              "help": "Target peer name or instance ID",
+              "aliases": []
+            }
+          ],
           "subcommands": []
         }
       ]
@@ -4285,11 +4243,11 @@
       "subcommands": [
         {
           "name": "handoff",
-          "about": "Create an orchestrator handoff and optionally reseed this pane",
+          "about": "Create an orchestrator handoff and optionally reseed this tab",
           "aliases": [],
           "args": [
             {
-              "name": "dry_run",
+              "name": "dry-run",
               "positional": false,
               "value_name": "DRY_RUN",
               "default": null,
@@ -4305,7 +4263,7 @@
               "aliases": []
             },
             {
-              "name": "from_file",
+              "name": "from-file",
               "positional": false,
               "value_name": "PATH",
               "default": null,
@@ -4329,17 +4287,9 @@
               "aliases": []
             },
             {
-              "name": "next_actions",
+              "name": "next",
               "positional": false,
               "value_name": "NEXT_ACTIONS",
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
               "default": null,
               "help": null,
               "aliases": []
@@ -4356,6 +4306,14 @@
               "name": "reseed",
               "positional": false,
               "value_name": "RESEED",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "PANE",
               "default": null,
               "help": null,
               "aliases": []
@@ -4383,7 +4341,7 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "clear_lanes",
+                  "name": "clear-lanes",
                   "positional": false,
                   "value_name": "CLEAR_LANES",
                   "default": null,
@@ -4391,7 +4349,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "clear_rules",
+                  "name": "clear-rules",
                   "positional": false,
                   "value_name": "CLEAR_RULES",
                   "default": null,
@@ -4407,7 +4365,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "lanes",
+                  "name": "lane",
                   "positional": false,
                   "value_name": "LANES",
                   "default": null,
@@ -4423,7 +4381,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "rules",
+                  "name": "rule",
                   "positional": false,
                   "value_name": "RULES",
                   "default": null,
@@ -4489,17 +4447,17 @@
           "aliases": [],
           "args": [
             {
-              "name": "pane",
+              "name": "plan",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "PLAN",
               "default": null,
               "help": null,
               "aliases": []
             },
             {
-              "name": "plan",
+              "name": "tab",
               "positional": false,
-              "value_name": "PLAN",
+              "value_name": "PANE",
               "default": null,
               "help": null,
               "aliases": []
@@ -4513,17 +4471,17 @@
           "aliases": [],
           "args": [
             {
-              "name": "pane",
+              "name": "plan",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "PLAN",
               "default": null,
               "help": null,
               "aliases": []
             },
             {
-              "name": "plan",
+              "name": "tab",
               "positional": false,
-              "value_name": "PLAN",
+              "value_name": "PANE",
               "default": null,
               "help": null,
               "aliases": []
@@ -4584,7 +4542,7 @@
               "aliases": []
             },
             {
-              "name": "content_type",
+              "name": "content-type",
               "positional": false,
               "value_name": "CONTENT_TYPE",
               "default": null,
@@ -4592,7 +4550,7 @@
               "aliases": []
             },
             {
-              "name": "from_file",
+              "name": "from-file",
               "positional": false,
               "value_name": "PATH",
               "default": null,
@@ -4600,7 +4558,7 @@
               "aliases": []
             },
             {
-              "name": "from_stdin",
+              "name": "from-stdin",
               "positional": false,
               "value_name": "FROM_STDIN",
               "default": null,
@@ -4656,7 +4614,7 @@
           "aliases": [],
           "args": [
             {
-              "name": "dry_run",
+              "name": "dry-run",
               "positional": false,
               "value_name": "DRY_RUN",
               "default": null,
@@ -4760,7 +4718,7 @@
           "aliases": [],
           "args": [
             {
-              "name": "from_spec",
+              "name": "from-spec",
               "positional": false,
               "value_name": "FROM_SPEC",
               "default": null,
@@ -4792,7 +4750,7 @@
               "aliases": []
             },
             {
-              "name": "spec_file",
+              "name": "spec-file",
               "positional": false,
               "value_name": "PATH",
               "default": null,
@@ -4830,7 +4788,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "answered_by_pane",
+                  "name": "answered-by-tab",
                   "positional": false,
                   "value_name": "ANSWERED_BY_PANE",
                   "default": null,
@@ -4862,7 +4820,7 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "asked_by_pane",
+                  "name": "asked-by-tab",
                   "positional": false,
                   "value_name": "ASKED_BY_PANE",
                   "default": null,
@@ -4870,7 +4828,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "blocking_task_ids",
+                  "name": "block",
                   "positional": false,
                   "value_name": "BLOCKING_TASK_IDS",
                   "default": null,
@@ -5054,7 +5012,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "content_file",
+                  "name": "content-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -5174,7 +5132,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "content_file",
+                  "name": "content-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -5374,7 +5332,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "vision_file",
+                  "name": "vision-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -5446,15 +5404,15 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "foundational_rules",
+                  "name": "decision",
                   "positional": false,
-                  "value_name": "FOUNDATIONAL_RULES",
+                  "value_name": "OPEN_DECISIONS",
                   "default": null,
                   "help": null,
                   "aliases": []
                 },
                 {
-                  "name": "from_file",
+                  "name": "from-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -5478,17 +5436,9 @@
                   "aliases": []
                 },
                 {
-                  "name": "next_actions",
+                  "name": "next",
                   "positional": false,
                   "value_name": "NEXT_ACTIONS",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "open_decisions",
-                  "positional": false,
-                  "value_name": "OPEN_DECISIONS",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -5497,6 +5447,14 @@
                   "name": "plan_id",
                   "positional": true,
                   "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "rule",
+                  "positional": false,
+                  "value_name": "FOUNDATIONAL_RULES",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -5668,7 +5626,7 @@
         },
         {
           "name": "lanes",
-          "about": "Lane hygiene table: one row per open lane (task/status/pane/branch/worktree/cleanup)",
+          "about": "Lane hygiene table: one row per open lane (task/status/tab/branch/worktree/cleanup)",
           "aliases": [],
           "args": [
             {
@@ -5684,7 +5642,7 @@
               "positional": false,
               "value_name": "STALE",
               "default": null,
-              "help": "Only show stale lanes (dead pane / report-overdue / uncleaned)",
+              "help": "Only show stale lanes (dead tab / report-overdue / uncleaned)",
               "aliases": []
             }
           ],
@@ -5848,7 +5806,7 @@
               "aliases": []
             },
             {
-              "name": "spec_section",
+              "name": "spec-section",
               "positional": false,
               "value_name": "SPEC_SECTION",
               "default": null,
@@ -5894,7 +5852,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "stop_when",
+                  "name": "stop-when",
                   "positional": false,
                   "value_name": "STOP_WHEN",
                   "default": null,
@@ -5974,7 +5932,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "stop_when",
+                  "name": "stop-when",
                   "positional": false,
                   "value_name": "STOP_WHEN",
                   "default": null,
@@ -6030,7 +5988,7 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "add_kind",
+                  "name": "add-kind",
                   "positional": false,
                   "value_name": "ADD_KIND",
                   "default": null,
@@ -6078,7 +6036,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "text_file",
+                  "name": "text-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -6166,7 +6124,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "text_file",
+                  "name": "text-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -6208,7 +6166,7 @@
           "aliases": [],
           "args": [
             {
-              "name": "dry_run",
+              "name": "dry-run",
               "positional": false,
               "value_name": "DRY_RUN",
               "default": null,
@@ -6278,7 +6236,7 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "link_section",
+                  "name": "link-section",
                   "positional": false,
                   "value_name": "LINK_SECTION",
                   "default": null,
@@ -6286,7 +6244,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "link_task",
+                  "name": "link-task",
                   "positional": false,
                   "value_name": "LINK_TASK",
                   "default": null,
@@ -6310,7 +6268,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "text_file",
+                  "name": "text-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -6374,7 +6332,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "text_file",
+                  "name": "text-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -6426,14 +6384,6 @@
               "aliases": []
             },
             {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Planner pane id advancing the state (records author as planner; omit = user)",
-              "aliases": []
-            },
-            {
               "name": "plan_id",
               "positional": true,
               "value_name": "PLAN_ID",
@@ -6447,6 +6397,14 @@
               "value_name": "SET",
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Planner tab id advancing the state (records author as planner; omit = user)",
               "aliases": []
             }
           ],
@@ -6682,7 +6640,7 @@
           "aliases": [],
           "args": [
             {
-              "name": "body_file",
+              "name": "body-file",
               "positional": false,
               "value_name": "PATH",
               "default": null,
@@ -6698,7 +6656,7 @@
               "aliases": []
             },
             {
-              "name": "links",
+              "name": "link",
               "positional": false,
               "value_name": "LINKS",
               "default": null,
@@ -6738,7 +6696,7 @@
               "aliases": []
             },
             {
-              "name": "steps",
+              "name": "step",
               "positional": false,
               "value_name": "STEPS",
               "default": null,
@@ -6754,7 +6712,7 @@
               "aliases": []
             },
             {
-              "name": "upsert_task",
+              "name": "upsert-task",
               "positional": false,
               "value_name": "UPSERT_TASK",
               "default": null,
@@ -6834,7 +6792,7 @@
               "aliases": []
             },
             {
-              "name": "body_file",
+              "name": "body-file",
               "positional": false,
               "value_name": "PATH",
               "default": null,
@@ -6936,7 +6894,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "body_file",
+                  "name": "body-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -6976,7 +6934,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "tags",
+                  "name": "tag",
                   "positional": false,
                   "value_name": "TAGS",
                   "default": null,
@@ -7088,7 +7046,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "body_file",
+                  "name": "body-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -7128,7 +7086,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "tags",
+                  "name": "tag",
                   "positional": false,
                   "value_name": "TAGS",
                   "default": null,
@@ -7160,7 +7118,7 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "body_file",
+                  "name": "body-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -7360,7 +7318,7 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "assign_pane",
+                  "name": "assign-tab",
                   "positional": false,
                   "value_name": "ASSIGN_PANE",
                   "default": null,
@@ -7384,7 +7342,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "body_file",
+                  "name": "body-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -7400,7 +7358,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "cleanup_hints",
+                  "name": "cleanup-hint",
                   "positional": false,
                   "value_name": "CLEANUP_HINTS",
                   "default": null,
@@ -7408,7 +7366,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "cleanup_status",
+                  "name": "cleanup-status",
                   "positional": false,
                   "value_name": "CLEANUP_STATUS",
                   "default": null,
@@ -7432,7 +7390,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "depends_on",
+                  "name": "depends-on",
                   "positional": false,
                   "value_name": "DEPENDS_ON",
                   "default": null,
@@ -7448,7 +7406,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "executor_role",
+                  "name": "executor-role",
                   "positional": false,
                   "value_name": "EXECUTOR_ROLE",
                   "default": null,
@@ -7488,7 +7446,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "intent_file",
+                  "name": "intent-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -7496,15 +7454,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "kind",
-                  "positional": false,
-                  "value_name": "KIND",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "loop_from",
+                  "name": "loop-from",
                   "positional": false,
                   "value_name": "LOOP_FROM",
                   "default": null,
@@ -7568,7 +7518,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "role_guidance",
+                  "name": "role-guidance",
                   "positional": false,
                   "value_name": "ROLE_GUIDANCE",
                   "default": null,
@@ -7576,7 +7526,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "role_guidance_file",
+                  "name": "role-guidance-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -7592,7 +7542,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "tags",
+                  "name": "tag",
                   "positional": false,
                   "value_name": "TAGS",
                   "default": null,
@@ -7600,9 +7550,17 @@
                   "aliases": []
                 },
                 {
-                  "name": "test_plan",
+                  "name": "test-plan",
                   "positional": false,
                   "value_name": "TEST_PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "type",
+                  "positional": false,
+                  "value_name": "KIND",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -7616,7 +7574,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "why_file",
+                  "name": "why-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -7624,7 +7582,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "workspace_id",
+                  "name": "workspace-id",
                   "positional": false,
                   "value_name": "WORKSPACE_ID",
                   "default": null,
@@ -7632,7 +7590,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "workspace_name",
+                  "name": "workspace-name",
                   "positional": false,
                   "value_name": "WORKSPACE_NAME",
                   "default": null,
@@ -7652,7 +7610,7 @@
             },
             {
               "name": "assign",
-              "about": "Assign a task to a pane (exports CODETERM_TASK_ID to that pane)",
+              "about": "Assign a task to a tab (exports CODETERM_TASK_ID to that tab)",
               "aliases": [],
               "args": [
                 {
@@ -7664,17 +7622,17 @@
                   "aliases": []
                 },
                 {
-                  "name": "pane",
-                  "positional": false,
-                  "value_name": "PANE",
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
                   "default": null,
                   "help": null,
                   "aliases": []
                 },
                 {
-                  "name": "plan_id",
-                  "positional": true,
-                  "value_name": "PLAN_ID",
+                  "name": "tab",
+                  "positional": false,
+                  "value_name": "PANE",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -7808,7 +7766,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "result_file",
+                  "name": "result-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -7856,11 +7814,11 @@
                   "aliases": []
                 },
                 {
-                  "name": "parent",
+                  "name": "parent-tab",
                   "positional": false,
                   "value_name": "PARENT",
                   "default": null,
-                  "help": "Parent pane override (defaults to the caller pane)",
+                  "help": "Parent tab override (defaults to the caller tab)",
                   "aliases": []
                 },
                 {
@@ -8120,7 +8078,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "tags",
+                  "name": "tag",
                   "positional": false,
                   "value_name": "TAGS",
                   "default": null,
@@ -8200,7 +8158,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "body_file",
+                  "name": "body-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -8216,7 +8174,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "cleanup_hints",
+                  "name": "cleanup-hint",
                   "positional": false,
                   "value_name": "CLEANUP_HINTS",
                   "default": null,
@@ -8224,7 +8182,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "cleanup_status",
+                  "name": "cleanup-status",
                   "positional": false,
                   "value_name": "CLEANUP_STATUS",
                   "default": null,
@@ -8232,7 +8190,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "clear_dependencies",
+                  "name": "clear-dependencies",
                   "positional": false,
                   "value_name": "CLEAR_DEPENDENCIES",
                   "default": null,
@@ -8256,7 +8214,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "depends_on",
+                  "name": "depends-on",
                   "positional": false,
                   "value_name": "DEPENDS_ON",
                   "default": null,
@@ -8272,7 +8230,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "executor_role",
+                  "name": "executor-role",
                   "positional": false,
                   "value_name": "EXECUTOR_ROLE",
                   "default": null,
@@ -8304,17 +8262,9 @@
                   "aliases": []
                 },
                 {
-                  "name": "intent_file",
+                  "name": "intent-file",
                   "positional": false,
                   "value_name": "PATH",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "kind",
-                  "positional": false,
-                  "value_name": "KIND",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -8331,14 +8281,6 @@
                   "name": "name",
                   "positional": false,
                   "value_name": "NAME",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "pane",
-                  "positional": false,
-                  "value_name": "PANE",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -8384,7 +8326,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "role_guidance",
+                  "name": "role-guidance",
                   "positional": false,
                   "value_name": "ROLE_GUIDANCE",
                   "default": null,
@@ -8392,7 +8334,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "role_guidance_file",
+                  "name": "role-guidance-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -8416,7 +8358,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "status_label",
+                  "name": "status-label",
                   "positional": false,
                   "value_name": "STATUS_LABEL",
                   "default": null,
@@ -8424,7 +8366,15 @@
                   "aliases": []
                 },
                 {
-                  "name": "tags",
+                  "name": "tab",
+                  "positional": false,
+                  "value_name": "PANE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tag",
                   "positional": false,
                   "value_name": "TAGS",
                   "default": null,
@@ -8440,9 +8390,17 @@
                   "aliases": []
                 },
                 {
-                  "name": "test_plan",
+                  "name": "test-plan",
                   "positional": false,
                   "value_name": "TEST_PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "type",
+                  "positional": false,
+                  "value_name": "KIND",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -8456,7 +8414,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "why_file",
+                  "name": "why-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -8464,7 +8422,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "workspace_id",
+                  "name": "workspace-id",
                   "positional": false,
                   "value_name": "WORKSPACE_ID",
                   "default": null,
@@ -8472,7 +8430,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "workspace_name",
+                  "name": "workspace-name",
                   "positional": false,
                   "value_name": "WORKSPACE_NAME",
                   "default": null,
@@ -8626,7 +8584,7 @@
               "aliases": []
             },
             {
-              "name": "spec_file",
+              "name": "spec-file",
               "positional": false,
               "value_name": "PATH",
               "default": null,
@@ -8800,7 +8758,7 @@
               "aliases": []
             },
             {
-              "name": "values_json",
+              "name": "values-json",
               "positional": false,
               "value_name": "JSON",
               "default": null,
@@ -8840,7 +8798,7 @@
               "aliases": []
             },
             {
-              "name": "from_dir",
+              "name": "from-dir",
               "positional": false,
               "value_name": "FROM_DIR",
               "default": null,
@@ -8856,7 +8814,7 @@
               "aliases": []
             },
             {
-              "name": "id_override",
+              "name": "id-override",
               "positional": false,
               "value_name": "ID_OVERRIDE",
               "default": null,
@@ -8895,7 +8853,7 @@
               "aliases": []
             },
             {
-              "name": "remove_data",
+              "name": "remove-data",
               "positional": false,
               "value_name": "REMOVE_DATA",
               "default": null,
@@ -8945,7 +8903,7 @@
       "aliases": [],
       "args": [
         {
-          "name": "acknowledge_dirty",
+          "name": "acknowledge-dirty",
           "positional": false,
           "value_name": "ACKNOWLEDGE_DIRTY",
           "default": null,
@@ -8953,7 +8911,7 @@
           "aliases": []
         },
         {
-          "name": "attachments",
+          "name": "attach",
           "positional": false,
           "value_name": "PATH",
           "default": null,
@@ -8977,7 +8935,7 @@
           "aliases": []
         },
         {
-          "name": "changed_files",
+          "name": "changed-files",
           "positional": false,
           "value_name": "CHANGED_FILES",
           "default": null,
@@ -9006,14 +8964,6 @@
           "value_name": "MESSAGE",
           "default": null,
           "help": "Report message (also accepts --message alias)",
-          "aliases": []
-        },
-        {
-          "name": "pane",
-          "positional": false,
-          "value_name": "PANE",
-          "default": null,
-          "help": "Session ID (default: $CODETERM_PANE_ID or focused session)",
           "aliases": []
         },
         {
@@ -9049,6 +8999,14 @@
           "aliases": []
         },
         {
+          "name": "tab",
+          "positional": false,
+          "value_name": "PANE",
+          "default": null,
+          "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
+          "aliases": []
+        },
+        {
           "name": "task",
           "positional": false,
           "value_name": "TASK",
@@ -9057,7 +9015,7 @@
           "aliases": []
         },
         {
-          "name": "test_cmd",
+          "name": "test-cmd",
           "positional": false,
           "value_name": "TEST_CMD",
           "default": null,
@@ -9065,7 +9023,7 @@
           "aliases": []
         },
         {
-          "name": "test_result",
+          "name": "test-result",
           "positional": false,
           "value_name": "TEST_RESULT",
           "default": null,
@@ -9085,7 +9043,7 @@
     },
     {
       "name": "send",
-      "about": "Send text to a session (default: current session)",
+      "about": "Send text to a tab (default: current tab)",
       "aliases": [],
       "args": [
         {
@@ -9113,7 +9071,7 @@
           "aliases": []
         },
         {
-          "name": "from_file",
+          "name": "from-file",
           "positional": false,
           "value_name": "PATH",
           "default": null,
@@ -9121,22 +9079,22 @@
           "aliases": []
         },
         {
-          "name": "pane",
-          "positional": false,
-          "value_name": "PANE",
-          "default": null,
-          "help": "Target session ID (default: $CODETERM_PANE_ID or focused session)",
-          "aliases": []
-        },
-        {
           "name": "stdin",
           "positional": false,
           "value_name": "STDIN",
           "default": null,
-          "help": "Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --session X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF",
+          "help": "Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --tab X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF",
           "aliases": [
             "from-stdin"
           ]
+        },
+        {
+          "name": "tab",
+          "positional": false,
+          "value_name": "PANE",
+          "default": null,
+          "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
+          "aliases": []
         },
         {
           "name": "text",
@@ -9169,7 +9127,7 @@
               "aliases": []
             },
             {
-              "name": "health_degraded_values",
+              "name": "health-degraded-values",
               "positional": false,
               "value_name": "HEALTH_DEGRADED_VALUES",
               "default": null,
@@ -9177,7 +9135,7 @@
               "aliases": []
             },
             {
-              "name": "health_interval",
+              "name": "health-interval",
               "positional": false,
               "value_name": "HEALTH_INTERVAL",
               "default": "30",
@@ -9185,7 +9143,7 @@
               "aliases": []
             },
             {
-              "name": "health_json_field",
+              "name": "health-json-field",
               "positional": false,
               "value_name": "HEALTH_JSON_FIELD",
               "default": null,
@@ -9193,7 +9151,7 @@
               "aliases": []
             },
             {
-              "name": "health_mode",
+              "name": "health-mode",
               "positional": false,
               "value_name": "HEALTH_MODE",
               "default": "http",
@@ -9201,7 +9159,7 @@
               "aliases": []
             },
             {
-              "name": "health_ok_values",
+              "name": "health-ok-values",
               "positional": false,
               "value_name": "HEALTH_OK_VALUES",
               "default": null,
@@ -9209,7 +9167,7 @@
               "aliases": []
             },
             {
-              "name": "health_path",
+              "name": "health-path",
               "positional": false,
               "value_name": "HEALTH_PATH",
               "default": null,
@@ -9249,7 +9207,7 @@
               "aliases": []
             },
             {
-              "name": "process_label",
+              "name": "process-label",
               "positional": false,
               "value_name": "PROCESS_LABEL",
               "default": null,
@@ -9261,11 +9219,11 @@
               "positional": false,
               "value_name": "PUSH",
               "default": "false",
-              "help": "Enable push API (daemon can write to panes via Bearer token)",
+              "help": "Enable push API (daemon can write to tabs via Bearer token)",
               "aliases": []
             },
             {
-              "name": "script_path",
+              "name": "script-path",
               "positional": false,
               "value_name": "SCRIPT_PATH",
               "default": null,
@@ -9313,7 +9271,7 @@
               "aliases": []
             },
             {
-              "name": "health_degraded_values",
+              "name": "health-degraded-values",
               "positional": false,
               "value_name": "HEALTH_DEGRADED_VALUES",
               "default": null,
@@ -9321,7 +9279,7 @@
               "aliases": []
             },
             {
-              "name": "health_json_field",
+              "name": "health-json-field",
               "positional": false,
               "value_name": "HEALTH_JSON_FIELD",
               "default": null,
@@ -9329,7 +9287,7 @@
               "aliases": []
             },
             {
-              "name": "health_ok_values",
+              "name": "health-ok-values",
               "positional": false,
               "value_name": "HEALTH_OK_VALUES",
               "default": null,
@@ -9337,7 +9295,7 @@
               "aliases": []
             },
             {
-              "name": "health_path",
+              "name": "health-path",
               "positional": false,
               "value_name": "HEALTH_PATH",
               "default": null,
@@ -9438,368 +9396,6 @@
       ]
     },
     {
-      "name": "session",
-      "about": "Session management",
-      "aliases": [
-        "pane"
-      ],
-      "args": [],
-      "subcommands": [
-        {
-          "name": "capture",
-          "about": "Dev-only: tee a session's raw PTY output into an asciicast v2 `.cast` file",
-          "aliases": [],
-          "args": [],
-          "subcommands": [
-            {
-              "name": "start",
-              "about": "Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`",
-              "aliases": [],
-              "args": [
-                {
-                  "name": "out",
-                  "positional": false,
-                  "value_name": "OUT",
-                  "default": null,
-                  "help": "Path of the `.cast` file to write",
-                  "aliases": []
-                },
-                {
-                  "name": "pane",
-                  "positional": false,
-                  "value_name": "PANE",
-                  "default": null,
-                  "help": "Target session ID (default: $CODETERM_PANE_ID or focused session)",
-                  "aliases": []
-                }
-              ],
-              "subcommands": []
-            },
-            {
-              "name": "stop",
-              "about": "Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`",
-              "aliases": [],
-              "args": [
-                {
-                  "name": "pane",
-                  "positional": false,
-                  "value_name": "PANE",
-                  "default": null,
-                  "help": "Target session ID (default: $CODETERM_PANE_ID or focused session)",
-                  "aliases": []
-                }
-              ],
-              "subcommands": []
-            }
-          ]
-        },
-        {
-          "name": "chat",
-          "about": "Read a session's parsed chat transcript (text/thinking/tool calls/results)",
-          "aliases": [],
-          "args": [
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Target session ID (default: $CODETERM_PANE_ID or focused session)",
-              "aliases": []
-            },
-            {
-              "name": "since",
-              "positional": false,
-              "value_name": "SINCE",
-              "default": "0",
-              "help": "Only return messages from this index onward",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "close",
-          "about": "Close a session by ID",
-          "aliases": [],
-          "args": [
-            {
-              "name": "id",
-              "positional": true,
-              "value_name": "ID",
-              "default": null,
-              "help": "Session ID",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "current",
-          "about": "Print the current focused session ID — no JSON parsing needed",
-          "aliases": [],
-          "args": [
-            {
-              "name": "last",
-              "positional": false,
-              "value_name": "LAST",
-              "default": null,
-              "help": "Return the last session instead of the focused one",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "describe",
-          "about": "Set a short session description (empty clears it)",
-          "aliases": [],
-          "args": [
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Session ID to describe (default: current focused session)",
-              "aliases": []
-            },
-            {
-              "name": "summary",
-              "positional": true,
-              "value_name": "SUMMARY",
-              "default": null,
-              "help": "Short summary, max 200 chars",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "exec",
-          "about": "Execute a command in a session and return output",
-          "aliases": [],
-          "args": [
-            {
-              "name": "command",
-              "positional": true,
-              "value_name": "COMMAND",
-              "default": null,
-              "help": "Command to execute",
-              "aliases": []
-            },
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Session ID (default: current focused session)",
-              "aliases": []
-            },
-            {
-              "name": "timeout",
-              "positional": false,
-              "value_name": "TIMEOUT",
-              "default": "10000",
-              "help": "Timeout in milliseconds",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "focus",
-          "about": "Focus a session by ID",
-          "aliases": [],
-          "args": [
-            {
-              "name": "id",
-              "positional": true,
-              "value_name": "ID",
-              "default": null,
-              "help": "Session ID",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "get-text",
-          "about": "Get visible terminal text of a session (what the user sees)",
-          "aliases": [],
-          "args": [
-            {
-              "name": "formatted",
-              "positional": false,
-              "value_name": "FORMATTED",
-              "default": null,
-              "help": "Include raw ANSI escape codes (colors, cursor state) instead of plain text",
-              "aliases": []
-            },
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Session ID (default: current focused session)",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "list",
-          "about": "List all sessions as a workspace-grouped tree. `--agents` filters to agent sessions only",
-          "aliases": [],
-          "args": [
-            {
-              "name": "agents",
-              "positional": false,
-              "value_name": "AGENTS",
-              "default": null,
-              "help": "Show only sessions running an agent (have an agent_type)",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "new",
-          "about": "Plain shell session. For an AI session use `codeterm agent spawn` instead",
-          "aliases": [],
-          "args": [
-            {
-              "name": "chat_backend",
-              "positional": false,
-              "value_name": "PLUGIN_ID",
-              "default": null,
-              "help": "Open a non-PTY chat-backend session driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`session get-text` then route to the plugin, not a shell",
-              "aliases": []
-            },
-            {
-              "name": "cmd",
-              "positional": false,
-              "value_name": "CMD",
-              "default": null,
-              "help": "Spawn a shell that runs this command on start (e.g. `\"cd /repo && ./build.sh dev\"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created pane",
-              "aliases": []
-            },
-            {
-              "name": "config",
-              "positional": false,
-              "value_name": "JSON",
-              "default": null,
-              "help": "JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{\"model\":\"llama-3.1-8b\"}'`",
-              "aliases": []
-            },
-            {
-              "name": "cwd",
-              "positional": false,
-              "value_name": "CWD",
-              "default": null,
-              "help": "Working directory for the new session",
-              "aliases": []
-            },
-            {
-              "name": "eager",
-              "positional": false,
-              "value_name": "EAGER",
-              "default": null,
-              "help": "Spawn the shell PTY immediately on the daemon for headless/API use",
-              "aliases": []
-            },
-            {
-              "name": "title",
-              "positional": false,
-              "value_name": "TITLE",
-              "default": null,
-              "help": "Tab title",
-              "aliases": []
-            },
-            {
-              "name": "workspace",
-              "positional": false,
-              "value_name": "WORKSPACE",
-              "default": null,
-              "help": "Target workspace id (default: current focused)",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "rename",
-          "about": "Rename a session tab (default: current session)",
-          "aliases": [],
-          "args": [
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Session ID to rename (default: current focused session)",
-              "aliases": []
-            },
-            {
-              "name": "title",
-              "positional": true,
-              "value_name": "TITLE",
-              "default": null,
-              "help": "New title",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "search",
-          "about": "Fuzzy search sessions by id-prefix, tab title, friendly session name, agent type, or current model. Cross-script — \"Далтон\" matches \"Dalton\". Add `--mesh PEER` to search a paired peer (#99). `find` kept as alias",
-          "aliases": [],
-          "args": [
-            {
-              "name": "pattern",
-              "positional": true,
-              "value_name": "PATTERN",
-              "default": null,
-              "help": "Substring or short pattern to match",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "status",
-          "about": "Show agent status for a session (type, provider session, prompt)",
-          "aliases": [],
-          "args": [
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Session ID (default: current focused session)",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "stop",
-          "about": "Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stop_keystroke — Esc for Claude/Codex/OpenCode, Ctrl+C for Cursor. Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here",
-          "aliases": [],
-          "args": [
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": null,
-              "help": "Session ID (default: current focused session)",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        }
-      ]
-    },
-    {
       "name": "sessions",
       "about": "Past agent sessions — search conversations across all providers",
       "aliases": [],
@@ -9823,7 +9419,7 @@
         },
         {
           "name": "resume",
-          "about": "Resume a past session in its original cwd. Atomic replacement for the \"workspace create → agent spawn --args=--resume=UUID\" dance which keeps failing because Claude/Codex look for the JSONL in the current cwd. This command: finds the session across providers, creates a workspace at the right project path, spawns an agent pane there, and hands the resume id to the provider correctly",
+          "about": "Resume a past session in its original cwd. Atomic replacement for the \"workspace create → agent spawn --args=--resume=UUID\" dance which keeps failing because Claude/Codex look for the JSONL in the current cwd. This command: finds the session across providers, creates a workspace at the right project path, spawns an agent tab there, and hands the resume id to the provider correctly",
           "aliases": [],
           "args": [
             {
@@ -9847,11 +9443,11 @@
               "positional": false,
               "value_name": "TITLE",
               "default": null,
-              "help": "Tab title for the new pane. Defaults to \"resumed <shortid>\"",
+              "help": "Tab title for the new tab. Defaults to \"resumed <shortid>\"",
               "aliases": []
             },
             {
-              "name": "workspace_id",
+              "name": "workspace-id",
               "positional": false,
               "value_name": "WORKSPACE_ID",
               "default": null,
@@ -9859,7 +9455,7 @@
               "aliases": []
             },
             {
-              "name": "workspace_name",
+              "name": "workspace-name",
               "positional": false,
               "value_name": "WORKSPACE_NAME",
               "default": null,
@@ -9883,7 +9479,7 @@
               "aliases": []
             },
             {
-              "name": "max_snippets",
+              "name": "max-snippets",
               "positional": false,
               "value_name": "MAX_SNIPPETS",
               "default": "3",
@@ -9985,7 +9581,7 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "edges",
+                  "name": "edge",
                   "positional": false,
                   "value_name": "SPEC_SECTION:PLAN_SECTION",
                   "default": null,
@@ -9993,17 +9589,17 @@
                   "aliases": []
                 },
                 {
-                  "name": "plan_id",
-                  "positional": true,
-                  "value_name": "PLAN_ID",
+                  "name": "plan-section",
+                  "positional": false,
+                  "value_name": "PLAN_SECTION",
                   "default": null,
                   "help": null,
                   "aliases": []
                 },
                 {
-                  "name": "plan_section",
-                  "positional": false,
-                  "value_name": "PLAN_SECTION",
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -10017,7 +9613,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "spec_section",
+                  "name": "spec-section",
                   "positional": false,
                   "value_name": "SPEC_SECTION",
                   "default": null,
@@ -10049,17 +9645,17 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "plan_id",
-                  "positional": true,
-                  "value_name": "PLAN_ID",
+                  "name": "plan-section",
+                  "positional": false,
+                  "value_name": "PLAN_SECTION",
                   "default": null,
                   "help": null,
                   "aliases": []
                 },
                 {
-                  "name": "plan_section",
-                  "positional": false,
-                  "value_name": "PLAN_SECTION",
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -10073,7 +9669,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "spec_section",
+                  "name": "spec-section",
                   "positional": false,
                   "value_name": "SPEC_SECTION",
                   "default": null,
@@ -10145,7 +9741,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "body_file",
+                  "name": "body-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -10185,7 +9781,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "tags",
+                  "name": "tag",
                   "positional": false,
                   "value_name": "TAGS",
                   "default": null,
@@ -10265,7 +9861,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "body_file",
+                  "name": "body-file",
                   "positional": false,
                   "value_name": "PATH",
                   "default": null,
@@ -10305,7 +9901,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "tags",
+                  "name": "tag",
                   "positional": false,
                   "value_name": "TAGS",
                   "default": null,
@@ -10390,6 +9986,366 @@
       ]
     },
     {
+      "name": "tab",
+      "about": "Tab management",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "capture",
+          "about": "Dev-only: tee a tab's raw PTY output into an asciicast v2 `.cast` file",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "start",
+              "about": "Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "out",
+                  "positional": false,
+                  "value_name": "OUT",
+                  "default": null,
+                  "help": "Path of the `.cast` file to write",
+                  "aliases": []
+                },
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "value_name": "PANE",
+                  "default": null,
+                  "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "stop",
+              "about": "Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "value_name": "PANE",
+                  "default": null,
+                  "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "chat",
+          "about": "Read a tab's parsed chat transcript (text/thinking/tool calls/results)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "since",
+              "positional": false,
+              "value_name": "SINCE",
+              "default": "0",
+              "help": "Only return messages from this index onward",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "close",
+          "about": "Close a tab by ID",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Tab ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "current",
+          "about": "Print the current focused tab ID — no JSON parsing needed",
+          "aliases": [],
+          "args": [
+            {
+              "name": "last",
+              "positional": false,
+              "value_name": "LAST",
+              "default": null,
+              "help": "Return the last tab instead of the focused one",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "describe",
+          "about": "Set a short tab description (empty clears it)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "summary",
+              "positional": true,
+              "value_name": "SUMMARY",
+              "default": null,
+              "help": "Short summary, max 200 chars",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Tab ID to describe (default: current focused tab)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "exec",
+          "about": "Execute a command in a tab and return output",
+          "aliases": [],
+          "args": [
+            {
+              "name": "command",
+              "positional": true,
+              "value_name": "COMMAND",
+              "default": null,
+              "help": "Command to execute",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Tab ID (default: current focused tab)",
+              "aliases": []
+            },
+            {
+              "name": "timeout",
+              "positional": false,
+              "value_name": "TIMEOUT",
+              "default": "10000",
+              "help": "Timeout in milliseconds",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "focus",
+          "about": "Focus a tab by ID",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Tab ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "get-text",
+          "about": "Get visible terminal text of a tab (what the user sees)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "formatted",
+              "positional": false,
+              "value_name": "FORMATTED",
+              "default": null,
+              "help": "Include raw ANSI escape codes (colors, cursor state) instead of plain text",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Tab ID (default: current focused tab)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List all tabs as a workspace-grouped tree. `--agents` filters to agent tabs only",
+          "aliases": [],
+          "args": [
+            {
+              "name": "agents",
+              "positional": false,
+              "value_name": "AGENTS",
+              "default": null,
+              "help": "Show only tabs running an agent (have an agent_type)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "new",
+          "about": "Plain shell tab. For an AI tab use `codeterm agent spawn` instead",
+          "aliases": [],
+          "args": [
+            {
+              "name": "chat-backend",
+              "positional": false,
+              "value_name": "PLUGIN_ID",
+              "default": null,
+              "help": "Open a non-PTY chat-backend tab driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`tab get-text` then route to the plugin, not a shell",
+              "aliases": []
+            },
+            {
+              "name": "cmd",
+              "positional": false,
+              "value_name": "CMD",
+              "default": null,
+              "help": "Spawn a shell that runs this command on start (e.g. `\"cd /repo && ./build.sh dev\"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created tab",
+              "aliases": []
+            },
+            {
+              "name": "config",
+              "positional": false,
+              "value_name": "JSON",
+              "default": null,
+              "help": "JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{\"model\":\"llama-3.1-8b\"}'`",
+              "aliases": []
+            },
+            {
+              "name": "cwd",
+              "positional": false,
+              "value_name": "CWD",
+              "default": null,
+              "help": "Working directory for the new tab",
+              "aliases": []
+            },
+            {
+              "name": "eager",
+              "positional": false,
+              "value_name": "EAGER",
+              "default": null,
+              "help": "Spawn the shell PTY immediately on the daemon for headless/API use",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": "Tab title",
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": "Target workspace id (default: current focused)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "rename",
+          "about": "Rename a tab (default: current tab)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Tab ID to rename (default: current focused tab)",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": true,
+              "value_name": "TITLE",
+              "default": null,
+              "help": "New title",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "search",
+          "about": "Fuzzy search tabs by id-prefix, tab title, friendly session name, agent type, or current model. Cross-script — \"Далтон\" matches \"Dalton\". Add `--mesh PEER` to search a paired peer (#99). `find` kept as alias",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pattern",
+              "positional": true,
+              "value_name": "PATTERN",
+              "default": null,
+              "help": "Substring or short pattern to match",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "status",
+          "about": "Show agent status for a tab (type, provider session, prompt)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Tab ID (default: current focused tab)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "stop",
+          "about": "Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stop_keystroke — Esc for Claude/Codex/OpenCode, Ctrl+C for Cursor. Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here",
+          "aliases": [],
+          "args": [
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Tab ID (default: current focused tab)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "task",
       "about": "Standalone and plan-backed tasks",
       "aliases": [],
@@ -10401,7 +10357,7 @@
           "aliases": [],
           "args": [
             {
-              "name": "assign_pane",
+              "name": "assign-tab",
               "positional": false,
               "value_name": "ASSIGN_PANE",
               "default": null,
@@ -10417,7 +10373,7 @@
               "aliases": []
             },
             {
-              "name": "body_file",
+              "name": "body-file",
               "positional": false,
               "value_name": "PATH",
               "default": null,
@@ -10449,17 +10405,9 @@
               "aliases": []
             },
             {
-              "name": "intent_file",
+              "name": "intent-file",
               "positional": false,
               "value_name": "PATH",
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "kind",
-              "positional": false,
-              "value_name": "KIND",
               "default": null,
               "help": null,
               "aliases": []
@@ -10481,9 +10429,17 @@
               "aliases": []
             },
             {
-              "name": "test_plan",
+              "name": "test-plan",
               "positional": false,
               "value_name": "TEST_PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "type",
+              "positional": false,
+              "value_name": "KIND",
               "default": null,
               "help": null,
               "aliases": []
@@ -10497,7 +10453,7 @@
               "aliases": []
             },
             {
-              "name": "why_file",
+              "name": "why-file",
               "positional": false,
               "value_name": "PATH",
               "default": null,
@@ -10621,7 +10577,7 @@
         },
         {
           "name": "take",
-          "about": "Assign the task to the caller's pane",
+          "about": "Assign the task to the caller's tab",
           "aliases": [],
           "args": [
             {
@@ -10729,15 +10685,15 @@
       "aliases": [],
       "args": [
         {
-          "name": "after_update",
+          "name": "after-update",
           "positional": false,
           "value_name": "TEXT",
           "default": null,
-          "help": "Message to inject into the General Agent pane after the new daemon boots. Useful for remote-triggered updates (\"run the update and then verify health\") — GA reads it as user input post-restart",
+          "help": "Message to inject into the General Agent tab after the new daemon boots. Useful for remote-triggered updates (\"run the update and then verify health\") — GA reads it as user input post-restart",
           "aliases": []
         },
         {
-          "name": "manifest_url",
+          "name": "manifest-url",
           "positional": false,
           "value_name": "MANIFEST_URL",
           "default": null,
@@ -10768,11 +10724,11 @@
           "aliases": [],
           "args": [
             {
-              "name": "after_update",
+              "name": "after-update",
               "positional": false,
               "value_name": "TEXT",
               "default": null,
-              "help": "Message to inject into the General Agent pane after the new daemon boots. Lets the GA continue work post-update — e.g. \"verify the new build and report version via Telegram\"",
+              "help": "Message to inject into the General Agent tab after the new daemon boots. Lets the GA continue work post-update — e.g. \"verify the new build and report version via Telegram\"",
               "aliases": []
             },
             {
@@ -10784,23 +10740,23 @@
               "aliases": []
             },
             {
-              "name": "continue_pane",
-              "positional": false,
-              "value_name": "ID",
-              "default": null,
-              "help": "Pane to deliver `--continue-prompt` to. Defaults to `$CODETERM_PANE_ID`",
-              "aliases": []
-            },
-            {
-              "name": "continue_prompt",
+              "name": "continue-prompt",
               "positional": false,
               "value_name": "TEXT",
               "default": null,
-              "help": "Optional prompt to send to the calling pane once the new daemon is up — lets a session continue work post-restart",
+              "help": "Optional prompt to send to the calling tab once the new daemon is up — lets a session continue work post-restart",
               "aliases": []
             },
             {
-              "name": "from_file",
+              "name": "continue-tab",
+              "positional": false,
+              "value_name": "ID",
+              "default": null,
+              "help": "Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_PANE_ID`",
+              "aliases": []
+            },
+            {
+              "name": "from-file",
               "positional": false,
               "value_name": "PATH",
               "default": null,
@@ -10808,7 +10764,7 @@
               "aliases": []
             },
             {
-              "name": "manifest_url",
+              "name": "manifest-url",
               "positional": false,
               "value_name": "MANIFEST_URL",
               "default": null,
@@ -10832,7 +10788,7 @@
           "aliases": [],
           "args": [
             {
-              "name": "account_id",
+              "name": "account-id",
               "positional": false,
               "value_name": "ACCOUNT_ID",
               "default": null,
@@ -10856,7 +10812,7 @@
           "aliases": [],
           "args": [
             {
-              "name": "account_id",
+              "name": "account-id",
               "positional": false,
               "value_name": "ACCOUNT_ID",
               "default": null,
@@ -10880,7 +10836,7 @@
           "aliases": [],
           "args": [
             {
-              "name": "account_id",
+              "name": "account-id",
               "positional": false,
               "value_name": "ACCOUNT_ID",
               "default": null,

@@ -24,8 +24,8 @@ pub enum MeshAction {
     Status,
     /// List all peers (paired + discovered)
     Peers,
-    /// List panes on a remote mesh peer
-    Panes {
+    /// List tabs on a remote mesh peer
+    Tabs {
         /// Target peer name or instance ID
         target: String,
     },
@@ -163,9 +163,9 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         }
     }
 
-    // session search needs local fuzzy ranking; relay-only output has no relevance ordering.
+    // tab search needs local fuzzy ranking; relay-only output has no relevance ordering.
     // Fetch raw list then rank locally for predictable results.
-    if let Commands::Session {
+    if let Commands::Tab {
         action: super::PaneAction::Search { pattern },
     } = &cli.command
     {
@@ -176,9 +176,9 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         return;
     }
 
-    // `session list` reuses local formatter: relay raw list, then format locally.
+    // `tab list` reuses local formatter: relay raw list, then format locally.
     if !cli.json {
-        if let Commands::Session {
+        if let Commands::Tab {
             action: super::PaneAction::List { agents },
         } = &cli.command
         {
@@ -223,7 +223,7 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         relay::mesh_spawn_and_register(&http, &base, &token, target, body.as_deref(), cli.json);
         return;
     }
-    if let Commands::Session {
+    if let Commands::Tab {
         action: super::PaneAction::Close { id },
     } = &cli.command
     {

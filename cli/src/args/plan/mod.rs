@@ -80,10 +80,10 @@ pub enum PlanAction {
     Tags { plan_id: String },
     /// One read-only state snapshot (counts, coverage, drift, loops, lanes, strides)
     State { plan_id: Option<String> },
-    /// Lane hygiene table: one row per open lane (task/status/pane/branch/worktree/cleanup)
+    /// Lane hygiene table: one row per open lane (task/status/tab/branch/worktree/cleanup)
     Lanes {
         plan_id: Option<String>,
-        /// Only show stale lanes (dead pane / report-overdue / uncleaned)
+        /// Only show stale lanes (dead tab / report-overdue / uncleaned)
         #[arg(long)]
         stale: bool,
     },
@@ -221,8 +221,8 @@ pub enum PlanAction {
         plan_id: String,
         #[arg(long)]
         set: String,
-        /// Planner pane id advancing the state (records author as planner; omit = user).
-        #[arg(long)]
+        /// Planner tab id advancing the state (records author as planner; omit = user).
+        #[arg(long = "tab")]
         pane: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         note: Option<String>,

@@ -200,7 +200,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             }
             _ => ("GET".into(), "/api/workspaces".into(), None),
         },
-        Commands::Session { action } => match action {
+        Commands::Tab { action } => match action {
             crate::PaneAction::List { .. } => ("GET".into(), "/api/panes".into(), None),
             crate::PaneAction::Current { .. } => ("GET".into(), "/api/panes".into(), None),
             crate::PaneAction::New {
@@ -541,19 +541,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             crate::AgentAction::Providers | crate::AgentAction::Models { .. } => {
                 ("GET".into(), "/api/agents/providers".into(), None)
             }
-            crate::AgentAction::Message {
-                text,
-                pane,
-                from_file,
-                stdin,
-            } => send_text_to_api(
-                text,
-                &Some(pane.clone()),
-                from_file,
-                *stdin,
-                &None,
-                &mut std::io::stdin(),
-            ),
             _ => ("GET".into(), "/api/panes".into(), None),
         },
         Commands::Notifications { unread, .. } => {
@@ -653,7 +640,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     after_update,
                 } => {
                     if from_file.is_some() || continue_prompt.is_some() || continue_pane.is_some() {
-                        return unsupported("update install --from-file/--continue-prompt/--continue-pane are local-only; run on the target machine");
+                        return unsupported("update install --from-file/--continue-prompt/--continue-tab are local-only; run on the target machine");
                     }
                     let mut qs = String::new();
                     if auto {

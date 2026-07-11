@@ -29,11 +29,11 @@ pub enum SessionsAction {
     /// which keeps failing because Claude/Codex look for the JSONL in the
     /// current cwd. This command: finds the session across providers,
     /// creates a workspace at the right project path, spawns an agent
-    /// pane there, and hands the resume id to the provider correctly.
+    /// tab there, and hands the resume id to the provider correctly.
     Resume {
         /// Session id to resume (UUID).
         session_id: String,
-        /// Tab title for the new pane. Defaults to "resumed <shortid>".
+        /// Tab title for the new tab. Defaults to "resumed <shortid>".
         #[arg(long)]
         title: Option<String>,
         /// Reuse an existing workspace instead of creating a new one.

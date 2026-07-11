@@ -476,9 +476,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         && !explicit.starts_with(own.as_str());
                     if differs {
                         eprintln!(
-                            "Error: `agent report --pane {explicit}` reports AS that pane, not TO it.\n\
-                             Reports route to your parent automatically — drop --pane to report up the hierarchy.\n\
-                             To send a message to a specific pane, use `codeterm send --pane {explicit}`."
+                            "Error: `agent report --tab {explicit}` reports AS that tab, not TO it.\n\
+                             Reports route to your parent automatically — drop --tab to report up the hierarchy.\n\
+                             To send a message to a specific tab, use `codeterm send --tab {explicit}`."
                         );
                         std::process::exit(1);
                     }
@@ -601,24 +601,6 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 print_report_notices(json, val);
             }
             handle_result(json, result);
-        }
-        AgentAction::Message {
-            text,
-            pane,
-            from_file,
-            stdin,
-        } => {
-            crate::cmd::send_text::handle_send_text(
-                client,
-                json,
-                Some(pane),
-                text,
-                from_file,
-                stdin,
-                None,
-                None,
-                None,
-            );
         }
         AgentAction::Reports { pane, clear, limit } => {
             let pane_id = resolve_pane(client, pane);

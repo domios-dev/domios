@@ -1,7 +1,7 @@
 use super::api_map::cli_command_to_api;
 use super::parse_ip_port;
 use super::{MeshAction, MeshPeerAction};
-use crate::{AgentAction, Commands, UpdateAction};
+use crate::{Commands, UpdateAction};
 
 fn update_cmd(action: Option<UpdateAction>, manifest_url: Option<String>) -> Commands {
     Commands::Update {
@@ -457,7 +457,7 @@ fn mesh_cron_create_forwards_all_advanced_fields() {
 #[test]
 fn pane_new_relays_cmd_field() {
     use crate::PaneAction;
-    let cmd = Commands::Session {
+    let cmd = Commands::Tab {
         action: PaneAction::New {
             workspace: Some("ws_1".into()),
             cwd: Some("C:/Developer/codeterm".into()),
@@ -608,24 +608,6 @@ fn send_text_is_fire_and_forget_on_mesh() {
         body.get("verify").is_none(),
         "send must never carry verify — the flag has been removed (#101)"
     );
-}
-
-#[test]
-fn agent_message_uses_send_transport_on_mesh() {
-    let cmd = Commands::Agent {
-        action: AgentAction::Message {
-            text: Some("steer now".into()),
-            pane: "abc123".into(),
-            from_file: None,
-            stdin: false,
-        },
-    };
-    let (m, p, b) = cli_command_to_api(&cmd);
-    assert_eq!(m, "POST");
-    assert_eq!(p, "/api/panes/abc123/send");
-    let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
-    assert_eq!(body["text"], "steer now");
-    assert_eq!(body["enter"], true);
 }
 
 #[test]
