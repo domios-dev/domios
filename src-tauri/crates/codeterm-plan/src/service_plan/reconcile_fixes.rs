@@ -90,9 +90,9 @@ impl PlanStore {
     }
 
     /// Apply watchdog demotions: an in_progress lane whose pane is gone past the
-    /// grace window is released back to pending, unassigned, and given ONE stride.
+    /// grace window is unassigned, marked needs-reassign, and given ONE stride.
     /// Idempotent — a lane already off in_progress is skipped, so re-running the
-    /// tick never re-demotes or duplicates strides.
+    /// tick never duplicates the stride or silently drifts the status to pending.
     pub fn apply_lane_demotions(
         &self,
         plan_id: &str,
@@ -117,8 +117,6 @@ impl PlanStore {
                 task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
                 task.assigned_pane_id = None;
                 task.lane.pane_id = None;
-                task.status = TaskStatus::Pending;
-                task.status_changed_at = now_ms;
                 task.status_label = Some(NEEDS_REASSIGN_LABEL.into());
                 task.updated_at = now_ms;
                 task.milestones.push(Milestone {
@@ -137,7 +135,7 @@ impl PlanStore {
                     plan_id,
                     &task.id,
                     DriftKind::InProgressPaneGone,
-                    "demoted_to_pending_pane_gone",
+                    "cleared_assignment_set_needs_reassign",
                 ));
             }
             Ok(changed)

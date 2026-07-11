@@ -41,9 +41,9 @@ fn git_worktree_pair() -> (tempfile::TempDir, PathBuf, PathBuf) {
 }
 
 #[test]
-fn create_from_linked_worktree_persists_canonical_project_path_and_routes_sidecars() {
+fn create_from_linked_worktree_persists_workspace_root_and_routes_sidecars() {
     let (_tmp, main, linked) = git_worktree_pair();
-    let store = PlanStore::new();
+    let store = PlanStore::new_for_test(&linked);
     std::fs::create_dir_all(linked.join(".codeterm/plans")).unwrap();
 
     let plan = store
@@ -69,24 +69,24 @@ fn create_from_linked_worktree_persists_canonical_project_path_and_routes_sideca
         )
         .unwrap();
 
-    let main_root = paths::project_root(&main);
+    let linked_root = paths::project_root(&linked);
     let loaded = store.get(&plan.id).unwrap();
-    assert_eq!(loaded.project_path, main_root.display().to_string());
+    assert_eq!(loaded.project_path, linked_root.display().to_string());
     assert_eq!(
         loaded.canonical_project_path,
-        main_root.display().to_string()
+        linked_root.display().to_string()
     );
-    assert!(main_root
+    assert!(linked_root
         .join(format!(".codeterm/plans/active/{}/plan.yaml", plan.id))
         .is_file());
-    assert!(main_root
+    assert!(linked_root
         .join(format!(
             ".codeterm/plans/active/{}/tasks/write-sidecar.yaml",
             plan.id
         ))
         .is_file());
-    assert!(!linked
-        .join(format!(".codeterm/plans/active/{}/plan.json", plan.id))
+    assert!(!main
+        .join(format!(".codeterm/plans/active/{}/plan.yaml", plan.id))
         .exists());
 }
 
@@ -107,4 +107,55 @@ fn stale_canonical_project_path_falls_back_to_loaded_project_root() {
 
     assert_eq!(plan.project_path, project.display().to_string());
     assert_eq!(plan.canonical_project_path, project.display().to_string());
+}
+
+#[test]
+fn scan_project_from_workspace_cwd_preserves_owner_and_planner_binding() {
+    let (_tmp, _main, linked) = git_worktree_pair();
+    let store = PlanStore::new_for_test(&linked);
+    let plan = store
+        .create_plan(
+            "Restart bound".into(),
+            linked.display().to_string(),
+            OrchestratorRef {
+                pane_id: Some("orch-pane".into()),
+                session_id: Some("orch-session".into()),
+                title: Some("orch".into()),
+            },
+            vec![],
+            1,
+        )
+        .unwrap();
+    store
+        .set_planner_ref(
+            &plan.id,
+            Some(crate::plan::PlannerRef::Pane {
+                pane_id: "planner-pane".into(),
+                session_id: Some("planner-session".into()),
+                title: Some("planner".into()),
+            }),
+            2,
+        )
+        .unwrap();
+
+    let reloaded = PlanStore::new_for_test(&linked);
+    let loaded_root = reloaded.scan_project(&linked).unwrap();
+    let loaded = reloaded.get(&plan.id).unwrap();
+
+    assert_eq!(loaded_root, linked.canonicalize().unwrap());
+    assert_eq!(loaded.project_path, loaded_root.display().to_string());
+    assert_eq!(
+        loaded.canonical_project_path,
+        loaded_root.display().to_string()
+    );
+    assert_eq!(loaded.owner.pane_id.as_deref(), Some("orch-pane"));
+    assert_eq!(loaded.owner.session_id.as_deref(), Some("orch-session"));
+    assert!(matches!(
+        loaded.planner,
+        Some(crate::plan::PlannerRef::Pane {
+            ref pane_id,
+            session_id: Some(ref session_id),
+            ..
+        }) if pane_id == "planner-pane" && session_id == "planner-session"
+    ));
 }
