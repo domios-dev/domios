@@ -111,7 +111,7 @@ owner:
 project_path: \\?\D:\Developer\codeterm
 canonical_project_path: \\?\D:\Developer\codeterm
 created_at: 1783628878496
-updated_at: 1783782671600
+updated_at: 1783790979020
 milestone_kinds:
 - key: discovery
   label: discovery
@@ -214,6 +214,12 @@ milestone_kinds:
   color: null
 - key: user-resume
   label: user-resume
+  color: null
+- key: diagnostic
+  label: diagnostic
+  color: null
+- key: progress
+  label: progress
   color: null
 loops:
 - id: loop_6c2hy7
@@ -327,9 +333,10 @@ primary_spec_id: sp_o6l6of
 lineage: []
 goal: null
 heartbeat:
-  current_focus: all executable work closed; Linux Shard L deferred on external ubunta infra
+  current_focus: Linux Shard L complete; review planner-owned in_review tasks and continue pw-speedup frontier
   active_lanes:
-  - none
+  - task_luatne
+  - task_cgoixr
   rules:
   - No worker starts cargo/build/dev directly while a machine QA/build owner exists
   learnings:
@@ -470,4 +477,13 @@ strides:
     y: null
     collapsed: false
   attachments: []
-regression_gate_overrides: []
+regression_gate_overrides:
+- actor:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  reason: Focused remote evidence is complete for prior planning-ux/playwright-stability/responsiveness gates; full cargo+TS+golden matrix is intentionally deferred to release CI / remote farm so the user-requested pw-speedup and Linux lanes can proceed.
+  gates:
+  - planning-ux
+  - responsiveness
+  ts: 1783783428047

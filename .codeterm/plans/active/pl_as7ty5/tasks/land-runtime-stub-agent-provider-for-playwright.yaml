@@ -6,24 +6,26 @@ model_rationale: 25+ golden tests spawn REAL Claude agents (180-420s each) becau
 personality: null
 personality_provenance: null
 acceptance_criteria:
+- Stub is per-provider parameterized (stub emulations for claude, codex, opencode) and each emits that provider structural fingerprint so detection, parser, and status tracking take the SAME code path as a real session
+- 'Fidelity is proven by fixture parity: recorded real transcripts per provider vs stub replay produce identical ChatView parser output and identical provider detection (model, session id, status), asserted in a test'
 - A stub provider is spawnable via POST /agents/spawn in a dev build with the env gate set, and absent (400) without it or in prod builds
-- 'Stub supports scripted deterministic replies: instant readiness, echo/scripted assistant text, a scripted tool round-trip, and marker emission into the PTY/chat surface'
+- 'Stub supports scripted deterministic replies: instant readiness, scripted assistant text, a scripted tool round-trip, and marker emission into the PTY/chat surface'
 - Existing provider capability tests still green; no provider-id branching leaked into core
-test_plan: '1) cargo test agent:: (narrow, capped 90s via scripts/test-capped.sh) for registry/dispatch with the stub registered. 2) On a dev daemon with the gate: curl POST /api/agents/spawn {agent:"stub", script:...} -> pane appears, scripted reply lands in pane output within 5s (poll /panes/:id/output). 3) Without gate: same spawn returns 4xx. 4) One Playwright smoke microtest spawning the stub and asserting the marker in DOM, run in isolation with --timeout=30000.'
-correctness: Stub is unreachable outside gated dev builds; scripted output is deterministic; capability seam stays clean per AGENTS.md plugin discipline.
+test_plan: '1) cargo test agent:: (narrow, capped 90s via scripts/test-capped.sh) for registry/dispatch with the stub registered. 2) Fixture capture: record one real transcript per provider (claude, codex, opencode) as raw PTY byte fixtures under tests/playwright/fixtures/provider-transcripts/. 3) Parity test (Rust or TS): feed recorded-real vs stub-replayed bytes through detection + parser; assert identical model/session-id/status detection and identical parsed message blocks, for ALL three providers. 4) On a gated dev daemon: curl POST /api/agents/spawn for each of stub:claude/stub:codex/stub:opencode -> pane appears, scripted reply lands in pane output within 5s, pane agent_type reports the emulated provider. 5) Without gate: spawn returns 4xx. 6) One Playwright smoke microtest per provider spawning the stub and asserting the marker in DOM plus the correct provider badge, run in isolation with --timeout=30000.'
+correctness: Stub is unreachable outside gated dev builds; replayed output is byte-faithful to recorded real sessions so detection/parser/status run real code paths; parity holds for all three providers; capability seam stays clean per AGENTS.md plugin discipline.
 status: pending
 review_stage: review
 qa_state: null
 status_label: null
 priority: p1
 created_at: 1783782059284
-updated_at: 1783782218588
+updated_at: 1783782997011
 status_changed_at: 1783782059284
 handle: land-runtime-stub-agent-provider-for-playwright
 tags: []
 section_ids:
 - sec_rlqrqc
-body: 'Implement a runtime stub agent provider so Playwright can exercise agent UI/plumbing without real LLM calls. Model on src-tauri/src/agent/test_provider.rs::MockProvider but as a live registered provider (dev-build + env-gated). Must support: instant readiness, scripted assistant replies, scripted tool-call round-trip, marker emission readable in PTY buffer and ChatView. Downstream task converts golden tests to it. See attached revision doc section B.1.'
+body: 'Implement a runtime stub agent provider so Playwright can exercise agent UI/plumbing without real LLM calls — but ONE-TO-ONE faithful to real providers, not a generic echo bot. Design: a transcript REPLAYER. Capture fixture transcripts from real claude/codex/opencode sessions (raw PTY byte stream incl. ANSI/OSC); the stub replays them (plus parameterized scripted turns) through the normal PTY/chat pipeline so structural-fingerprint detection, ChatView parser.ts, session-id materialization, and status tracking all run their REAL code paths identically to a live session. Per-provider emulation: stub:claude / stub:codex / stub:opencode each reproducing that provider fingerprints. Fidelity gate: parity test asserting recorded-real vs stub-replayed transcripts yield identical parser output and detection results. Dev-build + env-gated only (never prod). Model the registration on src-tauri/src/agent/test_provider.rs::MockProvider but as a live registered provider. Downstream task_k16xu0 converts golden tests and runs the provider matrix. See attached revision doc section B.1.'
 role_guidance: 'You are a Rust backend engineer in src-tauri/. Follow the plugin/capability discipline: the stub is a real AgentProvider registered only in dev builds behind an env gate (e.g. CODETERM_ENABLE_STUB_AGENT=1), never reachable in prod. Red line: core must keep asking capabilities, never match a stub id in core code; parity_test.rs gains a case if any trait surface grows.'
 executor_role: rust-backend-dev
 competition: null

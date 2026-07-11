@@ -11,14 +11,14 @@ acceptance_criteria:
 - Shard L runs bounded to completion with per-test and global timeouts, producing a pass/fail/flaky table, or a bounded infra blocker is documented with the exact failing command
 test_plan: 'On ubunta via mesh, every step bounded: 1) git fetch origin and git reset --hard origin/feat/1.7.2-stability; record sha. 2) Rebuild dev: ./build.sh dev --wait with a hard cap; if libsqlite3-sys stalls again, capture the exact cargo line + last 50 log lines as the blocker artifact. 3) curl -s http://127.0.0.1:7686/api/health: status ok, build_sha==HEAD. 4) npx playwright install chromium; curl /web/ 200. 5) Run Shard L: npx playwright test --config=tests/playwright/playwright.config.ts --project=golden <Shard L selector> --global-timeout=<budget> --reporter=line. 6) Report result table + artifacts, failures classified Linux-only vs shared-UI.'
 correctness: All evidence read on ubunta itself; build_sha==HEAD before any test result is trusted; every command capped so the lane can never hang silently.
-status: pending
+status: done
 review_stage: review
 qa_state: null
-status_label: null
+status_label: needs-reassign
 priority: p1
 created_at: 1783782660155
-updated_at: 1783782660155
-status_changed_at: 1783782660155
+updated_at: 1783790972667
+status_changed_at: 1783790972667
 handle: restore-ubunta-control-build-path-and-run-bounded-linux-shard-l
 tags: []
 section_ids:
@@ -49,7 +49,141 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_p5b4de
+  from:
+    pane_id: watchdog
+    session_id: null
+    title: null
+  kind: decision
+  text: 'watchdog: assigned pane gone and silent for 2712044ms — demoted to pending'
+  ts: 1783786216082
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_x9s29j
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: diagnostic
+  text: ' ubunta dev wrapper log collapsed to ELIFECYCLE during src-tauri compile; started bounded direct cargo check with progress disabled at /tmp/codeterm-ubunta-cargo-check-20260711T162715.log to capture the real failure before rerunning dev/Shard L'
+  ts: 1783787246933
+  links:
+  - key:931eab321e1c41b3
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_9a3wmn
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: progress
+  text: ' durable ubunta runner started as pid 3174467; fetched origin/feat/1.7.2-stability at f541dff175202a5bc42c215c03080f5779b09e5b; cargo check running with status/log prefix /tmp/codeterm-ubunta-shardL-20260711T162918'
+  ts: 1783787374900
+  links:
+  - key:55ef38f56e2dad70
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_mpp3c6
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: progress
+  text: ' ubunta static-server ownership patch gets past beforeDevCommand; direct cargo build is running outside tab process group to capture the real gtk/gdkx11 build result before retrying dev 7686 and Shard L.'
+  ts: 1783787979875
+  links:
+  - key:1ad282df01e8a3f1
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_4seloo
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: fix
+  text: ' committed d4796ac21 locally (fix(dev): own static server outside tauri before-dev command). Patch moves scripts/dev-static-server.mjs out of Tauri beforeDevCommand ownership so Linux Tauri dev cannot abort when the supervised server outlives prep; waiting for ubunta systemd build/dev verification before push.'
+  ts: 1783788199636
+  links:
+  - key:ff8a3256541859d5
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_vusoi6
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: blocker
+  text: ' ubunta CodeTerm relay/control path degraded during Linux diagnosis. Mesh peer is online and tab list/status works, but tab exec times out or returns empty on multiple tabs, get-text returns 404 for shell tabs, and General received no parsed response. Direct cargo check passed; systemd cargo build was started to survive daemon restarts, latest log path /tmp/codeterm-systemd-cargo-build.latest. Need stable remote shell/CodeTerm control to finish dev 7686 and Shard L.'
+  ts: 1783788381719
+  links:
+  - key:3e72b0034770b1ba
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_gwmrdk
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' restored ubunta control/build path and completed Linux Shard L on dev 7686. Evidence: /api/health build_sha f541dff175202a5bc42c215c03080f5779b09e5b before run; final bounded command npx playwright test --config=tests/playwright/playwright.config.ts --project=golden tests/playwright/suites/18-reorder/reorder.spec.ts tests/playwright/suites/18-reorder/pin-general.spec.ts tests/playwright/suites/15-extensions/extensions.spec.ts tests/playwright/suites/14-memory-ui/memory-panel.spec.ts tests/playwright/suites/13-settings/settings.spec.ts --reporter=line --timeout=30000 --global-timeout=600000; result 13 passed in 2.0m; log /tmp/codeterm-linux-shardL-final3-20260711T172511.log; cleanup killed dev 7686 and left prod 7685 untouched.'
+  ts: 1783790972182
+  links:
+  - key:e0a6b2792f86bf60
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_cix3l9
+  from:
+    pane_id: unknown
+    session_id: null
+    title: null
+  kind: status_update
+  text: 'Done: ubunta dev 7686 restored and Linux Shard L passed. Fixes included dev static-server ownership for Linux beforeDevCommand, Memory list Graph action plus stable graph test path, extension view-provider readiness/scoped activity assertion, worker-child SortableContext, and reorder assertions scoped to test-owned tabs. Verification: tsc --noEmit, biome check touched files, check-file-sizes, focused Linux memory 1/1, focused Linux C2 1/1, Linux reorder file 4/4, final Linux Shard L 13/13 in 2.0m on build_sha f541dff175202a5bc42c215c03080f5779b09e5b.'
+  ts: 1783790972667
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 pause_reason: null
 attachments: []
