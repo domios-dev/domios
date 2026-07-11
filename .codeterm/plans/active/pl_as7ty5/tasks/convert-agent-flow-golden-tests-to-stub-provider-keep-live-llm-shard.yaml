@@ -18,7 +18,7 @@ qa_state: null
 status_label: null
 priority: p1
 created_at: 1783782175703
-updated_at: 1783782869760
+updated_at: 1783805267548
 status_changed_at: 1783782175703
 handle: convert-agent-flow-golden-tests-to-stub-provider-keep-live-llm-shard
 tags: []
@@ -30,7 +30,8 @@ executor_role: test-author
 competition: null
 intent: null
 parent_task_id: null
-depends_on: []
+depends_on:
+- task_dycecc
 assigned_pane_id: null
 lane:
   pane_id: null
