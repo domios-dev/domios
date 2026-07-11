@@ -11,14 +11,14 @@ acceptance_criteria:
 - No regression to PTY kill/reap behavior for normal pane close
 test_plan: 'Repro: on Windows, run node node_modules/@playwright/test/cli.js test -c tests/playwright --project=restart --reporter=list --timeout=30000 --global-timeout=600000 — the oneshot test kills the daemon ~50% of runs. Signature in ~/.codeterm-dev/logs/codeterm.log: last lines exactly Cron run completed -> Killed PTY <agent pty> process tree; ConPTY handles closed -> Oneshot cron auto-deleting, then instant silent death (no panic, no WER dump, no wry teardown) within ~300ms; next start classifies AbnormalExit. Eliminated: harness kills (build-gateway job accounting shows no job at death time), mock-clock env, WER crash. Instrument: enable process-termination auditing (Security 4689) or ETW/procmon around the repro loop to catch the terminator; suspect surface: codeterm-pty begin_kill ConPTY pair drop + concurrent ConPTY spawn (hidden general agent boots ~2s prior in failing runs), job-object kill-on-close semantics. Verify per criteria with 5 clean consecutive runs.'
 correctness: Fix addresses the identified mechanism; daemon survives oneshot completion under concurrent ConPTY activity; pane kill semantics unchanged elsewhere.
-status: in_progress
+status: done
 review_stage: review
 qa_state: null
 status_label: remote-direct-on-ROG
 priority: p0
 created_at: 1783795693431
-updated_at: 1783806310984
-status_changed_at: 1783796613129
+updated_at: 1783807072224
+status_changed_at: 1783807072224
 handle: windows-daemon-terminates-at-oneshot-cron-completion-intermittent
 tags:
 - windows
@@ -214,6 +214,23 @@ milestones:
   ts: 1783806310984
   links:
   - key:e652052c5f5f4857
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_8j0v5c
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: accepted
+  text: ' fix pushed as 347821cd26521b0760d6bb1f58c623de9b0dd151 (fix(cron): defer oneshot pane teardown so the completion CLI gets its response). Commit touches src-tauri/src/service/cron.rs only and records cdb root cause plus 5/5 restart-project oneshot and 3/3 API-only survival verification.'
+  ts: 1783807072224
+  links:
+  - key:424b6f3bcd0fc3fa
   loop_id: null
   iteration: null
   canvas:
