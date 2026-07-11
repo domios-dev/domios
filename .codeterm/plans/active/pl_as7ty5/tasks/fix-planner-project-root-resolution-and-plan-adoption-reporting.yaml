@@ -9,14 +9,14 @@ acceptance_criteria:
 - A repo-root plan with planner plus three worker tasks (active, in_review, pane absent) survives a prod-like restart with identical canonical_project_path, owner/planner binding, task ids/statuses, lane base/branch/worktree, and attempt history; active restored worker keeps plan/task binding and final report route; absent worker is needs-reassign with history preserved; no task silently becomes parked/pending; move/adopt dry-run and real move preserve/count every sidecar task, id, history, and stride.
 test_plan: 'Oracle: remote Windows prod-like restart fixture preserves canonical planner state and lane semantics. 1. In a repo-root fixture, create a plan with a bound planner and three workers: one in_progress active pane, one in_review, one in_progress pane later absent; record canonical_project_path, owner/planner, task ids/statuses, execution_attempt ids, lane base/branch/worktree, pane/session ids, and report routes. 2. Hard-restart the remote prod-like daemon. Pass: same plan is indexed from workspace cwd with identical canonical_project_path and owner/planner binding. 3. Restore sessions/panes. Pass: active worker regains plan/task binding and can deliver a final report to the same route; in_review remains in_review; absent pane becomes needs-reassign deterministically with attempt history intact. 4. Run codeterm plan state and task show for each task. Pass: no status becomes parked/pending without an explicit transition. 5. Run plan move/adopt --dry-run and then real move on the fixture. Pass: reported task_count equals canonical sidecar task count and every task id/history/stride survives transfer. 6. Run focused Rust/CLI restart/index/reconcile/move-adopt tests remotely with 90s caps. Pass: exit 0. Capture exact commands, IDs, before/after JSON, and no mutation of production plan.'
 correctness: 'Correctness is a durable restart invariant: workspace-repo-root identity, plan indexing, owner/planner binding, pane/session/task/attempt/report-route restoration, deterministic absent-pane reconciliation, and task status must all preserve truth across restart. Move/adopt must preserve and accurately count canonical sidecar task data; no fallback may hide, duplicate, unbind, silently park, or lose plan history.'
-status: in_progress
+status: done
 review_stage: review
 qa_state: null
-status_label: needs-reassign
+status_label: null
 priority: p2
 created_at: 1783655692782
-updated_at: 1783712789323
-status_changed_at: 1783710392481
+updated_at: 1783733272901
+status_changed_at: 1783733272901
 handle: fix-planner-project-root-resolution-and-plan-adoption-reporting
 tags: []
 section_ids:

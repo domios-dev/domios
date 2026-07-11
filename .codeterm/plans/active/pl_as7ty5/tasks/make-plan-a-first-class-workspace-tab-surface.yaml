@@ -11,14 +11,14 @@ acceptance_criteria:
 - Nested-root cascade, dedupe, ordering, live update, and shown sidebar button structure are covered by focused and Playwright fixtures.
 test_plan: 'Oracle: authoritative PlanIndex/PlanStore fixture plus sidebar Playwright. 1. Seed workspace root A/.codeterm/plans with plans A1/A2, nested roots A/packages/p1 and A/tools/p2 with sidecars, sibling B with plan B1, and outside root C with C1; pass: A Plan surface lists A1/A2/p1/p2 only. 2. Seed duplicate plan id and canonical sidecar aliases across root/nested indexes; pass: one canonical entry per plan id/canonical sidecar and stable deterministic order across reloads. 3. Emit plan-changed for nested p1; pass: same workspace-plan:<workspace_id> surface updates in place without duplicate rows or fake Workspace.tabs/Pane state. 4. Render shown sidebar structure; pass: Plan is directly under its workspace row, visually alongside workspace tab entries, with stable data-tab-id/data-tab-kind, aria-pressed, and aria-current only when active. 5. Run focused entry/filter tests and npx playwright test tests/playwright/suites/13-canvas/workspace-plan-entry.spec.ts --config=tests/playwright/playwright.config.ts --project=golden; pass: root/nested inclusion, sibling exclusion, stable ordering, dedupe, click/navigation, and live update assertions pass. 6. Run git diff --check and scripts/check-file-sizes.sh; pass: both exit 0.'
 correctness: Authoritative cumulative workspace-root ownership; no cross-root leakage; canonical dedupe/stability; live virtual-tab updates; no fake pane/tab state.
-status: pending
+status: done
 review_stage: review
 qa_state: null
-status_label: pane-gone
+status_label: null
 priority: p2
 created_at: 1783631778672
-updated_at: 1783689917458
-status_changed_at: 1783689917458
+updated_at: 1783733272901
+status_changed_at: 1783733272901
 handle: make-plan-a-first-class-workspace-tab-surface
 tags: []
 section_ids:

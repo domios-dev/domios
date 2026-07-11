@@ -14,14 +14,14 @@ acceptance_criteria:
 - Focused tests, git diff --check, and file-size checks pass; changed files remain within the declared ownership boundary.
 test_plan: '1. Run the focused Rust test command covering worker brief/charter composition: cargo test -p codeterm --lib plan_task_dispatch -- --nocapture (or the exact narrowed package/filter discovered from the existing test module); pass condition: all composition tests pass. 2. Add/run exact snapshot cases for personality+guidance, no personality, reconnect/charter wrapper, competition, and legacy task fields; pass condition: each expected full prompt equals the canonical fixture and contains one identity, with role guidance immediately after any machine wrapper. 3. Run git diff --check and scripts/check-file-sizes.sh; pass condition: both exit 0 and no source file exceeds the project limit. 4. Run the focused prompt/plan test command required by the touched modules and report exact command/output; no local heavy build or release build is permitted.'
 correctness: Identity uniqueness; semantic ordering after machine wrappers; parity across dispatch/reconnect/competition/charter; legacy serialization compatibility; no routing/storage/runtime semantic changes; exact snapshot oracle rather than substring-only assertions; source-size discipline.
-status: in_progress
+status: done
 review_stage: review
 qa_state: null
-status_label: QA failed
+status_label: null
 priority: p1
 created_at: 1783661792517
-updated_at: 1783707921360
-status_changed_at: 1783707921360
+updated_at: 1783733272901
+status_changed_at: 1783733272901
 handle: canonical-worker-identity-composition-across-dispatch-and-reconnect
 tags:
 - 1.7.2

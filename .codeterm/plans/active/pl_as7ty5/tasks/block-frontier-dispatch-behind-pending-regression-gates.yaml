@@ -14,14 +14,14 @@ acceptance_criteria:
 - Focused tests, diff check, and file-size check pass without rewriting the existing authoritative QA prose or performing local heavy/release builds.
 test_plan: 'Oracle: seeded plan fixtures plus CLI/status integration tests. 1. Seed a plan with each of Discovery, persona-allocator-review, review-gate, and web-ui-serve-discovery pending; attempt non-blocker dispatch. Pass: no worker/pane is created, command exits with a structured block reason naming every relevant gate, and plan/orchestrator status shows the same gates. 2. Clear one group at a time through the existing QA completion path. Pass: status retains remaining gates and dispatch stays blocked until the final relevant gate is green. 3. Exercise a gate-clearing/release-blocking task. Pass: it remains dispatchable only under the explicitly defined policy and its exception is visible/audited. 4. Exercise explicit authorized override. Pass: command requires an explicit reason, records actor/time/gates/reason, and status shows the override; ordinary callers cannot bypass. 5. Exercise no-pending-gate control fixture. Pass: dispatch behavior is unchanged. 6. Run exact focused cargo/CLI tests discovered from dispatch/gate modules, git diff --check, and scripts/check-file-sizes.sh; pass: all exit 0. No local heavy/release build.'
 correctness: QA policy enforcement at actual dispatch boundary; no accidental worker spawn under pending gates; truthful status; audited exceptional override; per-group evidence preservation; compatibility for green plans; no policy-document duplication.
-status: in_progress
+status: done
 review_stage: review
 qa_state: null
-status_label: needs-integration
+status_label: null
 priority: p1
 created_at: 1783666895441
-updated_at: 1783715946501
-status_changed_at: 1783709977141
+updated_at: 1783733272901
+status_changed_at: 1783733272901
 handle: block-frontier-dispatch-behind-pending-regression-gates
 tags:
 - 1.7.2
