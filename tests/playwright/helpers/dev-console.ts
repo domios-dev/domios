@@ -120,6 +120,43 @@ function killDevLeftovers(): void {
   }
 }
 
+function gatewayLogDirs(): string[] {
+  if (process.platform !== "win32") return [];
+  const localAppData = process.env.LOCALAPPDATA;
+  const userProfile = process.env.USERPROFILE;
+  const programData = process.env.ProgramData;
+  return [
+    localAppData && path.join(localAppData, "CodeTerm", "build-gateway", "jobs"),
+    userProfile && path.join(userProfile, "AppData", "Local", "CodeTerm", "build-gateway", "jobs"),
+    programData && path.join(programData, "CodeTerm", "build-gateway", "jobs"),
+  ].filter((dir): dir is string => Boolean(dir));
+}
+
+function dumpBuildGatewayLogs(reason: string): void {
+  if (process.platform !== "win32") return;
+  console.warn(`[dev-console] ${reason}; recent build-gateway logs:`);
+  for (const dir of gatewayLogDirs()) {
+    try {
+      const logs = fs
+        .readdirSync(dir)
+        .filter((name) => name.endsWith(".log"))
+        .map((name) => path.join(dir, name))
+        .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
+        .slice(0, 4);
+      if (logs.length === 0) continue;
+      for (const log of logs) {
+        console.warn(`[dev-console] --- ${log}`);
+        const lines = fs.readFileSync(log, "utf8").split(/\r?\n/).slice(-160);
+        console.warn(lines.join("\n"));
+      }
+      return;
+    } catch {
+      /* try the next candidate directory */
+    }
+  }
+  console.warn("[dev-console] no readable build-gateway log directory found");
+}
+
 /**
  * Make sure a dev console with a reachable CDP endpoint is running.
  * Reuses a running one when both health and CDP answer; otherwise restarts
@@ -133,10 +170,16 @@ export async function ensureDevConsole(): Promise<void> {
   killDevConsole();
   try {
     bash(["build.sh", "dev", "--wait"], 600_000);
-  } catch {
+  } catch (first) {
+    dumpBuildGatewayLogs(`first ./build.sh dev --wait failed: ${first}`);
     // locking the binary, vite squatting 1420) — sweep and retry once.
     killDevLeftovers();
-    bash(["build.sh", "dev", "--wait"], 600_000);
+    try {
+      bash(["build.sh", "dev", "--wait"], 600_000);
+    } catch (second) {
+      dumpBuildGatewayLogs(`second ./build.sh dev --wait failed: ${second}`);
+      throw second;
+    }
   }
   if (!(await isHealthy())) {
     throw new Error("dev console did not become healthy after ./build.sh dev --wait");
