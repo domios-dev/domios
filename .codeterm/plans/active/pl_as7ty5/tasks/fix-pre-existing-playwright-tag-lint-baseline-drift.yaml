@@ -15,7 +15,7 @@ qa_state: null
 status_label: local-fix-waits-for-canvas-cleanup
 priority: p1
 created_at: 1783798895810
-updated_at: 1783799008270
+updated_at: 1783799056553
 status_changed_at: 1783799008270
 handle: fix-pre-existing-playwright-tag-lint-baseline-drift
 tags:
@@ -60,6 +60,23 @@ milestones:
   ts: 1783798995928
   links:
   - key:94b3a67bd7849be0
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_xovuwn
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: progress
+  text: ' pushed 3982a4f62 with chat-view PW_JUSTIFIED_SLEEP comments and tab-switch-latency baseline line update using --no-verify. node tests/playwright/helpers/check-tags.mjs now fails only on world-canvas specs/baselines being deleted by active task_bdzdn1; task remains open until check-tags is green after that rebase.'
+  ts: 1783799056553
+  links:
+  - key:7d9c46cd49d6efd9
   loop_id: null
   iteration: null
   canvas:

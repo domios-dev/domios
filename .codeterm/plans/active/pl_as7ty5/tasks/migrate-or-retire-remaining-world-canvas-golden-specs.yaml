@@ -15,7 +15,7 @@ qa_state: null
 status_label: running-on-eight
 priority: p1
 created_at: 1783795619376
-updated_at: 1783798903671
+updated_at: 1783799057121
 status_changed_at: 1783798210948
 handle: migrate-or-retire-remaining-world-canvas-golden-specs
 tags:
@@ -112,6 +112,23 @@ milestones:
   ts: 1783798903671
   links:
   - key:0e1981d37d574739
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_j0tfb9
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: coordination
+  text: ' notified eight worker 98f41b3a that origin advanced to 3982a4f62 with chat-view tag-lint fix; before final verification/push it should rebase and preserve chat-view/tab-switch baseline changes while removing obsolete world-canvas baseline entries.'
+  ts: 1783799057121
+  links:
+  - key:c0b9b77adda7544d
   loop_id: null
   iteration: null
   canvas:
