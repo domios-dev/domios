@@ -14,13 +14,17 @@ correctness: Fix addresses the identified mechanism; daemon survives oneshot com
 status: pending
 review_stage: review
 qa_state: null
-status_label: null
-priority: p1
+status_label: release-blocking
+priority: p0
 created_at: 1783795693431
-updated_at: 1783795693431
+updated_at: 1783795817445
 status_changed_at: 1783795693431
 handle: windows-daemon-terminates-at-oneshot-cron-completion-intermittent
-tags: []
+tags:
+- windows
+- cron
+- conpty
+- release-blocker
 section_ids:
 - sec_rlqrqc
 body: 'Diagnose and fix the intermittent Windows daemon termination at oneshot cron completion. Full evidence chain gathered on BLACKSTAR-local repro (2 deaths / 4 completions, two full restart-project runs + one standalone survivor + one full-run survivor) and on ROG (same signature during Windows restart-project verification). Death is TerminateProcess-class: instant, all threads, nothing logged, no WER dump. Harness exonerated: gateway job logs account for every harness kill; none coincide with the death. Correlates with recently restarted daemon and concurrent hidden-agent ConPTY spawn ~2s before the fatal ConPTY teardown.'

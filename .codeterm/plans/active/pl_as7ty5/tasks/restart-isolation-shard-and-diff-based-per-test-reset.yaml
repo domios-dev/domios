@@ -17,7 +17,7 @@ qa_state: null
 status_label: bounced-rog-restart-cron-exit
 priority: p1
 created_at: 1783782091095
-updated_at: 1783795722617
+updated_at: 1783795868789
 status_changed_at: 1783795722617
 handle: restart-isolation-shard-and-diff-based-per-test-reset
 tags: []
@@ -135,6 +135,40 @@ milestones:
     ASK: ROG platform owner re-runs the exact gate command at 3b04458a8+ and reports sha/health/pass-fail/artifacts per the bounce checklist. Expected outcome there: 10/10 when the runtime race does not fire, or exactly ONE honest oneshot failure when it does (no cascade) — either is consistent until task_oya3rr lands. Release-blocking classification of task_oya3rr is your call; my recommendation: yes for 1.7.2 (user-facing crash class), scheduled as its own lane.
   ts: 1783795722617
   links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_veu78o
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' pushed 3b04458a8 harness self-heal plus plan task_oya3rr at 3268c9012; requested ROG rerun exact restart project. Acceptable cgoixr outcomes: 10/10 pass or one honest oneshot daemon-death failure with no cascade; runtime crash is tracked separately as release-blocking task_oya3rr.'
+  ts: 1783795817706
+  links:
+  - key:bd3c956b5a801374
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_mr98be
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: dispatch
+  text: ' ROG requested to rerun restart project at pushed head 3268c9012+ with exact command; acceptable cgoixr result is 10/10 or one honest oneshot daemon-death failure with no cascade because runtime crash is tracked separately as task_oya3rr.'
+  ts: 1783795868789
+  links:
+  - key:c6c50374d457ac00
   loop_id: null
   iteration: null
   canvas:

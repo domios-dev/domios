@@ -15,7 +15,7 @@ qa_state: null
 status_label: running-on-eight
 priority: p1
 created_at: 1783793589957
-updated_at: 1783795591889
+updated_at: 1783795868087
 status_changed_at: 1783794000565
 handle: fix-macos-canvas-gate-mission-control-live-hidden-state
 tags:
@@ -163,6 +163,23 @@ milestones:
   ts: 1783795591889
   links:
   - key:b8840d7ff670cd47
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_k14qrw
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' authorize option A for eight worker. It may fix scripts/check-file-sizes.sh in a separate behavior-preserving commit solely to restore macOS bash 3.2 parsing, then rebase canvas commit over latest origin and push normally. If later unrelated heavy gate blocks, stop and report before using --no-verify.'
+  ts: 1783795868087
+  links:
+  - key:e6a493cc9bc1932f
   loop_id: null
   iteration: null
   canvas:
