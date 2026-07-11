@@ -72,6 +72,7 @@ Send a report to your parent in the hierarchy
 
 - `--acknowledge_dirty` — Acknowledge unrelated dirty files in the worktree and proceed with the readiness report. Stride is recorded acknowledging the override
 - `--attachments` — File to attach to the report milestone; repeat for multiple files
+- `--base` — Base commit/ref for changed-file attribution (`base..HEAD` plus dirty overlay)
 - `--branch` — Git branch the work landed on
 - `--changed_files` — Changed files (comma-separated or repeat the flag)
 - `--doc` — Markdown document to append to the report milestone
@@ -1859,6 +1860,14 @@ Show the next queued QA task, claim it, or record a group's full-gate regression
 - `--note`
 - `<plan_id>`
 
+#### `codeterm plan qa override`
+
+Authorized Orchestrator waiver of pending regression gates (owner-only, audited)
+
+- `--gate` — Gate keys to waive; defaults to every currently blocking gate
+- `<plan_id>`
+- `--reason` — Why the frontier may advance past the gate — required
+
 #### `codeterm plan qa pass`
 
 Mark QA passed and close the task
@@ -2061,6 +2070,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--cleanup_status`
 - `--correctness`
 - `--criterion`
+- `--depends_on`
 - `--destination`
 - `--executor_role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
 - `--force`
@@ -2220,8 +2230,10 @@ Update task metadata, status, quality fields, or lane assignment
 - `--branch`
 - `--cleanup_hints`
 - `--cleanup_status`
+- `--clear_dependencies`
 - `--correctness`
 - `--criterion`
+- `--depends_on`
 - `--destination`
 - `--executor_role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
 - `--group`
@@ -2388,6 +2400,7 @@ Report worker progress to the owning orchestrator or plan
 
 - `--acknowledge_dirty` — Acknowledge unrelated dirty files in the worktree and proceed with the readiness report. Stride is recorded acknowledging the override
 - `--attachments` — File to attach to the report milestone; repeat for multiple files
+- `--base` — Base commit/ref for changed-file attribution (`base..HEAD` plus dirty overlay)
 - `--branch` — Git branch the work landed on
 - `--changed_files` — Changed files (comma-separated or repeat the flag)
 - `--doc` — Markdown document to append to the report milestone

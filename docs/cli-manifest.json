@@ -218,6 +218,14 @@
               "aliases": []
             },
             {
+              "name": "base",
+              "positional": false,
+              "value_name": "BASE",
+              "default": null,
+              "help": "Base commit/ref for changed-file attribution (`base..HEAD` plus dirty overlay)",
+              "aliases": []
+            },
+            {
               "name": "branch",
               "positional": false,
               "value_name": "BRANCH",
@@ -6907,6 +6915,38 @@
               "subcommands": []
             },
             {
+              "name": "override",
+              "about": "Authorized Orchestrator waiver of pending regression gates (owner-only, audited)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "gate",
+                  "positional": false,
+                  "value_name": "GATE",
+                  "default": null,
+                  "help": "Gate keys to waive; defaults to every currently blocking gate",
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reason",
+                  "positional": false,
+                  "value_name": "REASON",
+                  "default": null,
+                  "help": "Why the frontier may advance past the gate — required",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "pass",
               "about": "Mark QA passed and close the task",
               "aliases": [],
@@ -7752,6 +7792,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "depends_on",
+                  "positional": false,
+                  "value_name": "DEPENDS_ON",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "destination",
                   "positional": false,
                   "value_name": "DESTINATION",
@@ -8544,6 +8592,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "clear_dependencies",
+                  "positional": false,
+                  "value_name": "CLEAR_DEPENDENCIES",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "correctness",
                   "positional": false,
                   "value_name": "CORRECTNESS",
@@ -8555,6 +8611,14 @@
                   "name": "criterion",
                   "positional": false,
                   "value_name": "CRITERION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "depends_on",
+                  "positional": false,
+                  "value_name": "DEPENDS_ON",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -9254,6 +9318,14 @@
           "value_name": "PATH",
           "default": null,
           "help": "File to attach to the report milestone; repeat for multiple files",
+          "aliases": []
+        },
+        {
+          "name": "base",
+          "positional": false,
+          "value_name": "BASE",
+          "default": null,
+          "help": "Base commit/ref for changed-file attribution (`base..HEAD` plus dirty overlay)",
           "aliases": []
         },
         {

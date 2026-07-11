@@ -144,6 +144,22 @@ After approval/execution starts, set heartbeat with:\n\
         "waiting_focus_requires_open_gate" => Some(format!(
             "✗ waiting_focus status requires an open decision gate.\nfix: ask a gate question first, then set the focus:\n  codeterm plan decision ask {plan_id} \"<question>\"\n  codeterm orchestrator heartbeat set --plan {plan_id} --focus waiting_focus"
         )),
+        "dependency_task_not_found" => Some(format!(
+            "✗ dependency task '{}' was not found in plan '{plan_id}'.\nfix: list tasks, then choose an existing dependency:\n  codeterm plan task list {plan_id}\n  codeterm plan task update {plan_id} {} --depends-on <task_id>",
+            data.get("task_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<dependency-task-id>"),
+            task_id.unwrap_or("<task_id>")
+        )),
+        "dependency_self_reference" => Some(format!(
+            "✗ a task cannot depend on itself.\nfix: remove the self-dependency or choose another task:\n  codeterm plan task update {plan_id} {} --clear-dependencies true",
+            task_id.unwrap_or("<task_id>")
+        )),
+        "dependency_cycle" => Some(format!(
+            "✗ task dependency would create a cycle.\nfix: inspect the task dependency graph, then remove or reorder the edge:\n  codeterm task show {}\n  codeterm plan task update {plan_id} {} --depends-on <acyclic-task-id>",
+            task_id.unwrap_or("<task_id>"),
+            task_id.unwrap_or("<task_id>")
+        )),
         "regression_gate_blocked" => Some(render_regression_gate_blocked(data, plan_id, task_id)),
         "override_reason_required" => Some(
             "✗ overriding a regression gate requires an explicit reason.\nfix: codeterm plan qa override <plan_id> --reason \"<why the frontier may advance past the gate>\"".into()
