@@ -331,7 +331,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/debug/clock/advance",
             post(debug_routes::clock_advance),
-        );
+        )
+        .route("/api/debug/events/stats", get(debug_routes::event_stats))
+        .route("/api/debug/events/force-latch", post(debug_routes::force_latch))
+        .route("/api/debug/events/reset-latch", post(debug_routes::reset_latch));
     let router = router.route(
         "/api/debug/shutdown/mark-clean-restart",
         post(debug_routes::mark_clean_restart),
