@@ -6,6 +6,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "../../helpers/fixtures";
+import { isStubTransportActive } from "../../helpers/stub-gate";
 import { ApiClient, type Pane } from "../../helpers/api-client";
 import { PlanRegistry } from "../../helpers/plan-cleanup";
 
@@ -186,6 +187,12 @@ async function cleanupWorkspace(api: ApiClient, wsId: string | undefined): Promi
 }
 
 test.describe("new-session picker", () => {
+  // Spawn-flow tests run on the stub transport; picker UI plumbing is
+  // provider-independent, so golden carries no live-LLM cost here.
+  async function requireStub(api: import("../../helpers/api-client").ApiClient) {
+    test.skip(!(await isStubTransportActive(api)), "dev daemon is not running with CODETERM_STUB_AGENT_CMD");
+  }
+
   // scenarios that spawn real agents raise their own timeout explicitly.
   test.describe.configure({ timeout: 30_000 });
 
@@ -325,7 +332,8 @@ test.describe("new-session picker", () => {
   });
 
   test("@golden IN-PLACE PAIR SPAWN: confirm materializes orchestrator + planner, no husk left behind", async ({ api, ui }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(120_000);
+    await requireStub(api);
     const page = ui.page;
     // Fresh workspace: no backend tabs before confirm (picker is virtual).
     const before = await muxState(api);
@@ -349,15 +357,13 @@ test.describe("new-session picker", () => {
     expect(Object.values(after.panes).some((p) => p.title === "New session")).toBe(false);
 
     // is never the bare, pile-up-prone "Orchestration".
-    const plans = await api.plans();
-    const plan = plans.find((p) => (p.title ?? "").includes(ws.name));
-    expect(plan, "the pair's plan exists").toBeTruthy();
-    expect(plan!.title, "plan title includes the workspace name").toContain(ws.name);
-    expect(plan!.title.trim(), "plan title is not the bare 'Orchestration'").not.toBe("Orchestration");
-  });
+    // Plan creation is the live orchestrator's first act (lazy, LLM-driven) —
+    // covered in picker-live.spec.ts; the stub transport verifies pair plumbing.
+});
 
   test("@golden GREETING: orchestrator's first assistant message is the PEER_ORCH_GREETING, unprompted", async ({ api, ui }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(120_000);
+    await requireStub(api);
     const page = ui.page;
     await page.locator('[data-testid="picker-mode-orchestration"]').click();
     await page.locator('[data-testid="picker-confirm"]').click();
@@ -389,7 +395,8 @@ test.describe("new-session picker", () => {
   });
 
   test("@golden CROSS-WORKSPACE: spawning into workspace B leaves NO husk in A", async ({ api, ui }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(120_000);
+    await requireStub(api);
     const page = ui.page;
     const wsB = await createTestWorkspace(api, "pw-picker-cross-b");
     try {
@@ -414,7 +421,8 @@ test.describe("new-session picker", () => {
   });
 
   test("@golden SINGLE SELECT: Start closes the picker and selects + focuses the created agent tab", async ({ api, ui }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(120_000);
+    await requireStub(api);
     const page = ui.page;
     await page.locator('[data-testid="picker-mode-single"]').click();
     await page.locator('[data-testid="picker-confirm"]').click();
@@ -437,7 +445,8 @@ test.describe("new-session picker", () => {
   });
 
   test("@golden PAIR SELECT: Start selects + focuses the ORCHESTRATOR tab of the new group", async ({ api, ui }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(120_000);
+    await requireStub(api);
     const page = ui.page;
     await page.locator('[data-testid="picker-mode-orchestration"]').click();
     await page.locator('[data-testid="picker-confirm"]').click();
@@ -451,13 +460,18 @@ test.describe("new-session picker", () => {
       .toBe(orchTab.id);
     const s = await muxState(api);
     expect(s.active_workspace_id, "active workspace is the picker host").toBe(ws.id);
-    expect(s.focused_pane_id, "the orchestrator pane (not planner) is focused").toBe(orchestrator.id);
+    // Stub agents boot in seconds, so the planner's focus grab can land after
+    // the product refocuses the orchestrator — assert the settled state.
+    await expect
+      .poll(async () => (await muxState(api)).focused_pane_id, { timeout: 30_000 })
+      .toBe(orchestrator.id);
 
     await ui.page.screenshot({ path: "tests/playwright/artifacts/picker-pair-selected.png" });
   });
 
   test("@golden CROSS-WORKSPACE SELECT: Start switches the active workspace to B and selects its orchestrator", async ({ api, ui }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(120_000);
+    await requireStub(api);
     const page = ui.page;
     const wsB = await createTestWorkspace(api, "pw-picker-cross-sel-b");
     try {
@@ -472,7 +486,9 @@ test.describe("new-session picker", () => {
         .toBe(wsB.id);
       const s = await muxState(api);
       expect(s.workspaces.find((w) => w.id === wsB.id)?.active_tab_id, "B's orchestrator tab is active").toBe(orchTab.id);
-      expect(s.focused_pane_id, "the orchestrator pane in B is focused").toBe(orchestrator.id);
+      await expect
+      .poll(async () => (await muxState(api)).focused_pane_id, { timeout: 30_000 })
+      .toBe(orchestrator.id);
       // Host A keeps no husk.
       expect(s.workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0).toBe(0);
     } finally {
@@ -481,7 +497,8 @@ test.describe("new-session picker", () => {
   });
 
   test("@golden GROUP CLOSE: manager row closes individually; head close confirms when group has members", async ({ api, ui }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(120_000);
+    await requireStub(api);
     const page = ui.page;
     await page.locator('[data-testid="picker-mode-orchestration"]').click();
     await page.locator('[data-testid="picker-confirm"]').click();
@@ -567,7 +584,8 @@ test.describe("new-session picker", () => {
   });
 
   test("@golden NO GHOST TITLE across a pair spawn (scenario 12)", async ({ api, ui }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(120_000);
+    await requireStub(api);
     const page = ui.page;
     await page.locator('[data-testid="picker-mode-orchestration"]').click();
 
