@@ -19,7 +19,7 @@ function q(s: string): string {
 }
 
 test(
-  "@golden opencode db-fallback binds session without hook and shows assistant replies",
+  "@live opencode db-fallback binds session without hook and shows assistant replies",
   async ({ api, ui, paneCleanup }) => {
     const db = opencodeDbPath();
     test.skip(!existsSync(db), "opencode DB not found — opencode not installed on this machine");

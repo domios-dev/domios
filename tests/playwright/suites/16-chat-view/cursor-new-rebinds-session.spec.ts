@@ -56,7 +56,7 @@ function assistantJsonl(text: string): string {
 }
 
 test(
-  "@golden cursor /new re-binds chat to the new session",
+  "@live cursor /new re-binds chat to the new session",
   async ({ api, ui, paneCleanup }) => {
     test.skip(!existsSync(CURSOR_AGENT_BIN), "cursor-agent not installed on this machine");
 
