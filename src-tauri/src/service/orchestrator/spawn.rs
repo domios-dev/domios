@@ -9,6 +9,11 @@ impl ServiceContext {
     /// Resolve agent cwd against workspace cwd:
     /// - If no cwd specified → inherit from workspace
     /// - If cwd differs from workspace → return warning
+    /// - If nothing is specified → pin the daemon's own cwd, the dir the PTY
+    ///   would inherit anyway. Leaving it `None` desyncs the pane record from
+    ///   where the agent actually runs, so provider session-file resolution
+    ///   (`~/.claude/projects/<encoded-cwd>/<sid>.jsonl`) looks in the wrong
+    ///   dir and the chat pipeline reads empty.
     pub(crate) fn resolve_agent_cwd(
         agent_cwd: &Option<String>,
         workspace_cwd: &Option<String>,
@@ -28,7 +33,12 @@ impl ServiceContext {
                 (Some(agent_dir.clone()), Some(warning))
             }
             (Some(dir), _) => (Some(dir.clone()), None),
-            (None, None) => (None, None),
+            (None, None) => (
+                std::env::current_dir()
+                    .ok()
+                    .and_then(|p| p.to_str().map(String::from)),
+                None,
+            ),
         }
     }
 
@@ -672,6 +682,24 @@ mod hierarchy_defaults_tests {
         };
         apply_worker_hierarchy_defaults(&mut orch);
         assert_eq!(orch.parent_pane_id, None);
+    }
+
+    // No agent cwd and no workspace cwd must still pin a concrete dir (the
+    // daemon's own cwd, what the PTY inherits). Leaving it `None` desyncs the
+    // pane record from where the agent writes its session store, so the chat
+    // pipeline resolves the wrong `~/.claude/projects/<encoded>` dir.
+    #[test]
+    fn no_cwd_and_no_workspace_pins_the_daemon_cwd() {
+        let (resolved, warning) = ServiceContext::resolve_agent_cwd(&None, &None);
+        assert!(warning.is_none());
+        let expected = std::env::current_dir()
+            .ok()
+            .and_then(|p| p.to_str().map(String::from));
+        assert_eq!(resolved, expected);
+        assert!(
+            resolved.as_deref().is_none_or(|d| !d.is_empty()),
+            "resolved cwd must never be an empty string"
+        );
     }
 }
 
