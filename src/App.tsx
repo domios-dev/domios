@@ -3,6 +3,7 @@ import { invoke } from "./lib/bridge";
 import { IS_WEB } from "./lib/webApi";
 import { getCurrentPaneUiMode, listenPaneUiModeDefaultChanged } from "./lib/clientPaneUiMode";
 import { isChatDefaultEnabled } from "./lib/chatUiMode";
+import { pruneOrphanComposerDrafts } from "./lib/composerDraftGc";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
@@ -197,6 +198,17 @@ function AppInner() {
 
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  // Reclaim composer drafts left behind by closed panes so a reused/colliding
+  // pane id can never inherit a dead pane's unsent text.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      pruneOrphanComposerDrafts(window.localStorage, new Set(Object.keys(state.panes)));
+    } catch {
+      // Best-effort: draft GC must never break the app.
+    }
+  }, [state.panes]);
   const configRef = useRef(config);
   configRef.current = config;
 
