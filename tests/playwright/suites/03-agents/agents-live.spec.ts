@@ -7,6 +7,7 @@
  */
 import { expect, test, type SpawnAgent } from "../../helpers/fixtures";
 import { pollUntil } from "../../helpers/poll";
+import { type ApiClient } from "../../helpers/api-client";
 
 test("@live real agent spawn → works → reports back (structural asserts)", async ({ api, paneCleanup, spawnAgent }) => {
   // Real model latency + CLI startup; bounded, not unbounded.
@@ -207,4 +208,68 @@ test("@live fully live: agent response read from the rendered terminal DOM", asy
   } finally {
     if (agentPaneId) paneCleanup.track(agentPaneId);
   }
+});
+
+// ── cross-pane chat: real agents obeying passive-fixture prompts ──
+
+interface ChatMsg {
+  role?: string;
+  type?: string;
+  content?: string;
+}
+
+async function chatContains(api: ApiClient, paneId: string, needle: string): Promise<ChatMsg | undefined> {
+  const res = await api
+    .get<{ messages: ChatMsg[] }>(`/panes/${paneId}/chat`)
+    .catch(() => ({ messages: [] as ChatMsg[] }));
+  return res.messages.find((m: ChatMsg) => (m.content ?? "").includes(needle));
+}
+
+async function waitChatContains(api: ApiClient, paneId: string, needle: string, timeout = 120_000): Promise<ChatMsg> {
+  const msg = await pollUntil(
+    () => chatContains(api, paneId, needle),
+    timeout,
+    2_000,
+    `pane ${paneId} chat receives "${needle}"`,
+  );
+  if (!msg) throw new Error(`pane ${paneId} chat never received "${needle}"`);
+  return msg;
+}
+
+async function spawnLiveChatAgent(api: ApiClient, spawnAgent: SpawnAgent, title: string): Promise<string> {
+  const spawned = await spawnAgent({
+    agent: "claude",
+    model: "sonnet",
+    title,
+    skip_permissions: true,
+    activate: true,
+    task:
+      "You are a passive test fixture. Reply with the single word READY now. " +
+      "For any later message, reply with only the word ACK. " +
+      "Never run shell commands and never run any codeterm command.",
+  });
+  await api.post(`/panes/${spawned.pane_id}/chat-view`, { enabled: true });
+  return spawned.pane_id;
+}
+
+test("@live two chat panes exchange a cross-pane message, origin rendered", async ({ api, ui, spawnAgent }) => {
+  // Two agent boots + a turn each. Bounded for real model + CLI latency.
+  test.setTimeout(420_000);
+
+  const stamp = Date.now();
+  const aToB = `PING-${stamp}`;
+  const bToA = `PONG-${stamp}`;
+  const [paneA, paneB] = await Promise.all([
+    spawnLiveChatAgent(api, spawnAgent, `pw-A-${stamp}`),
+    spawnLiveChatAgent(api, spawnAgent, `pw-B-${stamp}`),
+  ]);
+  await Promise.all([waitChatContains(api, paneA, "READY"), waitChatContains(api, paneB, "READY")]);
+
+  await api.post(`/panes/${paneB}/send`, { text: aToB, source_pane: paneA, enter: true });
+  await api.post(`/panes/${paneA}/send`, { text: bToA, source_pane: paneB, enter: true });
+
+  const onB = await waitChatContains(api, paneB, aToB);
+  const onA = await waitChatContains(api, paneA, bToA);
+  expect(onB.content, "recipient B lost the cross-pane wire prefix").toContain("-=-codeterm:pane");
+  expect(onA.content, "recipient A lost the cross-pane wire prefix").toContain("-=-codeterm:pane");
 });
