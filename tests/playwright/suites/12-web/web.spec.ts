@@ -223,7 +223,7 @@ test("@golden fully live on mobile: General Agent responds, read from the render
 
     // render as a chat bubble instead of xterm a11y text — accept either.
     await pollMarkerInDom(expected, { page, includeChatMessages: true });
-    await expect(page.locator(`[data-pane-id="${agentPaneId!}"]`)).toContainText(expected);
+    await expect(page.locator(`[data-testid="pane-session-chat"][data-pane-id="${agentPaneId!}"]`)).toContainText(expected);
   } finally {
     if (agentPaneId) paneCleanup.track(agentPaneId);
     await page.context().close();
