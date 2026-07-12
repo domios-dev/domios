@@ -103,6 +103,9 @@ test("@quarantine event-freeze: forced latch freezes sidebar apply, reset recove
     await closePane(recovered.paneId);
     await closePane(frozen.paneId);
   } finally {
+    // Always clear the latch, even if an assertion above threw — a leaked
+    // frozen=true would poison every later test against this dev.
+    await fetch(`${API_BASE}/api/debug/events/reset-latch`, { method: "POST", headers: AUTH_H }).catch(() => {});
     await browser.close();
   }
 });
@@ -111,6 +114,8 @@ test("@quarantine event-freeze: 500x pane soak keeps sidebar applying events", a
   test.setTimeout(30 * 60_000);
   const { browser, page } = await connectUi();
   try {
+    // Guard against a leaked latch from an earlier aborted run.
+    await fetch(`${API_BASE}/api/debug/events/reset-latch`, { method: "POST", headers: AUTH_H }).catch(() => {});
     const probe = async (label: string) => {
       const p = await createEagerPane();
       const alive = await tabInSidebar(page, p.tabId, 8_000);
