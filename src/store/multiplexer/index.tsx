@@ -593,11 +593,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "CLOSE_SESSION_PICKER", workspaceId, tabId });
         return;
       }
-      const removedPaneIds = [tab.pane_id];
-      for (const pid of removedPaneIds) {
-        guardedInvoke("mux_close_pane", { paneId: pid }).catch(() => {});
-      }
-      const allRemoved = new Set(removedPaneIds);
+      const allRemoved = new Set([tab.pane_id]);
       const collectChildren = (parentId: string) => {
         for (const [id, p] of Object.entries(panes)) {
           if (p.parent_pane_id === parentId && !allRemoved.has(id)) {
@@ -606,7 +602,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           }
         }
       };
-      for (const pid of removedPaneIds) collectChildren(pid);
+      collectChildren(tab.pane_id);
+      guardedInvoke("mux_close_pane", { paneId: tab.pane_id }).catch(() => {});
       dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedPaneIds: [...allRemoved] });
       refreshFromBackend();
     },
