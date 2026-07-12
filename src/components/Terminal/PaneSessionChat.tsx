@@ -492,9 +492,9 @@ export function PaneSessionChat({
         {deferredEnrichedMessages.length === 0 && !inlinePrompt && liveAgentState.state !== "question" && (
           <div
             className="opacity-50 text-center py-8 text-sm"
-            data-testid={recovering || agentSessionId ? "chat-recovering-state" : "chat-empty-state"}
+            data-testid={recovering ? "chat-recovering-state" : "chat-empty-state"}
           >
-            {recovering || agentSessionId ? "Recovering chat history…" : "No messages yet."}
+            {recovering ? "Recovering chat history…" : "No messages yet."}
           </div>
         )}
         {deferredEnrichedMessages.map(({ msg, origin }) => {

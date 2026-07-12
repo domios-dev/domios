@@ -17,9 +17,9 @@ declare global {
 
 async function mountCards(page: Page): Promise<void> {
   await page.evaluate(async (payload) => {
-    const React = await import("react");
-    const { createRoot } = await import("react-dom/client");
-    const { ToolOutputCard } = await import("/src/components/AgentRun/ToolOutputCard.tsx");
+    const { mountToolOutputCardHarness } = await import(
+      "/src/components/AgentRun/ToolOutputCard.browserHarness.tsx"
+    );
     const host = document.createElement("main");
     host.style.cssText = "box-sizing:border-box;max-width:100vw;overflow:hidden;padding:8px";
     document.body.replaceChildren(host);
@@ -28,22 +28,8 @@ async function mountCards(page: Page): Promise<void> {
       value: { writeText: async (value: string) => { window.__toolOutputCardTest!.copied = value; } },
     });
     window.__toolOutputCardTest = { copied: "" };
-    const root = createRoot(host);
+    const root = mountToolOutputCardHarness(host, payload);
     window.__toolOutputCardTest.root = root;
-    root.render(
-      React.createElement(
-        "div",
-        { style: { minWidth: 0, maxWidth: "100%" } },
-        React.createElement(ToolOutputCard, { kind: "call", toolName: "exec", payload }),
-        React.createElement(ToolOutputCard, { kind: "call", toolName: "wait", payload: "one line" }),
-        React.createElement(ToolOutputCard, { kind: "call", toolName: "ssh", payload: "ssh success" }),
-        React.createElement(ToolOutputCard, { kind: "call", toolName: "mesh", payload: "mesh timeout" }),
-        React.createElement(ToolOutputCard, { kind: "call", toolName: "plugin", payload: "plugin result" }),
-        React.createElement(ToolOutputCard, { kind: "result", payload: "success", isError: false }),
-        React.createElement(ToolOutputCard, { kind: "result", payload: "failure", isError: true }),
-        React.createElement(ToolOutputCard, { kind: "result", payload: "timeout", isError: true }),
-      ),
-    );
   }, LONG_JSON);
   await expect(page.locator('[data-testid="tool-output-card"]').first()).toBeVisible();
 }
