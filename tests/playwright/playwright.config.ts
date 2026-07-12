@@ -31,11 +31,20 @@ export default defineConfig({
     {
       name: "golden",
       grep: /@golden/,
-      grepInvert: /@quarantine|@restart/,
+      grepInvert: /@quarantine|@restart|@perf/,
       retries: 0,
       timeout: 300_000,
     },
-    { name: "full", grepInvert: /@quarantine|@restart|@live/, retries: 0 },
+    { name: "full", grepInvert: /@quarantine|@restart|@live|@perf/, retries: 0 },
+    // Deterministic latency budgets with hard asserts; metrics.jsonl trend
+    // artifact per run. LLM-free (stub transport for churn).
+    {
+      name: "perf",
+      grep: /@perf/,
+      grepInvert: /@quarantine/,
+      retries: 0,
+      timeout: 300_000,
+    },
     // Real-provider LLM flows, run on their own cadence outside golden.
     {
       name: "live",

@@ -13,5 +13,6 @@ export function shouldEnableXtermA11yMode({
   if (isViteDev && harnessRequested) return true;
 
   if (!locationSearch) return false;
-  return new URLSearchParams(locationSearch).has("a11y");
+  const params = new URLSearchParams(locationSearch);
+  return params.has("a11y") || params.has("e2e");
 }

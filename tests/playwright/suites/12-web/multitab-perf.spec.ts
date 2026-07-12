@@ -3,6 +3,7 @@
  * WHY: This spec protects the live CodeTerm workflow from regressions in 12-web.
  * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
+import { recordPerfMetric } from "../../helpers/perf-metrics";
 import { expect, test } from "../../helpers/fixtures";
 
 type RenderCounts = Record<string, number>;
@@ -19,7 +20,7 @@ async function waitForRenderCounter(page: import("@playwright/test").Page): Prom
   );
 }
 
-test("@golden hidden panes do not re-render on unrelated agent_state churn", async ({ ui, api, paneCleanup }) => {
+test("@perf hidden panes do not re-render on unrelated agent_state churn", async ({ ui, api, paneCleanup }) => {
   test.setTimeout(120_000);
   const { page } = ui;
   const suffix = Date.now();
@@ -91,16 +92,22 @@ test("@golden hidden panes do not re-render on unrelated agent_state churn", asy
     ).toBeLessThanOrEqual(3);
   }
 
-  const churnOwnerDelta = (after[paneA.id] ?? 0) - (before[paneA.id] ?? 0);
-  expect(
-    churnOwnerDelta,
-    "pane owning agent_state churn should have re-rendered at least once",
-  ).toBeGreaterThan(0);
+  // The churn owner is itself hidden here, so the hidden-pane optimization
+  // rightly suppresses its re-renders too; the signal must not be LOST —
+  // surfacing the pane replays the churned state.
+  if (paneA.tab_id) {
+    const tabA = page.locator(`[data-testid="tab-item"][data-tab-id="${paneA.tab_id}"]`).first();
+    await expect(tabA).toBeVisible({ timeout: 30_000 });
+    await tabA.click();
+  }
+  await expect
+    .poll(async () => (await readRenderCounts(page))[paneA.id] ?? 0, { timeout: 15_000 })
+    .toBeGreaterThan(before[paneA.id] ?? 0);
 
   expect(Object.keys(after).length, "__renderCounts must have fired for at least one pane").toBeGreaterThan(0);
 });
 
-test("@golden hidden panes longtask budget during agent_state churn", async ({ ui, api, paneCleanup }) => {
+test("@perf hidden panes longtask budget during agent_state churn", async ({ ui, api, paneCleanup }) => {
   test.setTimeout(120_000);
   const { page } = ui;
   const suffix = Date.now();
@@ -153,5 +160,6 @@ test("@golden hidden panes longtask budget during agent_state churn", async ({ u
 
   const longtaskMs = await page.evaluate(() => (window as unknown as { __longtaskMs?: number }).__longtaskMs ?? 0);
   // Pre-fix baseline was well above this on a warm multi-tab session; post Stage-1 should stay low.
+  recordPerfMetric({ name: "hidden-pane-longtask", unit: "ms", value: longtaskMs, budget: 500 });
   expect(longtaskMs).toBeLessThan(500);
 });

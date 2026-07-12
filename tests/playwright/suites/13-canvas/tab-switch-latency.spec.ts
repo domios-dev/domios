@@ -3,6 +3,7 @@
  * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
  * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
+import { recordPerfMetric } from "../../helpers/perf-metrics";
 import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
@@ -63,7 +64,7 @@ function fmt(label: string, s: Stats): string {
   return `${label.padEnd(14)} n=${String(s.n).padStart(3)}  p50=${String(s.p50).padStart(5)}ms  p95=${String(s.p95).padStart(5)}ms  max=${String(s.max).padStart(5)}ms`;
 }
 
-test("@tab-switch-latency sidebar tab switch reaches paint under budget", async ({ ui, api, paneCleanup }) => {
+test("@perf @tab-switch-latency sidebar tab switch reaches paint under budget", async ({ ui, api, paneCleanup }) => {
   test.setTimeout(180_000);
   const { page } = ui;
 
@@ -148,6 +149,15 @@ test("@tab-switch-latency sidebar tab switch reaches paint under budget", async 
     );
 
     expect(tabStats.n, "captured tab-switch interaction samples").toBeGreaterThan(5);
+    recordPerfMetric({
+      name: "tab-switch-paint",
+      unit: "ms",
+      n: tabStats.n,
+      p50: tabStats.p50,
+      p95: tabStats.p95,
+      max: tabStats.max,
+      budget: SWITCH_BUDGET_MS,
+    });
     expect(tabStats.p95, `tab-switch p95 ${tabStats.p95}ms over budget ${SWITCH_BUDGET_MS}ms`).toBeLessThanOrEqual(
       SWITCH_BUDGET_MS,
     );
