@@ -57,10 +57,7 @@ pub(super) fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
         ));
     }
     // so they never trip the approval gate; only non-planning tasks do.
-    let non_planning_tasks = tasks
-        .iter()
-        .filter(|t| t.get("kind").and_then(Value::as_str) != Some("planning"))
-        .count();
+    let non_planning_tasks = tasks.iter().filter(|t| !task_kind_is_planning(t)).count();
     if !unlocked && non_planning_tasks > 0 {
         findings.push(plan_quality_error(
             path,
