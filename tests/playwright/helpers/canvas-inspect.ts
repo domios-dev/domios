@@ -166,6 +166,7 @@ export async function seedPerfFixtureAndOpenInlineCanvas(
   browser: Browser,
   api: ApiClient,
   taskCount = 24,
+  fixtureProfile?: string,
 ): Promise<{ page: Page; workspaceId: string; close: () => Promise<void> }> {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-canvas-perf-"));
   await api.createWorkspace("canvas perf gate", projectPath);
@@ -173,7 +174,7 @@ export async function seedPerfFixtureAndOpenInlineCanvas(
   if (!workspace) throw new Error("perf workspace was not listed");
   await api.focusWorkspace(workspace.id);
   await closeWorkspaceTabs(api, workspace.id);
-  const session = await openCanvasWebPage(browser, { perfFixtureN: taskCount });
+  const session = await openCanvasWebPage(browser, { perfFixtureN: taskCount, perfFixtureProfile: fixtureProfile });
   await focusWorkspaceForCanvas(api, session.page, workspace.id);
   await openInlineWorkspaceCanvas(session.page, workspace.id);
   return {

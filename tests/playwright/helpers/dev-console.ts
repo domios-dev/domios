@@ -17,6 +17,7 @@ export const API_BASE = `http://127.0.0.1:${E2E_PORT}`;
 export const CDP_PORT = 9223;
 export const CDP_BASE = `http://127.0.0.1:${CDP_PORT}`;
 export const WEB_URL = `${API_BASE}/`;
+const WEB_MODE = process.env.CT_E2E_WEB_MODE === "1";
 
 export const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 
@@ -205,7 +206,7 @@ function dumpBuildGatewayLogs(reason: string): void {
  */
 export async function ensureDevConsole(): Promise<void> {
   if (await isHealthy()) {
-    if (process.platform !== "win32" || ((await isCdpUp()) && (await isCdpAppReady()))) return;
+    if (WEB_MODE || process.platform !== "win32" || ((await isCdpUp()) && (await isCdpAppReady()))) return;
   }
   killDevConsole();
   try {
@@ -224,7 +225,7 @@ export async function ensureDevConsole(): Promise<void> {
   if (!(await isHealthy())) {
     throw new Error("dev console did not become healthy after ./build.sh dev --wait");
   }
-  if (process.platform !== "win32") return;
+  if (WEB_MODE || process.platform !== "win32") return;
   for (let i = 0; i < 20; i++) {
     if ((await isCdpUp()) && (await isCdpAppReady())) return;
     await new Promise((r) => setTimeout(r, 500));

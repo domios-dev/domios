@@ -100,17 +100,8 @@ test("@smoke make-orchestrator promotes agent pane and surfaces onboarding", asy
 // ── @golden: stub transport (real spawn/report/DOM pipeline, no LLM) ──
 // Original live-LLM variants: agents-live.spec.ts (@live project).
 
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { tempSpawnCwd } from "../../helpers/spawn-cwd";
 import { isStubTransportActive, showTerminalView } from "../../helpers/stub-gate";
-
-// Worker spawns into a throwaway non-repo cwd: the canonical-checkout spawn
-// guard keys off the worker cwd, and stray state can make shared workspace
-// dirs look like a primary checkout mid-run.
-function stubCwd(): string {
-  return mkdtempSync(join(tmpdir(), "pw-stub-agent-"));
-}
 
 const MATRIX = ["claude", "codex", "opencode"] as const;
 
@@ -141,7 +132,7 @@ test.describe("agent flows on the stub transport", () => {
           parent_pane_id: inbox.id,
           report_target_pane_id: inbox.id,
           skip_permissions: true,
-          cwd: stubCwd(),
+          cwd: tempSpawnCwd("pw-stub-agent-"),
           task: `STUB_REPORT ${marker}`,
         });
         agentPaneId = spawned.pane_id;
@@ -209,7 +200,7 @@ test.describe("agent flows on the stub transport", () => {
           report_target_pane_id: inbox.id,
           skip_permissions: true,
           activate: true,
-          cwd: stubCwd(),
+          cwd: tempSpawnCwd("pw-stub-agent-"),
           task: `STUB_TOOL ${toolMarker}`,
         });
         agentPaneId = spawned.pane_id;
@@ -258,7 +249,7 @@ test.describe("agent flows on the stub transport", () => {
           report_target_pane_id: inbox.id,
           skip_permissions: true,
           activate: true,
-          cwd: stubCwd(),
+          cwd: tempSpawnCwd("pw-stub-agent-"),
           task: `STUB_ECHO ${marker}`,
         });
         agentPaneId = spawned.pane_id;
@@ -298,7 +289,7 @@ test.describe("agent flows on the stub transport", () => {
         report_target_pane_id: inbox.id,
         skip_permissions: true,
         activate: true,
-        cwd: stubCwd(),
+        cwd: tempSpawnCwd("pw-stub-agent-"),
         task: `STUB_ECHO ${warmMarker}`,
       });
       agentPaneId = spawned.pane_id;

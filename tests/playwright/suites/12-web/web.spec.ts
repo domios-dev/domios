@@ -6,6 +6,7 @@
 import { expect, test, type Browser, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 import { MeshStub } from "../../helpers/mesh-stub";
 import { pollUntil } from "../../helpers/poll";
+import { tempSpawnCwd } from "../../helpers/spawn-cwd";
 
 const WEB_URL = `${API_BASE}/`;
 
@@ -135,21 +136,29 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
 });
 
 test("@golden unreachable peer fails gracefully at the gate, back-to-self recovers", async ({ webBrowser }) => {
-  test.setTimeout(120_000);
   const page = await newWebPage(webBrowser);
-  // went down after being selected.
   await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
-  await page.evaluate(() => {
-    sessionStorage.setItem("codeterm-web-host", "http://127.0.0.1:39999");
-    localStorage.setItem("codeterm-web-token:http://127.0.0.1:39999", "x");
-  });
+  await page.evaluate((token) => {
+    const self = window.location.origin;
+    localStorage.setItem(`codeterm-web-token:${self}`, token);
+    localStorage.setItem(`codeterm-web-relay-peer:${self}`, "unreachable-peer");
+    localStorage.setItem(`codeterm-web-relay-peer-name:${self}`, "unreachable peer");
+  }, readDevToken());
   await page.reload({ waitUntil: "domcontentloaded" });
-  // Gate must surface the failure and offer the way home.
-  await page.waitForSelector('[data-testid="web-token-back-to-self"]', { timeout: 30_000 });
-  await page.click('[data-testid="web-token-back-to-self"]');
-  await passTokenGate(page);
+
+  const backToSelf = page.locator('[data-testid="web-token-back-to-self"]');
+  await expect(page.locator('[data-testid="web-token-error"]')).toBeVisible();
+  await expect(backToSelf).toBeVisible();
+  await expect(backToSelf).toContainText("Back to");
+  await backToSelf.click();
+
+  await expect(page.locator('[data-testid="peer-picker-button"]')).toBeVisible();
   await expect(page.locator('[data-testid="peer-picker-button"]')).toContainText("this host");
   await expect(page.locator('[data-testid="workspace-item"]').first()).toBeVisible();
+  const relayPeer = await page.evaluate(() =>
+    localStorage.getItem(`codeterm-web-relay-peer:${window.location.origin}`),
+  );
+  expect(relayPeer).toBeNull();
   await page.context().close();
 });
 
@@ -200,6 +209,7 @@ test("@golden fully live on mobile: General Agent responds, read from the render
       report_target_pane_id: inbox.id,
       skip_permissions: true,
       activate: true,
+      cwd: tempSpawnCwd("pw-web-agent-"),
       task: `Reply with a single line containing exactly ${marker} and nothing else.`,
     });
     agentPaneId = spawned.pane_id;

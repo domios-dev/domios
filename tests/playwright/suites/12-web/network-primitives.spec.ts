@@ -92,15 +92,21 @@ test.describe("@golden network-disruption primitive", () => {
 
     try {
       await openTrackedSse(page, token);
-      await page.waitForFunction(() => (window as unknown as { __sseState?: { opened: boolean } }).__sseState?.opened === true, { timeout: 10_000 });
+      await page.waitForFunction(
+        () => (window as unknown as { __sseState?: { opened: boolean } }).__sseState?.opened === true,
+        undefined,
+        { timeout: 10_000 },
+      );
 
       // Soft sever of a DIFFERENT target must not touch the already-open SSE connection:
       // waitForFunction is expected to time out (nothing closed it) within the window.
       await disruption.sever("pty-read");
       await page
-        .waitForFunction(() => (window as unknown as { __sseState?: { closed: boolean } }).__sseState?.closed === true, {
-          timeout: 1_500,
-        })
+        .waitForFunction(
+          () => (window as unknown as { __sseState?: { closed: boolean } }).__sseState?.closed === true,
+          undefined,
+          { timeout: 1_500 },
+        )
         .then(() => {
           throw new Error("SSE connection closed after severing an unrelated target");
         })
@@ -112,7 +118,11 @@ test.describe("@golden network-disruption primitive", () => {
 
       // not wait for its own reconnect cycle.
       await disruption.sever("sse", { hard: true });
-      await page.waitForFunction(() => (window as unknown as { __sseState?: { closed: boolean } }).__sseState?.closed === true, { timeout: 10_000 });
+      await page.waitForFunction(
+        () => (window as unknown as { __sseState?: { closed: boolean } }).__sseState?.closed === true,
+        undefined,
+        { timeout: 10_000 },
+      );
       expect((await sseState(page)).closed).toBe(true);
     } finally {
       await disruption.restoreAll();
