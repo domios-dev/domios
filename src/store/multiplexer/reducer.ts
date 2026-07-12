@@ -305,6 +305,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     case "CLOSE_TAB": {
       const newPanes = { ...state.panes };
       const newStatuses = { ...state.paneStatuses };
+      const removedPaneIds = new Set(action.removedPaneIds);
       for (const pid of action.removedPaneIds) {
         delete newPanes[pid];
         delete newStatuses[pid];
@@ -315,9 +316,12 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         ...state,
         workspaces: state.workspaces.map((ws) => {
           if (ws.id !== action.workspaceId) return ws;
-          const remaining = ws.tabs.filter((t) => t.id !== action.tabId);
+          const removedTabIds = new Set(
+            ws.tabs.filter((t) => t.id === action.tabId || removedPaneIds.has(t.pane_id)).map((t) => t.id),
+          );
+          const remaining = ws.tabs.filter((t) => !removedTabIds.has(t.id));
           const currentActive = newActiveTabIds[action.workspaceId];
-          if (currentActive === action.tabId) {
+          if (currentActive && removedTabIds.has(currentActive)) {
             const fallback = remaining[remaining.length - 1]?.id;
             if (fallback) {
               newActiveTabIds[action.workspaceId] = fallback;
@@ -329,7 +333,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             ...ws,
             tabs: remaining,
             active_tab_id:
-              ws.active_tab_id === action.tabId
+              ws.active_tab_id && removedTabIds.has(ws.active_tab_id)
                 ? (remaining[remaining.length - 1]?.id ?? null)
                 : ws.active_tab_id,
           };
