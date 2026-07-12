@@ -146,6 +146,7 @@ export function SidebarWorkspaceTabs({
             })
         : [];
     const managerPaneIds = new Set(managerTabs.map((t) => t.pane_id));
+    const managerIds = managerTabs.map((t) => `${TAB_PREFIX}${t.id}`);
     const workerExclude = new Set<string>(peerCtx.peerExclude ?? []);
     for (const paneId of managerPaneIds) {
       workerExclude.add(paneId);
@@ -154,6 +155,10 @@ export function SidebarWorkspaceTabs({
       isOrchestrator && firstPane
         ? buildHierarchySubtree(firstPane.id, panes, paneStatuses, workerExclude)
         : [];
+    const workerIds = workerNodes
+      .map((node) => sortedTabs.find((t) => t.pane_id === node.pane.id))
+      .filter((t): t is Tab => Boolean(t))
+      .map((t) => `${TAB_PREFIX}${t.id}`);
     const sectionCounts =
       isOrchestrator && firstPane
         ? countBySection(collectOrchestrationGroupMembers(firstPane.id, panes))
@@ -207,7 +212,7 @@ export function SidebarWorkspaceTabs({
                 showHeader={shouldShowSectionHeader("manager", sectionCounts)}
               >
                 {managerTabs.length > 0 && (
-                  <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
+                  <SortableContext items={managerIds} strategy={verticalListSortingStrategy}>
                     {managerTabs.map((managerTab) => (
                       <SidebarSingleTabRow
                         key={managerTab.id}
@@ -235,7 +240,7 @@ export function SidebarWorkspaceTabs({
                 showHeader={shouldShowSectionHeader("worker", sectionCounts)}
               >
                 {workerNodes.length > 0 && (
-                  <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
+                  <SortableContext items={workerIds} strategy={verticalListSortingStrategy}>
                     <HierarchyTree
                       nodes={workerNodes}
                       depth={0}
