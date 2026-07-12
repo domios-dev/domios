@@ -389,7 +389,7 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
                     "--- SUMMARY ---\n{}\n\n--- RAW OUTPUT ---\n{}",
                     summary, clean
                 );
-                {
+                let is_oneshot = {
                     let mut store = cron_state.lock();
                     let _ = store.save_log(job_id, run_id, &log_text);
                     if let Some(ref sid) = session_id {
@@ -402,8 +402,19 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
                     };
                     let _ = store.update_run_status(job_id, run_id, status);
                     store.unregister_pane(&state.pane_id);
-                }
+                    store.get(job_id).map(|job| job.oneshot).unwrap_or(false)
+                };
                 let _ = svc.close_pane(&state.pane_id);
+                if is_oneshot {
+                    if let Some(cron_wake) = svc.app_handle.try_state::<crate::CronWake>() {
+                        log::info!("Oneshot cron auto-deleting: job={}", job_id);
+                        if let Err(error) = svc.cron_delete(&cron_state, &cron_wake, job_id) {
+                            log::error!("Failed to auto-delete oneshot cron: {}", error);
+                        }
+                    } else {
+                        log::error!("Failed to auto-delete oneshot cron: CronWake unavailable");
+                    }
+                }
                 crate::api::events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
             }
         }
