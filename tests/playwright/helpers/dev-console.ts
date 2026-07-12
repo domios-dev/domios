@@ -301,8 +301,8 @@ async function connectDesktopUi(): Promise<UiSession> {
   // ?a11y — force it so oracles never depend on vite env plumbing.
   try {
     const url = new URL(page.url());
-    if (!url.searchParams.has("a11y")) {
-      url.searchParams.set("a11y", "1");
+    if (!url.searchParams.has("e2e")) {
+      url.searchParams.set("e2e", "1");
       await page.goto(url.toString(), { waitUntil: "domcontentloaded" });
     }
   } catch {

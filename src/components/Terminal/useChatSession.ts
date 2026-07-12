@@ -68,6 +68,11 @@ function importEnv(): FrontendTestEnv | undefined {
 export function isCodeTermFrontendTestMode(env: FrontendTestEnv | undefined = importEnv()): boolean {
   if (env?.VITE_CODETERM_TEST === "1") return true;
   if (typeof process !== "undefined" && process.env.VITE_CODETERM_TEST === "1") return true;
+  // Runtime fallback: vite env does not survive detached dev starts (build
+  // gateway), so harnesses request test mode via the page URL instead.
+  if (typeof window !== "undefined" && window.location?.search) {
+    return new URLSearchParams(window.location.search).has("e2e");
+  }
   return false;
 }
 
