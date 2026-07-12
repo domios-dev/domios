@@ -165,6 +165,7 @@ pub(crate) fn test_harness(root: &Path, provider_id: &'static str) -> TestHarnes
         ),
         agent_command_registry: Arc::new(crate::agent_commands::AgentCommandRegistry::new()),
         mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        mux_emit_stats: Arc::new(crate::service::MuxEmitStats::default()),
         session_persist_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         services_store: Arc::new(
             crate::service::store::ServicesStore::open(&temp_root.join("services.db"))

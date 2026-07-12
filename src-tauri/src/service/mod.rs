@@ -67,7 +67,7 @@ mod worker_identity;
 mod worker_persona;
 mod workspace;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -180,6 +180,8 @@ pub struct ServiceContext {
     pub agent_command_registry: crate::agent_commands::AgentCommandRegistryHandle,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
+    /// Evidence counters for the daemon→desktop event path (event-freeze probe).
+    pub mux_emit_stats: Arc<MuxEmitStats>,
     /// Coalesces debounced session snapshots — see `schedule_session_persist_debounced`.
     pub session_persist_pending: Arc<AtomicBool>,
     pub services_store: Arc<crate::service::store::ServicesStore>,
@@ -214,6 +216,26 @@ pub struct ServiceContext {
 
 pub type ServiceState = Arc<ServiceContext>;
 
+/// Instrumentation for the desktop `mux-state-changed` emit path. `requests` =
+/// `emit_state_changed` calls; `fires` = actual `app.emit` calls; `suppressed`
+/// = coalesced early-returns; `pending_since_ms` = epoch ms of the last
+/// false→true `mux_emit_pending` transition (0 once reset). A latched emit
+/// shows requests climbing, fires flat, pending stuck true with a growing age.
+#[derive(Default)]
+pub struct MuxEmitStats {
+    pub requests: AtomicU64,
+    pub fires: AtomicU64,
+    pub suppressed: AtomicU64,
+    pub pending_since_ms: AtomicU64,
+}
+
+fn wall_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
 pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
     hierarchy::start_plan_reminder_scheduler(svc);
 }
@@ -239,23 +261,38 @@ impl ServiceContext {
     pub(crate) fn emit_state_changed(&self) {
         self.events
             .publish(crate::api::events::SystemEvent::MuxStateChanged);
+        self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
         // Coalesce frontend emits to ≤1/50ms — output.rs fires this 4× per PTY chunk.
         if self.mux_emit_pending.swap(true, Ordering::AcqRel) {
+            self.mux_emit_stats.suppressed.fetch_add(1, Ordering::Relaxed);
             return;
         }
+        self.mux_emit_stats
+            .pending_since_ms
+            .store(wall_now_ms(), Ordering::Relaxed);
         let handle = self.app_handle.clone();
         let pending = self.mux_emit_pending.clone();
         let mux = self.mux.clone();
         let agent_tracker = self.agent_tracker.clone();
-        std::thread::spawn(move || {
-            let snapshot = Self::coalesce_snapshot(
-                &mux,
-                &agent_tracker,
-                &pending,
-                std::time::Duration::from_millis(50),
-            );
-            let _ = handle.emit("mux-state-changed", &snapshot);
-        });
+        let stats = self.mux_emit_stats.clone();
+        let spawned = std::thread::Builder::new()
+            .name("mux-emit".into())
+            .spawn(move || {
+                let snapshot = Self::coalesce_snapshot(
+                    &mux,
+                    &agent_tracker,
+                    &pending,
+                    std::time::Duration::from_millis(50),
+                );
+                stats.pending_since_ms.store(0, Ordering::Relaxed);
+                stats.fires.fetch_add(1, Ordering::Relaxed);
+                let _ = handle.emit("mux-state-changed", &snapshot);
+            });
+        // Evidence build: surface a spawn failure instead of silently latching.
+        // The latch (pending stuck true) is intentionally left in place to observe.
+        if let Err(e) = spawned {
+            log::error!("[events] mux coalesce thread spawn FAILED: {e} — emit latch STUCK");
+        }
     }
 
     /// Sleep out the coalesce window, then read a fresh snapshot. The pending

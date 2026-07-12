@@ -230,6 +230,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }).then((unlisten) => unlisteners.push(unlisten));
 
     listen<MultiplexerState>("mux-state-changed", (event) => {
+      const w = window as unknown as { __ctEvents?: { received: number; lastAt: number } };
+      (w.__ctEvents ??= { received: 0, lastAt: 0 }).received++;
+      w.__ctEvents.lastAt = Date.now();
       const s = event.payload;
       if (muxStateEventAction(s) === "apply-snapshot") {
         applyBackendState(s);
