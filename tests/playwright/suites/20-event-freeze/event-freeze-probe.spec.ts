@@ -1,15 +1,20 @@
 /**
  * Desktop event-freeze probe (task_uwkt7p). @quarantine so broad golden/full
- * sweeps skip it — run explicitly by file.
+ * sweeps skip it — run explicitly by file with --project=quarantine.
  *
  * "Window stops applying daemon events": create an eager pane via POST
- * /api/panes, poll the desktop DOM over CDP for its [data-pane-id]. A frozen
- * window never gets the pane while /api/mux/state still lists it.
+ * /api/panes, then poll the desktop DOM for the pane's TAB in the sidebar
+ * ([data-tab-id]). The sidebar renders every tab regardless of which is active,
+ * so it is the true "did daemon state apply to the UI" surface — and it is the
+ * exact surface that froze in occurrence #1 (sidebar showed long-closed tabs).
+ * ([data-pane-id] is NOT usable: it only mounts the ACTIVE tab's content, and a
+ * REST-created eager shell pane lands in a background tab — spawn_visible_shell_impl
+ * creates the tab without activating it — so that node never appears even when
+ * the event applied cleanly. rx>0 + emit_fires++ + pending=false proved that.)
  *
- * Test 1 (deterministic): force the `mux_emit_pending` latch via the debug
- * fault-injection route and prove the desktop stops applying events, then reset
- * and prove it recovers — this pins the mechanism without waiting for the soak
- * to exhaust OS threads.
+ * Test 1 (deterministic): force the mux_emit_pending latch via the debug
+ * fault-injection route and prove the sidebar stops applying, then reset and
+ * prove it recovers — pins the mechanism without exhausting OS threads.
  * Test 2 (natural trigger): 500 create/close cycles, probing every 50.
  *
  * Counters read both ends: Rust /api/debug/events/stats vs frontend
@@ -26,14 +31,19 @@ const AUTH_H = { Authorization: `Bearer ${TOKEN}` };
 const CYCLES = Number(process.env.SOAK_CYCLES ?? 500);
 const PROBE_EVERY = 50;
 
-async function createEagerPane(): Promise<string> {
+interface NewPane {
+  paneId: string;
+  tabId: string;
+}
+async function createEagerPane(): Promise<NewPane> {
   const r = await fetch(`${API_BASE}/api/panes`, {
     method: "POST",
     headers: JSON_H,
     body: JSON.stringify({ eager: true }),
   });
   if (!r.ok) throw new Error(`POST /api/panes -> ${r.status}`);
-  return ((await r.json()) as { pane_id: string }).pane_id;
+  const b = (await r.json()) as { pane_id: string; tab_id: string };
+  return { paneId: b.pane_id, tabId: b.tab_id };
 }
 async function closePane(id: string): Promise<void> {
   await fetch(`${API_BASE}/api/panes/${id}/close`, { method: "POST", headers: AUTH_H }).catch(() => {});
@@ -51,67 +61,70 @@ async function eventStats(): Promise<Record<string, number | boolean>> {
 async function jsReceived(page: Page): Promise<number> {
   return page.evaluate(() => (window as unknown as { __ctEvents?: { received: number } }).__ctEvents?.received ?? 0);
 }
-/** Wait up to `ms` for the pane to enter the desktop DOM. */
-async function paneInDom(page: Page, id: string, ms: number): Promise<boolean> {
+/** Wait up to `ms` for the pane's TAB to appear in the sidebar DOM. */
+async function tabInSidebar(page: Page, tabId: string, ms: number): Promise<boolean> {
   const deadline = Date.now() + ms;
   do {
-    if ((await page.locator(`[data-pane-id="${id}"]`).count()) > 0) return true;
+    if ((await page.locator(`[data-tab-id="${tabId}"]`).count()) > 0) return true;
     await page.waitForTimeout(150);
   } while (Date.now() < deadline);
   return false;
 }
 
-test("@quarantine event-freeze: forced latch freezes desktop emits, reset recovers", async () => {
+test("@quarantine event-freeze: forced latch freezes sidebar apply, reset recovers", async () => {
   test.setTimeout(120_000);
   const { browser, page } = await connectUi();
   try {
-    // Baseline: a fresh eager pane reaches the DOM.
-    const base = await createEagerPane();
-    expect(await paneInDom(page, base, 8_000), "baseline: pane should reach DOM").toBe(true);
-    await closePane(base);
+    // Sanity: the sidebar oracle surface exists (some tabs already rendered).
+    expect(await page.locator("[data-tab-id]").count(), "sidebar must render tabs").toBeGreaterThan(0);
 
-    // Inject the latch, then a new pane must NOT reach the DOM though mux has it.
+    // Baseline: a fresh eager pane's tab reaches the sidebar.
+    const base = await createEagerPane();
+    expect(await tabInSidebar(page, base.tabId, 8_000), "baseline: tab should reach sidebar").toBe(true);
+    await closePane(base.paneId);
+
+    // Inject the latch: a new pane's tab must NOT reach the sidebar though mux has it.
     await fetch(`${API_BASE}/api/debug/events/force-latch`, { method: "POST", headers: AUTH_H });
     const rxBefore = await jsReceived(page);
     const frozen = await createEagerPane();
-    const appeared = await paneInDom(page, frozen, 5_000);
-    const inMux = await muxHasPane(frozen);
+    const appeared = await tabInSidebar(page, frozen.tabId, 5_000);
+    const inMux = await muxHasPane(frozen.paneId);
     const stats = await eventStats();
     const rxAfter = await jsReceived(page);
     console.log(`[freeze] appeared=${appeared} inMux=${inMux} rxΔ=${rxAfter - rxBefore} stats=${JSON.stringify(stats)}`);
     expect(inMux, "latched: mux still has the pane").toBe(true);
-    expect(appeared, "latched: desktop must NOT apply the pane").toBe(false);
-    expect(stats.pending, "latched: pending stuck true").toBe(true);
+    expect(stats.frozen, "latched: emit path frozen").toBe(true);
+    expect(appeared, "latched: sidebar must NOT apply the new tab").toBe(false);
 
-    // Reset the latch: the SAME pane's next emit path recovers.
+    // Reset the latch: the next emit path recovers.
     await fetch(`${API_BASE}/api/debug/events/reset-latch`, { method: "POST", headers: AUTH_H });
     const recovered = await createEagerPane();
-    expect(await paneInDom(page, recovered, 8_000), "reset: desktop applies events again").toBe(true);
-    await closePane(recovered);
-    await closePane(frozen);
+    expect(await tabInSidebar(page, recovered.tabId, 8_000), "reset: sidebar applies events again").toBe(true);
+    await closePane(recovered.paneId);
+    await closePane(frozen.paneId);
   } finally {
     await browser.close();
   }
 });
 
-test("@quarantine event-freeze: 500x pane soak keeps desktop applying events", async () => {
+test("@quarantine event-freeze: 500x pane soak keeps sidebar applying events", async () => {
   test.setTimeout(30 * 60_000);
   const { browser, page } = await connectUi();
   try {
     const probe = async (label: string) => {
-      const id = await createEagerPane();
-      const alive = await paneInDom(page, id, 8_000);
-      const inMux = await muxHasPane(id);
+      const p = await createEagerPane();
+      const alive = await tabInSidebar(page, p.tabId, 8_000);
+      const inMux = await muxHasPane(p.paneId);
       const stats = await eventStats();
       const rx = await jsReceived(page);
       console.log(`[probe:${label}] alive=${alive} inMux=${inMux} rx=${rx} stats=${JSON.stringify(stats)}`);
-      await closePane(id);
-      expect(alive, `${label}: window did not apply pane ${id} (mux had it: ${inMux})`).toBe(true);
+      await closePane(p.paneId);
+      expect(alive, `${label}: sidebar did not apply tab ${p.tabId} (mux had pane: ${inMux})`).toBe(true);
     };
     await probe("baseline");
     for (let i = 1; i <= CYCLES; i++) {
-      const id = await createEagerPane();
-      await closePane(id);
+      const p = await createEagerPane();
+      await closePane(p.paneId);
       if (i % PROBE_EVERY === 0) await probe(`cycle-${i}`);
     }
   } finally {

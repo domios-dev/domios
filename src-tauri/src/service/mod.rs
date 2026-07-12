@@ -227,6 +227,10 @@ pub struct MuxEmitStats {
     pub fires: AtomicU64,
     pub suppressed: AtomicU64,
     pub pending_since_ms: AtomicU64,
+    /// Debug-only deterministic freeze (fault injection): when set, every
+    /// `emit_state_changed` early-returns, reproducing the latched-emit symptom
+    /// without a race against draining coalesce threads.
+    pub frozen: AtomicBool,
 }
 
 fn wall_now_ms() -> u64 {
@@ -262,6 +266,11 @@ impl ServiceContext {
         self.events
             .publish(crate::api::events::SystemEvent::MuxStateChanged);
         self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
+        #[cfg(debug_assertions)]
+        if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
+            self.mux_emit_stats.suppressed.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
         // Coalesce frontend emits to ≤1/50ms — output.rs fires this 4× per PTY chunk.
         if self.mux_emit_pending.swap(true, Ordering::AcqRel) {
             self.mux_emit_stats.suppressed.fetch_add(1, Ordering::Relaxed);
