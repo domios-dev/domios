@@ -325,7 +325,7 @@ async function connectWebUi(): Promise<UiSession> {
       /* localStorage may be unavailable; tests that need it will surface it */
     }
   }, token);
-  await page.goto(`${WEB_URL}#token=${encodeURIComponent(token)}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${WEB_URL}?e2e=1#token=${encodeURIComponent(token)}`, { waitUntil: "domcontentloaded" });
   await waitForShell(page);
   return { browser, page };
 }
