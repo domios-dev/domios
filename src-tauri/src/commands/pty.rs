@@ -136,13 +136,14 @@ pub async fn spawn_pty_core(
         "CODETERM_VERSION".to_string(),
         env!("CARGO_PKG_VERSION").to_string(),
     );
-    // Pass token/port to REST callbacks to avoid silent 401s.
+    // URL/port/token for REST callbacks — derived strictly from this instance's
+    // config, never inherited process env. Setting CODETERM_API_URL explicitly is
+    // what stops a prod-inherited URL (7685) from leaking into the pane and 401ing
+    // this instance's bearer against prod.
     let api_cfg = config_state.lock().api.clone();
-    if let Ok(port) = std::env::var("CODETERM_API_PORT") {
-        env_vars.insert("CODETERM_API_PORT".into(), port);
-    } else {
-        env_vars.insert("CODETERM_API_PORT".into(), api_cfg.port.to_string());
-    }
+    let (api_url, api_port) = crate::config::api_callback_url(&api_cfg);
+    env_vars.insert("CODETERM_API_URL".into(), api_url);
+    env_vars.insert("CODETERM_API_PORT".into(), api_port);
     if let Some(ref tok) = api_cfg.token {
         if !tok.is_empty() {
             env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());

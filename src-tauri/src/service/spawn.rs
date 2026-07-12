@@ -562,15 +562,9 @@ impl ServiceContext {
             crate::socket::server::socket_display_path(),
         );
         let api_cfg = crate::config::load_config().api;
-        let host = if api_cfg.host == "0.0.0.0" {
-            "127.0.0.1".to_string()
-        } else {
-            api_cfg.host.clone()
-        };
-        env_vars.insert(
-            "CODETERM_API_URL".into(),
-            format!("http://{}:{}", host, api_cfg.port),
-        );
+        let (api_url, api_port) = crate::config::api_callback_url(&api_cfg);
+        env_vars.insert("CODETERM_API_URL".into(), api_url);
+        env_vars.insert("CODETERM_API_PORT".into(), api_port);
         if let Some(ref tok) = api_cfg.token {
             env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
         }
@@ -732,15 +726,9 @@ impl ServiceContext {
             crate::socket::server::socket_display_path(),
         );
         let api_cfg = crate::config::load_config().api;
-        let host = if api_cfg.host == "0.0.0.0" {
-            "127.0.0.1".to_string()
-        } else {
-            api_cfg.host.clone()
-        };
-        env_vars.insert(
-            "CODETERM_API_URL".into(),
-            format!("http://{}:{}", host, api_cfg.port),
-        );
+        let (api_url, api_port) = crate::config::api_callback_url(&api_cfg);
+        env_vars.insert("CODETERM_API_URL".into(), api_url);
+        env_vars.insert("CODETERM_API_PORT".into(), api_port);
         match api_cfg.token {
             Some(ref tok) if !tok.is_empty() => {
                 log::debug!(
