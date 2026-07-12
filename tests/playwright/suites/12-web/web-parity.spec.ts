@@ -38,8 +38,18 @@ type KeepAwakeStatus = {
 };
 
 async function newWebPage(browser: Browser, viewport?: { width: number; height: number }): Promise<Page> {
-  const ctx = await browser.newContext({ viewport: viewport ?? { width: 1280, height: 800 } });
-  return ctx.newPage();
+  const ctx = await browser.newContext({
+    viewport: viewport ?? { width: 1280, height: 800 },
+    serviceWorkers: "block",
+  });
+  const page = await ctx.newPage();
+  await ctx.route("**/api/mesh/peers", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ paired: [], discovered: [], incoming_requests: [] }),
+    }),
+  );
+  return page;
 }
 
 async function openWeb(page: Page): Promise<void> {
