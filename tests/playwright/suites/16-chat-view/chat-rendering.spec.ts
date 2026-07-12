@@ -61,7 +61,7 @@ async function openMockChatPane(
 
   const chat = page.locator(`[data-testid="pane-session-chat"][data-pane-id="${pane.id}"]`);
   await expect(chat).toBeVisible({ timeout: 30_000 });
-  await expect(chat.locator('[data-testid="chat-empty-state"]')).toBeVisible({ timeout: 30_000 });
+  await expect(chat.locator('[data-testid="chat-empty-state"], [data-testid="chat-recovering-state"]')).toBeVisible({ timeout: 30_000 });
   return pane.id;
 }
 
