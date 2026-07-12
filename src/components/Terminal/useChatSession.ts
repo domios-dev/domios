@@ -65,7 +65,17 @@ function importEnv(): FrontendTestEnv | undefined {
   return (import.meta as { env?: FrontendTestEnv }).env;
 }
 
+function isLocalDevOrigin(): boolean {
+  if (typeof window === "undefined") return false;
+  const { hostname, port, protocol } = window.location;
+  if (protocol !== "http:") return false;
+  if (port === "7685") return false;
+  return hostname === "127.0.0.1" || hostname === "localhost";
+}
+
 export function isCodeTermFrontendTestMode(env: FrontendTestEnv | undefined = importEnv()): boolean {
+  const authoritativeDevRuntime = env?.DEV === true || isLocalDevOrigin();
+  if (!authoritativeDevRuntime) return false;
   if (env?.VITE_CODETERM_TEST === "1") return true;
   if (typeof process !== "undefined" && process.env.VITE_CODETERM_TEST === "1") return true;
   // Runtime fallback: vite env does not survive detached dev starts (build

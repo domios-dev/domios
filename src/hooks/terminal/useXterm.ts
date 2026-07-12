@@ -18,6 +18,9 @@ const E2E_TEST_MODE = shouldEnableXtermA11yMode({
   isViteDev: viteEnv.DEV,
   viteCodeTermTest: viteEnv.VITE_CODETERM_TEST,
   locationSearch: typeof window !== "undefined" ? window.location.search : "",
+  locationProtocol: typeof window !== "undefined" ? window.location.protocol : "",
+  locationHostname: typeof window !== "undefined" ? window.location.hostname : "",
+  locationPort: typeof window !== "undefined" ? window.location.port : "",
 });
 
 export interface UseXtermOptions {

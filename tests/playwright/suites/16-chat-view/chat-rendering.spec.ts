@@ -92,11 +92,10 @@ test("@golden ChatView message DOM order matches chronological push order", asyn
   ui,
   paneCleanup,
 }) => {
-  const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
-  test.skip(!hasTestHook, "window.__codetermTestChat not available in this build (macOS web mirror without VITE_CODETERM_TEST=1 build)");
-
   await ui.reconnect();
   const paneId = await openMockChatPane(api, paneCleanup, ui.page);
+  const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
+  test.skip(!hasTestHook, "window.__codetermTestChat not available in this build (macOS web mirror without VITE_CODETERM_TEST=1 build)");
   const messages: TestChatMessage[] = [
     { id: "pw-order-1", type: "user", content: "pw-order-first", timestamp: "1700002000001", provider: "test" },
     { id: "pw-order-2", type: "assistant", content: "pw-order-second", timestamp: "1700002000002", provider: "test" },

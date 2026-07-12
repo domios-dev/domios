@@ -32,8 +32,34 @@ assertEqual(
     viteCodeTermTest: undefined,
     locationSearch: "?a11y=1",
   }),
+  false,
+  "release ignores runtime a11y query",
+);
+
+assertEqual(
+  shouldEnableXtermA11yMode({
+    isViteDev: false,
+    viteCodeTermTest: undefined,
+    locationSearch: "?e2e=1",
+    locationProtocol: "http:",
+    locationHostname: "127.0.0.1",
+    locationPort: "1420",
+  }),
   true,
-  "runtime a11y query enables terminal DOM mirror",
+  "local dev runtime e2e query enables terminal DOM mirror",
+);
+
+assertEqual(
+  shouldEnableXtermA11yMode({
+    isViteDev: false,
+    viteCodeTermTest: undefined,
+    locationSearch: "?e2e=1",
+    locationProtocol: "http:",
+    locationHostname: "127.0.0.1",
+    locationPort: "7685",
+  }),
+  false,
+  "prod port ignores runtime e2e query",
 );
 
 assertEqual(
