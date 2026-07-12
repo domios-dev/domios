@@ -1,5 +1,14 @@
 import { createRoot, type Root } from "react-dom/client";
 import { ToolOutputCard } from "./ToolOutputCard";
+import { isCodeTermFrontendTestMode } from "../Terminal/useChatSession";
+
+declare global {
+  interface Window {
+    __codetermToolOutputCardHarness?: {
+      mount: (host: HTMLElement, payload: string) => Root;
+    };
+  }
+}
 
 export function mountToolOutputCardHarness(host: HTMLElement, payload: string): Root {
   const root = createRoot(host);
@@ -16,4 +25,9 @@ export function mountToolOutputCardHarness(host: HTMLElement, payload: string): 
     </div>,
   );
   return root;
+}
+
+export function installToolOutputCardHarness(testMode = isCodeTermFrontendTestMode()): void {
+  if (!testMode || typeof window === "undefined" || window.__codetermToolOutputCardHarness) return;
+  window.__codetermToolOutputCardHarness = { mount: mountToolOutputCardHarness };
 }
