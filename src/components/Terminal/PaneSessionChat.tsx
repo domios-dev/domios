@@ -32,6 +32,7 @@ import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
 import { usePlanRefResolver } from "./usePlanRefResolver";
+import { reattachPaneChat } from "./chatReattach";
 
 interface Props {
   paneId: string;
@@ -413,11 +414,11 @@ export function PaneSessionChat({
           <button
             type="button"
             data-testid="chat-retry"
-            onClick={retry}
+            onClick={() => void reattachPaneChat(paneId).catch(() => retry())}
             className="mt-3 rounded px-3 py-1.5 text-xs hover:brightness-125"
             style={{ border: "1px solid var(--ct-border)", color: "var(--ct-fg)" }}
           >
-            Retry
+            Reconnect
           </button>
         </div>
       </div>

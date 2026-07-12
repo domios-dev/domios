@@ -117,11 +117,13 @@ async function renderPaneSessionChat(
   paneId: string,
   state: ExtendedState,
   chatStart: () => unknown = () => ({ text: "", offset: 0, messages: [] }),
-): Promise<{ host: HTMLDivElement; root: Root }> {
+): Promise<{ host: HTMLDivElement; root: Root; commands: string[] }> {
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { PaneSessionChat } = await import("./PaneSessionChat");
 
+  const commands: string[] = [];
   __setInvokeForTest((async (cmd: string) => {
+    commands.push(cmd);
     if (cmd === "chat_start") return chatStart();
     if (cmd === "delayed_send_list") return [];
     return {};
@@ -145,7 +147,7 @@ async function renderPaneSessionChat(
   await act(async () => {
     await Promise.resolve();
   });
-  return { host, root };
+  return { host, root, commands };
 }
 
 setupDom();
@@ -207,6 +209,74 @@ test("snapshot failure keeps a retryable chat surface", async () => {
   assert(host.querySelector('[data-testid="chat-retry"]'), "retry remains reachable");
   assert(!host.querySelector('[data-testid="chat-empty-state"]'), "failure is not shown as empty");
   await act(async () => root.unmount());
+});
+
+test("manual reconnect restarts the real chat path and restores history", async () => {
+  const paneId = "reattach-pane";
+  const state = muxStateFor({
+    [paneId]: paneBase(paneId, { agent_session_id: "bound-session" }),
+  });
+  let starts = 0;
+  const { host, root, commands } = await renderPaneSessionChat(paneId, state, () => {
+    starts += 1;
+    if (starts === 1) throw new Error("snapshot unavailable");
+    return {
+      text: "",
+      offset: 42,
+      messages: [{ id: "history-1", type: "assistant", content: "restored history" }],
+    };
+  });
+  const reconnect = host.querySelector('[data-testid="chat-retry"]') as HTMLButtonElement | null;
+  assert(reconnect, "reconnect remains reachable after mount failure");
+  await act(async () => reconnect.click());
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert(commands.includes("chat_stop"), "manual reconnect stops the stale tailer");
+  assert(
+    commands.filter((command) => command === "chat_start").length >= 2,
+    "manual reconnect restarts snapshot detection",
+  );
+  assert(host.textContent?.includes("restored history"), "history reappears after reconnect");
+  await act(async () => root.unmount());
+});
+
+test("pane header reconnect control re-runs chat attach commands", async () => {
+  const { createRequire } = await import("node:module");
+  const require = createRequire(__filename);
+  require.extensions[".css"] = () => {};
+  const { __setInvokeForTest } = await import("../../lib/bridge");
+  const { PaneTopBar } = await import("./PaneTopBar");
+  const commands: string[] = [];
+  __setInvokeForTest((async (cmd: string) => {
+    commands.push(cmd);
+    return {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }) as any);
+
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <PaneTopBar
+        paneId="header-pane"
+        cwd={null}
+        showSwitch={false}
+        chatFirst={false}
+        chatDefaultPrompted={true}
+        showChatReconnect={true}
+      />,
+    );
+  });
+  const reconnect = host.querySelector('[data-testid="chat-reconnect"]') as HTMLButtonElement | null;
+  assert(reconnect, "header reconnect control is visible");
+  await act(async () => reconnect.click());
+  const stopAt = commands.indexOf("chat_stop");
+  assert(stopAt >= 0 && commands[stopAt + 1] === "chat_start", "reconnect calls chat_stop then chat_start");
+  await act(async () => root.unmount());
+  host.remove();
 });
 
 async function main() {

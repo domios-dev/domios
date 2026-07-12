@@ -121,6 +121,7 @@ export function TabContent({
           api={api}
           isWatcherPane={pane.watcher != null}
           watcherLastStatus={pane.watcher?.last_status ?? null}
+          showChatReconnect={isChatBackend || pane.agent_type != null}
         />
         <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>
           {body}

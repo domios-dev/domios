@@ -268,12 +268,16 @@ impl ServiceContext {
         self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
         #[cfg(debug_assertions)]
         if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
-            self.mux_emit_stats.suppressed.fetch_add(1, Ordering::Relaxed);
+            self.mux_emit_stats
+                .suppressed
+                .fetch_add(1, Ordering::Relaxed);
             return;
         }
         // Coalesce frontend emits to ≤1/50ms — output.rs fires this 4× per PTY chunk.
         if self.mux_emit_pending.swap(true, Ordering::AcqRel) {
-            self.mux_emit_stats.suppressed.fetch_add(1, Ordering::Relaxed);
+            self.mux_emit_stats
+                .suppressed
+                .fetch_add(1, Ordering::Relaxed);
             return;
         }
         self.mux_emit_stats
@@ -313,7 +317,9 @@ impl ServiceContext {
         self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
         #[cfg(debug_assertions)]
         if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
-            self.mux_emit_stats.suppressed.fetch_add(1, Ordering::Relaxed);
+            self.mux_emit_stats
+                .suppressed
+                .fetch_add(1, Ordering::Relaxed);
             return;
         }
         let handle = self.app_handle.clone();

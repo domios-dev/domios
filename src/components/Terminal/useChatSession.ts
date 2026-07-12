@@ -11,6 +11,7 @@ import {
   type OptimisticEcho,
 } from "@codeterm/chat-core";
 import { detectChatPrefix, splitChatPrefixedMessages, type ChatOrigin } from "../../lib/chatPrefixes";
+import { CHAT_REATTACHED_EVENT } from "./chatReattach";
 
 const INITIAL_VISIBLE_MESSAGES = 220;
 const VISIBLE_MESSAGE_STEP = 160;
@@ -282,6 +283,15 @@ export function useChatSession({
     setRecovering(true);
     setRestartToken((token) => token + 1);
   }, []);
+
+  useEffect(() => {
+    const handleReattached = (event: Event) => {
+      const detail = (event as CustomEvent<{ paneId?: string }>).detail;
+      if (detail?.paneId === paneId) retry();
+    };
+    window.addEventListener(CHAT_REATTACHED_EVENT, handleReattached);
+    return () => window.removeEventListener(CHAT_REATTACHED_EVENT, handleReattached);
+  }, [paneId, retry]);
 
   useEffect(() => {
     if (error?.includes("chat_send_raw")) setError(null);
