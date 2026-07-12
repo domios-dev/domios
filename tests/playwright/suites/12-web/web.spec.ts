@@ -7,6 +7,7 @@ import { expect, test, type Browser, type Page, API_BASE, readDevToken } from ".
 import { MeshStub } from "../../helpers/mesh-stub";
 import { pollUntil } from "../../helpers/poll";
 import { tempSpawnCwd } from "../../helpers/spawn-cwd";
+import { createStubWorkspace, isStubTransportActive } from "../../helpers/stub-gate";
 
 const WEB_URL = `${API_BASE}/`;
 
@@ -189,14 +190,20 @@ test("@golden mobile viewport: no horizontal scroll, sidebar overlays, picker re
 
 test("@golden fully live on mobile: General Agent responds, read from the rendered DOM", async ({ api, webBrowser, paneCleanup, spawnAgent, pollMarkerInDom }) => {
   test.setTimeout(300_000);
+  test.skip(
+    !(await isStubTransportActive(api)),
+    "dev daemon is not running with CODETERM_STUB_AGENT_CMD",
+  );
   const page = await newWebPage(webBrowser, { width: 375, height: 812 });
   // Runtime a11y opt-in gives the browser terminal a readable DOM.
   await page.goto(`${WEB_URL}?a11y=1`, { waitUntil: "domcontentloaded" });
   await passTokenGate(page);
 
   const marker = `PW-WEB-${Date.now()}`;
+  const expected = `ack ${marker}`;
   // Drive the spawn through the API (deterministic), observe in the DOM.
-  const inbox = await paneCleanup.createPane({ title: "pw-web-inbox" });
+  const workspace = await createStubWorkspace(api);
+  const inbox = await paneCleanup.createPane({ title: "pw-web-inbox", workspace_id: workspace.id });
   let agentPaneId: string | undefined;
   try {
     await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
@@ -210,13 +217,13 @@ test("@golden fully live on mobile: General Agent responds, read from the render
       skip_permissions: true,
       activate: true,
       cwd: tempSpawnCwd("pw-web-agent-"),
-      task: `Reply with a single line containing exactly ${marker} and nothing else.`,
+      task: `STUB_ECHO ${marker}`,
     });
     agentPaneId = spawned.pane_id;
 
     // render as a chat bubble instead of xterm a11y text — accept either.
-    await pollMarkerInDom(marker, { page, includeChatMessages: true });
-    await expect(page.locator(`[data-pane-id="${agentPaneId!}"]`)).toContainText(marker);
+    await pollMarkerInDom(expected, { page, includeChatMessages: true });
+    await expect(page.locator(`[data-pane-id="${agentPaneId!}"]`)).toContainText(expected);
   } finally {
     if (agentPaneId) paneCleanup.track(agentPaneId);
     await page.context().close();
