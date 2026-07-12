@@ -214,21 +214,23 @@ test.describe("agent flows on the stub transport", () => {
         });
         agentPaneId = spawned.pane_id;
         await showTerminalView(ui.page, agentPaneId);
-        await pollMarkerInDom(toolMarker, { timeout: 60_000 });
+        const toolReply = `tool round-trip done ${toolMarker}`;
+        await pollMarkerInDom(toolReply, { paneId: agentPaneId, timeout: 60_000 });
         const toolText = await api.get<{ text?: string } | string>(`/panes/${agentPaneId}/text`);
         const toolBuffer =
           typeof toolText === "string" ? toolText : (toolText.text ?? JSON.stringify(toolText));
-        expect(toolBuffer, "tool command marker missing from pane buffer").toContain(toolMarker);
+        expect(toolBuffer, "stub tool reply missing from pane buffer").toContain(toolReply);
 
         await api.post(`/panes/${agentPaneId}/send`, {
           text: `STUB_ECHO ${turn2Marker}`,
           enter: true,
         });
-        await pollMarkerInDom(turn2Marker, { timeout: 60_000 });
+        const turn2Reply = `ack ${turn2Marker}`;
+        await pollMarkerInDom(turn2Reply, { paneId: agentPaneId, timeout: 60_000 });
         const turn2Text = await api.get<{ text?: string } | string>(`/panes/${agentPaneId}/text`);
         const turn2Buffer =
           typeof turn2Text === "string" ? turn2Text : (turn2Text.text ?? JSON.stringify(turn2Text));
-        expect(turn2Buffer, "second turn marker missing from pane buffer").toContain(turn2Marker);
+        expect(turn2Buffer, "second stub reply missing from pane buffer").toContain(turn2Reply);
       } finally {
         if (agentPaneId) paneCleanup.track(agentPaneId);
       }
@@ -260,10 +262,11 @@ test.describe("agent flows on the stub transport", () => {
         });
         agentPaneId = spawned.pane_id;
         await showTerminalView(ui.page, agentPaneId);
-        await pollMarkerInDom(marker, { timeout: 60_000 });
+        const reply = `ack ${marker}`;
+        await pollMarkerInDom(reply, { paneId: agentPaneId, timeout: 60_000 });
         const text = await api.get<{ text?: string } | string>(`/panes/${agentPaneId}/text`);
         const buffer = typeof text === "string" ? text : (text.text ?? JSON.stringify(text));
-        expect(buffer, "PTY buffer missing the marker the DOM showed").toContain(marker);
+        expect(buffer, "PTY buffer missing the stub reply the DOM showed").toContain(reply);
       } finally {
         if (agentPaneId) paneCleanup.track(agentPaneId);
       }
@@ -299,7 +302,7 @@ test.describe("agent flows on the stub transport", () => {
       });
       agentPaneId = spawned.pane_id;
       await showTerminalView(ui.page, agentPaneId);
-      await pollMarkerInDom(warmMarker, { timeout: 60_000 });
+      await pollMarkerInDom(`ack ${warmMarker}`, { paneId: agentPaneId, timeout: 60_000 });
 
       const sessionBefore = (await api.panes()).find((p) => p.id === agentPaneId) as
         | { agent_session_id?: string }
@@ -329,7 +332,7 @@ test.describe("agent flows on the stub transport", () => {
         text: `STUB_ECHO ${resumeMarker}`,
         enter: true,
       });
-      await pollMarkerInDom(resumeMarker, { timeout: 60_000 });
+      await pollMarkerInDom(`ack ${resumeMarker}`, { paneId: agentPaneId, timeout: 60_000 });
 
       if (sessionBefore?.agent_session_id) {
         const after = (await api.panes()).find((p) => p.id === agentPaneId) as

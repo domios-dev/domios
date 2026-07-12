@@ -21,6 +21,12 @@ async function openWebUiWithNetwork(browser: Browser, net: NetShape): Promise<{ 
   await page.route("**/api/network", (route) =>
     route.fulfill({ contentType: "application/json", body: JSON.stringify(net) }),
   );
+  await page.route("**/api/mesh/peers", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ paired: [], discovered: [], incoming_requests: [] }),
+    }),
+  );
 
   await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
   await page.waitForSelector('[data-testid="web-token-input"]', { timeout: 15_000 });
@@ -43,7 +49,7 @@ const scenarios = [
     name: "serve HTTPS on 443 → FQDN root is primary, no hint",
     net: {
       tailscale_https_url: "https://blackstar.test.ts.net",
-      tailscale_ip: "100.64.0.9",
+      tailscale_ip: "127.0.0.1",
       local_ip: "192.168.1.20",
       api_port: PORT,
     },
@@ -57,9 +63,9 @@ const scenarios = [
     fallback: false,
   },
   {
-    name: "no serve, tailscale IP → IP+port primary, hint shown",
-    net: { tailscale_ip: "100.64.0.9", local_ip: "192.168.1.20", api_port: PORT },
-    expectLink: `http://100.64.0.9:${PORT}/`,
+    name: "no serve, stub peer address → IP+port primary, hint shown",
+    net: { tailscale_ip: "127.0.0.1", local_ip: "192.168.1.20", api_port: PORT },
+    expectLink: `http://127.0.0.1:${PORT}/`,
     fallback: true,
   },
   {
