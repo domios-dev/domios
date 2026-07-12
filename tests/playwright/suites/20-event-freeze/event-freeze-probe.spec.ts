@@ -13,9 +13,10 @@
  * the event applied cleanly. rx>0 + emit_fires++ + pending=false proved that.)
  *
  * Test 1 (deterministic): force the mux_emit_pending latch via the debug
- * fault-injection route and prove the sidebar stops applying, then reset and
- * prove it recovers — pins the mechanism without exhausting OS threads.
- * Test 2 (natural trigger): 500 create/close cycles, probing every 50.
+ * fault-injection route and prove bounded reconcile keeps the sidebar visible,
+ * then reset and prove the normal emit path still works.
+ * Test 2 (recovery): break the desktop subscription and prove its bounded
+ * renewal reconciles a missed pane into the DOM. Test 3 soaks pane churn.
  *
  * Counters read both ends: Rust /api/debug/events/stats vs frontend
  * window.__ctEvents, so a stall is classified emit-side latch vs channel death.
@@ -61,6 +62,19 @@ async function eventStats(): Promise<Record<string, number | boolean>> {
 async function jsReceived(page: Page): Promise<number> {
   return page.evaluate(() => (window as unknown as { __ctEvents?: { received: number } }).__ctEvents?.received ?? 0);
 }
+async function forceMuxStreamBreak(page: Page): Promise<number> {
+  await page.waitForFunction(() => typeof (
+    window as unknown as { __ctEvents?: { breakMuxStream?: () => void } }
+  ).__ctEvents?.breakMuxStream === "function", { timeout: 5_000 });
+  return page.evaluate(() => {
+    const stats = (window as unknown as {
+      __ctEvents?: { reconnects: number; breakMuxStream?: () => void };
+    }).__ctEvents;
+    if (!stats?.breakMuxStream) throw new Error("mux stream fault injection is unavailable");
+    stats.breakMuxStream();
+    return stats.reconnects;
+  });
+}
 /** Wait up to `ms` for the pane's TAB to appear in the sidebar DOM. */
 async function tabInSidebar(page: Page, tabId: string, ms: number): Promise<boolean> {
   const deadline = Date.now() + ms;
@@ -71,7 +85,7 @@ async function tabInSidebar(page: Page, tabId: string, ms: number): Promise<bool
   return false;
 }
 
-test("@quarantine event-freeze: forced latch freezes sidebar apply, reset recovers", async () => {
+test("@quarantine event-freeze: forced latch reconciles sidebar, reset recovers", async () => {
   test.setTimeout(120_000);
   const { browser, page } = await connectUi();
   try {
@@ -83,20 +97,21 @@ test("@quarantine event-freeze: forced latch freezes sidebar apply, reset recove
     expect(await tabInSidebar(page, base.tabId, 8_000), "baseline: tab should reach sidebar").toBe(true);
     await closePane(base.paneId);
 
-    // Inject the latch: a new pane's tab must NOT reach the sidebar though mux has it.
+    // Inject the latch: the emit path freezes, but bounded reconcile must still
+    // make the backend-owned tab visible instead of leaving a silent divergence.
     await fetch(`${API_BASE}/api/debug/events/force-latch`, { method: "POST", headers: AUTH_H });
     const rxBefore = await jsReceived(page);
     const frozen = await createEagerPane();
-    const appeared = await tabInSidebar(page, frozen.tabId, 5_000);
+    const appeared = await tabInSidebar(page, frozen.tabId, 12_000);
     const inMux = await muxHasPane(frozen.paneId);
     const stats = await eventStats();
     const rxAfter = await jsReceived(page);
     console.log(`[freeze] appeared=${appeared} inMux=${inMux} rxΔ=${rxAfter - rxBefore} stats=${JSON.stringify(stats)}`);
     expect(inMux, "latched: mux still has the pane").toBe(true);
     expect(stats.frozen, "latched: emit path frozen").toBe(true);
-    expect(appeared, "latched: sidebar must NOT apply the new tab").toBe(false);
+    expect(appeared, "latched: sidebar must reconcile the new tab").toBe(true);
 
-    // Reset the latch: the next emit path recovers.
+    // Reset the latch: the next emit path remains healthy.
     await fetch(`${API_BASE}/api/debug/events/reset-latch`, { method: "POST", headers: AUTH_H });
     const recovered = await createEagerPane();
     expect(await tabInSidebar(page, recovered.tabId, 8_000), "reset: sidebar applies events again").toBe(true);
@@ -106,6 +121,27 @@ test("@quarantine event-freeze: forced latch freezes sidebar apply, reset recove
     // Always clear the latch, even if an assertion above threw — a leaked
     // frozen=true would poison every later test against this dev.
     await fetch(`${API_BASE}/api/debug/events/reset-latch`, { method: "POST", headers: AUTH_H }).catch(() => {});
+    await browser.close();
+  }
+});
+
+test("@quarantine event-freeze: broken desktop stream reconnects and reconciles sidebar", async () => {
+  test.setTimeout(30_000);
+  const { browser, page } = await connectUi();
+  let pane: NewPane | null = null;
+  try {
+    expect(await page.locator("[data-tab-id]").count(), "sidebar must render tabs").toBeGreaterThan(0);
+    const reconnectsBefore = await forceMuxStreamBreak(page);
+    pane = await createEagerPane();
+    expect(await tabInSidebar(page, pane.tabId, 5_000), "broken stream must initially miss the tab").toBe(false);
+    expect(await muxHasPane(pane.paneId), "daemon must contain the pane during divergence").toBe(true);
+    expect(await tabInSidebar(page, pane.tabId, 12_000), "renewal must reconcile the tab into the DOM").toBe(true);
+    const reconnectsAfter = await page.evaluate(() => (
+      window as unknown as { __ctEvents?: { reconnects: number } }
+    ).__ctEvents?.reconnects ?? 0);
+    expect(reconnectsAfter, "desktop mux subscription must be renewed").toBeGreaterThan(reconnectsBefore);
+  } finally {
+    if (pane) await closePane(pane.paneId);
     await browser.close();
   }
 });

@@ -47,6 +47,7 @@ export { useMuxState, useMuxSelector } from "./selectorStore";
 export { highestTitleLevel } from "./tree";
 
 const HYDRATED_GENERATION = 0.5;
+const MUX_EVENT_RENEW_MS = 10_000;
 
 /** True when the web boot path paints sync cached mux state before reconcile. */
 export function webBootHasSyncCache(): boolean {
@@ -229,10 +230,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       });
     }).then((unlisten) => unlisteners.push(unlisten));
 
-    listen<MultiplexerState>("mux-state-changed", (event) => {
-      const w = window as unknown as { __ctEvents?: { received: number; lastAt: number } };
-      (w.__ctEvents ??= { received: 0, lastAt: 0 }).received++;
-      w.__ctEvents.lastAt = Date.now();
+    let muxUnlisten: (() => void) | null = null;
+    let muxListenGeneration = 0;
+    const eventStats = window as unknown as {
+      __ctEvents?: { received: number; lastAt: number; reconnects: number; breakMuxStream?: () => void };
+    };
+    const applyMuxEvent = (event: { payload: MultiplexerState }) => {
+      (eventStats.__ctEvents ??= { received: 0, lastAt: 0, reconnects: 0 }).received++;
+      eventStats.__ctEvents.lastAt = Date.now();
       const s = event.payload;
       if (muxStateEventAction(s) === "apply-snapshot") {
         applyBackendState(s);
@@ -243,7 +248,39 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       } else {
         refreshFromBackend();
       }
-    }).then((unlisten) => unlisteners.push(unlisten));
+    };
+    const renewMuxListener = () => {
+      const generation = ++muxListenGeneration;
+      muxUnlisten?.();
+      muxUnlisten = null;
+      void listen<MultiplexerState>("mux-state-changed", applyMuxEvent)
+        .then((unlisten) => {
+          if (generation !== muxListenGeneration) {
+            unlisten();
+            return;
+          }
+          muxUnlisten = unlisten;
+          (eventStats.__ctEvents ??= { received: 0, lastAt: 0, reconnects: 0 }).reconnects++;
+        })
+        .catch((error) => console.warn("Failed to renew mux event listener:", error));
+      refreshFromBackend();
+    };
+    renewMuxListener();
+    let muxRenewInterval = window.setInterval(renewMuxListener, MUX_EVENT_RENEW_MS);
+    if (isCodeTermFrontendTestMode()) {
+      (eventStats.__ctEvents ??= { received: 0, lastAt: 0, reconnects: 0 }).breakMuxStream = () => {
+        muxUnlisten?.();
+        muxUnlisten = null;
+        window.clearInterval(muxRenewInterval);
+        muxRenewInterval = window.setInterval(renewMuxListener, MUX_EVENT_RENEW_MS);
+      };
+    }
+    unlisteners.push(() => {
+      window.clearInterval(muxRenewInterval);
+      muxListenGeneration++;
+      muxUnlisten?.();
+      delete eventStats.__ctEvents?.breakMuxStream;
+    });
 
     const refreshMuxState = () => refreshFromBackend();
     window.addEventListener("codeterm-refresh-mux-state", refreshMuxState);
