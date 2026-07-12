@@ -31,16 +31,36 @@ pub fn apply(provider_id: &str, cmd: String) -> String {
         "[stub-agent] substituting launch for provider={}",
         provider_id
     );
-    match cmd.rsplit_once(';') {
-        Some((prep, invocation)) => format!(
-            "{}; {} --stub-provider {} -- {}",
+    match split_prep_and_invocation(&cmd) {
+        Some((prep, sep, invocation)) => format!(
+            "{}{} {} --stub-provider {} -- {}",
             prep,
+            sep,
             stub,
             provider_id,
             invocation.trim()
         ),
         None => format!("{} --stub-provider {} -- {}", stub, provider_id, cmd),
     }
+}
+
+fn split_prep_and_invocation(cmd: &str) -> Option<(&str, &str, &str)> {
+    let semicolon = cmd.rmatch_indices(';').next().map(|(i, _)| (i, ";"));
+    let and = cmd.rmatch_indices(" && ").next().map(|(i, _)| (i, " && "));
+    let (idx, sep) = match (semicolon, and) {
+        (Some(a), Some(b)) => {
+            if a.0 > b.0 {
+                a
+            } else {
+                b
+            }
+        }
+        (Some(a), None) => a,
+        (None, Some(b)) => b,
+        (None, None) => return None,
+    };
+    let invocation_start = idx + sep.len();
+    Some((&cmd[..idx], sep, &cmd[invocation_start..]))
 }
 
 #[cfg(test)]
@@ -80,6 +100,14 @@ mod tests {
             assert_eq!(
                 compound,
                 "Remove-Item Env:X; $A = 1; node replay.mjs --stub-provider claude -- claude '--model' 'sonnet'"
+            );
+            let posix_prep = apply(
+                "claude",
+                "unset CLAUDECODE && claude --dangerously-skip-permissions '--model' 'sonnet' -- \"$(cat /tmp/.ct-task-1234)\"".into(),
+            );
+            assert_eq!(
+                posix_prep,
+                "unset CLAUDECODE && node replay.mjs --stub-provider claude -- claude --dangerously-skip-permissions '--model' 'sonnet' -- \"$(cat /tmp/.ct-task-1234)\""
             );
             std::env::remove_var(STUB_CMD_ENV);
         }
