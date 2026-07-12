@@ -218,6 +218,65 @@ test("clicking a worker tab row activates it with the shared active chrome", asy
   await act(async () => root.unmount());
 });
 
+test("waiting prompt tab renders attention rail and prompt pill", async () => {
+  const panes: Record<string, Pane> = {
+    attention: pane({
+      id: "attention",
+      title: "pw-attention",
+      agent_type: "claude",
+      pending_prompt: {
+        question: "Allow pw attention?",
+        options: [{ label: "Yes", value: "yes" }],
+      },
+    }),
+  };
+  const tabs = [tab("tab-attention", "attention", 0)];
+  const workspace: Workspace = {
+    id: "ws",
+    name: "Workspace",
+    tabs,
+    active_tab_id: "tab-attention",
+    cwd: null,
+  };
+  const { host, root } = await render(
+    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
+      <SidebarWorkspaceTabs
+        workspace={workspace}
+        activeTabId="tab-attention"
+        sortedTabs={tabs}
+        panes={panes}
+        paneStatuses={{ attention: "Waiting" }}
+        planIndex={[]}
+        plans={[]}
+        activeWork={null}
+        remoteWorkers={{}}
+        closingTabIds={new Set()}
+        appearingTabIds={new Set()}
+        isActiveVisual={true}
+        workspaceCanvasActive={false}
+        touchMode={false}
+        compact={false}
+        sidebarActionText="text-xs"
+        orchestrators={[]}
+        onBeforeOpenPlan={() => {}}
+        onActivateTab={() => {}}
+        onCloseTab={() => {}}
+        onRenameTab={() => {}}
+        onNewSession={() => {}}
+      />
+    </SidebarDnd>,
+  );
+
+  const row = host.querySelector('[data-tab-id="tab-attention"]');
+  assert(row, "attention row rendered");
+  assert(
+    row.querySelector('[data-testid="tab-status-rail"]')?.getAttribute("data-rail-variant") === "attention",
+    "waiting prompt row renders attention rail",
+  );
+  assert(row.querySelector('span[title="Allow pw attention?"]'), "prompt pill remains visible");
+  await act(async () => root.unmount());
+});
+
 test("worker rows are single-line even with a description; plain tab single-line too", async () => {
   const panes: Record<string, Pane> = {
     orch: pane({ id: "orch", title: "Orchestrator", role: "Orchestrator", agent_type: "claude" }),
