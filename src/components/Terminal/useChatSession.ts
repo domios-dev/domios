@@ -221,6 +221,10 @@ export function useChatSession({
   }, [onError]);
 
   useEffect(() => {
+    setOptimistic([]);
+  }, [paneId]);
+
+  useEffect(() => {
     if (!active) {
       setLoading(false);
       return;
@@ -272,8 +276,6 @@ export function useChatSession({
       unlisten?.();
       unlistenTest?.();
       if (retryTimer) clearTimeout(retryTimer);
-      // /new and /clear pills don't stick when the session boundary changes.
-      setOptimistic([]);
       void invoke("chat_stop", { paneId }).catch(() => {});
     };
   }, [paneId, agentSessionId, nextClientOrder, active, restartToken]);
