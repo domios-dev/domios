@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { COMPOSER_DRAFT_PREFIX } from "./composerDraftGc";
 
-const PREFIX = "codeterm:composer-draft:";
+const PREFIX = COMPOSER_DRAFT_PREFIX;
 
 function readDraft(key: string): string {
   try {
