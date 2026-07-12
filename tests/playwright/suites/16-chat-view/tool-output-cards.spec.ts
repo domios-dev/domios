@@ -44,8 +44,12 @@ async function expectBoundedPreview(page: Page): Promise<void> {
   await expect(preview).toHaveCSS("overflow-wrap", "anywhere");
   await expect(preview).toHaveCSS("-webkit-line-clamp", "2");
   await expect(card).toContainText("…");
-  await expect(page.locator("body")).toEvaluate((body) => body.scrollWidth <= body.clientWidth);
-  await expect(card).toEvaluate((element) => element.scrollWidth <= element.clientWidth);
+  await expect
+    .poll(() => page.locator("body").evaluate((body) => body.scrollWidth <= body.clientWidth))
+    .toBe(true);
+  await expect
+    .poll(() => card.evaluate((element) => element.scrollWidth <= element.clientWidth))
+    .toBe(true);
 }
 
 test.afterEach(async ({ ui }) => {
@@ -74,7 +78,9 @@ test("@golden shared tool cards expand by pointer and keyboard, then copy the co
   const full = card.locator('[data-testid="tool-output-full"]');
   await expect(full).toHaveText(LONG_JSON);
   await expect(full).toHaveCSS("overflow", "auto");
-  await expect(full).toEvaluate((element) => element.scrollHeight >= element.clientHeight);
+  await expect
+    .poll(() => full.evaluate((element) => element.scrollHeight >= element.clientHeight))
+    .toBe(true);
   await card.getByRole("button", { name: /collapse exec call/i }).click();
 
   await expand.focus();
