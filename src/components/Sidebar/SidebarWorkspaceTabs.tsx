@@ -32,6 +32,22 @@ import { TabItem } from "./TabItem";
 import { aggregateTabStatus } from "./sidebarTabStatus";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 
+function orderHierarchyNodes(
+  nodes: ReturnType<typeof buildHierarchySubtree>,
+  tabIndexByPaneId: ReadonlyMap<string, number>,
+): ReturnType<typeof buildHierarchySubtree> {
+  return [...nodes]
+    .sort(
+      (a, b) =>
+        (tabIndexByPaneId.get(a.pane.id) ?? Number.MAX_SAFE_INTEGER) -
+        (tabIndexByPaneId.get(b.pane.id) ?? Number.MAX_SAFE_INTEGER),
+    )
+    .map((node) => ({
+      ...node,
+      children: orderHierarchyNodes(node.children, tabIndexByPaneId),
+    }));
+}
+
 export interface SidebarWorkspaceTabsProps {
   workspace: Workspace;
   activeTabId: string | null;
@@ -155,7 +171,9 @@ export function SidebarWorkspaceTabs({
       isOrchestrator && firstPane
         ? buildHierarchySubtree(firstPane.id, panes, paneStatuses, workerExclude)
         : [];
-    const workerIds = workerNodes
+    const childTabIndexByPaneId = new Map(childTabs.map((t, i) => [t.pane_id, i]));
+    const orderedWorkerNodes = orderHierarchyNodes(workerNodes, childTabIndexByPaneId);
+    const workerIds = orderedWorkerNodes
       .map((node) => sortedTabs.find((t) => t.pane_id === node.pane.id))
       .filter((t): t is Tab => Boolean(t))
       .map((t) => `${TAB_PREFIX}${t.id}`);
@@ -239,10 +257,10 @@ export function SidebarWorkspaceTabs({
                 count={sectionCounts.workers}
                 showHeader={shouldShowSectionHeader("worker", sectionCounts)}
               >
-                {workerNodes.length > 0 && (
+                {orderedWorkerNodes.length > 0 && (
                   <SortableContext items={workerIds} strategy={verticalListSortingStrategy}>
                     <HierarchyTree
-                      nodes={workerNodes}
+                      nodes={orderedWorkerNodes}
                       depth={0}
                       renderRow={(node) => {
                         const childTab = sortedTabs.find((t) => t.pane_id === node.pane.id);
