@@ -44,6 +44,18 @@ test("collects a valid manager and worker tree", () => {
   assertEqual(ids, ["planner", "worker1", "worker2"], "valid direct children are included");
 });
 
+test("collects workers nested under a manager", () => {
+  const panes: Record<string, Pane> = {
+    orch: pane("orch", { role: "Orchestrator" }),
+    manager: pane("manager", { parent_pane_id: "orch", role: "Manager" }),
+    worker1: pane("worker1", { parent_pane_id: "manager", role: "Worker" }),
+    worker2: pane("worker2", { parent_pane_id: "worker1", role: "Worker" }),
+  };
+  const members = collectOrchestrationGroupMembers("orch", panes);
+  const ids = members.map((m) => m.paneId);
+  assertEqual(ids, ["manager", "worker1", "worker2"], "manager subtree included");
+});
+
 test("section counts match visible worker rows for a valid tree", () => {
   const panes: Record<string, Pane> = {
     orch: pane("orch", { role: "Orchestrator" }),

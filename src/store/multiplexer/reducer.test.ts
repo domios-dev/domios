@@ -698,5 +698,57 @@ test("CLOSE_TAB removes every tab whose pane is in the removed cascade", () => {
   assert(Object.keys(after.paneStatuses).length === 0, "all cascade statuses removed");
 });
 
+test("CLOSE_TAB removes a manager-root subtree", () => {
+  const orch: Tab = { id: "tab-orch", pane_id: "pane-orch" } as unknown as Tab;
+  const manager: Tab = { id: "tab-manager", pane_id: "pane-manager" } as unknown as Tab;
+  const worker: Tab = { id: "tab-worker", pane_id: "pane-worker" } as unknown as Tab;
+  const start: ExtendedState = {
+    ...base(),
+    workspaces: [
+      {
+        id: "w1",
+        name: "W",
+        tabs: [orch, manager, worker],
+        active_tab_id: "tab-worker",
+        cwd: null,
+      } as unknown as Workspace,
+    ],
+    panes: {
+      "pane-orch": { id: "pane-orch", title: "Orchestrator" } as unknown as Pane,
+      "pane-manager": {
+        id: "pane-manager",
+        title: "Planner",
+        role: "Manager",
+        parent_pane_id: "pane-orch",
+      } as unknown as Pane,
+      "pane-worker": {
+        id: "pane-worker",
+        title: "Worker",
+        role: "Worker",
+        parent_pane_id: "pane-manager",
+      } as unknown as Pane,
+    },
+    paneStatuses: {
+      "pane-manager": "Working",
+      "pane-worker": "Waiting",
+    },
+    activeTabIds: { w1: "tab-worker" },
+  };
+
+  const after = reducer(start, {
+    type: "CLOSE_TAB",
+    workspaceId: "w1",
+    tabId: "tab-manager",
+    removedPaneIds: ["pane-manager", "pane-worker"],
+  });
+  const ws = after.workspaces.find((w) => w.id === "w1")!;
+  assert(ws.tabs.map((t) => t.id).join(",") === "tab-orch", "only orchestrator remains");
+  assert(ws.active_tab_id === "tab-orch", "active tab falls back to orchestrator");
+  assert(after.activeTabIds.w1 === "tab-orch", "activeTabIds falls back to orchestrator");
+  assert(after.panes["pane-orch"], "orchestrator pane remains");
+  assert(!after.panes["pane-manager"] && !after.panes["pane-worker"], "manager subtree panes removed");
+  assert(Object.keys(after.paneStatuses).length === 0, "manager subtree statuses removed");
+});
+
 console.log(failures === 0 ? "✓ reducer tests green" : `✗ ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);
