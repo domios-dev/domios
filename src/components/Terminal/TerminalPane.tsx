@@ -568,10 +568,6 @@ export const TerminalPane = memo(function TerminalPane({
             paneId={paneId}
             uiFontScale={uiFontScale}
             isVisible={isVisible}
-            onError={() => {
-              // client-mode store here or the pane gets pinned to terminal.
-              setUiMode("terminal");
-            }}
             onOpenTerminalFallback={openTerminalFallback}
           />
         </div>

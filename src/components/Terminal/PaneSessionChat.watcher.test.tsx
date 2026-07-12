@@ -113,12 +113,16 @@ function muxStateFor(panes: Record<string, Pane>): ExtendedState {
   };
 }
 
-async function renderPaneSessionChat(paneId: string, state: ExtendedState): Promise<{ host: HTMLDivElement; root: Root }> {
+async function renderPaneSessionChat(
+  paneId: string,
+  state: ExtendedState,
+  chatStart: () => unknown = () => ({ text: "", offset: 0, messages: [] }),
+): Promise<{ host: HTMLDivElement; root: Root }> {
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { PaneSessionChat } = await import("./PaneSessionChat");
 
   __setInvokeForTest((async (cmd: string) => {
-    if (cmd === "chat_start") return { text: "", offset: 0, messages: [] };
+    if (cmd === "chat_start") return chatStart();
     if (cmd === "delayed_send_list") return [];
     return {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -172,6 +176,36 @@ test("normal chat_backend pane keeps composer and hides read-only bar", async ()
   const { host, root } = await renderPaneSessionChat(paneId, state);
   assert(host.querySelector('[data-testid="chat-composer"]'), "composer present");
   assert(!host.querySelector('[data-testid="watcher-readonly-bar"]'), "read-only bar absent");
+  await act(async () => root.unmount());
+});
+
+test("bound-session pending snapshot renders recovery instead of false empty", async () => {
+  const paneId = "recovering-pane";
+  const state = muxStateFor({
+    [paneId]: paneBase(paneId, { agent_session_id: "bound-session" }),
+  });
+  const { host, root } = await renderPaneSessionChat(
+    paneId,
+    state,
+    () => ({ text: "", offset: 0, pending: true }),
+  );
+  assert(host.querySelector('[data-testid="chat-recovering-state"]'), "recovery state mounted");
+  assert(!host.querySelector('[data-testid="chat-empty-state"]'), "false empty state absent");
+  assert(host.querySelector('[data-testid="chat-composer"]'), "chat remains interactive");
+  await act(async () => root.unmount());
+});
+
+test("snapshot failure keeps a retryable chat surface", async () => {
+  const paneId = "failed-pane";
+  const state = muxStateFor({
+    [paneId]: paneBase(paneId, { agent_session_id: "bound-session" }),
+  });
+  const { host, root } = await renderPaneSessionChat(paneId, state, () => {
+    throw new Error("snapshot unavailable");
+  });
+  assert(host.querySelector('[data-testid="chat-recovery-error"]'), "error state mounted");
+  assert(host.querySelector('[data-testid="chat-retry"]'), "retry remains reachable");
+  assert(!host.querySelector('[data-testid="chat-empty-state"]'), "failure is not shown as empty");
   await act(async () => root.unmount());
 });
 

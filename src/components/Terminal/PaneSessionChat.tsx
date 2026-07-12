@@ -147,7 +147,9 @@ export function PaneSessionChat({
 
   const {
     loading,
+    recovering,
     error,
+    retry,
     allMessages,
     enrichedMessages,
     hiddenMessageCount,
@@ -405,9 +407,18 @@ export function PaneSessionChat({
         className="w-full h-full flex items-center justify-center p-4 text-sm"
         style={{ color: "var(--ct-muted-fg, #8b949e)" }}
       >
-        <div className="text-center">
-          <div className="mb-2">UI mode unavailable for this pane.</div>
+        <div className="text-center" data-testid="chat-recovery-error">
+          <div className="mb-2">Chat history could not be loaded.</div>
           <div className="text-xs opacity-60">{error}</div>
+          <button
+            type="button"
+            data-testid="chat-retry"
+            onClick={retry}
+            className="mt-3 rounded px-3 py-1.5 text-xs hover:brightness-125"
+            style={{ border: "1px solid var(--ct-border)", color: "var(--ct-fg)" }}
+          >
+            Retry
+          </button>
         </div>
       </div>
     );
@@ -478,8 +489,11 @@ export function PaneSessionChat({
           </div>
         )}
         {deferredEnrichedMessages.length === 0 && !inlinePrompt && liveAgentState.state !== "question" && (
-          <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-empty-state">
-            No messages yet.
+          <div
+            className="opacity-50 text-center py-8 text-sm"
+            data-testid={recovering || agentSessionId ? "chat-recovering-state" : "chat-empty-state"}
+          >
+            {recovering || agentSessionId ? "Recovering chat history…" : "No messages yet."}
           </div>
         )}
         {deferredEnrichedMessages.map(({ msg, origin }) => {
