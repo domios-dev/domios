@@ -641,11 +641,11 @@ fn general_agent_env_vars(
         crate::socket::server::socket_display_path(),
     );
     env.insert("CODETERM_ROLE".to_string(), "Orchestrator".to_string());
-    // Use the daemon config, not a parent CodeTerm env leak.
-    env.insert(
-        "CODETERM_API_PORT".to_string(),
-        config.lock().api.port.to_string(),
-    );
+    // Derive URL+port from the daemon config, not a parent CodeTerm env leak —
+    // an inherited prod CODETERM_API_URL (7685) 401s this instance's token.
+    let (api_url, api_port) = crate::config::api_callback_url(&config.lock().api);
+    env.insert("CODETERM_API_URL".to_string(), api_url);
+    env.insert("CODETERM_API_PORT".to_string(), api_port);
     // Hook callbacks POST to our REST API. Without the token they'd 401 on any non-loopback bind and silently swallow the failure via `curl … || true`.
     let tok: Option<String> = config.lock().api.token.clone();
     if let Some(tok) = tok {
@@ -680,8 +680,10 @@ mod tests {
     #[test]
     fn general_agent_env_uses_configured_api_port_not_parent_env() {
         let original_port = std::env::var_os("CODETERM_API_PORT");
+        let original_url = std::env::var_os("CODETERM_API_URL");
         unsafe {
             std::env::set_var("CODETERM_API_PORT", "7685");
+            std::env::set_var("CODETERM_API_URL", "http://127.0.0.1:7685");
         }
         let mut config = crate::config::schema::AppConfig::default();
         config.api.port = 7686;
@@ -690,16 +692,24 @@ mod tests {
 
         let env = super::general_agent_env_vars("pane-1", "nonce-1".to_string(), &config);
         unsafe {
-            if let Some(original_port) = original_port {
-                std::env::set_var("CODETERM_API_PORT", original_port);
-            } else {
-                std::env::remove_var("CODETERM_API_PORT");
+            match original_port {
+                Some(p) => std::env::set_var("CODETERM_API_PORT", p),
+                None => std::env::remove_var("CODETERM_API_PORT"),
+            }
+            match original_url {
+                Some(u) => std::env::set_var("CODETERM_API_URL", u),
+                None => std::env::remove_var("CODETERM_API_URL"),
             }
         }
 
         assert_eq!(
             env.get("CODETERM_API_PORT").map(String::as_str),
             Some("7686")
+        );
+        assert_eq!(
+            env.get("CODETERM_API_URL").map(String::as_str),
+            Some("http://127.0.0.1:7686"),
+            "URL must derive from config port, not the inherited prod 7685 env"
         );
         assert_eq!(
             env.get("CODETERM_API_TOKEN").map(String::as_str),

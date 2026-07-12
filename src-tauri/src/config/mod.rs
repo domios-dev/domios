@@ -81,6 +81,23 @@ pub fn memory_config() -> schema::MemoryConfig {
     load_config().memory.clone()
 }
 
+/// Loopback callback URL + port string for the running API, with a `0.0.0.0`
+/// bind normalized to `127.0.0.1` so in-process hooks/reports reach the local
+/// listener. Single source so pane-env, the frontend PTY path, hidden spawns,
+/// and the startup env scrub cannot derive divergent targets — a pane built
+/// with a prod-inherited URL (7685) 401s this instance's token against prod.
+pub fn api_callback_url(api: &schema::ApiConfig) -> (String, String) {
+    let host = if api.host == "0.0.0.0" {
+        "127.0.0.1"
+    } else {
+        api.host.as_str()
+    };
+    (
+        format!("http://{}:{}", host, api.port),
+        api.port.to_string(),
+    )
+}
+
 /// Resolve effective per-provider config for the given agent id.
 ///
 /// Lookup order:
@@ -393,6 +410,22 @@ mod tests {
             on_disk.api.token, first,
             "persisted token must match the token handed to callers"
         );
+    }
+
+    #[test]
+    fn api_callback_url_normalizes_wildcard_host_to_loopback() {
+        let mut api = schema::ApiConfig::default();
+        api.host = "0.0.0.0".to_string();
+        api.port = 7686;
+        let (url, port) = api_callback_url(&api);
+        assert_eq!(url, "http://127.0.0.1:7686");
+        assert_eq!(port, "7686");
+
+        api.host = "192.168.1.5".to_string();
+        api.port = 7691;
+        let (url, port) = api_callback_url(&api);
+        assert_eq!(url, "http://192.168.1.5:7691");
+        assert_eq!(port, "7691");
     }
 
     #[test]
