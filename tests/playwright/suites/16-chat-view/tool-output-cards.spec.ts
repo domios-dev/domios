@@ -12,14 +12,16 @@ const LONG_JSON = JSON.stringify({ envelope: "x".repeat(4_096), status: "complet
 declare global {
   interface Window {
     __toolOutputCardTest?: { copied: string; root?: { unmount: () => void } };
+    __codetermToolOutputCardHarness?: {
+      mount: (host: HTMLElement, payload: string) => { unmount: () => void };
+    };
   }
 }
 
 async function mountCards(page: Page): Promise<void> {
   await page.evaluate(async (payload) => {
-    const { mountToolOutputCardHarness } = await import(
-      "/src/components/AgentRun/ToolOutputCard.browserHarness.tsx"
-    );
+    const harness = window.__codetermToolOutputCardHarness;
+    if (!harness) throw new Error("tool output card harness is not installed");
     const host = document.createElement("main");
     host.style.cssText = "box-sizing:border-box;max-width:100vw;overflow:hidden;padding:8px";
     document.body.replaceChildren(host);
@@ -28,7 +30,7 @@ async function mountCards(page: Page): Promise<void> {
       value: { writeText: async (value: string) => { window.__toolOutputCardTest!.copied = value; } },
     });
     window.__toolOutputCardTest = { copied: "" };
-    const root = mountToolOutputCardHarness(host, payload);
+    const root = harness.mount(host, payload);
     window.__toolOutputCardTest.root = root;
   }, LONG_JSON);
   await expect(page.locator('[data-testid="tool-output-card"]').first()).toBeVisible();
