@@ -294,14 +294,34 @@ impl ServiceContext {
                     std::time::Duration::from_millis(50),
                 );
                 stats.pending_since_ms.store(0, Ordering::Relaxed);
-                stats.fires.fetch_add(1, Ordering::Relaxed);
-                let _ = handle.emit("mux-state-changed", &snapshot);
+                if !stats.frozen.load(Ordering::Acquire) {
+                    stats.fires.fetch_add(1, Ordering::Relaxed);
+                    let _ = handle.emit("mux-state-changed", &snapshot);
+                }
             });
         // Evidence build: surface a spawn failure instead of silently latching.
         // The latch (pending stuck true) is intentionally left in place to observe.
         if let Err(e) = spawned {
             log::error!("[events] mux coalesce thread spawn FAILED: {e} — emit latch STUCK");
         }
+    }
+
+    /// Emit an empty-payload `mux-state-changed` (frontend does a full refetch).
+    /// The socket handlers use this so fault injection (`frozen`) covers EVERY
+    /// desktop mux-state-changed path, not just the coalesced `emit_state_changed`.
+    pub(crate) fn emit_mux_state_changed_empty(&self) {
+        self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
+        #[cfg(debug_assertions)]
+        if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
+            self.mux_emit_stats.suppressed.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        let handle = self.app_handle.clone();
+        let stats = self.mux_emit_stats.clone();
+        std::thread::spawn(move || {
+            stats.fires.fetch_add(1, Ordering::Relaxed);
+            let _ = handle.emit("mux-state-changed", ());
+        });
     }
 
     /// Sleep out the coalesce window, then read a fresh snapshot. The pending

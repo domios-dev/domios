@@ -1,7 +1,7 @@
 //! `agent.*` JSON-RPC handlers.
 
 use serde_json::Value;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 use crate::service::ServiceState;
 
@@ -10,7 +10,7 @@ use super::{get_string_param, JsonRpcError};
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    app: &AppHandle,
+    _app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
@@ -35,12 +35,7 @@ pub(super) fn dispatch(
                     message: e,
                     data: None,
                 })?;
-            {
-                let h = app.clone();
-                std::thread::spawn(move || {
-                    let _ = h.emit("mux-state-changed", ());
-                });
-            }
+            svc.emit_mux_state_changed_empty();
 
             let mut resp = serde_json::json!({
                 "pane_id": result.pane_id,
