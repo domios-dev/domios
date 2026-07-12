@@ -160,6 +160,61 @@ test("manager child without plan binding renders in Managers and workers remain 
   await act(async () => root.unmount());
 });
 
+test("worker rows render in tab sort order when pane insertion order differs", async () => {
+  const panes: Record<string, Pane> = {
+    orch: pane({ id: "orch", title: "Orchestrator", role: "Orchestrator", agent_type: "claude" }),
+    w2: pane({ id: "w2", title: "Worker B", role: "Worker", parent_pane_id: "orch", agent_type: "claude" }),
+    w1: pane({ id: "w1", title: "Worker A", role: "Worker", parent_pane_id: "orch", agent_type: "claude" }),
+  };
+  const tabs = [
+    tab("tab-orch", "orch", 0),
+    tab("tab-w1", "w1", 1),
+    tab("tab-w2", "w2", 2),
+  ];
+  const workspace: Workspace = {
+    id: "ws",
+    name: "Workspace",
+    tabs,
+    active_tab_id: "tab-orch",
+    cwd: null,
+  };
+  const { host, root } = await render(
+    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
+      <SidebarWorkspaceTabs
+        workspace={workspace}
+        activeTabId="tab-orch"
+        sortedTabs={tabs}
+        panes={panes}
+        paneStatuses={{}}
+        planIndex={[]}
+        plans={[]}
+        activeWork={null}
+        remoteWorkers={{}}
+        closingTabIds={new Set()}
+        appearingTabIds={new Set()}
+        isActiveVisual={false}
+        workspaceCanvasActive={false}
+        touchMode={false}
+        compact={false}
+        sidebarActionText="text-xs"
+        orchestrators={[panes.orch]}
+        onBeforeOpenPlan={() => {}}
+        onActivateTab={() => {}}
+        onCloseTab={() => {}}
+        onRenameTab={() => {}}
+        onNewSession={() => {}}
+      />
+    </SidebarDnd>,
+  );
+
+  const workerWrap = host.querySelector('[data-group-section-wrap="worker"]');
+  const renderedIds = Array.from(workerWrap?.querySelectorAll("[data-tab-id]") ?? []).map((el) =>
+    el.getAttribute("data-tab-id"),
+  );
+  assert(renderedIds.join(",") === "tab-w1,tab-w2", "worker DOM order follows tab sort_order");
+  await act(async () => root.unmount());
+});
+
 test("clicking a worker tab row activates it with the shared active chrome", async () => {
   function Harness() {
     const [activeId, setActiveId] = useState("tab-orch");
