@@ -648,5 +648,55 @@ test("cross-workspace select: created tab in another workspace stays active afte
   assert(!activated.workspaces.find((w) => w.id === "wA")!.tabs.some((t) => t.id === virtual.tab.id), "host picker removed");
 });
 
+test("CLOSE_TAB removes every tab whose pane is in the removed cascade", () => {
+  const orch: Tab = { id: "tab-orch", pane_id: "pane-orch" } as unknown as Tab;
+  const planner: Tab = { id: "tab-planner", pane_id: "pane-planner" } as unknown as Tab;
+  const worker: Tab = { id: "tab-worker", pane_id: "pane-worker" } as unknown as Tab;
+  const start: ExtendedState = {
+    ...base(),
+    workspaces: [
+      {
+        id: "w1",
+        name: "W",
+        tabs: [orch, planner, worker],
+        active_tab_id: "tab-worker",
+        cwd: null,
+      } as unknown as Workspace,
+    ],
+    panes: {
+      "pane-orch": { id: "pane-orch", title: "Orchestrator" } as unknown as Pane,
+      "pane-planner": {
+        id: "pane-planner",
+        title: "Planner",
+        parent_pane_id: "pane-orch",
+      } as unknown as Pane,
+      "pane-worker": {
+        id: "pane-worker",
+        title: "Worker",
+        parent_pane_id: "pane-planner",
+      } as unknown as Pane,
+    },
+    paneStatuses: {
+      "pane-orch": "Idle",
+      "pane-planner": "Working",
+      "pane-worker": "Waiting",
+    },
+    activeTabIds: { w1: "tab-worker" },
+  };
+
+  const after = reducer(start, {
+    type: "CLOSE_TAB",
+    workspaceId: "w1",
+    tabId: "tab-orch",
+    removedPaneIds: ["pane-orch", "pane-planner", "pane-worker"],
+  });
+  const ws = after.workspaces.find((w) => w.id === "w1")!;
+  assert(ws.tabs.length === 0, `all cascade tabs removed, got ${ws.tabs.length}`);
+  assert(ws.active_tab_id === null, "workspace active tab cleared");
+  assert(after.activeTabIds.w1 === undefined, "activeTabIds cleared");
+  assert(Object.keys(after.panes).length === 0, "all cascade panes removed");
+  assert(Object.keys(after.paneStatuses).length === 0, "all cascade statuses removed");
+});
+
 console.log(failures === 0 ? "✓ reducer tests green" : `✗ ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);
