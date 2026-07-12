@@ -117,7 +117,10 @@ async function createFixture(api: ApiClient, paneCleanup: PaneCleanup): Promise<
 
 async function openWebPage(browser: Browser): Promise<Page> {
   const token = readDevToken();
-  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+    permissions: ["clipboard-read", "clipboard-write"],
+  });
   const page = await context.newPage();
   await page.addInitScript((devToken) => {
     localStorage.setItem(`codeterm-web-token:${window.location.origin}`, devToken);
@@ -367,6 +370,9 @@ test("@perf composer stays next-frame under 25-tab WebView2 load", async ({
   paneCleanup,
 }, testInfo) => {
   await ui.reconnect();
+  await ui.page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: new URL(API_BASE).origin,
+  });
   const { paneIds, tabIds } = await createFixture(api, paneCleanup);
   expect(paneIds).toHaveLength(PANE_COUNT);
   expect(tabIds).toHaveLength(PANE_COUNT);
