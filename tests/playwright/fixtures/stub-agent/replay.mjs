@@ -11,7 +11,7 @@
  * stdin directives so multi-turn/tool tests keep their oracles.
  */
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -83,6 +83,20 @@ function out(text) {
   process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
 }
 
+function canonicalCwd() {
+  try {
+    return realpathSync(process.cwd());
+  } catch {
+    return process.cwd();
+  }
+}
+
+function encodeClaudeCwd(cwd) {
+  return Array.from(String(cwd || ""))
+    .map((c) => (/[\p{L}\p{N}]/u.test(c) ? c : "-"))
+    .join("");
+}
+
 async function announceSession() {
   if (!apiUrl || !apiToken || !paneId) return;
   try {
@@ -124,7 +138,7 @@ function replayCast() {
 // exactly like the real CLI writes them. Other providers: chat parity TBD.
 const sessionFile = (() => {
   if (provider !== "claude") return null;
-  const encoded = process.cwd().replace(/[:\\/.]/g, "-");
+  const encoded = encodeClaudeCwd(canonicalCwd());
   const dir = path.join(os.homedir(), ".claude", "projects", encoded);
   try {
     mkdirSync(dir, { recursive: true });
