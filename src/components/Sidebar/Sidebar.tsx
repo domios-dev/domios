@@ -363,12 +363,6 @@ export function Sidebar({
   } | null>(null);
 
   const performCloseTab = useCallback((wsId: string, tabId: string) => {
-    const ws = state.workspaces.find((w) => w.id === wsId);
-    const tab = ws?.tabs.find((t) => t.id === tabId);
-    // not fire a mux_close_pane for a pane the daemon never created.
-    if (tab && !state.panes[tab.pane_id]?.virtual) {
-      invoke("mux_close_pane", { paneId: tab.pane_id }).catch(() => {});
-    }
     setClosingTabs((prev) => {
       const next = new Map(prev);
       next.set(tabId, { wsId });
@@ -382,7 +376,7 @@ export function Sidebar({
         return next;
       });
     }, 350);
-  }, [closeTab, state.workspaces, state.panes]);
+  }, [closeTab]);
 
   const animatedCloseTab = useCallback((wsId: string, tabId: string) => {
     const ws = state.workspaces.find((w) => w.id === wsId);
