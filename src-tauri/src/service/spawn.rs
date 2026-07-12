@@ -741,8 +741,21 @@ impl ServiceContext {
             "CODETERM_API_URL".into(),
             format!("http://{}:{}", host, api_cfg.port),
         );
-        if let Some(ref tok) = api_cfg.token {
-            env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
+        match api_cfg.token {
+            Some(ref tok) if !tok.is_empty() => {
+                log::debug!(
+                    "[spawn-token] pane={} injecting CODETERM_API_TOKEN {}",
+                    pane_id,
+                    crate::api::auth::token_fp(tok)
+                );
+                env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
+            }
+            _ => {
+                log::warn!(
+                    "[spawn-token] pane={} NO api token from load_config — CODETERM_API_TOKEN unset",
+                    pane_id
+                );
+            }
         }
         for (k, v) in &agent.extra_env {
             env_vars.insert(k.clone(), v.clone());
