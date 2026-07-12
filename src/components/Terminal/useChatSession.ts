@@ -14,6 +14,7 @@ import { detectChatPrefix, splitChatPrefixedMessages, type ChatOrigin } from "..
 
 const INITIAL_VISIBLE_MESSAGES = 220;
 const VISIBLE_MESSAGE_STEP = 160;
+const CHAT_RECOVERY_RETRY_MS = 1_000;
 export const TEST_CHAT_REPLY_EVENT = "codeterm:test-chat-reply";
 const TEST_CHAT_BASE_TIME_MS = 1_700_000_000_000;
 
@@ -202,7 +203,9 @@ export function useChatSession({
   const [structured, setStructured] = useState<ChatMessage[] | null>(null);
   const [visibleMessageCount, setVisibleMessageCount] = useState(INITIAL_VISIBLE_MESSAGES);
   const [loading, setLoading] = useState(true);
+  const [recovering, setRecovering] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [restartToken, setRestartToken] = useState(0);
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
   const onErrorRef = useRef(onError);
   const nextClientOrderRef = useRef(0);
@@ -224,17 +227,10 @@ export function useChatSession({
     let cancelled = false;
     let unlisten: UnlistenFn | null = null;
     let unlistenTest: (() => void) | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     (async () => {
       try {
-        const res = await invoke<ChatStartResult>("chat_start", { paneId });
-        if (cancelled) return;
-        setError(null);
-        setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
-        setLoading(false);
-        nextClientOrderRef.current = 0;
-        unlistenTest = listenForTestChatReplies(paneId, setStructured, nextClientOrder);
-        if (res.pending) return;
-        setStructured(withClientOrder(res.messages ?? [], nextClientOrder));
+        setLoading(true);
         unlisten = await listen<ChatMsgEvent>(
           `pane-chat-msg-${paneId}`,
           (ev) => {
@@ -242,9 +238,29 @@ export function useChatSession({
             applyChatMsgEvent(ev.payload, paneId, setStructured, nextClientOrder);
           },
         );
+        if (cancelled) {
+          unlisten();
+          return;
+        }
+        unlistenTest = listenForTestChatReplies(paneId, setStructured, nextClientOrder);
+        const res = await invoke<ChatStartResult>("chat_start", { paneId });
+        if (cancelled) return;
+        setError(null);
+        setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
+        nextClientOrderRef.current = 0;
+        if (res.pending) {
+          setRecovering(true);
+          setLoading(false);
+          retryTimer = setTimeout(() => setRestartToken((token) => token + 1), CHAT_RECOVERY_RETRY_MS);
+          return;
+        }
+        setRecovering(false);
+        setLoading(false);
+        setStructured(withClientOrder(res.messages ?? [], nextClientOrder));
       } catch (e) {
         if (cancelled) return;
         const msg = e instanceof Error ? e.message : String(e);
+        setRecovering(false);
         setError(msg);
         setLoading(false);
         onErrorRef.current?.(msg);
@@ -254,11 +270,18 @@ export function useChatSession({
       cancelled = true;
       unlisten?.();
       unlistenTest?.();
+      if (retryTimer) clearTimeout(retryTimer);
       // /new and /clear pills don't stick when the session boundary changes.
       setOptimistic([]);
       void invoke("chat_stop", { paneId }).catch(() => {});
     };
-  }, [paneId, agentSessionId, nextClientOrder, active]);
+  }, [paneId, agentSessionId, nextClientOrder, active, restartToken]);
+
+  const retry = useCallback(() => {
+    setError(null);
+    setRecovering(true);
+    setRestartToken((token) => token + 1);
+  }, []);
 
   useEffect(() => {
     if (error?.includes("chat_send_raw")) setError(null);
@@ -370,7 +393,9 @@ export function useChatSession({
 
   return {
     loading,
+    recovering,
     error,
+    retry,
     setError,
     allMessages,
     enrichedMessages,
