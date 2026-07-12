@@ -261,7 +261,15 @@ export function useChatSession({
         }
         setRecovering(false);
         setLoading(false);
-        setStructured(withClientOrder(res.messages ?? [], nextClientOrder));
+        setStructured((prev) => {
+          if (!prev?.length) {
+            nextClientOrderRef.current = 0;
+            return withClientOrder(res.messages ?? [], nextClientOrder);
+          }
+          const maxOrder = prev.reduce((max, message) => Math.max(max, message.clientOrder ?? -1), -1);
+          nextClientOrderRef.current = maxOrder + 1;
+          return mergeById(withClientOrder(res.messages ?? [], nextClientOrder), prev);
+        });
       } catch (e) {
         if (cancelled) return;
         const msg = e instanceof Error ? e.message : String(e);
