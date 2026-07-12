@@ -381,16 +381,19 @@ pub async fn close_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
-    let caller_pane_id = caller_pane_header(&headers);
-    let result = crate::dispatch::dispatch(
-        &crate::dispatch::Command::PaneClose {
-            pane_id,
-            caller_pane_id,
-        },
-        state.svc.as_ref(),
-    )
-    .map_err(map_close_error)?;
-    Ok(Json(result.into_json()))
+    if let Some(caller_pane_id) = caller_pane_header(&headers) {
+        let result = crate::dispatch::dispatch(
+            &crate::dispatch::Command::PaneClose {
+                pane_id,
+                caller_pane_id: Some(caller_pane_id),
+            },
+            state.svc.as_ref(),
+        )
+        .map_err(map_close_error)?;
+        return Ok(Json(result.into_json()));
+    }
+    state.svc.close_pane(&pane_id).map_err(map_close_error)?;
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 pub(crate) fn caller_pane_header(headers: &HeaderMap) -> Option<String> {
