@@ -90,7 +90,11 @@ pub async fn force_latch(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
-    state.svc.mux_emit_stats.frozen.store(true, Ordering::Release);
+    state
+        .svc
+        .mux_emit_stats
+        .frozen
+        .store(true, Ordering::Release);
     state.svc.mux_emit_pending.store(true, Ordering::Release);
     state
         .svc
@@ -108,7 +112,11 @@ pub async fn reset_latch(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     use std::sync::atomic::Ordering;
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    state.svc.mux_emit_stats.frozen.store(false, Ordering::Release);
+    state
+        .svc
+        .mux_emit_stats
+        .frozen
+        .store(false, Ordering::Release);
     state.svc.mux_emit_pending.store(false, Ordering::Release);
     state
         .svc
