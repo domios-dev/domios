@@ -85,15 +85,22 @@ function pairedPeerFixture(over: Json = {}): Json {
 async function mockMeshBackend(
   page: Page,
   opts: { snapshot: Json | null; loading?: boolean; peers?: Json[] },
-) {
+): Promise<() => void> {
+  let releaseLoading = () => {};
+  const loadingGate = opts.loading
+    ? new Promise<void>((resolve) => { releaseLoading = resolve; })
+    : null;
   await page.route("**/api/network", (route) =>
     route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({ local_ip: "192.168.1.20", api_port: 7685 }),
     }),
   );
-  await page.route("**/api/network/serve/status", (route) => {
-    if (opts.loading) return route.fulfill({ status: 504, body: "" });
+  await page.route("**/api/network/serve/status", async (route) => {
+    if (loadingGate) {
+      await loadingGate;
+      return route.fulfill({ status: 504, body: "" });
+    }
     return route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
@@ -144,6 +151,7 @@ async function mockMeshBackend(
   await page.route("**/api/services", (route) =>
     route.fulfill({ contentType: "application/json", body: JSON.stringify([]) }),
   );
+  return releaseLoading;
 }
 
 async function gotoMesh(
@@ -151,9 +159,12 @@ async function gotoMesh(
   opts: { snapshot: Json | null; loading?: boolean; peers?: Json[] },
   viewport: { width: number; height: number } = { width: 1280, height: 800 },
 ): Promise<{ page: Page; close: () => Promise<void> }> {
-  const ctx = await browser.newContext({ viewport });
+  const ctx = await browser.newContext({ viewport, serviceWorkers: "block" });
+  await ctx.route("https://*.test.ts.net/**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Web UI fixture</title>" }),
+  );
   const page = await ctx.newPage();
-  await mockMeshBackend(page, opts);
+  const releaseLoading = await mockMeshBackend(page, opts);
 
   await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
   await page.waitForSelector('[data-testid="web-token-input"]', { timeout: 15_000 });
@@ -168,7 +179,13 @@ async function gotoMesh(
   if (await sidebarOpen.isVisible().catch(() => false)) await sidebarOpen.click();
   await page.click('[data-testid="nav-mesh"]');
   await page.waitForSelector('[data-testid="mesh-web-ui-action"]', { timeout: 15_000 });
-  return { page, close: () => ctx.close() };
+  return {
+    page,
+    close: async () => {
+      releaseLoading();
+      await ctx.close();
+    },
+  };
 }
 
 const WEB_URL = `${API_BASE}/`;
