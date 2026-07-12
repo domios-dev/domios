@@ -344,7 +344,7 @@ fn planning_kind_tasks_do_not_trip_approval_gate() {
         "tasks": [{
             "id": "task_1",
             "name": "Improve task graph",
-            "kind": "planning",
+            "type": "planning",
             "status": "pending",
             "section_ids": ["sec_1"]
         }]
@@ -369,7 +369,7 @@ fn execution_kind_task_in_planning_mode_trips_approval_gate() {
         "tasks": [{
             "id": "task_1",
             "name": "Build feature",
-            "kind": "implement",
+            "type": "implement",
             "status": "pending",
             "section_ids": ["sec_1"]
         }]
@@ -378,6 +378,58 @@ fn execution_kind_task_in_planning_mode_trips_approval_gate() {
     assert!(
         findings.iter().any(|f| f.kind == "tasks_before_approval"),
         "execution-kind tasks in planning mode must trip the approval gate"
+    );
+}
+
+#[test]
+fn structure_ready_plan_with_only_planning_task_passes_approval_gate() {
+    // Issue #231 finding 3: a structure_ready plan whose only task is
+    // planning-kind (stored as "type": "planning") must not trip the gate.
+    let plan = json!({
+        "id": "pl_b5g9vg",
+        "title": "SCRATCH-owner-plan",
+        "status": "active",
+        "mode": "planning",
+        "planning_state": "structure_ready",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_qtj969",
+        "sections": [{"id": "sec_1", "title": "Spec", "body": "WHAT/WHY"}],
+        "tasks": [{
+            "id": "task_2maz43",
+            "name": "scratch planning task",
+            "type": "planning",
+            "status": "pending",
+            "section_ids": ["sec_1"]
+        }]
+    });
+    let findings = inspect_plan(Path::new("pl_b5g9vg.json"), &plan, "quality");
+    assert!(
+        !findings.iter().any(|f| f.kind == "tasks_before_approval"),
+        "structure_ready plan with only a planning-kind task must not trip the approval gate: {findings:?}"
+    );
+}
+
+#[test]
+fn from_spec_owned_plan_not_flagged_missing_spec_source() {
+    // Issue #231 finding 2: a plan created --from-spec owns its spec via
+    // primary_spec_id/spec_refs even when the spec has no sections (no
+    // coverage edges yet). Ownership must satisfy the spec-source check.
+    let plan = json!({
+        "id": "pl_b5g9vg",
+        "title": "SCRATCH-owner-plan",
+        "status": "active",
+        "mode": "planning",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_qtj969",
+        "spec_refs": ["sp_qtj969"],
+        "spec_links": [],
+        "sections": [],
+        "tasks": []
+    });
+    let findings = inspect_plan(Path::new("pl_b5g9vg.json"), &plan, "quality");
+    assert!(
+        !findings.iter().any(|f| f.kind == "missing_spec_source"),
+        "a --from-spec-owned plan must not be flagged missing_spec_source: {findings:?}"
     );
 }
 

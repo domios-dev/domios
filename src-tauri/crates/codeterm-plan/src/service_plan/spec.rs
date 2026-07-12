@@ -18,6 +18,13 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<crate::plan::Plan, PlanError> {
         let spec = self.get_spec(spec_id).ok_or(PlanError::NotFound)?;
+        // Claim ownership before inserting the plan row: a spec-conflict must
+        // leave zero orphan plans behind.
+        if let Some(owner) = spec.plan_id.as_deref() {
+            return Err(PlanError::Io(format!(
+                "spec {spec_id} already owned by plan {owner}"
+            )));
+        }
         let mut plan = self.create_plan(title, spec.project_path.clone(), owner, kinds, now_ms)?;
         plan.primary_spec_id = Some(spec_id.to_string());
         if !plan.spec_refs.iter().any(|id| id == spec_id) {
@@ -58,7 +65,12 @@ impl PlanStore {
         plan.sections = mirror_sections(&spec.sections, &mut links, spec_id);
         plan.spec_links = links;
         self.commit_loaded_plan(plan.clone())?;
-        self.adopt_spec_to_plan(spec_id, &plan.id, now_ms)?;
+        // Roll back the just-committed plan if the claim races another owner,
+        // so no orphan survives the failure.
+        if let Err(e) = self.adopt_spec_to_plan(spec_id, &plan.id, now_ms) {
+            let _ = self.delete(&plan.id);
+            return Err(e);
+        }
         Ok(plan)
     }
 
@@ -651,6 +663,42 @@ mod tests {
             .unwrap()
             .join("spec.yaml");
         assert!(!co_located.exists(), "co-located yaml must be removed");
+    }
+
+    #[test]
+    fn from_spec_conflict_leaves_no_orphan_plan() {
+        let (root, store) = store_root();
+        let spec = store
+            .create_spec("SCRATCH-dx-spec".into(), root.display().to_string(), 1)
+            .unwrap();
+        let owner = store
+            .create_plan_from_spec(
+                &spec.id,
+                "SCRATCH-owner-plan".into(),
+                OrchestratorRef::default(),
+                vec![],
+                2,
+            )
+            .unwrap();
+        assert_eq!(store.list_full().len(), 1);
+
+        let conflict = store.create_plan_from_spec(
+            &spec.id,
+            "SCRATCH-conflict-plan".into(),
+            OrchestratorRef::default(),
+            vec![],
+            3,
+        );
+        assert!(conflict.is_err(), "second from-spec must be rejected");
+        assert_eq!(
+            store.list_full().len(),
+            1,
+            "spec-conflict must leave zero orphan plans"
+        );
+        assert_eq!(
+            store.get_spec(&spec.id).unwrap().plan_id.as_deref(),
+            Some(owner.id.as_str())
+        );
     }
 
     #[test]
