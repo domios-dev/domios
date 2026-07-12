@@ -112,6 +112,13 @@ async function waitMuxTabTitle(api: ApiClient, tabId: string, title: string): Pr
   }, 20_000, 500, `mux tab title ${title}`);
 }
 
+async function waitMuxPendingPrompt(api: ApiClient, paneId: string, question: string): Promise<void> {
+  await pollUntil(async () => {
+    const mux = await api.get<MuxState>("/mux/state");
+    return mux.panes[paneId]?.pending_prompt?.question === question || undefined;
+  }, 20_000, 500, `mux pending prompt ${paneId}`);
+}
+
 async function waitMuxWorkspaceName(api: ApiClient, workspaceId: string, name: string): Promise<void> {
   await pollUntil(async () => {
     const mux = await api.get<MuxState>("/mux/state");
@@ -604,6 +611,8 @@ test.describe("@golden web stability verification", () => {
           { label: "No", value: "no" },
         ],
       });
+      await waitMuxPendingPrompt(api, pane.id, question);
+      await focusTab(page, pane.tab_id);
       await expect(tab(page, pane.tab_id).locator('[data-testid="tab-status-rail"]')).toHaveAttribute(
         "data-rail-variant",
         "attention",
