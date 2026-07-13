@@ -15,7 +15,6 @@ import { CHAT_REATTACHED_EVENT } from "./chatReattach";
 
 const INITIAL_VISIBLE_MESSAGES = 220;
 const VISIBLE_MESSAGE_STEP = 160;
-const CHAT_RECOVERY_RETRY_MS = 1_000;
 export const TEST_CHAT_REPLY_EVENT = "codeterm:test-chat-reply";
 const TEST_CHAT_BASE_TIME_MS = 1_700_000_000_000;
 
@@ -38,6 +37,8 @@ interface ChatMsgEvent {
   messages: ChatMessage[];
   cursor?: string;
 }
+
+type ChatAttachmentState = "idle" | "attaching" | "awaiting_store" | "attached" | "failed";
 
 export interface TestChatReplyDetail {
   paneId: string;
@@ -169,10 +170,12 @@ function applyChatMsgEvent(
   nextOrder: () => number,
 ): void {
   if (payload.pane_id !== paneId) return;
-  const incoming = withClientOrder(payload.messages, nextOrder);
-  if (!incoming?.length) return;
+  if (!payload.messages.length) return;
   startTransition(() => {
-    setStructured((prev) => mergeById(prev ?? [], incoming));
+    setStructured((prev) => {
+      const existing = prev ?? [];
+      return mergeById(existing, withPreservedClientOrder(payload.messages, existing, nextOrder));
+    });
   });
 }
 
@@ -203,10 +206,16 @@ function toEchoes(msgs: ChatMessage[]): OptimisticEcho[] {
   return msgs.map((m) => ({ id: m.id, content: m.content, sentAtMs: Number(m.timestamp) || 0 }));
 }
 
-function withClientOrder(messages: ChatMessage[], nextOrder: () => number): ChatMessage[] {
-  return messages.map((message) => (
-    message.clientOrder == null ? { ...message, clientOrder: nextOrder() } : message
-  ));
+function withPreservedClientOrder(
+  messages: ChatMessage[],
+  previous: ChatMessage[],
+  nextOrder: () => number,
+): ChatMessage[] {
+  const orders = new Map(previous.map((message) => [message.id, message.clientOrder]));
+  return messages.map((message) => {
+    const clientOrder = message.clientOrder ?? orders.get(message.id) ?? nextOrder();
+    return message.clientOrder === clientOrder ? message : { ...message, clientOrder };
+  });
 }
 
 const MS_EPOCH_FLOOR = 1e12;
@@ -238,10 +247,19 @@ export function useChatSession({
   const [loading, setLoading] = useState(true);
   const [recovering, setRecovering] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [restartToken, setRestartToken] = useState(0);
+  const [listenerReady, setListenerReady] = useState(false);
+  const [attachGeneration, setAttachGeneration] = useState(0);
+  const [attachmentState, setAttachmentState] = useState<ChatAttachmentState>("idle");
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
   const onErrorRef = useRef(onError);
   const nextClientOrderRef = useRef(0);
+  const activeRef = useRef(active);
+  const agentSessionIdRef = useRef(agentSessionId);
+  const previousSessionIdRef = useRef(agentSessionId);
+  const rotationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lifecycleRef = useRef(0);
+  const knownPaneIdRef = useRef<string | null>(null);
+  const attachmentStateRef = useRef(attachmentState);
   const nextClientOrder = useCallback(() => {
     const value = nextClientOrderRef.current;
     nextClientOrderRef.current += 1;
@@ -252,61 +270,113 @@ export function useChatSession({
     onErrorRef.current = onError;
   }, [onError]);
 
+  activeRef.current = active;
+  agentSessionIdRef.current = agentSessionId;
+  attachmentStateRef.current = attachmentState;
+
   useEffect(() => {
     setOptimistic([]);
   }, [paneId]);
 
+  const clearRotationTimer = useCallback(() => {
+    if (rotationTimerRef.current) clearTimeout(rotationTimerRef.current);
+    rotationTimerRef.current = null;
+  }, []);
+
+  const requestAttach = useCallback(() => {
+    setError(null);
+    setAttachmentState("attaching");
+    setAttachGeneration((generation) => generation + 1);
+  }, []);
+
+  const markAttached = useCallback(() => {
+    clearRotationTimer();
+    setAttachmentState("attached");
+    setRecovering(false);
+    setLoading(false);
+  }, [clearRotationTimer]);
+
   useEffect(() => {
     if (!active) {
+      setListenerReady(false);
       setLoading(false);
+      setAttachmentState("idle");
       return;
     }
-    let cancelled = false;
+    const lifecycle = lifecycleRef.current + 1;
+    lifecycleRef.current = lifecycle;
     let unlisten: UnlistenFn | null = null;
     let unlistenTest: (() => void) | null = null;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    if (knownPaneIdRef.current !== paneId) {
+      knownPaneIdRef.current = paneId;
+      nextClientOrderRef.current = 0;
+      setStructured(null);
+      setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
+      setLoading(true);
+    }
     (async () => {
       try {
-        setLoading(true);
         unlisten = await listen<ChatMsgEvent>(
           `pane-chat-msg-${paneId}`,
           (ev) => {
-            if (cancelled) return;
+            if (lifecycleRef.current !== lifecycle) return;
             applyChatMsgEvent(ev.payload, paneId, setStructured, nextClientOrder);
+            if (attachmentStateRef.current !== "attached") markAttached();
           },
         );
-        if (cancelled) {
+        if (lifecycleRef.current !== lifecycle) {
           unlisten();
           return;
         }
         unlistenTest = listenForTestChatReplies(paneId, setStructured, nextClientOrder);
-        const res = await invoke<ChatStartResult>("chat_start", { paneId });
-        if (cancelled) return;
+        setListenerReady(true);
+        setAttachmentState("idle");
+      } catch (e) {
+        if (lifecycleRef.current !== lifecycle) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        setAttachmentState("failed");
+        setError(msg);
+        setLoading(false);
+        onErrorRef.current?.(msg);
+      }
+    })();
+    return () => {
+      lifecycleRef.current += 1;
+      clearRotationTimer();
+      unlisten?.();
+      unlistenTest?.();
+      setListenerReady(false);
+      void invoke("chat_stop", { paneId }).catch(() => {});
+    };
+  }, [active, clearRotationTimer, markAttached, nextClientOrder, paneId]);
+
+  useEffect(() => {
+    if (!active || !listenerReady) return;
+    const lifecycle = lifecycleRef.current;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await invoke<ChatStartResult>("chat_start", {
+          paneId,
+          agentSessionId: agentSessionIdRef.current,
+        });
+        if (cancelled || lifecycleRef.current !== lifecycle) return;
         setError(null);
-        setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
-        nextClientOrderRef.current = 0;
+        setLoading(false);
         if (res.pending) {
+          setAttachmentState("awaiting_store");
           setRecovering(true);
-          setLoading(false);
-          if (agentSessionId) {
-            retryTimer = setTimeout(() => setRestartToken((token) => token + 1), CHAT_RECOVERY_RETRY_MS);
-          }
           return;
         }
-        setRecovering(false);
-        setLoading(false);
-        setStructured((prev) => {
-          if (!prev?.length) {
-            nextClientOrderRef.current = 0;
-            return withClientOrder(res.messages ?? [], nextClientOrder);
-          }
-          const maxOrder = prev.reduce((max, message) => Math.max(max, message.clientOrder ?? -1), -1);
-          nextClientOrderRef.current = maxOrder + 1;
-          return mergeById(withClientOrder(res.messages ?? [], nextClientOrder), prev);
-        });
+        markAttached();
+        setStructured((prev) => mergeById(
+          prev ?? [],
+          withPreservedClientOrder(res.messages ?? [], prev ?? [], nextClientOrder),
+        ));
       } catch (e) {
-        if (cancelled) return;
+        if (cancelled || lifecycleRef.current !== lifecycle) return;
         const msg = e instanceof Error ? e.message : String(e);
+        setAttachmentState("failed");
         setRecovering(false);
         setError(msg);
         setLoading(false);
@@ -315,18 +385,29 @@ export function useChatSession({
     })();
     return () => {
       cancelled = true;
-      unlisten?.();
-      unlistenTest?.();
-      if (retryTimer) clearTimeout(retryTimer);
-      void invoke("chat_stop", { paneId }).catch(() => {});
     };
-  }, [paneId, agentSessionId, nextClientOrder, active, restartToken]);
+  }, [active, attachGeneration, listenerReady, markAttached, nextClientOrder, paneId, requestAttach]);
+
+  useEffect(() => {
+    const previous = previousSessionIdRef.current;
+    previousSessionIdRef.current = agentSessionId;
+    if (
+      previous === agentSessionId
+      || !active
+      || !listenerReady
+      || (attachmentState !== "awaiting_store" && attachmentState !== "attached")
+    ) return;
+    if (rotationTimerRef.current) return;
+    rotationTimerRef.current = setTimeout(() => {
+      rotationTimerRef.current = null;
+      if (activeRef.current) requestAttach();
+    }, 0);
+  }, [active, agentSessionId, attachmentState, listenerReady, requestAttach]);
 
   const retry = useCallback(() => {
-    setError(null);
     setRecovering(true);
-    setRestartToken((token) => token + 1);
-  }, []);
+    requestAttach();
+  }, [requestAttach]);
 
   useEffect(() => {
     const handleReattached = (event: Event) => {

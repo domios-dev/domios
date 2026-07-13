@@ -17,23 +17,18 @@ Object.defineProperty(globalThis, "CustomEvent", { value: window.CustomEvent, co
 async function main() {
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   let starts = 0;
-  let listenerAttached = false;
-  __setListenForTest(async () => {
-    listenerAttached = true;
+  let stops = 0;
+  let listener: ((event: { payload: { pane_id: string; messages: Array<{ id: string; type: "assistant"; content: string; timestamp: string }> } }) => void) | null = null;
+  __setListenForTest(async (_event, handler) => {
+    listener = handler as typeof listener;
     return () => {};
   });
   __setInvokeForTest((async (cmd: string) => {
     if (cmd === "chat_start") {
       starts += 1;
-      if (!listenerAttached) throw new Error("listener attached after snapshot");
-      if (starts === 1) return { text: "", offset: 0, pending: true };
-      return {
-        text: "",
-        offset: 12,
-        pending: false,
-        messages: [{ id: "history", type: "assistant", content: "history restored", timestamp: "1" }],
-      };
+      return { text: "", offset: 0, pending: true };
     }
+    if (cmd === "chat_stop") stops += 1;
     return {};
   }) as never);
 
@@ -47,12 +42,18 @@ async function main() {
   const host = document.createElement("div");
   const root = createRoot(host);
   await act(async () => root.render(<Harness />));
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 1_100)));
-  if (starts < 2) throw new Error("pending snapshot did not retry");
+  if (starts !== 1) throw new Error("pending snapshot started more than once");
+  if (stops !== 0) throw new Error("pending snapshot stopped the listener");
+  await act(async () => listener?.({
+    payload: {
+      pane_id: "pane",
+      messages: [{ id: "history", type: "assistant", content: "history restored", timestamp: "1" }],
+    },
+  }));
   if (latest.recovering) throw new Error("chat stayed in recovering state");
   if (latest.messages[0] !== "history restored") throw new Error("history was not restored");
   await act(async () => root.unmount());
-  console.log("PASS bound-session pending snapshot retries and restores history");
+  console.log("PASS bound-session pending snapshot waits for an event and restores history");
 }
 
 void main();
