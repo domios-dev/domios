@@ -324,7 +324,12 @@ export function Sidebar({
   const sidebarActionText = pickUiFontScaleValue(uiFontScale, ["text-[10px]", "text-[11px]", "text-[12px]", "text-[13px]"]);
   const sidebarNavText = pickUiFontScaleValue(uiFontScale, ["text-[10px]", "text-[11px]", "text-[12px]", "text-[13px]"]);
   const sidebarNavTouchText = pickUiFontScaleValue(uiFontScale, ["text-[12px]", "text-[13px]", "text-[14px]", "text-[15px]"]);
-  const visibleSidebarWidth = isSidebarCollapsed ? 16 : touchMode ? Math.round(sidebarWidth * 1.3) : sidebarWidth;
+  const scaledTouchSidebarWidth = Math.round(sidebarWidth * 1.3);
+  const visibleSidebarWidth = isSidebarCollapsed
+    ? 16
+    : touchMode
+      ? `min(85vw, ${scaledTouchSidebarWidth}px)`
+      : sidebarWidth;
   const isCompact = !touchMode && !isSidebarCollapsed && sidebarWidth < 100;
   const prevTabIdsRef = useRef<Set<string>>(new Set());
   const [appearingTabs, setAppearingTabs] = useState<Set<string>>(new Set());
@@ -448,6 +453,7 @@ export function Sidebar({
         >
         <aside
           ref={sidebarRef}
+          data-testid="sidebar"
           data-touch-mode={touchMode ? "true" : "false"}
           className="shrink-0 h-full min-h-0 bg-[var(--ct-sidebar-bg)] border-r border-[var(--ct-border)] flex flex-col select-none overflow-visible overflow-y-hidden relative"
           style={{ width: visibleSidebarWidth }}
