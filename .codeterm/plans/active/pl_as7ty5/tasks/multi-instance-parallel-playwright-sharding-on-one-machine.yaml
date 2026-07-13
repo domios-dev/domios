@@ -17,8 +17,8 @@ qa_state: null
 status_label: null
 priority: p2
 created_at: 1783782192088
-updated_at: 1783805267564
-status_changed_at: 1783782192088
+updated_at: 1783971119189
+status_changed_at: 1783971119189
 handle: multi-instance-parallel-playwright-sharding-on-one-machine
 tags: []
 section_ids:
@@ -50,7 +50,39 @@ canvas:
   x: null
   y: null
   collapsed: false
-milestones: []
+milestones:
+- id: ms_ql0auo
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: 'paused: Depends on task_k16xu0 stub-provider conversion and should not start while local dev 7686 is reserved for manual UI verification; resume after k16xu0 is staffed/closed.'
+  ts: 1783969662124
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_uc683x
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: 'resumed: returned to pending'
+  ts: 1783971119189
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts: []
 pause_reason: null
 attachments: []

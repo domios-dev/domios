@@ -1,0 +1,100 @@
+id: task_ngwcjd
+name: Test template SPAWNS as emergent behavior (real launch, not stub) — orchestration pair / agent / future command types
+type: implement
+model: null
+model_rationale: null
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- Each template/command spawn type has a real-launch (stub-disabled) gate asserting the surface comes up (process live, first message arrives, no bare shell)
+- Adding a new command type requires adding its spawn smoke — documented as the contract
+test_plan: |
+  1) Inspect tests/playwright/suites/20-new-session/picker-live.spec.ts and existing spawn helpers; extract a reusable stub-disabled real-spawn smoke matrix for template types: orchestration pair and single agent, with a future command-type slot documented.
+  2) Add or adjust tests only in tests/playwright suites/helpers. Every new or edited title must pass alone first with: npx playwright test <file> -g "<exact title>" --project=live --timeout=30000 --global-timeout=600000 --reporter=line --trace=on.
+  3) Required oracle per template: returned pane ids exist, provider process/session materializes through status/chat, first visible chat/setup message arrives or setup loading state is visible until it arrives, no bare shell prompt remains, and pair follow-up is delivered for orchestration pair.
+  4) Do not run broad golden/full; no dev/build ownership in worker lanes. Stop at clean patch/commit plus exact verification commands and artifacts for integration QA.
+correctness: Real spawn paths must be gated; the stub suite is blind to launch regressions by design
+status: in_progress
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783970644778
+updated_at: 1783971792873
+status_changed_at: 1783971400895
+handle: test-template-spawns-as-emergent-behavior-real-launch-not-stub-orchestra
+tags: []
+section_ids:
+- sec_f6g3fr
+body: 'Andrey: the golden Playwright suite uses the stub transport and never exercises real template spawns, so real-launch bugs (orchestrator-pair bare-shell w6v9dt, REM shell-drop kkpmdi) slipped through. As we add new command/template TYPES (not just claude/codex), each spawn must be gated on the REAL launch path, treated as emergent behavior: assert the spawned surface actually comes up (agent process live, first chat message arrives, no bare shell, follow-ups delivered). Build on hp9204''s @live real-pair-launch gate: generalize it into a per-template-type spawn smoke (orchestration pair, single agent, and a slot for future command types) that runs on real launch (stub disabled), with a bounded manual fallback where a live provider is required. Also wire the chat-empty ''setting up'' loading state (sibling UX task) so the spawn oracle can key on first-message-arrival, which is the same signal the UI uses.'
+role_guidance: null
+executor_role: test-author
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: 1f4faa1f
+lane:
+  pane_id: 1f4faa1f
+  workspace_id: null
+  workspace_name: null
+  worktree_path: D:\Developer\codeterm-worktrees\task_ngwcjd-real-spawn-smoke
+  branch: lane/task_ngwcjd-real-spawn-smoke
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_lwd0jm
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' owner veto recorded for attention rail/workspace yellow visuals; canonical commit 18d7b18fd removes row-level rail/highlight while preserving prompt pill/status dot, so prior rail assertions should not be treated as regression'
+  ts: 1783971174998
+  links:
+  - key:9efc1a54ad013a5e
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_wdwzrh
+  executor_pane_id: 1f4faa1f
+  executor_title: Darcy
+  provider: null
+  agent_type: null
+  model: null
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: null
+  report: null
+  assigned_at: 1783971400895
+  reported_at: null
+  reviewed_at: null
+  closed_at: null
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+pause_reason: null
+attachments: []
