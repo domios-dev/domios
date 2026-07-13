@@ -4,6 +4,7 @@ import { WebGate } from "./components/WebGate/WebGate";
 import { isMissionControlPrototypeRoute, MissionControlPrototype } from "./components/Canvas/missionControl";
 import { loadBundledPlugins } from "./lib/plugins/loader";
 import { installToolOutputCardHarness } from "./components/AgentRun/ToolOutputCard.browserHarness";
+import { installCodeTermTestChatHandle } from "./components/Terminal/useChatSession";
 import "./styles/globals.css";
 import "./components/Canvas/missionControl/missionControl.css";
 
@@ -13,6 +14,7 @@ const missionControlPrototype = isMissionControlPrototypeRoute();
 const isGalleryRoute = new URLSearchParams(window.location.search).get("prototype") === "gallery";
 
 installToolOutputCardHarness();
+installCodeTermTestChatHandle();
 
 if (!missionControlPrototype && !isGalleryRoute) {
   loadBundledPlugins();
