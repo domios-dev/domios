@@ -29,6 +29,7 @@ see [`docs/TESTING.md`](../../docs/TESTING.md).
 pnpm test:pw:lint    # fail if any Playwright test has no tier tag
 pnpm test:pw:smoke   # @smoke project
 pnpm test:pw:golden  # @golden project, one retry and 5min timeout
+pnpm test:pw:perf    # @perf stub-provider latency budget project
 pnpm test:pw:full    # all non-quarantined tests
 pnpm test:pw:live-pair # bounded real-Claude orchestration launch gate
 pnpm test:pw:report  # open the last HTML report
@@ -197,6 +198,8 @@ checks this before a test can land unnoticed.
 - `@smoke`: every commit; fast and deterministic.
 - `@golden`: PR gate for real-agent paths; real LLM allowed, parsimonious per
   test, run with `pnpm test:pw:golden`.
+- `@perf`: deterministic stub-provider latency budgets, run with the dedicated
+  `perf` project.
 - `@quarantine`: excluded from `pnpm test:pw:full`; document entries in
   [`QUARANTINE.md`](QUARANTINE.md).
 
