@@ -111,7 +111,7 @@ owner:
 project_path: \\?\D:\Developer\codeterm
 canonical_project_path: \\?\D:\Developer\codeterm
 created_at: 1783628878496
-updated_at: 1783808465918
+updated_at: 1783971807351
 milestone_kinds:
 - key: discovery
   label: discovery
@@ -363,9 +363,9 @@ primary_spec_id: sp_o6l6of
 lineage: []
 goal: null
 heartbeat:
-  current_focus: task_k16xu0 slice 1 complete at 36878bdf6; Planner continues next slice converting 03-agents/agents.spec.ts to stub matrix; perf/sharding wait
+  current_focus: canonical feat/1.7.2-stability dev ready at 8a1dc3aee; pair launch/scroll/rails/setup/picker fixes landed; k16xu0+ngwcjd workers active, kb1ncv+9im93u dependency-waiting
   active_lanes:
-  - task_k16xu0
+  - final-followup-workers
   rules:
   - No worker starts cargo/build/dev directly while a machine QA/build owner exists
   learnings:
@@ -433,7 +433,7 @@ owner_history:
 planner:
   kind: pane
   pane_id: 56827f12
-  session_id: 8b418573-4e9d-492c-8858-27e3cd74d945
+  session_id: e0ceb04e-d24d-4f2b-8af5-d69d5d3fa421
 planning_state: approved
 planning_log:
 - from: drafting
@@ -520,3 +520,11 @@ regression_gate_overrides:
   - planning-ux
   - responsiveness
   ts: 1783783428047
+- actor:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  reason: 'Owner requested all paused/pending tasks continue. The blocking playwright-stability gate has current evidence: Linux broad e89/e538 with classified reds, Mac e89/e538 static/unit/build green, ROG e89 Windows focused UI green, plus canonical Windows de184/18d local checks and dev health. Remaining work is follow-up implementation/test-authoring; dispatching workers will not run local broad/dev gates.'
+  gates:
+  - playwright-stability
+  ts: 1783971395146

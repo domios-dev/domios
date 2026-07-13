@@ -10,16 +10,20 @@ acceptance_criteria:
 - Provider-sensitive tests (restore matrix, chat parsing/rendering, session identity, status rail) run as a matrix over stub:claude, stub:codex, stub:opencode — not claude-only; provider-agnostic plumbing tests may run one stub
 - 3-5 true end-to-end tests remain on real providers under a live tag with their own project (at least one per PTY provider currently installed); golden excludes live
 - Converted golden shard total time drops by at least 50 percent vs the task_rhbf8k shard-table baseline, measured on one platform
-test_plan: '1) Inventory all specs spawning real agents (spawnAgent/spawnWorker/waitForOrchestrator/waitForSingleAgent across 8 files). 2) Per test decide: convert (verifies plumbing/UI) vs keep live (verifies real provider behavior: one spawn-report round-trip, one multi-turn tool loop, one restore-resume). 3) Convert: agent_type stub + scripted transcript; keep identical final assertions; drop setTimeout caps to 60-90s. 4) Each converted spec green twice in isolation with --timeout=90000. 5) Run the converted golden shard with --global-timeout and record before/after wall-clock. 6) live project runs its 3-5 tests green once as proof.'
+test_plan: |
+  1) Continue from slice-1 inventory: edit tests/playwright/suites/03-agents/agents.spec.ts first, converting only golden real-agent plumbing cases to stub provider matrix while preserving the existing DOM/API assertions.
+  2) For each edited title, run isolation twice before batching: npx playwright test tests/playwright/suites/03-agents/agents.spec.ts -g "<exact title>" --project=golden --timeout=30000 --global-timeout=600000 --reporter=line --trace=on, with stub transport enabled by the existing helpers from task_dycecc.
+  3) Keep live-provider coverage as @live titles outside golden: one spawn/report round trip, one multi-turn tool loop, one restart/resume, and one real codex/opencode boot where installed.
+  4) Final worker evidence: converted 03-agents subset wall-clock before/after, exact commands, and no broad golden/full; integration QA owns any broad gate.
 correctness: Oracles unchanged — only the agent transport is scripted; real-provider behavior still covered by the live shard; no test silently weakened.
 status: in_progress
 review_stage: review
 qa_state: null
-status_label: planner-owned
+status_label: needs-reassign
 priority: p1
 created_at: 1783782175703
-updated_at: 1783808465918
-status_changed_at: 1783807668860
+updated_at: 1783971806280
+status_changed_at: 1783971792703
 handle: convert-agent-flow-golden-tests-to-stub-provider-keep-live-llm-shard
 tags: []
 section_ids:
@@ -32,13 +36,13 @@ intent: null
 parent_task_id: null
 depends_on:
 - task_dycecc
-assigned_pane_id: 56827f12
+assigned_pane_id: 08e214f9
 lane:
-  pane_id: 56827f12
+  pane_id: 08e214f9
   workspace_id: null
   workspace_name: null
-  worktree_path: null
-  branch: feat/1.7.2-stability
+  worktree_path: D:\Developer\codeterm-worktrees\task_k16xu0-agent-stub-matrix
+  branch: lane/task_k16xu0-agent-stub-matrix
   base: null
   destination: null
   cleanup_status: null
@@ -99,6 +103,129 @@ milestones:
     y: null
     collapsed: false
   attachments: []
-execution_attempts: []
+- id: ms_prudda
+  from:
+    pane_id: watchdog
+    session_id: null
+    title: null
+  kind: decision
+  text: 'watchdog: assigned pane gone and silent for 161126927ms — demoted to pending'
+  ts: 1783969592845
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_gx0r0v
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: 'paused: Worker pane is gone after slice 1; local Windows dev 7686 is reserved for Andrey''s manual UI verification. Resume by dispatching a fresh test-author worker for the 03-agents/agents.spec.ts stub-matrix slice after manual dev testing.'
+  ts: 1783969662083
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_t57du6
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: 'resumed: returned to pending'
+  ts: 1783971119190
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_ttlkpe
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: ' paused state cleared; task is pending for fresh test-author assignment after canonical dev verification, with local dev 7686 currently reserved for Andrey UI smoke'
+  ts: 1783971175100
+  links:
+  - key:04186606fcb1e451
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_4okf29
+  from:
+    pane_id: 08e214f9
+    session_id: pw-codex-green
+    title: stub matrix agents tests
+  kind: status_update
+  text: |-
+    PARTIAL: STATUS: partial
+    CHANGES: 2e7715e91 matrices the existing golden restart/resume oracle over stub claude/codex/opencode at 90s, extends replayer parsing for Codex positional resume and OpenCode --session, and updates shard D to the stub-matrix budget.
+    TESTS RUN: RED old replayer lost the Codex resume id (random session output). GREEN direct replay parser matrix passed for Claude/Codex/OpenCode; prettier --check and git diff --check passed.
+    QA COMMANDS: Run each restart title twice with: npx playwright test tests/playwright/suites/03-agents/agents.spec.ts -g "@golden PROVIDER: agent restart mid-session resumes and stays usable" --project=golden --timeout=30000 --global-timeout=600000 --reporter=line --trace=on after enabling CODETERM_STUB_AGENT_CMD. Then run the focused 03-agents golden file with the same global cap.
+  ts: 1783971806280
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_cjip5w
+  executor_pane_id: 08e214f9
+  executor_title: Olin
+  provider: null
+  agent_type: null
+  model: opus
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: feat/1.7.2-stability
+  worktree_path: null
+  base: null
+  destination: null
+  report:
+    id: report_1783971806888
+    message: |-
+      STATUS: partial
+      CHANGES: 2e7715e91 matrices the existing golden restart/resume oracle over stub claude/codex/opencode at 90s, extends replayer parsing for Codex positional resume and OpenCode --session, and updates shard D to the stub-matrix budget.
+      TESTS RUN: RED old replayer lost the Codex resume id (random session output). GREEN direct replay parser matrix passed for Claude/Codex/OpenCode; prettier --check and git diff --check passed.
+      QA COMMANDS: Run each restart title twice with: npx playwright test tests/playwright/suites/03-agents/agents.spec.ts -g "@golden PROVIDER: agent restart mid-session resumes and stays usable" --project=golden --timeout=30000 --global-timeout=600000 --reporter=line --trace=on after enabling CODETERM_STUB_AGENT_CMD. Then run the focused 03-agents golden file with the same global cap.
+    status: partial
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783971400790
+  reported_at: 1783971806888
+  reviewed_at: null
+  closed_at: null
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
 pause_reason: null
 attachments: []
