@@ -47,6 +47,7 @@ function doneCard(t: Task): BoardTaskCardModel {
     loopBadge: null,
     competeBadge: null,
     focusMatch: false,
+    locator: null,
   };
 }
 

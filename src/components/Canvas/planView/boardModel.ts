@@ -60,6 +60,15 @@ export interface BoardPlanSummary {
   goalVector: string | null;
 }
 
+/** Where a task lives in the plan: its group (what kind of work) and its
+ * lead section (which milestone/phase) — the card's "what and where" locator. */
+export interface TaskLocator {
+  groupKey: string | null;
+  groupLabel: string | null;
+  groupColor: string | null;
+  section: string | null;
+}
+
 export interface BoardTaskCardModel {
   task: Task;
   presenceLabel: string | null;
@@ -71,6 +80,7 @@ export interface BoardTaskCardModel {
   loopBadge: LoopForTaskResult | null;
   competeBadge: CompetitionForTaskResult | null;
   focusMatch: boolean;
+  locator: TaskLocator | null;
 }
 
 export interface BoardColumnModel {
@@ -167,6 +177,24 @@ function focusMatches(plan: Plan, task: Task, paneId: string | null): boolean {
   return needles.some((n) => haystack.includes(n));
 }
 
+function buildTaskLocator(plan: Plan, task: Task): TaskLocator | null {
+  const groupKey = clean(task.group);
+  const group = groupKey ? plan.task_groups?.find((g) => g.key === groupKey) ?? null : null;
+  const sectionId = task.section_ids?.[0];
+  let section: string | null = null;
+  if (sectionId) {
+    const flat = flattenSections(plan.sections);
+    section = flat.find((s) => s.id === sectionId)?.title?.trim() || null;
+  }
+  if (!groupKey && !section) return null;
+  return {
+    groupKey,
+    groupLabel: group?.label?.trim() || groupKey,
+    groupColor: clean(group?.color),
+    section,
+  };
+}
+
 function buildTaskCard(
   plan: Plan,
   task: Task,
@@ -188,6 +216,7 @@ function buildTaskCard(
     loopBadge: loopForTask(plan, task.id),
     competeBadge: competitionForTask(task, panes),
     focusMatch: focusMatches(plan, task, paneId),
+    locator: buildTaskLocator(plan, task),
   };
 }
 
