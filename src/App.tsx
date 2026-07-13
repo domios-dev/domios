@@ -494,7 +494,7 @@ function AppInner() {
             aspectRatio: "1 / 1",
             top:
               mainView === "workspace"
-                ? "calc(2rem + var(--ct-safe-top, 0px) + 2.6rem)"
+                ? "calc(2rem + var(--ct-safe-top, 0px) + 3.75rem)"
                 : "calc(2rem + var(--ct-safe-top, 0px) + 3.65rem)",
             background: "var(--ct-accent)",
             color: "var(--ct-bg)",

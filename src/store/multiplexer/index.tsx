@@ -114,6 +114,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   // In-flight user tab selections; masks a stale backend snapshot until the
   // backend confirms the switch or the guard's deadline passes.
   const pendingTabSwitchRef = useRef<TabGuards>({});
+  const peerSwitchRef = useRef(0);
 
   const applyBackendState = useCallback((s: MultiplexerState) => {
     // here silently dropped the closed-history on every reload.
@@ -160,9 +161,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
     invoke<MultiplexerState>("mux_get_state")
       .then((backendState) => {
-        if (backendState && backendState.workspaces.length > 0) {
-          applyBackendState(backendState);
-        }
+        if (backendState) applyBackendState(backendState);
         reconciledRef.current = true;
         writeGateRef.current.unlock();
         if (IS_WEB) window.dispatchEvent(new Event("codeterm-cache-reconciled"));
@@ -282,9 +281,31 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       delete eventStats.__ctEvents?.breakMuxStream;
     });
 
-    const refreshMuxState = () => refreshFromBackend();
+    const refreshMuxState = () => void refreshFromBackend();
     window.addEventListener("codeterm-refresh-mux-state", refreshMuxState);
     unlisteners.push(() => window.removeEventListener("codeterm-refresh-mux-state", refreshMuxState));
+
+    const resetPeerContext = (event: Event) => {
+      const switchId = (event as CustomEvent<{ switchId: number }>).detail.switchId;
+      peerSwitchRef.current = switchId;
+      pendingTabSwitchRef.current = {};
+      writeGateRef.current.lock();
+      dispatch({ type: "RESET_PEER_CONTEXT" });
+    };
+    const rebindPeerContext = (event: Event) => {
+      const switchId = (event as CustomEvent<{ switchId: number }>).detail.switchId;
+      void refreshFromBackend().then((success) => {
+        if (peerSwitchRef.current !== switchId) return;
+        if (success) writeGateRef.current.unlock();
+        window.dispatchEvent(new CustomEvent("codeterm-peer-switch-ready", {
+          detail: { switchId, success },
+        }));
+      });
+    };
+    window.addEventListener("codeterm-peer-switch-reset", resetPeerContext);
+    window.addEventListener("codeterm-peer-switch-rebind", rebindPeerContext);
+    unlisteners.push(() => window.removeEventListener("codeterm-peer-switch-reset", resetPeerContext));
+    unlisteners.push(() => window.removeEventListener("codeterm-peer-switch-rebind", rebindPeerContext));
 
     const onBootChanged = () => dispatch({ type: "RESET_GENERATION" });
     window.addEventListener("codeterm-web-boot-changed", onBootChanged);
@@ -334,14 +355,17 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const refreshFromBackend = useCallback(() => {
-    invoke<MultiplexerState>("mux_get_state")
-      .then((s) => {
-        if (s && s.workspaces.length > 0) {
-          applyBackendState(s);
-        }
-      })
-      .catch((e) => console.warn("Failed to refresh state:", e));
+  const refreshFromBackend = useCallback(async (): Promise<boolean> => {
+    try {
+      const s = await invoke<MultiplexerState>("mux_get_state");
+      if (s) applyBackendState(s);
+      return !!s;
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
+        console.warn("Failed to refresh state:", e);
+      }
+      return false;
+    }
   }, [applyBackendState]);
 
   const createTab = useCallback(async (workspaceId: string, cwd?: string) => {

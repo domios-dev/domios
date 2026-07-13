@@ -58,6 +58,7 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
   test.setTimeout(240_000);
   const STUB_TOKEN = "stub-web-token-123";
   const stub = new MeshStub({ services: 1, webToken: STUB_TOKEN });
+  stub.muxDelayMs = 500;
   let peerId: string | undefined;
 
   // before its cleanup — drop them so selectors stay unambiguous.
@@ -96,15 +97,18 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
     await expect(item).toBeVisible({ timeout: 15_000 });
     await expect(item).toHaveAttribute("data-peer-online", "true");
 
-    // stores it for the target host, then reloads directly into the stub.
+    const oldPaneId = await page.locator("[data-pane-id]").first().getAttribute("data-pane-id");
+    expect(oldPaneId, "self host should expose an active pane before switching").toBeTruthy();
+
     const before = stub.requests.length;
     await item.click();
     await expect(page.locator('[data-testid="web-token-input"]')).toHaveCount(0);
+    await expect(page.locator(`[data-pane-id="${oldPaneId}"]`)).toHaveCount(0);
 
-    // the stub actually received the web client's API calls.
     await expect(
       page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.instanceName}-workspace"]`),
     ).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('[data-testid="peer-picker-button"]')).toContainText(stub.instanceName);
     expect(stub.requests.length, "stub saw no web traffic after switch").toBeGreaterThan(before);
     expect(
       stub.requests.some(
@@ -119,6 +123,10 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
       1,
       `stub requests: ${stub.requests.slice(-10).join(", ")}`,
     );
+    expect(
+      stub.requests.slice(before).filter((request) => request.includes(`/api/panes/${oldPaneId}/`)),
+      "new peer received a request for the old peer pane",
+    ).toEqual([]);
 
     // Switch back to self: real workspaces return, no stub data leaks.
     await page.click('[data-testid="peer-picker-button"]');
@@ -164,12 +172,12 @@ test("@golden unreachable peer fails gracefully at the gate, back-to-self recove
 });
 
 test("@golden mobile viewport: no horizontal scroll, sidebar overlays, picker reachable", async ({ webBrowser }) => {
-  const page = await newWebPage(webBrowser, { width: 375, height: 812 });
+  const page = await newWebPage(webBrowser, { width: 390, height: 844 });
   await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
   await passTokenGate(page);
 
   const scrollW = await page.evaluate(() => document.documentElement.scrollWidth);
-  expect(scrollW, "horizontal scroll on phone viewport").toBeLessThanOrEqual(375);
+  expect(scrollW, "horizontal scroll on phone viewport").toBeLessThanOrEqual(390);
 
   // workspaces, nav) lives in the overlay the hamburger opens.
   const burger = page.locator('[data-testid="web-sidebar-open"]');
@@ -180,6 +188,17 @@ test("@golden mobile viewport: no horizontal scroll, sidebar overlays, picker re
   await expect(picker).toBeVisible({ timeout: 10_000 });
   const box = await picker.boundingBox();
   expect(box && box.height >= 40, `picker touch target ${box?.height}px`).toBe(true);
+
+  const burgerBox = await burger.boundingBox();
+  const reconnectBox = await page.locator('[data-testid="chat-reconnect"]').boundingBox();
+  const modeBox = await page.locator('[data-testid="pane-mode-switch"]').boundingBox();
+  const overlaps = (
+    a: { x: number; y: number; width: number; height: number },
+    b: { x: number; y: number; width: number; height: number },
+  ) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+  if (box && burgerBox) expect(overlaps(box, burgerBox), "peer picker overlaps hamburger").toBe(false);
+  if (burgerBox && reconnectBox) expect(overlaps(burgerBox, reconnectBox), "hamburger overlaps reconnect").toBe(false);
+  if (burgerBox && modeBox) expect(overlaps(burgerBox, modeBox), "hamburger overlaps mode switch").toBe(false);
 
   const navMesh = page.locator('[data-testid="nav-mesh"]');
   await expect(navMesh).toBeVisible({ timeout: 5_000 });
