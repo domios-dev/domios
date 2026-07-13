@@ -28,6 +28,21 @@ export function playwrightWorkerCount(): number {
   return integerEnv("CT_E2E_WORKERS", 1);
 }
 
+export function playwrightCargoTargetDir(
+  instance: DevInstance,
+  platform = process.platform,
+  workers = playwrightWorkerCount(),
+): string | undefined {
+  if (platform !== "win32" || workers === 1) return undefined;
+  return `src-tauri/target/playwright-${instance.name}`;
+}
+
+export function devStartArgs(workers = playwrightWorkerCount()): string[] {
+  const args = ["build.sh", "dev", "--wait"];
+  if (workers > 1) args.push("--release-gateway-after-ready");
+  return args;
+}
+
 export function devInstanceForSlot(slot: number, workers = playwrightWorkerCount()): DevInstance {
   if (!Number.isInteger(slot) || slot < 0 || slot >= workers) {
     throw new Error(`Playwright worker slot ${slot} is outside 0..${workers - 1}`);

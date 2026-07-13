@@ -5,7 +5,12 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { currentDevInstance, devInstanceForSlot } from "./dev-instance";
+import {
+  currentDevInstance,
+  devInstanceForSlot,
+  devStartArgs,
+  playwrightCargoTargetDir,
+} from "./dev-instance";
 
 const ENV_KEYS = [
   "CT_E2E_WORKERS",
@@ -37,6 +42,8 @@ test("serial defaults use the isolated Playwright instance", () => {
     assert.equal(instance.name, "playwright");
     assert.equal(instance.apiPort, 7786);
     assert.equal(instance.dataDirName, ".codeterm-dev-playwright");
+    assert.deepEqual(devStartArgs(), ["build.sh", "dev", "--wait"]);
+    assert.equal(playwrightCargoTargetDir(instance, "win32"), undefined);
   });
 });
 
@@ -63,6 +70,15 @@ test("two worker slots have disjoint named instances", () => {
     assert.notEqual(first.vitePort, second.vitePort);
     assert.notEqual(first.cdpPort, second.cdpPort);
     assert.notEqual(first.dataDirName, second.dataDirName);
+    assert.deepEqual(devStartArgs(), [
+      "build.sh",
+      "dev",
+      "--wait",
+      "--release-gateway-after-ready",
+    ]);
+    assert.equal(playwrightCargoTargetDir(first, "win32"), "src-tauri/target/playwright-pw1");
+    assert.equal(playwrightCargoTargetDir(second, "win32"), "src-tauri/target/playwright-pw2");
+    assert.equal(playwrightCargoTargetDir(first, "linux"), undefined);
   });
 });
 
