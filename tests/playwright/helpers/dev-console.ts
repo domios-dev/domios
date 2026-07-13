@@ -9,42 +9,56 @@
 import { execFileSync } from "node:child_process";
 import { chromium, type Browser, type Page } from "@playwright/test";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import { readDevToken } from "./api-client";
+import { currentDevInstance, type DevInstance } from "./dev-instance";
 
-export const E2E_PORT = process.env.CT_E2E_PORT ?? "7686";
-export const API_BASE = `http://127.0.0.1:${E2E_PORT}`;
-export const CDP_PORT = 9223;
-export const CDP_BASE = `http://127.0.0.1:${CDP_PORT}`;
-export const WEB_URL = `${API_BASE}/`;
+const DEFAULT_INSTANCE = currentDevInstance();
+export const E2E_PORT = String(DEFAULT_INSTANCE.apiPort);
+export const API_BASE = DEFAULT_INSTANCE.apiBase;
+export const CDP_PORT = DEFAULT_INSTANCE.cdpPort;
+export const CDP_BASE = DEFAULT_INSTANCE.cdpBase;
+export const WEB_URL = DEFAULT_INSTANCE.webUrl;
 const WEB_MODE = process.env.CT_E2E_WEB_MODE === "1";
 
-export const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+export const REPO_ROOT = process.env.CT_E2E_DEV_ROOT
+  ? path.resolve(process.env.CT_E2E_DEV_ROOT)
+  : path.resolve(__dirname, "..", "..", "..");
 
-export async function isHealthy(): Promise<boolean> {
+export async function isHealthy(instance = currentDevInstance()): Promise<boolean> {
   try {
-    const r = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(3000) });
+    const r = await fetch(`${instance.apiBase}/api/health`, { signal: AbortSignal.timeout(3000) });
     if (!r.ok) return false;
-    const body = (await r.json()) as { status?: string };
-    return body.status === "ok";
+    const body = (await r.json()) as {
+      status?: string;
+      instance?: { name?: string; api_port?: string; vite_port?: string; cdp_port?: string };
+    };
+    return (
+      body.status === "ok" &&
+      body.instance?.name === instance.name &&
+      String(body.instance?.api_port) === String(instance.apiPort) &&
+      String(body.instance?.vite_port) === String(instance.vitePort) &&
+      String(body.instance?.cdp_port) === String(instance.cdpPort)
+    );
   } catch {
     return false;
   }
 }
 
-export async function isCdpUp(): Promise<boolean> {
+export async function isCdpUp(instance = currentDevInstance()): Promise<boolean> {
   try {
-    const r = await fetch(`${CDP_BASE}/json/version`, { signal: AbortSignal.timeout(3000) });
+    const r = await fetch(`${instance.cdpBase}/json/version`, { signal: AbortSignal.timeout(3000) });
     return r.ok;
   } catch {
     return false;
   }
 }
 
-async function isCdpAppReady(timeoutMs = 3000): Promise<boolean> {
+async function isCdpAppReady(instance: DevInstance, timeoutMs = 3000): Promise<boolean> {
   if (process.platform !== "win32") return true;
   try {
-    const browser = await chromium.connectOverCDP(CDP_BASE, { timeout: timeoutMs });
+    const browser = await chromium.connectOverCDP(instance.cdpBase, { timeout: timeoutMs });
     try {
       const page = browser.contexts()[0]?.pages()[0];
       if (!page) return false;
@@ -70,7 +84,7 @@ const BASH_EXE =
       })()
     : "bash";
 
-function bash(args: string[], timeoutMs: number): void {
+function bash(instance: DevInstance, args: string[], timeoutMs: number): void {
   // build.sh is the only sanctioned entry point (never raw cargo/pnpm tauri).
   execFileSync(BASH_EXE, args, {
     cwd: REPO_ROOT,
@@ -78,29 +92,35 @@ function bash(args: string[], timeoutMs: number): void {
     timeout: timeoutMs,
     env: {
       ...process.env,
-      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
+      CODETERM_INSTANCE: instance.name,
+      CODETERM_API_PORT: String(instance.apiPort),
+      CODETERM_VITE_PORT: String(instance.vitePort),
+      CODETERM_CDP_PORT: String(instance.cdpPort),
+      CT_E2E_DATADIR: instance.dataDirName,
+      CT_E2E_PORT: String(instance.apiPort),
+      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${instance.cdpPort}`,
       VITE_CODETERM_TEST: "1",
       CODETERM_TEST_CLOCK: "1",
     },
   });
 }
 
-export function killDevConsole(): void {
-  markCleanRestartBeforeKill();
+export function killDevConsole(instance = currentDevInstance()): void {
+  markCleanRestartBeforeKill(instance);
   // A failing kill must not abort setup: on a fresh/CI runner there is nothing
   // to kill, and Windows process enumeration can EPERM on the protected
   // %USERPROFILE%\AppData junction. killDevLeftovers + `dev --wait` recover.
   try {
-    bash(["build.sh", "kill"], 60_000);
+    bash(instance, ["build.sh", "kill"], 60_000);
   } catch (e) {
     console.warn(`[dev-console] build.sh kill failed (continuing): ${e}`);
   }
-  killDevLeftovers();
+  killDevLeftovers(instance);
 }
 
-function markCleanRestartBeforeKill(): void {
+function markCleanRestartBeforeKill(instance: DevInstance): void {
   try {
-    const token = readDevToken();
+    const token = readDevToken(instance);
     execFileSync(
       process.execPath,
       [
@@ -110,7 +130,7 @@ function markCleanRestartBeforeKill(): void {
           "fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(3000) })",
           "  .catch(() => undefined);",
         ].join(""),
-        `${API_BASE}/api/debug/shutdown/mark-clean-restart`,
+        `${instance.apiBase}/api/debug/shutdown/mark-clean-restart`,
         token,
       ],
       { timeout: 5_000, stdio: "ignore" },
@@ -127,30 +147,12 @@ function markCleanRestartBeforeKill(): void {
  * surviving vite holding port 1420 (next dev start aborts). Scoped hard
  * to the dev target dir / port — prod is untouchable by construction.
  */
-function killDevLeftovers(): void {
+function killDevLeftovers(instance: DevInstance): void {
   if (process.platform !== "win32") return;
   try {
     execFileSync(
       "powershell",
-      [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        path.join(REPO_ROOT, "scripts", "windows-dev-cleanup.ps1"),
-        "-Root",
-        REPO_ROOT,
-        "-TargetDebug",
-        path.join(REPO_ROOT, "src-tauri", "target", "debug"),
-        "-Identifier",
-        "com.codeterm.dev",
-        "-VitePort",
-        "1420",
-        "-ApiPort",
-        E2E_PORT,
-        "-CdpPort",
-        String(CDP_PORT),
-      ],
+      windowsCleanupArgs(instance),
       {
         timeout: 30_000,
         stdio: "inherit",
@@ -159,6 +161,30 @@ function killDevLeftovers(): void {
   } catch {
     /* best effort — the dev --wait retry decides success */
   }
+}
+
+function windowsCleanupArgs(instance: DevInstance): string[] {
+  return [
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    path.join(REPO_ROOT, "scripts", "windows-dev-cleanup.ps1"),
+    "-Root",
+    REPO_ROOT,
+    "-TargetDebug",
+    path.join(REPO_ROOT, "src-tauri", "target", "debug"),
+    "-Identifier",
+    instance.identifier,
+    "-Instance",
+    instance.name,
+    "-VitePort",
+    String(instance.vitePort),
+    "-ApiPort",
+    String(instance.apiPort),
+    "-CdpPort",
+    String(instance.cdpPort),
+  ];
 }
 
 function gatewayLogDirs(): string[] {
@@ -204,34 +230,39 @@ function dumpBuildGatewayLogs(reason: string): void {
  * it (a console started without the CDP env var can't be adopted — the
  * debugging port is fixed at WebView2 creation).
  */
-export async function ensureDevConsole(): Promise<void> {
-  if (await isHealthy()) {
-    if (WEB_MODE || process.platform !== "win32" || ((await isCdpUp()) && (await isCdpAppReady()))) return;
+export async function ensureDevConsole(instance = currentDevInstance()): Promise<void> {
+  if (await isHealthy(instance)) {
+    if (
+      WEB_MODE ||
+      process.platform !== "win32" ||
+      ((await isCdpUp(instance)) && (await isCdpAppReady(instance)))
+    ) return;
   }
-  killDevConsole();
+  killDevConsole(instance);
   try {
-    bash(["build.sh", "dev", "--wait"], 600_000);
+    bash(instance, ["build.sh", "dev", "--wait"], 600_000);
   } catch (first) {
     dumpBuildGatewayLogs(`first ./build.sh dev --wait failed: ${first}`);
+    if ((first as NodeJS.ErrnoException).code === "ETIMEDOUT") throw first;
     // locking the binary, vite squatting 1420) — sweep and retry once.
-    killDevLeftovers();
+    killDevLeftovers(instance);
     try {
-      bash(["build.sh", "dev", "--wait"], 600_000);
+      bash(instance, ["build.sh", "dev", "--wait"], 600_000);
     } catch (second) {
       dumpBuildGatewayLogs(`second ./build.sh dev --wait failed: ${second}`);
       throw second;
     }
   }
-  if (!(await isHealthy())) {
+  if (!(await isHealthy(instance))) {
     throw new Error("dev console did not become healthy after ./build.sh dev --wait");
   }
   if (WEB_MODE || process.platform !== "win32") return;
   for (let i = 0; i < 20; i++) {
-    if ((await isCdpUp()) && (await isCdpAppReady())) return;
+    if ((await isCdpUp(instance)) && (await isCdpAppReady(instance))) return;
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error(
-    `dev console is healthy but WebView2 (${CDP_BASE}) did not finish loading the app`,
+    `dev console is healthy but WebView2 (${instance.cdpBase}) did not finish loading the app`,
   );
 }
 
@@ -289,8 +320,8 @@ async function waitForShell(page: Page): Promise<void> {
   }
 }
 
-async function connectDesktopUi(): Promise<UiSession> {
-  const browser = await chromium.connectOverCDP(CDP_BASE);
+async function connectDesktopUi(instance: DevInstance): Promise<UiSession> {
+  const browser = await chromium.connectOverCDP(instance.cdpBase);
   const pages = browser.contexts().flatMap((c) => c.pages()).filter((p) => !p.isClosed());
   const page =
     pages.find((p) => /localhost|tauri/.test(p.url())) ??
@@ -313,8 +344,8 @@ async function connectDesktopUi(): Promise<UiSession> {
   return { browser, page };
 }
 
-async function connectWebUi(): Promise<UiSession> {
-  const token = readDevToken();
+async function connectWebUi(instance: DevInstance): Promise<UiSession> {
+  const token = readDevToken(instance);
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const page = await context.newPage();
@@ -326,7 +357,7 @@ async function connectWebUi(): Promise<UiSession> {
       /* localStorage may be unavailable; tests that need it will surface it */
     }
   }, token);
-  await page.goto(`${WEB_URL}?e2e=1#token=${encodeURIComponent(token)}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${instance.webUrl}?e2e=1#token=${encodeURIComponent(token)}`, { waitUntil: "domcontentloaded" });
   await waitForShell(page);
   return { browser, page };
 }
@@ -334,13 +365,14 @@ async function connectWebUi(): Promise<UiSession> {
 /** Attach to the running dev console window over CDP and wait until the
  * shell has actually rendered — on a cold start the WebView is up while
  * Vite is still compiling, so the page can be blank for many seconds. */
-export async function connectUi(): Promise<UiSession> {
+export async function connectUi(instance = currentDevInstance()): Promise<UiSession> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= 3; attempt++) {
     let browser: Browser | undefined;
     try {
-      await ensureDevConsole();
-      const session = process.platform === "win32" ? await connectDesktopUi() : await connectWebUi();
+      await ensureDevConsole(instance);
+      const session =
+        process.platform === "win32" ? await connectDesktopUi(instance) : await connectWebUi(instance);
       browser = session.browser;
       return session;
     } catch (e) {
@@ -350,8 +382,55 @@ export async function connectUi(): Promise<UiSession> {
       if (!/Target page|context or browser has been closed|no page exposed/.test(msg) || attempt === 3) {
         throw e;
       }
-      killDevConsole();
+      killDevConsole(instance);
     }
   }
   throw lastError;
+}
+
+function portIsFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: "127.0.0.1", port });
+    socket.setTimeout(500);
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(false);
+    });
+    const free = () => {
+      socket.destroy();
+      resolve(true);
+    };
+    socket.once("error", free);
+    socket.once("timeout", free);
+  });
+}
+
+function residualOwnedProcessIds(instance: DevInstance): number[] {
+  if (process.platform !== "win32") return [];
+  const output = execFileSync("powershell", [...windowsCleanupArgs(instance), "-PlanOnly"], {
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+  const plan = JSON.parse(output) as { selected_processes?: number[] };
+  return plan.selected_processes ?? [];
+}
+
+export async function assertDevConsoleStopped(instance: DevInstance): Promise<void> {
+  const ports = [instance.apiPort, instance.vitePort, instance.cdpPort];
+  const deadline = Date.now() + 15_000;
+  while (Date.now() <= deadline) {
+    if (
+      (await Promise.all(ports.map(portIsFree))).every(Boolean) &&
+      residualOwnedProcessIds(instance).length === 0
+    ) return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  const occupied = [];
+  for (const port of ports) {
+    if (!(await portIsFree(port))) occupied.push(port);
+  }
+  const processes = residualOwnedProcessIds(instance);
+  throw new Error(
+    `Playwright instance ${instance.name || "default"} leaked listeners [${occupied.join(", ")}] or processes [${processes.join(", ")}]`,
+  );
 }
