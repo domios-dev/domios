@@ -9,7 +9,7 @@ that must receive the reply. Check it before every response.
 | `-=-codeterm:pane label=NAME pane=ID model=M-=-text` | ANSWER BY COMMAND ONLY | `codeterm send "..." --tab ID` | No |
 | `-=-codeterm:mesh peer=PEER pane=ID-=-text` | ANSWER ON THAT PEER ONLY | `codeterm send "..." --tab ID --mesh PEER` | No |
 | `-=-codeterm:report from=NAME pane=ID ...-=-text` | REPORTS ARE INPUT, NOT CHAT | Act on it or ignore; never reply | No |
-| *(no prefix)* | LOCAL USER CHAT | Normal pane chat | Yes |
+| *(no prefix)* | LOCAL USER CHAT | Normal tab chat | Yes |
 
 When you `send --tab X` from inside a pane, the daemon stamps your message
 with `-=-codeterm:pane label=<your-name> pane=<your-id> model=<your-model>-=-`
