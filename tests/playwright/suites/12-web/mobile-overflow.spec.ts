@@ -36,6 +36,8 @@ const OPTIONAL_SURFACES = [
   '[data-testid="sidebar"]',
 ] as const;
 
+type ReachabilityMode = "all" | "open-drawer";
+
 async function newWebPage(browser: Browser, viewport: { width: number; height: number }): Promise<Page> {
   const ctx = await browser.newContext({ viewport });
   return ctx.newPage();
@@ -95,10 +97,16 @@ async function assertHealthMatchesHead(): Promise<string> {
   return JSON.stringify(health, null, 2);
 }
 
-async function collectViewportOffenders(page: Page) {
-  return page.locator(INTERACTIVE).evaluateAll((nodes) => {
+async function collectViewportOffenders(page: Page, reachabilityMode: ReachabilityMode = "all") {
+  return page.locator(INTERACTIVE).evaluateAll((nodes, mode) => {
     const viewportWidth = document.documentElement.clientWidth;
     const viewportHeight = document.documentElement.clientHeight;
+    const openDrawer = mode === "open-drawer"
+      ? document.querySelector(".ct-sidebar-drawer.is-open")
+      : null;
+    const openBackdrop = mode === "open-drawer"
+      ? document.querySelector(".ct-sidebar-backdrop.is-open")
+      : null;
     const clips = (value: string) => /auto|scroll|hidden|clip/.test(value);
     const isFullyClippedByAncestor = (el: HTMLElement, rect: DOMRect) => {
       let parent = el.parentElement;
@@ -140,13 +148,22 @@ async function collectViewportOffenders(page: Page) {
         const centerX = Math.min(Math.max(left + rect.width / 2, 0), viewportWidth - 1);
         const centerY = Math.min(Math.max(top + rect.height / 2, 0), viewportHeight - 1);
         const hit = document.elementFromPoint(centerX, centerY);
-        const reachable = hit === el || (hit instanceof Node && el.contains(hit));
+        const reachable = hit instanceof Node && (hit === el || el.contains(hit) || hit.contains(el));
+        const inOpenDrawer = !!openDrawer?.contains(el);
+        const hitInOpenLayer = hit instanceof Node &&
+          (!!openDrawer?.contains(hit) || hit === openDrawer || !!openBackdrop?.contains(hit) || hit === openBackdrop);
         const inBounds =
           left >= -1 &&
           right <= viewportWidth + 1 &&
           top >= -1 &&
           bottom <= viewportHeight + 1;
-        if (inBounds && reachable) return null;
+        const layerReachabilityOk =
+          mode === "all"
+            ? reachable
+            : inOpenDrawer
+              ? reachable
+              : !reachable && hitInOpenLayer;
+        if (inBounds && layerReachabilityOk) return null;
         return {
           tag: el.tagName.toLowerCase(),
           testid: el.getAttribute("data-testid"),
@@ -162,15 +179,17 @@ async function collectViewportOffenders(page: Page) {
           viewportWidth,
           viewportHeight,
           reachable,
+          inOpenDrawer,
+          hitInOpenLayer,
           hitTag: hit instanceof HTMLElement ? hit.tagName.toLowerCase() : null,
           hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
         };
       })
       .filter(Boolean);
-  });
+  }, reachabilityMode);
 }
 
-async function auditViewport(page: Page, label: string): Promise<void> {
+async function auditViewport(page: Page, label: string, options: { reachability?: ReachabilityMode } = {}): Promise<void> {
   const doc = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     clientWidth: document.documentElement.clientWidth,
@@ -182,14 +201,189 @@ async function auditViewport(page: Page, label: string): Promise<void> {
     `${label} secondary document overflow signal ${JSON.stringify(doc)}`,
   ).toBeLessThanOrEqual(doc.clientWidth + 1);
 
-  const offenders = await collectViewportOffenders(page);
+  if (options.reachability === "open-drawer") {
+    await waitForOpenDrawerStable(page);
+  }
+  const offenders = await collectViewportOffenders(page, options.reachability ?? "all");
   expect(offenders, `${label} offscreen or unreachable controls`).toEqual([]);
+  if (options.reachability === "open-drawer") {
+    await assertOpenDrawerControlsReachable(page, label);
+    await assertSidebarScrimReachable(page, label);
+  }
 }
 
 async function assertPeerPickerTopContained(page: Page, label: string): Promise<void> {
   const box = await page.locator('[data-testid="peer-picker-button"]').boundingBox();
   expect(box, `${label} peer picker button box`).not.toBeNull();
   expect(box!.y, `${label} peer picker button top`).toBeGreaterThanOrEqual(-1);
+}
+
+async function assertPeerPickerReachable(page: Page, label: string): Promise<void> {
+  const result = await page.locator('[data-testid="peer-picker-button"]').evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    const x = Math.min(Math.max(rect.left + rect.width / 2, 0), document.documentElement.clientWidth - 1);
+    const y = Math.min(Math.max(rect.top + rect.height / 2, 0), document.documentElement.clientHeight - 1);
+    const hit = document.elementFromPoint(x, y);
+    return {
+      reachable: hit instanceof Node && (hit === el || el.contains(hit) || hit.contains(el)),
+      hitTag: hit instanceof HTMLElement ? hit.tagName.toLowerCase() : null,
+      hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
+    };
+  });
+  expect(result.reachable, `${label} peer picker reachable ${JSON.stringify(result)}`).toBe(true);
+}
+
+async function waitForOpenDrawerStable(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const drawer = document.querySelector(".ct-sidebar-drawer.is-open");
+    if (!drawer) return Promise.resolve();
+    const finiteAnimations = drawer
+      .getAnimations()
+      .filter((animation) =>
+        animation.effect instanceof KeyframeEffect &&
+        animation.effect.target === drawer &&
+        Number.isFinite(animation.effect.getTiming().duration as number)
+      );
+    return Promise.race([
+      Promise.all(finiteAnimations.map((animation) => animation.finished.catch(() => undefined))),
+      new Promise((resolve) => setTimeout(resolve, 1_500)),
+    ]);
+  });
+  await settleLayout(page);
+}
+
+async function assertOpenDrawerControlsReachable(page: Page, label: string): Promise<void> {
+  const offenders = await page.locator(".ct-sidebar-drawer.is-open").locator(INTERACTIVE).evaluateAll((nodes) => {
+    const viewportWidth = document.documentElement.clientWidth;
+    const viewportHeight = document.documentElement.clientHeight;
+    const clips = (value: string) => /auto|scroll|hidden|clip/.test(value);
+    const isFullyClippedByAncestor = (el: HTMLElement, rect: DOMRect) => {
+      let parent = el.parentElement;
+      while (parent && parent !== document.body && parent !== document.documentElement) {
+        const style = window.getComputedStyle(parent);
+        const clipsX = clips(style.overflowX);
+        const clipsY = clips(style.overflowY);
+        if (clipsX || clipsY) {
+          const clipRect = parent.getBoundingClientRect();
+          const clippedX = rect.right <= clipRect.left || rect.left >= clipRect.right;
+          const clippedY = rect.bottom <= clipRect.top || rect.top >= clipRect.bottom;
+          if ((clipsX && clippedX) || (clipsY && clippedY)) return true;
+        }
+        parent = parent.parentElement;
+      }
+      return false;
+    };
+    return nodes
+      .map((node) => {
+        const el = node as HTMLElement;
+        el.scrollIntoView({ block: "nearest", inline: "nearest" });
+        const style = window.getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        const hidden =
+          style.visibility === "hidden" ||
+          style.display === "none" ||
+          rect.width <= 0 ||
+          rect.height <= 0 ||
+          isFullyClippedByAncestor(el, rect);
+        if (hidden) return null;
+        const left = rect.left;
+        const right = rect.right;
+        const top = rect.top;
+        const bottom = rect.bottom;
+        const inBounds =
+          left >= -1 &&
+          right <= viewportWidth + 1 &&
+          top >= -1 &&
+          bottom <= viewportHeight + 1;
+        if (!inBounds) return null;
+        const centerX = Math.min(Math.max(left + rect.width / 2, 0), viewportWidth - 1);
+        const centerY = Math.min(Math.max(top + rect.height / 2, 0), viewportHeight - 1);
+        const hit = document.elementFromPoint(centerX, centerY);
+        const reachable = hit instanceof Node && (hit === el || el.contains(hit) || hit.contains(el));
+        if (reachable) return null;
+        return {
+          tag: el.tagName.toLowerCase(),
+          testid: el.getAttribute("data-testid"),
+          text: (el.innerText || el.textContent || "").trim().slice(0, 80),
+          left,
+          top,
+          right,
+          bottom,
+          hitTag: hit instanceof HTMLElement ? hit.tagName.toLowerCase() : null,
+          hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
+        };
+      })
+      .filter(Boolean);
+  });
+  expect(offenders, `${label} unreachable drawer controls`).toEqual([]);
+}
+
+async function assertSidebarScrimReachable(page: Page, label: string): Promise<void> {
+  const scrim = await page.evaluate(() => {
+    const drawer = document.querySelector(".ct-sidebar-drawer.is-open");
+    const backdrop = document.querySelector(".ct-sidebar-backdrop.is-open");
+    if (!drawer || !backdrop) return { ok: false, reason: "missing-layer" };
+    const drawerRect = drawer.getBoundingClientRect();
+    const backdropRect = backdrop.getBoundingClientRect();
+    const viewportWidth = document.documentElement.clientWidth;
+    const viewportHeight = document.documentElement.clientHeight;
+    const x = Math.min(viewportWidth - 8, Math.max(drawerRect.right + 8, 8));
+    const y = Math.min(viewportHeight - 8, Math.max(drawerRect.top + 24, 8));
+    const hit = document.elementFromPoint(x, y);
+    return {
+      coversViewport:
+        backdropRect.left <= 1 &&
+        backdropRect.top <= 1 &&
+        backdropRect.right >= viewportWidth - 1 &&
+        backdropRect.bottom >= viewportHeight - 1,
+      hitOk: hit === backdrop || (hit instanceof Node && backdrop.contains(hit)),
+      x,
+      y,
+      backdropLeft: backdropRect.left,
+      backdropTop: backdropRect.top,
+      backdropRight: backdropRect.right,
+      backdropBottom: backdropRect.bottom,
+      viewportWidth,
+      viewportHeight,
+      hitTag: hit instanceof HTMLElement ? hit.tagName.toLowerCase() : null,
+      hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
+      hitClass: hit instanceof HTMLElement ? hit.className : null,
+    };
+  });
+  expect(scrim.coversViewport, `${label} sidebar scrim viewport coverage ${JSON.stringify(scrim)}`).toBe(true);
+  expect(scrim.hitOk, `${label} sidebar scrim close point ${JSON.stringify(scrim)}`).toBe(true);
+}
+
+async function clickSidebarScrimAndAssertClosed(page: Page, label: string): Promise<void> {
+  const point = await page.evaluate(() => {
+    const drawer = document.querySelector(".ct-sidebar-drawer.is-open");
+    const backdrop = document.querySelector(".ct-sidebar-backdrop.is-open");
+    if (!drawer || !backdrop) return null;
+    const drawerRect = drawer.getBoundingClientRect();
+    return {
+      x: Math.min(document.documentElement.clientWidth - 8, Math.max(drawerRect.right + 8, 8)),
+      y: Math.min(document.documentElement.clientHeight - 8, Math.max(drawerRect.top + 24, 8)),
+    };
+  });
+  expect(point, `${label} sidebar scrim click point`).not.toBeNull();
+  await page.mouse.click(point!.x, point!.y);
+  await page.waitForFunction(() => {
+    const drawer = document.querySelector(".ct-sidebar-drawer");
+    const backdrop = document.querySelector(".ct-sidebar-backdrop");
+    if (!drawer) return true;
+    const drawerStyle = window.getComputedStyle(drawer);
+    const backdropStyle = backdrop ? window.getComputedStyle(backdrop) : null;
+    return !drawer.classList.contains("is-open") &&
+      drawer.getAttribute("aria-hidden") === "true" &&
+      drawer.hasAttribute("inert") &&
+      drawerStyle.pointerEvents === "none" &&
+      (!backdrop || (
+        backdrop.getAttribute("aria-hidden") === "true" &&
+        backdropStyle?.pointerEvents === "none"
+      ));
+  }, null, { timeout: 5_000 });
+  await settleLayout(page);
+  await assertPeerPickerReachable(page, `${label} after scrim close`);
 }
 
 async function auditKnownSurfaces(page: Page, label: string): Promise<void> {
@@ -296,6 +490,53 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     expect(ids).not.toContain("clipped-descendant");
     expect(ids).toContain("offscreen-unowned");
     expect(ids).toContain("partial-unowned");
+
+    await page.setContent(`
+      <style>
+        html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+        .ct-sidebar-backdrop { position: fixed; inset: 0; z-index: 30; pointer-events: auto; }
+        .ct-sidebar-drawer { position: fixed; left: 0; top: 0; bottom: 0; width: 220px; z-index: 40; background: white; }
+        #covered-background { position: absolute; left: 260px; top: 20px; width: 48px; height: 32px; }
+        #drawer-control { position: absolute; left: 16px; top: 20px; width: 96px; height: 32px; }
+      </style>
+      <div id="root">
+        <button id="covered-background" data-testid="covered-background">covered</button>
+        <div class="ct-sidebar-backdrop is-open" data-testid="overlay-scrim"></div>
+        <div class="ct-sidebar-drawer is-open" data-testid="overlay-drawer">
+          <button id="drawer-control" data-testid="drawer-control">drawer</button>
+        </div>
+      </div>
+    `);
+    const overlayOffenders = await collectViewportOffenders(page, "open-drawer");
+    const overlayIds = overlayOffenders.map((item) => item?.testid).sort();
+    expect(overlayIds).not.toContain("covered-background");
+    expect(overlayIds).not.toContain("drawer-control");
+    const backgroundHit = await page.locator('[data-testid="covered-background"]').evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return {
+        reachable: hit instanceof Node && (hit === el || el.contains(hit) || hit.contains(el)),
+        hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
+      };
+    });
+    expect(backgroundHit).toEqual({ reachable: false, hitTestid: "overlay-scrim" });
+    await assertSidebarScrimReachable(page, "overlay self-check");
+
+    await page.evaluate(() => {
+      const drawer = document.querySelector(".ct-sidebar-drawer");
+      const cover = document.createElement("div");
+      cover.dataset.testid = "drawer-cover";
+      cover.style.position = "absolute";
+      cover.style.left = "16px";
+      cover.style.top = "20px";
+      cover.style.width = "96px";
+      cover.style.height = "32px";
+      cover.style.zIndex = "1";
+      drawer?.appendChild(cover);
+    });
+    const blockedDrawerOffenders = await collectViewportOffenders(page, "open-drawer");
+    const blockedDrawer = blockedDrawerOffenders.find((item) => item?.testid === "drawer-control");
+    expect(blockedDrawer?.hitTestid).toBe("drawer-cover");
   } finally {
     await page.context().close();
   }
@@ -316,8 +557,8 @@ for (const vp of VIEWPORTS) {
 
       await openSidebar(page);
       await auditSidebarDrawer(page, `${vp.name} open sidebar`, true);
-      await auditViewport(page, `${vp.name} open sidebar`);
-      await closeSidebar(page);
+      await auditViewport(page, `${vp.name} open sidebar`, { reachability: "open-drawer" });
+      await clickSidebarScrimAndAssertClosed(page, `${vp.name} open sidebar`);
       await auditSidebarDrawer(page, `${vp.name} closed sidebar after dismiss`, false);
 
       await page.locator('[data-testid="peer-picker-button"]').click();
@@ -341,7 +582,7 @@ for (const vp of VIEWPORTS) {
 
       await openSidebar(page);
       await auditSidebarDrawer(page, `${vp.name} open sidebar`, true);
-      await auditViewport(page, `${vp.name} sidebar tree`);
+      await auditViewport(page, `${vp.name} sidebar tree`, { reachability: "open-drawer" });
       const newSession = page.locator('[data-testid="sidebar-new-session"]').first();
       if (await newSession.isVisible().catch(() => false)) {
         await newSession.click();
