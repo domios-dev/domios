@@ -35,12 +35,13 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
   const calcPos = useCallback(() => {
     if (!triggerRef.current) return null;
     const rect = triggerRef.current.getBoundingClientRect();
-    const menuHeight = items.length * 28 + 8;
+    const menuHeight = Math.min(items.length * 28 + 8, window.innerHeight - 8);
     const spaceBelow = window.innerHeight - rect.bottom;
-    const top = spaceBelow < menuHeight ? rect.top - menuHeight : rect.bottom + 2;
-    const menuWidth = menuRef.current?.offsetWidth || 160;
-    const left = Math.max(4, Math.min(rect.left, window.innerWidth - menuWidth - 8));
-    return { top, left };
+    const preferredTop = spaceBelow < menuHeight ? rect.top - menuHeight : rect.bottom + 2;
+    const top = Math.max(4, Math.min(preferredTop, window.innerHeight - menuHeight - 4));
+    const menuWidth = Math.min(menuRef.current?.offsetWidth || 160, window.innerWidth - 8);
+    const left = Math.max(4, Math.min(rect.left, window.innerWidth - menuWidth - 4));
+    return { top, left, maxHeight: Math.max(80, window.innerHeight - top - 4) };
   }, [items.length]);
 
   const toggle = useCallback((e: React.MouseEvent | React.PointerEvent) => {
@@ -52,7 +53,7 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
     });
   }, [calcPos]);
 
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
 
   // Reposition after render (menu width now known)
   useEffect(() => {
@@ -99,8 +100,14 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
               Closing is handled by the mousedown document listener above. */}
           <div
             ref={menuRef}
-            className="fixed z-50 w-max min-w-[140px] border border-[rgba(255,255,255,0.12)] rounded-md shadow-lg py-1 ct-float backdrop-blur-xl"
-            style={{ top: pos.top, left: pos.left, background: "var(--ct-surface, #1e1e2e)" }}
+            className="fixed z-50 w-max min-w-[140px] max-w-[calc(100vw-0.5rem)] border border-[rgba(255,255,255,0.12)] rounded-md shadow-lg py-1 ct-float backdrop-blur-xl"
+            style={{
+              top: pos.top,
+              left: pos.left,
+              maxHeight: pos.maxHeight,
+              overflowY: "auto",
+              background: "var(--ct-surface, #1e1e2e)",
+            }}
           >
             {items.map((item, i) => (
               <button
@@ -114,7 +121,7 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
                   setOpen(false);
                   item.onClick();
                 }}
-                className={`flex items-center gap-2 w-full px-3 py-1.5 text-[11px] whitespace-nowrap transition-colors rounded-sm mx-0.5 ${
+                className={`flex items-center gap-2 w-[calc(100%-0.25rem)] px-3 py-1.5 text-[11px] whitespace-nowrap overflow-hidden text-ellipsis transition-colors rounded-sm mx-0.5 ${
                   item.disabled
                     ? "text-[var(--ct-muted-fg)] opacity-50 cursor-not-allowed"
                     : item.danger
