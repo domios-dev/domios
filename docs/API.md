@@ -1162,13 +1162,13 @@ machine-readable tree lives in `docs/cli-manifest.json`.
 
 ### CLI JSON ID Contract
 
-For create/add/spawn-style commands, `--json` output exposes the newly created
-entity id as top-level `id`. Existing typed id fields remain present for context
-and compatibility, such as `plan_id`, `task_id`, `spec_id`, `section_id`,
-`pane_id`, and `workspace_id`. For compound responses, `id` names the primary
-entity created by the command: for example `plan create --json` returns
-`id == plan_id`, `plan task add --json` returns `id == task_id`, and
-`agent spawn --json` returns `id == pane_id`.
+Planner mutation commands emit one JSON envelope:
+`{ok, kind, id, data, hints?, error?}`. `id` is the primary created or mutated
+entity id, and `data` contains the raw daemon payload with typed fields such as
+`plan_id`, `task_id`, `spec_id`, and `section_id`. For example,
+`spec create --json` returns `kind == "spec"` and `id == spec_id`,
+`plan create --json` returns `kind == "plan"` and `id == plan_id`, and
+`plan task add --json` returns `kind == "task"` and `id == task_id`.
 
 ### Internal Tauri Commands
 

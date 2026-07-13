@@ -62,7 +62,7 @@ pub enum PlanTaskAction {
         intent_file: Option<String>,
         #[arg(long)]
         parent: Option<String>,
-        #[arg(long = "depends-on")]
+        #[arg(long = "depends-on", value_name = "TASK_ID_OR_HANDLE")]
         depends_on: Vec<String>,
         #[arg(long = "assign-tab")]
         assign_pane: Option<String>,
@@ -156,7 +156,11 @@ pub enum PlanTaskAction {
         correctness: Option<String>,
         #[arg(long)]
         parent: Option<String>,
-        #[arg(long = "depends-on", conflicts_with = "clear_dependencies")]
+        #[arg(
+            long = "depends-on",
+            value_name = "TASK_ID_OR_HANDLE",
+            conflicts_with = "clear_dependencies"
+        )]
         depends_on: Vec<String>,
         #[arg(long = "clear-dependencies")]
         clear_dependencies: bool,

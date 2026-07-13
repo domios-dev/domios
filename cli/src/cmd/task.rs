@@ -163,7 +163,9 @@ fn run_task(
         } => {
             let has_model = model.as_deref().is_some_and(|s| !s.trim().is_empty());
             let why_text = resolve_text(why, why_file)?;
+            let body_text = resolve_text(body, body_file)?;
             let has_why = why_text.as_deref().is_some_and(|s| !s.trim().is_empty());
+            let has_body = body_text.as_deref().is_some_and(|s| !s.trim().is_empty());
             let has_criteria = criterion.iter().any(|s| !s.trim().is_empty());
             let has_test_plan = test_plan.as_deref().is_some_and(|s| !s.trim().is_empty());
             let has_correctness = correctness.as_deref().is_some_and(|s| !s.trim().is_empty());
@@ -193,7 +195,7 @@ fn run_task(
             if let Some(correctness) = correctness {
                 params["correctness"] = json!(correctness);
             }
-            if let Some(b) = resolve_text(body, body_file)? {
+            if let Some(b) = body_text {
                 params["body"] = json!(b);
             }
             if let Some(i) = resolve_text(intent, intent_file)? {
@@ -218,6 +220,7 @@ fn run_task(
                 if let Some(hint) = task_quality_guard_hint(
                     &plan_id,
                     &task_id,
+                    has_body,
                     has_criteria,
                     has_test_plan,
                     has_correctness,
