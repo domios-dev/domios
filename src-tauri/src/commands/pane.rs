@@ -398,6 +398,27 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             provider_id,
             session_id
         );
+        if !svc.chat_registry.acquire(&pane_id, &session_id) {
+            let sink = crate::service::pane_chat::structured_sink::make_flatten_sink(
+                svc.app_handle.clone(),
+                0,
+            );
+            let handle = crate::service::pane_chat::spawn_store_watch(
+                crate::service::pane_chat::StoreWatchConfig {
+                    pane_id: pane_id.clone(),
+                    provider_id: provider_id.clone(),
+                    cwd: cwd.clone(),
+                    session_id: session_id.clone(),
+                    poll_interval:
+                        crate::service::pane_chat::store_watch::PENDING_STORE_WATCH_POLL_INTERVAL,
+                },
+                svc.agent_registry.clone(),
+                svc.chat_registry.clone(),
+                sink,
+            );
+            svc.chat_registry
+                .insert(pane_id.clone(), session_id.clone(), handle);
+        }
         return Ok(ChatStartResult {
             text: String::new(),
             start_offset: 0,

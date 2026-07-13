@@ -566,7 +566,8 @@ impl ServiceContext {
                         }
                         let mut parts = Vec::new();
                         if let Some(error) = orch_error {
-                            parts.push(format!("Orchestrator readiness was not confirmed: {error}"));
+                            parts
+                                .push(format!("Orchestrator readiness was not confirmed: {error}"));
                         }
                         if let Some(error) = planner_error {
                             parts.push(format!("Planner readiness was not confirmed: {error}"));
