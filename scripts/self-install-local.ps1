@@ -12,7 +12,9 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$Installer,
 
-    [switch]$Resume
+    [switch]$Resume,
+
+    [switch]$Worker
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,6 +23,26 @@ if (-not (Test-Path $Installer)) {
     Write-Error "Installer not found: $Installer"
     exit 1
 }
+
+$scriptPath = $PSCommandPath
+if (-not $Worker) {
+    $args = @(
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', "`"$scriptPath`"",
+        '-Installer', "`"$((Resolve-Path $Installer).Path)`"",
+        '-Worker'
+    )
+    if ($Resume) {
+        $args += '-Resume'
+    }
+    Write-Host "[self-install] Spawning detached installer helper..."
+    Start-Process -FilePath 'powershell.exe' -ArgumentList $args -WindowStyle Hidden | Out-Null
+    Write-Host "[self-install] Helper started. This CodeTerm instance will restart."
+    exit 0
+}
+
+Start-Sleep -Seconds 1
 
 $expectedExe = Join-Path $env:LocalAppData 'codeterm\codeterm.exe'
 
