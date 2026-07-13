@@ -12,14 +12,14 @@ test_plan: |-
   2. After exact green run adjacent mobile surfaces: npx playwright test tests/playwright/suites/12-web/web.spec.ts tests/playwright/suites/13-canvas/plan-header-mobile.spec.ts --config=tests/playwright/playwright.config.ts --project=golden --timeout=30000 --global-timeout=600000 --reporter=line --trace=on.
   3. Record /api/health full build_sha before bodies and artifact paths.
 correctness: Overflow ownership is local and intentional; desktop remains unchanged; no blanket clipping hides inaccessible controls
-status: in_progress
+status: in_review
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783978379416
-updated_at: 1783981058303
-status_changed_at: 1783978413344
+updated_at: 1783981182031
+status_changed_at: 1783981181406
 handle: fix-mobile-web-viewport-overflow-across-primary-surfaces
 tags: []
 section_ids:
@@ -37,7 +37,7 @@ lane:
   workspace_id: null
   workspace_name: null
   worktree_path: null
-  branch: null
+  branch: feat/1.7.2-stability
   base: null
   destination: feat/1.7.2-stability
   cleanup_status: null
@@ -128,6 +128,23 @@ milestones:
   ts: 1783981058303
   links:
   - key:99153f50058035f5
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_rr57k9
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: qa-owner
+  text: Main@ubunta 197ecdcb runs exact mobile-overflow at canonical 6aeda6fd1 then adjacent web and plan-header-mobile only if green
+  ts: 1783981182031
+  links:
+  - key:57abe7cca5d39731
   loop_id: null
   iteration: null
   canvas:

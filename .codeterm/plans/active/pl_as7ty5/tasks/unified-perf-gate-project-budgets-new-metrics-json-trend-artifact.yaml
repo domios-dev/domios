@@ -17,7 +17,7 @@ qa_state: null
 status_label: pane-gone
 priority: p1
 created_at: 1783782208537
-updated_at: 1783976855074
+updated_at: 1783981182729
 status_changed_at: 1783975185988
 handle: unified-perf-gate-project-budgets-new-metrics-json-trend-artifact
 tags: []
@@ -115,6 +115,23 @@ milestones:
   ts: 1783976855074
   links:
   - key:6943f5e5a6337850
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_1nknbx
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: qa-owner
+  text: Main@Mac-Air d802d8f7 runs lint plus isolated named-instance stub perf gate at canonical 6aeda6fd1
+  ts: 1783981182729
+  links:
+  - key:2944d9887e90eeb8
   loop_id: null
   iteration: null
   canvas:
