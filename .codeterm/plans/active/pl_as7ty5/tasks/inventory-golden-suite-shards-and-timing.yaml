@@ -89,7 +89,7 @@ milestones:
     | **A — api-core** | `11-api/api-core.spec.ts` | 11-api | 9 | Deterministic API (low) | 120s | eight ✅DONE (9 pass/1.6s) → any |
     | **B — mem+cron** | `06-mem/mem-core.spec.ts`, `07-cron/cron.spec.ts` | 06,07 | 8 | Deterministic + 1 real-run cron (med) | 300s | ROG 1st → eight/ubunta |
     | **C — mux+restore** | `02-multiplexer/multiplexer.spec.ts`, `10-restore/restore-matrix.spec.ts` | 02,10 | 7 (3+~4 param) | Stateful kill/restart, PTY restore (high) | 300s | **ROG** (native PTY fidelity) |
-    | **D — agents (real LLM)** | `03-agents/agents.spec.ts`, `03-agents/cross-pane-chat.spec.ts` | 03 | 6 | Real provider/LLM, terminal-DOM reads (highest) | 420s | **ROG** (native terminal DOM/PTY) |
+    | **D — agents (stub matrix)** | `03-agents/agents.spec.ts`, `03-agents/cross-pane-chat.spec.ts` | 03 | 13 | Stub provider matrix, terminal-DOM/ChatView reads (high) | 90–150s | **ROG** (native terminal DOM/PTY) |
     | **E — mesh** | `04-mesh/mesh.spec.ts` | 04 | 2 | Stub-peer network convergence/hysteresis (med) | 420s | ROG 1st (fast harness check) → any |
     | **F — web core** | `12-web/web.spec.ts`, `web-parity.spec.ts`, `web-access.spec.ts` | 12-web | 17 | Web-mirror UI parity (med) | 300s | eight / ubunta |
     | **G — web net/perf** | `12-web/network-primitives.spec.ts`, `multitab-perf.spec.ts`, `tab-switch-bounce.spec.ts` | 12-web | 10 | Web-mirror timing/perf sensitive (med) | 300s | ubunta / eight |
@@ -207,7 +207,7 @@ execution_attempts:
       | **A — api-core** | `11-api/api-core.spec.ts` | 11-api | 9 | Deterministic API (low) | 120s | eight ✅DONE (9 pass/1.6s) → any |
       | **B — mem+cron** | `06-mem/mem-core.spec.ts`, `07-cron/cron.spec.ts` | 06,07 | 8 | Deterministic + 1 real-run cron (med) | 300s | ROG 1st → eight/ubunta |
       | **C — mux+restore** | `02-multiplexer/multiplexer.spec.ts`, `10-restore/restore-matrix.spec.ts` | 02,10 | 7 (3+~4 param) | Stateful kill/restart, PTY restore (high) | 300s | **ROG** (native PTY fidelity) |
-      | **D — agents (real LLM)** | `03-agents/agents.spec.ts`, `03-agents/cross-pane-chat.spec.ts` | 03 | 6 | Real provider/LLM, terminal-DOM reads (highest) | 420s | **ROG** (native terminal DOM/PTY) |
+      | **D — agents (stub matrix)** | `03-agents/agents.spec.ts`, `03-agents/cross-pane-chat.spec.ts` | 03 | 13 | Stub provider matrix, terminal-DOM/ChatView reads (high) | 90–150s | **ROG** (native terminal DOM/PTY) |
       | **E — mesh** | `04-mesh/mesh.spec.ts` | 04 | 2 | Stub-peer network convergence/hysteresis (med) | 420s | ROG 1st (fast harness check) → any |
       | **F — web core** | `12-web/web.spec.ts`, `web-parity.spec.ts`, `web-access.spec.ts` | 12-web | 17 | Web-mirror UI parity (med) | 300s | eight / ubunta |
       | **G — web net/perf** | `12-web/network-primitives.spec.ts`, `multitab-perf.spec.ts`, `tab-switch-bounce.spec.ts` | 12-web | 10 | Web-mirror timing/perf sensitive (med) | 300s | ubunta / eight |
