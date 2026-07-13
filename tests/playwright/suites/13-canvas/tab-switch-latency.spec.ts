@@ -65,7 +65,6 @@ function fmt(label: string, s: Stats): string {
 }
 
 test("@perf @tab-switch-latency sidebar tab switch reaches paint under budget", async ({ ui, api, paneCleanup }) => {
-  test.setTimeout(180_000);
   const { page } = ui;
 
   const cwd = path.resolve(REPO_ROOT);

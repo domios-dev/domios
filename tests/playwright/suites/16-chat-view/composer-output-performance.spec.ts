@@ -11,6 +11,10 @@ import { API_BASE, expect, readDevToken, test, type Browser, type PaneCleanup, t
 import { type ApiClient } from "../../helpers/api-client";
 
 const PANE_COUNT = 25;
+// Cold web mount is out-of-band setup, not the measured composer window; bound
+// it so a stuck mount fails fast under the default per-test timeout instead of
+// consuming a 90s escalated budget.
+const WEB_MOUNT_CAP_MS = 20_000;
 const INITIAL_MESSAGES = 260;
 const LIVE_BATCH_SIZE = 24;
 const LIVE_INTERVAL_MS = 35;
@@ -127,13 +131,13 @@ async function openWebPage(browser: Browser): Promise<Page> {
     localStorage.removeItem("codeterm-chat-ui-default-enabled");
   }, token);
   await page.goto(`${API_BASE}/?e2e=1#token=${encodeURIComponent(token)}`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+  await page.waitForSelector("#root > *", { state: "attached", timeout: WEB_MOUNT_CAP_MS });
   return page;
 }
 
 async function openFixturePage(page: Page, paneIds: string[], tabIds: string[]): Promise<void> {
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+  await page.waitForSelector("#root > *", { state: "attached", timeout: WEB_MOUNT_CAP_MS });
   if (tabIds[0]) {
     await page.locator(`[data-testid="tab-item"][data-tab-id="${tabIds[0]}"]`).first().click({ timeout: 30_000 });
   }

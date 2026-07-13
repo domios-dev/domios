@@ -6,6 +6,11 @@
 import { recordPerfMetric } from "../../helpers/perf-metrics";
 import { expect, test } from "../../helpers/fixtures";
 
+// Cold app mount is out-of-band setup, not the measured churn window; bound it
+// so a stuck mount fails fast under the default per-test timeout instead of
+// consuming a 90s escalated budget.
+const WEB_MOUNT_CAP_MS = 20_000;
+
 type RenderCounts = Record<string, number>;
 
 async function readRenderCounts(page: import("@playwright/test").Page): Promise<RenderCounts> {
@@ -21,7 +26,6 @@ async function waitForRenderCounter(page: import("@playwright/test").Page): Prom
 }
 
 test("@perf hidden panes do not re-render on unrelated agent_state churn", async ({ ui, api, paneCleanup }) => {
-  test.setTimeout(120_000);
   const { page } = ui;
   const suffix = Date.now();
 
@@ -44,7 +48,7 @@ test("@perf hidden panes do not re-render on unrelated agent_state churn", async
   const paneB = hiddenPanes[0]!;
   await api.focusPane(paneB.id);
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+  await page.waitForSelector("#root > *", { state: "attached", timeout: WEB_MOUNT_CAP_MS });
   await waitForRenderCounter(page);
 
   if (paneB.tab_id) {
@@ -108,7 +112,6 @@ test("@perf hidden panes do not re-render on unrelated agent_state churn", async
 });
 
 test("@perf hidden panes longtask budget during agent_state churn", async ({ ui, api, paneCleanup }) => {
-  test.setTimeout(120_000);
   const { page } = ui;
   const suffix = Date.now();
 
@@ -126,7 +129,7 @@ test("@perf hidden panes longtask budget during agent_state churn", async ({ ui,
 
   await api.focusPane(paneB.id);
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+  await page.waitForSelector("#root > *", { state: "attached", timeout: WEB_MOUNT_CAP_MS });
   await waitForRenderCounter(page);
 
   if (paneB.tab_id) {
