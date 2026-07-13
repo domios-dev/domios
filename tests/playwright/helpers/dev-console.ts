@@ -13,7 +13,9 @@ import net from "node:net";
 import path from "node:path";
 import { readDevToken } from "./api-client";
 import {
+  buildDevInstanceEnv,
   currentDevInstance,
+  devInstanceTeardownPorts,
   devStartArgs,
   playwrightCargoTargetDir,
   type DevInstance,
@@ -123,25 +125,12 @@ const BASH_EXE =
     : "bash";
 
 function bash(instance: DevInstance, args: string[], timeoutMs: number): void {
-  const cargoTargetDir = playwrightCargoTargetDir(instance);
   // build.sh is the only sanctioned entry point (never raw cargo/pnpm tauri).
   execFileSync(BASH_EXE, args, {
     cwd: REPO_ROOT,
     stdio: "inherit",
     timeout: timeoutMs,
-    env: {
-      ...process.env,
-      CODETERM_INSTANCE: instance.name,
-      CODETERM_API_PORT: String(instance.apiPort),
-      CODETERM_VITE_PORT: String(instance.vitePort),
-      CODETERM_CDP_PORT: String(instance.cdpPort),
-      CT_E2E_DATADIR: instance.dataDirName,
-      CT_E2E_PORT: String(instance.apiPort),
-      CARGO_TARGET_DIR: cargoTargetDir ?? process.env.CARGO_TARGET_DIR,
-      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${instance.cdpPort}`,
-      VITE_CODETERM_TEST: "1",
-      CODETERM_TEST_CLOCK: "1",
-    },
+    env: buildDevInstanceEnv(instance),
   });
 }
 
@@ -203,7 +192,7 @@ function killDevLeftovers(instance: DevInstance): void {
   }
 }
 
-function windowsCleanupArgs(instance: DevInstance): string[] {
+export function windowsCleanupArgs(instance: DevInstance): string[] {
   const cargoTargetDir = playwrightCargoTargetDir(instance);
   return [
     "-NoProfile",
@@ -508,7 +497,7 @@ function residualOwnedProcessIds(instance: DevInstance): number[] {
 }
 
 export async function assertDevConsoleStopped(instance: DevInstance): Promise<void> {
-  const ports = [instance.apiPort, instance.vitePort, instance.cdpPort];
+  const ports = devInstanceTeardownPorts(instance);
   const deadline = Date.now() + (process.platform === "win32" ? 30_000 : 15_000);
   while (Date.now() <= deadline) {
     if (
