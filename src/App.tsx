@@ -516,9 +516,15 @@ function AppInner() {
             <div
               className={`sm:hidden fixed inset-0 z-30 bg-black/40 ct-sidebar-backdrop ${sidebarShown ? "is-open" : ""}`}
               onClick={() => setSidebarOpen(false)}
+              aria-hidden={!sidebarShown}
+              style={{ pointerEvents: sidebarShown ? "auto" : "none" }}
             />
             {/* Fixed overlay escapes #root's safe-area padding — re-add it here. */}
-            <div className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:shadow-2xl max-sm:pt-[var(--ct-safe-top,0px)] max-sm:pb-[var(--ct-safe-bottom,0px)] max-sm:bg-[var(--ct-sidebar-bg)] flex min-h-0 overflow-visible`}>
+            <div
+              className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:shadow-2xl max-sm:pt-[var(--ct-safe-top,0px)] max-sm:pb-[var(--ct-safe-bottom,0px)] max-sm:bg-[var(--ct-sidebar-bg)] flex min-h-0 overflow-visible`}
+              aria-hidden={!sidebarShown}
+              inert={!sidebarShown || undefined}
+            >
               <Sidebar
                 onOpenMemory={() => { setMemoryOpen(true); closeSidebarOnMobile(); }}
                 onOpenMesh={() => { setMeshOpen(true); closeSidebarOnMobile(); }}
