@@ -2,12 +2,6 @@ use serde_json::Value;
 
 use super::cli::{read_audit_events, run_plugin_cli};
 
-pub(crate) fn snapshot(
-    chatbackends: Option<&crate::chatbackend::ChatBackendRegistry>,
-) -> Result<Value, String> {
-    build_snapshot(None, chatbackends)
-}
-
 /// Scan plugin roots for `plugin.json` manifests, keyed by id. The CLI `plugin list`
 /// only reports installed plugins with empty paths, so it can't surface capabilities
 /// or workspace-loaded plugins; this gives the on-disk truth the daemon loads.

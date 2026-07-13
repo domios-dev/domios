@@ -302,7 +302,8 @@ export const TerminalPane = memo(function TerminalPane({
 
   // Refit xterm when the terminal layout changes so rows match the actual terminal box.
   useEffect(() => {
-    const openingTerminal = terminalVisible && !wasTerminalVisibleRef.current;
+    const terminalOnScreen = terminalVisible && isVisible;
+    const openingTerminal = terminalOnScreen && !wasTerminalVisibleRef.current;
     if (!terminalVisible || !termReady) {
       if (!terminalVisible) wasTerminalVisibleRef.current = false;
       return;
@@ -313,7 +314,10 @@ export const TerminalPane = memo(function TerminalPane({
       if (!term || !fit) return;
       try {
         fit.fit();
-        if (openingTerminal) term.scrollToBottom();
+        if (openingTerminal) {
+          term.scrollToBottom();
+          requestAnimationFrame(() => term.scrollToBottom());
+        }
         term.refresh(0, term.rows - 1);
         const ptyId = connectedPtyRef.current;
         if (ptyId && term.cols > 0 && term.rows > 0) {
@@ -328,10 +332,10 @@ export const TerminalPane = memo(function TerminalPane({
         }
       } catch { /* ignore */ }
       termRef.current?.focus();
-      wasTerminalVisibleRef.current = terminalVisible;
+      wasTerminalVisibleRef.current = terminalOnScreen;
     });
     return () => cancelAnimationFrame(raf);
-  }, [terminalVisible, showTerminalKeyBar, termReady, paneId, resizeClientId, termRef, fitAddonRef, connectedPtyRef]);
+  }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, paneId, resizeClientId, termRef, fitAddonRef, connectedPtyRef]);
 
   useEffect(() => {
     if (!terminalFallbackOpen || uiMode !== "chat") return;

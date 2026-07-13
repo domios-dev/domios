@@ -456,21 +456,6 @@ impl ServiceContext {
             })?;
         let orch_pane_id = orch_result.pane_id.clone();
 
-        if let Err(error) = self
-            .await_pair_agent_ready(
-                &orch_pane_id,
-                &params.orchestrator_agent,
-                orch_ready_rx,
-                readiness_deadline,
-            )
-            .await
-        {
-            let _ = self.close_pane(&orch_pane_id);
-            return Err(format!(
-                "Pair degraded: Orchestrator pane {orch_pane_id} failed to launch ({error}) and was closed. No Planner was spawned and no follow-up was delivered. Retry with: {pair_fix_command}"
-            ));
-        }
-
         let planner_name = {
             let mux = self.mux.read();
             let existing: Vec<String> = mux
@@ -510,35 +495,6 @@ impl ServiceContext {
         {
             Ok(planner_result) => {
                 let planner_pane_id = planner_result.pane_id.clone();
-                if let Err(error) = self
-                    .await_pair_agent_ready(
-                        &planner_pane_id,
-                        &params.planner_agent,
-                        planner_ready_rx,
-                        readiness_deadline,
-                    )
-                    .await
-                {
-                    let _ = self.close_pane(&planner_pane_id);
-                    let fix_command = degraded_fix_command(
-                        &orch_pane_id,
-                        &params.planner_agent,
-                        planner_model.as_deref(),
-                    );
-                    let followup = orchestrator_pair_followup_degraded(&fix_command, &error);
-                    if let Err(notify_err) = self.deliver_pair_followup(
-                        &orch_pane_id,
-                        &params.orchestrator_agent,
-                        &followup,
-                    ) {
-                        log::warn!(
-                            "[orchestration-pair] failed to notify orchestrator {orch_pane_id} of degraded pairing: {notify_err}"
-                        );
-                    }
-                    return Err(format!(
-                        "Orchestrator spawned (pane {orch_pane_id}) but Planner launch failed: {error}. No plan was created. Complete the pair after first goal with: {fix_command}"
-                    ));
-                }
                 let planner_label = self
                     .agent_registry
                     .with_provider(&params.planner_agent, |p| p.display_name().to_string())
@@ -555,18 +511,72 @@ impl ServiceContext {
                         &orch_pane_id,
                     ));
                 }
-                let followup = orchestrator_pair_followup_ready(&planner_pane_id);
-                if let Err(error) =
-                    self.deliver_pair_followup(&orch_pane_id, &params.orchestrator_agent, &followup)
-                {
-                    let _ = self.close_pane(&planner_pane_id);
-                    return Err(format!(
-                        "Pair degraded: Planner launched but Orchestrator pane {orch_pane_id} was no longer live ({error}); no follow-up was delivered. Retry with: {pair_fix_command}"
-                    ));
-                }
                 if let Some(pane) = self.mux.write().get_pane_mut(&orch_pane_id) {
                     pane.pending_paired_planner_pane_id = Some(planner_pane_id.clone());
                 }
+                let (orch_ready, planner_ready) = tokio::join!(
+                    self.await_pair_agent_ready(
+                        &orch_pane_id,
+                        &params.orchestrator_agent,
+                        orch_ready_rx,
+                        readiness_deadline,
+                    ),
+                    self.await_pair_agent_ready(
+                        &planner_pane_id,
+                        &params.planner_agent,
+                        planner_ready_rx,
+                        readiness_deadline,
+                    )
+                );
+                let warning = match (orch_ready, planner_ready) {
+                    (Ok(()), Ok(())) => {
+                        let followup = orchestrator_pair_followup_ready(&planner_pane_id);
+                        if let Err(error) = self.deliver_pair_followup(
+                            &orch_pane_id,
+                            &params.orchestrator_agent,
+                            &followup,
+                        ) {
+                            Some(format!(
+                                "Pair launched, but follow-up delivery to Orchestrator pane {orch_pane_id} failed: {error}"
+                            ))
+                        } else {
+                            None
+                        }
+                    }
+                    (orch_status, planner_status) => {
+                        let orch_error = orch_status.err();
+                        let planner_error = planner_status.err();
+                        let fix_command = degraded_fix_command(
+                            &orch_pane_id,
+                            &params.planner_agent,
+                            planner_model.as_deref(),
+                        );
+                        if let Some(ref planner_error) = planner_error {
+                            let followup =
+                                orchestrator_pair_followup_degraded(&fix_command, planner_error);
+                            if let Err(notify_err) = self.deliver_pair_followup(
+                                &orch_pane_id,
+                                &params.orchestrator_agent,
+                                &followup,
+                            ) {
+                                log::warn!(
+                                    "[orchestration-pair] failed to notify orchestrator {orch_pane_id} of degraded pairing: {notify_err}"
+                                );
+                            }
+                        }
+                        let mut parts = Vec::new();
+                        if let Some(error) = orch_error {
+                            parts.push(format!("Orchestrator readiness was not confirmed: {error}"));
+                        }
+                        if let Some(error) = planner_error {
+                            parts.push(format!("Planner readiness was not confirmed: {error}"));
+                        }
+                        parts.push(format!(
+                            "Both tabs were kept open. If the Planner is actually missing after the first goal, complete attachment with: {fix_command}"
+                        ));
+                        Some(parts.join(" "))
+                    }
+                };
                 // Activate server-side: the client continuation may be gone by
                 // the time the pair lands (page reload); the daemon owns focus.
                 {
@@ -590,7 +600,7 @@ impl ServiceContext {
                     orchestrator_model,
                     planner_pane_id,
                     planner_model,
-                    warning: orch_result.warning.or(planner_result.warning),
+                    warning: warning.or(orch_result.warning).or(planner_result.warning),
                     budget_notice,
                 })
             }

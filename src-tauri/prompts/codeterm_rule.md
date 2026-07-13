@@ -12,10 +12,10 @@ Every routed inbound message starts with a CodeTerm marker telling you WHERE to 
 | `-=-codeterm:mesh peer=PEER pane=ID-=-text` | `codeterm send "..." --tab ID --mesh PEER` |
 | `-=-codeterm:pane label=NAME pane=ID ...-=-text` | `codeterm send "..." --tab ID` |
 | `-=-codeterm:report from=NAME pane=ID ...-=-text` | act on it, never reply |
-| `[Report from PANE_ID]` | act on it, never reply |
+| `[Report from NAME@PEER]` | act on it, never reply |
 | *no prefix* | normal pane output |
 
-**Task done → `codeterm agent report "summary"`.** Parent only sees what arrives via `[Report from ...]`. Printing a summary in your own pane reaches no one.
+**Task done → `codeterm agent report "summary"`.** Parent only sees what arrives as a report marker from the table above. Printing a summary in your own pane reaches no one.
 
 **Drift is the silent failure mode.** Long conversations make pane-replies feel natural after a few turns — they're not. Originator is on Telegram or another pane; they don't see your pane text. If you catch yourself drafting a conversational paragraph in pane while latest inbound has a `-=-codeterm:telegram` or `-=-codeterm:mesh` marker — STOP, delete, use the CLI.
 

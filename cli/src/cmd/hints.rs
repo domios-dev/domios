@@ -119,12 +119,6 @@ pub fn push_hints(value: &mut Value, hints: Vec<String>) {
     }
 }
 
-pub fn print_hints(hints: &[String]) {
-    for hint in hints {
-        println!("{hint}");
-    }
-}
-
 pub fn print_hints_stderr(hints: &[String]) {
     for hint in hints {
         eprintln!("{hint}");

@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { MessageBubble } from "@codeterm/chat-ui";
@@ -105,10 +105,11 @@ export function PaneSessionChat({
   // bottom-pinned agent indicator/composer, so it never overlaps streaming output.
   const [showScrollDown, setShowScrollDown] = useState(false);
 
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    if (behavior === "auto") el.scrollTop = el.scrollHeight;
+    else el.scrollTo({ top: el.scrollHeight, behavior });
     atBottomRef.current = true;
     setShowScrollDown(false);
   }, []);
@@ -159,6 +160,28 @@ export function PaneSessionChat({
     addOptimistic,
     updateOptimistic,
   } = useChatSession({ paneId, agentSessionId, onError, active: isActive });
+
+  const lastInstantBottomKeyRef = useRef("");
+  useLayoutEffect(() => {
+    if (!isActive) {
+      lastInstantBottomKeyRef.current = "";
+      return;
+    }
+    if (loading) return;
+    const key = `${paneId}:${agentSessionId ?? ""}`;
+    if (lastInstantBottomKeyRef.current === key) return;
+    lastInstantBottomKeyRef.current = key;
+    scrollToBottom("auto");
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      scrollToBottom("auto");
+      raf2 = requestAnimationFrame(() => scrollToBottom("auto"));
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
+  }, [agentSessionId, isActive, loading, paneId, scrollToBottom]);
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   // clears pane.pending_prompt shortly after on the next state poll.
@@ -554,7 +577,7 @@ export function PaneSessionChat({
         <button
           type="button"
           data-testid="chat-scroll-bottom"
-          onClick={scrollToBottom}
+          onClick={() => scrollToBottom()}
           title="Scroll to latest"
           className="absolute right-4 bottom-4 z-10 flex h-8 w-8 items-center justify-center rounded-full text-[var(--ct-muted-fg)] transition-colors hover:text-[var(--ct-fg)]"
           style={{ background: "var(--ct-surface)", border: "1px solid var(--ct-border)" }}
