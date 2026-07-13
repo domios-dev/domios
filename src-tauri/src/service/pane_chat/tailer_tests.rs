@@ -21,6 +21,9 @@ use tempfile::TempDir;
 
 use crate::agent::chat_types::RichMessage;
 use crate::agent::registry::AgentRegistry;
+use crate::service::pane_chat::store_watch::{
+    spawn_store_watch_with_test_hook, StoreWatchTestHook,
+};
 use crate::service::pane_chat::{
     spawn_store_watch, spawn_tailer, ChatRegistry, DeltaSink, StoreWatchConfig, TailConfig,
 };
@@ -96,6 +99,66 @@ fn registry_with_claude_at(sessions_root_dir: &std::path::Path) -> Arc<AgentRegi
     let reg = AgentRegistry::new();
     reg.register_provider(Box::new(provider));
     Arc::new(reg)
+}
+
+struct DelayedStoreProvider {
+    path: PathBuf,
+    available: Arc<AtomicBool>,
+}
+
+impl crate::agent::provider::AgentProvider for DelayedStoreProvider {
+    fn id(&self) -> &str {
+        "delayed-store"
+    }
+    fn display_name(&self) -> &str {
+        "Delayed Store"
+    }
+    fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String {
+        String::new()
+    }
+    fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
+        crate::agent::provider::ReadinessStrategy::FixedDelay {
+            duration: Duration::ZERO,
+        }
+    }
+    fn task_delivery(&self) -> crate::agent::provider::TaskDelivery {
+        crate::agent::provider::TaskDelivery::PtyInput
+    }
+    fn detect_from_title(&self, _: &str) -> bool {
+        false
+    }
+    fn detect_from_output(&self, _: &str) -> bool {
+        false
+    }
+    fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+        None
+    }
+    fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
+        None
+    }
+    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+        None
+    }
+    fn session_jsonl_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+        self.available
+            .load(Ordering::Acquire)
+            .then(|| self.path.clone())
+    }
+    fn parse_session_delta(
+        &self,
+        path: &std::path::Path,
+        from_offset: u64,
+    ) -> crate::agent::chat_types::SessionDelta {
+        crate::agent::chat_types::SessionDelta {
+            new_offset: std::fs::metadata(path)
+                .map(|metadata| metadata.len())
+                .unwrap_or(from_offset),
+            messages: vec![RichMessage {
+                role: "assistant".into(),
+                ..Default::default()
+            }],
+        }
+    }
 }
 
 #[test]
@@ -220,70 +283,6 @@ fn tailer_repopulates_when_session_file_appears_late() {
 
 #[test]
 fn pending_store_watch_promotes_to_tailer_and_streams_initial_batch() {
-    use crate::agent::provider::{
-        AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery,
-    };
-
-    struct DelayedStoreProvider {
-        path: PathBuf,
-        available: Arc<AtomicBool>,
-    }
-
-    impl AgentProvider for DelayedStoreProvider {
-        fn id(&self) -> &str {
-            "delayed-store"
-        }
-        fn display_name(&self) -> &str {
-            "Delayed Store"
-        }
-        fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
-            String::new()
-        }
-        fn readiness_strategy(&self) -> ReadinessStrategy {
-            ReadinessStrategy::FixedDelay {
-                duration: Duration::ZERO,
-            }
-        }
-        fn task_delivery(&self) -> TaskDelivery {
-            TaskDelivery::PtyInput
-        }
-        fn detect_from_title(&self, _: &str) -> bool {
-            false
-        }
-        fn detect_from_output(&self, _: &str) -> bool {
-            false
-        }
-        fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
-            None
-        }
-        fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
-            None
-        }
-        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
-            None
-        }
-        fn session_jsonl_path(&self, _: &str, _: &str) -> Option<PathBuf> {
-            self.available
-                .load(Ordering::Acquire)
-                .then(|| self.path.clone())
-        }
-        fn parse_session_delta(
-            &self,
-            path: &std::path::Path,
-            from_offset: u64,
-        ) -> crate::agent::chat_types::SessionDelta {
-            crate::agent::chat_types::SessionDelta {
-                new_offset: std::fs::metadata(path)
-                    .map(|metadata| metadata.len())
-                    .unwrap_or(from_offset),
-                messages: vec![RichMessage {
-                    role: "assistant".into(),
-                    ..Default::default()
-                }],
-            }
-        }
-    }
-
     let tmp = TempDir::new().unwrap();
     let sid = "sess-pending-watch-001";
     let jsonl = tmp.path().join(format!("{sid}.jsonl"));
@@ -310,7 +309,7 @@ fn pending_store_watch_promotes_to_tailer_and_streams_initial_batch() {
         chat_registry.clone(),
         sink.clone() as Arc<dyn DeltaSink>,
     );
-    assert!(chat_registry.insert("p-pending".into(), sid.into(), watch));
+    assert!(watch.register(&chat_registry));
 
     std::thread::sleep(Duration::from_millis(3100));
     assert!(
@@ -333,6 +332,63 @@ fn pending_store_watch_promotes_to_tailer_and_streams_initial_batch() {
         !chat_registry.is_running("p-pending"),
         "one mount is released by one stop after promotion",
     );
+}
+
+#[test]
+fn pending_store_watch_needs_registration_authority_before_promotion() {
+    use std::sync::{mpsc, Barrier};
+
+    let tmp = TempDir::new().unwrap();
+    let sid = "sess-registration-race-001";
+    let jsonl = tmp.path().join(format!("{sid}.jsonl"));
+    std::fs::write(&jsonl, "materialized\n").unwrap();
+
+    let available = Arc::new(AtomicBool::new(true));
+    let agent_registry = AgentRegistry::new();
+    agent_registry.register_provider(Box::new(DelayedStoreProvider {
+        path: jsonl,
+        available,
+    }));
+
+    let chat_registry = ChatRegistry::new();
+    let sink = Arc::new(Collector {
+        msgs: Mutex::new(vec![]),
+    });
+    let (store_seen_tx, store_seen_rx) = mpsc::sync_channel(1);
+    let (authority_rejected_tx, authority_rejected_rx) = mpsc::sync_channel(1);
+    let resume_after_store_seen = Arc::new(Barrier::new(2));
+    let watch = spawn_store_watch_with_test_hook(
+        StoreWatchConfig {
+            pane_id: "p-registration-race".into(),
+            provider_id: "delayed-store".into(),
+            cwd: "/project".into(),
+            session_id: sid.into(),
+            poll_interval: Duration::from_millis(5),
+        },
+        Arc::new(agent_registry),
+        chat_registry.clone(),
+        sink.clone() as Arc<dyn DeltaSink>,
+        StoreWatchTestHook {
+            store_seen: store_seen_tx,
+            resume_after_store_seen: resume_after_store_seen.clone(),
+            authority_rejected: authority_rejected_tx,
+        },
+    );
+
+    store_seen_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("watch must observe the store before registration");
+    resume_after_store_seen.wait();
+    authority_rejected_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("unregistered watch must decline promotion");
+
+    assert!(watch.register(&chat_registry));
+    assert!(
+        wait_until(2000, || !sink.msgs.lock().is_empty()),
+        "registered watch must promote and emit its initial batch",
+    );
+    chat_registry.stop("p-registration-race");
 }
 
 #[test]

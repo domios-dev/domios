@@ -416,8 +416,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                 svc.chat_registry.clone(),
                 sink,
             );
-            svc.chat_registry
-                .insert(pane_id.clone(), session_id.clone(), handle);
+            handle.register(&svc.chat_registry);
         }
         return Ok(ChatStartResult {
             text: String::new(),
