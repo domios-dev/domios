@@ -121,6 +121,7 @@ fastembed = { version = "5", optional = true, features = ["ort-load-dynamic"] }
 [target.'cfg(windows)'.dependencies]
 conpty = "0.7"
 clipboard-win = "5"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 tempfile = "3"
