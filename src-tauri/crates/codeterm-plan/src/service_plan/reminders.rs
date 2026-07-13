@@ -155,13 +155,37 @@ impl TurnCounter {
     }
 
     pub fn time_nudge_due(&self, pane_id: &str, now_secs: u64, interval_secs: u64) -> bool {
+        self.time_nudge_due_with_initial_state(pane_id, now_secs, interval_secs, false)
+    }
+
+    pub fn idle_owner_time_nudge_due(
+        &self,
+        pane_id: &str,
+        now_secs: u64,
+        interval_secs: u64,
+    ) -> bool {
+        self.time_nudge_due_with_initial_state(pane_id, now_secs, interval_secs, true)
+    }
+
+    fn time_nudge_due_with_initial_state(
+        &self,
+        pane_id: &str,
+        now_secs: u64,
+        interval_secs: u64,
+        initially_due: bool,
+    ) -> bool {
         if interval_secs == 0 {
             return false;
         }
         let mut timed = self.timed.lock();
         let Some(last_nudge) = timed.get(pane_id).copied() else {
-            timed.insert(pane_id.to_string(), now_secs);
-            return false;
+            let initial_deadline = if initially_due {
+                now_secs.saturating_sub(interval_secs)
+            } else {
+                now_secs
+            };
+            timed.insert(pane_id.to_string(), initial_deadline);
+            return initially_due;
         };
         now_secs.saturating_sub(last_nudge) >= interval_secs
     }
@@ -478,6 +502,24 @@ mod tests {
         assert!(counter.time_nudge_due("orch", interval + 60, interval));
         counter.mark_time_nudged("orch", interval + 60);
         assert!(!counter.time_nudge_due("orch", interval + 61, interval));
+    }
+
+    #[test]
+    fn idle_owner_is_due_when_first_observed_and_then_respects_cadence() {
+        let counter = TurnCounter::new();
+        let interval = 30 * 60;
+        let now = interval * 10;
+
+        assert!(counter.idle_owner_time_nudge_due("idle-owner", now, interval));
+        assert!(counter.idle_owner_time_nudge_due("idle-owner", now + 1, interval));
+        let delivered_at = now + 1;
+        counter.mark_time_nudged("idle-owner", delivered_at);
+        assert!(!counter.idle_owner_time_nudge_due(
+            "idle-owner",
+            delivered_at + interval - 1,
+            interval
+        ));
+        assert!(counter.idle_owner_time_nudge_due("idle-owner", delivered_at + interval, interval));
     }
 
     #[test]
