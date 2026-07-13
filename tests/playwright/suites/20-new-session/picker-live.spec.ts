@@ -1,55 +1,97 @@
 /**
- * WHAT: live-provider reality of the picker pair spawn — the orchestrator's
- *       first act creates and claims the pair's plan (lazy, LLM-driven).
- * WHY: golden covers picker plumbing on the stub transport; plan creation is
- *      real agent behavior and stays under @live on its own cadence.
- * ORACLE: /api/plans contains a plan titled with the workspace name shortly
- *      after the pair materializes.
+ * WHAT: the real-provider orchestration pair route launches both Claude PTYs
+ *       and delivers the post-launch Planner follow-up to the Orchestrator.
+ * WHY: golden uses the replay transport, so it cannot catch a provider launch
+ *      that falls back to a bare shell or loses the follow-up during startup.
+ * ORACLE: both pane-local session ids materialize and the Orchestrator buffer
+ *      contains the exact live Planner pane id from the real pair response.
  */
 import { expect, test } from "../../helpers/fixtures";
 import { pollUntil } from "../../helpers/poll";
 import type { ApiClient } from "../../helpers/api-client";
 
+type PairResult = {
+  plan_id?: string;
+  orchestrator_pane_id: string;
+  planner_pane_id: string;
+};
+
 async function createTestWorkspace(api: ApiClient): Promise<{ id: string; name: string }> {
   const name = `pw-live-pair-${Date.now()}`;
   await api.createWorkspace(name);
-  const ws = (await api.workspaces()).find((w) => w.name === name);
+  const ws = (await api.workspaces()).find((candidate) => candidate.name === name);
   if (!ws) throw new Error(`workspace ${name} missing after create`);
   await api.focusWorkspace(ws.id);
   return { id: ws.id, name };
 }
 
-test("@live pair spawn: the live orchestrator creates and claims the pair's plan", async ({
+async function paneText(api: ApiClient, paneId: string): Promise<string> {
+  const text = await api.get<{ text?: string } | string>(`/panes/${paneId}/text`).catch(() => "");
+  return typeof text === "string" ? text : (text.text ?? JSON.stringify(text));
+}
+
+async function sessionId(api: ApiClient, paneId: string): Promise<string | undefined> {
+  const status: Record<string, unknown> = await api
+    .get<Record<string, unknown>>(`/panes/${paneId}/status`)
+    .catch(() => ({} as Record<string, unknown>));
+  const value = status.agent_session_id;
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+test("@golden @live real pair launch leaves no bare shell and delivers the Planner follow-up", async ({
   api,
-  ui,
+  paneCleanup,
 }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(300_000);
   const ws = await createTestWorkspace(api);
-  const page = ui.page;
+  const pair = await api.post<PairResult>("/orchestration/new", {
+    orchestrator_agent: "claude",
+    orchestrator_model: "sonnet",
+    planner_agent: "claude",
+    planner_model: "sonnet",
+    workspace_id: ws.id,
+    title: `pw-live-pair-${Date.now()}`,
+  });
+  paneCleanup.track(pair.orchestrator_pane_id);
+  paneCleanup.track(pair.planner_pane_id);
 
-  const item = page.locator(`[data-testid="workspace-item"][data-workspace-id="${ws.id}"]`);
-  await expect(item).toBeVisible({ timeout: 15_000 });
-  const expand = item.locator('button[title="Expand"]');
-  if (await expand.isVisible().catch(() => false)) await expand.click();
-  await page
-    .locator(`[data-testid="workspace-group"][data-workspace-id="${ws.id}"]`)
-    .getByText("New session", { exact: true })
-    .click();
-  await expect(page.locator('[data-testid="new-session-picker"]')).toBeVisible({ timeout: 10_000 });
-  await page.locator('[data-testid="picker-mode-orchestration"]').click();
-  await page.locator('[data-testid="picker-confirm"]').click();
-  await expect(page.locator('[data-testid="new-session-picker"]')).toBeHidden({ timeout: 60_000 });
+  expect(pair.plan_id, "pair launch stays lazy until the Orchestrator receives a goal").toBeUndefined();
 
-  const plan = await pollUntil(
+  const [orchestratorSession, plannerSession] = await Promise.all([
+    pollUntil(
+      () => sessionId(api, pair.orchestrator_pane_id),
+      180_000,
+      1_000,
+      "real Orchestrator provider session materializes",
+    ),
+    pollUntil(
+      () => sessionId(api, pair.planner_pane_id),
+      180_000,
+      1_000,
+      "real Planner provider session materializes",
+    ),
+  ]);
+  expect(orchestratorSession).toBeTruthy();
+  expect(plannerSession).toBeTruthy();
+
+  const followup = `Your Planner specialist is live: pane ${pair.planner_pane_id}`;
+  const orchestratorText = await pollUntil(
     async () => {
-      const plans = await api.plans().catch(() => []);
-      return plans.find((p) => (p.title ?? "").includes(ws.name)) ?? null;
+      const text = await paneText(api, pair.orchestrator_pane_id);
+      return text.includes(followup) ? text : undefined;
     },
-    240_000,
-    3_000,
-    "live orchestrator creates the pair plan",
+    60_000,
+    500,
+    "pair follow-up reaches the launched Orchestrator PTY",
   );
-  expect(plan, "the pair's plan exists").toBeTruthy();
-  expect(plan!.title, "plan title includes the workspace name").toContain(ws.name);
-  expect(plan!.title.trim(), "plan title is not the bare 'Orchestration'").not.toBe("Orchestration");
+  expect(orchestratorText).toContain(followup);
+
+  const plannerStatus = await api.get<Record<string, unknown>>(
+    `/panes/${pair.planner_pane_id}/status`,
+  );
+  expect(plannerStatus.parent_pane_id).toBe(pair.orchestrator_pane_id);
+  expect(plannerStatus.role).toBe("Manager");
+
+  const combinedOutput = `${orchestratorText}\n${await paneText(api, pair.planner_pane_id)}`;
+  expect(combinedOutput, "@live must never run through replay.mjs").not.toContain("stub replay");
 });

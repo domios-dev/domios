@@ -1,6 +1,6 @@
 /**
- * Typed wrapper over the dev console's REST API (port 7686).
- * Token comes from ~/.codeterm-dev/config.toml — same source the CLI uses.
+ * Typed wrapper over the isolated Playwright instance's REST API.
+ * Token comes from its named dev data directory.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import os from "node:os";

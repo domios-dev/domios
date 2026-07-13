@@ -34,8 +34,8 @@ export function devInstanceForSlot(slot: number, workers = playwrightWorkerCount
   }
 
   if (workers === 1) {
-    const name = process.env.CT_E2E_INSTANCE ?? "";
-    const apiPort = integerEnv("CT_E2E_PORT", 7686);
+    const name = process.env.CT_E2E_INSTANCE ?? "playwright";
+    const apiPort = integerEnv("CT_E2E_PORT", 7786);
     const offset = name ? slugOffset(name) : 0;
     const vitePort = integerEnv("CT_E2E_VITE_PORT", 1420 + offset);
     const cdpPort = integerEnv("CT_E2E_CDP_PORT", 9223 + offset);
@@ -65,7 +65,7 @@ function descriptor(
   dataDirName: string,
 ): DevInstance {
   for (const port of [apiPort, vitePort, cdpPort]) {
-    if (port === 7685 || port > 65_535) {
+    if (port === 7685 || port === 7686 || port > 65_535) {
       throw new Error(`refusing unsafe Playwright instance port ${port}`);
     }
   }
@@ -75,7 +75,7 @@ function descriptor(
   if (!/^\.codeterm-dev(?:-[a-z0-9-]+)?$/.test(dataDirName)) {
     throw new Error(`refusing unsafe Playwright data dir ${dataDirName}`);
   }
-  const identifier = name ? `com.codeterm.dev.${name.replaceAll("-", ".")}` : "com.codeterm.dev";
+  const identifier = name ? `com.codeterm.dev.${name.replace(/-/g, ".")}` : "com.codeterm.dev";
   const apiBase = `http://127.0.0.1:${apiPort}`;
   return {
     slot,
