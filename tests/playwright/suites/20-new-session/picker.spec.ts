@@ -30,6 +30,8 @@ interface MuxPane {
   parent_pane_id?: string | null;
   agent_type?: string | null;
   title: string;
+  hidden?: boolean;
+  show_in_tabbar?: boolean;
 }
 interface MuxState {
   workspaces: MuxWorkspace[];
@@ -113,6 +115,14 @@ function paneCount(panes: Pane[]): number {
 }
 function ptyCount(panes: Pane[]): number {
   return panes.filter((p) => p.pty_id != null).length;
+}
+
+function visibleTabsInWorkspace(state: MuxState, wsId: string): MuxTab[] {
+  const ws = state.workspaces.find((w) => w.id === wsId);
+  return (ws?.tabs ?? []).filter((tab) => {
+    const pane = state.panes[tab.pane_id];
+    return pane && pane.hidden !== true && pane.show_in_tabbar !== false;
+  });
 }
 
 /** Reads PEER_ORCH_GREETING straight from the Rust source and splits it on the
@@ -238,8 +248,7 @@ test.describe("new-session picker", () => {
   test("@golden OPEN: New session shows the VIRTUAL picker, no backend pane/PTY", async ({ api, ui }) => {
     const panes = await api.panes();
     const state = await muxState(api);
-    const wsNow = state.workspaces.find((w) => w.id === ws.id);
-    expect(wsNow?.tabs.length ?? 0, "picker must not create a backend tab").toBe(0);
+    expect(visibleTabsInWorkspace(state, ws.id), "picker must not create a rendered backend tab").toHaveLength(0);
     // …and no snapshot pane carries the virtual picker's title.
     expect(
       Object.values(state.panes).some((p) => p.title === "New session"),
@@ -337,7 +346,7 @@ test.describe("new-session picker", () => {
     const page = ui.page;
     // Fresh workspace: no backend tabs before confirm (picker is virtual).
     const before = await muxState(api);
-    expect(before.workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0).toBe(0);
+    expect(visibleTabsInWorkspace(before, ws.id)).toHaveLength(0);
 
     await page.locator('[data-testid="picker-mode-orchestration"]').click();
     await page.locator('[data-testid="picker-confirm"]').click();
@@ -345,7 +354,7 @@ test.describe("new-session picker", () => {
     // The picker retires; the group (orchestrator + planner child) appears.
     await expect(page.locator('[data-testid="new-session-picker"]')).toBeHidden({ timeout: 60_000 });
     await expect
-      .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0, {
+      .poll(async () => visibleTabsInWorkspace(await muxState(api), ws.id).length, {
         timeout: 60_000,
       })
       .toBe(2);
@@ -405,7 +414,7 @@ test.describe("new-session picker", () => {
       await page.locator('[data-testid="picker-confirm"]').click();
 
       await expect
-        .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === wsB.id)?.tabs.length ?? 0, {
+        .poll(async () => visibleTabsInWorkspace(await muxState(api), wsB.id).length, {
           timeout: 60_000,
         })
         .toBeGreaterThanOrEqual(2);
@@ -414,7 +423,7 @@ test.describe("new-session picker", () => {
 
       // …and A keeps NO husk: the virtual picker just vanished, no backend tab.
       const after = await muxState(api);
-      expect(after.workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0).toBe(0);
+      expect(visibleTabsInWorkspace(after, ws.id)).toHaveLength(0);
     } finally {
       await cleanupWorkspace(api, wsB.id);
     }
@@ -490,7 +499,7 @@ test.describe("new-session picker", () => {
       .poll(async () => (await muxState(api)).focused_pane_id, { timeout: 30_000 })
       .toBe(orchestrator.id);
       // Host A keeps no husk.
-      expect(s.workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0).toBe(0);
+      expect(visibleTabsInWorkspace(s, ws.id)).toHaveLength(0);
     } finally {
       await cleanupWorkspace(api, wsB.id);
     }
@@ -504,15 +513,14 @@ test.describe("new-session picker", () => {
     await page.locator('[data-testid="picker-confirm"]').click();
 
     await expect
-      .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0, {
+      .poll(async () => visibleTabsInWorkspace(await muxState(api), ws.id).length, {
         timeout: 60_000,
       })
       .toBe(2);
 
     const { tab: orchTab } = await waitForOrchestrator(api, ws.id);
     const state = await muxState(api);
-    const wsNow = state.workspaces.find((w) => w.id === ws.id)!;
-    const plannerTab = wsNow.tabs.find((t) => t.id !== orchTab.id)!;
+    const plannerTab = visibleTabsInWorkspace(state, ws.id).find((t) => t.id !== orchTab.id)!;
 
     const plannerRow = page.locator(`[data-tab-id="${plannerTab.id}"]`);
     await plannerRow.hover();
@@ -522,7 +530,7 @@ test.describe("new-session picker", () => {
     await plannerClose.click();
 
     await expect
-      .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0, {
+      .poll(async () => visibleTabsInWorkspace(await muxState(api), ws.id).length, {
         timeout: 60_000,
       })
       .toBe(1);
@@ -536,7 +544,7 @@ test.describe("new-session picker", () => {
     await headClose.click();
 
     await expect
-      .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0, {
+      .poll(async () => visibleTabsInWorkspace(await muxState(api), ws.id).length, {
         timeout: 60_000,
       })
       .toBe(0);
@@ -560,7 +568,7 @@ test.describe("new-session picker", () => {
     await expect(picker).toBeHidden();
     const basePanes = await api.panes();
     const baseState = await muxState(api);
-    const baseTabs = baseState.workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0;
+    const baseTabs = visibleTabsInWorkspace(baseState, ws.id).length;
 
     await openPicker(page, ws.id);
 
@@ -569,8 +577,8 @@ test.describe("new-session picker", () => {
     expect(ptyCount(openPanes), "PTY count unchanged while picker open").toBe(ptyCount(basePanes));
     const openState = await muxState(api);
     expect(
-      openState.workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0,
-      "no backend tab added on open",
+      visibleTabsInWorkspace(openState, ws.id).length,
+      "no rendered backend tab added on open",
     ).toBe(baseTabs);
     expect(
       Object.values(openState.panes).some((p) => p.title === "New session"),
@@ -605,7 +613,7 @@ test.describe("new-session picker", () => {
     await waitForOrchestrator(api, ws.id);
     // Let the group settle (planner child materializes + titles resolve).
     await expect
-      .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0, {
+      .poll(async () => visibleTabsInWorkspace(await muxState(api), ws.id).length, {
         timeout: 60_000,
       })
       .toBe(2);
@@ -656,13 +664,12 @@ test.describe("ghost-tab invariant", () => {
     try {
       await openPicker(ui.page, testWs.id);
 
-      // Virtual picker open: backend must have ZERO tabs in this workspace.
+      // Virtual picker open: backend must have ZERO rendered tabs in this workspace.
       const liveState = await muxState(api);
-      const liveWs = liveState.workspaces.find((w) => w.id === testWs.id);
       expect(
-        liveWs?.tabs?.length ?? 0,
-        "virtual picker must not create a backend tab (would restore as ghost on restart)",
-      ).toBe(0);
+        visibleTabsInWorkspace(liveState, testWs.id),
+        "virtual picker must not create a rendered backend tab (would restore as ghost on restart)",
+      ).toHaveLength(0);
 
       // Every visible sidebar title is real, not a placeholder.
       for (const title of await sidebarTabTitles(ui.page, testWs.id).catch(() => [])) {
