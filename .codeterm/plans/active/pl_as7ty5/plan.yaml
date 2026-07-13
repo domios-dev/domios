@@ -111,7 +111,7 @@ owner:
 project_path: \\?\D:\Developer\codeterm
 canonical_project_path: \\?\D:\Developer\codeterm
 created_at: 1783628878496
-updated_at: 1783971910320
+updated_at: 1783978474068
 milestone_kinds:
 - key: discovery
   label: discovery
@@ -251,6 +251,21 @@ milestone_kinds:
 - key: partial
   label: partial
   color: null
+- key: merge
+  label: merge
+  color: null
+- key: integration
+  label: integration
+  color: null
+- key: qa
+  label: qa
+  color: null
+- key: exception
+  label: exception
+  color: null
+- key: qa-owner
+  label: qa-owner
+  color: null
 loops:
 - id: loop_6c2hy7
   target: Every reproducible in-scope planner, lane, report, canvas, plugin, CLI, or release-workflow defect is either disproven/out-of-scope or has evidence, severity/blast radius, a bounded regression-backed follow-up, independent review, and an updated issue/release decision.
@@ -363,9 +378,9 @@ primary_spec_id: sp_o6l6of
 lineage: []
 goal: null
 heartbeat:
-  current_focus: canonical feat/1.7.2-stability dev ready at 67c63152f; k16xu0 and ngwcjd partial lanes in_review pending warm QA, kb1ncv+9im93u wait on k16xu0
+  current_focus: Local builds stopped; mobile web overflow implementation on ubunta, then all final browser/build gates on mesh exact SHA
   active_lanes:
-  - warm-qa-needed-for-partials
+  - ubunta-mobile-overflow
   rules:
   - No worker starts cargo/build/dev directly while a machine QA/build owner exists
   learnings:
@@ -417,6 +432,14 @@ heartbeat:
     text: When a planner-owned Playwright speedup task lands partial focused evidence, immediately assign the missing platform/broad gate to a machine owner before accepting it; otherwise the task sits in_review and creates a regression-gate leak that blocks the next frontier.
     ts: 1783792491720
     tag: gate-leak
+  - id: learn_5ixlz3
+    text: When a worker reports partial with exact missing Playwright commands, move the task directly into a named canonical warm-QA batch and do not leave it in_review without a machine owner.
+    ts: 1783972636023
+    tag: null
+  - id: learn_uqylnb
+    text: 'For chat recovery refactors, batch final acceptance on one exact SHA across all three ownership layers: daemon watch registration/promotion, frontend listener/composer lifetime, and provider binding lock boundary. Focused green evidence from separate intermediate SHAs is insufficient.'
+    ts: 1783977209038
+    tag: null
 canvas:
   viewport: null
 owner_history:
@@ -433,7 +456,6 @@ owner_history:
 planner:
   kind: pane
   pane_id: 56827f12
-  session_id: e0ceb04e-d24d-4f2b-8af5-d69d5d3fa421
 planning_state: approved
 planning_log:
 - from: drafting

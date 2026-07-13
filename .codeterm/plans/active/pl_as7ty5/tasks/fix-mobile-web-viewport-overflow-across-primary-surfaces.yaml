@@ -1,0 +1,95 @@
+id: task_ugl4mp
+name: Fix mobile web viewport overflow across primary surfaces
+type: implement
+model: gpt-5.6-terra
+model_rationale: Owner reports mobile web elements escaping viewport; requires responsive audit and regression-backed fix
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- At 320, 390, and 430 px widths, document has no horizontal overflow and every visible interactive element stays within viewport across listed primary surfaces
+test_plan: '1. In isolated lane run: npx playwright test tests/playwright/suites/12-web/mobile-overflow.spec.ts -g "@golden mobile web primary surfaces stay inside the viewport" --config=tests/playwright/playwright.config.ts --project=golden --timeout=30000 --global-timeout=600000 --reporter=line --trace=on. Assert document.documentElement.scrollWidth === clientWidth and every visible button/input/dialog/menu/sidebar/header boundingBox satisfies x>=0 and x+width<=viewport for 320x568, 390x844, 430x932; save one screenshot per viewport. 2. After exact green run adjacent mobile surfaces: npx playwright test tests/playwright/suites/12-web/web.spec.ts tests/playwright/suites/15-plan-header-mobile/plan-header-mobile.spec.ts --config=tests/playwright/playwright.config.ts --project=golden --timeout=30000 --global-timeout=600000 --reporter=line --trace=on. 3. Record /api/health full build_sha before bodies and artifact paths.'
+correctness: Overflow ownership is local and intentional; desktop remains unchanged; no blanket clipping hides inaccessible controls
+status: in_progress
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783978379416
+updated_at: 1783978474068
+status_changed_at: 1783978413344
+handle: fix-mobile-web-viewport-overflow-across-primary-surfaces
+tags: []
+section_ids:
+- sec_f6g3fr
+body: Audit and fix mobile web responsive overflow on canonical feat/1.7.2-stability. Reproduce at 320x568, 390x844, and 430x932 in /web across fresh-session picker, sidebar/workspace tree, chat view/composer, terminal mode, plan header/detail, settings, mesh, and modal/menu overlays. No content, controls, fixed headers, toolbars, dialogs, or scroll containers may extend beyond the visual viewport; document-level horizontal scrollWidth must equal clientWidth. Preserve desktop layout and intentional internal horizontal scrolling (terminal/code only). Use existing responsive primitives, min-w-0/overflow ownership, safe-area insets, and dynamic labels; do not blanket overflow-x:hidden over broken layout. Add focused Playwright regression asserting viewport bounds for visible interactive elements and screenshots on all three viewports. Work in an isolated lane from origin/feat/1.7.2-stability; push SHA and report exact commands/artifacts. Build and browser QA only on mesh.
+role_guidance: null
+executor_role: frontend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: e3fa0754
+lane:
+  pane_id: e3fa0754
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: feat/1.7.2-stability
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: responsiveness
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_90x8y5
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: dispatch
+  text: remote implementation owner Main@ubunta pane 197ecdcb; local Windows machine build-free by owner request
+  ts: 1783978413344
+  links:
+  - key:1fca41c49d83e58e
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_t7y1ct
+  executor_pane_id: e3fa0754
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: gpt-5.6-terra
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: feat/1.7.2-stability
+  report: null
+  assigned_at: 1783978412972
+  reported_at: null
+  reviewed_at: null
+  closed_at: null
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+pause_reason: null
+attachments: []

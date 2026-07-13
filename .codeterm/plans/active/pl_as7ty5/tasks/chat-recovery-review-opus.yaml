@@ -1,0 +1,185 @@
+id: task_7s71ns
+name: 'Independent review: chat recovery architecture (Claude Opus)'
+type: review
+model: opus
+model_rationale: Independent architecture and concurrency review requested by owner
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- No release-blocking lifecycle, race, reference-count, session-rotation, composer-remount, or stale-binding defect remains in the reviewed stack
+test_plan: Read source and focused tests only; optionally run existing narrow Node tests, but no dev/build/browser/broad gate
+correctness: One pane mount owns one listener and one backend watch/tailer lifecycle; pending never causes periodic teardown; materialized binding cannot be evicted by provisional evidence
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p1
+created_at: 1783975629417
+updated_at: 1783976383065
+status_changed_at: 1783976382667
+handle: chat-recovery-review-opus
+tags: []
+section_ids:
+- sec_f6g3fr
+body: 'Read-only independent review of canonical feat/1.7.2-stability at f0d1e07b7. Scope only the structural chat recovery stack: frontend listener/attach lifecycle and composer persistence; daemon pending-store watcher ownership/promotion/rotation/stop; provisional Codex binding guard. Inspect merged changes and tests. Find concrete correctness bugs, races, leaks, stale-state regressions, or missing acceptance coverage. Do not edit files, do not start dev/build/browser, and do not broaden into unrelated hardening. Report findings ordered by severity with exact file:line; if none, state ACCEPT and residual risks.'
+role_guidance: null
+executor_role: code-reviewer
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: worker
+peer: null
+group: review
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_mh1cyk
+  from:
+    pane_id: f2458776
+    session_id: null
+    title: null
+  kind: exception
+  text: 'Shared-checkout exception: Worker spawned into canonical checkout ''D:\Developer\codeterm'' via --allow-shared-checkout (pane f2458776)'
+  ts: 1783975646724
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_mh8ydd
+  from:
+    pane_id: f2458776
+    session_id: 8b3c0235-a773-497f-83a7-3e09bf708cd2
+    title: review chat recovery opus
+  kind: status_update
+  text: |-
+    STATUS: done (ACCEPT with one non-blocking MEDIUM finding)
+
+    CHANGES: none (read-only review of feat/1.7.2-stability @ f0d1e07b7)
+
+    SCOPE: chat recovery stack — frontend listener/attach/rotation + composer persistence (useChatSession.ts, PaneSessionChat.tsx, chatReattach.ts); daemon pending-store watcher ownership/promotion/rotation/stop (store_watch.rs, registry.rs replace_if_current/acquire/insert/stop, chat_start_core, provider.rs null path); provisional Codex binding guard (hook_routes.rs).
+
+    VERDICT: ACCEPT. No hard blocker.
+
+    FINDING 1 — MEDIUM (correctness / stale-state), NON-BLOCKING:
+    useChatSession.ts:393 writes previousSessionIdRef.current = agentSessionId UNCONDITIONALLY, before the state gate at :398 (awaiting_store/attached). The attach effect (:359-362, deps :389) does NOT depend on agentSessionId (reads agentSessionIdRef.current; re-runs only on attachGeneration). So if agentSessionId rotates (provisional->materialized, the Codex flow this stack targets) while attachmentState is idle (initial chat_start in-flight), attaching, or failed, the rotation is swallowed: previous advances to the new sid with no requestAttach scheduled, and is never revisited (later awaiting_store/attached transition finds previous===current). Pane keeps a store_watch polling the OLD fileless sid forever; materialized sid never attached; no pane-chat-msg => markAttached never fires. No auto-recovery — only the manual Reconnect button escapes. Window is narrow (materialization must land within the initial chat_start IPC) but widens under [SLOW-IPC]/multi-pane starvation. Tests T3/T4 only rotate from stable awaiting_store/attached states, so this timing is uncovered. Fix direction: only advance previousSessionIdRef when the rotation is acted on, or remember a pending target and re-evaluate on entry to awaiting_store/attached.
+
+    SOLID (no issues):
+    - registry: replace_if_current preserves refs, no-ops on session-mismatch/dead/absent; drop(old) is stop-flag-only (no join) => no watcher self-join deadlock; acquire/insert stale-eviction + TailerHandle Drop stop-flag prevent duplicate tailers/duplicate-bubble regression; rotation-during-promotion races resolve cleanly under both lock orderings.
+    - store_watch: bounded stop (flag checked each poll_interval); promoted tailer start_offset 0 + baseline-0 flatten sink => correct initial batch; refcount balanced on stop-after-promotion.
+    - frontend refcount: chat_start/chat_stop split balanced — reattachPaneChat and error button both chat_stop before retry; rotation always stale-evicts so no double-count.
+    - codex binding guard: provisional nonce-only claim cannot evict a materialized binding; last-provisional-wins when none materialized. Well-tested (T11 + regression).
+    - provider.rs: session_jsonl_path try_call::<Option<String>>().flatten() maps plugin null->None; tested.
+
+    RESIDUAL RISKS: (1) Finding 1 above; (2) store_watch polls unbounded (250ms) for a never-materializing provisional sid while a client stays attached — no give-up analog to spawn_tailer's 10-poll bailout; harmless CPU; (3) watcher promotion test sleeps ~5s (fine under cap, slow).
+
+    TESTS RUN: none (read-only lane; did not build/test/dev per instructions).
+
+    GATES REQUESTED: none required for ACCEPT. If Finding 1 is fixed, request focused vitest on useChatSession.test.ts adding a rotation-while-idle/attaching case, and capped cargo test on service::pane_chat::{registry,store_watch} — both via the repo capped runner, serialized in a warm QA checkout.
+
+    FOLLOWUP: Recommend a fast-follow fix for Finding 1 + regression test rather than blocking this merge.
+  ts: 1783976103408
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_1nl24o
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: review
+  text: ACCEPT with medium stale-session race during initial attach; routed to task_frgxji before final QA
+  ts: 1783976382363
+  links:
+  - key:27914c8d0974799e
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_fsajrv
+  executor_pane_id: f2458776
+  executor_title: review chat recovery opus
+  provider: null
+  agent_type: null
+  model: opus
+  session_id: null
+  role: worker
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: null
+  report:
+    id: report_1783976103693
+    message: |-
+      STATUS: done (ACCEPT with one non-blocking MEDIUM finding)
+
+      CHANGES: none (read-only review of feat/1.7.2-stability @ f0d1e07b7)
+
+      SCOPE: chat recovery stack — frontend listener/attach/rotation + composer persistence (useChatSession.ts, PaneSessionChat.tsx, chatReattach.ts); daemon pending-store watcher ownership/promotion/rotation/stop (store_watch.rs, registry.rs replace_if_current/acquire/insert/stop, chat_start_core, provider.rs null path); provisional Codex binding guard (hook_routes.rs).
+
+      VERDICT: ACCEPT. No hard blocker.
+
+      FINDING 1 — MEDIUM (correctness / stale-state), NON-BLOCKING:
+      useChatSession.ts:393 writes previousSessionIdRef.current = agentSessionId UNCONDITIONALLY, before the state gate at :398 (awaiting_store/attached). The attach effect (:359-362, deps :389) does NOT depend on agentSessionId (reads agentSessionIdRef.current; re-runs only on attachGeneration). So if agentSessionId rotates (provisional->materialized, the Codex flow this stack targets) while attachmentState is idle (initial chat_start in-flight), attaching, or failed, the rotation is swallowed: previous advances to the new sid with no requestAttach scheduled, and is never revisited (later awaiting_store/attached transition finds previous===current). Pane keeps a store_watch polling the OLD fileless sid forever; materialized sid never attached; no pane-chat-msg => markAttached never fires. No auto-recovery — only the manual Reconnect button escapes. Window is narrow (materialization must land within the initial chat_start IPC) but widens under [SLOW-IPC]/multi-pane starvation. Tests T3/T4 only rotate from stable awaiting_store/attached states, so this timing is uncovered. Fix direction: only advance previousSessionIdRef when the rotation is acted on, or remember a pending target and re-evaluate on entry to awaiting_store/attached.
+
+      SOLID (no issues):
+      - registry: replace_if_current preserves refs, no-ops on session-mismatch/dead/absent; drop(old) is stop-flag-only (no join) => no watcher self-join deadlock; acquire/insert stale-eviction + TailerHandle Drop stop-flag prevent duplicate tailers/duplicate-bubble regression; rotation-during-promotion races resolve cleanly under both lock orderings.
+      - store_watch: bounded stop (flag checked each poll_interval); promoted tailer start_offset 0 + baseline-0 flatten sink => correct initial batch; refcount balanced on stop-after-promotion.
+      - frontend refcount: chat_start/chat_stop split balanced — reattachPaneChat and error button both chat_stop before retry; rotation always stale-evicts so no double-count.
+      - codex binding guard: provisional nonce-only claim cannot evict a materialized binding; last-provisional-wins when none materialized. Well-tested (T11 + regression).
+      - provider.rs: session_jsonl_path try_call::<Option<String>>().flatten() maps plugin null->None; tested.
+
+      RESIDUAL RISKS: (1) Finding 1 above; (2) store_watch polls unbounded (250ms) for a never-materializing provisional sid while a client stays attached — no give-up analog to spawn_tailer's 10-poll bailout; harmless CPU; (3) watcher promotion test sleeps ~5s (fine under cap, slow).
+
+      TESTS RUN: none (read-only lane; did not build/test/dev per instructions).
+
+      GATES REQUESTED: none required for ACCEPT. If Finding 1 is fixed, request focused vitest on useChatSession.test.ts adding a rotation-while-idle/attaching case, and capped cargo test on service::pane_chat::{registry,store_watch} — both via the repo capped runner, serialized in a warm QA checkout.
+
+      FOLLOWUP: Recommend a fast-follow fix for Finding 1 + regression test rather than blocking this merge.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783975645816
+  reported_at: 1783976103693
+  reviewed_at: null
+  closed_at: 1783976382667
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+pause_reason: null
+attachments: []

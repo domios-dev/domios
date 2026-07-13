@@ -11,14 +11,14 @@ acceptance_criteria:
 - Full perf project completes in under 10 minutes on a remote machine using the stub provider, zero real LLM
 test_plan: '1) Config: add perf project (grep @perf) to playwright.config.ts. 2) Promote and retag composer-output-performance, tab-switch-latency, and the multitab-perf pair into it. 3) New specs using helpers/canvas-perf.ts observers: PTY replay (write large buffer via panes send, measure write-to-render p95, assert frame-bounded slicing), long-transcript open lands scrolled to bottom with zero burst-scroll longtask over 100ms, cold connectUi-to-shell-interactive ms, get_config p95 while stub-agent churn runs. 4) afterEach writes the metrics artifact. 5) Full run on ROG or eight: npx playwright test --project=perf --global-timeout=600000 green under 10 min, artifact present with all metrics.'
 correctness: 'Budgets assert user-perceived latency invariants: input responsive while heavy work runs, frame-bounded PTY output, bottom-anchored history open; metrics deterministic via stub provider; regressions fail the gate, not just log.'
-status: pending
+status: in_progress
 review_stage: review
 qa_state: null
-status_label: null
+status_label: pane-gone
 priority: p1
 created_at: 1783782208537
-updated_at: 1783971119243
-status_changed_at: 1783971119243
+updated_at: 1783976855074
+status_changed_at: 1783975185988
 handle: unified-perf-gate-project-budgets-new-metrics-json-trend-artifact
 tags: []
 section_ids:
@@ -32,16 +32,16 @@ intent: null
 parent_task_id: null
 depends_on:
 - task_k16xu0
-assigned_pane_id: null
+assigned_pane_id: e3fa0754
 lane:
-  pane_id: null
+  pane_id: e3fa0754
   workspace_id: null
   workspace_name: null
   worktree_path: null
   branch: null
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -83,6 +83,111 @@ milestones:
     y: null
     collapsed: false
   attachments: []
-execution_attempts: []
+- id: ms_9x988m
+  from:
+    pane_id: 049a06b7
+    session_id: 019f5d35-34af-7122-b7cf-c0bc1a1602dd
+    title: unified playwright perf gate
+  kind: status_update
+  text: |-
+    STATUS: done
+    SHA: b2ea4d9df19f7be71b167f66a863aa712b766920
+    CHANGES: package.json; tests/playwright/README.md; tests/playwright/helpers/check-tags.mjs; tests/playwright/helpers/perf-metrics.ts; tests/playwright/helpers/perf-metrics.test.ts; tests/playwright/helpers/perf-gate.discovery.test.ts; tests/playwright/suites/00-perf-gate/perf-gate.spec.ts
+    TESTS RUN: npx tsx tests/playwright/helpers/perf-metrics.test.ts (4/4 pass); npx tsx tests/playwright/helpers/perf-gate.discovery.test.ts (2/2 pass); PW_HEADER_SCOPE=tests/playwright/suites/00-perf-gate node scripts/check-playwright-spec-headers.mjs (pass); git diff --cached --check (pass); lane light pre-push (pass). No daemon/browser/build run per assignment. The scoped tag-lint runner was not runnable because this lane has no local node_modules/typescript.
+    GATES REQUESTED: In a warm QA checkout with dependencies installed: pnpm test:pw:lint; then in PowerShell, `$env:CODETERM_STUB_AGENT_CMD='node tests/playwright/fixtures/stub-agent/replay.mjs'; pnpm test:pw:perf -- --timeout=30000 --global-timeout=600000 --reporter=line`. The perf run must show four hard user-visible stub metrics in tests/playwright/artifacts/perf/metrics.jsonl: pty-write-to-render, long-history-bottom-anchor, cold-interactive, ipc-starvation-visible-render.
+    FOLLOWUP: The gate is intentionally stub-only and skips when CODETERM_STUB_AGENT_CMD is absent; it never launches a real LLM.
+  ts: 1783975697489
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_vnbj5g
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: qa-owner
+  text: canonical orchestrator owns stub perf browser gate after final correction SHA
+  ts: 1783976855074
+  links:
+  - key:6943f5e5a6337850
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_ahpsg4
+  executor_pane_id: 049a06b7
+  executor_title: unified playwright perf gate
+  provider: null
+  agent_type: null
+  model: opus
+  session_id: null
+  role: worker
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: null
+  report:
+    id: report_1783975698543
+    message: |-
+      STATUS: done
+      SHA: b2ea4d9df19f7be71b167f66a863aa712b766920
+      CHANGES: package.json; tests/playwright/README.md; tests/playwright/helpers/check-tags.mjs; tests/playwright/helpers/perf-metrics.ts; tests/playwright/helpers/perf-metrics.test.ts; tests/playwright/helpers/perf-gate.discovery.test.ts; tests/playwright/suites/00-perf-gate/perf-gate.spec.ts
+      TESTS RUN: npx tsx tests/playwright/helpers/perf-metrics.test.ts (4/4 pass); npx tsx tests/playwright/helpers/perf-gate.discovery.test.ts (2/2 pass); PW_HEADER_SCOPE=tests/playwright/suites/00-perf-gate node scripts/check-playwright-spec-headers.mjs (pass); git diff --cached --check (pass); lane light pre-push (pass). No daemon/browser/build run per assignment. The scoped tag-lint runner was not runnable because this lane has no local node_modules/typescript.
+      GATES REQUESTED: In a warm QA checkout with dependencies installed: pnpm test:pw:lint; then in PowerShell, `$env:CODETERM_STUB_AGENT_CMD='node tests/playwright/fixtures/stub-agent/replay.mjs'; pnpm test:pw:perf -- --timeout=30000 --global-timeout=600000 --reporter=line`. The perf run must show four hard user-visible stub metrics in tests/playwright/artifacts/perf/metrics.jsonl: pty-write-to-render, long-history-bottom-anchor, cold-interactive, ipc-starvation-visible-render.
+      FOLLOWUP: The gate is intentionally stub-only and skips when CODETERM_STUB_AGENT_CMD is absent; it never launches a real LLM.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783975185988
+  reported_at: 1783975698543
+  reviewed_at: null
+  closed_at: 1783976047469
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_oko2j3
+  executor_pane_id: e3fa0754
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: opus
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: null
+  report: null
+  assigned_at: 1783976854460
+  reported_at: null
+  reviewed_at: null
+  closed_at: null
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
 pause_reason: null
 attachments: []

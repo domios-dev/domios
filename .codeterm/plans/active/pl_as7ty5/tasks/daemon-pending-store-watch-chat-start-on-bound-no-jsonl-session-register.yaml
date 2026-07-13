@@ -1,0 +1,172 @@
+id: task_phcr5e
+name: 'Daemon pending store-watch: chat_start on bound-no-JSONL session registers a watch and pushes the first batch on materialization (Phase 2, T9-T10)'
+type: implement
+model: null
+model_rationale: null
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- T9 bound-no-store chat_start registers a watch and returns pending exactly once; creating the session file later starts the tailer and emits the first pane-chat-msg batch with NO second chat_start
+- T10 session-id rotation retargets the watch; the stale watch thread dies (no orphan threads; death cap enforced)
+- 'Watch lifecycle owned by chat_registry: chat_stop / pane close removes the watch'
+test_plan: Rust tests in src-tauri/src/service/pane_chat/ following tailer_tests.rs pattern; run ONLY via scripts/test-capped.sh with a narrow filter
+correctness: The layer that knows when the store materializes (daemon) must be the layer that announces it; clients subscribe, never poll
+status: done
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1783974288722
+updated_at: 1783975266854
+status_changed_at: 1783975259330
+handle: daemon-pending-store-watch-chat-start-on-bound-no-jsonl-session-register
+tags: []
+section_ids:
+- sec_rlqrqc
+body: |-
+  Root defect: chat_start on a bound session whose JSONL does not exist yet (src-tauri/src/commands/pane.rs:394-408) returns {pending:true} and registers NOTHING — no watch, no tailer — so store materialization is invisible to the daemon and the client is forced to poll.
+  FIX: the pending path registers a store-watch owned by chat_registry (same owned-thread pattern as the pane_chat tailer, with its own poll interval and a death cap like the tailer's >10-missed-polls rule): when session_jsonl_path (or provider detect) materializes, start the real tailer and PUSH the first pane-chat-msg-{pane} batch — the client needs zero retries (its Phase-1 backoff remains as a safety net). Pane session-id rotation retargets the watch daemon-side (chat_registry already keys pane->session); the stale watch must stop (no orphan threads).
+  Destination: canonical feat/1.7.2-stability via lane; worker lane runs NO dev/broad builds — focused Rust tests only via scripts/test-capped.sh.
+role_guidance: null
+executor_role: null
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: lane/task_phcr5e-chat-store-watch
+  base: null
+  destination: null
+  cleanup_status: done
+  cleanup_hints: []
+taken_by_role: worker
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones:
+- id: ms_15cezw
+  from:
+    pane_id: 58ab5496
+    session_id: 019f5d28-9e6c-7723-8b51-8f0952c8b472
+    title: chat pending store watch
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: b4808e891 adds a registry-owned bounded pending-store watch. A bound JSONL session with no provider path now installs exactly one watch; path/file materialization atomically replaces it with the existing tailer from offset 0, emitting the initial normalized batch without another chat_start. Session rotation evicts and joins the stale watch before a replacement can be registered. chat_stop and pane close retain registry ownership. Includes formatter-only pre-push correction in src-tauri/src/service/orchestration_pair.rs.
+    TESTS RUN: targeted rustfmt --check passed; ./build.sh fmt-check passed; git diff --check passed; scripts/check-file-sizes.sh --fail passed; normal light pre-push passed. No Rust tests run here by instruction.
+    GATES REQUESTED: Run one at a time from canonical feat/1.7.2-stability: TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib pending_store_watch_promotes_to_tailer_and_streams_initial_batch ; then TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib rotation_stops_stale_pending_watch_before_replacement
+    FOLLOWUP: The source has no provider identity branches and no frontend polling dependency. src-tauri/src/service/pane_chat/mod.rs remains an existing advisory >800-line facade but no source file exceeds 1200 lines.
+  ts: 1783974874964
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_4swe6k
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: 'bounced b4808e891: 2.5s watcher expiry violates daemon-owned wait; pending retries leak ChatRegistry refs; require watch until cancellation and valid JS null handling'
+  ts: 1783975013194
+  links:
+  - key:372da8c420ebffe9
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_9s729e
+  from:
+    pane_id: 58ab5496
+    session_id: 019f5d28-9e6c-7723-8b51-8f0952c8b472
+    title: chat pending store watch
+  kind: status_update
+  text: |-
+    IN_REVIEW: STATUS: in_review
+    CHANGES: amended ac8665681 removes the pending-store watch expiry: it now persists until registry cancellation, session rotation, or tailer promotion. The regression holds the provider path absent for >3 seconds, verifies it remains registered, promotes it, then proves one registry stop releases the one mount. sessionJsonlPath now calls try_call::<Option<String>>().flatten(), so valid JS null is not deserialized as String/logged as invalid JSON; a direct null unit test covers it.
+    TESTS RUN: ./build.sh fmt-check passed; targeted rustfmt --check passed; git diff --check passed; scripts/check-file-sizes.sh --fail passed; normal light pre-push passed. No cargo/dev/test execution in this worker lane by instruction.
+    GATES REQUESTED: Run one at a time from canonical feat/1.7.2-stability: TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib pending_store_watch_promotes_to_tailer_and_streams_initial_batch ; then TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib rotation_stops_stale_pending_watch_before_replacement ; then TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib session_jsonl_path_accepts_plugin_null
+    FOLLOWUP: No frontend retry loop was added or retained by this backend patch. The watcher lifecycle is exclusively registry cancellation/promotion, and no provider identity is hardcoded in production code.
+  ts: 1783975163733
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_8rprql
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: qa
+  text: 'canonical 63f108f38 all three exact capped Rust tests GREEN: delayed promotion, rotation cleanup, JS null path'
+  ts: 1783975259045
+  links:
+  - key:a3401c7df1acb0e7
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_uedg29
+  executor_pane_id: 58ab5496
+  executor_title: chat pending store watch
+  provider: null
+  agent_type: null
+  model: null
+  session_id: null
+  role: worker
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: null
+  report:
+    id: report_1783975164006
+    message: |-
+      STATUS: in_review
+      CHANGES: amended ac8665681 removes the pending-store watch expiry: it now persists until registry cancellation, session rotation, or tailer promotion. The regression holds the provider path absent for >3 seconds, verifies it remains registered, promotes it, then proves one registry stop releases the one mount. sessionJsonlPath now calls try_call::<Option<String>>().flatten(), so valid JS null is not deserialized as String/logged as invalid JSON; a direct null unit test covers it.
+      TESTS RUN: ./build.sh fmt-check passed; targeted rustfmt --check passed; git diff --check passed; scripts/check-file-sizes.sh --fail passed; normal light pre-push passed. No cargo/dev/test execution in this worker lane by instruction.
+      GATES REQUESTED: Run one at a time from canonical feat/1.7.2-stability: TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib pending_store_watch_promotes_to_tailer_and_streams_initial_batch ; then TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib rotation_stops_stale_pending_watch_before_replacement ; then TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib session_jsonl_path_accepts_plugin_null
+      FOLLOWUP: No frontend retry loop was added or retained by this backend patch. The watcher lifecycle is exclusively registry cancellation/promotion, and no provider identity is hardcoded in production code.
+    status: in_review
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783974361133
+  reported_at: 1783975164006
+  reviewed_at: null
+  closed_at: 1783975259330
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+pause_reason: null
+attachments: []
