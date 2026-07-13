@@ -18,7 +18,7 @@ const KNOWN_SUBCOMMANDS: Record<string, Set<string>> = {
   ]),
   mem: new Set(["save", "search", "get", "delete", "skill", "graph", "worker"]),
   workspace: new Set(["create", "list", "focus", "rename", "close", "current", "move-tab"]),
-  pane: new Set(["list", "new", "focus", "close", "rename", "exec", "status", "search", "stop", "current"]),
+  tab: new Set(["list", "new", "focus", "close", "rename", "exec", "status", "search", "stop", "current"]),
   plan: new Set(["state", "task", "record", "mode", "approve", "doctor", "get", "list", "update", "reconcile", "loop", "handoff", "element"]),
   spec: new Set(["show", "list", "section"]),
   orchestrator: new Set(["status", "heartbeat", "handoff"]),

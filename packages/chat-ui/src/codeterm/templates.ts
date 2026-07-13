@@ -51,16 +51,16 @@ export function planLink(inv: CodetermInvocation, result?: string): PlanLink | u
 }
 
 function pane(inv: CodetermInvocation, resolve?: PaneNameResolver): string {
-  const p = inv.flags.pane;
+  const p = inv.flags.tab ?? inv.flags.pane;
   if (typeof p !== "string") return "current pane";
   return resolve?.(p) ?? p;
 }
 
 function sentTitle(inv: CodetermInvocation, resolve?: PaneNameResolver): string {
-  const p = inv.flags.pane;
-  if (typeof p !== "string") return "Sent to current pane";
+  const p = inv.flags.tab ?? inv.flags.pane;
+  if (typeof p !== "string") return "Sent to current tab";
   const name = resolve?.(p);
-  return name ? `Sent to ${name}` : `Sent to pane ${p}`;
+  return name ? `Sent to ${name}` : `Sent to tab ${p}`;
 }
 
 function deliveredStatus(result?: string): CardStatus | undefined {
@@ -71,7 +71,7 @@ function deliveredStatus(result?: string): CardStatus | undefined {
 }
 
 export interface SentMessage {
-  /** Resolved tab name, or `pane <ref>` / `current pane` fallback. */
+  /** Resolved tab name, or `tab <ref>` / `current tab` fallback. */
   recipient: string;
   mesh?: string;
   body: string;
@@ -84,10 +84,10 @@ export function parseSend(
   result?: string,
   resolve?: PaneNameResolver,
 ): SentMessage {
-  const p = inv.flags.pane;
+  const p = inv.flags.tab ?? inv.flags.pane;
   let recipient: string;
-  if (typeof p !== "string") recipient = "current pane";
-  else recipient = resolve?.(p) ?? `pane ${p}`;
+  if (typeof p !== "string") recipient = "current tab";
+  else recipient = resolve?.(p) ?? `tab ${p}`;
   const mesh = typeof inv.flags.mesh === "string" ? inv.flags.mesh : undefined;
   return { recipient, mesh, body: inv.positionals[0] ?? "", status: deliveredStatus(result) };
 }
@@ -161,10 +161,10 @@ const TEMPLATES: Record<string, TemplateFn> = {
   "mem search": (inv) => ({ icon: "🔍", title: "Searched mem", detail: inv.positionals[0] }),
   "mem get": (inv) => ({ icon: "📖", title: `Recalled ${inv.positionals[0] ?? ""}` }),
   "workspace create": (inv) => ({ icon: "🪟", title: `Created workspace ${inv.positionals[0] ?? ""}` }),
-  "pane focus": (inv, _result, resolve) => {
-    const ref = inv.positionals[0] ?? (typeof inv.flags.pane === "string" ? inv.flags.pane : undefined);
+  "tab focus": (inv, _result, resolve) => {
+    const ref = inv.positionals[0] ?? (typeof inv.flags.tab === "string" ? inv.flags.tab : undefined);
     const name = ref ? resolve?.(ref) : undefined;
-    return { icon: "→", title: `Focused ${name ?? `pane ${ref ?? pane(inv, resolve)}`}` };
+    return { icon: "→", title: `Focused ${name ?? `tab ${ref ?? pane(inv, resolve)}`}` };
   },
   "cron create": (inv) => ({ icon: "⏰", title: `Scheduled ${inv.positionals[0] ?? "job"}` }),
   "keepawake start": () => ({ icon: "☕", title: "Keep-awake started" }),

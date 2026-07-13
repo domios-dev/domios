@@ -10,7 +10,7 @@ export const TEMPLATE_PATHS: string[][] = [
   ["mem", "search"],
   ["mem", "get"],
   ["workspace", "create"],
-  ["pane", "focus"],
+  ["tab", "focus"],
   ["cron", "create"],
   ["keepawake", "start"],
 ];
