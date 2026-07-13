@@ -124,6 +124,28 @@ fn degraded_fix_command(
     )
 }
 
+fn pair_retry_command(
+    workspace_id: &str,
+    orchestrator_agent: &str,
+    orchestrator_model: Option<&str>,
+    planner_agent: &str,
+    planner_model: Option<&str>,
+) -> String {
+    let provider_spec = |provider: &str, model: Option<&str>| match model
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    {
+        Some(model) => format!("{provider}:{model}"),
+        None => provider.to_string(),
+    };
+    format!(
+        "codeterm orchestration new --orchestrator {} --planner {} --workspace {}",
+        provider_spec(orchestrator_agent, orchestrator_model),
+        provider_spec(planner_agent, planner_model),
+        workspace_id
+    )
+}
+
 fn derive_planner_name<'a>(
     existing_titles: impl IntoIterator<Item = &'a str>,
     orch_title: &str,
@@ -150,7 +172,111 @@ fn orchestrator_pair_followup_degraded(fix_command: &str, error: &str) -> String
     )
 }
 
+fn pair_agent_state_allows_followup(
+    booting: bool,
+    boot_stage: Option<codeterm_types::pty::BootStage>,
+    is_chat_backend: bool,
+    tui_visible: bool,
+) -> bool {
+    !booting
+        && boot_stage == Some(codeterm_types::pty::BootStage::AgentReady)
+        && (is_chat_backend || tui_visible)
+}
+
 impl ServiceContext {
+    fn pair_agent_live_now(&self, pane_id: &str, provider: &str) -> bool {
+        let (booting, boot_stage, backing, pty_id) = {
+            let mux = self.mux.read();
+            let Some(pane) = mux.get_pane(pane_id) else {
+                return false;
+            };
+            (
+                pane.agent_booting,
+                pane.boot_stage,
+                pane.backing.clone(),
+                pane.pty_id.clone(),
+            )
+        };
+        let is_chat_backend = matches!(
+            backing,
+            crate::multiplexer::types::PaneBacking::ChatBackend { .. }
+        );
+        if is_chat_backend {
+            return pair_agent_state_allows_followup(booting, boot_stage, true, false);
+        }
+        let Some(pty_id) = pty_id else {
+            return false;
+        };
+        let screen = self
+            .screen_state
+            .lock()
+            .get_screen_text(&pty_id)
+            .unwrap_or_default();
+        let tui_visible = crate::pty::screen_state::screen_has_agent_tui(&screen)
+            || self
+                .agent_registry
+                .with_provider(provider, |p| p.screen_has_tui(&screen))
+                .unwrap_or(false);
+        pair_agent_state_allows_followup(booting, boot_stage, false, tui_visible)
+    }
+
+    async fn await_pair_agent_ready(
+        &self,
+        pane_id: &str,
+        provider: &str,
+        ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
+    ) -> Result<(), String> {
+        let is_chat_backend = self.mux.read().get_pane(pane_id).is_some_and(|pane| {
+            matches!(
+                &pane.backing,
+                crate::multiplexer::types::PaneBacking::ChatBackend { .. }
+            )
+        });
+        if !is_chat_backend {
+            match tokio::time::timeout(std::time::Duration::from_secs(120), ready_rx).await {
+                Ok(Ok(result)) => result?,
+                Ok(Err(_)) => return Err("agent launch readiness channel closed".into()),
+                Err(_) => return Err("agent launch timed out after 120s".into()),
+            }
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            if self.pair_agent_live_now(pane_id, provider) {
+                return Ok(());
+            }
+            if std::time::Instant::now() >= deadline {
+                let failure = self
+                    .mux
+                    .read()
+                    .get_pane(pane_id)
+                    .and_then(|pane| pane.boot_failure_reason.clone())
+                    .unwrap_or_else(|| "agent TUI was not confirmed live".into());
+                return Err(failure);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+    }
+
+    fn deliver_pair_followup(
+        &self,
+        orchestrator_pane_id: &str,
+        orchestrator_provider: &str,
+        body: &str,
+    ) -> Result<(), String> {
+        if !self.pair_agent_live_now(orchestrator_pane_id, orchestrator_provider) {
+            return Err(format!(
+                "orchestrator pane {orchestrator_pane_id} is not a confirmed live agent"
+            ));
+        }
+        Messenger::deliver(
+            self,
+            orchestrator_pane_id,
+            MessageEnvelope::codeterm_reminder("orchestration-pair"),
+            body,
+        )
+        .map(|_| ())
+    }
+
     /// Bind a pending pair-spawned Planner when an Orchestrator creates its
     /// first plan. Returns true only when a pending pane was consumed.
     pub(crate) fn bind_pending_paired_planner(
@@ -285,7 +411,11 @@ impl ServiceContext {
             skip_orchestrator_onboarding: Some(true),
             ..Default::default()
         };
-        let orch_result = self.spawn_agent(orch_params, None).await.map_err(|e| {
+        let (orch_ready_tx, orch_ready_rx) = tokio::sync::oneshot::channel();
+        let orch_result = self
+            .spawn_agent(orch_params, Some(orch_ready_tx))
+            .await
+            .map_err(|e| {
             format!(
                 "Failed to spawn Orchestrator ({e}); no plan was created. Retry `orchestration new`."
             )
@@ -297,6 +427,21 @@ impl ServiceContext {
             .clone()
             .filter(|m| !m.trim().is_empty())
             .or_else(|| crate::agent::model_catalog::resolve_default(&params.planner_agent));
+        let pair_fix_command = pair_retry_command(
+            &workspace_id,
+            &params.orchestrator_agent,
+            orchestrator_model.as_deref(),
+            &params.planner_agent,
+            planner_model.as_deref(),
+        );
+        if let Err(error) = self
+            .await_pair_agent_ready(&orch_pane_id, &params.orchestrator_agent, orch_ready_rx)
+            .await
+        {
+            return Err(format!(
+                "Pair degraded: Orchestrator pane {orch_pane_id} failed to launch ({error}). No Planner was spawned and no follow-up was delivered. Retry with: {pair_fix_command}"
+            ));
+        }
 
         let planner_name = {
             let mux = self.mux.read();
@@ -330,9 +475,41 @@ impl ServiceContext {
             ..Default::default()
         };
 
-        match self.spawn_agent(planner_params, None).await {
+        let (planner_ready_tx, planner_ready_rx) = tokio::sync::oneshot::channel();
+        match self
+            .spawn_agent(planner_params, Some(planner_ready_tx))
+            .await
+        {
             Ok(planner_result) => {
                 let planner_pane_id = planner_result.pane_id.clone();
+                if let Err(error) = self
+                    .await_pair_agent_ready(
+                        &planner_pane_id,
+                        &params.planner_agent,
+                        planner_ready_rx,
+                    )
+                    .await
+                {
+                    let _ = self.close_pane(&planner_pane_id);
+                    let fix_command = degraded_fix_command(
+                        &orch_pane_id,
+                        &params.planner_agent,
+                        planner_model.as_deref(),
+                    );
+                    let followup = orchestrator_pair_followup_degraded(&fix_command, &error);
+                    if let Err(notify_err) = self.deliver_pair_followup(
+                        &orch_pane_id,
+                        &params.orchestrator_agent,
+                        &followup,
+                    ) {
+                        log::warn!(
+                            "[orchestration-pair] failed to notify orchestrator {orch_pane_id} of degraded pairing: {notify_err}"
+                        );
+                    }
+                    return Err(format!(
+                        "Orchestrator spawned (pane {orch_pane_id}) but Planner launch failed: {error}. No plan was created. Complete the pair after first goal with: {fix_command}"
+                    ));
+                }
                 let planner_label = self
                     .agent_registry
                     .with_provider(&params.planner_agent, |p| p.display_name().to_string())
@@ -349,15 +526,17 @@ impl ServiceContext {
                         &orch_pane_id,
                     ));
                 }
+                let followup = orchestrator_pair_followup_ready(&planner_pane_id);
+                if let Err(error) =
+                    self.deliver_pair_followup(&orch_pane_id, &params.orchestrator_agent, &followup)
+                {
+                    let _ = self.close_pane(&planner_pane_id);
+                    return Err(format!(
+                        "Pair degraded: Planner launched but Orchestrator pane {orch_pane_id} was no longer live ({error}); no follow-up was delivered. Retry with: {pair_fix_command}"
+                    ));
+                }
                 if let Some(pane) = self.mux.write().get_pane_mut(&orch_pane_id) {
                     pane.pending_paired_planner_pane_id = Some(planner_pane_id.clone());
-                }
-                let followup = orchestrator_pair_followup_ready(&planner_pane_id);
-                let envelope = MessageEnvelope::codeterm_reminder("orchestration-pair");
-                if let Err(e) = Messenger::deliver(self, &orch_pane_id, envelope, &followup) {
-                    log::warn!(
-                        "[orchestration-pair] failed to notify orchestrator {orch_pane_id} of live Planner specialist: {e}"
-                    );
                 }
                 // Activate server-side: the client continuation may be gone by
                 // the time the pair lands (page reload); the daemon owns focus.
@@ -393,9 +572,8 @@ impl ServiceContext {
                     planner_model.as_deref(),
                 );
                 let followup = orchestrator_pair_followup_degraded(&fix_command, &e);
-                let envelope = MessageEnvelope::codeterm_reminder("orchestration-pair");
                 if let Err(notify_err) =
-                    Messenger::deliver(self, &orch_pane_id, envelope, &followup)
+                    self.deliver_pair_followup(&orch_pane_id, &params.orchestrator_agent, &followup)
                 {
                     log::warn!(
                         "[orchestration-pair] failed to notify orchestrator {orch_pane_id} of degraded pairing: {notify_err}"
@@ -534,6 +712,45 @@ mod tests {
     fn degraded_fix_command_omits_model_flag_when_absent() {
         let cmd = degraded_fix_command("orch-1", "codex", None);
         assert!(!cmd.contains("--model"));
+    }
+
+    #[test]
+    fn pair_retry_command_preserves_provider_models_and_workspace() {
+        let cmd = pair_retry_command("ws-1", "claude", Some("opus"), "codex", Some("gpt-5"));
+        assert_eq!(
+            cmd,
+            "codeterm orchestration new --orchestrator claude:opus --planner codex:gpt-5 --workspace ws-1"
+        );
+    }
+
+    #[test]
+    fn pair_followup_refuses_bare_shell_and_booting_agent() {
+        use codeterm_types::pty::BootStage;
+
+        assert!(!pair_agent_state_allows_followup(
+            false,
+            Some(BootStage::SpawnFailed),
+            false,
+            false
+        ));
+        assert!(!pair_agent_state_allows_followup(
+            false,
+            Some(BootStage::AgentReady),
+            false,
+            false
+        ));
+        assert!(!pair_agent_state_allows_followup(
+            true,
+            Some(BootStage::AgentReady),
+            false,
+            true
+        ));
+        assert!(pair_agent_state_allows_followup(
+            false,
+            Some(BootStage::AgentReady),
+            false,
+            true
+        ));
     }
 
     #[test]
