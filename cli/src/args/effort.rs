@@ -10,7 +10,7 @@ pub enum EffortAction {
         from: String,
         #[arg(long)]
         to: String,
-        #[arg(long)]
+        #[arg(long, value_name = "follows|supersedes")]
         rel: String,
     },
 }

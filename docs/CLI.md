@@ -378,7 +378,7 @@ Complete work bundles and effort lineage
 Link two efforts by lineage
 
 - `--from`
-- `--rel`
+- `--rel <follows|supersedes>`
 - `--to`
 
 #### `codeterm effort show`
@@ -1950,7 +1950,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--cleanup-status`
 - `--correctness`
 - `--criterion`
-- `--depends-on`
+- `--depends-on <TASK_ID_OR_HANDLE>`
 - `--destination`
 - `--executor-role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
 - `--force`
@@ -2113,7 +2113,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--clear-dependencies`
 - `--correctness`
 - `--criterion`
-- `--depends-on`
+- `--depends-on <TASK_ID_OR_HANDLE>`
 - `--destination`
 - `--executor-role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
 - `--group`
