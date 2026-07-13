@@ -52,6 +52,8 @@ type TestFixtures = {
   mediaMocks: MediaMocks;
 };
 
+export const DEV_FIXTURE_TIMEOUT_MS = 660_000;
+
 export const test = base.extend<TestFixtures, WorkerFixtures>({
   devInstance: [
     async ({}, use, workerInfo) => {
@@ -91,7 +93,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         await current.browser.close();
       }
     },
-    { scope: "worker" },
+    { scope: "worker", timeout: DEV_FIXTURE_TIMEOUT_MS },
   ],
 
   webBrowser: [
@@ -105,7 +107,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         await browser.close();
       }
     },
-    { scope: "worker" },
+    { scope: "worker", timeout: DEV_FIXTURE_TIMEOUT_MS },
   ],
 
   ui: async ({ devInstance, uiSession }, use) => {
@@ -143,7 +145,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         await diffReset(client, baseline).catch(() => {});
       }
     },
-    { timeout: 660_000 },
+    { timeout: DEV_FIXTURE_TIMEOUT_MS },
   ],
 
   paneCleanup: async ({ api }, use) => {
