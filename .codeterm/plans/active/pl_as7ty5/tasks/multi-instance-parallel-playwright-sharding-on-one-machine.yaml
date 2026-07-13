@@ -17,7 +17,7 @@ qa_state: null
 status_label: pane-gone
 priority: p2
 created_at: 1783782192088
-updated_at: 1783976854765
+updated_at: 1783981199033
 status_changed_at: 1783975184686
 handle: multi-instance-parallel-playwright-sharding-on-one-machine
 tags: []
@@ -186,6 +186,23 @@ milestones:
   ts: 1783976854765
   links:
   - key:f603e651152cb154
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_qhjq2r
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: qa-owner
+  text: Main@ubunta 197ecdcb runs CT_E2E_WORKERS=2 golden proof at canonical 6aeda6fd1 after serialized mobile QA
+  ts: 1783981199033
+  links:
+  - key:6cc9a2c3dcace62c
   loop_id: null
   iteration: null
   canvas:

@@ -20,7 +20,7 @@ qa_state: null
 status_label: pane-gone
 priority: p2
 created_at: 1783970644778
-updated_at: 1783978515922
+updated_at: 1783981182343
 status_changed_at: 1783974490408
 handle: test-template-spawns-as-emergent-behavior-real-launch-not-stub-orchestra
 tags: []
@@ -205,6 +205,23 @@ milestones:
   ts: 1783978515922
   links:
   - key:5dd2fd722bd01e0a
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_4epg6z
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: qa-owner
+  text: Main@ROG 915fae8e runs both exact live template spawn titles at canonical 6aeda6fd1
+  ts: 1783981182343
+  links:
+  - key:3d2140bf19864d3b
   loop_id: null
   iteration: null
   canvas:
