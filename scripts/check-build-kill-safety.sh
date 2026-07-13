@@ -76,6 +76,33 @@ if CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait --release-gate
   exit 1
 fi
 
+marker_fixture="$(mktemp -d)"
+trap 'rm -rf "$marker_fixture"' EXIT
+mkdir -p "$marker_fixture/home/.codeterm-dev-marker-test" "$marker_fixture/bin"
+printf '[api]\ntoken = "matching-instance-token"\n' > "$marker_fixture/home/.codeterm-dev-marker-test/config.toml"
+cat > "$marker_fixture/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" > "$CODETERM_TEST_CURL_LOG"
+EOF
+chmod +x "$marker_fixture/bin/curl"
+
+HOME="$marker_fixture/home" \
+PATH="$marker_fixture/bin:$PATH" \
+CODETERM_INSTANCE=marker-test \
+CODETERM_API_PORT=7799 \
+CODETERM_TEST_KILL_MARKER_ONLY=1 \
+CODETERM_TEST_CURL_LOG="$marker_fixture/curl.log" \
+  ./build.sh kill >/dev/null
+
+grep -q 'Authorization: Bearer matching-instance-token' "$marker_fixture/curl.log" || {
+  echo "dev kill must authenticate with the matching instance token" >&2
+  exit 1
+}
+grep -q 'POST http://127.0.0.1:7799/api/debug/shutdown/mark-clean-restart' "$marker_fixture/curl.log" || {
+  echo "dev kill must mark the matching dev instance before force-kill fallback" >&2
+  exit 1
+}
+
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-windows-dev-cleanup-selection.ps1
 
 echo "build kill safety check passed"
