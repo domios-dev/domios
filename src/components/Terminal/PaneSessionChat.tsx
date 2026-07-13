@@ -33,6 +33,7 @@ import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { reattachPaneChat } from "./chatReattach";
+import { planRefViewState } from "./planRefViewState";
 
 interface Props {
   paneId: string;
@@ -300,9 +301,7 @@ export function PaneSessionChat({
       const found = resolvedPlanRefs.refs.get(key);
       if (found) {
         const ownerWorkspace = findPlanOwnerWorkspace(planId, planIndex, planNav.workspaces);
-        const state = resolvedPlanRefs.unreachable
-          ? "unreachable" as const
-          : (ownerWorkspace ? found.state : "unowned");
+        const state = planRefViewState(found.state, ownerWorkspace != null, resolvedPlanRefs.unreachable);
         return {
           title: found.title,
           planTitle: found.plan_title,
