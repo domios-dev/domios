@@ -32,6 +32,7 @@ if ($FixturePath) {
 }
 
 $childrenByParent = @{}
+$parentByPid = @{}
 $portsByPid = @{}
 foreach ($listener in $listeners) {
   $procId = [int]$listener.process_id
@@ -42,16 +43,26 @@ foreach ($listener in $listeners) {
 }
 foreach ($proc in $all) {
   $parent = [int]$proc.ParentProcessId
+  $parentByPid[[int]$proc.ProcessId] = $parent
   if (-not $childrenByParent.ContainsKey($parent)) {
     $childrenByParent[$parent] = New-Object System.Collections.Generic.List[object]
   }
   $childrenByParent[$parent].Add($proc)
 }
 
+$selfAncestry = New-Object System.Collections.Generic.HashSet[int]
+$cursorPid = $selfPid
+while ($cursorPid -gt 0 -and $selfAncestry.Add($cursorPid)) {
+  if (-not $parentByPid.ContainsKey($cursorPid)) {
+    break
+  }
+  $cursorPid = [int]$parentByPid[$cursorPid]
+}
+
 $victimRoots = New-Object System.Collections.Generic.HashSet[int]
 foreach ($proc in $all) {
   $procId = [int]$proc.ProcessId
-  if ($procId -eq $selfPid) {
+  if ($selfAncestry.Contains($procId)) {
     continue
   }
   $cmd = [string]$proc.CommandLine
