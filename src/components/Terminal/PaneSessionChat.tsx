@@ -426,29 +426,6 @@ export function PaneSessionChat({
     );
   }, [chatBacking, effectiveChatBackend]);
 
-  if (error) {
-    return (
-      <div
-        className="w-full h-full flex items-center justify-center p-4 text-sm"
-        style={{ color: "var(--ct-muted-fg, #8b949e)" }}
-      >
-        <div className="text-center" data-testid="chat-recovery-error">
-          <div className="mb-2">Chat history could not be loaded.</div>
-          <div className="text-xs opacity-60">{error}</div>
-          <button
-            type="button"
-            data-testid="chat-retry"
-            onClick={() => void reattachPaneChat(paneId).catch(() => retry())}
-            className="mt-3 rounded px-3 py-1.5 text-xs hover:brightness-125"
-            style={{ border: "1px solid var(--ct-border)", color: "var(--ct-fg)" }}
-          >
-            Reconnect
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   if (loading) {
     return <div className="p-4 text-sm opacity-60">Loading chat…</div>;
   }
@@ -513,8 +490,23 @@ export function PaneSessionChat({
             </button>
           </div>
         )}
+        {error && (
+          <div className="py-8 text-center text-sm" data-testid="chat-recovery-error">
+            <div className="mb-2">Chat history could not be loaded.</div>
+            <div className="text-xs opacity-60">{error}</div>
+            <button
+              type="button"
+              data-testid="chat-retry"
+              onClick={() => void reattachPaneChat(paneId).catch(() => retry())}
+              className="mt-3 rounded px-3 py-1.5 text-xs hover:brightness-125"
+              style={{ border: "1px solid var(--ct-border)", color: "var(--ct-fg)" }}
+            >
+              Reconnect
+            </button>
+          </div>
+        )}
         {deferredEnrichedMessages.length === 0 && !inlinePrompt && liveAgentState.state !== "question" && (
-          recovering ? (
+          error ? null : recovering ? (
             <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-recovering-state">
               Recovering chat history…
             </div>
