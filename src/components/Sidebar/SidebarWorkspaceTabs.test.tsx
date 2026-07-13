@@ -332,6 +332,58 @@ test("waiting prompt tab renders attention rail and prompt pill", async () => {
   await act(async () => root.unmount());
 });
 
+test("working tab shows activity dots without a left status rail", async () => {
+  const panes: Record<string, Pane> = {
+    worker: pane({
+      id: "worker",
+      title: "Worker",
+      agent_type: "claude",
+    }),
+  };
+  const tabs = [tab("tab-worker", "worker", 0)];
+  const workspace: Workspace = {
+    id: "ws",
+    name: "Workspace",
+    tabs,
+    active_tab_id: "tab-worker",
+    cwd: null,
+  };
+  const { host, root } = await render(
+    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
+      <SidebarWorkspaceTabs
+        workspace={workspace}
+        activeTabId="tab-worker"
+        sortedTabs={tabs}
+        panes={panes}
+        paneStatuses={{ worker: "Working" }}
+        planIndex={[]}
+        plans={[]}
+        activeWork={null}
+        remoteWorkers={{}}
+        closingTabIds={new Set()}
+        appearingTabIds={new Set()}
+        isActiveVisual={true}
+        workspaceCanvasActive={false}
+        touchMode={false}
+        compact={false}
+        sidebarActionText="text-xs"
+        orchestrators={[]}
+        onBeforeOpenPlan={() => {}}
+        onActivateTab={() => {}}
+        onCloseTab={() => {}}
+        onRenameTab={() => {}}
+        onNewSession={() => {}}
+      />
+    </SidebarDnd>,
+  );
+
+  const row = host.querySelector('[data-tab-id="tab-worker"]');
+  assert(row, "working row rendered");
+  assert(row.querySelector('[data-testid="tab-working-activity"]'), "working dots remain visible");
+  assert(!row.querySelector('[data-testid="tab-status-rail"]'), "working row does not render a left rail");
+  await act(async () => root.unmount());
+});
+
 test("worker rows are single-line even with a description; plain tab single-line too", async () => {
   const panes: Record<string, Pane> = {
     orch: pane({ id: "orch", title: "Orchestrator", role: "Orchestrator", agent_type: "claude" }),

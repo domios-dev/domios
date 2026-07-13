@@ -18,7 +18,6 @@ import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/Orchestr
 import { ModeCards, WorkspaceRow } from "./NewSessionPickerParts";
 import { FloatingTooltip } from "../shared/FloatingTooltip";
 import { Button } from "../shared/Button";
-import { AgentIcon } from "../AgentIcon";
 
 export function NewSessionPicker({
   workspaceId,
@@ -222,18 +221,6 @@ export function NewSessionPicker({
     void runSingleSpawn(claudeSavedSkipPerms);
   }, [agentsConfig?.claude, choice, runPairSpawn, runSingleSpawn]);
 
-  const handleQuickProviderStart = useCallback((providerId: string, modelId: string | undefined) => {
-    setChoice({ mode: "single", providerId, modelId });
-    const claudeSkipRemembered = agentsConfig?.claude?.spawn_skip_permissions_remembered === true;
-    const claudeSavedSkipPerms = agentsConfig?.claude?.spawn_skip_permissions === true;
-    if (providerId === "claude" && !claudeSkipRemembered) {
-      setClaudeSkipPerms(claudeSavedSkipPerms);
-      setClaudeModalOpen(true);
-      return;
-    }
-    void runProviderSpawn(providerId, modelId, claudeSavedSkipPerms);
-  }, [agentsConfig?.claude, runProviderSpawn]);
-
   const handleClaudeConfirm = useCallback(() => {
     if (claudeRememberChoice) {
       void setProviderSettings("claude", {
@@ -318,23 +305,6 @@ export function NewSessionPicker({
             plannerProviderId={plannerProviderId}
             onSelect={handleModeSelect}
           />
-        </div>
-
-        <div className="relative mb-4 grid gap-1.5">
-          {visibleProviders.map((provider) => (
-            <button
-              key={provider.id}
-              type="button"
-              disabled={busy || disabledProviderIds.has(provider.id)}
-              onClick={() => handleQuickProviderStart(provider.id, provider.default_model)}
-              className="flex items-center gap-2 rounded-md border border-[var(--ct-border)] px-3 py-2 text-left text-[12px] text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <span className="shrink-0">
-                <AgentIcon providerId={provider.id} className="text-[12px]" />
-              </span>
-              <span className="min-w-0 truncate">New {provider.display_name} Session</span>
-            </button>
-          ))}
         </div>
 
         <div className="relative mb-4 flex items-center gap-1.5">
