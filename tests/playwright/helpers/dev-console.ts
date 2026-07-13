@@ -330,12 +330,23 @@ async function completeFirstRunPickerIfPresent(page: Page): Promise<void> {
 }
 
 async function activateFirstRunTab(page: Page): Promise<void> {
+  const closeCanvas = page.locator('[data-testid="canvas-toolbar-button"][aria-pressed="true"]');
+  if (await closeCanvas.isVisible().catch(() => false)) {
+    await closeCanvas.click({ timeout: 30_000 });
+  }
   const tab = page
     .locator('[data-testid="tab-item"]')
     .filter({ hasText: "Get started" })
     .first();
   await tab.waitFor({ state: "visible", timeout: 30_000 });
-  await tab.click({ timeout: 30_000 });
+  if (await receivesPointerEvents(tab)) {
+    await tab.click({ timeout: 30_000 });
+    return;
+  }
+  await tab.evaluate((node) => {
+    if (!(node instanceof HTMLElement)) throw new Error("first-run tab is not an HTMLElement");
+    node.click();
+  });
 }
 
 async function receivesPointerEvents(locator: ReturnType<Page["locator"]>): Promise<boolean> {
