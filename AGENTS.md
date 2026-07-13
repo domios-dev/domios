@@ -111,7 +111,7 @@ then start exactly one foreground dev command in its own visible CodeTerm tab:
 
 ```bash
 ./build.sh kill
-codeterm pane new --cmd "cd $(pwd) && ./build.sh dev"
+codeterm tab new --cmd "cd $(pwd) && ./build.sh dev"
 ```
 
 On Windows/PowerShell the equivalent visible command is
@@ -435,6 +435,7 @@ Release preflight is mandatory before the version bump / master PR:
 - `develop` must already contain `origin/master` (`git merge-base --is-ancestor origin/master origin/develop`), or merge `origin/master` into `develop` first and resolve fallout before bumping the version.
 - The current release head must be reviewed in the main checkout, not an abandoned lane worktree. Start dev from `develop` and visually confirm the UI before opening the release PR.
 - Clean orchestration state before cutting: close finished worker panes, remove merged lane worktrees under `../codeterm-worktrees/`, and keep only intentionally preserved stashes.
+- Run `scripts/merge-stack-audit.sh --target <release-head> <accepted-lane-ref>...` before final QA. No accepted lane may remain as a dangling cherry-pick-only ref: it is either ancestry-merged, explicitly deferred, or patch-landed and deleted after equivalence is recorded.
 - Run the release-head gates on the exact branch that will go to `master`; do not rely on old lane checks.
 - The `develop` → `master` PR must be green and mergeable before merge. Record the merged `origin/master` SHA and tag exactly that SHA.
 

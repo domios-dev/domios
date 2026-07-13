@@ -48,7 +48,7 @@ itself, bounded:
 - Shell/drill: poll for the log marker / file / health endpoint with a
   timeout loop (`until <check> || deadline; sleep 1`).
 - Agents: **spawned is not ready.** A pane existing does not mean the agent
-  accepts input. Poll readiness (`pane status`, the launch-ready log line)
+  accepts input. Poll readiness (`tab status`, the launch-ready log line)
   before the first injection. Case study: a drill triggered its scenario 8s
   after spawn; the agent took 15s to become ready; every injection bounced
   and the test "hung" — the race was in the harness, not the product.

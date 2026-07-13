@@ -60,7 +60,7 @@ plan create --from-spec <spec> --title ...   # 3. Plan (HOW), built FROM the spe
 An effort is not complete when the code merges; it is complete when the workspace
 is clean. Before `plan archive`, the orchestrator MUST:
 
-1. **Close every worker pane and the Planner pane** it spawned (`codeterm pane close <id>`).
+1. **Close every worker pane and the Planner pane** it spawned (`codeterm tab close <id>`).
    Accepted lanes must not linger as zombie tabs — a screen full of dead worker
    tabs is unfinished cleanup, not finished work.
 2. **Sweep lanes** (LANES rule 8): remove merged worktrees, delete merged branches,
@@ -141,13 +141,13 @@ things to watch. Never wait by polling — sleep/get-text loops are
 implementer-mode waiting. Give the command a completion contract at launch:
 
 ```bash
-<cmd>; codeterm send --pane $CODETERM_PANE_ID [--mesh <your-peer>] "GATE:<task_id> rc=$?"
+<cmd>; codeterm send --tab $CODETERM_PANE_ID [--mesh <your-peer>] "GATE:<task_id> rc=$?"
 ```
 
 Record the gate on the task and work other frontier items until the marker
 arrives. For an already-running command, start a companion watcher in that
 pane (`while pgrep -f <name> >/dev/null; do sleep 30; done; codeterm send ...;
-codeterm pane close $CODETERM_PANE_ID`): the wait runs remotely, never in your
+codeterm tab close $CODETERM_PANE_ID`): the wait runs remotely, never in your
 loop, and the watcher closes itself after sending its gate.
 
 ## Worker Lanes — Git worktrees + task metadata
@@ -870,7 +870,7 @@ Each heartbeat:
 6. **Focus names an action YOU own** — never a wait. If blocked on someone: focus = "bounce <agent> re <thing> if unchanged at next nudge."
 7. **Re-derive the frontier after every gate.** Each accept/close unblocks tasks — dispatch, pause with a reason, or replan NOW.
 
-Do not create delayed self-send heartbeats as normal orchestration. If a worker is silent and overdue, check `pane status`/`pane chat` ONCE, record the lane state, and advance a different open task.
+Do not create delayed self-send heartbeats as normal orchestration. If a worker is silent and overdue, check `tab status`/`tab chat` ONCE, record the lane state, and advance a different open task.
 
 ### Verification Gates
 
@@ -963,8 +963,8 @@ Heuristic: judgment → Opus. General coding/research → Sonnet. Mechanical/ver
 
 Long runs accumulate finished Worker panes. Sweep them — it's expected, not optional.
 
-- After a lane integrates/verifies AND its Worker has reported: `codeterm pane close <pane_id>`.
-- Sweep periodically: `codeterm pane list` → close panes whose lane is done.
+- After a lane integrates/verifies AND its Worker has reported: `codeterm tab close <pane_id>`.
+- Sweep periodically: `codeterm tab list` → close panes whose lane is done.
 - Closing is recoverable: `codeterm sessions search "<what it was doing>"` → `codeterm sessions resume <id>`.
 - Never close mid-task, a pane you don't own, or the General/main pane.
 - Close dedicated workspaces when lanes land: `codeterm workspace close <ws_id>`.

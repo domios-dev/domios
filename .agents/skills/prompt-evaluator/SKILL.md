@@ -142,7 +142,7 @@ Eval sets live in `evals/<name>/evals.json`. The shape is:
       "prompt": "User input the agent will receive (with prefixes like [Telegram: ID] if relevant)",
       "expected_output": "One-sentence summary of correct behavior — used in reports",
       "expectations": [
-        "Uses send --pane general --mesh PEER",
+        "Uses send --tab general --mesh PEER",
         "Does NOT use workspace create",
         "Includes 'report back' phrase"
       ]

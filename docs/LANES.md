@@ -27,12 +27,17 @@ about lifecycle and evidence, not CodeTerm's own repository layout.
    may fix a failure it directly diagnosed when the fix is mechanical and local
    to that gate; design changes bounce to the worker.
 6. Integrate by merging or rebasing unmerged lane work into the integration
-   target. Do not cherry-pick. If a branch is unusable, make a new lane and
-   manually port the diff with a recorded reason.
-7. After acceptance, immediately remove merged branches, clean worktrees, stop
+   target. Do not silently cherry-pick accepted work. If emergency patch-landing
+   is unavoidable, prove patch equivalence, record the landing SHA, then delete
+   the lane ref and worktree before the task is closed.
+7. Run `scripts/merge-stack-audit.sh --target <candidate> <accepted-lane>...`
+   before final QA and the master PR. `MERGED` is clean; `PATCH_LANDED_STALE`
+   or `UNLANDED` is a release gate failure until the lane is merged, deleted as
+   superseded, or explicitly deferred with a recorded reason.
+8. After acceptance, immediately remove merged branches, clean worktrees, stop
    lane-specific dev daemons, and record cleanup status. Deletion-only branch
    pushes must not run build gates.
-8. Before every milestone or release close, run a stale-lane sweep: every branch
+9. Before every milestone or release close, run a stale-lane sweep: every branch
    and worktree gets one verdict: merged and cleaned, bounced, intentionally
    paused with a reason, or abandoned with rationale.
 
