@@ -27,6 +27,7 @@ import { ToolIcon } from "./toolIcons";
 import { InlineToolRow } from "./InlineToolRow";
 import { ToolOutputContent } from "./ToolOutputContent";
 import { isImageOnlyToolOutput, toolResultPreviewLine } from "./toolImageOutput";
+import { distinctToolRawContent } from "./toolRawContent";
 import {
   contentSize,
   parsedToolInput,
@@ -156,6 +157,8 @@ export function ToolCallBubble({
       "spawn agent";
     const primary =
       commandText ?? pathText ?? queryText ?? taskText ?? message.toolArgs ?? message.content;
+    const inputText = JSON.stringify(input, null, 2);
+    const rawContentText = distinctToolRawContent(message.content, primary, inputText);
     const secondary =
       curatedKind === "exec" && cwdText ? `cwd ${cwdText}` :
       curatedKind === "write_file" && contentText ? `${contentSize(contentText)} | ${previewLine(contentText)}` :
@@ -256,7 +259,12 @@ export function ToolCallBubble({
                 <CodeBlock text={contentText} language={languageFromPath(pathText)} maxHeight="24rem" />
               ) : (
                 <pre className={`${PRE_WRAP_CLASS} m-0 font-mono`} style={{ color: "var(--ct-fg)" }}>
-                  {JSON.stringify(input, null, 2) || message.content}
+                  {inputText || message.content}
+                </pre>
+              )}
+              {rawContentText && (
+                <pre className={`${PRE_WRAP_CLASS} mt-2 mb-0 font-mono`} style={{ color: "var(--ct-fg)" }}>
+                  {rawContentText}
                 </pre>
               )}
               {message.toolResult && (
