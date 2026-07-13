@@ -5,8 +5,12 @@ import {
   listenForTestChatReplies,
   resetTestChatClockForCodeTerm,
   testChatReplyPayload,
+  useChatSession,
 } from "./useChatSession";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { Window } from "happy-dom";
 
 function assert(condition: unknown, label: string): asserts condition {
   if (!condition) throw new Error(label);
@@ -96,8 +100,252 @@ assert(
 );
 unlistenLate?.();
 
-console.log("chat test-mode seam checks passed");
-
 function getTestChatHandle() {
   return window.__codetermTestChat;
 }
+
+type TimerJob = { due: number; callback: () => void };
+
+class FakeTimers {
+  private now = 0;
+  private nextId = 1;
+  private jobs = new Map<number, TimerJob>();
+
+  install(): () => void {
+    const setTimeoutOriginal = globalThis.setTimeout;
+    const clearTimeoutOriginal = globalThis.clearTimeout;
+    Object.defineProperty(globalThis, "setTimeout", {
+      configurable: true,
+      value: (callback: () => void, delay = 0) => {
+        const id = this.nextId++;
+        this.jobs.set(id, { due: this.now + Number(delay), callback });
+        return id;
+      },
+    });
+    Object.defineProperty(globalThis, "clearTimeout", {
+      configurable: true,
+      value: (id: number) => this.jobs.delete(id),
+    });
+    return () => {
+      Object.defineProperty(globalThis, "setTimeout", { configurable: true, value: setTimeoutOriginal });
+      Object.defineProperty(globalThis, "clearTimeout", { configurable: true, value: clearTimeoutOriginal });
+    };
+  }
+
+  async advance(ms: number): Promise<void> {
+    const deadline = this.now + ms;
+    while (true) {
+      const next = [...this.jobs.entries()]
+        .filter(([, job]) => job.due <= deadline)
+        .sort(([, a], [, b]) => a.due - b.due)[0];
+      if (!next) break;
+      const [id, job] = next;
+      this.jobs.delete(id);
+      this.now = job.due;
+      await act(async () => {
+        job.callback();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+    }
+    this.now = deadline;
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+}
+
+type SessionView = {
+  loading: boolean;
+  recovering: boolean;
+  messages: NormalizedChatMessage[];
+};
+
+function setupHookDom(): void {
+  const hookWindow = new Window({ url: "http://localhost/" });
+  Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { configurable: true, value: true });
+  Object.defineProperty(globalThis, "window", { configurable: true, value: hookWindow });
+  Object.defineProperty(globalThis, "document", { configurable: true, value: hookWindow.document });
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: hookWindow.navigator });
+  Object.defineProperty(globalThis, "HTMLElement", { configurable: true, value: hookWindow.HTMLElement });
+  Object.defineProperty(globalThis, "Event", { configurable: true, value: hookWindow.Event });
+  Object.defineProperty(globalThis, "CustomEvent", { configurable: true, value: hookWindow.CustomEvent });
+}
+
+async function flush(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+async function mountSession(
+  sessionId: string | null,
+  active = true,
+): Promise<{ root: Root; render: (nextSessionId: string | null, nextActive?: boolean) => Promise<void>; latest: () => SessionView }> {
+  let view: SessionView = { loading: true, recovering: false, messages: [] };
+  function Harness({ currentSessionId, currentActive }: { currentSessionId: string | null; currentActive: boolean }) {
+    const session = useChatSession({ paneId: "pane", agentSessionId: currentSessionId, active: currentActive });
+    view = { loading: session.loading, recovering: session.recovering, messages: session.allMessages };
+    return null;
+  }
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const render = async (nextSessionId: string | null, nextActive = true) => {
+    await act(async () => {
+      root.render(createElement(Harness, { currentSessionId: nextSessionId, currentActive: nextActive }));
+    });
+    await flush();
+  };
+  await render(sessionId, active);
+  return { root, render, latest: () => view };
+}
+
+async function runChatSessionHookTests(): Promise<void> {
+  setupHookDom();
+  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+
+  {
+    const timers = new FakeTimers();
+    const restoreTimers = timers.install();
+    let starts = 0;
+    let listens = 0;
+    let stops = 0;
+    let unlistens = 0;
+    __setListenForTest(async () => {
+      listens += 1;
+      return () => { unlistens += 1; };
+    });
+    __setInvokeForTest((async (command: string) => {
+      if (command === "chat_start") {
+        starts += 1;
+        return { text: "", offset: 0, pending: true };
+      }
+      if (command === "chat_stop") stops += 1;
+      return {};
+    }) as never);
+    const session = await mountSession("sid-1");
+    await timers.advance(30_000);
+    assert(listens === 1, "T1 owns one persistent listener while pending");
+    assert(unlistens === 0 && stops === 0, "T1 pending does not tear down the listener or chat");
+    assert(starts === 1, "T1 pending never polls chat_start after the initial attach");
+    assert(session.latest().recovering && !session.latest().loading, "T1 pending settles as recovering without loading");
+    await act(async () => session.root.unmount());
+    restoreTimers();
+    console.log("PASS T1 pending waits with one listener and one attach");
+  }
+
+  {
+    const timers = new FakeTimers();
+    const restoreTimers = timers.install();
+    let starts = 0;
+    let handler: ((event: { payload: { pane_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
+    __setListenForTest(async (_event, nextHandler) => {
+      handler = nextHandler as typeof handler;
+      return () => {};
+    });
+    __setInvokeForTest((async (command: string) => {
+      if (command === "chat_start") {
+        starts += 1;
+        return { text: "", offset: 0, pending: true };
+      }
+      return {};
+    }) as never);
+    const session = await mountSession("sid-1");
+    await act(async () => handler?.({ payload: { pane_id: "pane", messages: [{ id: "event", type: "assistant", content: "attached", timestamp: "1" }] } }));
+    await timers.advance(30_000);
+    assert(starts === 1, "T2 first pane-chat message attaches without polling");
+    assert(session.latest().messages[0]?.content === "attached" && !session.latest().recovering, "T2 event attaches and renders messages");
+    await act(async () => session.root.unmount());
+    restoreTimers();
+    console.log("PASS T2 pane event completes an awaiting-store attach");
+  }
+
+  {
+    const timers = new FakeTimers();
+    const restoreTimers = timers.install();
+    const startArgs: Array<Record<string, unknown> | undefined> = [];
+    let stops = 0;
+    let unlistens = 0;
+    __setListenForTest(async () => () => { unlistens += 1; });
+    __setInvokeForTest((async (command: string, args?: Record<string, unknown>) => {
+      if (command === "chat_start") {
+        startArgs.push(args);
+        return { text: "", offset: 0, pending: true };
+      }
+      if (command === "chat_stop") stops += 1;
+      return {};
+    }) as never);
+    const session = await mountSession("sid-1");
+    await session.render("sid-2");
+    await session.render("sid-3");
+    assert(stops === 0 && unlistens === 0, "T3 pending session rotations keep listener ownership intact");
+    await timers.advance(0);
+    assert(startArgs.length === 2 && startArgs[1]?.agentSessionId === "sid-3", "T3 coalesces pending rotations into one latest-session resync");
+    assert(stops === 0 && unlistens === 0, "T3 rotation resync does not stop or unlisten");
+    await act(async () => session.root.unmount());
+    restoreTimers();
+    console.log("PASS T3 pending rotations coalesce to one latest-session reattach");
+  }
+
+  {
+    const timers = new FakeTimers();
+    const restoreTimers = timers.install();
+    let starts = 0;
+    let handler: ((event: { payload: { pane_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
+    __setListenForTest(async (_event, nextHandler) => {
+      handler = nextHandler as typeof handler;
+      return () => {};
+    });
+    __setInvokeForTest((async (command: string) => {
+      if (command !== "chat_start") return {};
+      starts += 1;
+      return starts === 1
+        ? { text: "", offset: 1, messages: [{ id: "one", type: "assistant", content: "one", timestamp: "1" }] }
+        : { text: "", offset: 3, messages: [{ id: "one", type: "assistant", content: "one updated", timestamp: "1" }, { id: "three", type: "assistant", content: "three", timestamp: "3" }] };
+    }) as never);
+    const session = await mountSession("sid-1");
+    await act(async () => handler?.({ payload: { pane_id: "pane", messages: [{ id: "two", type: "assistant", content: "two", timestamp: "2" }] } }));
+    await session.render("sid-2");
+    await timers.advance(0);
+    const messages = session.latest().messages;
+    assert(starts === 2, "T4 attached rotation performs one coalesced resync");
+    assert(messages.map((message) => message.id).join(",") === "one,two,three", "T4 resync preserves transcript ordering");
+    assert(messages.map((message) => message.clientOrder).join(",") === "0,1,2", "T4 resync preserves monotonic client order");
+    await act(async () => session.root.unmount());
+    restoreTimers();
+    console.log("PASS T4 attached rotation preserves transcript order");
+  }
+
+  {
+    let starts = 0;
+    let stops = 0;
+    __setListenForTest(async () => () => {});
+    __setInvokeForTest((async (command: string) => {
+      if (command === "chat_start") {
+        starts += 1;
+        return { text: "", offset: 1, messages: [{ id: "history", type: "assistant", content: "kept", timestamp: "1" }] };
+      }
+      if (command === "chat_stop") stops += 1;
+      return {};
+    }) as never);
+    const session = await mountSession("sid-1");
+    await session.render("sid-1", false);
+    await session.render("sid-1", true);
+    assert(stops === 1 && starts === 2, "T5 visibility transition performs one stop/start pair");
+    assert(session.latest().messages[0]?.content === "kept", "T5 visibility transition retains transcript");
+    await act(async () => session.root.unmount());
+    console.log("PASS T5 visibility restart retains transcript");
+  }
+  __setInvokeForTest(null);
+  __setListenForTest(null);
+}
+
+void runChatSessionHookTests()
+  .then(() => console.log("chat test-mode seam checks passed"))
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
