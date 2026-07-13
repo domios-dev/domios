@@ -153,6 +153,24 @@ export CODETERM_VITE_PORT="$CT_VITE_PORT"
 export CODETERM_DEV_IDENTIFIER="$CT_IDENTIFIER"
 export CODETERM_CDP_PORT="$CT_CDP_PORT"
 
+CT_RELEASE_GATEWAY_AFTER_READY=0
+if [ "$CMD" = "dev" ]; then
+  for arg in "${@:2}"; do
+    case "$arg" in
+      --release-gateway-after-ready) CT_RELEASE_GATEWAY_AFTER_READY=1 ;;
+    esac
+  done
+  if [ "$CT_RELEASE_GATEWAY_AFTER_READY" = "1" ] && [ -z "$CT_INSTANCE" ]; then
+    echo "ERROR: --release-gateway-after-ready requires a named dev instance" >&2
+    exit 2
+  fi
+fi
+
+if [ "${CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY:-0}" = "1" ]; then
+  printf 'instance=%s\nrelease_gateway_after_ready=%s\n' "$CT_INSTANCE" "$CT_RELEASE_GATEWAY_AFTER_READY"
+  exit 0
+fi
+
 # Wire .githooks as the hooks directory
 git config core.hooksPath .githooks 2>/dev/null || true
 
@@ -912,7 +930,11 @@ case "$CMD" in
               continue
             fi
             echo "Dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', launcher pid $DEV_PID, listener pid $(dev_listener_pid)"
-            handoff_gateway_to_dev "$DEV_PID"
+            if [ "$CT_RELEASE_GATEWAY_AFTER_READY" = "1" ]; then
+              echo "Build gateway released after named dev readiness; launcher $DEV_PID remains harness-owned."
+            else
+              handoff_gateway_to_dev "$DEV_PID"
+            fi
             exit 0
           fi
         fi

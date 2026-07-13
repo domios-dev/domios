@@ -61,6 +61,21 @@ if grep -q "CARGO_TARGET_DIR=.*codeterm-worktrees" <<< "$named_policy"; then
   exit 1
 fi
 
+held_gateway_policy="$(CODETERM_INSTANCE=pw1 CODETERM_API_PORT=7786 CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait)"
+released_gateway_policy="$(CODETERM_INSTANCE=pw1 CODETERM_API_PORT=7786 CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait --release-gateway-after-ready)"
+grep -q "release_gateway_after_ready=0" <<< "$held_gateway_policy" || {
+  echo "named interactive dev must retain lifetime build-gateway ownership" >&2
+  exit 1
+}
+grep -q "release_gateway_after_ready=1" <<< "$released_gateway_policy" || {
+  echo "parallel harness mode must release the build gateway after readiness" >&2
+  exit 1
+}
+if CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait --release-gateway-after-ready >/dev/null 2>&1; then
+  echo "canonical dev must reject readiness-scoped gateway ownership" >&2
+  exit 1
+fi
+
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-windows-dev-cleanup-selection.ps1
 
 echo "build kill safety check passed"
