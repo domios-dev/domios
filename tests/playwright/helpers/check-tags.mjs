@@ -5,7 +5,7 @@ import ts from "typescript";
 
 const suitesDir = fileURLToPath(new URL("../suites", import.meta.url));
 const baselinePath = fileURLToPath(new URL("./check-tags-baseline.txt", import.meta.url));
-const tagRe = /@(smoke|golden|quarantine)/;
+const tagRe = /@(smoke|golden|perf|quarantine)/;
 const quarantineTaskRe = /(?:task_[a-z0-9]+|#[0-9]+)/i;
 const strictEnv = process.env.PW_LINT_STRICT ?? process.env.PLAYWRIGHT_STRICT_LINT;
 const strictEnabled = !/^(0|false|no)$/i.test(strictEnv ?? "");
