@@ -45,6 +45,7 @@ function parseArgv(argv) {
     return i !== -1 ? original[i + 1] : null;
   };
   const model = flag("--model") ?? flag("-m");
+  const appendedTaskFile = flag("--append-system-prompt-file");
   const codexResumeSid =
     provider === "codex" && original[0] === "codex" && original[1] === "resume"
       ? original.slice(2).find((arg) => !arg.startsWith("-"))
@@ -52,12 +53,26 @@ function parseArgv(argv) {
   const resumeSid =
     flag("--resume") ?? flag("-r") ?? flag("--session") ?? codexResumeSid;
   const presetSid = flag("--session-id");
-  return { provider, original, model, resumeSid, presetSid, task };
+  return {
+    provider,
+    original,
+    model,
+    resumeSid,
+    presetSid,
+    appendedTaskFile,
+    task,
+  };
 }
 
-const { provider, original, model, resumeSid, presetSid, task } = parseArgv(
-  process.argv.slice(2),
-);
+const {
+  provider,
+  original,
+  model,
+  resumeSid,
+  presetSid,
+  appendedTaskFile,
+  task,
+} = parseArgv(process.argv.slice(2));
 const sessionId = resumeSid || presetSid || randomUUID();
 const paneId = process.env.CODETERM_PANE_ID || "";
 const apiUrl = (process.env.CODETERM_API_URL || "").replace(/\/$/, "");
@@ -141,6 +156,15 @@ function replayCast() {
     process.stdout.write("\r\n");
   } catch (e) {
     out(`stub replay: cast unavailable (${String(e).slice(0, 80)})`);
+  }
+}
+
+function readAppendedTask(pathname) {
+  if (!pathname) return null;
+  try {
+    return readFileSync(pathname, "utf8").replace(/^\uFEFF/, "");
+  } catch {
+    return null;
   }
 }
 
@@ -241,11 +265,13 @@ function handleLine(line) {
 }
 
 out(style.banner);
+if (provider === "opencode") out("tab agents · ctrl+p commands");
 out(`session: ${sessionId}${resumeSid ? " (resumed)" : ""}`);
 if (original.length) out(`[2margv: ${original.join(" ")}[0m`);
 replayCast();
 await announceSession();
-const initialTask = process.env.CODETERM_STUB_TASK || task;
+const initialTask =
+  process.env.CODETERM_STUB_TASK || readAppendedTask(appendedTaskFile) || task;
 if (initialTask) handleLine(initialTask.replace(/\r?\n/g, " "));
 process.stdout.write(style.idle);
 
