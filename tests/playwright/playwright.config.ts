@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import "./helpers/instance";
 
 const postMortemArtifacts = {
   trace: "retain-on-failure" as const,
@@ -7,9 +8,8 @@ const postMortemArtifacts = {
 };
 
 /**
- * One app instance, one worker — every suite drives the same live dev
- * console (port 7686) over CDP + REST. Parallel workers would fight over
- * focus and global mux state.
+ * One isolated app instance, one worker. Parallel workers would fight over
+ * focus and global mux state inside that instance.
  */
 export default defineConfig({
   testDir: "./suites",
@@ -24,6 +24,7 @@ export default defineConfig({
   ],
   use: postMortemArtifacts,
   globalSetup: "./helpers/global-setup",
+  globalTeardown: "./helpers/global-teardown",
   projects: [
     // Daemon kill/restart tests run only in the serial `restart` project, so
     // every other shard keeps its daemon alive for the whole run.
@@ -31,7 +32,7 @@ export default defineConfig({
     {
       name: "golden",
       grep: /@golden/,
-      grepInvert: /@quarantine|@restart|@perf/,
+      grepInvert: /@quarantine|@restart|@live|@perf/,
       retries: 0,
       timeout: 300_000,
     },

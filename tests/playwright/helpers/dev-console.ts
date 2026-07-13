@@ -2,7 +2,7 @@
  * Dev-console lifecycle for Playwright runs.
  *
  * The dev console is the real Tauri app started via `./build.sh dev --wait`
- * (port 7686, data dir ~/.codeterm-dev/). On Windows its window is WebView2,
+ * in a named Playwright instance. On Windows its window is WebView2,
  * which exposes the Chrome DevTools Protocol from the dev Tauri config.
  * Playwright connects to the REAL app over CDP, no separate browser.
  */
@@ -11,10 +11,11 @@ import { chromium, type Browser, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import { readDevToken } from "./api-client";
+import { PLAYWRIGHT_INSTANCE } from "./instance";
 
-export const E2E_PORT = process.env.CT_E2E_PORT ?? "7686";
+export const E2E_PORT = PLAYWRIGHT_INSTANCE.apiPort;
 export const API_BASE = `http://127.0.0.1:${E2E_PORT}`;
-export const CDP_PORT = 9223;
+export const CDP_PORT = PLAYWRIGHT_INSTANCE.cdpPort;
 export const CDP_BASE = `http://127.0.0.1:${CDP_PORT}`;
 export const WEB_URL = `${API_BASE}/`;
 const WEB_MODE = process.env.CT_E2E_WEB_MODE === "1";
@@ -25,8 +26,24 @@ export async function isHealthy(): Promise<boolean> {
   try {
     const r = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(3000) });
     if (!r.ok) return false;
-    const body = (await r.json()) as { status?: string };
-    return body.status === "ok";
+    const body = (await r.json()) as {
+      status?: string;
+      instance?: {
+        name?: string;
+        api_port?: string | number;
+        vite_port?: string | number;
+        cdp_port?: string | number;
+        identifier?: string;
+      };
+    };
+    return (
+      body.status === "ok" &&
+      body.instance?.name === PLAYWRIGHT_INSTANCE.name &&
+      String(body.instance.api_port) === PLAYWRIGHT_INSTANCE.apiPort &&
+      String(body.instance.vite_port) === String(PLAYWRIGHT_INSTANCE.vitePort) &&
+      String(body.instance.cdp_port) === String(PLAYWRIGHT_INSTANCE.cdpPort) &&
+      body.instance.identifier === PLAYWRIGHT_INSTANCE.identifier
+    );
   } catch {
     return false;
   }
@@ -124,8 +141,8 @@ function markCleanRestartBeforeKill(): void {
  * Windows recovery for the recurring crash-leftover states build.sh kill
  * can't see: orphan dev binaries (no 7686 listener but still holding
  * target\debug\codeterm.exe → relink fails with PermissionDenied) and a
- * surviving vite holding port 1420 (next dev start aborts). Scoped hard
- * to the dev target dir / port — prod is untouchable by construction.
+ * surviving Vite process. Scoped hard to the named instance — prod and the
+ * interactive dev instance are untouchable by construction.
  */
 function killDevLeftovers(): void {
   if (process.platform !== "win32") return;
@@ -143,9 +160,11 @@ function killDevLeftovers(): void {
         "-TargetDebug",
         path.join(REPO_ROOT, "src-tauri", "target", "debug"),
         "-Identifier",
-        "com.codeterm.dev",
+        PLAYWRIGHT_INSTANCE.identifier,
+        "-Instance",
+        PLAYWRIGHT_INSTANCE.name,
         "-VitePort",
-        "1420",
+        String(PLAYWRIGHT_INSTANCE.vitePort),
         "-ApiPort",
         E2E_PORT,
         "-CdpPort",
