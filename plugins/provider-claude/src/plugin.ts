@@ -53,6 +53,9 @@ const NOISE_FRAGMENTS = [
   "hold Space",
 ];
 
+const FILE_TASK_PROMPT =
+  "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
+
 function xmlTagBody(content: string, tag: string): string | null {
   const open = `<${tag}>`;
   const close = `</${tag}>`;
@@ -233,13 +236,19 @@ const plugin: PluginModule = {
       // Quote each caller-supplied arg — it reaches a shell (a mesh peer could inject `; cmd`).
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
-    // Prompt is a positional after `--`: a task may start with the -=-codeterm:...-=- marker, which commander would reject as an option.
+    // Windows must not expand large worker prompts through PowerShell/ConPTY/argv.
+    // Put the task in a file-backed system-prompt append and pass only a short user prompt.
     if (p.task) {
       const visiblePath = writeTaskTempFile(p.task);
-      parts.push("--");
-      parts.push(win
-        ? "\"$(Get-Content '" + visiblePath + "' -Raw -Encoding UTF8)\""
-        : "\"$(cat " + visiblePath + ")\"");
+      if (win) {
+        parts.push("--append-system-prompt-file");
+        parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
+        parts.push("--");
+        parts.push(host.shell.quoteFor(FILE_TASK_PROMPT, host.platform()));
+      } else {
+        parts.push("--");
+        parts.push("\"$(cat " + visiblePath + ")\"");
+      }
     }
     return parts.join(" ");
   },
