@@ -132,12 +132,6 @@ function TabSubline({ roleShield }: { roleShield: string | null }) {
   );
 }
 
-function tabRailVariant(status: PaneStatus | null | undefined): "working" | "attention" | "dead" | null {
-  if (status === "Waiting") return "attention";
-  if (status === "Dead") return "dead";
-  return null;
-}
-
 function TabItemInner({
   tab,
   isActive,
@@ -190,7 +184,6 @@ function TabItemInner({
   const tabRef = useRef<HTMLDivElement>(null);
   const tabText = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
   const tabTouchText = pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"]);
-  const railVariant = tabRailVariant(status);
 
   useEffect(() => {
     if (!pane) {
@@ -286,14 +279,6 @@ function TabItemInner({
       `}
     >
       {isActive && <ActiveTabPill />}
-      {railVariant && (
-        <span
-          data-testid="tab-status-rail"
-          data-rail-variant={railVariant}
-          className={`ct-tab-status-rail ct-tab-status-rail--${railVariant}`}
-          aria-hidden="true"
-        />
-      )}
       {groupCollapsible && (
         <GroupCollapseChevron
           touchMode={touchMode}

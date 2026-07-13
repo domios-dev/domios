@@ -544,9 +544,6 @@ export function Sidebar({
                 const sortedTabs = sortByOrder(ws.tabs);
                 const allPaneIds = sortedTabs.flatMap((t) => collectPaneIds(t, state.panes));
                 const wsStatus = aggregateTabStatus(allPaneIds, state.paneStatuses);
-                const hasWaiting = allPaneIds.some(
-                  (pid) => state.paneStatuses[pid] === "Waiting",
-                );
                 const isActive = ws.id === state.active_workspace_id;
                 const isActiveVisual = isActive && isWorkspaceMode;
                 const isExpanded = expandedWorkspaces.has(ws.id);
@@ -573,7 +570,6 @@ export function Sidebar({
                       onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
                       canClose={true}
                       status={wsStatus}
-                      hasWaiting={hasWaiting}
                       touchMode={touchMode}
                       uiFontScale={uiFontScale}
                     />
