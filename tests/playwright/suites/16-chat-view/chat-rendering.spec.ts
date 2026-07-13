@@ -74,16 +74,19 @@ async function scrollChatAwayFromBottom(
   if (overflow <= 320) {
     await page.evaluate(
       ({ paneId: targetPaneId }) => {
-        window.__codetermTestChat?.pushMessages(targetPaneId, [{
-          id: "scroll-overflow-primer",
+        window.__codetermTestChat?.pushMessages(targetPaneId, Array.from({ length: 80 }, (_, i) => ({
+          id: `scroll-overflow-primer-${i + 1}`,
           type: "assistant",
-          content: Array.from({ length: 36 }, (_, i) => `scroll primer ${i + 1}`).join("\n"),
-          timestamp: "1700003000006",
+          content: `scroll primer ${i + 1}`,
+          timestamp: String(1700003000006 + i),
           provider: "test",
-        }]);
+        })));
       },
       { paneId },
     );
+    await expect(
+      scrollContainer.locator('[data-testid="chat-message"]').filter({ hasText: "scroll primer 80" }),
+    ).toBeVisible({ timeout: 10_000 });
   }
 
   await expect.poll(
@@ -251,7 +254,7 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
         id: "scroll-preserve-1",
         type: "assistant",
         content: "new message after manual scroll",
-        timestamp: "1700003000007",
+        timestamp: "1700003000087",
         provider: "test",
       }]);
     },
