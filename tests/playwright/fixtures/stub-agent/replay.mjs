@@ -45,12 +45,19 @@ function parseArgv(argv) {
     return i !== -1 ? original[i + 1] : null;
   };
   const model = flag("--model") ?? flag("-m");
-  const resumeSid = flag("--resume") ?? flag("-r");
+  const codexResumeSid =
+    provider === "codex" && original[0] === "codex" && original[1] === "resume"
+      ? original.slice(2).find((arg) => !arg.startsWith("-"))
+      : null;
+  const resumeSid =
+    flag("--resume") ?? flag("-r") ?? flag("--session") ?? codexResumeSid;
   const presetSid = flag("--session-id");
   return { provider, original, model, resumeSid, presetSid, task };
 }
 
-const { provider, original, model, resumeSid, presetSid, task } = parseArgv(process.argv.slice(2));
+const { provider, original, model, resumeSid, presetSid, task } = parseArgv(
+  process.argv.slice(2),
+);
 const sessionId = resumeSid || presetSid || randomUUID();
 const paneId = process.env.CODETERM_PANE_ID || "";
 const apiUrl = (process.env.CODETERM_API_URL || "").replace(/\/$/, "");
@@ -60,8 +67,7 @@ const STYLE = {
   claude: {
     banner: `[38;2;217;119;87m✳[0m Claude Code (stub replay)  model: ${model ?? "default"}`,
     turn: (text) => `[1m●[0m ${text}`,
-    tool: (marker) =>
-      `[2m⏺ Bash(echo ${marker})[0m\n[2m  ⎿  ${marker}[0m`,
+    tool: (marker) => `[2m⏺ Bash(echo ${marker})[0m\n[2m  ⎿  ${marker}[0m`,
     idle: "[2m❯[0m ",
   },
   codex: {
@@ -102,7 +108,10 @@ async function announceSession() {
   try {
     await fetch(`${apiUrl}/api/panes/${paneId}/hook/session_start`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiToken}` },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiToken}`,
+      },
       body: JSON.stringify({
         session_id: sessionId,
         source: "startup",
@@ -119,7 +128,9 @@ async function announceSession() {
 function replayCast() {
   const castPath = process.env.CODETERM_STUB_CAST || DEFAULT_CASTS[provider];
   if (!castPath) return;
-  const resolved = path.isAbsolute(castPath) ? castPath : path.join(REPO, castPath);
+  const resolved = path.isAbsolute(castPath)
+    ? castPath
+    : path.join(REPO, castPath);
   try {
     const lines = readFileSync(resolved, "utf8").split("\n").slice(1);
     for (const line of lines) {
@@ -182,7 +193,10 @@ function persistTurn(userText, assistantText) {
     },
   ];
   try {
-    appendFileSync(sessionFile, records.map((r) => JSON.stringify(r)).join("\n") + "\n");
+    appendFileSync(
+      sessionFile,
+      records.map((r) => JSON.stringify(r)).join("\n") + "\n",
+    );
   } catch {
     /* chat-parity test will surface a missing turn */
   }
@@ -192,7 +206,10 @@ function submitReport(message) {
   if (!apiUrl || !apiToken || !paneId) return;
   fetch(`${apiUrl}/api/panes/${paneId}/report`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiToken}` },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiToken}`,
+    },
     body: JSON.stringify({ message }),
     signal: AbortSignal.timeout(10000),
   }).catch(() => {});
