@@ -44,14 +44,18 @@ test("@golden @live real pair launch leaves no bare shell and delivers the Plann
 }) => {
   test.setTimeout(300_000);
   const ws = await createTestWorkspace(api);
-  const pair = await api.post<PairResult>("/orchestration/new", {
-    orchestrator_agent: "claude",
-    orchestrator_model: "sonnet",
-    planner_agent: "claude",
-    planner_model: "sonnet",
-    workspace_id: ws.id,
-    title: `pw-live-pair-${Date.now()}`,
-  });
+  const pair = await api.post<PairResult>(
+    "/orchestration/new",
+    {
+      orchestrator_agent: "claude",
+      orchestrator_model: "sonnet",
+      planner_agent: "claude",
+      planner_model: "sonnet",
+      workspace_id: ws.id,
+      title: `pw-live-pair-${Date.now()}`,
+    },
+    { timeoutMs: 90_000 },
+  );
   paneCleanup.track(pair.orchestrator_pane_id);
   paneCleanup.track(pair.planner_pane_id);
 

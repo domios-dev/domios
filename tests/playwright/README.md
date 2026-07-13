@@ -137,7 +137,22 @@ It calls the real `/api/orchestration/new` path, requires pane-local session ids
 for both the Orchestrator and Planner, verifies the Planner's real pane id in
 the Orchestrator follow-up buffer, and fails if the replay banner appears. The
 command has a 10-minute global cap; the test itself has a 5-minute cap. It does
-not depend on the model obeying an injected plan-creation instruction.
+not depend on the model obeying an injected plan-creation instruction. The pair
+POST has a 90-second client cap, leaving bounded headroom above the backend's
+75-second shared launch deadline while still catching the old 120-second stall.
+
+For a failing ROG rerun, preserve the line-reporter output and collect:
+
+```powershell
+Get-Content "$HOME\.codeterm-dev-playwright\logs\codeterm.log" |
+  Select-String 'orchestration-pair|agent-launch|readiness|claude' |
+  Select-Object -Last 300
+Get-ChildItem tests\playwright\artifacts\test-results -Recurse
+```
+
+The API failure must include either the backend's degraded-pair recovery command
+or `POST /api/orchestration/new timed out after 90000ms`; a bare `fetch failed`
+is insufficient evidence.
 
 ## Real-LLM strategy (Andrey's ruling, supersedes testplan §4.1)
 
