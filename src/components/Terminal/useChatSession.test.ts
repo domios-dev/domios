@@ -344,7 +344,9 @@ async function runChatSessionHookTests(): Promise<void> {
     const timers = new FakeTimers();
     const restoreTimers = timers.install();
     const startArgs: Array<Record<string, unknown> | undefined> = [];
-    let resolveInitialAttach: ((result: { text: string; offset: number; pending: boolean }) => void) | null = null;
+    const initialAttach = {
+      resolve: null as ((result: { text: string; offset: number; pending: boolean }) => void) | null,
+    };
     let stops = 0;
     let unlistens = 0;
     __setListenForTest(async () => () => { unlistens += 1; });
@@ -352,7 +354,7 @@ async function runChatSessionHookTests(): Promise<void> {
       if (command === "chat_start") {
         startArgs.push(args);
         if (startArgs.length === 1) {
-          return new Promise((resolve) => { resolveInitialAttach = resolve; });
+          return new Promise((resolve) => { initialAttach.resolve = resolve; });
         }
         return { text: "", offset: 0, pending: true };
       }
@@ -365,7 +367,7 @@ async function runChatSessionHookTests(): Promise<void> {
     await timers.advance(0);
     assert(startArgs.length === 2 && startArgs[1]?.agentSessionId === "sid-3", "T6 deferred initial attach rotates once to the latest session");
     assert(stops === 0 && unlistens === 0, "T6 idle rotation keeps the existing chat listener and daemon session");
-    resolveInitialAttach?.({ text: "", offset: 0, pending: true });
+    initialAttach.resolve?.({ text: "", offset: 0, pending: true });
     await flush();
     await timers.advance(30_000);
     assert(startArgs.length === 2, "T6 resolving a stale initial attach does not poll or reattach again");
@@ -378,7 +380,9 @@ async function runChatSessionHookTests(): Promise<void> {
     const timers = new FakeTimers();
     const restoreTimers = timers.install();
     const startArgs: Array<Record<string, unknown> | undefined> = [];
-    let resolveRetryAttach: ((result: { text: string; offset: number; pending: boolean }) => void) | null = null;
+    const retryAttach = {
+      resolve: null as ((result: { text: string; offset: number; pending: boolean }) => void) | null,
+    };
     let stops = 0;
     let unlistens = 0;
     __setListenForTest(async () => () => { unlistens += 1; });
@@ -386,7 +390,7 @@ async function runChatSessionHookTests(): Promise<void> {
       if (command === "chat_start") {
         startArgs.push(args);
         if (startArgs.length === 2) {
-          return new Promise((resolve) => { resolveRetryAttach = resolve; });
+          return new Promise((resolve) => { retryAttach.resolve = resolve; });
         }
         return { text: "", offset: 0, messages: [] };
       }
@@ -401,7 +405,7 @@ async function runChatSessionHookTests(): Promise<void> {
     await timers.advance(0);
     assert(startArgs.length === 3 && startArgs[2]?.agentSessionId === "sid-3", "T7 attaching rotation coalesces to one latest-session attach");
     assert(stops === 0 && unlistens === 0, "T7 attaching rotation does not stop or unlisten");
-    resolveRetryAttach?.({ text: "", offset: 0, pending: true });
+    retryAttach.resolve?.({ text: "", offset: 0, pending: true });
     await flush();
     await timers.advance(30_000);
     assert(startArgs.length === 3, "T7 attaching rotation does not introduce polling");
