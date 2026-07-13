@@ -319,6 +319,14 @@ async function completeFirstRunPickerIfPresent(page: Page): Promise<void> {
   const picker = page.locator('[data-testid="first-run-general-picker"]');
   if (!(await picker.isVisible({ timeout: 1_000 }).catch(() => false))) return;
 
+  const planBoard = page.locator('[data-testid="plan-board-view"]:visible');
+  if (await planBoard.isVisible().catch(() => false)) {
+    const canvasButton = page.locator('[data-testid="canvas-toolbar-button"][aria-pressed="true"]');
+    await canvasButton.waitFor({ state: "visible", timeout: 30_000 });
+    await canvasButton.click({ timeout: 30_000 });
+    await planBoard.waitFor({ state: "hidden", timeout: 30_000 });
+  }
+
   const confirm = page.locator('[data-testid="agent-picker-confirm"]');
   await confirm.waitFor({ state: "visible", timeout: 30_000 });
   await confirm.click({ timeout: 30_000 });
