@@ -219,9 +219,21 @@ test.describe("agent flows on the stub transport", () => {
         });
         const turn2Reply = `ack ${turn2Marker}`;
         await pollMarkerInDom(turn2Reply, { paneId: agentPaneId, timeout: 60_000 });
-        const turn2Text = await api.get<{ text?: string } | string>(`/panes/${agentPaneId}/text`);
-        const turn2Buffer =
-          typeof turn2Text === "string" ? turn2Text : (turn2Text.text ?? JSON.stringify(turn2Text));
+        const turn2Buffer = await pollUntil(
+          async () => {
+            const turn2Text = await api.get<{ text?: string } | string>(
+              `/panes/${agentPaneId}/text`,
+            );
+            const buffer =
+              typeof turn2Text === "string"
+                ? turn2Text
+                : (turn2Text.text ?? JSON.stringify(turn2Text));
+            return buffer.includes(turn2Reply) ? buffer : undefined;
+          },
+          10_000,
+          250,
+          "second stub reply reaches pane text buffer",
+        );
         expect(turn2Buffer, "second stub reply missing from pane buffer").toContain(turn2Reply);
       } finally {
         if (agentPaneId) paneCleanup.track(agentPaneId);
