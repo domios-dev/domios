@@ -131,10 +131,9 @@ Spawn workers (2-level hierarchy — Workers report back here):\n\
 impl ServiceContext {
     pub fn deliver_orchestrator_onboarding(&self, pane_id: &str) {
         let body = orchestrator_onboarding_body(pane_id);
-        // Display greeting is a short user-facing hint (no commands); the full
-        // onboarding rides the real delivery below, attributed to CodeTerm.
+        // Raw chat startup must see the full onboarding even before delivery lands.
         if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
-            pane.pending_greeting = Some(crate::prompts::orchestrator_display_hint());
+            pane.pending_greeting = Some(body.clone());
         }
         self.emit_state_changed();
         // Deliver as a message FROM CodeTerm (same marker the Planner gets), not a
