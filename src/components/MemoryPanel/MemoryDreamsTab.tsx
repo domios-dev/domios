@@ -14,6 +14,7 @@ import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 import { RunChatPopup } from "../AgentRun/RunChatPopup";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 import { DreamCard, DreamDetailModal, type DreamDiaryEntry } from "./DreamCard";
+import { hasRenderableDreamInsight } from "./dreamVisuals";
 
 interface Props {
   api: ApiConfig;
@@ -131,7 +132,9 @@ function MemoryDreamsTabImpl({ api }: Props) {
         });
         if (!res.ok || !mountedRef.current) return;
         const data = (await res.json()) as { hits: SearchHit[] };
-        const entries = (data.hits || []).map((h) => h.item);
+        const entries = (data.hits || [])
+          .map((h) => h.item)
+          .filter((entry) => hasRenderableDreamInsight(entry.body));
         entries.sort(
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
         );
