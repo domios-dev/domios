@@ -24,6 +24,9 @@ interface RoleRowProps {
    *  Playwright to target the orchestrator vs. planner select independently. */
   providerTestId?: string;
   modelTestId?: string;
+  /** When set, a not-installed provider offers a one-click "Install" that
+   *  opens the provider's installer in a terminal tab. */
+  onInstallProvider?: (providerId: string) => void;
 }
 
 export function OrchestrationRoleRow({
@@ -36,6 +39,7 @@ export function OrchestrationRoleRow({
   onModelChange,
   providerTestId,
   modelTestId,
+  onInstallProvider,
 }: RoleRowProps) {
   const provider = providers.find((p) => p.id === providerId);
   const models = provider?.available_models ?? [];
@@ -77,7 +81,20 @@ export function OrchestrationRoleRow({
         </div>
       </div>
       {providerDisabled && (
-        <div className="text-[10px] text-[var(--ct-muted-fg)]">CLI not installed for this provider</div>
+        <div className="flex items-center gap-2 text-[10px] text-[var(--ct-muted-fg)]">
+          <span>{provider?.display_name ?? "This provider"}'s CLI isn't installed</span>
+          {onInstallProvider && provider?.install_command && (
+            <button
+              type="button"
+              data-testid={`install-provider-${providerId}`}
+              onClick={() => onInstallProvider(providerId)}
+              className="rounded border px-1.5 py-0.5 text-[10px] font-medium text-[var(--ct-accent)] hover:brightness-125"
+              style={{ borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 40%, transparent)" }}
+            >
+              Install in terminal
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -92,6 +109,7 @@ export function OrchestrationPairForm({
   titleField,
   pairAffordanceTestId,
   roleTestIds,
+  onInstallProvider,
 }: {
   providers: ProviderDescriptor[];
   values: OrchestrationPairValues;
@@ -106,6 +124,7 @@ export function OrchestrationPairForm({
     plannerProvider?: string;
     plannerModel?: string;
   };
+  onInstallProvider?: (providerId: string) => void;
 }) {
   const handleOrchestratorProviderChange = (id: string) => {
     onChange({
@@ -133,6 +152,7 @@ export function OrchestrationPairForm({
       onModelChange={(modelId) => onChange({ ...values, orchestratorModelId: modelId })}
       providerTestId={roleTestIds?.orchestratorProvider}
       modelTestId={roleTestIds?.orchestratorModel}
+      onInstallProvider={onInstallProvider}
     />
   );
   const plannerRow = (
@@ -146,6 +166,7 @@ export function OrchestrationPairForm({
       onModelChange={(modelId) => onChange({ ...values, plannerModelId: modelId })}
       providerTestId={roleTestIds?.plannerProvider}
       modelTestId={roleTestIds?.plannerModel}
+      onInstallProvider={onInstallProvider}
     />
   );
 

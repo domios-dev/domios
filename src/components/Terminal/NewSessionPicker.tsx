@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "../../lib/bridge";
 import { IS_WEB } from "../../lib/webApi";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { AppConfig } from "../../lib/types";
@@ -14,6 +15,7 @@ import {
 } from "../../lib/newSessionChoice";
 import { buildDestinationPreview, MODE_HELP_TEXT, WORKSPACE_HELP_TEXT } from "../../lib/newSessionPickerContent";
 import { probeProviderInstallMap } from "../../lib/providerInstallStatus";
+import { AgentIcon } from "../AgentIcon";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
 import { ModeCards, WorkspaceRow } from "./NewSessionPickerParts";
 import { FloatingTooltip } from "../shared/FloatingTooltip";
@@ -78,13 +80,49 @@ export function NewSessionPicker({
 
   useEffect(() => {
     let cancelled = false;
-    void probeProviderInstallMap(visibleProviders).then((map) => {
-      if (!cancelled) setInstallMap(map);
-    });
+    const probe = () => {
+      void probeProviderInstallMap(visibleProviders).then((map) => {
+        if (!cancelled) setInstallMap(map);
+      });
+    };
+    probe();
+    // Re-probe on refocus so "install in a terminal tab → come back" just works.
+    window.addEventListener("focus", probe);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", probe);
     };
   }, [visibleProviders]);
+
+  const handleInstallProvider = useCallback((providerId: string) => {
+    void (async () => {
+      try {
+        const res = await invoke<{ tab_id: string; pane_id: string }>(
+          "install_provider_in_pane",
+          { providerId },
+        );
+        const wsId = state.active_workspace_id;
+        if (wsId && res?.pane_id) await selectTabByPane(wsId, res.pane_id).catch(() => {});
+        addNotification({
+          pane_id: null,
+          workspace_id: workspaceId,
+          title: "Installer running",
+          body: "The install command is running in a terminal tab. Come back to Start a session when it finishes.",
+          level: "Info",
+          sticky: false,
+        });
+      } catch (e) {
+        addNotification({
+          pane_id: null,
+          workspace_id: workspaceId,
+          title: "Install failed to start",
+          body: e instanceof Error ? e.message : String(e),
+          level: "Error",
+          sticky: true,
+        });
+      }
+    })();
+  }, [addNotification, selectTabByPane, state.active_workspace_id, workspaceId]);
 
   const handleStartCreateWorkspace = useCallback(() => {
     if (IS_WEB) {
@@ -297,6 +335,13 @@ export function NewSessionPicker({
           </div>
         </div>
 
+        <div className="relative mb-1.5 flex items-center gap-1.5">
+          <span className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Mode</span>
+          <FloatingTooltip content={<div>{MODE_HELP_TEXT}</div>} className="picker-help-glyph">
+            <span className="picker-help-glyph-mark">?</span>
+          </FloatingTooltip>
+        </div>
+
         <div className="relative mb-4">
           <ModeCards
             mode={choice.mode}
@@ -305,13 +350,6 @@ export function NewSessionPicker({
             plannerProviderId={plannerProviderId}
             onSelect={handleModeSelect}
           />
-        </div>
-
-        <div className="relative mb-4 flex items-center gap-1.5">
-          <span className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Mode</span>
-          <FloatingTooltip content={<div>{MODE_HELP_TEXT}</div>} className="picker-help-glyph">
-            <span className="picker-help-glyph-mark">?</span>
-          </FloatingTooltip>
         </div>
 
         <div className="relative mb-4">
@@ -345,6 +383,7 @@ export function NewSessionPicker({
                 });
               }}
               onModelChange={(modelId) => setChoice({ ...choice, modelId })}
+              onInstallProvider={handleInstallProvider}
             />
           ) : (
             <OrchestrationPairForm
@@ -371,12 +410,31 @@ export function NewSessionPicker({
                 plannerProvider: "picker-provider-planner",
                 plannerModel: "picker-model-planner",
               }}
+              onInstallProvider={handleInstallProvider}
             />
           )}
         </div>
 
-        <div className="relative mt-4 text-[11px] text-[var(--ct-muted-fg)]" data-testid="picker-preview">
-          {previewText}
+        <div
+          className="relative mt-4 flex items-center gap-2 rounded-md border px-2.5 py-2 text-[11px] text-[var(--ct-muted-fg)]"
+          style={{
+            borderColor: "color-mix(in srgb, var(--ct-border) 70%, transparent)",
+            background: "color-mix(in srgb, var(--ct-bg) 60%, transparent)",
+          }}
+          data-testid="picker-preview"
+        >
+          <span className="flex shrink-0 items-center gap-1" aria-hidden>
+            {choice.mode === "pair" ? (
+              <>
+                <AgentIcon providerId={orchestratorProviderId} className="text-[13px]" />
+                <span className="opacity-50 text-[10px]">⟷</span>
+                <AgentIcon providerId={plannerProviderId} className="text-[13px]" />
+              </>
+            ) : (
+              <AgentIcon providerId={singleProviderId} className="text-[13px]" />
+            )}
+          </span>
+          <span className="min-w-0 truncate">{previewText}</span>
         </div>
 
         <div className="relative mt-4 flex justify-end">

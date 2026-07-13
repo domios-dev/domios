@@ -15,7 +15,7 @@ function assert(condition: unknown, message: string): asserts condition {
 assert(!picker.includes("handleQuickProviderStart"), "picker does not keep the legacy quick provider list");
 assert(!picker.includes("New {provider.display_name} Session"), "picker does not render provider session rows below mode cards");
 assert(
-  css.includes(".new-session-picker-card .pair-affordance--card {\n  display: grid;"),
+  /\.new-session-picker-card \.pair-affordance--card\s*\{[^}]*display:\s*grid;/s.test(css),
   "picker pair affordance uses a grid layout",
 );
 assert(css.includes("grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);"), "pair layout can shrink within the card");
