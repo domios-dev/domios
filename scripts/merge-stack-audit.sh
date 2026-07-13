@@ -57,6 +57,7 @@ done
 
 if [ -n "$refs_file" ]; then
   while IFS= read -r ref || [ -n "$ref" ]; do
+    ref=${ref%$'\r'}
     case "$ref" in
       ""|\#*) continue ;;
       *) refs+=("$ref") ;;
