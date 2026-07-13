@@ -69,7 +69,7 @@ await (async () => {
   assert(text.includes("Update") && text.includes("done"), "renders markdown body content");
 })();
 
-// section-id mention in normal chat renders a deep-link card with section focus
+// section-id mention in normal chat renders a deep-link card with the shared selector contract.
 await (async () => {
   let opened: [string, string | undefined, string | undefined] | null = null;
   const host = await render(
@@ -83,10 +83,19 @@ await (async () => {
       onOpenPlan={(p, focus, kind) => {
         opened = [p, focus, kind];
       }}
+      resolvePlanRef={(planId, focusId, focusKind) => ({
+        title: focusKind === "section" ? "Cross workspace section" : "Owner workspace plan",
+        planTitle: "Owner workspace plan",
+        sectionTitle: focusKind === "section" ? "Cross workspace section" : undefined,
+        state: "resolved",
+        rawLabel: focusId ?? planId,
+        fullRef: focusId ? `${planId}/${focusId}` : planId,
+      })}
     />,
   );
-  const card = host.querySelector('[data-testid="chat-plan-ref-card"][data-ref-kind="section"]') as HTMLButtonElement | null;
-  assert(card != null, "assistant section ref renders rich card");
+  const card = host.querySelector('[data-testid="chat-section-link"][data-ref-kind="section"]') as HTMLButtonElement | null;
+  assert(card != null, "assistant section ref renders shared link selector");
+  assert(card?.textContent?.includes("Cross workspace section"), "assistant ref card uses resolved title");
   await act(async () => {
     card!.click();
   });
