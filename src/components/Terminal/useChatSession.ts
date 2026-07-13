@@ -288,7 +288,9 @@ export function useChatSession({
         if (res.pending) {
           setRecovering(true);
           setLoading(false);
-          retryTimer = setTimeout(() => setRestartToken((token) => token + 1), CHAT_RECOVERY_RETRY_MS);
+          if (agentSessionId) {
+            retryTimer = setTimeout(() => setRestartToken((token) => token + 1), CHAT_RECOVERY_RETRY_MS);
+          }
           return;
         }
         setRecovering(false);
