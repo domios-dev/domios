@@ -27,7 +27,7 @@ function makeStream(): MediaStream & { track: FakeTrack } {
     track,
     getAudioTracks: () => [track],
     getTracks: () => [track],
-  } as MediaStream & { track: FakeTrack };
+  } as unknown as MediaStream & { track: FakeTrack };
 }
 
 async function main() {
