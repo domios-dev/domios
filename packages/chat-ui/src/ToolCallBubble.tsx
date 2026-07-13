@@ -193,7 +193,7 @@ export function ToolCallBubble({
     }
 
     return (
-      <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto group">
+      <div data-testid="chat-tool-call" className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto group">
         <div className="flex w-full min-w-0 flex-col">
           <button
             data-testid={`chatbackend-tool-${curatedKind}`}
