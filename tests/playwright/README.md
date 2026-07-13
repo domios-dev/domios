@@ -39,6 +39,8 @@ pnpm test:pw:debug   # run the suite with Playwright Inspector
 Parallel execution is opt-in. `CT_E2E_WORKERS=N` starts `pw1..pwN` with
 separate API, Vite, CDP, identifier, token, and `.codeterm-dev-pwN` state.
 Playwright's stable `parallelIndex` pins each worker process to one instance.
+Startup is serialized through the build gateway, which is released after each
+named instance passes readiness; Windows instances use separate Cargo targets.
 The harness stops every named instance and fails the run if any owned port
 remains open. The golden scripts do not set this flag and remain serial.
 
