@@ -6,13 +6,13 @@
  *   workspace/pane through the API, leaving the protected General
  *   workspace + its panes as the known baseline.
  * - `wipeDevState` — heavy, suite-level: stops the daemon and deletes
- *   mutable state dirs under ~/.codeterm-dev/ (sessions, workspaces),
+ *   mutable state dirs under the named Playwright data directory,
  *   keeping config.toml (token!) and bin/. Caller must restart via
  *   `ensureDevConsole()` afterwards.
  *
  * HARD GUARD: every filesystem path this module touches must live under
- * a directory literally named `.codeterm-dev`. Prod (`~/.codeterm/`) is
- * never touched — the harness throws rather than risk it (testplan Q9).
+ * a directory named `.codeterm-dev-*`. Prod (`~/.codeterm/`) and interactive
+ * dev (`~/.codeterm-dev/`) are never touched — the harness throws instead.
  */
 import { rmSync } from "node:fs";
 import os from "node:os";
@@ -26,7 +26,7 @@ export function devDataDir(): string {
 
 function assertDevPath(p: string): void {
   const normalized = p.replace(/\\/g, "/");
-  if (!/\/\.codeterm-dev(?:-[^/]+)?(?:\/|$)/.test(normalized)) {
+  if (!/\/\.codeterm-dev-[^/]+(?:\/|$)/.test(normalized)) {
     throw new Error(`prod-contamination guard: refusing to touch non-dev path: ${p}`);
   }
 }

@@ -1,7 +1,9 @@
-# Playwright — live dev console
+# Playwright — isolated dev console
 
-Drives the **real** CodeTerm dev console (Tauri, port 7686), not a browser
-mock of it.
+Drives a **real, dedicated** CodeTerm dev console (Tauri, named instance
+`playwright`, port 7786 by default), not a browser mock. The interactive dev
+instance on port 7686 and its `~/.codeterm-dev` store are never adopted,
+restarted, or mutated by this suite.
 
 For the canonical layer taxonomy and the "which layer do I write?" decision tree,
 see [`docs/TESTING.md`](../../docs/TESTING.md).
@@ -10,17 +12,16 @@ see [`docs/TESTING.md`](../../docs/TESTING.md).
 
 - On Windows the Tauri window is **WebView2**, which speaks the Chrome
   DevTools Protocol when the dev Tauri config launches it with
-  `additionalBrowserArgs` containing `--remote-debugging-port=9223`.
+  `additionalBrowserArgs` containing the named instance's CDP port.
   Playwright attaches via `chromium.connectOverCDP` — full control of the
-  actual app UI, real Tauri IPC, no shimming. Verified live: the dev
-  console answers `/json/version` on 9223.
+  actual app UI, real Tauri IPC, no shimming.
 - Pure browser-side Playwright against the Vite server is **not viable**:
   the frontend calls `@tauri-apps/api` `invoke()` directly with no HTTP
   fallback, so outside a Tauri WebView the UI is non-functional.
 - The old Tauri WebDriver/WDIO harness was removed. Desktop UI automation
   uses this Playwright/CDP path only.
-- Backend coverage uses plain `fetch` against `/api/*` with the dev token
-  from `~/.codeterm-dev/config.toml`.
+- Backend coverage uses plain `fetch` against `/api/*` with the token from
+  `~/.codeterm-dev-playwright/config.toml`.
 
 ## Run
 
@@ -29,6 +30,7 @@ pnpm test:pw:lint    # fail if any Playwright test has no tier tag
 pnpm test:pw:smoke   # @smoke project
 pnpm test:pw:golden  # @golden project, one retry and 5min timeout
 pnpm test:pw:full    # all non-quarantined tests
+pnpm test:pw:live-pair # bounded real-Claude orchestration launch gate
 pnpm test:pw:report  # open the last HTML report
 pnpm test:pw:trace -- tests/playwright/artifacts/test-results/<trace.zip>
 pnpm test:pw:debug   # run the suite with Playwright Inspector
@@ -37,6 +39,11 @@ pnpm test:pw:debug   # run the suite with Playwright Inspector
 On Windows PowerShell, start/restart dev with `.\build.ps1 dev --wait`.
 Do not call plain `bash ./build.sh ...` from PowerShell; it can resolve to
 WSL. Use `build.ps1` or Git Bash directly.
+
+The harness owns its dev lifecycle. Do not start the interactive 7686 instance
+for Playwright. To select another isolated lane, set `CT_E2E_INSTANCE` and
+`CT_E2E_PORT`; ports 7685 and 7686 are rejected. Global teardown stops only the
+named Playwright instance.
 
 **There is no CI for this suite — by decision, not omission** (hosted
 runners lack the claude CLI auth and a verified WebView2 desktop; a
@@ -77,11 +84,10 @@ path after the script separator:
 pnpm test:pw:trace -- tests/playwright/artifacts/test-results/<test-output>/trace.zip
 ```
 
-Global setup (`helpers/global-setup.ts`) reuses a running dev console when
-both `/api/health` and CDP answer; otherwise it runs
-`./build.sh kill && ./build.sh dev --wait` with the CDP env var. A console
-started *without* the env var cannot be adopted — the debugging port is
-fixed at WebView2 creation — so the harness restarts it.
+Global setup (`helpers/global-setup.ts`) reuses only a dev console whose health
+identity matches the named Playwright instance, API port, and derived CDP port.
+Otherwise it runs `./build.sh kill && ./build.sh dev --wait` with that identity.
+The shared interactive dev console cannot satisfy this check.
 
 ## Layout
 
@@ -90,13 +96,32 @@ tests/playwright/
 ├── playwright.config.ts    one worker — one live app, parallel workers would fight over focus
 ├── helpers/
 │   ├── dev-console.ts      start/kill/health/CDP attach (build.sh only, never raw cargo)
-│   ├── api-client.ts       typed /api/* wrapper, token from ~/.codeterm-dev/config.toml
+│   ├── instance.ts         named-instance identity and shared-port refusal
+│   ├── api-client.ts       typed /api/* wrapper, token from the named data dir
 │   ├── reset.ts            apiReset (fast, per-test) + wipeDevState (suite-level)
 │   └── global-setup.ts
 └── suites/
     ├── 01-smoke/           harness proof: health, real UI renders, providers, workspace
     └── 02-multiplexer/     ws/pane lifecycle, #132 focus determinism (50x), kill/restart persistence
 ```
+
+## Real pair-launch release gate
+
+The golden agent tests deliberately use `fixtures/stub-agent/replay.mjs` and
+do not launch a provider process. They cannot detect a real Claude launch that
+falls back to a bare shell, or a Planner follow-up lost during provider startup.
+
+Before release, run this bounded gate on a host with Claude CLI authentication:
+
+```bash
+pnpm test:pw:live-pair
+```
+
+It calls the real `/api/orchestration/new` path, requires pane-local session ids
+for both the Orchestrator and Planner, verifies the Planner's real pane id in
+the Orchestrator follow-up buffer, and fails if the replay banner appears. The
+command has a 10-minute global cap; the test itself has a 5-minute cap. It does
+not depend on the model obeying an injected plan-creation instruction.
 
 ## Real-LLM strategy (Andrey's ruling, supersedes testplan §4.1)
 
