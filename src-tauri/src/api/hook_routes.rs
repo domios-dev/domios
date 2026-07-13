@@ -478,10 +478,10 @@ fn bind_reported_session(
     }
     let cwd = pane.cwd.clone().unwrap_or_default();
 
-    let exists = nonce_verified
-        || registry
-            .with_provider(provider_id, |p| p.session_exists(&cwd, sid))
-            .unwrap_or(false);
+    let new_materialized = registry
+        .with_provider(provider_id, |p| p.session_exists(&cwd, sid))
+        .unwrap_or(false);
+    let exists = nonce_verified || new_materialized;
     if !exists {
         log::warn!(
             "[hook_session_start] rejecting sid {} for pane {} provider={}: session does not belong to provider",
@@ -514,6 +514,33 @@ fn bind_reported_session(
             StatusCode::CONFLICT,
             format!("session_id already claimed by pane {}", other),
         ));
+    }
+
+    // Provisional (nonce-only) claim must never evict a materialized store-backed
+    // binding — that strands the pane on a fileless sid and drops the real session.
+    if !new_materialized {
+        if let Some(prev_sid) = mux
+            .get_pane(pane_id)
+            .and_then(|p| p.agent_session_id.clone())
+        {
+            let prev_materialized = prev_sid != sid
+                && registry
+                    .with_provider(provider_id, |p| p.session_exists(&cwd, &prev_sid))
+                    .unwrap_or(false);
+            if prev_materialized {
+                log::warn!(
+                    "[hook_session_start] rejecting provisional sid {} for pane {} provider={}: would evict materialized session {}",
+                    sid, pane_id, provider_id, prev_sid,
+                );
+                return Err((
+                    StatusCode::CONFLICT,
+                    format!(
+                        "provisional session_id '{}' cannot evict materialized session '{}'",
+                        sid, prev_sid
+                    ),
+                ));
+            }
+        }
     }
 
     let Some(pane) = mux.get_pane_mut(pane_id) else {
@@ -942,5 +969,83 @@ mod tests {
         let pane = mux.get_pane(&pane_id).unwrap();
         assert_eq!(pane.agent_type.as_deref(), None);
         assert_eq!(pane.agent_session_id.as_deref(), None);
+    }
+
+    // T11 — ownership boundary: a generic source=startup report carrying a random
+    // UUID (no rollout store) must not overwrite the pane's materialized binding.
+    #[test]
+    fn provisional_claim_cannot_evict_materialized_binding() {
+        let (mut mux, pane_id) = MultiplexerState::new();
+        {
+            let pane = mux.get_pane_mut(&pane_id).unwrap();
+            pane.cwd = Some("/tmp/project".into());
+            pane.session_binding_nonce = Some("launch-nonce".into());
+        }
+        // Only "materialized-sid" has a backing store; the rotated provisional does not.
+        let registry = registry_with_sessions(vec![("codex", vec!["materialized-sid"])]);
+
+        bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_id,
+            "codex",
+            "materialized-sid",
+            Some("launch-nonce"),
+        )
+        .expect("materialized session binds");
+
+        let err = bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_id,
+            "codex",
+            "provisional-fileless-sid",
+            Some("launch-nonce"),
+        )
+        .unwrap_err();
+        assert_eq!(err.0, StatusCode::CONFLICT);
+        assert_eq!(
+            mux.get_pane(&pane_id).unwrap().agent_session_id.as_deref(),
+            Some("materialized-sid"),
+            "materialized binding must survive a provisional claim"
+        );
+    }
+
+    // Reproduces prod pane e3fa0754: both sids are fileless (no rollout store), so the
+    // last provisional claim wins — nothing materialized exists to protect.
+    #[test]
+    fn last_provisional_claim_wins_when_none_materialized() {
+        let (mut mux, pane_id) = MultiplexerState::new();
+        {
+            let pane = mux.get_pane_mut(&pane_id).unwrap();
+            pane.cwd = Some("/tmp/project".into());
+            pane.session_binding_nonce = Some("launch-nonce".into());
+        }
+        let registry = registry_with_sessions(vec![("codex", vec![])]);
+
+        bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_id,
+            "codex",
+            "provisional-a",
+            Some("launch-nonce"),
+        )
+        .expect("first provisional binds");
+        let claim = bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_id,
+            "codex",
+            "provisional-b",
+            Some("launch-nonce"),
+        )
+        .expect("second provisional wins");
+        assert!(claim.changed);
+        assert_eq!(claim.prev.as_deref(), Some("provisional-a"));
+        assert_eq!(
+            mux.get_pane(&pane_id).unwrap().agent_session_id.as_deref(),
+            Some("provisional-b")
+        );
     }
 }
