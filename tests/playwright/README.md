@@ -52,6 +52,20 @@ CT_E2E_WORKERS=2 npx playwright test --config=tests/playwright/playwright.config
   tests/playwright/suites/13-canvas/plan-view-mode.spec.ts
 ```
 
+### @perf capped run
+
+Run the perf gate with the required authoring caps via the DIRECT npx form:
+
+```bash
+npx playwright test --config=tests/playwright/playwright.config.ts \
+  --project=perf --timeout=30000 --global-timeout=600000
+```
+
+Do NOT use `pnpm test:pw:perf -- --timeout=30000 ...`: pnpm forwards the
+post-`--` flags to the script as positional test-file filters, so Playwright
+treats `--timeout=30000` as a path and reports "No tests found". Only the
+direct `npx playwright test ...` invocation applies the caps as flags.
+
 On Windows PowerShell, start/restart dev with `.\build.ps1 dev --wait`.
 Do not call plain `bash ./build.sh ...` from PowerShell; it can resolve to
 WSL. Use `build.ps1` or Git Bash directly.

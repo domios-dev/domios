@@ -1,7 +1,7 @@
 import { test as base, DEV_FIXTURE_TIMEOUT_MS } from "./fixtures";
 import { ApiClient } from "./api-client";
 import { apiReset } from "./reset";
-import { preparePerfSeed, type PerfSeed } from "./perf-seed";
+import { preparePerfSeed, stubEnvActive, STUB_ENV_ABSENT_SKIP, type PerfSeed } from "./perf-seed";
 
 type NoTestFixtures = Record<never, never>;
 
@@ -25,3 +25,4 @@ export const test = base.extend<NoTestFixtures, { perfSeed: PerfSeed }>({
 
 export { expect } from "./fixtures";
 export type { Page } from "./fixtures";
+export { stubEnvActive, STUB_ENV_ABSENT_SKIP };
