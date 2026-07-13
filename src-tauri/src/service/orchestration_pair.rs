@@ -13,6 +13,9 @@ use crate::service::messenger::{MessageEnvelope, Messenger};
 use crate::service::orchestrator::SpawnAgentParams;
 use crate::service::ServiceContext;
 
+const PAIR_AGENT_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
+const PAIR_API_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(75);
+
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct OrchestrationPairParams {
     pub orchestrator_agent: String,
@@ -225,7 +228,10 @@ impl ServiceContext {
         pane_id: &str,
         provider: &str,
         ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
+        deadline: std::time::Instant,
     ) -> Result<(), String> {
+        let now = std::time::Instant::now();
+        let agent_deadline = deadline.min(now + PAIR_AGENT_READY_TIMEOUT);
         let is_chat_backend = self.mux.read().get_pane(pane_id).is_some_and(|pane| {
             matches!(
                 &pane.backing,
@@ -233,18 +239,33 @@ impl ServiceContext {
             )
         });
         if !is_chat_backend {
-            match tokio::time::timeout(std::time::Duration::from_secs(120), ready_rx).await {
+            let endpoint_remaining = deadline.saturating_duration_since(now);
+            let remaining = agent_deadline.saturating_duration_since(now);
+            let timeout_reason = if endpoint_remaining <= PAIR_AGENT_READY_TIMEOUT {
+                format!(
+                    "pair launch readiness deadline exceeded after {}s",
+                    PAIR_API_READY_TIMEOUT.as_secs()
+                )
+            } else {
+                format!(
+                    "agent launch readiness deadline exceeded after {}s",
+                    PAIR_AGENT_READY_TIMEOUT.as_secs()
+                )
+            };
+            if remaining.is_zero() {
+                return Err(timeout_reason);
+            }
+            match tokio::time::timeout(remaining, ready_rx).await {
                 Ok(Ok(result)) => result?,
                 Ok(Err(_)) => return Err("agent launch readiness channel closed".into()),
-                Err(_) => return Err("agent launch timed out after 120s".into()),
+                Err(_) => return Err(timeout_reason),
             }
         }
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         loop {
             if self.pair_agent_live_now(pane_id, provider) {
                 return Ok(());
             }
-            if std::time::Instant::now() >= deadline {
+            if std::time::Instant::now() >= agent_deadline {
                 let failure = self
                     .mux
                     .read()
@@ -367,6 +388,7 @@ impl ServiceContext {
         }
 
         let now_ms = epoch_ms();
+        let readiness_deadline = std::time::Instant::now() + PAIR_API_READY_TIMEOUT;
         let (workspace_id, project_path, workspace_name) = {
             let mux = self.mux.write();
             let ws_id = params
@@ -398,6 +420,18 @@ impl ServiceContext {
             .clone()
             .filter(|m| !m.trim().is_empty())
             .or_else(|| crate::agent::model_catalog::resolve_default(&params.orchestrator_agent));
+        let planner_model = params
+            .planner_model
+            .clone()
+            .filter(|m| !m.trim().is_empty())
+            .or_else(|| crate::agent::model_catalog::resolve_default(&params.planner_agent));
+        let pair_fix_command = pair_retry_command(
+            &workspace_id,
+            &params.orchestrator_agent,
+            orchestrator_model.as_deref(),
+            &params.planner_agent,
+            planner_model.as_deref(),
+        );
 
         let orch_params = SpawnAgentParams {
             agent: Some(params.orchestrator_agent.clone()),
@@ -416,30 +450,24 @@ impl ServiceContext {
             .spawn_agent(orch_params, Some(orch_ready_tx))
             .await
             .map_err(|e| {
-            format!(
-                "Failed to spawn Orchestrator ({e}); no plan was created. Retry `orchestration new`."
-            )
-        })?;
+                format!(
+                    "Failed to spawn Orchestrator ({e}); no plan was created. Retry with: {pair_fix_command}"
+                )
+            })?;
         let orch_pane_id = orch_result.pane_id.clone();
 
-        let planner_model = params
-            .planner_model
-            .clone()
-            .filter(|m| !m.trim().is_empty())
-            .or_else(|| crate::agent::model_catalog::resolve_default(&params.planner_agent));
-        let pair_fix_command = pair_retry_command(
-            &workspace_id,
-            &params.orchestrator_agent,
-            orchestrator_model.as_deref(),
-            &params.planner_agent,
-            planner_model.as_deref(),
-        );
         if let Err(error) = self
-            .await_pair_agent_ready(&orch_pane_id, &params.orchestrator_agent, orch_ready_rx)
+            .await_pair_agent_ready(
+                &orch_pane_id,
+                &params.orchestrator_agent,
+                orch_ready_rx,
+                readiness_deadline,
+            )
             .await
         {
+            let _ = self.close_pane(&orch_pane_id);
             return Err(format!(
-                "Pair degraded: Orchestrator pane {orch_pane_id} failed to launch ({error}). No Planner was spawned and no follow-up was delivered. Retry with: {pair_fix_command}"
+                "Pair degraded: Orchestrator pane {orch_pane_id} failed to launch ({error}) and was closed. No Planner was spawned and no follow-up was delivered. Retry with: {pair_fix_command}"
             ));
         }
 
@@ -487,6 +515,7 @@ impl ServiceContext {
                         &planner_pane_id,
                         &params.planner_agent,
                         planner_ready_rx,
+                        readiness_deadline,
                     )
                     .await
                 {
@@ -721,6 +750,14 @@ mod tests {
             cmd,
             "codeterm orchestration new --orchestrator claude:opus --planner codex:gpt-5 --workspace ws-1"
         );
+    }
+
+    #[test]
+    fn pair_readiness_budgets_cap_each_agent_and_the_whole_request() {
+        assert_eq!(PAIR_AGENT_READY_TIMEOUT, std::time::Duration::from_secs(45));
+        assert_eq!(PAIR_API_READY_TIMEOUT, std::time::Duration::from_secs(75));
+        assert!(PAIR_AGENT_READY_TIMEOUT < PAIR_API_READY_TIMEOUT);
+        assert!(PAIR_API_READY_TIMEOUT < PAIR_AGENT_READY_TIMEOUT * 2);
     }
 
     #[test]
