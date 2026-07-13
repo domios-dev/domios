@@ -321,13 +321,30 @@ async function completeFirstRunPickerIfPresent(page: Page): Promise<void> {
 
   const confirm = page.locator('[data-testid="agent-picker-confirm"]');
   await confirm.waitFor({ state: "visible", timeout: 30_000 });
-  const canvasButton = page.locator('[data-testid="canvas-toolbar-button"][aria-pressed="true"]');
-  if (await canvasButton.isVisible().catch(() => false)) {
-    await canvasButton.click({ timeout: 30_000 });
+  if (!(await receivesPointerEvents(confirm))) {
+    await activateFirstRunTab(page);
   }
   await expectReceivesPointerEvents(confirm, 30_000);
   await confirm.click({ timeout: 30_000 });
   await picker.waitFor({ state: "detached", timeout: 30_000 });
+}
+
+async function activateFirstRunTab(page: Page): Promise<void> {
+  const tab = page
+    .locator('[data-testid="tab-item"]')
+    .filter({ hasText: "Get started" })
+    .first();
+  await tab.waitFor({ state: "visible", timeout: 30_000 });
+  await tab.click({ timeout: 30_000 });
+}
+
+async function receivesPointerEvents(locator: ReturnType<Page["locator"]>): Promise<boolean> {
+  try {
+    await locator.click({ trial: true, timeout: 1_000 });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function expectReceivesPointerEvents(locator: ReturnType<Page["locator"]>, timeoutMs: number): Promise<void> {
