@@ -36,7 +36,7 @@ import {
   type PaneUiMode,
 } from "../../lib/chatUiMode";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
-import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
+import type { ApiConfig, PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { claimResizeOwner, getResizeClientId } from "../../lib/resizeOwner";
 import { shouldShowDropOverlay } from "./dropOverlay";
 import { terminalOwnsLivePty, terminalRenderEnabled } from "./terminalOwnership";
@@ -54,6 +54,7 @@ interface TerminalPaneProps {
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
   uiFontScale?: number;
+  api?: ApiConfig;
 }
 
 export const TerminalPane = memo(function TerminalPane({
@@ -68,6 +69,7 @@ export const TerminalPane = memo(function TerminalPane({
   fontConfig,
   terminalConfig,
   uiFontScale,
+  api,
 }: TerminalPaneProps) {
   const paneRootRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -566,6 +568,7 @@ export const TerminalPane = memo(function TerminalPane({
         <div className="absolute inset-0" style={{ zIndex: 2 }}>
           <PaneSessionChat
             paneId={paneId}
+            api={api}
             uiFontScale={uiFontScale}
             isVisible={isVisible}
             onOpenTerminalFallback={openTerminalFallback}

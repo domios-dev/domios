@@ -104,6 +104,7 @@ export function TabContent({
       fontConfig={fontConfig}
       terminalConfig={terminalConfig}
       uiFontScale={uiFontScale}
+      api={api}
     />
   );
 
