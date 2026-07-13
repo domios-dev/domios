@@ -1,9 +1,11 @@
 import { chromium, test as base, type Browser, type Page } from "@playwright/test";
 import { ApiClient, readDevToken } from "./api-client";
+import { currentDevInstance, type DevInstance } from "./dev-instance";
 import { apiReset, diffReset, snapshotBaseline } from "./reset";
 import { API_BASE, connectUi, ensureDevConsole, isHealthy, type UiSession } from "./dev-console";
 
 type WorkerFixtures = {
+  devInstance: DevInstance;
   uiSession: ManagedUiSession;
   webBrowser: Browser;
   resetTracker: { lastFile: string };
@@ -51,9 +53,25 @@ type TestFixtures = {
 };
 
 export const test = base.extend<TestFixtures, WorkerFixtures>({
+  devInstance: [
+    async ({}, use, workerInfo) => {
+      const instance = currentDevInstance();
+      if (instance.slot !== workerInfo.parallelIndex) {
+        throw new Error(
+          `worker ${workerInfo.workerIndex} resolved ${instance.name} for slot ${instance.slot}, expected parallel slot ${workerInfo.parallelIndex}`,
+        );
+      }
+      console.log(
+        `[playwright-instance] worker=${workerInfo.workerIndex} slot=${workerInfo.parallelIndex} instance=${instance.name || "default"} api=${instance.apiPort}`,
+      );
+      await use(instance);
+    },
+    { scope: "worker", auto: true },
+  ],
+
   uiSession: [
-    async ({}, use) => {
-      let current = await connectUi();
+    async ({ devInstance }, use) => {
+      let current = await connectUi(devInstance);
       const session: ManagedUiSession = {
         get browser() {
           return current.browser;
@@ -63,7 +81,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         },
         reconnect: async () => {
           await current.browser.close().catch(() => {});
-          current = await connectUi();
+          current = await connectUi(devInstance);
           return session;
         },
       };
@@ -90,8 +108,8 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     { scope: "worker" },
   ],
 
-  ui: async ({ uiSession }, use) => {
-    if (!(await isHealthy())) {
+  ui: async ({ devInstance, uiSession }, use) => {
+    if (!(await isHealthy(devInstance))) {
       throw new Error("dev console health check failed before Playwright test");
     }
     await use(uiSession);
@@ -109,11 +127,11 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   // mid-previous-test is revived here so one crash fails one test, not a cascade
   // (own timeout: revival can rebuild dev, which never fits a per-test budget).
   api: [
-    async ({ resetTracker }, use, testInfo) => {
-      if (!(await isHealthy())) {
-        await ensureDevConsole();
+    async ({ devInstance, resetTracker }, use, testInfo) => {
+      if (!(await isHealthy(devInstance))) {
+        await ensureDevConsole(devInstance);
       }
-      const client = new ApiClient();
+      const client = new ApiClient(undefined, devInstance);
       if (resetTracker.lastFile !== testInfo.file) {
         resetTracker.lastFile = testInfo.file;
         await apiReset(client);

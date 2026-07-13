@@ -1,7 +1,7 @@
 # Playwright — live dev console
 
-Drives the **real** CodeTerm dev console (Tauri, port 7686), not a browser
-mock of it.
+Drives real CodeTerm dev consoles (Tauri), not browser mocks. The default is
+the canonical serial dev instance on port 7686.
 
 For the canonical layer taxonomy and the "which layer do I write?" decision tree,
 see [`docs/TESTING.md`](../../docs/TESTING.md).
@@ -32,6 +32,19 @@ pnpm test:pw:full    # all non-quarantined tests
 pnpm test:pw:report  # open the last HTML report
 pnpm test:pw:trace -- tests/playwright/artifacts/test-results/<trace.zip>
 pnpm test:pw:debug   # run the suite with Playwright Inspector
+```
+
+Parallel execution is opt-in. `CT_E2E_WORKERS=N` starts `pw1..pwN` with
+separate API, Vite, CDP, identifier, token, and `.codeterm-dev-pwN` state.
+Playwright's stable `parallelIndex` pins each worker process to one instance.
+The harness stops every named instance and fails the run if any owned port
+remains open. The golden scripts do not set this flag and remain serial.
+
+```bash
+CT_E2E_WORKERS=2 npx playwright test --config=tests/playwright/playwright.config.ts \
+  --project=full --workers=2 --timeout=30000 --global-timeout=600000 \
+  tests/playwright/suites/06-mem tests/playwright/suites/11-api \
+  tests/playwright/suites/13-canvas/plan-view-mode.spec.ts
 ```
 
 On Windows PowerShell, start/restart dev with `.\build.ps1 dev --wait`.
@@ -77,18 +90,17 @@ path after the script separator:
 pnpm test:pw:trace -- tests/playwright/artifacts/test-results/<test-output>/trace.zip
 ```
 
-Global setup (`helpers/global-setup.ts`) reuses a running dev console when
-both `/api/health` and CDP answer; otherwise it runs
-`./build.sh kill && ./build.sh dev --wait` with the CDP env var. A console
-started *without* the env var cannot be adopted — the debugging port is
-fixed at WebView2 creation — so the harness restarts it.
+In serial mode, global setup reuses a matching dev console when health and CDP
+answer. In parallel mode, it clean-starts each named instance before workers
+launch and owns their teardown after the last test.
 
 ## Layout
 
 ```
 tests/playwright/
-├── playwright.config.ts    one worker — one live app, parallel workers would fight over focus
+├── playwright.config.ts    serial default; CT_E2E_WORKERS opts into isolated workers
 ├── helpers/
+│   ├── dev-instance.ts     worker slot → named instance/ports/data dir
 │   ├── dev-console.ts      start/kill/health/CDP attach (build.sh only, never raw cargo)
 │   ├── api-client.ts       typed /api/* wrapper, token from ~/.codeterm-dev/config.toml
 │   ├── reset.ts            apiReset (fast, per-test) + wipeDevState (suite-level)

@@ -5,7 +5,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { API_BASE } from "./dev-console";
+import { currentDevInstance, type DevInstance } from "./dev-instance";
 
 export interface Pane {
   id: string;
@@ -55,16 +55,17 @@ function datadirForPort(port: string): string | null {
   return null;
 }
 
-export function devDataDirName(): string {
+export function devDataDirName(instance = currentDevInstance()): string {
   if (process.env.CT_E2E_DATADIR) return process.env.CT_E2E_DATADIR;
-  const port = process.env.CT_E2E_PORT;
+  if (instance.name) return instance.dataDirName;
+  const port = String(instance.apiPort);
   if (port && port !== "7686") return datadirForPort(port) ?? ".codeterm-dev";
   return ".codeterm-dev";
 }
 
 // CT_E2E_DATADIR, or CT_E2E_PORT when its config.toml records that port.
-export function readDevToken(): string {
-  const dir = devDataDirName();
+export function readDevToken(instance = currentDevInstance()): string {
+  const dir = devDataDirName(instance);
   const p = path.join(os.homedir(), dir, "config.toml");
   const m = readFileSync(p, "utf8").match(/^token\s*=\s*"([^"]+)"/m);
   if (!m) throw new Error(`no api token in ${p}`);
@@ -73,13 +74,15 @@ export function readDevToken(): string {
 
 export class ApiClient {
   private token: string;
+  private apiBase: string;
 
-  constructor(token = readDevToken()) {
-    this.token = token;
+  constructor(token?: string, instance = currentDevInstance()) {
+    this.apiBase = instance.apiBase;
+    this.token = token ?? readDevToken(instance);
   }
 
   async request<T>(method: string, apiPath: string, body?: unknown): Promise<T> {
-    const r = await fetch(`${API_BASE}/api${apiPath}`, {
+    const r = await fetch(`${this.apiBase}/api${apiPath}`, {
       method,
       headers: {
         "Content-Type": "application/json",

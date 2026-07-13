@@ -18,10 +18,11 @@ import { rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ApiClient, devDataDirName } from "./api-client";
+import { currentDevInstance } from "./dev-instance";
 import { killDevConsole } from "./dev-console";
 
 export function devDataDir(): string {
-  return path.join(os.homedir(), devDataDirName());
+  return path.join(os.homedir(), devDataDirName(currentDevInstance()));
 }
 
 function assertDevPath(p: string): void {
@@ -80,7 +81,7 @@ const WIPEABLE = [
 ];
 
 export function wipeDevState(): void {
-  killDevConsole();
+  killDevConsole(currentDevInstance());
   for (const entry of WIPEABLE) {
     const target = path.join(devDataDir(), entry);
     assertDevPath(target);

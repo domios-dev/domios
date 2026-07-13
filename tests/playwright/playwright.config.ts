@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import { playwrightWorkerCount } from "./helpers/dev-instance";
 
 const postMortemArtifacts = {
   trace: "retain-on-failure" as const,
@@ -7,13 +8,12 @@ const postMortemArtifacts = {
 };
 
 /**
- * One app instance, one worker — every suite drives the same live dev
- * console (port 7686) over CDP + REST. Parallel workers would fight over
- * focus and global mux state.
+ * Serial remains the default. CT_E2E_WORKERS=N opts into one named,
+ * isolated dev instance per Playwright parallel worker slot.
  */
 export default defineConfig({
   testDir: "./suites",
-  workers: 1,
+  workers: playwrightWorkerCount(),
   fullyParallel: false,
   timeout: 90_000,
   expect: { timeout: 10_000 },
