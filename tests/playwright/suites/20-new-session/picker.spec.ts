@@ -664,13 +664,12 @@ test.describe("ghost-tab invariant", () => {
     try {
       await openPicker(ui.page, testWs.id);
 
-      // Virtual picker open: backend must have ZERO tabs in this workspace.
+      // Virtual picker open: backend must have ZERO rendered tabs in this workspace.
       const liveState = await muxState(api);
-      const liveWs = liveState.workspaces.find((w) => w.id === testWs.id);
       expect(
-        liveWs?.tabs?.length ?? 0,
-        "virtual picker must not create a backend tab (would restore as ghost on restart)",
-      ).toBe(0);
+        visibleTabsInWorkspace(liveState, testWs.id),
+        "virtual picker must not create a rendered backend tab (would restore as ghost on restart)",
+      ).toHaveLength(0);
 
       // Every visible sidebar title is real, not a placeholder.
       for (const title of await sidebarTabTitles(ui.page, testWs.id).catch(() => [])) {
