@@ -26,7 +26,8 @@ test("the perf gate names all four user-visible stub-provider measurements", () 
   ]) {
     assert.match(spec, new RegExp(`name: "${metric}"`));
   }
-  assert.match(seed, /isStubTransportActive/);
+  assert.match(seed, /stubEnvActive/);
+  assert.doesNotMatch(seed, /isStubTransportActive/);
   assert.match(seed, /STUB_PROVIDER\s*=\s*"claude"/);
   assert.doesNotMatch(spec, /@live/);
 });

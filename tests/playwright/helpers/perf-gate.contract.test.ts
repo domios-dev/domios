@@ -4,9 +4,13 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import {
+  hardMetricSkipViolation,
   runContract,
+  seedActiveLogicSound,
   seedImporters,
   seedLifetimeOrdered,
+  skipIsEnvOnly,
+  specHasEnvPresentThrowGuard,
   TOPOLOGY_MUTATION_TOKENS,
   type ContractSources,
 } from "./perf-gate-contract";
@@ -20,12 +24,14 @@ const sources: ContractSources = {
   spec: readFileSync(specPath, "utf8"),
   fixture: readFileSync(fixturePath, "utf8"),
   baseFixtures: readFileSync(baseFixturesPath, "utf8"),
+  seed: readFileSync(seedPath, "utf8"),
 };
 const realFixture = sources.fixture;
+const realSeed = sources.seed;
 const results = runContract(sources, seedImporters(resolve(__dirname, "..")));
 const byId = (id: string) => results.find((r) => r.id === id)!;
 
-for (const id of ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "SEED-IMPORT"]) {
+for (const id of ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "SEED-IMPORT"]) {
   test(`${id}: ${byId(id).detail}`, () => {
     assert.ok(byId(id).pass, byId(id).detail);
   });
@@ -113,6 +119,111 @@ test("SEED-IMPORT negative: a suites/ importer is flagged as a violation", () =>
     assert.equal(result.pass, false, "a suites/ importer must make SEED-IMPORT fail");
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function c9Passes(over: Partial<ContractSources>): boolean {
+  return runContract({ ...sources, ...over }, seedImporters(resolve(__dirname, ".."))).find((r) => r.id === "C9")!.pass;
+}
+
+test("C9 positive: real spec+seed gate on env only, bypass probe, cache true-only", () => {
+  assert.ok(byId("C9").pass, byId("C9").detail);
+  assert.ok(skipIsEnvOnly(sources.spec), "skip must gate on env-derived perfSeed.active");
+  assert.ok(seedActiveLogicSound(realSeed), "seed must bypass the probe and cache true-only");
+});
+
+test("C9 negative: skip depending on a probe result is RED", () => {
+  const probeSkip = sources.spec.replace(
+    "test.skip(!perfSeed.active, STUB_ENV_ABSENT_SKIP);",
+    'test.skip(!(await isStubTransportActive(api)), "probe");',
+  );
+  assert.ok(probeSkip !== sources.spec, "mutation must apply");
+  assert.equal(skipIsEnvOnly(probeSkip), false, "probe-based skip must not be env-only");
+  assert.equal(c9Passes({ spec: probeSkip }), false, "C9 must fail when skip depends on a probe");
+});
+
+test("C9 negative: seed re-introducing the memoized probe is RED", () => {
+  const probeSeed = realSeed.replace("const active = cachedActiveTrue || stubEnvActive();", "const active = await isStubTransportActive(api);");
+  assert.equal(seedActiveLogicSound(probeSeed), false, "probe-based active must be unsound");
+  assert.equal(c9Passes({ seed: probeSeed }), false, "C9 must fail when seed uses the memoized probe");
+});
+
+test("C9 negative: seed caching false is RED", () => {
+  const cacheFalseSeed = realSeed.replace("cachedActiveTrue = true;", "cachedActiveTrue = true;\n  if (!active) cachedActiveTrue = false;");
+  assert.equal(seedActiveLogicSound(cacheFalseSeed), false, "caching false must be unsound");
+});
+
+test("C9 negative: seed swallowing a seeding failure into active=false is RED", () => {
+  const swallowSeed = realSeed.replace(
+    "const writeFront = await spawnStub(api, \"pw-perf-write-render\");",
+    "const writeFront = await spawnStub(api, \"pw-perf-write-render\").catch(() => { active = false; return \"\"; });",
+  );
+  assert.equal(seedActiveLogicSound(swallowSeed), false, "a .catch swallowing seeding into active=false must be unsound");
+  assert.equal(c9Passes({ seed: swallowSeed }), false, "C9 must fail on swallow-to-false");
+});
+
+test("release-gate guard: skip-under-env-present is a violation, env-absent is allowed", () => {
+  assert.equal(hardMetricSkipViolation(true, ["pty-write-to-render"]), true, "hard-metric skip under env-present must violate");
+  assert.equal(hardMetricSkipViolation(true, ["some-soft-metric"]), false, "non-hard-metric skip is not a hard violation");
+  assert.equal(hardMetricSkipViolation(false, ["pty-write-to-render"]), false, "env-absent skip is allowed");
+});
+
+function c10Passes(over: Partial<ContractSources>): boolean {
+  return runContract({ ...sources, ...over }, seedImporters(resolve(__dirname, ".."))).find((r) => r.id === "C10")!.pass;
+}
+
+test("C10 positive: spec throws on env-present+!active before test.skip", () => {
+  assert.ok(byId("C10").pass, byId("C10").detail);
+  assert.ok(specHasEnvPresentThrowGuard(sources.spec), "spec must fail loud before skip");
+});
+
+test("C10 negative: spec missing the throw-guard (skip reachable under env-present) is RED", () => {
+  const noGuard = sources.spec.replace(/^.*if \(stubEnvActive\(\) && !perfSeed\.active\) throw .*\n/m, "");
+  assert.ok(noGuard !== sources.spec, "mutation must remove the guard");
+  assert.equal(specHasEnvPresentThrowGuard(noGuard), false, "no guard => not fail-loud");
+  assert.equal(c10Passes({ spec: noGuard }), false, "C10 must fail when the throw-guard is missing");
+});
+
+test("readiness/banner timeout THROWS (never active=false/skip)", async () => {
+  const { awaitStubBanner } = await import("./perf-seed");
+  const noBannerApi = { get: async () => "not-the-banner-yet" } as unknown as Parameters<typeof awaitStubBanner>[0];
+  const start = Date.now();
+  await assert.rejects(() => awaitStubBanner(noBannerApi, "p1", "pw-perf", 40), /stub banner/, "banner timeout must throw");
+  assert.ok(Date.now() - start < 2_000, "the factored cap keeps the timeout path fast");
+});
+
+test("readiness guard is wired into spawn seeding (throw propagates through preparePerfSeed)", () => {
+  assert.match(realSeed, /await awaitStubBanner\(api, spawned\.pane_id, title\)/, "spawnStub must await the banner helper");
+  assert.doesNotMatch(realSeed, /awaitStubBanner[\s\S]{0,60}\.catch/, "banner wait must not be swallowed");
+});
+
+test("runtime: env-absent yields active=false with the explicit incomplete reason", async () => {
+  const { preparePerfSeed, stubEnvActive, STUB_ENV_ABSENT_SKIP } = await import("./perf-seed");
+  assert.equal(stubEnvActive({}), false, "no env => not active");
+  assert.match(STUB_ENV_ABSENT_SKIP, /CODETERM_STUB_AGENT_CMD/, "skip reason must name the env var");
+  const prev = process.env.CODETERM_STUB_AGENT_CMD;
+  delete process.env.CODETERM_STUB_AGENT_CMD;
+  try {
+    const throwingApi = { post: async () => { throw new Error("must not be called"); } } as unknown as Parameters<typeof preparePerfSeed>[0];
+    const seed = await preparePerfSeed(throwingApi);
+    assert.equal(seed.active, false, "env-absent must return active=false without spawning");
+  } finally {
+    if (prev === undefined) delete process.env.CODETERM_STUB_AGENT_CMD;
+    else process.env.CODETERM_STUB_AGENT_CMD = prev;
+  }
+});
+
+test("runtime: env-present + spawn failure THROWS, never active=false/skip", async () => {
+  const { preparePerfSeed, stubEnvActive } = await import("./perf-seed");
+  const prev = process.env.CODETERM_STUB_AGENT_CMD;
+  process.env.CODETERM_STUB_AGENT_CMD = "node fixtures/stub-agent/replay.mjs";
+  try {
+    assert.equal(stubEnvActive(), true, "env present => active intent");
+    const failingApi = { post: async () => { throw new Error("spawn boom"); } } as unknown as Parameters<typeof preparePerfSeed>[0];
+    await assert.rejects(() => preparePerfSeed(failingApi), /spawn boom/, "seeding failure must throw, not skip");
+  } finally {
+    if (prev === undefined) delete process.env.CODETERM_STUB_AGENT_CMD;
+    else process.env.CODETERM_STUB_AGENT_CMD = prev;
   }
 });
 
