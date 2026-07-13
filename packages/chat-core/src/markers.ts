@@ -38,6 +38,15 @@ export interface ParsedMarker {
   payload: string;
 }
 
+export function isPaneMarkerPlaceholderLabel(label: string | null | undefined): boolean {
+  const normalized = label?.trim().toLowerCase();
+  return !normalized || normalized === "current pane";
+}
+
+export function shortPaneRef(paneRef: string | null | undefined): string {
+  return (paneRef ?? "").trim().slice(0, 8);
+}
+
 export function buildMarker(
   kind: string,
   attrs: Array<[string, string]> = [],
