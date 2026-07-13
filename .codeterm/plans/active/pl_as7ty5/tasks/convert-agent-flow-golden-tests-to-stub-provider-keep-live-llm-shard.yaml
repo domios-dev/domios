@@ -16,14 +16,14 @@ test_plan: |
   3) Keep live-provider coverage as @live titles outside golden: one spawn/report round trip, one multi-turn tool loop, one restart/resume, and one real codex/opencode boot where installed.
   4) Final worker evidence: converted 03-agents subset wall-clock before/after, exact commands, and no broad golden/full; integration QA owns any broad gate.
 correctness: Oracles unchanged — only the agent transport is scripted; real-provider behavior still covered by the live shard; no test silently weakened.
-status: in_progress
+status: in_review
 review_stage: review
 qa_state: null
 status_label: needs-reassign
 priority: p1
 created_at: 1783782175703
-updated_at: 1783971806280
-status_changed_at: 1783971792703
+updated_at: 1783971840023
+status_changed_at: 1783971840023
 handle: convert-agent-flow-golden-tests-to-stub-provider-keep-live-llm-shard
 tags: []
 section_ids:
@@ -45,8 +45,9 @@ lane:
   branch: lane/task_k16xu0-agent-stub-matrix
   base: null
   destination: null
-  cleanup_status: null
-  cleanup_hints: []
+  cleanup_status: deferred
+  cleanup_hints:
+  - Keep worktree D:\Developer\codeterm-worktrees\task_k16xu0-agent-stub-matrix until integration QA applies 2e7715e9 and runs missing Playwright exact/shard timing evidence.
 taken_by_role: null
 peer: null
 group: pw-speedup
@@ -181,6 +182,23 @@ milestones:
     QA COMMANDS: Run each restart title twice with: npx playwright test tests/playwright/suites/03-agents/agents.spec.ts -g "@golden PROVIDER: agent restart mid-session resumes and stays usable" --project=golden --timeout=30000 --global-timeout=600000 --reporter=line --trace=on after enabling CODETERM_STUB_AGENT_CMD. Then run the focused 03-agents golden file with the same global cap.
   ts: 1783971806280
   links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_x9mhbo
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: partial
+  text: ' worker pane 08e214f9 pushed lane/task_k16xu0-agent-stub-matrix at 2e7715e91f422b30741102c1bd6f454507196a65. Scope: matrices existing 03-agents restart/resume golden oracle over stub claude/codex/opencode, fixes replayer parsing for Codex positional resume and OpenCode --session, updates shard D budget. Evidence: old replayer red on lost Codex resume id; direct replay parser matrix green for Claude/Codex/OpenCode; npx prettier --check target files green; git diff --check green. Missing: Playwright isolation x2 and shard timing, intentionally not run because local dev 7686 reserved. Next QA: apply lane in canonical/warm QA and run exact provider restart title twice plus focused 03-agents golden file.'
+  ts: 1783971840023
+  links:
+  - key:124e0f8905f00b15
   loop_id: null
   iteration: null
   canvas:
