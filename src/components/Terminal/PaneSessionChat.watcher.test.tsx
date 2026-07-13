@@ -197,6 +197,33 @@ test("bound-session pending snapshot renders recovery instead of false empty", a
   await act(async () => root.unmount());
 });
 
+test("empty unbound chat keeps its composer mounted and does not reconnect while typing", async () => {
+  const paneId = "empty-unbound-pane";
+  const state = muxStateFor({
+    [paneId]: paneBase(paneId),
+  });
+  const { host, root, commands } = await renderPaneSessionChat(
+    paneId,
+    state,
+    () => ({ text: "", offset: 0, pending: true }),
+  );
+  const composer = host.querySelector('[data-testid="chat-composer"]') as HTMLTextAreaElement | null;
+  assert(composer, "empty chat keeps its composer available");
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+  setter?.call(composer, "typing without reset");
+  composer.dispatchEvent(new Event("input", { bubbles: true }));
+  composer.setSelectionRange(7, 7);
+
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 1_100)));
+
+  const currentComposer = host.querySelector('[data-testid="chat-composer"]') as HTMLTextAreaElement | null;
+  assert(currentComposer === composer, "pending empty chat did not remount the composer");
+  assert(currentComposer.value === "typing without reset", "typed draft survived pending chat state");
+  assert(currentComposer.selectionStart === 7, "caret position survived pending chat state");
+  assert(commands.filter((command) => command === "chat_start").length === 1, "unbound empty chat did not loop chat_start");
+  await act(async () => root.unmount());
+});
+
 test("snapshot failure keeps a retryable chat surface", async () => {
   const paneId = "failed-pane";
   const state = muxStateFor({
