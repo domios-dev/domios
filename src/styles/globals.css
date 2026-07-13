@@ -1513,66 +1513,6 @@ button,
   }
 }
 
-/* Tab/workspace status rail — 2px left-edge spine; zero label width. */
-@keyframes ct-tab-rail-enter {
-  from { transform: scaleY(0); }
-  to { transform: scaleY(1); }
-}
-
-@keyframes ct-tab-rail-breathe {
-  0%, 100% { opacity: 0.55; }
-  50% { opacity: 0.95; }
-}
-
-@keyframes ct-tab-rail-settle {
-  0% { opacity: 1; }
-  35% { opacity: 1; }
-  100% { opacity: 0; }
-}
-
-.ct-tab-status-rail {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  pointer-events: none;
-  transform-origin: center top;
-  transform: scaleY(1);
-}
-
-.ct-tab-status-rail--attention {
-  background: var(--ct-yellow);
-  opacity: 1;
-  animation: ct-tab-rail-enter var(--ct-duration-fast) var(--ct-ease-out-expo) both;
-}
-
-.ct-tab-status-rail--dead {
-  background: var(--ct-red);
-  opacity: 0.7;
-  animation: ct-tab-rail-enter var(--ct-duration-fast) var(--ct-ease-out-expo) both;
-}
-
-.ct-tab-status-rail--settle {
-  background: var(--ct-green);
-  animation: ct-tab-rail-settle 900ms var(--ct-ease-out-expo) forwards;
-}
-
-[data-ct-theme="light"] .ct-tab-status-rail--dead {
-  background: color-mix(in srgb, var(--ct-red) 58%, var(--ct-fg));
-  opacity: 1;
-}
-
-[data-ct-theme="light"] .ct-tab-status-rail--settle {
-  background: var(--ct-bright-green);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ct-tab-status-rail--settle {
-    animation: ct-tab-rail-settle 0.01ms linear forwards;
-  }
-}
-
 /* Workspace plan entry — tab-row grammar with distinct plan identity. */
 .sidebar-tab-plan {
   background: color-mix(in srgb, var(--ct-accent, #6366f1) 5%, transparent);

@@ -22,7 +22,6 @@ interface WorkspaceItemProps {
   onNewAgent: (agentId: string) => void;
   canClose: boolean;
   status: PaneStatus | null;
-  hasWaiting: boolean;
   touchMode?: boolean;
   uiFontScale?: number;
 }
@@ -39,7 +38,6 @@ function WorkspaceItemInner({
   onNewAgent,
   canClose: _canClose,
   status: _status,
-  hasWaiting,
   touchMode = false,
   uiFontScale,
 }: WorkspaceItemProps) {
@@ -118,7 +116,6 @@ function WorkspaceItemInner({
         group relative flex items-center justify-between cursor-pointer transition-colors
         ${touchMode ? "min-h-11 px-2 py-2" : "px-1 py-2"}
         ${isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
-        ${hasWaiting ? "bg-[var(--ct-yellow)]/10" : ""}
       `}
     >
       <div className={`flex items-center min-w-0 ${touchMode ? "gap-2" : "gap-1"}`}>
@@ -173,11 +170,6 @@ function WorkspaceItemInner({
         <span className={`${workspaceCountText} text-[var(--ct-muted)]`}>
           {workspace.tabs.length}
         </span>
-        {hasWaiting && (
-          <span className="inline-flex items-center justify-center min-w-[14px] h-3.5 px-0.5 rounded-full bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)] text-[9px] font-bold leading-none">
-            !
-          </span>
-        )}
       </div>
       {/* 3-dot menu — visible on hover */}
       <DropdownMenu
@@ -205,7 +197,6 @@ function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps)
     prev.isActive === next.isActive &&
     prev.isExpanded === next.isExpanded &&
     prev.status === next.status &&
-    prev.hasWaiting === next.hasWaiting &&
     prev.canClose === next.canClose &&
     prev.touchMode === next.touchMode &&
     prev.uiFontScale === next.uiFontScale &&

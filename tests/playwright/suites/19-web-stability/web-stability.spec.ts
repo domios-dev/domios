@@ -594,7 +594,7 @@ test.describe("@golden web stability verification", () => {
     }
   });
 
-  test("@golden RPL-4/GATE-4 attention rail uses hook driver and clears exactly", async ({
+  test("@golden RPL-4/GATE-4 prompt pill uses hook driver and clears exactly", async ({
     api,
     webBrowser,
     paneCleanup,
@@ -613,16 +613,13 @@ test.describe("@golden web stability verification", () => {
       });
       await waitMuxPendingPrompt(api, pane.id, question);
       await focusTab(page, pane.tab_id);
-      await expect(tab(page, pane.tab_id).locator('[data-testid="tab-status-rail"]')).toHaveAttribute(
-        "data-rail-variant",
-        "attention",
-        { timeout: 20_000 },
-      );
       await expect(tab(page, pane.tab_id).locator(`span.rounded-full[title="${question}"]`)).toHaveCount(1, {
         timeout: 20_000,
       });
+      // Status rail removed by owner decision — the prompt pill is the only tab-row indicator.
+      await expect(tab(page, pane.tab_id).locator('[data-testid="tab-status-rail"]')).toHaveCount(0);
       await api.post(`/panes/${pane.id}/prompt/clear`, {});
-      await expect(tab(page, pane.tab_id).locator('[data-testid="tab-status-rail"]')).toHaveCount(0, {
+      await expect(tab(page, pane.tab_id).locator(`span.rounded-full[title="${question}"]`)).toHaveCount(0, {
         timeout: 10_000,
       });
     } finally {

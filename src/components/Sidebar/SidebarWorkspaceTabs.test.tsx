@@ -273,7 +273,7 @@ test("clicking a worker tab row activates it with the shared active chrome", asy
   await act(async () => root.unmount());
 });
 
-test("waiting prompt tab renders attention rail and prompt pill", async () => {
+test("waiting prompt tab renders the prompt pill without a status rail", async () => {
   const panes: Record<string, Pane> = {
     attention: pane({
       id: "attention",
@@ -325,8 +325,8 @@ test("waiting prompt tab renders attention rail and prompt pill", async () => {
   const row = host.querySelector('[data-tab-id="tab-attention"]');
   assert(row, "attention row rendered");
   assert(
-    row.querySelector('[data-testid="tab-status-rail"]')?.getAttribute("data-rail-variant") === "attention",
-    "waiting prompt row renders attention rail",
+    !row.querySelector('[data-testid="tab-status-rail"]'),
+    "waiting prompt row never renders a left status rail (owner veto)",
   );
   assert(row.querySelector('span[title="Allow pw attention?"]'), "prompt pill remains visible");
   await act(async () => root.unmount());

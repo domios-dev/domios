@@ -242,18 +242,19 @@ suites' CDP attach to the Tauri WebView. Key facts:
 
 ### Driving attention state (`pending_prompt`) deterministically
 
-`suites/12-web/tab-status-rail.spec.ts` (RAIL-3/4/11) needs a pane in the
-`attention` (yellow rail) state with no LLM and no timing luck. Use the real
-Claude-hook endpoint with an explicit body, which builds a genuine
-`PendingPrompt` through the production hook path
-(`hook_routes.rs::hook_permission`) instead of poking client state:
+Tests that need a pane in the waiting/prompt state (e.g. the RPL-4/GATE-4
+prompt-pill test in `suites/19-web-stability/web-stability.spec.ts`) must get
+there with no LLM and no timing luck. Use the real Claude-hook endpoint with
+an explicit body, which builds a genuine `PendingPrompt` through the
+production hook path (`hook_routes.rs::hook_permission`) instead of poking
+client state:
 
 ```ts
 await api.post(`/panes/${paneId}/hook/permission`, {
   question: "Allow this action?",
   options: [{ label: "Yes", value: "1" }, { label: "No", value: "2" }],
 });
-// ... assert on GET /api/mux/state panes[id].pending_prompt or the rail ...
+// ... assert on GET /api/mux/state panes[id].pending_prompt or the prompt pill ...
 await api.post(`/panes/${paneId}/prompt/clear`, {});
 ```
 
