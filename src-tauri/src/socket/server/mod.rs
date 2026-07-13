@@ -48,9 +48,15 @@ use tauri::AppHandle;
 use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
 
 #[cfg(target_os = "windows")]
-use std::os::windows::io::{AsRawHandle, OwnedHandle};
+use std::os::windows::io::{AsRawHandle, OwnedHandle, RawHandle};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Foundation::{CloseHandle, ERROR_IO_PENDING, HANDLE};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::Storage::FileSystem::{FlushFileBuffers, ReadFile, WriteFile};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::System::Threading::CreateEventW;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::System::IO::{GetOverlappedResult, OVERLAPPED};
 
 use crate::multiplexer::commands::MuxState;
 use crate::notification::NotifState;
@@ -266,6 +272,32 @@ struct WindowsBlockingPipe {
 }
 
 #[cfg(target_os = "windows")]
+struct WindowsEvent(HANDLE);
+
+#[cfg(target_os = "windows")]
+impl WindowsEvent {
+    fn new() -> io::Result<Self> {
+        let handle = unsafe { CreateEventW(std::ptr::null(), 1, 0, std::ptr::null()) };
+        if handle.is_null() {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(Self(handle))
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsEvent {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe {
+                CloseHandle(self.0);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
 impl From<interprocess::local_socket::Stream> for WindowsBlockingPipe {
     fn from(stream: interprocess::local_socket::Stream) -> Self {
         let interprocess::local_socket::Stream::NamedPipe(stream) = stream;
@@ -283,21 +315,15 @@ impl Read for WindowsBlockingPipe {
         }
 
         let len = u32::try_from(buf.len()).unwrap_or(u32::MAX);
-        let mut bytes_read = 0_u32;
-        let ok = unsafe {
+        run_overlapped_io(self.handle.as_raw_handle(), |overlapped| unsafe {
             ReadFile(
                 self.handle.as_raw_handle(),
                 buf.as_mut_ptr().cast(),
                 len,
-                &mut bytes_read,
                 std::ptr::null_mut(),
+                overlapped,
             )
-        };
-        if ok == 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(bytes_read as usize)
-        }
+        })
     }
 }
 
@@ -309,21 +335,15 @@ impl Write for WindowsBlockingPipe {
         }
 
         let len = u32::try_from(buf.len()).unwrap_or(u32::MAX);
-        let mut bytes_written = 0_u32;
-        let ok = unsafe {
+        run_overlapped_io(self.handle.as_raw_handle(), |overlapped| unsafe {
             WriteFile(
                 self.handle.as_raw_handle(),
                 buf.as_ptr().cast(),
                 len,
-                &mut bytes_written,
                 std::ptr::null_mut(),
+                overlapped,
             )
-        };
-        if ok == 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(bytes_written as usize)
-        }
+        })
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -333,6 +353,32 @@ impl Write for WindowsBlockingPipe {
         } else {
             Ok(())
         }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn run_overlapped_io(
+    handle: RawHandle,
+    issue: impl FnOnce(*mut OVERLAPPED) -> i32,
+) -> io::Result<usize> {
+    let event = WindowsEvent::new()?;
+    let mut overlapped = OVERLAPPED::default();
+    overlapped.hEvent = event.0;
+
+    let ok = issue(&mut overlapped);
+    if ok == 0 {
+        let err = io::Error::last_os_error();
+        if err.raw_os_error() != Some(ERROR_IO_PENDING as i32) {
+            return Err(err);
+        }
+    }
+
+    let mut transferred = 0_u32;
+    let ok = unsafe { GetOverlappedResult(handle, &overlapped, &mut transferred, 1) };
+    if ok == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(transferred as usize)
     }
 }
 
@@ -832,5 +878,62 @@ mod tests {
                 "disconnect read should not surface as fatal socket error: {e}"
             );
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_blocking_pipe_round_trips_delayed_json_rpc() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let socket_name = format!(
+            "{}-read-write-roundtrip-{}-{}.sock",
+            crate::paths::socket_prefix(),
+            std::process::id(),
+            nonce
+        );
+
+        let server_name = socket_name
+            .clone()
+            .to_ns_name::<GenericNamespaced>()
+            .unwrap();
+        let listener = ListenerOptions::new()
+            .name(server_name)
+            .create_sync()
+            .unwrap();
+        let client_name = socket_name.to_ns_name::<GenericNamespaced>().unwrap();
+        let (accepted_tx, accepted_rx) = mpsc::channel();
+
+        let server = std::thread::spawn(move || {
+            let stream = listener.incoming().next().unwrap().unwrap();
+            let mut pipe = WindowsBlockingPipe::from(stream);
+            accepted_tx.send(()).unwrap();
+
+            let mut line = String::new();
+            {
+                let mut reader = BufReader::new(&mut pipe);
+                reader.read_line(&mut line).unwrap();
+            }
+
+            assert!(line.contains("\"method\":\"socket.roundtrip\""));
+            write_json_rpc_response(&mut pipe, &test_response()).unwrap();
+        });
+
+        let mut client = interprocess::local_socket::Stream::connect(client_name).unwrap();
+        accepted_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+        client
+            .write_all(br#"{"jsonrpc":"2.0","id":1,"method":"socket.roundtrip"}"#)
+            .unwrap();
+        client.write_all(b"\n").unwrap();
+        client.flush().unwrap();
+
+        let mut response = String::new();
+        BufReader::new(client).read_line(&mut response).unwrap();
+        server.join().unwrap();
+
+        assert!(response.contains("\"id\":1"));
+        assert!(response.contains("\"ok\":true"));
     }
 }
