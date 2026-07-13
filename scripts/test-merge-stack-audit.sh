@@ -31,6 +31,7 @@ git -C "$TMP" commit -q -m unlanded-lane
 unlanded_lane="$(git -C "$TMP" rev-parse HEAD)"
 
 printf '%s\n%s' "$merged_lane" "$unlanded_lane" > "$TMP/refs-no-final-lf.txt"
+printf '%s\r\n' "$merged_lane" > "$TMP/refs-crlf.txt"
 
 set +e
 output="$(cd "$TMP" && "$ROOT/scripts/merge-stack-audit.sh" \
@@ -47,5 +48,12 @@ if [ "$status" -eq 0 ]; then
   printf 'expected merge-stack-audit to fail on final unlanded ref without LF\n' >&2
   exit 1
 fi
+
+crlf_output="$(cd "$TMP" && "$ROOT/scripts/merge-stack-audit.sh" \
+  --target "$target_with_merge" \
+  --refs-file "$TMP/refs-crlf.txt" 2>&1)"
+
+grep -F "MERGED	$merged_lane" >/dev/null <<<"$crlf_output"
+grep -F "missing=0" >/dev/null <<<"$crlf_output"
 
 printf 'merge-stack-audit unterminated refs-file test passed\n'
