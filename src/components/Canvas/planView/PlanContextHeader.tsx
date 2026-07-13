@@ -227,38 +227,40 @@ function PlanContextBody({
           }
         />
       </div>
-      <div className="plan-context-header-primary">
-        <button
-          type="button"
-          data-testid="plan-board-plan-title"
-          className="plan-context-header-plan-trigger"
-          onClick={onOpenPlan}
-          title="Open plan detail"
-        >
-          {summary.title}
-        </button>
-        <span data-testid="plan-board-plan-meta" className="plan-context-header-meta">
-          {summary.ownerLabel} · {parked ? "parked" : progressLabel(summary.done, summary.total)}
-          {summary.sectionCount > 0 ? ` · ${summary.sectionCount} sections` : ""}
-        </span>
-        {spec && onOpenSpec && (
+      <div className="plan-context-header-main" data-testid="plan-context-header-main">
+        <div className="plan-context-header-primary">
           <button
             type="button"
-            data-testid="plan-board-spec-title"
-            className="plan-context-header-spec-trigger"
-            onClick={onOpenSpec}
-            title="Open spec detail"
+            data-testid="plan-board-plan-title"
+            className="plan-context-header-plan-trigger"
+            onClick={onOpenPlan}
+            title="Open plan detail"
           >
-            <span data-testid="plan-board-spec-sections" className="plan-context-header-spec-meta">
-              {spec.title}
-              {spec.sectionCount > 0
-                ? ` · ${spec.sectionCount} section${spec.sectionCount === 1 ? "" : "s"}`
-                : ""}
-            </span>
+            {summary.title}
           </button>
-        )}
+          <span data-testid="plan-board-plan-meta" className="plan-context-header-meta">
+            {summary.ownerLabel} · {parked ? "parked" : progressLabel(summary.done, summary.total)}
+            {summary.sectionCount > 0 ? ` · ${summary.sectionCount} sections` : ""}
+          </span>
+          {spec && onOpenSpec && (
+            <button
+              type="button"
+              data-testid="plan-board-spec-title"
+              className="plan-context-header-spec-trigger"
+              onClick={onOpenSpec}
+              title="Open spec detail"
+            >
+              <span data-testid="plan-board-spec-sections" className="plan-context-header-spec-meta">
+                {spec.title}
+                {spec.sectionCount > 0
+                  ? ` · ${spec.sectionCount} section${spec.sectionCount === 1 ? "" : "s"}`
+                  : ""}
+              </span>
+            </button>
+          )}
+        </div>
+        {plan && <PlanModeControls plan={plan} api={api} />}
       </div>
-      {plan && <PlanModeControls plan={plan} api={api} />}
       {(goal || (!parked && summary.focus)) && (
         <div className="plan-context-header-secondary">
           {goal && (
