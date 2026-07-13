@@ -129,7 +129,7 @@ export function PlanRefCards({
         <button
           key={`${ref.targetKind}:${ref.planId}:${ref.targetId ?? ""}`}
           type="button"
-          data-testid="chat-plan-ref-card"
+          data-testid={`chat-${ref.targetKind}-link`}
           data-ref-kind={ref.targetKind}
           data-target-id={ref.targetId}
           data-plan-id={ref.planId}
