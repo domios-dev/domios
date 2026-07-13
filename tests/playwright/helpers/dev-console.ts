@@ -509,7 +509,7 @@ function residualOwnedProcessIds(instance: DevInstance): number[] {
 
 export async function assertDevConsoleStopped(instance: DevInstance): Promise<void> {
   const ports = [instance.apiPort, instance.vitePort, instance.cdpPort];
-  const deadline = Date.now() + 15_000;
+  const deadline = Date.now() + (process.platform === "win32" ? 30_000 : 15_000);
   while (Date.now() <= deadline) {
     if (
       (await Promise.all(ports.map(portIsFree))).every(Boolean) &&
