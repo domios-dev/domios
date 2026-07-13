@@ -260,6 +260,7 @@ export function useChatSession({
   const lifecycleRef = useRef(0);
   const knownPaneIdRef = useRef<string | null>(null);
   const attachmentStateRef = useRef(attachmentState);
+  const attachGenerationRef = useRef(attachGeneration);
   const nextClientOrder = useCallback(() => {
     const value = nextClientOrderRef.current;
     nextClientOrderRef.current += 1;
@@ -273,6 +274,7 @@ export function useChatSession({
   activeRef.current = active;
   agentSessionIdRef.current = agentSessionId;
   attachmentStateRef.current = attachmentState;
+  attachGenerationRef.current = attachGeneration;
 
   useEffect(() => {
     setOptimistic([]);
@@ -286,7 +288,11 @@ export function useChatSession({
   const requestAttach = useCallback(() => {
     setError(null);
     setAttachmentState("attaching");
-    setAttachGeneration((generation) => generation + 1);
+    setAttachGeneration((generation) => {
+      const nextGeneration = generation + 1;
+      attachGenerationRef.current = nextGeneration;
+      return nextGeneration;
+    });
   }, []);
 
   const markAttached = useCallback(() => {
@@ -353,6 +359,7 @@ export function useChatSession({
   useEffect(() => {
     if (!active || !listenerReady) return;
     const lifecycle = lifecycleRef.current;
+    const generation = attachGeneration;
     let cancelled = false;
     (async () => {
       try {
@@ -360,7 +367,7 @@ export function useChatSession({
           paneId,
           agentSessionId: agentSessionIdRef.current,
         });
-        if (cancelled || lifecycleRef.current !== lifecycle) return;
+        if (cancelled || lifecycleRef.current !== lifecycle || attachGenerationRef.current !== generation) return;
         setError(null);
         setLoading(false);
         if (res.pending) {
@@ -374,7 +381,7 @@ export function useChatSession({
           withPreservedClientOrder(res.messages ?? [], prev ?? [], nextClientOrder),
         ));
       } catch (e) {
-        if (cancelled || lifecycleRef.current !== lifecycle) return;
+        if (cancelled || lifecycleRef.current !== lifecycle || attachGenerationRef.current !== generation) return;
         const msg = e instanceof Error ? e.message : String(e);
         setAttachmentState("failed");
         setRecovering(false);
@@ -386,7 +393,7 @@ export function useChatSession({
     return () => {
       cancelled = true;
     };
-  }, [active, attachGeneration, listenerReady, markAttached, nextClientOrder, paneId, requestAttach]);
+  }, [active, attachGeneration, listenerReady, markAttached, nextClientOrder, paneId]);
 
   useEffect(() => {
     const previous = previousSessionIdRef.current;
@@ -395,7 +402,6 @@ export function useChatSession({
       previous === agentSessionId
       || !active
       || !listenerReady
-      || (attachmentState !== "awaiting_store" && attachmentState !== "attached")
     ) return;
     if (rotationTimerRef.current) return;
     rotationTimerRef.current = setTimeout(() => {
