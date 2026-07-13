@@ -2,6 +2,7 @@ use crate::multiplexer::types::AgentRole;
 use crate::plan::{Plan, PlanMode, PlanStatus, TaskStatus};
 use crate::service::plan::heartbeat::is_plan_complete;
 use crate::service::{ServiceContext, ServiceState};
+use codeterm_types::pty::PaneStatus;
 use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -228,10 +229,19 @@ impl ServiceContext {
         let mut due = 0usize;
         for timed in targets {
             self.plan_turn_counter.record_time_tick(&timed.pane_id, now);
-            if !self
-                .plan_turn_counter
-                .time_nudge_due(&timed.pane_id, now, cfg.nudge_interval_secs)
-            {
+            let is_idle_owner = matches!(&timed.target, PlanReminderTarget::Owner { .. })
+                && self.plan_reminder_pane_is_idle(&timed.pane_id);
+            let is_due = if is_idle_owner {
+                self.plan_turn_counter.idle_owner_time_nudge_due(
+                    &timed.pane_id,
+                    now,
+                    cfg.nudge_interval_secs,
+                )
+            } else {
+                self.plan_turn_counter
+                    .time_nudge_due(&timed.pane_id, now, cfg.nudge_interval_secs)
+            };
+            if !is_due {
                 continue;
             }
             due += 1;
@@ -266,6 +276,18 @@ impl ServiceContext {
         }
         log::info!("[plan-reminder] tick: {candidates} candidate pane(s), {due} due");
         self.send_due_complete_wrapup_reminders(now, cfg.nudge_interval_secs);
+    }
+
+    fn plan_reminder_pane_is_idle(&self, pane_id: &str) -> bool {
+        let pty_id = {
+            let mux = self.mux.read();
+            mux.get_pane(pane_id).map(|pane| pane.pty_id.clone())
+        };
+        match pty_id {
+            Some(Some(pty_id)) => self.agent_tracker.lock().get_status(&pty_id) == PaneStatus::Idle,
+            Some(None) => true,
+            None => false,
+        }
     }
 
     /// Lifecycle mutations use this to clear only deadlines that became
@@ -722,6 +744,27 @@ mod tests {
             timed_plan_reminder_targets(&plans),
             vec![TimedPlanReminderTarget {
                 pane_id: "orch".into(),
+                target: PlanReminderTarget::Owner {
+                    plan_id: "pl_1".into()
+                }
+            }]
+        );
+    }
+
+    #[test]
+    fn time_targets_follow_reseeded_owner_pane() {
+        let mut reseeded = plan(
+            "pl_1",
+            "stale-owner",
+            PlanMode::Execution,
+            vec![task("task_1", TaskStatus::InReview, None)],
+        );
+        reseeded.owner = OrchestratorRef::from_pane("live-owner");
+
+        assert_eq!(
+            timed_plan_reminder_targets(&[reseeded]),
+            vec![TimedPlanReminderTarget {
+                pane_id: "live-owner".into(),
                 target: PlanReminderTarget::Owner {
                     plan_id: "pl_1".into()
                 }
