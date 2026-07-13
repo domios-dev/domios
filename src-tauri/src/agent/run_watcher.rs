@@ -184,6 +184,19 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                 if state.completed.swap(true, Ordering::AcqRel) {
                     return;
                 }
+                let raw = svc
+                    .output_buf
+                    .lock()
+                    .get_full_text(&state.pty_id)
+                    .unwrap_or_default();
+                crate::service::launch_diagnostics::log_shell_drop(
+                    &state.pane_id,
+                    &state.pty_id,
+                    &raw,
+                    "restarts_exhausted",
+                    restarts,
+                    MAX_RESTARTS,
+                );
                 log::warn!(
                     "[run-watcher] agent died (shell) and exhausted {} restarts: pane={}",
                     MAX_RESTARTS,
@@ -202,6 +215,19 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
             *state.last_restart_at.lock() = Instant::now();
             *state.last_byte_at.lock() = Instant::now();
             state.nudge_count.store(0, Ordering::Release);
+            let raw = svc
+                .output_buf
+                .lock()
+                .get_full_text(&state.pty_id)
+                .unwrap_or_default();
+            crate::service::launch_diagnostics::log_shell_drop(
+                &state.pane_id,
+                &state.pty_id,
+                &raw,
+                "restart",
+                restarts + 1,
+                MAX_RESTARTS,
+            );
             log::warn!(
                 "[run-watcher] agent dropped to shell — resuming ({}/{}): pane={}",
                 restarts + 1,

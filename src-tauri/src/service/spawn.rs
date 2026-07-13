@@ -865,7 +865,7 @@ impl ServiceContext {
                 .unwrap_or_default();
             let launch_params = crate::agent::provider::AgentLaunchParams {
                 agent_name: None,
-                task: task_for_thread,
+                task: task_for_thread.clone(),
                 args: if model_args.is_empty() {
                     None
                 } else {
@@ -889,6 +889,13 @@ impl ServiceContext {
                     )
                 })
                 .unwrap_or_else(|| format!("{} --dangerously-skip-permissions", provider));
+            crate::service::launch_diagnostics::log_launch(
+                "hidden_agent",
+                &pane_id_outer,
+                &provider,
+                &launch_cmd,
+                task_for_thread.as_deref(),
+            );
 
             match svc_outer.resolve_pty_id(&pane_id_outer) {
                 Ok(pty_id) => {

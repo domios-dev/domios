@@ -354,6 +354,32 @@ console.log("\n--- discoverModels ---\n");
   eq(p.discoverModels(), manifestSeed.models, "discoverModels falls back to manifest seed when no Anthropic key exists");
 }
 
+console.log("\n--- Windows task launch shape ---\n");
+{
+  const p = loadClaudeWithHost(baseHost({
+    platform: () => "windows",
+    fs: {
+      fileExists: () => false,
+      readFile: () => null,
+      readJson: () => null,
+      writeTempFile: () => "C:\\Temp\\ct-task",
+      writeJson: () => true,
+    },
+    shell: {
+      quoteFor: (value: unknown) => `'${String(value).replace(/'/g, "''")}'`,
+      quote: (value: unknown) => `'${String(value).replace(/'/g, "''")}'`,
+    },
+  }));
+  const cmd = p.buildLaunchCommand({
+    skipPermissions: true,
+    args: ["--model", "sonnet"],
+    task: "large prompt body --flag " + "x".repeat(100),
+  });
+  assert(cmd.includes("--append-system-prompt-file 'C:\\Temp\\ct-task'"), "Windows task launch passes a task file path");
+  assert(!cmd.includes("Get-Content"), "Windows task launch does not expand task through PowerShell");
+  assert(!cmd.includes("large prompt body"), "Windows task body is not embedded in the command");
+}
+
 console.log("\n--- parseUsage reset formats ---\n");
 
 const now = new Date(2026, 5, 14, 15, 0, 0, 0).getTime();
