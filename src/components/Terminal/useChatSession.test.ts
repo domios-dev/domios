@@ -339,6 +339,105 @@ async function runChatSessionHookTests(): Promise<void> {
     await act(async () => session.root.unmount());
     console.log("PASS T5 visibility restart retains transcript");
   }
+
+  {
+    const timers = new FakeTimers();
+    const restoreTimers = timers.install();
+    const startArgs: Array<Record<string, unknown> | undefined> = [];
+    let resolveInitialAttach: ((result: { text: string; offset: number; pending: boolean }) => void) | null = null;
+    let stops = 0;
+    let unlistens = 0;
+    __setListenForTest(async () => () => { unlistens += 1; });
+    __setInvokeForTest((async (command: string, args?: Record<string, unknown>) => {
+      if (command === "chat_start") {
+        startArgs.push(args);
+        if (startArgs.length === 1) {
+          return new Promise((resolve) => { resolveInitialAttach = resolve; });
+        }
+        return { text: "", offset: 0, pending: true };
+      }
+      if (command === "chat_stop") stops += 1;
+      return {};
+    }) as never);
+    const session = await mountSession("sid-1");
+    await session.render("sid-2");
+    await session.render("sid-3");
+    await timers.advance(0);
+    assert(startArgs.length === 2 && startArgs[1]?.agentSessionId === "sid-3", "T6 deferred initial attach rotates once to the latest session");
+    assert(stops === 0 && unlistens === 0, "T6 idle rotation keeps the existing chat listener and daemon session");
+    resolveInitialAttach?.({ text: "", offset: 0, pending: true });
+    await flush();
+    await timers.advance(30_000);
+    assert(startArgs.length === 2, "T6 resolving a stale initial attach does not poll or reattach again");
+    await act(async () => session.root.unmount());
+    restoreTimers();
+    console.log("PASS T6 deferred idle rotations coalesce without polling");
+  }
+
+  {
+    const timers = new FakeTimers();
+    const restoreTimers = timers.install();
+    const startArgs: Array<Record<string, unknown> | undefined> = [];
+    let resolveRetryAttach: ((result: { text: string; offset: number; pending: boolean }) => void) | null = null;
+    let stops = 0;
+    let unlistens = 0;
+    __setListenForTest(async () => () => { unlistens += 1; });
+    __setInvokeForTest((async (command: string, args?: Record<string, unknown>) => {
+      if (command === "chat_start") {
+        startArgs.push(args);
+        if (startArgs.length === 2) {
+          return new Promise((resolve) => { resolveRetryAttach = resolve; });
+        }
+        return { text: "", offset: 0, messages: [] };
+      }
+      if (command === "chat_stop") stops += 1;
+      return {};
+    }) as never);
+    const session = await mountSession("sid-1");
+    await act(async () => window.dispatchEvent(new CustomEvent("codeterm:chat-reattached", { detail: { paneId: "pane" } })));
+    await flush();
+    await session.render("sid-2");
+    await session.render("sid-3");
+    await timers.advance(0);
+    assert(startArgs.length === 3 && startArgs[2]?.agentSessionId === "sid-3", "T7 attaching rotation coalesces to one latest-session attach");
+    assert(stops === 0 && unlistens === 0, "T7 attaching rotation does not stop or unlisten");
+    resolveRetryAttach?.({ text: "", offset: 0, pending: true });
+    await flush();
+    await timers.advance(30_000);
+    assert(startArgs.length === 3, "T7 attaching rotation does not introduce polling");
+    await act(async () => session.root.unmount());
+    restoreTimers();
+    console.log("PASS T7 attaching rotations coalesce without listener churn");
+  }
+
+  {
+    const timers = new FakeTimers();
+    const restoreTimers = timers.install();
+    const startArgs: Array<Record<string, unknown> | undefined> = [];
+    let stops = 0;
+    let unlistens = 0;
+    __setListenForTest(async () => () => { unlistens += 1; });
+    __setInvokeForTest((async (command: string, args?: Record<string, unknown>) => {
+      if (command === "chat_start") {
+        startArgs.push(args);
+        if (startArgs.length === 1) throw new Error("initial attach failed");
+        return { text: "", offset: 0, pending: true };
+      }
+      if (command === "chat_stop") stops += 1;
+      return {};
+    }) as never);
+    const session = await mountSession("sid-1");
+    await session.render("sid-2");
+    await session.render("sid-3");
+    await timers.advance(0);
+    assert(startArgs.length === 2 && startArgs[1]?.agentSessionId === "sid-3", "T8 failed rotation retries once with the latest session");
+    assert(stops === 0 && unlistens === 0, "T8 failed rotation preserves the listener and daemon session");
+    await timers.advance(30_000);
+    assert(startArgs.length === 2, "T8 failed rotation keeps no-polling behavior");
+    await act(async () => session.root.unmount());
+    restoreTimers();
+    console.log("PASS T8 failed rotations coalesce without polling");
+  }
   __setInvokeForTest(null);
   __setListenForTest(null);
 }
