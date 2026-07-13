@@ -1513,6 +1513,22 @@ button,
   }
 }
 
+/* Chat setup card — provider glyph breathes while the pane boots. */
+@keyframes chat-setup-glyph-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.06); opacity: 1; }
+}
+
+.chat-setup-glyph {
+  animation: chat-setup-glyph-breathe 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-setup-glyph {
+    animation: none;
+  }
+}
+
 /* Workspace plan entry — tab-row grammar with distinct plan identity. */
 .sidebar-tab-plan {
   background: color-mix(in srgb, var(--ct-accent, #6366f1) 5%, transparent);
