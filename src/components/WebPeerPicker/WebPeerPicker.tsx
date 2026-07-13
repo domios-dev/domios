@@ -177,7 +177,7 @@ export function WebPeerPicker() {
       {open && (
         <div
           data-testid="peer-picker-menu"
-          className="absolute left-0 top-full mt-1 z-50 min-w-[220px] rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] shadow-lg py-1"
+          className="absolute left-0 top-full mt-1 z-50 min-w-[min(220px,calc(100vw-0.75rem))] max-w-[calc(100vw-0.75rem)] rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] shadow-lg py-1"
         >
           <button
             data-testid="peer-picker-self"
