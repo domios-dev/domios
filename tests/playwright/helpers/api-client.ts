@@ -39,6 +39,10 @@ export interface PlanSummary {
   status?: string;
 }
 
+export type ApiRequestOptions = {
+  timeoutMs?: number;
+};
+
 function configPort(configPath: string): string | null {
   const m = readFileSync(configPath, "utf8").match(/^port\s*=\s*(\d+)/m);
   return m?.[1] ?? null;
@@ -81,16 +85,33 @@ export class ApiClient {
     this.token = token ?? readDevToken(instance);
   }
 
-  async request<T>(method: string, apiPath: string, body?: unknown): Promise<T> {
-    const r = await fetch(`${this.apiBase}/api${apiPath}`, {
-      method,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.token}`,
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(15_000),
-    });
+  async request<T>(
+    method: string,
+    apiPath: string,
+    body?: unknown,
+    options: ApiRequestOptions = {},
+  ): Promise<T> {
+    const timeoutMs = options.timeoutMs ?? 15_000;
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1) {
+      throw new Error(`invalid API request timeout: ${timeoutMs}`);
+    }
+    let r: Response;
+    try {
+      r = await fetch(`${this.apiBase}/api${apiPath}`, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+        throw new Error(`${method} /api${apiPath} timed out after ${timeoutMs}ms`);
+      }
+      throw error;
+    }
     const text = await r.text();
     if (!r.ok) {
       throw new Error(`${method} /api${apiPath} → HTTP ${r.status}: ${text.slice(0, 300)}`);
@@ -102,11 +123,11 @@ export class ApiClient {
     }
   }
 
-  get<T>(p: string): Promise<T> {
-    return this.request<T>("GET", p);
+  get<T>(p: string, options?: ApiRequestOptions): Promise<T> {
+    return this.request<T>("GET", p, undefined, options);
   }
-  post<T>(p: string, body?: unknown): Promise<T> {
-    return this.request<T>("POST", p, body);
+  post<T>(p: string, body?: unknown, options?: ApiRequestOptions): Promise<T> {
+    return this.request<T>("POST", p, body, options);
   }
 
   health(): Promise<{ status: string; build: string; version: string }> {
