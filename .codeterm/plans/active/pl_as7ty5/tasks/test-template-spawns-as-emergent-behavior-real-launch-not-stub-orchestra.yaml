@@ -20,7 +20,7 @@ qa_state: null
 status_label: null
 priority: p2
 created_at: 1783970644778
-updated_at: 1783971869003
+updated_at: 1783971910320
 status_changed_at: 1783971869003
 handle: test-template-spawns-as-emergent-behavior-real-launch-not-stub-orchestra
 tags: []
@@ -106,6 +106,42 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_2xaux3
+  from:
+    pane_id: 1f4faa1f
+    session_id: 019f5cfb-6b17-7a21-b2d1-e2dca5c45fb6
+    title: Darcy
+  kind: status_update
+  text: |-
+    STATUS: partial
+    CHANGES: Commit b3fc758e9 adds the reusable real template spawn oracle plus live orchestration-pair and single-agent smoke coverage; future command types are documented in the helper contract.
+    TESTS RUN: git diff --check passed. Both exact @live titles were discovered successfully with the shared Playwright dependency. Real execution was intentionally deferred: this worker must not start/restart a dev instance and requires a credentialed provider.
+  ts: 1783971888362
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_vn1dev
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: status_update
+  text: ' second worker report confirms b3fc758e9 exact @live titles discover successfully with shared Playwright dependency; real execution intentionally deferred because worker cannot start/restart dev and requires credentialed provider.'
+  ts: 1783971910320
+  links:
+  - key:70cba495acaa43a2
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_wdwzrh
   executor_pane_id: 1f4faa1f
@@ -123,11 +159,11 @@ execution_attempts:
   base: null
   destination: null
   report:
-    id: report_1783971851276
+    id: report_1783971889160
     message: |-
       STATUS: partial
-      CHANGES: Added reusable stub-disabled real template spawn oracle (PTY/session, chat Setting up/first message, no bare shell) and live orchestration-pair plus single-agent smoke coverage; documented the future command-type contract. Commit b3fc758e9.
-      TESTS RUN: git diff --check passed. Focused Playwright discovery could not load @playwright/test because this worktree has no node_modules; live execution was not started per lane instruction. QA commands are recorded in the handoff.
+      CHANGES: Commit b3fc758e9 adds the reusable real template spawn oracle plus live orchestration-pair and single-agent smoke coverage; future command types are documented in the helper contract.
+      TESTS RUN: git diff --check passed. Both exact @live titles were discovered successfully with the shared Playwright dependency. Real execution was intentionally deferred: this worker must not start/restart a dev instance and requires a credentialed provider.
     status: null
     changed_files: []
     test_cmd: null
@@ -135,7 +171,7 @@ execution_attempts:
     skipped: null
     attachments: []
   assigned_at: 1783971400895
-  reported_at: 1783971851276
+  reported_at: 1783971889160
   reviewed_at: null
   closed_at: null
   competition_group_id: null
