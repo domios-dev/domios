@@ -35,6 +35,12 @@ const normal = parseMarker(`${MARKER_OPEN}pane label=clean-=-ok`);
 eq(normal?.kind, "pane", "parseMarker keeps no-leading-space case");
 eq(normal?.payload, "ok", "parseMarker keeps payload unchanged");
 
+const bracketedPaste = parseMarker(
+  `\x1b[200~${MARKER_OPEN}pane label=main pane=bda0e267-=-hello\x1b[201~`,
+);
+eq(bracketedPaste?.kind, "pane", "parseMarker unwraps bracketed paste start");
+eq(bracketedPaste?.payload, "hello", "parseMarker strips bracketed paste end from payload");
+
 eq(isPaneMarkerPlaceholderLabel("CURRENT PANE"), true, "CURRENT PANE is a pane label placeholder");
 eq(isPaneMarkerPlaceholderLabel(""), true, "blank pane label is a placeholder");
 eq(isPaneMarkerPlaceholderLabel("Puccini"), false, "real pane label is not a placeholder");
