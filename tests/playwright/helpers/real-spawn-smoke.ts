@@ -1,5 +1,7 @@
 // Real-launch contract: add every command/template type to this matrix and a
 // @live smoke that calls `assertRealTemplateSpawn` against a real provider.
+// @live pane UI assertions must activate the owning workspace+tab first; pane
+// focus alone is intra-tab state and does not mount a hidden tab's pane.
 // Without credentials, run only that title against an already-owned non-stub
 // instance with `--timeout=30000 --global-timeout=600000 --trace=on`.
 import { expect, type Page } from "@playwright/test";
@@ -25,6 +27,17 @@ type PaneStatus = {
   status?: string | null;
 };
 
+type MuxState = {
+  workspaces?: Array<{
+    id: string;
+    active_tab_id?: string | null;
+    tabs?: Array<{
+      id: string;
+      pane_id: string;
+    }>;
+  }>;
+};
+
 export type MaterializedRealSpawn = RealSpawnSurface & {
   sessionId: string;
 };
@@ -32,6 +45,8 @@ export type MaterializedRealSpawn = RealSpawnSurface & {
 const PROCESS_TIMEOUT_MS = 180_000;
 const FIRST_CHAT_TIMEOUT_MS = 120_000;
 const STARTUP_STATE_TIMEOUT_MS = 30_000;
+const PANE_MOUNT_TIMEOUT_MS = 5_000;
+const CHAT_SETTLE_TIMEOUT_MS = 30_000;
 
 function paneText(api: ApiClient, paneId: string): Promise<string> {
   return api
@@ -50,6 +65,23 @@ async function chatMessageCount(
     .get<{ messages?: unknown[] }>(`/panes/${paneId}/chat`)
     .catch(() => ({ messages: [] }));
   return chat.messages?.length ?? 0;
+}
+
+async function paneTabRef(
+  api: ApiClient,
+  paneId: string,
+): Promise<{ workspaceId: string; tabId: string }> {
+  const mux = await api.get<MuxState>("/mux/state");
+  for (const workspace of mux.workspaces ?? []) {
+    const tab = workspace.tabs?.find((candidate) => candidate.pane_id === paneId);
+    if (tab) return { workspaceId: workspace.id, tabId: tab.id };
+  }
+  throw new Error(`pane ${paneId} has no owning workspace tab in mux state`);
+}
+
+async function activeTabId(api: ApiClient, workspaceId: string): Promise<string | null> {
+  const mux = await api.get<MuxState>("/mux/state");
+  return mux.workspaces?.find((workspace) => workspace.id === workspaceId)?.active_tab_id ?? null;
 }
 
 function isBareShellPrompt(text: string): boolean {
@@ -100,19 +132,41 @@ async function waitForFirstVisibleChatMessage(
   page: Page,
   surface: MaterializedRealSpawn,
 ): Promise<void> {
+  const tabRef = await paneTabRef(api, surface.paneId);
   await api.post(`/panes/${surface.paneId}/chat-view`, { enabled: true });
+  await api.focusWorkspace(tabRef.workspaceId);
+  await api.post(`/workspaces/${tabRef.workspaceId}/tabs/${tabRef.tabId}/focus`);
   await api.focusPane(surface.paneId);
+
+  const tab = page.locator(`[data-testid="tab-item"][data-tab-id="${tabRef.tabId}"]`).first();
+  await expect(
+    tab,
+    `${surface.label} owning tab is selectable`,
+  ).toBeVisible({
+    timeout: PANE_MOUNT_TIMEOUT_MS,
+  });
+  await tab.click();
+  await expect
+    .poll(
+      () => activeTabId(api, tabRef.workspaceId),
+      {
+        timeout: PANE_MOUNT_TIMEOUT_MS,
+        intervals: [100, 250, 500],
+        message: `${surface.label} owning tab becomes active before pane mount`,
+      },
+    )
+    .toBe(tabRef.tabId);
 
   const chat = page.locator(
     `[data-testid="pane-session-chat"][data-pane-id="${surface.paneId}"]`,
   );
   const messages = chat.locator('[data-testid="chat-message"]');
-  const settingUp = chat.locator('[data-testid="chat-setting-up-state"]');
+  const settingUp = chat.locator('[data-testid="chat-setup-state"]');
   await expect(
     chat,
-    `${surface.label} switches to the chat surface`,
+    `${surface.label} pane-session-chat mounts after owning tab activation`,
   ).toBeVisible({
-    timeout: STARTUP_STATE_TIMEOUT_MS,
+    timeout: PANE_MOUNT_TIMEOUT_MS,
   });
 
   const initialSurface = await pollUntil(
@@ -128,9 +182,9 @@ async function waitForFirstVisibleChatMessage(
         return "setting up state";
       return undefined;
     },
-    STARTUP_STATE_TIMEOUT_MS,
+    CHAT_SETTLE_TIMEOUT_MS,
     250,
-    `${surface.label} shows first chat message or Setting up while it arrives`,
+    `${surface.label} chat pipeline settles to first message or setup state`,
   );
   expect(initialSurface).toBeTruthy();
 
