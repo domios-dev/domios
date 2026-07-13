@@ -13,12 +13,14 @@
 pub mod chatbackend_history;
 pub mod raw_text_sink;
 pub mod registry;
+pub mod store_watch;
 pub mod structured_poller;
 pub mod structured_sink;
 pub mod tailer;
 pub mod tauri_sink;
 
 pub use registry::ChatRegistry;
+pub use store_watch::{spawn_store_watch, StoreWatchConfig};
 pub use structured_poller::{spawn_structured_poller, StructuredPollConfig};
 pub use tailer::{
     spawn_raw_tailer, spawn_tailer, DeltaSink, RawTailConfig, RawTextSink, TailConfig, TailerHandle,

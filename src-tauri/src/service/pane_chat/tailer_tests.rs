@@ -12,6 +12,7 @@
 //! prefix check fails, non-tilde paths pass through). No HOME redirect needed.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,7 +21,9 @@ use tempfile::TempDir;
 
 use crate::agent::chat_types::RichMessage;
 use crate::agent::registry::AgentRegistry;
-use crate::service::pane_chat::{spawn_tailer, DeltaSink, TailConfig};
+use crate::service::pane_chat::{
+    spawn_store_watch, spawn_tailer, ChatRegistry, DeltaSink, StoreWatchConfig, TailConfig,
+};
 
 struct Collector {
     msgs: Mutex<Vec<RichMessage>>,
@@ -213,6 +216,123 @@ fn tailer_repopulates_when_session_file_appears_late() {
         "tailer must keep watching and populate once the session file appears (no permanent give-up)"
     );
     handle.shutdown();
+}
+
+#[test]
+fn pending_store_watch_promotes_to_tailer_and_streams_initial_batch() {
+    use crate::agent::provider::{
+        AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery,
+    };
+
+    struct DelayedStoreProvider {
+        path: PathBuf,
+        available: Arc<AtomicBool>,
+    }
+
+    impl AgentProvider for DelayedStoreProvider {
+        fn id(&self) -> &str {
+            "delayed-store"
+        }
+        fn display_name(&self) -> &str {
+            "Delayed Store"
+        }
+        fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
+            String::new()
+        }
+        fn readiness_strategy(&self) -> ReadinessStrategy {
+            ReadinessStrategy::FixedDelay {
+                duration: Duration::ZERO,
+            }
+        }
+        fn task_delivery(&self) -> TaskDelivery {
+            TaskDelivery::PtyInput
+        }
+        fn detect_from_title(&self, _: &str) -> bool {
+            false
+        }
+        fn detect_from_output(&self, _: &str) -> bool {
+            false
+        }
+        fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+            None
+        }
+        fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
+            None
+        }
+        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+            None
+        }
+        fn session_jsonl_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+            self.available
+                .load(Ordering::Acquire)
+                .then(|| self.path.clone())
+        }
+        fn parse_session_delta(
+            &self,
+            path: &std::path::Path,
+            from_offset: u64,
+        ) -> crate::agent::chat_types::SessionDelta {
+            crate::agent::chat_types::SessionDelta {
+                new_offset: std::fs::metadata(path)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(from_offset),
+                messages: vec![RichMessage {
+                    role: "assistant".into(),
+                    ..Default::default()
+                }],
+            }
+        }
+    }
+
+    let tmp = TempDir::new().unwrap();
+    let sid = "sess-pending-watch-001";
+    let jsonl = tmp.path().join(format!("{sid}.jsonl"));
+    let available = Arc::new(AtomicBool::new(false));
+    let agent_registry = AgentRegistry::new();
+    agent_registry.register_provider(Box::new(DelayedStoreProvider {
+        path: jsonl.clone(),
+        available: available.clone(),
+    }));
+
+    let chat_registry = ChatRegistry::new();
+    let sink = Arc::new(Collector {
+        msgs: Mutex::new(vec![]),
+    });
+    let watch = spawn_store_watch(
+        StoreWatchConfig {
+            pane_id: "p-pending".into(),
+            provider_id: "delayed-store".into(),
+            cwd: "/project".into(),
+            session_id: sid.into(),
+            poll_interval: Duration::from_millis(20),
+        },
+        Arc::new(agent_registry),
+        chat_registry.clone(),
+        sink.clone() as Arc<dyn DeltaSink>,
+    );
+    assert!(chat_registry.insert("p-pending".into(), sid.into(), watch));
+
+    std::thread::sleep(Duration::from_millis(3100));
+    assert!(
+        sink.msgs.lock().is_empty(),
+        "the missing store emits nothing after more than three seconds"
+    );
+    assert!(
+        chat_registry.is_running("p-pending"),
+        "a pending store remains watched until explicit stop, rotation, or promotion",
+    );
+    std::fs::write(&jsonl, "materialized\n").unwrap();
+    available.store(true, Ordering::Release);
+
+    assert!(
+        wait_until(2000, || !sink.msgs.lock().is_empty()),
+        "one watch must promote to a tailer and emit the initial batch",
+    );
+    chat_registry.stop("p-pending");
+    assert!(
+        !chat_registry.is_running("p-pending"),
+        "one mount is released by one stop after promotion",
+    );
 }
 
 #[test]
