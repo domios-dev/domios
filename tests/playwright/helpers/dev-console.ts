@@ -12,7 +12,12 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { readDevToken } from "./api-client";
-import { currentDevInstance, type DevInstance } from "./dev-instance";
+import {
+  currentDevInstance,
+  devStartArgs,
+  playwrightCargoTargetDir,
+  type DevInstance,
+} from "./dev-instance";
 
 const DEFAULT_INSTANCE = currentDevInstance();
 export const E2E_PORT = String(DEFAULT_INSTANCE.apiPort);
@@ -92,6 +97,7 @@ const BASH_EXE =
     : "bash";
 
 function bash(instance: DevInstance, args: string[], timeoutMs: number): void {
+  const cargoTargetDir = playwrightCargoTargetDir(instance);
   // build.sh is the only sanctioned entry point (never raw cargo/pnpm tauri).
   execFileSync(BASH_EXE, args, {
     cwd: REPO_ROOT,
@@ -105,6 +111,7 @@ function bash(instance: DevInstance, args: string[], timeoutMs: number): void {
       CODETERM_CDP_PORT: String(instance.cdpPort),
       CT_E2E_DATADIR: instance.dataDirName,
       CT_E2E_PORT: String(instance.apiPort),
+      CARGO_TARGET_DIR: cargoTargetDir ?? process.env.CARGO_TARGET_DIR,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${instance.cdpPort}`,
       VITE_CODETERM_TEST: "1",
       CODETERM_TEST_CLOCK: "1",
@@ -171,6 +178,7 @@ function killDevLeftovers(instance: DevInstance): void {
 }
 
 function windowsCleanupArgs(instance: DevInstance): string[] {
+  const cargoTargetDir = playwrightCargoTargetDir(instance);
   return [
     "-NoProfile",
     "-ExecutionPolicy",
@@ -180,7 +188,7 @@ function windowsCleanupArgs(instance: DevInstance): string[] {
     "-Root",
     REPO_ROOT,
     "-TargetDebug",
-    path.join(REPO_ROOT, "src-tauri", "target", "debug"),
+    path.join(REPO_ROOT, cargoTargetDir ?? "src-tauri/target", "debug"),
     "-Identifier",
     instance.identifier,
     "-Instance",
@@ -247,14 +255,14 @@ export async function ensureDevConsole(instance = currentDevInstance()): Promise
   }
   killDevConsole(instance);
   try {
-    bash(instance, ["build.sh", "dev", "--wait"], 600_000);
+    bash(instance, devStartArgs(), 600_000);
   } catch (first) {
     dumpBuildGatewayLogs(`first ./build.sh dev --wait failed: ${first}`);
     if ((first as NodeJS.ErrnoException).code === "ETIMEDOUT") throw first;
     // locking the binary, vite squatting 1420) — sweep and retry once.
     killDevLeftovers(instance);
     try {
-      bash(instance, ["build.sh", "dev", "--wait"], 600_000);
+      bash(instance, devStartArgs(), 600_000);
     } catch (second) {
       dumpBuildGatewayLogs(`second ./build.sh dev --wait failed: ${second}`);
       throw second;
