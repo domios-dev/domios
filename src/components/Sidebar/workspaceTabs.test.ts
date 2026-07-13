@@ -104,4 +104,21 @@ assert.deepEqual(
   "child of hidden parent surfaces at top level",
 );
 
+assert.deepEqual(
+  topLevelTabsInWorkspace([parentTab, tab("tab-orphan", "missing-pane", 1)], {
+    "parent-pane": pane("parent-pane"),
+  }).map((t) => t.id),
+  ["tab-parent"],
+  "tab without a pane record does not surface at top level",
+);
+
+assert.deepEqual(
+  topLevelTabsInWorkspace([parentTab, tab("tab-hidden", "hidden-pane", 1)], {
+    "parent-pane": pane("parent-pane"),
+    "hidden-pane": pane("hidden-pane", undefined, null, true),
+  }).map((t) => t.id),
+  ["tab-parent"],
+  "hidden tab does not surface at top level",
+);
+
 console.log("workspaceTabs.test.ts: ok");
