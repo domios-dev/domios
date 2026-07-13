@@ -47,6 +47,11 @@ use tauri::AppHandle;
 
 use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::io::{AsRawHandle, OwnedHandle};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Storage::FileSystem::{FlushFileBuffers, ReadFile, WriteFile};
+
 use crate::multiplexer::commands::MuxState;
 use crate::notification::NotifState;
 use crate::service::ServiceState;
@@ -222,6 +227,9 @@ impl SocketServer {
             for conn in listener.incoming() {
                 match conn {
                     Ok(stream) => {
+                        #[cfg(target_os = "windows")]
+                        let stream = WindowsBlockingPipe::from(stream);
+
                         let mux = mux_state.clone();
                         let pty = pty_state.clone();
                         let notif = notif_state.clone();
@@ -249,6 +257,82 @@ impl SocketServer {
         });
 
         Ok(())
+    }
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsBlockingPipe {
+    handle: OwnedHandle,
+}
+
+#[cfg(target_os = "windows")]
+impl From<interprocess::local_socket::Stream> for WindowsBlockingPipe {
+    fn from(stream: interprocess::local_socket::Stream) -> Self {
+        let interprocess::local_socket::Stream::NamedPipe(stream) = stream;
+        Self {
+            handle: stream.into(),
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Read for WindowsBlockingPipe {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
+        let len = u32::try_from(buf.len()).unwrap_or(u32::MAX);
+        let mut bytes_read = 0_u32;
+        let ok = unsafe {
+            ReadFile(
+                self.handle.as_raw_handle(),
+                buf.as_mut_ptr().cast(),
+                len,
+                &mut bytes_read,
+                std::ptr::null_mut(),
+            )
+        };
+        if ok == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(bytes_read as usize)
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Write for WindowsBlockingPipe {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
+        let len = u32::try_from(buf.len()).unwrap_or(u32::MAX);
+        let mut bytes_written = 0_u32;
+        let ok = unsafe {
+            WriteFile(
+                self.handle.as_raw_handle(),
+                buf.as_ptr().cast(),
+                len,
+                &mut bytes_written,
+                std::ptr::null_mut(),
+            )
+        };
+        if ok == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(bytes_written as usize)
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        let ok = unsafe { FlushFileBuffers(self.handle.as_raw_handle()) };
+        if ok == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -701,6 +785,52 @@ mod tests {
         #[cfg(not(target_os = "windows"))]
         {
             let _ = std::fs::remove_file(format!("/tmp/{socket_name}"));
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_blocking_pipe_read_survives_client_disconnect() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let socket_name = format!(
+            "{}-read-disconnect-repro-{}-{}.sock",
+            crate::paths::socket_prefix(),
+            std::process::id(),
+            nonce
+        );
+
+        let server_name = socket_name
+            .clone()
+            .to_ns_name::<GenericNamespaced>()
+            .unwrap();
+        let listener = ListenerOptions::new()
+            .name(server_name)
+            .create_sync()
+            .unwrap();
+        let client_name = socket_name.to_ns_name::<GenericNamespaced>().unwrap();
+        let (accepted_tx, accepted_rx) = mpsc::channel();
+
+        let server = std::thread::spawn(move || {
+            let stream = listener.incoming().next().unwrap().unwrap();
+            let mut reader = BufReader::new(WindowsBlockingPipe::from(stream));
+            accepted_tx.send(()).unwrap();
+            let mut line = String::new();
+            reader.read_line(&mut line)
+        });
+
+        let client = interprocess::local_socket::Stream::connect(client_name).unwrap();
+        accepted_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        drop(client);
+
+        let result = server.join().unwrap();
+        if let Err(e) = result {
+            assert!(
+                is_disconnected_client(&e),
+                "disconnect read should not surface as fatal socket error: {e}"
+            );
         }
     }
 }
