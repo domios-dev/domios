@@ -43,6 +43,57 @@ export function devStartArgs(workers = playwrightWorkerCount()): string[] {
   return args;
 }
 
+export function buildDevInstanceEnv(
+  instance: DevInstance,
+  baseEnv: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  workers: number = playwrightWorkerCount(),
+): NodeJS.ProcessEnv {
+  const cargoTargetDir = playwrightCargoTargetDir(instance, platform, workers);
+  return {
+    ...baseEnv,
+    CODETERM_INSTANCE: instance.name,
+    CODETERM_API_PORT: String(instance.apiPort),
+    CODETERM_VITE_PORT: String(instance.vitePort),
+    CODETERM_CDP_PORT: String(instance.cdpPort),
+    CT_E2E_DATADIR: instance.dataDirName,
+    CT_E2E_PORT: String(instance.apiPort),
+    CARGO_TARGET_DIR: cargoTargetDir ?? baseEnv.CARGO_TARGET_DIR,
+    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${instance.cdpPort}`,
+    VITE_CODETERM_TEST: "1",
+    CODETERM_TEST_CLOCK: "1",
+  };
+}
+
+export function devInstanceTeardownPorts(instance: DevInstance): number[] {
+  return [instance.apiPort, instance.vitePort, instance.cdpPort];
+}
+
+export interface InstanceLifecycle {
+  kill: (instance: DevInstance) => void;
+  assertStopped: (instance: DevInstance) => Promise<void>;
+}
+
+// Reverse start order; a per-instance kill/assert failure never aborts the
+// sweep — every instance is torn down and failures surface together.
+export async function teardownInstances(
+  instances: DevInstance[],
+  lifecycle: InstanceLifecycle,
+): Promise<void> {
+  const failures: unknown[] = [];
+  for (const instance of [...instances].reverse()) {
+    try {
+      lifecycle.kill(instance);
+      await lifecycle.assertStopped(instance);
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(failures, "Playwright instance teardown leaked processes");
+  }
+}
+
 export function devInstanceForSlot(slot: number, workers = playwrightWorkerCount()): DevInstance {
   if (!Number.isInteger(slot) || slot < 0 || slot >= workers) {
     throw new Error(`Playwright worker slot ${slot} is outside 0..${workers - 1}`);
