@@ -12,10 +12,10 @@ set -euo pipefail
 PUSH_REFS="$(cat || true)"
 light_refs_only=1
 if [ -n "$PUSH_REFS" ]; then
-    while read -r local_ref _local_sha _remote_ref _remote_sha; do
+    while read -r local_ref _local_sha remote_ref _remote_sha; do
         [ -z "$local_ref" ] && continue
-        case "$local_ref" in
-            refs/heads/lane/*|refs/heads/release/*-candidate) ;;
+        case "$local_ref:$remote_ref" in
+            refs/heads/lane/*:*|refs/heads/release/*-candidate:*|*:refs/heads/lane/*|*:refs/heads/release/*-candidate) ;;
             *) light_refs_only=0 ;;
         esac
     done <<< "$PUSH_REFS"
