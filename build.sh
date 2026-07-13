@@ -61,6 +61,10 @@ kill_dev() {
     echo "Dry-run dev kill instance='${CT_INSTANCE:-default}' api=$CT_PORT vite=$CT_VITE_PORT cdp=$CT_CDP_PORT identifier=$CT_IDENTIFIER"
     return
   fi
+  mark_dev_clean_restart 2>/dev/null || true
+  if [ "${CODETERM_TEST_KILL_MARKER_ONLY:-0}" = "1" ]; then
+    return
+  fi
   kill_web_watch 2>/dev/null || true
   kill_dev_static_server 2>/dev/null || true
   local session_prefix="codeterm-dev${CT_SUFFIX}-"
@@ -103,6 +107,20 @@ kill_dev() {
     fi
     windows_dev_leftover_cleanup
   fi
+}
+
+mark_dev_clean_restart() {
+  local config="$CT_DATA_DIR/config.toml"
+  [ -f "$config" ] || return 1
+
+  local token
+  token=$(grep -E '^token = ' "$config" | head -1 | sed 's/.*"\(.*\)"/\1/')
+  [ -n "$token" ] || return 1
+
+  curl --fail --silent --show-error --max-time 3 \
+    -H "Authorization: Bearer $token" \
+    -X POST "http://127.0.0.1:$CT_PORT/api/debug/shutdown/mark-clean-restart" \
+    >/dev/null
 }
 
 CMD="${1:-dev}"

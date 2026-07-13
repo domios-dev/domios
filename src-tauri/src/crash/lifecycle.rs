@@ -102,9 +102,7 @@ pub fn record_startup() -> RecoveryState {
     let last_crash = pending
         .map(|pending| finalize_pending(pending, &current))
         .or_else(|| {
-            previous
-                .filter(|prev| !clean_matches(&clean, prev))
-                .map(|prev| classify_previous(prev, &current, now))
+            previous.and_then(|prev| classify_previous_if_unclean(prev, &clean, &current, now))
         });
 
     write_json(&current_path(), &current);
@@ -181,6 +179,15 @@ fn classify_previous(previous: ProcessEpoch, current: &ProcessEpoch, now: i64) -
     }
 }
 
+fn classify_previous_if_unclean(
+    previous: ProcessEpoch,
+    clean: &Option<CleanShutdownRecord>,
+    current: &ProcessEpoch,
+    now: i64,
+) -> Option<CrashRecord> {
+    (!clean_matches(clean, &previous)).then(|| classify_previous(previous, current, now))
+}
+
 fn finalize_pending(pending: PendingCrashRecord, current: &ProcessEpoch) -> CrashRecord {
     CrashRecord {
         classification: pending.classification,
@@ -208,6 +215,7 @@ fn clean_matches(clean: &Option<CleanShutdownRecord>, previous: &ProcessEpoch) -
         c.epoch.as_deref() == Some(previous.epoch.as_str())
             && c.pid == previous.pid
             && c.at >= previous.started_at
+            && c.at >= previous.last_healthy_at
     })
 }
 
@@ -327,6 +335,64 @@ mod tests {
             at: 30,
         });
         assert!(clean_matches(&clean, &previous));
+    }
+
+    #[test]
+    fn dev_kill_marker_suppresses_power_loss_for_matching_epoch() {
+        let previous = ProcessEpoch {
+            epoch: "dev-run".into(),
+            pid: 41,
+            started_at: 10,
+            last_healthy_at: 20,
+            build_hash: "old".into(),
+            platform: "windows".into(),
+        };
+        let clean = Some(CleanShutdownRecord {
+            reason: ShutdownReason::Restart,
+            epoch: Some("dev-run".into()),
+            pid: 41,
+            at: 30,
+        });
+        let current = ProcessEpoch {
+            epoch: "rebuilt-run".into(),
+            pid: 42,
+            started_at: 1_000,
+            last_healthy_at: 1_000,
+            build_hash: "new".into(),
+            platform: "windows".into(),
+        };
+
+        assert!(classify_previous_if_unclean(previous, &clean, &current, 1_000).is_none());
+    }
+
+    #[test]
+    fn marker_older_than_last_heartbeat_does_not_hide_real_crash() {
+        let previous = ProcessEpoch {
+            epoch: "dev-run".into(),
+            pid: 41,
+            started_at: 10,
+            last_healthy_at: 40,
+            build_hash: "old".into(),
+            platform: "windows".into(),
+        };
+        let clean = Some(CleanShutdownRecord {
+            reason: ShutdownReason::Restart,
+            epoch: Some("dev-run".into()),
+            pid: 41,
+            at: 30,
+        });
+        let current = ProcessEpoch {
+            epoch: "next-run".into(),
+            pid: 42,
+            started_at: 1_000,
+            last_healthy_at: 1_000,
+            build_hash: "new".into(),
+            platform: "windows".into(),
+        };
+
+        let crash = classify_previous_if_unclean(previous, &clean, &current, 1_000)
+            .expect("activity after the marker must remain a crash");
+        assert_eq!(crash.classification, CrashClassification::PowerLossOrKill);
     }
 
     #[test]
