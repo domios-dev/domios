@@ -19,6 +19,8 @@ use std::collections::HashMap;
 
 pub const OPEN: &str = "-=-codeterm:";
 pub const CLOSE: &str = "-=-";
+const BRACKETED_PASTE_START: &str = "\x1b[200~";
+const BRACKETED_PASTE_END: &str = "\x1b[201~";
 
 /// Percent-encode the structural characters that would otherwise break the
 /// marker head. Readable chars (incl. `/ . -`) pass through.
@@ -120,7 +122,13 @@ impl ParsedMarker {
 /// Parse a marker. Returns `None` unless the text starts with a CodeTerm marker
 /// frame — plain text falls through unchanged.
 pub fn parse(text: &str) -> Option<ParsedMarker> {
-    let rest = text.strip_prefix(OPEN)?;
+    let mut normalized = text.trim_start();
+    if let Some(stripped) = normalized.strip_prefix(BRACKETED_PASTE_START) {
+        normalized = stripped
+            .strip_suffix(BRACKETED_PASTE_END)
+            .unwrap_or(stripped);
+    }
+    let rest = normalized.strip_prefix(OPEN)?;
     let close = rest.find(CLOSE)?;
     let head = &rest[..close];
     let payload = &rest[close + CLOSE.len()..];
