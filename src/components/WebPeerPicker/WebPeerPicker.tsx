@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { resetWebEvents } from "../../lib/webEvents";
 import {
   formatLastActiveBadge,
@@ -13,7 +14,10 @@ import {
   resumePromptDismissed,
   setRelayTarget,
   selfHost,
+  invalidateWebRequestContext,
 } from "../../lib/webApi";
+
+let nextPeerSwitchId = 0;
 
 interface PeerAddress {
   ip: string;
@@ -45,6 +49,9 @@ export function WebPeerPicker() {
   const [peers, setPeers] = useState<PairedPeer[]>([]);
   const [open, setOpen] = useState(false);
   const [resumePeer, setResumePeer] = useState<PairedPeer | null>(null);
+  const [displayTarget, setDisplayTarget] = useState(relayTarget);
+  const [switchingTo, setSwitchingTo] = useState<string | null>(null);
+  const [switchFailed, setSwitchFailed] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async () => {
@@ -78,21 +85,42 @@ export function WebPeerPicker() {
     return () => window.removeEventListener("mousedown", close);
   }, [open]);
 
-  const target = relayTarget();
+  useEffect(() => {
+    const ready = (event: Event) => {
+      const detail = (event as CustomEvent<{ switchId: number; success: boolean }>).detail;
+      if (detail.switchId !== nextPeerSwitchId) return;
+      setDisplayTarget(relayTarget());
+      setSwitchingTo(null);
+      setSwitchFailed(!detail.success);
+    };
+    window.addEventListener("codeterm-peer-switch-ready", ready);
+    return () => window.removeEventListener("codeterm-peer-switch-ready", ready);
+  }, []);
+
+  const target = displayTarget;
   const onSelf = !target;
-  const label = onSelf ? "this host" : target.name;
+  const label = switchingTo ? `Connecting to ${switchingTo}` : onSelf ? "this host" : target.name;
 
   const switchTo = useCallback(
     (peer: PairedPeer | null) => {
+      const switchId = ++nextPeerSwitchId;
+      const nextName = peer?.instance_name ?? "this host";
+      setSwitchingTo(nextName);
+      setSwitchFailed(false);
+      invalidateWebRequestContext();
+      flushSync(() => {
+        window.dispatchEvent(new CustomEvent("codeterm-peer-switch-reset", { detail: { switchId } }));
+      });
       if (peer) {
         setRelayTarget(peer.instance_id, peer.instance_name);
       } else {
         clearRelayTarget();
       }
+      invalidateWebRequestContext();
       setOpen(false);
       setResumePeer(null);
       resetWebEvents();
-      window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
+      window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind", { detail: { switchId } }));
     },
     [],
   );
@@ -142,8 +170,8 @@ export function WebPeerPicker() {
         className="flex items-center gap-1.5 min-h-[44px] sm:min-h-0 sm:h-7 px-2.5 rounded text-xs text-[var(--ct-fg)] bg-[var(--ct-hover)] hover:bg-[var(--ct-active)] border border-[var(--ct-border)]"
         title="Switch CodeTerm host"
       >
-        <span className="w-2 h-2 rounded-full bg-[var(--ct-green,#3fb950)]" />
-        <span className="max-w-[120px] truncate">{label}</span>
+        <span className={`w-2 h-2 shrink-0 rounded-full ${switchingTo ? "animate-pulse bg-[var(--ct-muted,#8b949e)]" : switchFailed ? "bg-[var(--ct-red,#f85149)]" : "bg-[var(--ct-green,#3fb950)]"}`} />
+        <span className="max-w-[104px] truncate sm:max-w-[120px]">{label}</span>
         <span className="opacity-60 text-[9px]">▾</span>
       </button>
       {open && (

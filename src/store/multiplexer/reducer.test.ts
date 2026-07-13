@@ -80,6 +80,36 @@ test("snapshots without a generation still apply (back-compat)", () => {
   assert(next.active_workspace_id === "w-x", "ungenerationed snapshot applied");
 });
 
+test("peer switch reset removes every old-peer pane and selection immediately", () => {
+  const oldPane = { id: "blackstar-pane", title: "Planner" } as unknown as Pane;
+  const oldTab = { id: "blackstar-tab", pane_id: oldPane.id } as unknown as Tab;
+  const oldWorkspace = {
+    id: "blackstar-workspace",
+    name: "BLACKSTAR",
+    tabs: [oldTab],
+    active_tab_id: oldTab.id,
+    cwd: null,
+  } as unknown as Workspace;
+  const start: ExtendedState = {
+    ...base(),
+    workspaces: [oldWorkspace],
+    panes: { [oldPane.id]: oldPane },
+    active_workspace_id: oldWorkspace.id,
+    focused_pane_id: oldPane.id,
+    paneStatuses: { [oldPane.id]: "Working" },
+    activeTabIds: { [oldWorkspace.id]: oldTab.id },
+    generation: 42,
+  };
+
+  const reset = reducer(start, { type: "RESET_PEER_CONTEXT" });
+  assert(reset.workspaces.length === 0, "old peer workspaces cleared");
+  assert(Object.keys(reset.panes).length === 0, "old peer panes cleared");
+  assert(reset.active_workspace_id === null, "old active workspace cleared");
+  assert(reset.focused_pane_id === null, "old focused pane cleared");
+  assert(Object.keys(reset.activeTabIds).length === 0, "old active tabs cleared");
+  assert(reset.generation === -1, "new peer snapshot cannot be rejected by old peer generation");
+});
+
 test("SET_STATE seeds paneStatuses from the snapshot (reload hydration)", () => {
   const withStatus = { ...snap(5, "w-new"), pane_statuses: { "p-1": "Waiting" as const } };
   const next = reducer(base(), { type: "SET_STATE", state: withStatus });
