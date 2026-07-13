@@ -19,7 +19,7 @@ interface StateWs {
 }
 interface MuxState {
   workspaces: StateWs[];
-  panes: Record<string, { parent_pane_id?: string | null; protected?: boolean }>;
+  panes: Record<string, { hidden?: boolean; parent_pane_id?: string | null; protected?: boolean }>;
 }
 
 async function muxState(api: ApiClient): Promise<MuxState> {
@@ -54,7 +54,10 @@ async function topLevelOrder(api: ApiClient, wsId: string): Promise<string[]> {
   const ws = st.workspaces.find((w) => w.id === wsId);
   if (!ws) return [];
   return [...ws.tabs]
-    .filter((t) => !st.panes[t.pane_id]?.parent_pane_id)
+    .filter((t) => {
+      const pane = st.panes[t.pane_id];
+      return pane && pane.hidden !== true && !pane.parent_pane_id;
+    })
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
     .map((t) => t.id);
 }
