@@ -1516,7 +1516,7 @@
             {
               "name": "rel",
               "positional": false,
-              "value_name": "REL",
+              "value_name": "follows|supersedes",
               "default": null,
               "help": null,
               "aliases": []
@@ -7392,7 +7392,7 @@
                 {
                   "name": "depends-on",
                   "positional": false,
-                  "value_name": "DEPENDS_ON",
+                  "value_name": "TASK_ID_OR_HANDLE",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -8216,7 +8216,7 @@
                 {
                   "name": "depends-on",
                   "positional": false,
-                  "value_name": "DEPENDS_ON",
+                  "value_name": "TASK_ID_OR_HANDLE",
                   "default": null,
                   "help": null,
                   "aliases": []

@@ -200,7 +200,7 @@ mod tests {
         let rendered = render_doc("lanes", true, None, false).expect("LANES doc exists");
 
         assert!(rendered.contains("# Lane Lifecycle Standard"));
-        assert!(rendered.contains("Do not cherry-pick"));
+        assert!(rendered.contains("Do not silently cherry-pick"));
     }
 
     #[test]
