@@ -99,19 +99,19 @@ export function ToolOutputCard({
           <div className="mb-1 flex items-center gap-2">
             <button
               type="button"
+              onClick={copy}
+              className="rounded bg-transparent px-1 py-0 text-[10px] text-[var(--ct-accent)] hover:text-[var(--ct-fg)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]"
+            >
+              {copied ? "Copied" : "Copy full output"}
+            </button>
+            <button
+              type="button"
               onClick={() => setOpen(false)}
               aria-label={`Collapse ${label}`}
               aria-expanded="true"
               className="rounded bg-transparent px-1 py-0 text-[10px] text-[var(--ct-accent)] hover:text-[var(--ct-fg)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]"
             >
               Collapse ▾
-            </button>
-            <button
-              type="button"
-              onClick={copy}
-              className="rounded bg-transparent px-1 py-0 text-[10px] text-[var(--ct-accent)] hover:text-[var(--ct-fg)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]"
-            >
-              {copied ? "Copied" : "Copy full output"}
             </button>
           </div>
           <pre
