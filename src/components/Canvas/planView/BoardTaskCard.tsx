@@ -1,5 +1,5 @@
 import type { KeyboardEvent } from "react";
-import { GitBranch, Hash, History, User } from "lucide-react";
+import { ChevronRight, GitBranch, Hash, History, Layers, User } from "lucide-react";
 import { TASK_STATUS_COLORS } from "../settings";
 import type { BoardTaskCardModel } from "./boardModel";
 import { canonicalTaskStatusLabel } from "./taskStatusLabel";
@@ -72,6 +72,41 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
       <h4 data-testid="plan-board-task-title" className="plan-board-task-title">
         {task.name}
       </h4>
+      {card.locator && (
+        <div data-testid="plan-board-task-locator" className="plan-board-task-locator">
+          {card.locator.groupLabel && (
+            <span
+              className="plan-board-task-locator-group"
+              data-testid="plan-board-task-locator-group"
+              title={`Group: ${card.locator.groupLabel}`}
+            >
+              <span
+                className="plan-board-task-locator-dot"
+                style={{ background: card.locator.groupColor ?? "var(--ct-accent, #58a6ff)" }}
+                aria-hidden
+              />
+              <span className="plan-board-task-locator-group-label">{card.locator.groupLabel}</span>
+            </span>
+          )}
+          {card.locator.groupLabel && card.locator.section && (
+            <ChevronRight
+              size={9}
+              className="plan-board-task-locator-sep"
+              aria-hidden
+            />
+          )}
+          {card.locator.section && (
+            <span
+              className="plan-board-task-locator-section"
+              data-testid="plan-board-task-locator-section"
+              title={`Stage: ${card.locator.section}`}
+            >
+              <Layers size={9} className="plan-board-task-locator-section-icon" aria-hidden />
+              <span className="min-w-0 truncate">{card.locator.section}</span>
+            </span>
+          )}
+        </div>
+      )}
       <TaskExecutionBadges loop={card.loopBadge} competition={card.competeBadge} />
       <span
         data-testid="status-chip"

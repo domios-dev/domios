@@ -3039,6 +3039,53 @@ button.plan-peer-chip:focus-visible {
   color: var(--ct-fg);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-muted-fg) 35%, transparent);
 }
+/* Locator: the task's "what and where" — group (colored dot + label) › stage
+   (plan section). Quieter than the status chip; the group dot is the only hue. */
+.plan-board-task-locator {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  font-size: 0.58rem;
+  line-height: 1.3;
+  color: var(--ct-muted-fg);
+}
+.plan-board-task-locator-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.24rem;
+  flex-shrink: 0;
+  max-width: 48%;
+}
+.plan-board-task-locator-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ct-bg, #0d1117) 55%, transparent);
+}
+.plan-board-task-locator-group-label {
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--ct-fg) 78%, var(--ct-muted-fg));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plan-board-task-locator-sep {
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+.plan-board-task-locator-section {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.plan-board-task-locator-section-icon {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
 .task-execution-badges {
   display: inline-flex;
   align-items: center;
