@@ -1,25 +1,7 @@
 /**
- * Desktop event-freeze probe (task_uwkt7p). @quarantine so broad golden/full
- * sweeps skip it — run explicitly by file with --project=quarantine.
- *
- * "Window stops applying daemon events": create an eager pane via POST
- * /api/panes, then poll the desktop DOM for the pane's TAB in the sidebar
- * ([data-tab-id]). The sidebar renders every tab regardless of which is active,
- * so it is the true "did daemon state apply to the UI" surface — and it is the
- * exact surface that froze in occurrence #1 (sidebar showed long-closed tabs).
- * ([data-pane-id] is NOT usable: it only mounts the ACTIVE tab's content, and a
- * REST-created eager shell pane lands in a background tab — spawn_visible_shell_impl
- * creates the tab without activating it — so that node never appears even when
- * the event applied cleanly. rx>0 + emit_fires++ + pending=false proved that.)
- *
- * Test 1 (deterministic): force the mux_emit_pending latch via the debug
- * fault-injection route and prove bounded reconcile keeps the sidebar visible,
- * then reset and prove the normal emit path still works.
- * Test 2 (recovery): break the desktop subscription and prove its bounded
- * renewal reconciles a missed pane into the DOM. Test 3 soaks pane churn.
- *
- * Counters read both ends: Rust /api/debug/events/stats vs frontend
- * window.__ctEvents, so a stall is classified emit-side latch vs channel death.
+ * WHAT: Quarantined desktop event-delivery and recovery probes for task_uwkt7p.
+ * WHY: A stalled event stream previously froze sidebar state.
+ * ORACLE: Sidebar projection and frontend/backend counters reconcile after faults.
  */
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -85,7 +67,7 @@ async function tabInSidebar(page: Page, tabId: string, ms: number): Promise<bool
   return false;
 }
 
-test("@quarantine event-freeze: forced latch reconciles sidebar, reset recovers", async () => {
+test("@quarantine task_uwkt7p event-freeze: forced latch reconciles sidebar, reset recovers", async () => {
   test.setTimeout(120_000);
   const { browser, page } = await connectUi();
   try {
@@ -125,7 +107,7 @@ test("@quarantine event-freeze: forced latch reconciles sidebar, reset recovers"
   }
 });
 
-test("@quarantine event-freeze: broken desktop stream reconnects and reconciles sidebar", async () => {
+test("@quarantine task_uwkt7p event-freeze: broken desktop stream reconnects and reconciles sidebar", async () => {
   test.setTimeout(30_000);
   const { browser, page } = await connectUi();
   let pane: NewPane | null = null;
@@ -146,7 +128,7 @@ test("@quarantine event-freeze: broken desktop stream reconnects and reconciles 
   }
 });
 
-test("@quarantine event-freeze: 500x pane soak keeps sidebar applying events", async () => {
+test("@quarantine task_uwkt7p event-freeze: 500x pane soak keeps sidebar applying events", async () => {
   test.setTimeout(30 * 60_000);
   const { browser, page } = await connectUi();
   try {

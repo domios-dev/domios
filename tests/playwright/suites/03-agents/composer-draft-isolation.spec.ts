@@ -1,26 +1,7 @@
 /**
- * WHAT: a freshly-spawned orchestrator/planner pane opens with an EMPTY
- *       composer, and a composer draft never outlives the pane that owns it.
- * WHY: regression guard for the "stray unsubmitted text in a fresh
- *      orchestrator" defect. Root cause: composer drafts live in
- *      localStorage under `codeterm:composer-draft:pane-session-chat:<paneId>`
- *      (see src/lib/usePersistentDraft.ts + ChatComposer.tsx:296), are only
- *      ever cleared on a successful send, and are NEVER reclaimed when a pane
- *      closes. Pane ids are 32-bit `short_id()` and are reusable (claim /
- *      collision), so a new pane whose id matches a stale key inherits a prior
- *      pane's unsent text.
- * ORACLE:
- *   1. INVARIANT (deterministic, the real guard): a draft written for a pane
- *      that is then closed must not survive in localStorage — otherwise a
- *      future pane with the same id inherits it. RED before the fix (nothing
- *      GCs the key), GREEN after.
- *   2. E2E SANITY: a fresh picker pair-spawn's two composers are both empty and
- *      carry no pre-existing draft key.
- *
- * Run EXACTLY (needs a healthy dev on 7686; verify /api/health first):
- *   npx playwright test tests/playwright/suites/03-agents/composer-draft-isolation.spec.ts \
- *     --config=tests/playwright/playwright.config.ts --project=golden \
- *     --timeout=30000 --global-timeout=600000 --reporter=line
+ * WHAT: Fresh panes never inherit another pane's unsent composer draft.
+ * WHY: Pane ids can be reused, so closed-pane draft keys must be reclaimed.
+ * ORACLE: Closing clears its key; pair-spawn composers begin empty.
  */
 import { expect, test } from "../../helpers/fixtures";
 import { pollUntil } from "../../helpers/poll";
@@ -53,7 +34,7 @@ async function createTestWorkspace(api: ApiClient): Promise<Workspace> {
 }
 
 test.describe("@golden composer draft isolation", () => {
-  test("a draft never outlives the pane that owns it (no stale key to inherit)", async ({
+  test("@golden a draft never outlives the pane that owns it (no stale key to inherit)", async ({
     api,
     ui,
   }) => {
@@ -93,7 +74,7 @@ test.describe("@golden composer draft isolation", () => {
     await api.closeWorkspace(ws.id).catch(() => {});
   });
 
-  test("a fresh pair-spawn's composers are empty with no pre-existing draft", async ({
+  test("@golden a fresh pair-spawn's composers are empty with no pre-existing draft", async ({
     api,
     ui,
   }) => {
