@@ -133,12 +133,12 @@ fn test_build_claude_with_task() {
     let cmd = build_agent_command("claude", &params, Some("count files"), None, &reg);
     assert!(cmd.contains("--dangerously-skip-permissions"));
     assert!(cmd.contains(".ct-task-"), "task via temp file");
+    assert!(cmd.contains("--append-system-prompt-file"));
+    assert!(cmd.contains("Execute the CodeTerm task provided in the appended system prompt"));
     if cfg!(target_os = "windows") {
         assert!(cmd.contains("Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue;"));
-        assert!(cmd.contains("(Get-Content"));
     } else {
         assert!(cmd.contains("unset CLAUDECODE &&"));
-        assert!(cmd.contains("$(cat /tmp/"));
     }
 }
 
