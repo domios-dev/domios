@@ -131,10 +131,10 @@ pub async fn mark_clean_restart(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    if !cfg!(debug_assertions) || std::env::var("CODETERM_TEST_CLOCK").as_deref() != Ok("1") {
+    if !cfg!(debug_assertions) {
         return Err((
             StatusCode::CONFLICT,
-            "clean restart marker is only available in debug test-clock runs".to_string(),
+            "clean restart marker is only available in debug builds".to_string(),
         ));
     }
     crate::crash::record_clean_shutdown(crate::crash::lifecycle::ShutdownReason::Restart);
