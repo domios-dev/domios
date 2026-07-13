@@ -1,5 +1,15 @@
-import { allDevInstances, playwrightWorkerCount } from "./dev-instance";
+import {
+  allDevInstances,
+  playwrightWorkerCount,
+  teardownInstances,
+  type InstanceLifecycle,
+} from "./dev-instance";
 import { assertDevConsoleStopped, ensureDevConsole, killDevConsole } from "./dev-console";
+
+const LIFECYCLE: InstanceLifecycle = {
+  kill: killDevConsole,
+  assertStopped: assertDevConsoleStopped,
+};
 
 export default async function globalSetup(): Promise<void | (() => Promise<void>)> {
   const instances = allDevInstances();
@@ -17,24 +27,9 @@ export default async function globalSetup(): Promise<void | (() => Promise<void>
       await ensureDevConsole(instance);
     }
   } catch (error) {
-    await stopInstances(attempted);
+    await teardownInstances(attempted, LIFECYCLE);
     throw error;
   }
 
-  return async () => stopInstances(instances);
-}
-
-async function stopInstances(instances: ReturnType<typeof allDevInstances>): Promise<void> {
-  const failures: unknown[] = [];
-  for (const instance of [...instances].reverse()) {
-    killDevConsole(instance);
-    try {
-      await assertDevConsoleStopped(instance);
-    } catch (error) {
-      failures.push(error);
-    }
-  }
-  if (failures.length > 0) {
-    throw new AggregateError(failures, "Playwright instance teardown leaked processes");
-  }
+  return async () => teardownInstances(instances, LIFECYCLE);
 }
