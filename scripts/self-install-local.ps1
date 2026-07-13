@@ -14,10 +14,16 @@ param(
 
     [switch]$Resume,
 
-    [switch]$Worker
+    [switch]$Worker,
+
+    [string]$LogPath
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $LogPath) {
+    $LogPath = Join-Path $env:TEMP 'codeterm-self-install.log'
+}
 
 if (-not (Test-Path $Installer)) {
     Write-Error "Installer not found: $Installer"
@@ -26,19 +32,24 @@ if (-not (Test-Path $Installer)) {
 
 $scriptPath = $PSCommandPath
 if (-not $Worker) {
+    $outLog = "$LogPath.out"
+    $errLog = "$LogPath.err"
+    Remove-Item -LiteralPath $outLog, $errLog -ErrorAction SilentlyContinue
     $args = @(
         '-NoProfile',
         '-ExecutionPolicy', 'Bypass',
         '-File', "`"$scriptPath`"",
         '-Installer', "`"$((Resolve-Path $Installer).Path)`"",
-        '-Worker'
+        '-Worker',
+        '-LogPath', "`"$LogPath`""
     )
     if ($Resume) {
         $args += '-Resume'
     }
     Write-Host "[self-install] Spawning detached installer helper..."
-    Start-Process -FilePath 'powershell.exe' -ArgumentList $args -WindowStyle Hidden | Out-Null
+    Start-Process -FilePath 'powershell.exe' -ArgumentList $args -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog | Out-Null
     Write-Host "[self-install] Helper started. This CodeTerm instance will restart."
+    Write-Host "[self-install] Logs: $outLog / $errLog"
     exit 0
 }
 
