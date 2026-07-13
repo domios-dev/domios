@@ -20,9 +20,64 @@ const WAVEFORM_BARS = 48;
 const LIVE_WAVEFORM_BARS = 56;
 const STOP_TRAILING_MS = 250;
 const START_WARMUP_MS = 150;
+const WARM_STREAM_IDLE_STOP_MS = 30_000;
+
+let cachedWarmStream: MediaStream | null = null;
+let warmStreamStopTimer: ReturnType<typeof setTimeout> | null = null;
+let warmStreamUsers = 0;
 
 function quietLiveWaveform(): number[] {
   return new Array(LIVE_WAVEFORM_BARS).fill(0.1);
+}
+
+function clearWarmStreamStopTimer() {
+  if (warmStreamStopTimer != null) {
+    clearTimeout(warmStreamStopTimer);
+    warmStreamStopTimer = null;
+  }
+}
+
+function hasLiveAudioTrack(stream: MediaStream | null): stream is MediaStream {
+  return stream?.getAudioTracks().some((t) => t.readyState === "live") ?? false;
+}
+
+function stopWarmStreamNow() {
+  clearWarmStreamStopTimer();
+  cachedWarmStream?.getTracks().forEach((t) => t.stop());
+  cachedWarmStream = null;
+}
+
+function scheduleWarmStreamStop() {
+  if (warmStreamUsers > 0) return;
+  clearWarmStreamStopTimer();
+  warmStreamStopTimer = setTimeout(() => {
+    warmStreamStopTimer = null;
+    stopWarmStreamNow();
+  }, WARM_STREAM_IDLE_STOP_MS);
+}
+
+export function retainWarmStreamUser() {
+  warmStreamUsers += 1;
+  clearWarmStreamStopTimer();
+}
+
+export function releaseWarmStreamUser() {
+  warmStreamUsers = Math.max(0, warmStreamUsers - 1);
+  scheduleWarmStreamStop();
+}
+
+export async function acquireWarmStreamForRecorder(): Promise<MediaStream> {
+  clearWarmStreamStopTimer();
+  if (hasLiveAudioTrack(cachedWarmStream)) return cachedWarmStream;
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  cachedWarmStream = stream;
+  await new Promise((r) => setTimeout(r, START_WARMUP_MS));
+  return stream;
+}
+
+export function resetWarmStreamForTest() {
+  warmStreamUsers = 0;
+  stopWarmStreamNow();
 }
 
 /** Downsample the raw per-tick peaks captured while recording into a fixed
@@ -93,15 +148,18 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
   }
 
   useEffect(
-    () => () => {
-      clearStopTimer();
-      recRef.current?.stop();
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      teardownAnalyser();
-      setPreview((p) => {
-        if (p) URL.revokeObjectURL(p.url);
-        return null;
-      });
+    () => {
+      retainWarmStreamUser();
+      return () => {
+        clearStopTimer();
+        recRef.current?.stop();
+        releaseWarmStreamUser();
+        teardownAnalyser();
+        setPreview((p) => {
+          if (p) URL.revokeObjectURL(p.url);
+          return null;
+        });
+      };
     },
     [],
   );
@@ -117,13 +175,13 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
   }
 
   async function acquireWarmStream(): Promise<MediaStream> {
-    const warm = streamRef.current;
-    if (warm && warm.getAudioTracks().some((t) => t.readyState === "live")) {
+    const warm = hasLiveAudioTrack(streamRef.current) ? streamRef.current : cachedWarmStream;
+    if (hasLiveAudioTrack(warm)) {
+      streamRef.current = warm;
       return warm;
     }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await acquireWarmStreamForRecorder();
     streamRef.current = stream;
-    await new Promise((r) => window.setTimeout(r, START_WARMUP_MS));
     return stream;
   }
 
@@ -307,7 +365,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
       setRecording(true);
       return true;
     } catch (e) {
-      streamRef.current?.getTracks().forEach((t) => t.stop());
+      stopWarmStreamNow();
       streamRef.current = null;
       teardownAnalyser();
       setLivePeaks(quietLiveWaveform());
