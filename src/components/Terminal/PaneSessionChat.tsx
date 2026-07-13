@@ -31,6 +31,7 @@ import { useChatSession, isCodeTermFrontendTestMode } from "./useChatSession";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
+import { ChatSetupState, chatSetupView } from "./ChatSetupState";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { reattachPaneChat } from "./chatReattach";
 import { planRefViewState } from "./planRefViewState";
@@ -123,6 +124,7 @@ export function PaneSessionChat({
   const { index: planIndex } = usePlanIndexOptional();
   const paneProvider = pane?.agent_type ?? null;
   const provider = usePaneProvider(pane);
+  const bootSetupView = chatSetupView(pane);
   const shellSessionModel = useShellSessionModel(pane);
   const tabModel = pane?.agent_session_model ?? shellSessionModel;
   const workingModelBadge = tabModel ? formatModelBadge(tabModel) : null;
@@ -512,12 +514,23 @@ export function PaneSessionChat({
           </div>
         )}
         {deferredEnrichedMessages.length === 0 && !inlinePrompt && liveAgentState.state !== "question" && (
-          <div
-            className="opacity-50 text-center py-8 text-sm"
-            data-testid={recovering ? "chat-recovering-state" : "chat-empty-state"}
-          >
-            {recovering ? "Recovering chat history…" : "No messages yet."}
-          </div>
+          recovering ? (
+            <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-recovering-state">
+              Recovering chat history…
+            </div>
+          ) : bootSetupView.kind !== "none" ? (
+            <ChatSetupState
+              pane={pane}
+              view={bootSetupView}
+              providerId={provider?.id}
+              providerName={provider?.displayName ?? "the agent"}
+              onOpenTerminal={onOpenTerminalFallback}
+            />
+          ) : (
+            <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-empty-state">
+              No messages yet.
+            </div>
+          )
         )}
         {deferredEnrichedMessages.map(({ msg, origin }) => {
           let onOriginClick: (() => void) | undefined;
