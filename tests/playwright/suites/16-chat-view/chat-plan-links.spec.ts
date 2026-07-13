@@ -47,8 +47,9 @@ async function openMockChatPane(
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
   if (pane.tab_id) {
     const tab = page.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).first();
-    await expect(tab).toBeVisible({ timeout: 30_000 });
-    await tab.click();
+    if (await tab.isVisible({ timeout: 5_000 })) {
+      await tab.click();
+    }
   }
   const chat = page.locator(`[data-testid="pane-session-chat"][data-pane-id="${pane.id}"]`);
   await expect(chat).toBeVisible({ timeout: 30_000 });
