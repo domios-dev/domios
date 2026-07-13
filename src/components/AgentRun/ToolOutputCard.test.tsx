@@ -76,6 +76,17 @@ test("copy full output uses the exact stored payload and error status stays outs
   await act(async () => root.unmount());
 });
 
+test("copy button precedes collapse in keyboard order", async () => {
+  const payload = `{"value":"${"x".repeat(600)}"}`;
+  const { host, root } = await render(<ToolOutputCard kind="call" toolName="exec" payload={payload} />);
+  const expand = host.querySelector('button[aria-label="Expand full exec call"]') as HTMLButtonElement;
+  await act(async () => expand.click());
+  const buttons = Array.from(host.querySelectorAll("button")).map((button) => button.textContent?.trim());
+  assert(buttons[0] === "Copy full output", "copy must be first in expanded keyboard order");
+  assert(buttons[1] === "Collapse ▾", "collapse must follow copy for Tab then Enter");
+  await act(async () => root.unmount());
+});
+
 async function main() {
   let failed = 0;
   for (const [name, fn] of tests) {
