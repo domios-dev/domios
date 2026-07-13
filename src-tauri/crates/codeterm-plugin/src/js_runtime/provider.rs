@@ -601,11 +601,13 @@ impl AgentProvider for JsProvider {
             Some(super::CwdEncoding::DashEncoded) => codeterm_paths::canonical_cwd(cwd),
             _ => cwd.to_string(),
         };
-        let s: Option<String> = self.try_call(
+        self.try_call::<Option<String>>(
             "sessionJsonlPath",
             &[serde_json::json!(resolved), serde_json::json!(session_id)],
-        );
-        s.filter(|p| !p.is_empty()).map(std::path::PathBuf::from)
+        )
+        .flatten()
+        .filter(|path| !path.is_empty())
+        .map(std::path::PathBuf::from)
     }
 
     fn uses_structured_chat(&self) -> bool {
