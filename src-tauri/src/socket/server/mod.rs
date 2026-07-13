@@ -40,7 +40,7 @@ mod services;
 mod spec;
 mod workspace;
 
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
@@ -327,11 +327,10 @@ fn handle_connection(
                     Err(e) => JsonRpcResponse::error(None, -32700, format!("Parse error: {}", e)),
                 };
 
-                if let Ok(json) = serde_json::to_string(&response) {
-                    let writer = reader.get_mut();
-                    let _ = writer.write_all(json.as_bytes());
-                    let _ = writer.write_all(b"\n");
-                    let _ = writer.flush();
+                if let Ok(keep_open) = write_json_rpc_response(reader.get_mut(), &response) {
+                    if !keep_open {
+                        break;
+                    }
                 }
             }
             Err(e) => {
@@ -340,6 +339,41 @@ fn handle_connection(
             }
         }
     }
+}
+
+fn write_json_rpc_response(
+    writer: &mut impl Write,
+    response: &JsonRpcResponse,
+) -> io::Result<bool> {
+    let json = serde_json::to_string(response).map_err(io::Error::other)?;
+    match write_response_line(writer, json.as_bytes()) {
+        Ok(()) => Ok(true),
+        Err(e) if is_disconnected_client(&e) => {
+            log::debug!("Socket client disconnected before response write: {}", e);
+            Ok(false)
+        }
+        Err(e) => {
+            log::error!("Socket response write error: {}", e);
+            Err(e)
+        }
+    }
+}
+
+fn write_response_line(writer: &mut impl Write, bytes: &[u8]) -> io::Result<()> {
+    writer.write_all(bytes)?;
+    writer.write_all(b"\n")?;
+    writer.flush()
+}
+
+fn is_disconnected_client(e: &io::Error) -> bool {
+    matches!(
+        e.kind(),
+        io::ErrorKind::BrokenPipe
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::NotConnected
+            | io::ErrorKind::UnexpectedEof
+    )
 }
 
 // ── Dispatch ────────────────────────────────────────────────────────
@@ -566,4 +600,104 @@ pub(super) fn get_string_param(
             message: format!("Missing required parameter: {}", key),
             data: None,
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    struct FailingWriter {
+        kind: io::ErrorKind,
+    }
+
+    impl Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(self.kind, "test disconnect"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn test_response() -> JsonRpcResponse {
+        JsonRpcResponse::success(Some(serde_json::json!(1)), serde_json::json!({"ok": true}))
+    }
+
+    #[test]
+    fn disconnected_response_write_closes_connection_without_error() {
+        for kind in [
+            io::ErrorKind::BrokenPipe,
+            io::ErrorKind::ConnectionReset,
+            io::ErrorKind::ConnectionAborted,
+            io::ErrorKind::NotConnected,
+            io::ErrorKind::UnexpectedEof,
+        ] {
+            let mut writer = FailingWriter { kind };
+            let keep_open = write_json_rpc_response(&mut writer, &test_response()).unwrap();
+            assert!(
+                !keep_open,
+                "{kind:?} should close only the client connection"
+            );
+        }
+    }
+
+    #[test]
+    fn normal_response_write_stays_open() {
+        let mut out = Vec::new();
+        let keep_open = write_json_rpc_response(&mut out, &test_response()).unwrap();
+        assert!(keep_open);
+        let line = std::str::from_utf8(&out).unwrap();
+        assert!(line.ends_with('\n'));
+        assert!(line.contains("\"result\":{\"ok\":true}"));
+    }
+
+    #[test]
+    fn local_socket_response_write_survives_client_disconnect() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let socket_name = format!(
+            "{}-disconnect-repro-{}-{}.sock",
+            crate::paths::socket_prefix(),
+            std::process::id(),
+            nonce
+        );
+
+        let server_name = socket_name
+            .clone()
+            .to_ns_name::<GenericNamespaced>()
+            .unwrap();
+        let listener = ListenerOptions::new()
+            .name(server_name)
+            .create_sync()
+            .unwrap();
+        let client_name = socket_name.to_ns_name::<GenericNamespaced>().unwrap();
+        let (accepted_tx, accepted_rx) = mpsc::channel();
+
+        let server = std::thread::spawn(move || {
+            let mut stream = listener.incoming().next().unwrap().unwrap();
+            accepted_tx.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(100));
+            write_json_rpc_response(&mut stream, &test_response())
+        });
+
+        let client = interprocess::local_socket::Stream::connect(client_name).unwrap();
+        accepted_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        drop(client);
+
+        let keep_open = server.join().unwrap().unwrap();
+        assert!(
+            !keep_open,
+            "disconnected local-socket client must end only its connection"
+        );
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = std::fs::remove_file(format!("/tmp/{socket_name}"));
+        }
+    }
 }
