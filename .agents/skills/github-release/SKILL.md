@@ -225,7 +225,9 @@ Clean old orchestration state before the PR: close finished worker panes, remove
 worktrees under `../codeterm-worktrees/`, and leave only documented stashes/lane directories.
 Run `scripts/merge-stack-audit.sh --target <release-head> <accepted-lane-ref>...`
 before final QA; stale patch-landed refs or unlanded accepted lanes must be
-merged, deleted as superseded, or explicitly deferred before the master PR.
+merged, explicitly recorded as superseded, or deferred before the master PR.
+Patch-equivalent stale refs are not ancestry proof and must not be silently
+deleted without that superseded record.
 
 ### 2. Merge to master by PR + push the release trigger tag
 

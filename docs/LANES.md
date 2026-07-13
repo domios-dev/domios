@@ -28,12 +28,13 @@ about lifecycle and evidence, not CodeTerm's own repository layout.
    to that gate; design changes bounce to the worker.
 6. Integrate by merging or rebasing unmerged lane work into the integration
    target. Do not silently cherry-pick accepted work. If emergency patch-landing
-   is unavoidable, prove patch equivalence, record the landing SHA, then delete
-   the lane ref and worktree before the task is closed.
+   is unavoidable, prove patch equivalence, record the landing SHA, and record
+   an explicit superseded verdict before deleting the lane ref/worktree.
 7. Run `scripts/merge-stack-audit.sh --target <candidate> <accepted-lane>...`
    before final QA and the master PR. `MERGED` is clean; `PATCH_LANDED_STALE`
-   or `UNLANDED` is a release gate failure until the lane is merged, deleted as
-   superseded, or explicitly deferred with a recorded reason.
+   is only patch-equivalence evidence, not ancestry proof. `PATCH_LANDED_STALE`
+   and `UNLANDED` both fail the release gate until the lane is merged, recorded
+   as superseded, or explicitly deferred with a reason.
 8. After acceptance, immediately remove merged branches, clean worktrees, stop
    lane-specific dev daemons, and record cleanup status. Deletion-only branch
    pushes must not run build gates.

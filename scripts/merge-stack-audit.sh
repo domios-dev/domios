@@ -7,11 +7,11 @@ Usage: scripts/merge-stack-audit.sh [--target REF] [--refs-file FILE] [--report-
 
 Classify accepted lane refs against a release candidate:
   MERGED              ref is an ancestor of the target
-  PATCH_LANDED_STALE  patch-equivalent to target, but the lane ref still exists
+  PATCH_LANDED_STALE  patch-equivalent by git cherry, but the lane ref still exists
   UNLANDED            contains commits not present in target
 
-The gate fails on PATCH_LANDED_STALE and UNLANDED. A patch-landed lane is clean
-only after its ref/worktree are deleted or a real merge records ancestry.
+The gate fails on PATCH_LANDED_STALE and UNLANDED. Patch equivalence is not
+ancestry proof; clean up only after a real merge or an explicit superseded record.
 EOF
 }
 
@@ -56,7 +56,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -n "$refs_file" ]; then
-  while IFS= read -r ref; do
+  while IFS= read -r ref || [ -n "$ref" ]; do
     case "$ref" in
       ""|\#*) continue ;;
       *) refs+=("$ref") ;;
