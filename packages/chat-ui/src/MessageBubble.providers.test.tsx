@@ -104,7 +104,7 @@ async function renderTranscript(fixture: ProviderTranscriptFixture): Promise<{
   return { host, root };
 }
 
-async function renderMessages(messages: NormalizedChatMessage[]): Promise<{
+async function renderMessages(messages: NormalizedChatMessage[], latestFailedToolCallId?: string): Promise<{
   host: HTMLElement;
   root: Root;
 }> {
@@ -115,7 +115,11 @@ async function renderMessages(messages: NormalizedChatMessage[]): Promise<{
     root.render(
       <div>
         {attachToolResults(messages).map((message) => (
-          <MessageBubble key={message.id} message={message} />
+          <MessageBubble
+            key={message.id}
+            message={message}
+            isLatestFailedToolCall={message.id === latestFailedToolCallId}
+          />
         ))}
       </div>,
     );
@@ -413,6 +417,70 @@ test("chatBackend exec tool_call renders command card and attached result", asyn
       !buttons(host).some((button) => (button.textContent ?? "").includes("Exit code: 0")),
       "paired tool_result should not render as a separate result button",
     );
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("shell transcript exposes stable tool-call markers while hiding attached result rows", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "tool-user-1",
+      provider: "test",
+      type: "user",
+      content: "run a command",
+      timestamp: "1700003000001",
+    },
+    {
+      id: "tool-call-1",
+      provider: "test",
+      type: "tool_call",
+      content: "exec",
+      timestamp: "1700003000002",
+      toolName: "shell",
+      toolInput: { command: "echo ok" },
+      toolId: "call-1",
+    },
+    {
+      id: "tool-result-1",
+      provider: "test",
+      type: "tool_result",
+      content: "ok",
+      timestamp: "1700003000003",
+      toolId: "call-1",
+      toolResult: "ok",
+    },
+    {
+      id: "tool-call-failed-old",
+      provider: "test",
+      type: "tool_call",
+      content: "old failure",
+      timestamp: "1700003000004",
+      toolName: "shell",
+      toolInput: { command: "exit 1" },
+      toolId: "call-old",
+      toolError: true,
+    },
+    {
+      id: "tool-call-failed-latest",
+      provider: "test",
+      type: "tool_call",
+      content: "latest failure",
+      timestamp: "1700003000005",
+      toolName: "shell",
+      toolInput: { command: "exit 2" },
+      toolId: "call-latest",
+      toolError: true,
+    },
+  ], "tool-call-failed-latest");
+  try {
+    assert(host.querySelectorAll('[data-testid="chat-tool-call"]').length === 3, "expected one stable marker per shell tool_call");
+    assert(host.querySelectorAll('[data-testid="chatbackend-tool-exec"]').length === 3, "shell tools still render as curated exec cards");
+    assertIncludes(host, "run a command", "user message");
+    assertIncludes(host, "ok", "attached tool result preview");
+    assertIncludes(host, "latest failure", "latest failed tool content");
+    assert(!host.querySelector('[data-message-role="tool_result"]'), "attached tool_result should not render as a separate row");
   } finally {
     await act(async () => root.unmount());
     host.remove();
