@@ -112,12 +112,12 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
       return (
         <>
           <RichMarkdown text={message.content} fontScale={fontScale} />
-          <PlanRefCards text={message.content} onOpenPlan={onOpenPlan} />
+          <PlanRefCards text={message.content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         </>
       );
     }
     return null;
-  }, [message.type, message.content, fontScale, onOpenPlan]);
+  }, [message.type, message.content, fontScale, onOpenPlan, resolvePlanRef]);
 
   const handleImageClick = useCallback((att: ImageAttachment) => {
     setViewingImage(att);

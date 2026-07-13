@@ -157,7 +157,7 @@ test("@golden chat-task-link cross-workspace Enter opens plan-view-shell and foc
   const missingLink = chat.locator('[data-testid="chat-plan-link"]').filter({ hasText: missingPlanId }).first();
   await expect(missingLink).toBeVisible({ timeout: 30_000 });
   await expect(missingLink).toHaveAttribute("data-ref-state", "missing");
-  await missingLink.click();
+  await expect(missingLink).toBeDisabled();
   await expect
     .poll(async () => (await api.workspaces()).find((workspace) => workspace.id === workspaceA.id)?.is_active ?? false, { timeout: 10_000 })
     .toBe(true);
