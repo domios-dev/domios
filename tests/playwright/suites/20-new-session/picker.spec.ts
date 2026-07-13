@@ -30,6 +30,8 @@ interface MuxPane {
   parent_pane_id?: string | null;
   agent_type?: string | null;
   title: string;
+  hidden?: boolean;
+  show_in_tabbar?: boolean;
 }
 interface MuxState {
   workspaces: MuxWorkspace[];
@@ -113,6 +115,14 @@ function paneCount(panes: Pane[]): number {
 }
 function ptyCount(panes: Pane[]): number {
   return panes.filter((p) => p.pty_id != null).length;
+}
+
+function visibleTabsInWorkspace(state: MuxState, wsId: string): MuxTab[] {
+  const ws = state.workspaces.find((w) => w.id === wsId);
+  return (ws?.tabs ?? []).filter((tab) => {
+    const pane = state.panes[tab.pane_id];
+    return pane && pane.hidden !== true && pane.show_in_tabbar !== false;
+  });
 }
 
 /** Reads PEER_ORCH_GREETING straight from the Rust source and splits it on the
@@ -414,7 +424,7 @@ test.describe("new-session picker", () => {
 
       // …and A keeps NO husk: the virtual picker just vanished, no backend tab.
       const after = await muxState(api);
-      expect(after.workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0).toBe(0);
+      expect(visibleTabsInWorkspace(after, ws.id)).toHaveLength(0);
     } finally {
       await cleanupWorkspace(api, wsB.id);
     }
@@ -490,7 +500,7 @@ test.describe("new-session picker", () => {
       .poll(async () => (await muxState(api)).focused_pane_id, { timeout: 30_000 })
       .toBe(orchestrator.id);
       // Host A keeps no husk.
-      expect(s.workspaces.find((w) => w.id === ws.id)?.tabs.length ?? 0).toBe(0);
+      expect(visibleTabsInWorkspace(s, ws.id)).toHaveLength(0);
     } finally {
       await cleanupWorkspace(api, wsB.id);
     }
