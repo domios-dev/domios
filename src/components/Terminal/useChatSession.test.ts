@@ -6,6 +6,7 @@ import {
   resetTestChatClockForCodeTerm,
   testChatReplyPayload,
 } from "./useChatSession";
+import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
 function assert(condition: unknown, label: string): asserts condition {
   if (!condition) throw new Error(label);
@@ -71,7 +72,7 @@ getTestChatHandle()?.reply("pane-a", "from handle");
 
 assert(seen === "from handle", "test chat handle dispatches reply event");
 
-let structured: any[] | null = null;
+let structured: NormalizedChatMessage[] | null = null;
 let order = 0;
 getTestChatHandle()?.pushMessages("pane-late", [{
   id: "queued-after-reload",
@@ -88,8 +89,9 @@ const unlistenLate = listenForTestChatReplies(
   () => order++,
 );
 
+const drainedStructured = structured as NormalizedChatMessage[] | null;
 assert(
-  structured?.some((message) => message.id === "queued-after-reload" && message.clientOrder === 0),
+  drainedStructured?.some((message) => message.id === "queued-after-reload" && message.clientOrder === 0),
   "queued test chat message drains when pane listener mounts after reload",
 );
 unlistenLate?.();
