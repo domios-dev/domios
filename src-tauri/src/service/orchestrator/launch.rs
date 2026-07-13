@@ -318,12 +318,6 @@ pub(crate) fn build_agent_command(
             parts.extend(args.iter().cloned());
             parts.join(" ")
         });
-    log::info!(
-        "[spawn] build_agent_command provider={} model={:?} resume={:?} cmd={}",
-        agent_cmd,
-        params.model,
-        params.resume_session_id,
-        cmd
-    );
+    crate::service::launch_diagnostics::log_launch("visible_agent", "-", agent_cmd, &cmd, task);
     cmd
 }

@@ -314,6 +314,11 @@ export function parseDream(body: string): ParsedDream {
   return { insight: body.trim(), log: null, icon: null, mood: null };
 }
 
+export function hasRenderableDreamInsight(body: string | null | undefined): boolean {
+  if (!body) return false;
+  return parseDream(body).insight.trim().length > 0;
+}
+
 // Map allowed icon slugs to Lucide components.
 // Keep this list closed to prompt-discovered values.
 const NAMED_ICONS: Record<string, LucideIcon> = {

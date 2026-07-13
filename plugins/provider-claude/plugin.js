@@ -874,6 +874,7 @@ var NOISE_FRAGMENTS = [
   "Monthly spend limit",
   "hold Space"
 ];
+var FILE_TASK_PROMPT = "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
 function xmlTagBody(content, tag) {
   const open = `<${tag}>`;
   const close = `</${tag}>`;
@@ -1025,8 +1026,15 @@ var plugin = {
     }
     if (p.task) {
       const visiblePath = writeTaskTempFile(p.task);
-      parts.push("--");
-      parts.push(win ? `"$(Get-Content '` + visiblePath + `' -Raw -Encoding UTF8)"` : '"$(cat ' + visiblePath + ')"');
+      if (win) {
+        parts.push("--append-system-prompt-file");
+        parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
+        parts.push("--");
+        parts.push(host.shell.quoteFor(FILE_TASK_PROMPT, host.platform()));
+      } else {
+        parts.push("--");
+        parts.push('"$(cat ' + visiblePath + ')"');
+      }
     }
     return parts.join(" ");
   },
