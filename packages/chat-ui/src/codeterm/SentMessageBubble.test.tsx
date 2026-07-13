@@ -125,6 +125,44 @@ await (async () => {
   );
 })();
 
+// inbound current-pane marker resolves placeholder labels from pane id
+await (async () => {
+  const host = await render(
+    <MessageBubble
+      message={{
+        id: "inbound-current-pane",
+        provider: "codex",
+        type: "user",
+        content: "hello self",
+      }}
+      origin={{ kind: "pane", title: "CURRENT PANE", paneIdShort: "915fae8e", model: "codex" }}
+      resolvePaneName={(r) => (r === "915fae8e" ? "Puccini" : undefined)}
+    />,
+  );
+  const header = host.querySelector('[data-testid="chat-cross-pane-shell"]') as HTMLElement | null;
+  const text = header?.textContent ?? "";
+  assert(text.includes("Puccini"), "current-pane marker renders resolved recipient name");
+  assert(!text.includes("CURRENT PANE"), "current-pane marker placeholder is replaced");
+})();
+
+// inbound current-pane structured metadata falls back to pane id when label is blank
+await (async () => {
+  const host = await render(
+    <MessageBubble
+      message={{
+        id: "inbound-current-pane-blank",
+        provider: "codex",
+        type: "user",
+        content: "hello self",
+        fromLabel: "",
+        fromPane: "915fae8e",
+        inboundKind: "pane",
+      }}
+    />,
+  );
+  assert((host.textContent ?? "").includes("915fae8e"), "blank current-pane label falls back to short pane id");
+})();
+
 // pane-name fallback when unresolvable
 await (async () => {
   const host = await render(<SentMessageBubble inv={inv(`codeterm send --pane 915fae8e "hi"`)} />);

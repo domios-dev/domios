@@ -34,6 +34,8 @@ export {
   MARKER_CLOSE,
   buildMarker,
   parseMarker,
+  isPaneMarkerPlaceholderLabel,
+  shortPaneRef,
   markVoice,
   markPhoto,
   markAttachment,
