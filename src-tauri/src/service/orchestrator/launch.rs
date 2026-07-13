@@ -40,6 +40,52 @@ pub(crate) fn role_onboarding_task(
 pub(crate) use crate::agent::provider::{AgentLaunchParams, ReadinessStrategy, TaskDelivery};
 pub(crate) use crate::agent::registry::AgentRegistry;
 
+fn replacement_pty_candidate(
+    linked_pty_id: Option<&str>,
+    closed_pty_id: &str,
+    session_exists: bool,
+) -> Option<String> {
+    linked_pty_id
+        .filter(|candidate| *candidate != closed_pty_id && session_exists)
+        .map(str::to_string)
+}
+
+fn await_replacement_pty(
+    svc: &ServiceContext,
+    pane_id: &str,
+    closed_pty_id: &str,
+    timeout: std::time::Duration,
+) -> Option<String> {
+    #[cfg(not(windows))]
+    {
+        let _ = (svc, pane_id, closed_pty_id, timeout);
+        None
+    }
+    #[cfg(windows)]
+    {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let linked = svc
+                .mux
+                .read()
+                .get_pane(pane_id)
+                .and_then(|pane| pane.pty_id.clone());
+            let session_exists = linked
+                .as_deref()
+                .is_some_and(|pty_id| svc.pty.lock().get_session(pty_id).is_some());
+            if let Some(candidate) =
+                replacement_pty_candidate(linked.as_deref(), closed_pty_id, session_exists)
+            {
+                return Some(candidate);
+            }
+            if std::time::Instant::now() >= deadline {
+                return None;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+}
+
 /// Shared background thread logic for launching agents in a PTY.
 /// Uses the AgentRegistry to determine readiness strategy and task delivery.
 #[allow(clippy::too_many_arguments)]
@@ -67,7 +113,7 @@ pub(crate) fn launch_agent_in_background(
         };
         // 1. Wait for PTY (frontend creates it after mux-state-changed). If frontend doesn't create it (cron/headless tabs), spawn from backend.
         let frontend_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        let pty_id = loop {
+        let mut pty_id = loop {
             if let Some(pid) = svc
                 .mux
                 .try_write()
@@ -191,9 +237,39 @@ pub(crate) fn launch_agent_in_background(
             });
         svc.emit_boot_stage(&pane_id, BootStage::AgentLaunching, None);
         // (#93 — keeps shell-level launch off the bracketed-paste path).
-        if let Err(e) =
-            svc.send_shell_spawn_verified(&pty_id, &launch_cmd, launch_strategy, launch_opts)
-        {
+        let first_launch = svc.send_shell_spawn_verified(
+            &pty_id,
+            &launch_cmd,
+            launch_strategy.clone(),
+            launch_opts.clone(),
+        );
+        let launch_result = match first_launch {
+            Err(error @ crate::service::inject_verify::InjectionError::PtyClosed { .. }) => {
+                match await_replacement_pty(
+                    &svc,
+                    &pane_id,
+                    &pty_id,
+                    std::time::Duration::from_secs(10),
+                ) {
+                    Some(replacement) => {
+                        log::warn!(
+                            "launch_agent: retrying launch for pane {} on replacement pty {} after pty {} closed",
+                            pane_id, replacement, pty_id
+                        );
+                        pty_id = replacement;
+                        svc.send_shell_spawn_verified(
+                            &pty_id,
+                            &launch_cmd,
+                            launch_strategy,
+                            launch_opts,
+                        )
+                    }
+                    None => Err(error),
+                }
+            }
+            result => result,
+        };
+        if let Err(e) = launch_result {
             log::error!(
                 "launch_agent: launch_cmd failed for pane {} (pty {}): {}",
                 pane_id,
@@ -265,6 +341,22 @@ pub(crate) fn launch_agent_in_background(
             let _ = tx.send(Ok(()));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::replacement_pty_candidate;
+
+    #[test]
+    fn replacement_pty_must_be_new_and_live() {
+        assert_eq!(
+            replacement_pty_candidate(Some("new"), "closed", true).as_deref(),
+            Some("new")
+        );
+        assert!(replacement_pty_candidate(Some("closed"), "closed", true).is_none());
+        assert!(replacement_pty_candidate(Some("new"), "closed", false).is_none());
+        assert!(replacement_pty_candidate(None, "closed", true).is_none());
+    }
 }
 
 /// Build a single shell command that launches the agent.
