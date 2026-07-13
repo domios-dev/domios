@@ -52,7 +52,7 @@ export function Titlebar({
   return (
     <div
       data-testid="titlebar"
-      className="flex items-center bg-[var(--ct-titlebar-bg)] select-none shrink-0"
+      className="flex min-w-0 items-center bg-[var(--ct-titlebar-bg)] select-none shrink-0"
       style={{
         boxShadow: "inset 0 -0.5px 0 var(--ct-border-subtle)",
         height: "calc(2rem + var(--ct-safe-top, 0px))",
@@ -71,7 +71,7 @@ export function Titlebar({
       {/* Web mirror: traffic lights never render (isTauri false above) —
           the peer picker occupies that same left corner instead. */}
       {IS_WEB && (
-        <div className="flex items-center h-full pl-2.5">
+        <div className="flex min-w-0 shrink items-center h-full pl-1.5 sm:pl-2.5">
           <WebPeerPicker />
         </div>
       )}
@@ -79,7 +79,7 @@ export function Titlebar({
       <button
         type="button"
         onClick={onOpenSettingsAbout}
-        className="flex h-full items-center gap-2 pl-3 pr-2 text-left hover:bg-[var(--ct-hover)]"
+        className="hidden h-full shrink-0 items-center gap-2 pl-3 pr-2 text-left hover:bg-[var(--ct-hover)] min-[430px]:flex"
         title="About CodeTerm"
       >
         <img
@@ -94,9 +94,9 @@ export function Titlebar({
         </span>
       </button>
 
-      <div className="flex-1" data-tauri-drag-region />
+      <div className="min-w-0 flex-1" data-tauri-drag-region />
 
-      <div className="flex items-center h-full gap-1 pr-1.5">
+      <div className="flex shrink-0 items-center h-full gap-0.5 pr-1 sm:gap-1 sm:pr-1.5">
         <CanvasButton active={workspaceCanvasActive} />
         {onDismissToast && (
           <NotificationToastContainer

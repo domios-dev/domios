@@ -47,6 +47,7 @@ export type Action =
   | { type: "UPDATE_BOOT_STAGE"; paneId: string; stage: BootStage; reason?: string | null }
   | { type: "OPEN_SESSION_PICKER"; workspaceId: string; virtual: VirtualPickerTab }
   | { type: "CLOSE_SESSION_PICKER"; workspaceId: string; tabId: string }
+  | { type: "RESET_PEER_CONTEXT" }
   | { type: "RESET_GENERATION" };
 
 /**
@@ -81,6 +82,19 @@ function reconcilePaneStatuses(
 
 export function reducer(state: ExtendedState, action: Action): ExtendedState {
   switch (action.type) {
+    case "RESET_PEER_CONTEXT":
+      return {
+        ...state,
+        workspaces: [],
+        panes: {},
+        active_workspace_id: null,
+        focused_pane_id: null,
+        paneStatuses: {},
+        activeTabIds: {},
+        virtualTabs: {},
+        generation: -1,
+      };
+
     case "SET_STATE": {
       const incomingGen = action.state.generation;
       if (typeof incomingGen === "number" && incomingGen <= state.generation) {

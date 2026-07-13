@@ -71,7 +71,7 @@ export function PaneTopBar({
   return (
     <div
       data-testid="pane-top-bar"
-      className="flex shrink-0 items-center justify-between gap-2 px-2"
+      className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-1.5 px-2 sm:flex-nowrap sm:gap-2"
       style={{
         ["--ct-pane-pill-h" as string]: `${PANE_BAR_CONTROL_H}px`,
         paddingTop: "calc(6px + var(--ct-safe-top, 0px))",
@@ -80,7 +80,7 @@ export function PaneTopBar({
         borderBottom: "1px solid var(--ct-border, #30363d)",
       }}
     >
-      <div className="flex min-w-0 items-center gap-2">
+      <div className="flex min-w-0 shrink items-center gap-1.5 sm:gap-2">
         {showSwitch && (
           <PaneModeSwitch
             paneId={paneId}
@@ -98,7 +98,7 @@ export function PaneTopBar({
           />
         )}
       </div>
-      <div className="flex min-w-0 items-center gap-1.5">
+      <div className="ml-auto flex min-w-0 shrink items-center gap-1 sm:gap-1.5">
         {reconnectError && (
           <span
             data-testid="chat-reconnect-error"
@@ -124,7 +124,7 @@ export function PaneTopBar({
             }}
           >
             <RefreshCw size={13} className={reconnecting ? "animate-spin" : undefined} />
-            <span>Reconnect</span>
+            <span className="hidden sm:inline">Reconnect</span>
           </button>
         )}
         {isWatcherPane && <WatcherStatusBadge lastStatus={watcherLastStatus} />}

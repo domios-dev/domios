@@ -36,6 +36,7 @@ export class MeshStub {
   /** Config payload for /api/config — seed with a REAL daemon config so
    * the SPA's boot path doesn't choke on missing fields. */
   configPayload: unknown = {};
+  muxDelayMs = 0;
 
   constructor(opts: { services?: number; daemonBase?: string; webToken?: string } = {}) {
     this.serviceCount = opts.services ?? 3;
@@ -156,26 +157,32 @@ export class MeshStub {
               return json(200, { ok: true, status: 200, data: this.services(), error: null });
             }
             if (cmd.method === "GET" && cmd.path === "/api/mux/state") {
-              return json(200, {
-                ok: true,
-                status: 200,
-                data: {
-                  workspaces: [
-                    {
-                      id: "stub-ws",
-                      name: `${this.instanceName}-workspace`,
-                      tabs: [],
-                      active_tab_id: null,
-                      cwd: null,
-                      protected: true,
-                    },
-                  ],
-                  panes: {},
-                  active_workspace_id: "stub-ws",
-                  focused_pane_id: null,
-                },
-                error: null,
-              });
+              const sendMux = () =>
+                json(200, {
+                  ok: true,
+                  status: 200,
+                  data: {
+                    workspaces: [
+                      {
+                        id: "stub-ws",
+                        name: `${this.instanceName}-workspace`,
+                        tabs: [],
+                        active_tab_id: null,
+                        cwd: null,
+                        protected: true,
+                      },
+                    ],
+                    panes: {},
+                    active_workspace_id: "stub-ws",
+                    focused_pane_id: null,
+                  },
+                  error: null,
+                });
+              if (this.muxDelayMs > 0) {
+                setTimeout(sendMux, this.muxDelayMs);
+                return;
+              }
+              return sendMux();
             }
           } catch {
             /* fall through */
