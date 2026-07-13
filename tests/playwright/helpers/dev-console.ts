@@ -2,7 +2,7 @@
  * Dev-console lifecycle for Playwright runs.
  *
  * The dev console is the real Tauri app started via `./build.sh dev --wait`
- * (port 7686, data dir ~/.codeterm-dev/). On Windows its window is WebView2,
+ * in a named Playwright instance. On Windows its window is WebView2,
  * which exposes the Chrome DevTools Protocol from the dev Tauri config.
  * Playwright connects to the REAL app over CDP, no separate browser.
  */
@@ -32,14 +32,21 @@ export async function isHealthy(instance = currentDevInstance()): Promise<boolea
     if (!r.ok) return false;
     const body = (await r.json()) as {
       status?: string;
-      instance?: { name?: string; api_port?: string; vite_port?: string; cdp_port?: string };
+      instance?: {
+        name?: string;
+        api_port?: string | number;
+        vite_port?: string | number;
+        cdp_port?: string | number;
+        identifier?: string;
+      };
     };
     return (
       body.status === "ok" &&
       body.instance?.name === instance.name &&
       String(body.instance?.api_port) === String(instance.apiPort) &&
       String(body.instance?.vite_port) === String(instance.vitePort) &&
-      String(body.instance?.cdp_port) === String(instance.cdpPort)
+      String(body.instance?.cdp_port) === String(instance.cdpPort) &&
+      body.instance?.identifier === instance.identifier
     );
   } catch {
     return false;
@@ -144,8 +151,8 @@ function markCleanRestartBeforeKill(instance: DevInstance): void {
  * Windows recovery for the recurring crash-leftover states build.sh kill
  * can't see: orphan dev binaries (no 7686 listener but still holding
  * target\debug\codeterm.exe → relink fails with PermissionDenied) and a
- * surviving vite holding port 1420 (next dev start aborts). Scoped hard
- * to the dev target dir / port — prod is untouchable by construction.
+ * surviving Vite process. Scoped hard to the named instance — prod and the
+ * interactive dev instance are untouchable by construction.
  */
 function killDevLeftovers(instance: DevInstance): void {
   if (process.platform !== "win32") return;

@@ -31,12 +31,12 @@ function withEnv(values: Partial<Record<(typeof ENV_KEYS)[number], string>>, run
   }
 }
 
-test("serial defaults remain canonical", () => {
+test("serial defaults use the isolated Playwright instance", () => {
   withEnv({}, () => {
     const instance = devInstanceForSlot(0);
-    assert.equal(instance.name, "");
-    assert.equal(instance.apiPort, 7686);
-    assert.equal(instance.dataDirName, ".codeterm-dev");
+    assert.equal(instance.name, "playwright");
+    assert.equal(instance.apiPort, 7786);
+    assert.equal(instance.dataDirName, ".codeterm-dev-playwright");
   });
 });
 
@@ -77,6 +77,9 @@ test("parallelIndex pins the worker process to its instance slot", () => {
 test("prod and out-of-range slots are rejected", () => {
   withEnv({ CT_E2E_PORT: "7685" }, () => {
     assert.throws(() => devInstanceForSlot(0), /unsafe Playwright instance port 7685/);
+  });
+  withEnv({ CT_E2E_PORT: "7686" }, () => {
+    assert.throws(() => devInstanceForSlot(0), /unsafe Playwright instance port 7686/);
   });
   withEnv({ CT_E2E_WORKERS: "2" }, () => {
     assert.throws(() => devInstanceForSlot(2), /outside 0\.\.1/);

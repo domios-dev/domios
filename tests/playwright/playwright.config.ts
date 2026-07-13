@@ -8,8 +8,8 @@ const postMortemArtifacts = {
 };
 
 /**
- * Serial remains the default. CT_E2E_WORKERS=N opts into one named,
- * isolated dev instance per Playwright parallel worker slot.
+ * Serial uses the isolated `playwright` dev instance by default. CT_E2E_WORKERS=N
+ * opts into one named isolated dev instance per Playwright parallel worker slot.
  */
 export default defineConfig({
   testDir: "./suites",
@@ -31,7 +31,7 @@ export default defineConfig({
     {
       name: "golden",
       grep: /@golden/,
-      grepInvert: /@quarantine|@restart|@perf/,
+      grepInvert: /@quarantine|@restart|@live|@perf/,
       retries: 0,
       timeout: 300_000,
     },
