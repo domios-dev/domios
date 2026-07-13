@@ -17,6 +17,7 @@ test("the dedicated perf project discovers only @perf tests", () => {
 
 test("the perf gate names all four user-visible stub-provider measurements", () => {
   const spec = read("tests/playwright/suites/00-perf-gate/perf-gate.spec.ts");
+  const seed = read("tests/playwright/helpers/perf-seed.ts");
   for (const metric of [
     "pty-write-to-render",
     "long-history-bottom-anchor",
@@ -25,7 +26,7 @@ test("the perf gate names all four user-visible stub-provider measurements", () 
   ]) {
     assert.match(spec, new RegExp(`name: "${metric}"`));
   }
-  assert.match(spec, /isStubTransportActive/);
-  assert.match(spec, /STUB_PROVIDER\s*=\s*"claude"/);
+  assert.match(seed, /isStubTransportActive/);
+  assert.match(seed, /STUB_PROVIDER\s*=\s*"claude"/);
   assert.doesNotMatch(spec, /@live/);
 });
