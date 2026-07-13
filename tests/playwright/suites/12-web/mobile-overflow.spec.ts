@@ -186,6 +186,12 @@ async function auditViewport(page: Page, label: string): Promise<void> {
   expect(offenders, `${label} offscreen or unreachable controls`).toEqual([]);
 }
 
+async function assertPeerPickerTopContained(page: Page, label: string): Promise<void> {
+  const box = await page.locator('[data-testid="peer-picker-button"]').boundingBox();
+  expect(box, `${label} peer picker button box`).not.toBeNull();
+  expect(box!.y, `${label} peer picker button top`).toBeGreaterThanOrEqual(-1);
+}
+
 async function auditKnownSurfaces(page: Page, label: string): Promise<void> {
   for (const selector of OPTIONAL_SURFACES) {
     const loc = page.locator(selector).first();
@@ -304,6 +310,7 @@ for (const vp of VIEWPORTS) {
     try {
       await openApp(page);
       await settleLayout(page);
+      await assertPeerPickerTopContained(page, `${vp.name} initial`);
       await auditViewport(page, `${vp.name} initial`);
       await auditSidebarDrawer(page, `${vp.name} closed sidebar`, false);
 

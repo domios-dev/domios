@@ -52,7 +52,7 @@ export function Titlebar({
   return (
     <div
       data-testid="titlebar"
-      className="flex min-w-0 items-center bg-[var(--ct-titlebar-bg)] select-none shrink-0"
+      className={`flex min-w-0 items-center bg-[var(--ct-titlebar-bg)] select-none shrink-0 ${IS_WEB ? "max-sm:min-h-[calc(44px+var(--ct-safe-top,0px))]" : ""}`}
       style={{
         boxShadow: "inset 0 -0.5px 0 var(--ct-border-subtle)",
         height: "calc(2rem + var(--ct-safe-top, 0px))",
