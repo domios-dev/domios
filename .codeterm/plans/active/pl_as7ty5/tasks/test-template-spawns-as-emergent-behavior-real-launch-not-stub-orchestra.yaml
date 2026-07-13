@@ -14,14 +14,14 @@ test_plan: |
   3) Required oracle per template: returned pane ids exist, provider process/session materializes through status/chat, first visible chat/setup message arrives or setup loading state is visible until it arrives, no bare shell prompt remains, and pair follow-up is delivered for orchestration pair.
   4) Do not run broad golden/full; no dev/build ownership in worker lanes. Stop at clean patch/commit plus exact verification commands and artifacts for integration QA.
 correctness: Real spawn paths must be gated; the stub suite is blind to launch regressions by design
-status: in_progress
+status: in_review
 review_stage: review
 qa_state: null
 status_label: null
 priority: p2
 created_at: 1783970644778
-updated_at: 1783971792873
-status_changed_at: 1783971400895
+updated_at: 1783971869003
+status_changed_at: 1783971869003
 handle: test-template-spawns-as-emergent-behavior-real-launch-not-stub-orchestra
 tags: []
 section_ids:
@@ -42,8 +42,9 @@ lane:
   branch: lane/task_ngwcjd-real-spawn-smoke
   base: null
   destination: null
-  cleanup_status: null
-  cleanup_hints: []
+  cleanup_status: deferred
+  cleanup_hints:
+  - Keep worktree D:\Developer\codeterm-worktrees\task_ngwcjd-real-spawn-smoke until warm integration QA applies b3fc758e9 and runs focused live smoke commands.
 taken_by_role: null
 peer: null
 group: null
@@ -69,6 +70,42 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_k0eifu
+  from:
+    pane_id: 1f4faa1f
+    session_id: 019f5cfb-6b17-7a21-b2d1-e2dca5c45fb6
+    title: Darcy
+  kind: status_update
+  text: |-
+    STATUS: partial
+    CHANGES: Added reusable stub-disabled real template spawn oracle (PTY/session, chat Setting up/first message, no bare shell) and live orchestration-pair plus single-agent smoke coverage; documented the future command-type contract. Commit b3fc758e9.
+    TESTS RUN: git diff --check passed. Focused Playwright discovery could not load @playwright/test because this worktree has no node_modules; live execution was not started per lane instruction. QA commands are recorded in the handoff.
+  ts: 1783971850929
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_m5t3yp
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: partial
+  text: ' worker pane 1f4faa1f committed b3fc758e9 on lane/task_ngwcjd-real-spawn-smoke. Scope: reusable stub-disabled real template spawn oracle for PTY/session, chat setup or first message, no bare shell; live orchestration-pair plus single-agent smoke coverage; documented future command-type contract. Evidence: git diff --check green. Missing: focused Playwright discovery/execution because worktree lacks node_modules and worker was told not to own dev/browser. Next QA: apply lane in canonical/warm QA and run recorded live smoke commands.'
+  ts: 1783971868703
+  links:
+  - key:57865664d6608e49
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_wdwzrh
   executor_pane_id: 1f4faa1f
@@ -85,9 +122,20 @@ execution_attempts:
   worktree_path: null
   base: null
   destination: null
-  report: null
+  report:
+    id: report_1783971851276
+    message: |-
+      STATUS: partial
+      CHANGES: Added reusable stub-disabled real template spawn oracle (PTY/session, chat Setting up/first message, no bare shell) and live orchestration-pair plus single-agent smoke coverage; documented the future command-type contract. Commit b3fc758e9.
+      TESTS RUN: git diff --check passed. Focused Playwright discovery could not load @playwright/test because this worktree has no node_modules; live execution was not started per lane instruction. QA commands are recorded in the handoff.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
   assigned_at: 1783971400895
-  reported_at: null
+  reported_at: 1783971851276
   reviewed_at: null
   closed_at: null
   competition_group_id: null
