@@ -675,7 +675,10 @@ mod tests {
             .name(server_name)
             .create_sync()
             .unwrap();
-        let client_name = socket_name.to_ns_name::<GenericNamespaced>().unwrap();
+        let client_name = socket_name
+            .clone()
+            .to_ns_name::<GenericNamespaced>()
+            .unwrap();
         let (accepted_tx, accepted_rx) = mpsc::channel();
 
         let server = std::thread::spawn(move || {
