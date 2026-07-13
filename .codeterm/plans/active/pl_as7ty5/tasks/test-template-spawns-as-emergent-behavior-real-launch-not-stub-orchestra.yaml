@@ -20,7 +20,7 @@ qa_state: null
 status_label: pane-gone
 priority: p2
 created_at: 1783970644778
-updated_at: 1783975342340
+updated_at: 1783978515922
 status_changed_at: 1783974490408
 handle: test-template-spawns-as-emergent-behavior-real-launch-not-stub-orchestra
 tags: []
@@ -33,9 +33,9 @@ competition: null
 intent: null
 parent_task_id: null
 depends_on: []
-assigned_pane_id: null
+assigned_pane_id: e3fa0754
 lane:
-  pane_id: null
+  pane_id: e3fa0754
   workspace_id: null
   workspace_name: null
   worktree_path: D:\Developer\codeterm-worktrees\task_ngwcjd-real-spawn-smoke
@@ -195,6 +195,23 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_d69c0c
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: qa-owner
+  text: local orchestrator routes final live-pair command to ROG mesh after mobile SHA lands; no local build
+  ts: 1783978515922
+  links:
+  - key:5dd2fd722bd01e0a
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_wdwzrh
   executor_pane_id: 1f4faa1f
@@ -227,6 +244,32 @@ execution_attempts:
   reported_at: 1783972720612
   reviewed_at: null
   closed_at: 1783974637314
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_gh1hip
+  executor_pane_id: e3fa0754
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: null
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: lane/task_ngwcjd-real-spawn-smoke
+  worktree_path: D:\Developer\codeterm-worktrees\task_ngwcjd-real-spawn-smoke
+  base: null
+  destination: feat/1.7.2-stability
+  report: null
+  assigned_at: 1783978515462
+  reported_at: null
+  reviewed_at: null
+  closed_at: null
   competition_group_id: null
   competition_lane: null
   judge_verdict: null
