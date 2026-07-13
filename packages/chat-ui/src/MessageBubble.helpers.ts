@@ -2,6 +2,7 @@ import type {
   ChatOrigin,
   NormalizedChatMessage as ChatMessage,
 } from "@codeterm/chat-core";
+import { shortPaneRef } from "@codeterm/chat-core";
 import { isShellToolName } from "./MarkdownBody";
 
 export type CuratedToolKind =
@@ -35,7 +36,8 @@ export interface StructuredInbound {
 
 export function structuredInboundFromMessage(message: ChatMessage): StructuredInbound | null {
   const fromLabel = message.fromLabel?.trim();
-  if (!fromLabel) return null;
+  const fromPane = shortPaneRef(message.fromPane);
+  if (!fromLabel && !fromPane) return null;
   const kind = message.inboundKind ?? (message.fromMesh ? "mesh" : "pane");
   const title = kind === "mesh" && message.fromMesh
     ? `${fromLabel}@${message.fromMesh}`
@@ -44,8 +46,8 @@ export function structuredInboundFromMessage(message: ChatMessage): StructuredIn
     kind,
     origin: {
       kind: "pane",
-      title,
-      paneIdShort: message.fromPane ?? "",
+      title: title ?? "",
+      paneIdShort: fromPane,
       model: message.fromModel,
       mesh: kind === "mesh" ? undefined : message.fromMesh,
       report: kind === "report",

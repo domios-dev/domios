@@ -37,6 +37,16 @@ console.log("detectChatPrefix");
 }
 
 {
+  const r = detectChatPrefix("-=-codeterm:pane label=CURRENT%20PANE pane=915fae8e model=codex-=-Hey self");
+  eq(
+    r?.origin,
+    { kind: "pane", title: "CURRENT PANE", paneIdShort: "915fae8e", model: "codex" },
+    "ct current-pane marker keeps pane id for render-time name resolution",
+  );
+  eq(r?.body, "Hey self", "ct current-pane marker body stripped");
+}
+
+{
   const r = detectChatPrefix("-=-codeterm:report from=Worker pane=abc12345 model=gpt-5.5-=-done");
   eq(
     r?.origin,

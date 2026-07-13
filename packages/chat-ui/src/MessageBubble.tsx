@@ -4,6 +4,7 @@ import type {
   NormalizedChatMessage as ChatMessage,
   ChatAttachment as ImageAttachment,
 } from "@codeterm/chat-core";
+import { isPaneMarkerPlaceholderLabel, shortPaneRef } from "@codeterm/chat-core";
 import {
   Download, Image,
   ArrowRight,      // pane -> pane
@@ -76,6 +77,13 @@ interface MessageBubbleProps {
 
 const INTERACTIVE_QUESTIONS_ENABLED = false;
 const TOOL_EXPANDED_BY_ID = new Map<string, boolean>();
+
+function paneOriginTitle(origin: Extract<ChatOrigin, { kind: "pane" }>, resolvePaneName?: PaneNameResolver): string {
+  const paneRef = shortPaneRef(origin.paneIdShort);
+  const resolved = paneRef ? resolvePaneName?.(paneRef) : undefined;
+  if (isPaneMarkerPlaceholderLabel(origin.title)) return resolved ?? (paneRef || "pane");
+  return origin.title.trim() || resolved || paneRef || "pane";
+}
 
 // Test-only render counter (opt-in: a harness sets window.__bubbleRenderCounts
 // to {}). No-op in production — a single property read on window.
@@ -219,6 +227,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
       // Cross-pane / report: model-avatar + "from <Name>" + mesh·model subtitle.
       if (effectiveOrigin.kind === "pane") {
         const LeadIcon = effectiveOrigin.report ? CornerUpLeft : ArrowRight;
+        const title = paneOriginTitle(effectiveOrigin, resolvePaneName);
         const subtitle = [effectiveOrigin.mesh ? `via ${effectiveOrigin.mesh}` : null, effectiveOrigin.model]
           .filter(Boolean)
           .join(" · ");
@@ -246,7 +255,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
                 <LeadIcon size={11} style={{ opacity: 0.85 }} />
                 <span className="truncate">
                   {effectiveOrigin.report ? "report · " : "from "}
-                  {effectiveOrigin.title}
+                  {title}
                 </span>
                 {inboundKind && (
                   <span
