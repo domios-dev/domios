@@ -54,6 +54,44 @@ type TestFixtures = {
 
 export const DEV_FIXTURE_TIMEOUT_MS = 660_000;
 
+type MediaUploadMock = { path: string; size: number };
+type MediaTranscriptionMock = { line?: string; status?: number; body?: string; delayMs?: number };
+
+async function installMediaFetchMocks(page: Page): Promise<void> {
+  const script = () => {
+    const win = window as typeof window & {
+      __ctMediaFetchMocksInstalled?: boolean;
+      __ctMediaUploadMock?: MediaUploadMock;
+      __ctMediaTranscriptionMock?: MediaTranscriptionMock;
+    };
+    if (win.__ctMediaFetchMocksInstalled) return;
+    win.__ctMediaFetchMocksInstalled = true;
+    const originalFetch = win.fetch.bind(win);
+    const requestUrl = (input: RequestInfo | URL) =>
+      new URL(input instanceof Request ? input.url : String(input), win.location.href);
+    win.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.pathname === "/api/upload" && win.__ctMediaUploadMock) {
+        return new Response(JSON.stringify(win.__ctMediaUploadMock), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.pathname === "/api/transcribe-voice" && win.__ctMediaTranscriptionMock) {
+        const mock = win.__ctMediaTranscriptionMock;
+        if (mock.delayMs) await new Promise((resolve) => setTimeout(resolve, mock.delayMs));
+        return new Response(mock.body ?? JSON.stringify({ line: mock.line ?? "" }), {
+          status: mock.status ?? 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return originalFetch(input, init);
+    };
+  };
+  await page.addInitScript(script);
+  await page.evaluate(script).catch(() => {});
+}
+
 export const test = base.extend<TestFixtures, WorkerFixtures>({
   devInstance: [
     async ({}, use, workerInfo) => {
@@ -219,27 +257,26 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   mediaMocks: async ({}, use) => {
     await use({
       mockUpload: async (page, response = {}) => {
-        await page.route("**/api/upload", (route) =>
-          route.fulfill({
-            contentType: "application/json",
-            body: JSON.stringify({
-              path: response.path ?? "/tmp/pw-voice.ogg",
-              size: response.size ?? 8192,
-            }),
-          }),
-        );
+        await installMediaFetchMocks(page);
+        const mock = {
+          path: response.path ?? "/tmp/pw-voice.ogg",
+          size: response.size ?? 8192,
+        };
+        await page.addInitScript((nextMock) => {
+          (window as typeof window & { __ctMediaUploadMock?: MediaUploadMock }).__ctMediaUploadMock = nextMock;
+        }, mock);
+        await page.evaluate((nextMock) => {
+          (window as typeof window & { __ctMediaUploadMock?: MediaUploadMock }).__ctMediaUploadMock = nextMock;
+        }, mock);
       },
       mockTranscription: async (page, response) => {
-        await page.route("**/api/transcribe-voice", async (route) => {
-          if (response.delayMs) {
-            await new Promise((resolve) => setTimeout(resolve, response.delayMs));
-          }
-          await route.fulfill({
-            status: response.status,
-            contentType: "application/json",
-            body: response.body ?? JSON.stringify({ line: response.line ?? "" }),
-          });
-        });
+        await installMediaFetchMocks(page);
+        await page.addInitScript((mock) => {
+          (window as typeof window & { __ctMediaTranscriptionMock?: MediaTranscriptionMock }).__ctMediaTranscriptionMock = mock;
+        }, response);
+        await page.evaluate((mock) => {
+          (window as typeof window & { __ctMediaTranscriptionMock?: MediaTranscriptionMock }).__ctMediaTranscriptionMock = mock;
+        }, response);
       },
       installVoiceRecorder: async (page, script) => {
         await page.addInitScript(script);
