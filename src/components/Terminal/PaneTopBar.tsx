@@ -8,6 +8,7 @@ import type { ApiConfig } from "../../lib/types";
 import { PANE_BAR_CONTROL_H } from "./paneBarConstants";
 import { WatcherStatusBadge } from "./WatcherStatusBadge";
 import { reattachPaneChat } from "./chatReattach";
+import { BusySpinner } from "../shared/BusyState";
 
 /** Single height rhythm for every control in the bar (switch + pills). */
 export { PANE_BAR_CONTROL_H };
@@ -123,7 +124,7 @@ export function PaneTopBar({
               color: "var(--ct-fg)",
             }}
           >
-            <RefreshCw size={13} className={reconnecting ? "animate-spin" : undefined} />
+            <BusySpinner spinning={reconnecting} size={13} icon={RefreshCw} />
             <span className="hidden sm:inline">Reconnect</span>
           </button>
         )}
