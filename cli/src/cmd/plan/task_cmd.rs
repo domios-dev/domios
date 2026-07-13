@@ -201,6 +201,7 @@ pub(super) fn run_task(
                 .unwrap_or(false);
             let has_model = model.as_deref().is_some_and(|s| !s.trim().is_empty());
             let has_why = why_text.as_deref().is_some_and(|s| !s.trim().is_empty());
+            let has_body = body_text.as_deref().is_some_and(|s| !s.trim().is_empty());
             let has_criteria = criterion.iter().any(|s| !s.trim().is_empty());
             let has_test_plan = test_plan.as_deref().is_some_and(|s| !s.trim().is_empty());
             let has_correctness = correctness.as_deref().is_some_and(|s| !s.trim().is_empty());
@@ -305,6 +306,7 @@ pub(super) fn run_task(
                 if let Some(hint) = task_quality_guard_hint(
                     &plan_id,
                     &task_id,
+                    has_body,
                     has_criteria,
                     has_test_plan,
                     has_correctness,

@@ -1,8 +1,6 @@
 use crate::args::spec::{SpecAction, SpecLinkAction, SpecSectionAction};
 use crate::client::SocketClient;
-use crate::cmd::hints::{
-    print_hints, push_hints, spec_create_next_plan_hint, spec_section_add_link_hint,
-};
+use crate::cmd::hints::{push_hints, spec_create_next_plan_hint, spec_section_add_link_hint};
 use serde_json::{json, Value};
 
 fn call(client: &mut SocketClient, method: &str, params: Value) -> Result<Value, String> {
@@ -42,22 +40,8 @@ fn render_section(section: &Value, depth: usize, out: &mut String) {
 pub fn handle_spec(client: &mut SocketClient, json_output: bool, action: SpecAction) {
     match run_spec(client, json_output, action) {
         Ok(None) => {}
-        Ok(Some(val)) if json_output => {
-            crate::cmd::print::print_json(&val);
-        }
         Ok(Some(val)) => {
-            crate::cmd::print::print_object(&val);
-            let hints: Vec<String> = val
-                .get("_hints")
-                .and_then(|v| v.as_array())
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(|v| v.as_str().map(str::to_string))
-                        .collect()
-                })
-                .unwrap_or_default();
-            print_hints(&hints);
+            crate::cmd::plan_output::print_plan_result(json_output, &val);
         }
         Err(e) => {
             crate::cmd::plan_output::print_plan_error(json_output, &e);
@@ -272,7 +256,7 @@ fn run_spec(
     if json_output {
         Ok(Some(result))
     } else {
-        crate::cmd::print::print_object(&result);
+        crate::cmd::plan_output::print_plan_result(false, &result);
         Ok(None)
     }
 }
