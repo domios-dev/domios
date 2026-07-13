@@ -62,6 +62,8 @@ declare global {
 }
 
 let testChatSequence = 0;
+const testChatListenerCounts = new Map<string, number>();
+const pendingTestChatReplies: TestChatReplyDetail[] = [];
 
 function importEnv(): FrontendTestEnv | undefined {
   return (import.meta as { env?: FrontendTestEnv }).env;
@@ -120,21 +122,44 @@ export function installCodeTermTestChatHandle(testMode = isCodeTermFrontendTestM
   if (!testMode || typeof window === "undefined" || window.__codetermTestChat) return;
   window.__codetermTestChat = {
     reply(paneId, content, options = {}) {
-      window.dispatchEvent(
-        new CustomEvent(TEST_CHAT_REPLY_EVENT, {
-          detail: { ...options, paneId, content } satisfies TestChatReplyDetail,
-        }),
-      );
+      dispatchOrQueueTestChatReply({ ...options, paneId, content });
     },
     pushMessages(paneId, messages) {
-      window.dispatchEvent(
-        new CustomEvent(TEST_CHAT_REPLY_EVENT, {
-          detail: { paneId, messages } satisfies TestChatReplyDetail,
-        }),
-      );
+      dispatchOrQueueTestChatReply({ paneId, messages });
     },
     resetClock: resetTestChatClockForCodeTerm,
   };
+}
+
+function dispatchOrQueueTestChatReply(detail: TestChatReplyDetail): void {
+  if (testChatListenerCounts.get(detail.paneId)) {
+    dispatchTestChatReply(detail);
+    return;
+  }
+  pendingTestChatReplies.push(detail);
+  dispatchTestChatReply(detail);
+}
+
+function dispatchTestChatReply(detail: TestChatReplyDetail): void {
+  window.dispatchEvent(
+    new CustomEvent(TEST_CHAT_REPLY_EVENT, { detail }),
+  );
+}
+
+function drainPendingTestChatReplies(
+  paneId: string,
+  setStructured: Dispatch<SetStateAction<ChatMessage[] | null>>,
+  nextOrder: () => number,
+): void {
+  for (let i = 0; i < pendingTestChatReplies.length;) {
+    const detail = pendingTestChatReplies[i];
+    if (!detail || detail.paneId !== paneId) {
+      i += 1;
+      continue;
+    }
+    pendingTestChatReplies.splice(i, 1);
+    applyChatMsgEvent(testChatReplyPayload(detail), paneId, setStructured, nextOrder);
+  }
 }
 
 function applyChatMsgEvent(
@@ -151,7 +176,7 @@ function applyChatMsgEvent(
   });
 }
 
-function listenForTestChatReplies(
+export function listenForTestChatReplies(
   paneId: string,
   setStructured: Dispatch<SetStateAction<ChatMessage[] | null>>,
   nextOrder: () => number,
@@ -163,8 +188,15 @@ function listenForTestChatReplies(
     if (!detail || detail.paneId !== paneId) return;
     applyChatMsgEvent(testChatReplyPayload(detail), paneId, setStructured, nextOrder);
   };
+  testChatListenerCounts.set(paneId, (testChatListenerCounts.get(paneId) ?? 0) + 1);
   window.addEventListener(TEST_CHAT_REPLY_EVENT, handler);
-  return () => window.removeEventListener(TEST_CHAT_REPLY_EVENT, handler);
+  drainPendingTestChatReplies(paneId, setStructured, nextOrder);
+  return () => {
+    const nextCount = (testChatListenerCounts.get(paneId) ?? 1) - 1;
+    if (nextCount <= 0) testChatListenerCounts.delete(paneId);
+    else testChatListenerCounts.set(paneId, nextCount);
+    window.removeEventListener(TEST_CHAT_REPLY_EVENT, handler);
+  };
 }
 
 function toEchoes(msgs: ChatMessage[]): OptimisticEcho[] {

@@ -2,6 +2,7 @@ import {
   TEST_CHAT_REPLY_EVENT,
   installCodeTermTestChatHandle,
   isCodeTermFrontendTestMode,
+  listenForTestChatReplies,
   resetTestChatClockForCodeTerm,
   testChatReplyPayload,
 } from "./useChatSession";
@@ -69,6 +70,29 @@ installCodeTermTestChatHandle(true);
 getTestChatHandle()?.reply("pane-a", "from handle");
 
 assert(seen === "from handle", "test chat handle dispatches reply event");
+
+let structured: any[] | null = null;
+let order = 0;
+getTestChatHandle()?.pushMessages("pane-late", [{
+  id: "queued-after-reload",
+  type: "assistant",
+  content: "queued missing ref pl_missingplan",
+  timestamp: "1700000000100",
+  provider: "test",
+} as any]);
+const unlistenLate = listenForTestChatReplies(
+  "pane-late",
+  (updater) => {
+    structured = typeof updater === "function" ? updater(structured) : updater;
+  },
+  () => order++,
+);
+
+assert(
+  structured?.some((message) => message.id === "queued-after-reload" && message.clientOrder === 0),
+  "queued test chat message drains when pane listener mounts after reload",
+);
+unlistenLate?.();
 
 console.log("chat test-mode seam checks passed");
 
