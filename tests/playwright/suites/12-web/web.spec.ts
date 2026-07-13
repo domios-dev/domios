@@ -57,7 +57,7 @@ test("@golden bad token is rejected with a rendered error, not a broken app", as
 test("@golden peer switching: dropdown lists the stub, traffic routes to it, switch-back restores", async ({ api, webBrowser }) => {
   test.setTimeout(240_000);
   const STUB_TOKEN = "stub-web-token-123";
-  const stub = new MeshStub({ services: 1, webToken: STUB_TOKEN });
+  const stub = new MeshStub({ services: 1, webToken: STUB_TOKEN, daemonBase: API_BASE });
   stub.muxDelayMs = 500;
   let peerId: string | undefined;
 
@@ -82,6 +82,7 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
     peerId = added.instance_id;
     stub.instanceId = peerId;
     await api.post("/mesh/connect", { instance_id: peerId });
+    await stub.waitForPairAccept();
     await pollUntil(async () => {
       const peers = await api.get<{ paired: { instance_id: string }[] }>("/mesh/peers");
       return peers.paired.some((p) => p.instance_id === peerId);
@@ -179,19 +180,20 @@ test("@golden mobile viewport: no horizontal scroll, sidebar overlays, picker re
   const scrollW = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(scrollW, "horizontal scroll on phone viewport").toBeLessThanOrEqual(390);
 
-  // workspaces, nav) lives in the overlay the hamburger opens.
   const burger = page.locator('[data-testid="web-sidebar-open"]');
-  if (await burger.isVisible()) {
-    await burger.click();
-  }
   const picker = page.locator('[data-testid="peer-picker-button"]');
+  await expect(burger).toBeVisible({ timeout: 10_000 });
   await expect(picker).toBeVisible({ timeout: 10_000 });
   const box = await picker.boundingBox();
   expect(box && box.height >= 40, `picker touch target ${box?.height}px`).toBe(true);
 
   const burgerBox = await burger.boundingBox();
-  const reconnectBox = await page.locator('[data-testid="chat-reconnect"]').boundingBox();
-  const modeBox = await page.locator('[data-testid="pane-mode-switch"]').boundingBox();
+  const optionalBox = async (selector: string) => {
+    const control = page.locator(selector).first();
+    return (await control.isVisible().catch(() => false)) ? control.boundingBox() : null;
+  };
+  const reconnectBox = await optionalBox('[data-testid="chat-reconnect"]');
+  const modeBox = await optionalBox('[data-testid="pane-mode-switch"]');
   const overlaps = (
     a: { x: number; y: number; width: number; height: number },
     b: { x: number; y: number; width: number; height: number },
@@ -201,6 +203,7 @@ test("@golden mobile viewport: no horizontal scroll, sidebar overlays, picker re
   if (burgerBox && modeBox) expect(overlaps(burgerBox, modeBox), "hamburger overlaps mode switch").toBe(false);
 
   const navMesh = page.locator('[data-testid="nav-mesh"]');
+  await burger.click();
   await expect(navMesh).toBeVisible({ timeout: 5_000 });
   await navMesh.click();
   await expect(page.locator('[data-testid="mesh-tab-network"]')).toBeVisible({ timeout: 10_000 });

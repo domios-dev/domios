@@ -28,6 +28,9 @@ export class MeshStub {
   private serviceCount: number;
   /** Daemon base for the pair-accept callback. */
   private daemonBase: string;
+  private pairAcceptCompleted = false;
+  private pairAcceptError: Error | null = null;
+  private pairAcceptWaiters = new Set<{ resolve: () => void; reject: (error: Error) => void }>();
 
   /** When set, the stub also answers the web-mirror's direct API calls
    * (gate validation, mux state, peers …) gated by this bearer token —
@@ -71,6 +74,40 @@ export class MeshStub {
       this.server.close(() => resolve());
       this.server = null;
     });
+  }
+
+  waitForPairAccept(timeoutMs = 10_000): Promise<void> {
+    if (this.pairAcceptCompleted) {
+      return this.pairAcceptError ? Promise.reject(this.pairAcceptError) : Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout>;
+      const waiter = {
+        resolve: () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        reject: (error: Error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      };
+      timer = setTimeout(() => {
+        this.pairAcceptWaiters.delete(waiter);
+        reject(new Error(`mesh stub pair-accept callback did not finish within ${timeoutMs}ms`));
+      }, timeoutMs);
+      this.pairAcceptWaiters.add(waiter);
+    });
+  }
+
+  private completePairAccept(error: Error | null): void {
+    this.pairAcceptCompleted = true;
+    this.pairAcceptError = error;
+    for (const waiter of this.pairAcceptWaiters) {
+      if (error) waiter.reject(error);
+      else waiter.resolve();
+    }
+    this.pairAcceptWaiters.clear();
   }
 
   services(): unknown[] {
@@ -292,7 +329,7 @@ export class MeshStub {
 
   private async sendAccept(requestId: string): Promise<void> {
     try {
-      await fetch(`${this.daemonBase}/api/mesh/pair/accept`, {
+      const response = await fetch(`${this.daemonBase}/api/mesh/pair/accept`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -303,9 +340,14 @@ export class MeshStub {
         }),
         signal: AbortSignal.timeout(5_000),
       });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      this.completePairAccept(null);
     } catch (e) {
-      // Surfaced via the test's pairing-poll timeout; log for diagnosis.
-      console.warn(`[mesh-stub] pair-accept callback failed: ${e}`);
+      const error = e instanceof Error ? e : new Error(String(e));
+      this.completePairAccept(error);
+      console.warn(`[mesh-stub] pair-accept callback failed: ${error.message}`);
     }
   }
 }
