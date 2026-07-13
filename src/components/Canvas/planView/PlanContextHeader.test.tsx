@@ -297,6 +297,36 @@ test("park button requires a reason and posts pause request", async () => {
   assert(JSON.parse(String(pauseCalls[0].init?.body)).reason === "waiting for quota", "reason posted");
 });
 
+test("wide header keeps plan identity and park control in one compact row", async () => {
+  window.localStorage.clear();
+  const spec = {
+    specId: "spec-release-stability",
+    title: "Release stability spec with a long title",
+    sectionCount: 4,
+    leadSection: "Header polish",
+  };
+  const summary = deriveBoardPlanSummary(FIXTURE_PLAN, {});
+  const { host } = await render(
+    <PlanContextWideHeader
+      summary={summary}
+      spec={spec}
+      onOpenPlan={() => {}}
+      onOpenSpec={() => {}}
+      planId={FIXTURE_PLAN.id}
+      plan={FIXTURE_PLAN}
+      api={API}
+    />,
+  );
+  const main = host.querySelector('[data-testid="plan-context-header-main"]');
+  assert(main, "main row rendered");
+  assert(main.querySelector('[data-testid="plan-board-plan-title"]'), "plan title in main row");
+  assert(main.querySelector('[data-testid="plan-board-plan-meta"]'), "plan meta in main row");
+  assert(main.querySelector('[data-testid="plan-board-spec-title"]'), "spec trigger in main row");
+  const parkButton = main.querySelector('[data-testid="plan-park-button"]') as HTMLButtonElement;
+  assert(parkButton, "park button in main row");
+  assert(parkButton.classList.contains("plan-mode-button-park"), "park button has variant class");
+});
+
 test("resume button posts resume request", async () => {
   window.localStorage.clear();
   const calls: Array<{ url: string; init?: RequestInit }> = [];
