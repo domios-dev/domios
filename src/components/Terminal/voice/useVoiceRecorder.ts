@@ -23,7 +23,7 @@ const START_WARMUP_MS = 150;
 const WARM_STREAM_IDLE_STOP_MS = 30_000;
 
 let cachedWarmStream: MediaStream | null = null;
-let warmStreamStopTimer: number | null = null;
+let warmStreamStopTimer: ReturnType<typeof setTimeout> | null = null;
 let warmStreamUsers = 0;
 
 function quietLiveWaveform(): number[] {
@@ -32,7 +32,7 @@ function quietLiveWaveform(): number[] {
 
 function clearWarmStreamStopTimer() {
   if (warmStreamStopTimer != null) {
-    window.clearTimeout(warmStreamStopTimer);
+    clearTimeout(warmStreamStopTimer);
     warmStreamStopTimer = null;
   }
 }
@@ -50,20 +50,34 @@ function stopWarmStreamNow() {
 function scheduleWarmStreamStop() {
   if (warmStreamUsers > 0) return;
   clearWarmStreamStopTimer();
-  warmStreamStopTimer = window.setTimeout(() => {
+  warmStreamStopTimer = setTimeout(() => {
     warmStreamStopTimer = null;
     stopWarmStreamNow();
   }, WARM_STREAM_IDLE_STOP_MS);
 }
 
-function retainWarmStreamUser() {
+export function retainWarmStreamUser() {
   warmStreamUsers += 1;
   clearWarmStreamStopTimer();
 }
 
-function releaseWarmStreamUser() {
+export function releaseWarmStreamUser() {
   warmStreamUsers = Math.max(0, warmStreamUsers - 1);
   scheduleWarmStreamStop();
+}
+
+export async function acquireWarmStreamForRecorder(): Promise<MediaStream> {
+  clearWarmStreamStopTimer();
+  if (hasLiveAudioTrack(cachedWarmStream)) return cachedWarmStream;
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  cachedWarmStream = stream;
+  await new Promise((r) => setTimeout(r, START_WARMUP_MS));
+  return stream;
+}
+
+export function resetWarmStreamForTest() {
+  warmStreamUsers = 0;
+  stopWarmStreamNow();
 }
 
 /** Downsample the raw per-tick peaks captured while recording into a fixed
@@ -161,16 +175,13 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
   }
 
   async function acquireWarmStream(): Promise<MediaStream> {
-    clearWarmStreamStopTimer();
     const warm = hasLiveAudioTrack(streamRef.current) ? streamRef.current : cachedWarmStream;
     if (hasLiveAudioTrack(warm)) {
       streamRef.current = warm;
       return warm;
     }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await acquireWarmStreamForRecorder();
     streamRef.current = stream;
-    cachedWarmStream = stream;
-    await new Promise((r) => window.setTimeout(r, START_WARMUP_MS));
     return stream;
   }
 
