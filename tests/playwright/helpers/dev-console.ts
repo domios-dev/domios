@@ -21,6 +21,7 @@ export const CDP_PORT = DEFAULT_INSTANCE.cdpPort;
 export const CDP_BASE = DEFAULT_INSTANCE.cdpBase;
 export const WEB_URL = DEFAULT_INSTANCE.webUrl;
 const WEB_MODE = process.env.CT_E2E_WEB_MODE === "1";
+const WEB_UI_READY_TIMEOUT_MS = 90_000;
 
 export const REPO_ROOT = process.env.CT_E2E_DEV_ROOT
   ? path.resolve(process.env.CT_E2E_DEV_ROOT)
@@ -51,6 +52,31 @@ export async function isHealthy(instance = currentDevInstance()): Promise<boolea
   } catch {
     return false;
   }
+}
+
+export function isWebUiDocument(contentType: string | null, body: string): boolean {
+  return Boolean(contentType?.includes("text/html") && /<div\s+id=["']root["']/.test(body));
+}
+
+export async function isWebUiReady(instance = currentDevInstance()): Promise<boolean> {
+  try {
+    const response = await fetch(`${instance.webUrl}?e2e=1`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!response.ok) return false;
+    return isWebUiDocument(response.headers.get("content-type"), await response.text());
+  } catch {
+    return false;
+  }
+}
+
+async function waitForWebUi(instance: DevInstance): Promise<boolean> {
+  const deadline = Date.now() + WEB_UI_READY_TIMEOUT_MS;
+  do {
+    if (await isWebUiReady(instance)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  } while (Date.now() < deadline);
+  return false;
 }
 
 export async function isCdpUp(instance = currentDevInstance()): Promise<boolean> {
@@ -238,12 +264,10 @@ function dumpBuildGatewayLogs(reason: string): void {
  * debugging port is fixed at WebView2 creation).
  */
 export async function ensureDevConsole(instance = currentDevInstance()): Promise<void> {
+  const usesWebUi = WEB_MODE || process.platform !== "win32";
   if (await isHealthy(instance)) {
-    if (
-      WEB_MODE ||
-      process.platform !== "win32" ||
-      ((await isCdpUp(instance)) && (await isCdpAppReady(instance)))
-    ) return;
+    if (usesWebUi && (await waitForWebUi(instance))) return;
+    if (!usesWebUi && (await isCdpUp(instance)) && (await isCdpAppReady(instance))) return;
   }
   killDevConsole(instance);
   try {
@@ -263,7 +287,12 @@ export async function ensureDevConsole(instance = currentDevInstance()): Promise
   if (!(await isHealthy(instance))) {
     throw new Error("dev console did not become healthy after ./build.sh dev --wait");
   }
-  if (WEB_MODE || process.platform !== "win32") return;
+  if (usesWebUi) {
+    if (await waitForWebUi(instance)) return;
+    throw new Error(
+      `dev console is healthy but web UI (${instance.webUrl}) did not become ready`,
+    );
+  }
   for (let i = 0; i < 20; i++) {
     if ((await isCdpUp(instance)) && (await isCdpAppReady(instance))) return;
     await new Promise((r) => setTimeout(r, 500));
