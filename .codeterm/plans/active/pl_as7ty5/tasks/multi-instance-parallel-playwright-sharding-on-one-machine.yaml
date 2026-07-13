@@ -11,14 +11,14 @@ acceptance_criteria:
 - 'All instances are provably dead after the run: no orphan daemons, ports freed'
 test_plan: '1) Extend helpers (dev-console/api-client/global-setup) to resolve port and token per worker from instance env. 2) Config: workers N with a worker-scoped fixture binding workerIndex to instance. 3) Proof run on one remote machine: shards 06-mem+11-api vs a 13-canvas subset in parallel (2 workers), both green, wall-clock less than serial sum. 4) Post-run: netstat shows no listener on instance ports; no codeterm dev processes remain. 5) Serial mode workers:1 still works unchanged for golden default.'
 correctness: No shared state across workers — each instance owns data dir, port, UI page; teardown always reached even on failure; prod untouched.
-status: pending
+status: in_progress
 review_stage: review
 qa_state: null
-status_label: null
+status_label: pane-gone
 priority: p2
 created_at: 1783782192088
-updated_at: 1783971119189
-status_changed_at: 1783971119189
+updated_at: 1783976854765
+status_changed_at: 1783975184686
 handle: multi-instance-parallel-playwright-sharding-on-one-machine
 tags: []
 section_ids:
@@ -32,16 +32,16 @@ intent: null
 parent_task_id: null
 depends_on:
 - task_k16xu0
-assigned_pane_id: null
+assigned_pane_id: e3fa0754
 lane:
-  pane_id: null
+  pane_id: e3fa0754
   workspace_id: null
   workspace_name: null
   worktree_path: null
   branch: null
   base: null
   destination: null
-  cleanup_status: null
+  cleanup_status: done
   cleanup_hints: []
 taken_by_role: null
 peer: null
@@ -83,6 +83,196 @@ milestones:
     y: null
     collapsed: false
   attachments: []
-execution_attempts: []
+- id: ms_4l3evn
+  from:
+    pane_id: 1666e582
+    session_id: bdb6444b-ad3d-4950-8ca2-245c976e88bc
+    title: multi instance playwright sharding
+  kind: status_update
+  text: |-
+    STATUS: done
+    SHA: 0a4bb84e0 (branch lane/task_kb1ncv-pw-sharding, pushed)
+
+    CONTRACT: The N worker-scoped CODETERM_INSTANCE slot infra (distinct data dirs / API+Vite+CDP ports / per-instance token via own data dir; per-worker pinning via TEST_PARALLEL_INDEX; per-slot cargo target dir on Windows N>1; serial workers=1 unchanged) already exists on feat/1.7.2-stability. This task's outstanding deliverable was the missing fake-job/unit coverage for env routing and teardown, which lived inline in private, un-testable, effectful functions.
+
+    CHANGES (5 files, +234/-43):
+    - dev-instance.ts: extracted pure helpers buildDevInstanceEnv (per-slot CODETERM_INSTANCE/ports/datadir/token-dir/CARGO_TARGET_DIR/CDP arg), devInstanceTeardownPorts, and teardownInstances (reverse-order, injectable kill/assertStopped, kills-all-on-failure + AggregateError).
+    - dev-console.ts: bash() now uses buildDevInstanceEnv; assertDevConsoleStopped uses devInstanceTeardownPorts; exported windowsCleanupArgs for prod-safety scoping test. Behavior-preserving mechanical extraction.
+    - global-setup.ts: both teardown paths (setup-failure and returned cleanup) route through teardownInstances.
+    - dev-instance.test.ts: +8 tests (env routing per slot, disjoint slots + private cargo dirs, serial/non-win cargo fallback, no-mutation, teardown ports never prod, reverse-order teardown, deterministic teardown-on-failure).
+    - dev-console.test.ts: +1 test (windows cleanup plan scoped to instance identifier/name, never 7685/7686).
+
+    TESTS RUN (lane-local, no daemon/build):
+    - npx tsx tests/playwright/helpers/dev-instance.test.ts  =>  12/12 pass (includes all new env-routing + teardown fake-job tests).
+    - npx tsx tests/playwright/helpers/dev-console.test.ts  =>  BLOCKED in this cold lane worktree: node_modules absent, @playwright/test not resolvable. Pre-existing condition (baseline dev-console.test.ts already imports dev-console -> @playwright/test); NOT a regression. Runs in a warm checkout.
+
+    GATES REQUESTED (warm QA checkout with node_modules installed):
+    - npm run test:unit    (runs scripts/ts-unit-tests.sh -> npx tsx over all helper *.test.ts, incl. the new dev-console.test.ts scoping test)
+    - npm run lint         (biome; unavailable in cold lane, no node_modules)
+
+    CANONICAL PROOF (QA-owned; I did NOT run these - red line respected, never started multiple real builds, never touched prod 7685):
+    - Real two-instance timing proof: CT_E2E_WORKERS=2 npm run test:pw:golden  (or CT_E2E_WORKERS=2 playwright test -c tests/playwright --project=golden) on a warm integration checkout, asserting two isolated pw1/pw2 dev instances run in parallel on disjoint ports/data dirs.
+
+    FOLLOWUP: Extraction is behavior-preserving; the real Playwright run path is unchanged. dev-console.ts static typecheck/lint also needs the warm checkout (no node_modules in lane).
+  ts: 1783975718817
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_hxi8et
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: 'bounced 0a4bb84e0: kill throw aborts teardown sweep; comments exceed 2-line rule; require focused correction + unit'
+  ts: 1783975756639
+  links:
+  - key:60dc58fe36b281f3
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_r5splx
+  from:
+    pane_id: 1666e582
+    session_id: bdb6444b-ad3d-4950-8ca2-245c976e88bc
+    title: multi instance playwright sharding
+  kind: status_update
+  text: |-
+    STATUS: done (bounce addressed)
+    SHA: 676d41f4c (amended lane/task_kb1ncv-pw-sharding, force-pushed with --force-with-lease)
+
+    BOUNCE FIXES:
+    (1) teardownInstances kills-all-on-failure: moved lifecycle.kill(instance) INSIDE the per-instance try. A synchronous kill throw is now caught, pushed to failures, and the reverse sweep continues to the remaining instances. New unit test 'a synchronous kill failure still tears down the rest and surfaces': pw2 kill throws -> proves killed==[pw2,pw1] (both kill attempts made), asserted==[pw1] (pw1 still assertStopped; pw2 skipped after its kill threw), and AggregateError carries the pw2 kill failure. Existing assert-failure test still green.
+    (2) Comment discipline: removed the two multi-line JSDoc blocks over buildDevInstanceEnv and devInstanceTeardownPorts (default no-comments; names carry meaning), and reduced the teardownInstances doc to a 2-line // WHY (reverse order + per-instance-failure isolation). Verified: only comment lines added to dev-instance.ts are those 2 lines.
+
+    CHANGES since 0a4bb84e0: tests/playwright/helpers/dev-instance.ts (+kill in try, comments trimmed), tests/playwright/helpers/dev-instance.test.ts (+1 test). +31/-12.
+
+    TESTS RUN (lane-local, no daemon/build/browser):
+    - npx tsx tests/playwright/helpers/dev-instance.test.ts  =>  13/13 pass (was 12; +1 kill-throw teardown test).
+
+    GATES REQUESTED (warm QA checkout, node_modules installed):
+    - npm run test:unit    (runs all helper *.test.ts incl. dev-console.test.ts scoping test — unrunnable in cold lane, no @playwright/test)
+    - npm run lint         (biome)
+
+    CANONICAL PROOF (QA-owned, NOT run here; red line respected — no multiple real builds, prod 7685 untouched):
+    - CT_E2E_WORKERS=2 npm run test:pw:golden  on a warm integration checkout (two isolated pw1/pw2 dev instances, disjoint ports/data dirs, parallel).
+
+    FOLLOWUP: none; both blockers closed.
+  ts: 1783975897510
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_mxok4y
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: qa-owner
+  text: canonical orchestrator owns real two-instance proof after final correction SHA
+  ts: 1783976854765
+  links:
+  - key:f603e651152cb154
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+execution_attempts:
+- id: attempt_lm02r2
+  executor_pane_id: 1666e582
+  executor_title: multi instance playwright sharding
+  provider: null
+  agent_type: null
+  model: opus
+  session_id: null
+  role: worker
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: null
+  report:
+    id: report_1783975897777
+    message: |-
+      STATUS: done (bounce addressed)
+      SHA: 676d41f4c (amended lane/task_kb1ncv-pw-sharding, force-pushed with --force-with-lease)
+
+      BOUNCE FIXES:
+      (1) teardownInstances kills-all-on-failure: moved lifecycle.kill(instance) INSIDE the per-instance try. A synchronous kill throw is now caught, pushed to failures, and the reverse sweep continues to the remaining instances. New unit test 'a synchronous kill failure still tears down the rest and surfaces': pw2 kill throws -> proves killed==[pw2,pw1] (both kill attempts made), asserted==[pw1] (pw1 still assertStopped; pw2 skipped after its kill threw), and AggregateError carries the pw2 kill failure. Existing assert-failure test still green.
+      (2) Comment discipline: removed the two multi-line JSDoc blocks over buildDevInstanceEnv and devInstanceTeardownPorts (default no-comments; names carry meaning), and reduced the teardownInstances doc to a 2-line // WHY (reverse order + per-instance-failure isolation). Verified: only comment lines added to dev-instance.ts are those 2 lines.
+
+      CHANGES since 0a4bb84e0: tests/playwright/helpers/dev-instance.ts (+kill in try, comments trimmed), tests/playwright/helpers/dev-instance.test.ts (+1 test). +31/-12.
+
+      TESTS RUN (lane-local, no daemon/build/browser):
+      - npx tsx tests/playwright/helpers/dev-instance.test.ts  =>  13/13 pass (was 12; +1 kill-throw teardown test).
+
+      GATES REQUESTED (warm QA checkout, node_modules installed):
+      - npm run test:unit    (runs all helper *.test.ts incl. dev-console.test.ts scoping test — unrunnable in cold lane, no @playwright/test)
+      - npm run lint         (biome)
+
+      CANONICAL PROOF (QA-owned, NOT run here; red line respected — no multiple real builds, prod 7685 untouched):
+      - CT_E2E_WORKERS=2 npm run test:pw:golden  on a warm integration checkout (two isolated pw1/pw2 dev instances, disjoint ports/data dirs, parallel).
+
+      FOLLOWUP: none; both blockers closed.
+    status: null
+    changed_files: []
+    test_cmd: null
+    test_result: null
+    skipped: null
+    attachments: []
+  assigned_at: 1783975184686
+  reported_at: 1783975897777
+  reviewed_at: null
+  closed_at: 1783976047865
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
+- id: attempt_ahcv4q
+  executor_pane_id: e3fa0754
+  executor_title: null
+  provider: null
+  agent_type: null
+  model: opus
+  session_id: null
+  role: null
+  parent_pane_id: null
+  orchestrator_pane_id: null
+  mesh_peer: null
+  branch: null
+  worktree_path: null
+  base: null
+  destination: null
+  report: null
+  assigned_at: 1783976854080
+  reported_at: null
+  reviewed_at: null
+  closed_at: null
+  competition_group_id: null
+  competition_lane: null
+  judge_verdict: null
+  judge_reason: null
+  judged_at: null
+  winner: false
 pause_reason: null
 attachments: []

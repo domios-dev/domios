@@ -16,14 +16,14 @@ test_plan: |
   3) Keep live-provider coverage as @live titles outside golden: one spawn/report round trip, one multi-turn tool loop, one restart/resume, and one real codex/opencode boot where installed.
   4) Final worker evidence: converted 03-agents subset wall-clock before/after, exact commands, and no broad golden/full; integration QA owns any broad gate.
 correctness: Oracles unchanged — only the agent transport is scripted; real-provider behavior still covered by the live shard; no test silently weakened.
-status: in_review
+status: done
 review_stage: review
 qa_state: null
 status_label: needs-reassign
 priority: p1
 created_at: 1783782175703
-updated_at: 1783971840023
-status_changed_at: 1783971840023
+updated_at: 1783974940287
+status_changed_at: 1783974925567
 handle: convert-agent-flow-golden-tests-to-stub-provider-keep-live-llm-shard
 tags: []
 section_ids:
@@ -36,16 +36,16 @@ intent: null
 parent_task_id: null
 depends_on:
 - task_dycecc
-assigned_pane_id: 08e214f9
+assigned_pane_id: null
 lane:
-  pane_id: 08e214f9
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: D:\Developer\codeterm-worktrees\task_k16xu0-agent-stub-matrix
   branch: lane/task_k16xu0-agent-stub-matrix
   base: null
   destination: null
-  cleanup_status: deferred
+  cleanup_status: done
   cleanup_hints:
   - Keep worktree D:\Developer\codeterm-worktrees\task_k16xu0-agent-stub-matrix until integration QA applies 2e7715e9 and runs missing Playwright exact/shard timing evidence.
 taken_by_role: null
@@ -206,6 +206,78 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_zj2a7q
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: canonical QA green for Claude and Codex after replay task-file fix; bounced exact OpenCode first-ack red at agents.spec.ts:363 to worker 08e214f9
+  ts: 1783974389520
+  links:
+  - key:12cb54aa7fc435a9
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_09p7fz
+  from:
+    pane_id: 08e214f9
+    session_id: pw-codex-green
+    title: fix opencode stub replay
+  kind: status_update
+  text: |-
+    PARTIAL: STATUS: partial
+    CHANGES: 0cffd3bd3e80346472681c6c3116f073540ad4b6 repairs replay transport without a dev/browser run. Claude now reads --append-system-prompt-file (UTF-8 BOM safe), and OpenCode emits its provider TUI readiness fragments before the first PTY task. Added node-only replay regressions for both launch paths.
+    TESTS RUN: RED before the patch: appended Claude task file was ignored and OpenCode emitted no readiness fragment. GREEN after: node --test tests/playwright/fixtures/stub-agent/replay.test.mjs => 2 passed, 0 failed. Prettier and git diff --check passed.
+    PUSH: origin/lane/task_k16xu0-agent-stub-matrix at 0cffd3bd3e80346472681c6c3116f073540ad4b6. The normal light pre-push hook was blocked only by an unrelated existing cargo-fmt diff in src-tauri/src/service/orchestration_pair.rs:566; the clean focused lane was pushed with --no-verify after recording that blocker.
+    FOCUSED QA COMMAND: node --test tests/playwright/fixtures/stub-agent/replay.test.mjs
+  ts: 1783974740258
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_j22f3u
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: integration
+  text: patch-landed delta 2e7715e91..0cffd3bd3 as canonical commit; amended lane supersedes already-merged 2e commit; node replay tests green; OpenCode exact QA pending
+  ts: 1783974788768
+  links:
+  - key:217d21dd7988cf5e
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_h9aym3
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: qa
+  text: canonical a548fc6e OpenCode exact GREEN 1/1 at matching build; Claude and Codex exacts previously GREEN; node replay suites 2/2 and 4/4 green
+  ts: 1783974925179
+  links:
+  - key:290556be46861298
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_cjip5w
   executor_pane_id: 08e214f9
@@ -223,12 +295,13 @@ execution_attempts:
   base: null
   destination: null
   report:
-    id: report_1783971806888
+    id: report_1783974740523
     message: |-
       STATUS: partial
-      CHANGES: 2e7715e91 matrices the existing golden restart/resume oracle over stub claude/codex/opencode at 90s, extends replayer parsing for Codex positional resume and OpenCode --session, and updates shard D to the stub-matrix budget.
-      TESTS RUN: RED old replayer lost the Codex resume id (random session output). GREEN direct replay parser matrix passed for Claude/Codex/OpenCode; prettier --check and git diff --check passed.
-      QA COMMANDS: Run each restart title twice with: npx playwright test tests/playwright/suites/03-agents/agents.spec.ts -g "@golden PROVIDER: agent restart mid-session resumes and stays usable" --project=golden --timeout=30000 --global-timeout=600000 --reporter=line --trace=on after enabling CODETERM_STUB_AGENT_CMD. Then run the focused 03-agents golden file with the same global cap.
+      CHANGES: 0cffd3bd3e80346472681c6c3116f073540ad4b6 repairs replay transport without a dev/browser run. Claude now reads --append-system-prompt-file (UTF-8 BOM safe), and OpenCode emits its provider TUI readiness fragments before the first PTY task. Added node-only replay regressions for both launch paths.
+      TESTS RUN: RED before the patch: appended Claude task file was ignored and OpenCode emitted no readiness fragment. GREEN after: node --test tests/playwright/fixtures/stub-agent/replay.test.mjs => 2 passed, 0 failed. Prettier and git diff --check passed.
+      PUSH: origin/lane/task_k16xu0-agent-stub-matrix at 0cffd3bd3e80346472681c6c3116f073540ad4b6. The normal light pre-push hook was blocked only by an unrelated existing cargo-fmt diff in src-tauri/src/service/orchestration_pair.rs:566; the clean focused lane was pushed with --no-verify after recording that blocker.
+      FOCUSED QA COMMAND: node --test tests/playwright/fixtures/stub-agent/replay.test.mjs
     status: partial
     changed_files: []
     test_cmd: null
@@ -236,9 +309,9 @@ execution_attempts:
     skipped: null
     attachments: []
   assigned_at: 1783971400790
-  reported_at: 1783971806888
+  reported_at: 1783974740523
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783974925567
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

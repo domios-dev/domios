@@ -17,11 +17,11 @@ correctness: Real spawn paths must be gated; the stub suite is blind to launch r
 status: in_review
 review_stage: review
 qa_state: null
-status_label: null
+status_label: pane-gone
 priority: p2
 created_at: 1783970644778
-updated_at: 1783971910320
-status_changed_at: 1783971869003
+updated_at: 1783975342340
+status_changed_at: 1783974490408
 handle: test-template-spawns-as-emergent-behavior-real-launch-not-stub-orchestra
 tags: []
 section_ids:
@@ -33,16 +33,16 @@ competition: null
 intent: null
 parent_task_id: null
 depends_on: []
-assigned_pane_id: 1f4faa1f
+assigned_pane_id: null
 lane:
-  pane_id: 1f4faa1f
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: D:\Developer\codeterm-worktrees\task_ngwcjd-real-spawn-smoke
   branch: lane/task_ngwcjd-real-spawn-smoke
   base: null
-  destination: null
-  cleanup_status: deferred
+  destination: feat/1.7.2-stability
+  cleanup_status: done
   cleanup_hints:
   - Keep worktree D:\Developer\codeterm-worktrees\task_ngwcjd-real-spawn-smoke until warm integration QA applies b3fc758e9 and runs focused live smoke commands.
 taken_by_role: null
@@ -142,6 +142,59 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_f5lfef
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: decision
+  text: bounced helper because concurrent focusPane visibility checks race across the pair; require sequential chat-surface verification before canonical QA
+  ts: 1783972682587
+  links:
+  - key:cd0bfc848dc8f691
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_8ks1me
+  from:
+    pane_id: 1f4faa1f
+    session_id: 019f5cfb-6b17-7a21-b2d1-e2dca5c45fb6
+    title: Darcy
+  kind: status_update
+  text: |-
+    STATUS: partial
+    CHANGES: Fixed the pair smoke focus race: real provider/session materialization remains parallel, while chat-surface verification is now sequential per pane; no-bare-shell checks remain parallel. Amended commit caf1f8a02.
+    TESTS RUN: prettier@3.7.4 --write on the two edited Playwright files; git diff --check passed. Per instruction, no dev/build/browser or live Playwright execution was started; canonical warm QA owns it.
+  ts: 1783972720263
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_cfe0oi
+  from:
+    pane_id: e3fa0754
+    session_id: null
+    title: null
+  kind: merge
+  text: e58125ba6 no-ff merged caf1f8a02 into canonical feat/1.7.2-stability; live project discovers both @live tests; awaiting canonical credentialed execution
+  ts: 1783974490119
+  links:
+  - key:61e765fa99613533
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_wdwzrh
   executor_pane_id: 1f4faa1f
@@ -159,11 +212,11 @@ execution_attempts:
   base: null
   destination: null
   report:
-    id: report_1783971889160
+    id: report_1783972720612
     message: |-
       STATUS: partial
-      CHANGES: Commit b3fc758e9 adds the reusable real template spawn oracle plus live orchestration-pair and single-agent smoke coverage; future command types are documented in the helper contract.
-      TESTS RUN: git diff --check passed. Both exact @live titles were discovered successfully with the shared Playwright dependency. Real execution was intentionally deferred: this worker must not start/restart a dev instance and requires a credentialed provider.
+      CHANGES: Fixed the pair smoke focus race: real provider/session materialization remains parallel, while chat-surface verification is now sequential per pane; no-bare-shell checks remain parallel. Amended commit caf1f8a02.
+      TESTS RUN: prettier@3.7.4 --write on the two edited Playwright files; git diff --check passed. Per instruction, no dev/build/browser or live Playwright execution was started; canonical warm QA owns it.
     status: null
     changed_files: []
     test_cmd: null
@@ -171,9 +224,9 @@ execution_attempts:
     skipped: null
     attachments: []
   assigned_at: 1783971400895
-  reported_at: 1783971889160
+  reported_at: 1783972720612
   reviewed_at: null
-  closed_at: null
+  closed_at: 1783974637314
   competition_group_id: null
   competition_lane: null
   judge_verdict: null
