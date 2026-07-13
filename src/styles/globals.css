@@ -1143,6 +1143,8 @@ button,
 }
 
 .new-session-picker-card .pair-affordance--card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: stretch;
   gap: 0.45rem;
   padding: 0.55rem;
@@ -1151,7 +1153,6 @@ button,
   background: color-mix(in srgb, var(--ct-bg) 62%, transparent);
 }
 .new-session-picker-card .pair-affordance--card .pair-affordance-slot {
-  flex: 1 1 0;
   min-width: 0;
 }
 .new-session-picker-card .pair-affordance--card .orchestration-role-row {
@@ -1170,7 +1171,7 @@ button,
 }
 .new-session-picker-card .pair-affordance--card .orchestration-role-row > div:nth-child(2) {
   display: grid;
-  grid-template-columns: minmax(7.5rem, 0.8fr) minmax(8.5rem, 1fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   gap: 0.35rem;
 }
 .new-session-picker-card .pair-affordance-join {
@@ -1327,7 +1328,7 @@ button,
 
 @media (max-width: 640px) {
   .new-session-picker-card .pair-affordance--card {
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
   }
   .new-session-picker-card .pair-affordance--card .orchestration-role-row > div:nth-child(2) {
     grid-template-columns: 1fr;
@@ -1540,13 +1541,6 @@ button,
   transform: scaleY(1);
 }
 
-.ct-tab-status-rail--working {
-  background: var(--ct-green);
-  animation:
-    ct-tab-rail-enter var(--ct-duration-fast) var(--ct-ease-out-expo) both,
-    ct-tab-rail-breathe 2.6s ease-in-out var(--ct-duration-fast) infinite;
-}
-
 .ct-tab-status-rail--attention {
   background: var(--ct-yellow);
   opacity: 1;
@@ -1564,10 +1558,6 @@ button,
   animation: ct-tab-rail-settle 900ms var(--ct-ease-out-expo) forwards;
 }
 
-[data-ct-theme="light"] .ct-tab-status-rail--working {
-  background: var(--ct-bright-green);
-}
-
 [data-ct-theme="light"] .ct-tab-status-rail--dead {
   background: color-mix(in srgb, var(--ct-red) 58%, var(--ct-fg));
   opacity: 1;
@@ -1578,11 +1568,6 @@ button,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ct-tab-status-rail--working {
-    opacity: 0.85;
-    animation: none;
-  }
-
   .ct-tab-status-rail--settle {
     animation: ct-tab-rail-settle 0.01ms linear forwards;
   }

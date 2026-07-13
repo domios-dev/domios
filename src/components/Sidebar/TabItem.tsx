@@ -133,7 +133,6 @@ function TabSubline({ roleShield }: { roleShield: string | null }) {
 }
 
 function tabRailVariant(status: PaneStatus | null | undefined): "working" | "attention" | "dead" | null {
-  if (status === "Working") return "working";
   if (status === "Waiting") return "attention";
   if (status === "Dead") return "dead";
   return null;
