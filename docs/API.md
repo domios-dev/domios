@@ -838,7 +838,7 @@ Restart the agent in a pane. Default behaviour is graceful: send the provider-sp
 - `429` — rate-limited (returns `Retry-After` header + `{"retry_after_secs": N}` body); restart is throttled per-pane to avoid restart loops
 - `500` — internal restart failure (PTY spawn error, etc.)
 
-This is the same flow `codeterm agent restart --pane PANE_ID [--force] [--grace-secs N]` invokes from the CLI.
+This is the same flow `codeterm agent restart --tab PANE_ID [--force] [--grace-secs N]` invokes from the CLI.
 
 ### Plan Task Attempts
 

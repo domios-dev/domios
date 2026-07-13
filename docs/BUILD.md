@@ -45,7 +45,7 @@ foreground owner:
 
 ```powershell
 # Verify no previous dev listener/process remains, then open one visible pane.
-codeterm pane new --cmd "Set-Location '<checkout>'; .\build.ps1 dev"
+codeterm tab new --cmd "Set-Location '<checkout>'; .\build.ps1 dev"
 ```
 
 Keep that pane open and require all of the following before reporting ready:
@@ -143,7 +143,7 @@ Typical setup: a macOS machine (Primary, ARM) + a Windows machine (Support, x64)
    ```
 4. **Primary: tell Support to build** (via mesh):
    ```bash
-   codeterm send "git pull && ./build.sh build && gh release upload vX.Y.Z <installer-path> --clobber" --pane general --mesh <support-peer>
+   codeterm send "git pull && ./build.sh build && gh release upload vX.Y.Z <installer-path> --clobber" --tab general --mesh <support-peer>
    ```
 5. **Both machines build in parallel:**
    - **Primary** runs `./build.sh build` locally → uploads its installer
