@@ -81,10 +81,10 @@ export function RecoveryStatusBanner() {
       data-testid="recovery-status-banner"
       role="status"
       aria-live="polite"
-      className="fixed right-3 top-11 z-[85] pointer-events-none"
+      className="fixed right-3 top-20 z-40 pointer-events-none"
     >
       <div
-        className="pointer-events-auto w-[min(390px,calc(100vw-1.5rem))] rounded-lg border px-3 py-3 shadow-2xl ct-float"
+        className="pointer-events-auto w-[min(340px,calc(100vw-1.5rem))] rounded-lg border px-3 py-3 shadow-2xl ct-float"
         style={{
           background: "color-mix(in srgb, var(--ct-red) 12%, var(--ct-surface))",
           borderColor: "color-mix(in srgb, var(--ct-red) 35%, transparent)",
