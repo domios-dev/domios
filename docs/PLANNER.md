@@ -64,6 +64,15 @@ in sections) ⟶ Tasks ⟶ Strides. Spec and Plan are perpendicular surfaces —
 WHAT/WHY lives ONLY in the spec, HOW/phases ONLY in plan sections. Ingesting
 WHAT/WHY into plan sections is the classic mistake the approval gate blocks.
 
+`test_plan_vague` is the doctor warning for task test plans that are too loose
+for a worker handoff. A concrete test plan is at least 120 characters and names
+a runnable oracle, currently a backticked command or one of `npx`, `cargo`,
+`codeterm`, `bash`, or `curl`. "Manual check" or prose-only verification stays
+vague even when it is long.
+
+Effort lineage links use `codeterm effort link --from <plan> --to <plan> --rel
+<rel>`. The accepted `rel` values are `follows` and `supersedes`.
+
 ## Milestones & regression boundaries
 
 Tasks are not a flat list — group them into **milestones** and gate each
