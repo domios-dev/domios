@@ -197,10 +197,10 @@ test("bound-session pending snapshot renders recovery instead of false empty", a
   await act(async () => root.unmount());
 });
 
-test("empty unbound chat keeps its composer mounted and does not reconnect while typing", async () => {
-  const paneId = "empty-unbound-pane";
+test("T7 awaiting-store keeps the composer identity, draft, and focus", async () => {
+  const paneId = "pending-composer-pane";
   const state = muxStateFor({
-    [paneId]: paneBase(paneId),
+    [paneId]: paneBase(paneId, { agent_session_id: "bound-session" }),
   });
   const { host, root, commands } = await renderPaneSessionChat(
     paneId,
@@ -213,6 +213,7 @@ test("empty unbound chat keeps its composer mounted and does not reconnect while
   setter?.call(composer, "typing without reset");
   composer.dispatchEvent(new Event("input", { bubbles: true }));
   composer.setSelectionRange(7, 7);
+  composer.focus();
 
   await act(async () => new Promise((resolve) => setTimeout(resolve, 1_100)));
 
@@ -220,7 +221,8 @@ test("empty unbound chat keeps its composer mounted and does not reconnect while
   assert(currentComposer === composer, "pending empty chat did not remount the composer");
   assert(currentComposer.value === "typing without reset", "typed draft survived pending chat state");
   assert(currentComposer.selectionStart === 7, "caret position survived pending chat state");
-  assert(commands.filter((command) => command === "chat_start").length === 1, "unbound empty chat did not loop chat_start");
+  assert(document.activeElement === composer, "composer focus survived pending chat state");
+  assert(commands.filter((command) => command === "chat_start").length === 1, "awaiting-store chat does not poll or remount");
   await act(async () => root.unmount());
 });
 
@@ -238,7 +240,7 @@ test("snapshot failure keeps a retryable chat surface", async () => {
   await act(async () => root.unmount());
 });
 
-test("manual reconnect restarts the real chat path and restores history", async () => {
+test("T6 manual reconnect performs one stop/start pair, clears the error, and restores history", async () => {
   const paneId = "reattach-pane";
   const state = muxStateFor({
     [paneId]: paneBase(paneId, { agent_session_id: "bound-session" }),
@@ -260,22 +262,24 @@ test("manual reconnect restarts the real chat path and restores history", async 
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert(commands.includes("chat_stop"), "manual reconnect stops the stale tailer");
-  assert(
-    commands.filter((command) => command === "chat_start").length >= 2,
-    "manual reconnect restarts snapshot detection",
-  );
+  assert(commands.filter((command) => command === "chat_stop").length === 1, "manual reconnect stops the stale tailer once");
+  assert(commands.filter((command) => command === "chat_start").length === 2, "manual reconnect starts once after the failed attach");
+  assert(!host.querySelector('[data-testid="chat-recovery-error"]'), "manual reconnect clears the error");
   assert(host.textContent?.includes("restored history"), "history reappears after reconnect");
   await act(async () => root.unmount());
 });
 
-test("pane header reconnect control re-runs chat attach commands", async () => {
+test("pane header reconnect control requests a hook-owned reattach", async () => {
   const { createRequire } = await import("node:module");
   const require = createRequire(__filename);
   require.extensions[".css"] = () => {};
   const { __setInvokeForTest } = await import("../../lib/bridge");
   const { PaneTopBar } = await import("./PaneTopBar");
   const commands: string[] = [];
+  let reattachEvents = 0;
+  window.addEventListener("codeterm:chat-reattached", () => {
+    reattachEvents += 1;
+  });
   __setInvokeForTest((async (cmd: string) => {
     commands.push(cmd);
     return {};
@@ -301,7 +305,8 @@ test("pane header reconnect control re-runs chat attach commands", async () => {
   assert(reconnect, "header reconnect control is visible");
   await act(async () => reconnect.click());
   const stopAt = commands.indexOf("chat_stop");
-  assert(stopAt >= 0 && commands[stopAt + 1] === "chat_start", "reconnect calls chat_stop then chat_start");
+  assert(stopAt >= 0, "reconnect calls chat_stop");
+  assert(reattachEvents === 1, "reconnect asks the mounted chat hook to attach once");
   await act(async () => root.unmount());
   host.remove();
 });
