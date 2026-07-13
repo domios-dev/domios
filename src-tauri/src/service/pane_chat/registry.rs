@@ -99,6 +99,40 @@ impl ChatRegistry {
         }
     }
 
+    /// Replace this pane/session's pending watcher with its materialized tailer.
+    /// The watcher owns the call, so dropping its handle signals without joining it.
+    pub fn replace_if_current(
+        &self,
+        pane_id: &str,
+        session_id: &str,
+        handle: TailerHandle,
+    ) -> bool {
+        let old = {
+            let mut g = self.inner.lock();
+            let Some(entry) = g.get(pane_id) else {
+                drop(g);
+                handle.shutdown();
+                return false;
+            };
+            if entry.session_id != session_id || !entry.handle.is_alive() {
+                drop(g);
+                handle.shutdown();
+                return false;
+            }
+            let refs = entry.refs;
+            g.insert(
+                pane_id.to_string(),
+                Entry {
+                    handle,
+                    refs,
+                    session_id: session_id.to_string(),
+                },
+            )
+        };
+        drop(old);
+        true
+    }
+
     /// Release one subscriber for `pane_id`; the worker is stopped only when
     /// the last client leaves. Safe to call on a pane that never had a tailer.
     pub fn stop(&self, pane_id: &str) {
@@ -237,6 +271,30 @@ mod tests {
         assert!(!registry.is_running("pane"));
         assert!(registry.insert("pane".into(), "new-sid".into(), handle_at(9)));
         assert_eq!(registry.current_offset("pane"), Some(9));
+    }
+
+    #[test]
+    fn rotation_stops_stale_pending_watch_before_replacement() {
+        let registry = ChatRegistry::default();
+        let stopped = Arc::new(AtomicBool::new(false));
+        let watch_stop = stopped.clone();
+        let watch = TailerHandle::new(
+            watch_stop.clone(),
+            Arc::new(AtomicU64::new(0)),
+            thread::spawn(move || {
+                while !watch_stop.load(Ordering::Acquire) {
+                    thread::sleep(Duration::from_millis(5));
+                }
+            }),
+        );
+        assert!(registry.insert("pane".into(), "old-sid".into(), watch));
+
+        assert!(
+            !registry.acquire("pane", "new-sid"),
+            "rotation must evict the stale watch rather than reuse it",
+        );
+        assert!(stopped.load(Ordering::Acquire));
+        assert!(!registry.is_running("pane"));
     }
 
     #[test]
