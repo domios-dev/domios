@@ -8,6 +8,7 @@ import { expect, test, type Page } from "../../helpers/fixtures";
 const DESKTOP = { width: 959, height: 279 };
 const MOBILE = { width: 320, height: 568 };
 const LONG_JSON = JSON.stringify({ envelope: "x".repeat(4_096), status: "complete" });
+const mountedPages = new Set<Page>();
 
 declare global {
   interface Window {
@@ -33,7 +34,13 @@ async function mountCards(page: Page): Promise<void> {
     const root = harness.mount(host, payload);
     window.__toolOutputCardTest.root = root;
   }, LONG_JSON);
+  mountedPages.add(page);
   await expect(page.locator('[data-testid="tool-output-card"]').first()).toBeVisible();
+}
+
+async function cleanupMountedCards(page: Page): Promise<void> {
+  if (page.isClosed()) return;
+  await page.evaluate(() => window.__toolOutputCardTest?.root?.unmount());
 }
 
 async function expectBoundedPreview(page: Page): Promise<void> {
@@ -52,8 +59,10 @@ async function expectBoundedPreview(page: Page): Promise<void> {
     .toBe(true);
 }
 
-test.afterEach(async ({ ui }) => {
-  await ui.page.evaluate(() => window.__toolOutputCardTest?.root?.unmount());
+test.afterEach(async () => {
+  const pages = Array.from(mountedPages);
+  mountedPages.clear();
+  await Promise.all(pages.map((page) => cleanupMountedCards(page)));
 });
 
 test("@golden shared tool cards bound long exec output at 959x279 and mobile", async ({ ui }) => {
