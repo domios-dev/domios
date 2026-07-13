@@ -24,4 +24,10 @@ assertEq(
   "input JSON duplicate is hidden",
 );
 
+assertEq(
+  distinctToolRawContent(undefined, "shell", '{\n  "command": "exit 2"\n}'),
+  null,
+  "missing normalized provider content is ignored",
+);
+
 console.log("ok - tool raw content detail selection");
