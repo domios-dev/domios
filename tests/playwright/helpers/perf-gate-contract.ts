@@ -11,6 +11,44 @@ export interface ContractSources {
   spec: string;
   fixture: string;
   baseFixtures: string;
+  seed: string;
+}
+
+export const HARD_METRIC_NAMES = ["pty-write-to-render", "long-history-bottom-anchor", "cold-interactive", "ipc-starvation-visible-render"];
+
+// Release-gate guard: under env-present, a skipped hard-metric is a contract
+// violation (the gate must exit nonzero, never green with metrics skipped).
+export function hardMetricSkipViolation(envPresent: boolean, skippedMetrics: string[]): boolean {
+  return envPresent && skippedMetrics.some((m) => HARD_METRIC_NAMES.includes(m));
+}
+
+// The spec must FAIL loud (throw) on env-present + !active BEFORE any test.skip,
+// so test.skip is reachable only when the env is genuinely absent.
+export function specHasEnvPresentThrowGuard(specText: string): boolean {
+  const skipAt = specText.indexOf("test.skip(");
+  if (skipAt < 0) return false;
+  const before = specText.slice(0, skipAt);
+  const guard = /if\s*\(\s*stubEnvActive\(\)\s*&&\s*!\s*perfSeed\.active\s*\)\s*throw\b/;
+  return guard.test(before) && /!\s*perfSeed\.active/.test(specText.slice(skipAt));
+}
+
+// Env present must FULLY bypass the memoized probe and cache TRUE only.
+export function seedActiveLogicSound(seedText: string): boolean {
+  const usesEnv = /stubEnvActive\s*\(/.test(seedText);
+  const noProbe = !/isStubTransportActive/.test(seedText);
+  const cacheTrueOnly = /cachedActiveTrue\s*=\s*true/.test(seedText) && !/(?<!let\s)cachedActiveTrue\s*=\s*false/.test(seedText);
+  const activeFromEnv = /const active = (?:cachedActiveTrue \|\| )?stubEnvActive\(\)/.test(seedText);
+  const preparePart = seedText.slice(seedText.indexOf("export async function preparePerfSeed"));
+  const noSwallowToFalse = !/\.catch\([\s\S]{0,80}?active\s*=/.test(preparePart) && !/\.catch\(\s*\(\)\s*=>\s*false\s*\)/.test(preparePart);
+  return usesEnv && noProbe && cacheTrueOnly && activeFromEnv && noSwallowToFalse;
+}
+
+// skip must gate on env-derived perfSeed.active only, never a probe result.
+export function skipIsEnvOnly(specText: string): boolean {
+  const m = specText.match(/test\.skip\(\s*([^,]+),/);
+  if (!m) return false;
+  const cond = m[1];
+  return /!\s*perfSeed\.active/.test(cond) && !/isStubTransportActive|stubActive|probe/i.test(cond);
 }
 
 // Topology-creation endpoints/verbs banned inside a @perf body regardless of quote
@@ -85,7 +123,7 @@ export function seedLifetimeOrdered(fixtureText: string): boolean {
 
 // Pure checks over source text so they run against both the pre-fix and fixed trees.
 export function runContract(sources: ContractSources, importers: string[]): ContractResult[] {
-  const { spec, fixture, baseFixtures } = sources;
+  const { spec, fixture, baseFixtures, seed } = sources;
   const results: ContractResult[] = [];
   const push = (id: string, pass: boolean, detail: string) => results.push({ id, pass, detail });
 
@@ -151,6 +189,24 @@ export function runContract(sources: ContractSources, importers: string[]): Cont
     "C8",
     resetSites.length > 0 && allResetsInApiFixture && !autoFixtureResets,
     `apiReset only inside the non-auto api fixture; no auto:true fixture resets (sites: ${resetSites.length}, auto-reset: ${autoFixtureResets})`,
+  );
+
+  const titlesPresent = HARD_METRIC_NAMES.every((n) => new RegExp(`name:\\s*"${n}"`).test(spec));
+  const envOnlySkip = skipIsEnvOnly(spec);
+  const logicSound = seedActiveLogicSound(seed);
+  push(
+    "C9",
+    titlesPresent && envOnlySkip && logicSound,
+    `env-only active: 4 hard metrics present, skip gates on env-derived perfSeed.active (not a probe), seed bypasses the probe + caches true-only (titles:${titlesPresent} skip:${envOnlySkip} logic:${logicSound})`,
+  );
+
+  const flagsSkipUnderEnv = hardMetricSkipViolation(true, [HARD_METRIC_NAMES[0]]);
+  const ignoresEnvAbsent = !hardMetricSkipViolation(false, HARD_METRIC_NAMES);
+  const specGuard = specHasEnvPresentThrowGuard(spec);
+  push(
+    "C10",
+    flagsSkipUnderEnv && ignoresEnvAbsent && specGuard,
+    `spec throws on env-present+!active before test.skip (skip is env-absent-only); guard sanity flags:${flagsSkipUnderEnv} absentOk:${ignoresEnvAbsent} specGuard:${specGuard}`,
   );
 
   return results;

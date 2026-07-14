@@ -41,6 +41,7 @@ const INVENTORY: ForkSite[] = [
   { file: "src/components/Terminal/voice/useVoiceRecorder.ts", line: 271, cls: "platform-adaptation", note: "different mic-unavailable guidance text per host" },
   { file: "src/components/Terminal/voice/useVoiceRecorder.ts", line: 278, cls: "platform-adaptation", note: "Permissions API gate only reliable in browsers (native WKWebView misreports)" },
   { file: "src/components/Titlebar/Titlebar.tsx", line: 46, cls: "platform-adaptation", note: "native window-chrome controls (traffic lights / min/max/close)" },
+  { file: "src/components/Titlebar/Titlebar.tsx", line: 55, cls: "platform-adaptation", note: "mobile web titlebar safe-area min-height class (notch/safe-top); native chrome has fixed height" },
   { file: "src/components/Titlebar/Titlebar.tsx", line: 73, cls: "platform-adaptation", note: "web-only WebPeerPicker in the titlebar's left slot (traffic-lights corner)" },
   { file: "src/components/WebGate/PwaSetup.tsx", line: 67, cls: "platform-adaptation", note: "service worker registration is web-only" },
   { file: "src/components/WebGate/PwaSetup.tsx", line: 87, cls: "platform-adaptation", note: "PWA install-prompt banner is web-only" },

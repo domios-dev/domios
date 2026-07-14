@@ -3,7 +3,7 @@
  * WHY: PTY output must not make replay, history, reload, or IPC churn feel frozen.
  * ORACLE: A rendered terminal marker and its bottom anchor, never daemon logs alone.
  */
-import { expect, test, type Page } from "../../helpers/perf-fixtures";
+import { expect, test, stubEnvActive, STUB_ENV_ABSENT_SKIP, type Page } from "../../helpers/perf-fixtures";
 import type { ApiClient } from "../../helpers/api-client";
 import { recordPerfSamples } from "../../helpers/perf-metrics";
 import { pollUntil } from "../../helpers/poll";
@@ -19,7 +19,9 @@ const READY_CAP_MS = 8_000;
 const SAMPLE_WAIT_SLACK_MS = 1_500;
 
 test.beforeEach(({ perfSeed }) => {
-  test.skip(!perfSeed.active, "requires CODETERM_STUB_AGENT_CMD; real providers are forbidden");
+  // Env present + inactive seed = false-active; FAIL loud (never skip hard metrics).
+  if (stubEnvActive() && !perfSeed.active) throw new Error("CODETERM_STUB_AGENT_CMD present but perf seed inactive; hard metrics must not skip");
+  test.skip(!perfSeed.active, STUB_ENV_ABSENT_SKIP);
 });
 
 async function markerVisible(page: Page, paneId: string, marker: string): Promise<boolean> {

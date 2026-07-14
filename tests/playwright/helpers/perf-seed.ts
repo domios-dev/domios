@@ -1,7 +1,7 @@
 import type { ApiClient } from "./api-client";
 import { injectCast, CAST } from "./inject-cast";
 import { pollUntil } from "./poll";
-import { isStubTransportActive, stubPaneOutput } from "./stub-gate";
+import { stubPaneOutput } from "./stub-gate";
 
 const STUB_PROVIDER = "claude";
 const READY_CAP_MS = 8_000;
@@ -17,14 +17,25 @@ export interface PerfSeed {
   churn: { front: string; churn: string };
 }
 
+// Active intent comes from the runner env, NOT a memoized probe that swallows a
+// transient false; present CODETERM_STUB_AGENT_CMD means seed, never skip.
+export function stubEnvActive(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env.CODETERM_STUB_AGENT_CMD ?? "").trim().length > 0;
+}
+
+export const STUB_ENV_ABSENT_SKIP = "requires CODETERM_STUB_AGENT_CMD; real providers are forbidden";
+
+// Cache TRUE only: a proven-active run may memoize, but false/errors never stick.
+let cachedActiveTrue = false;
+
+// Throws on banner timeout; a stuck/absent replayer must FAIL seeding, never skip.
+export async function awaitStubBanner(api: ApiClient, paneId: string, label: string, capMs = READY_CAP_MS): Promise<void> {
+  await pollUntil(async () => (await stubPaneOutput(api, paneId)).includes("stub replay"), capMs, 250, `${label} stub banner`);
+}
+
 async function spawnStub(api: ApiClient, title: string): Promise<string> {
   const spawned = await api.post<SpawnedPane>("/agents/spawn", { agent: STUB_PROVIDER, title });
-  await pollUntil(
-    async () => (await stubPaneOutput(api, spawned.pane_id)).includes("stub replay"),
-    READY_CAP_MS,
-    250,
-    `${title} stub banner`,
-  );
+  await awaitStubBanner(api, spawned.pane_id, title);
   return spawned.pane_id;
 }
 
@@ -46,7 +57,7 @@ async function awaitPtyReady(api: ApiClient, paneId: string): Promise<void> {
 
 // Front-loads every expensive spawn/inject/readiness for all four hard metrics.
 export async function preparePerfSeed(api: ApiClient): Promise<PerfSeed> {
-  const active = await isStubTransportActive(api);
+  const active = cachedActiveTrue || stubEnvActive();
   if (!active) {
     return {
       active,
@@ -58,6 +69,7 @@ export async function preparePerfSeed(api: ApiClient): Promise<PerfSeed> {
     };
   }
 
+  // Env present: seed directly; any spawn/banner/readiness failure throws (never skips).
   const writeFront = await spawnStub(api, "pw-perf-write-render");
 
   const anchorFront = await spawnStub(api, "pw-perf-anchor-front");
@@ -80,6 +92,7 @@ export async function preparePerfSeed(api: ApiClient): Promise<PerfSeed> {
   await awaitPtyReady(api, ipcChurn);
   await injectCast(api, { paneId: ipcChurn, castPath: CAST.claudeSystemsDesignLongChatIdle, speed: 8, classify: true });
 
+  cachedActiveTrue = true;
   return {
     active,
     api,
