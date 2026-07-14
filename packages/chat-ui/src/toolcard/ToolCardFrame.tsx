@@ -19,7 +19,7 @@ export function ToolCardFrame({ event, expanded, onToggle, children, title, metr
   const Glyph = visual.glyph;
   const isCommand = event.kind === "command" || event.kind === "codeterm";
   const commandVisible = !isCommand || globalShowCommands || commandOpen || expanded;
-  const statusColor = event.status === "error" ? "var(--ct-error)" : event.status === "pending" ? "var(--ct-warning)" : "var(--ct-success)";
+  const statusColor = event.status === "error" ? "var(--ct-red)" : event.status === "pending" ? "var(--ct-yellow)" : "var(--ct-green)";
 
   return (
     <div
@@ -31,7 +31,7 @@ export function ToolCardFrame({ event, expanded, onToggle, children, title, metr
       <div className="flex min-w-0 items-center gap-2 px-2.5 py-1.5 text-left text-xs">
         <Glyph aria-hidden="true" size={14} strokeWidth={2} style={{ color: visual.color, flexShrink: 0 }} />
         <span className="font-medium" style={{ color: visual.color }}>{title ?? visual.label}</span>
-        <span className="min-w-0 flex-1 truncate" style={{ color: "var(--ct-fg-muted)" }}>{event.summary || "Tool activity"}</span>
+        <span className="min-w-0 flex-1 truncate" style={{ color: "var(--ct-muted-fg)" }}>{event.summary || "Tool activity"}</span>
         {metric}
         <span data-testid="toolcard-status" aria-label={event.status} style={{ color: statusColor }}>
           {event.status === "pending" ? <LoaderCircle className="animate-spin" size={14} /> : event.status === "error" ? <CircleX size={14} /> : <Check size={14} />}
@@ -44,12 +44,12 @@ export function ToolCardFrame({ event, expanded, onToggle, children, title, metr
             aria-expanded={commandVisible}
             onClick={() => setCommandOpen((open) => !open)}
             className="rounded-sm p-0.5"
-            style={{ color: "var(--ct-fg-muted)" }}
+            style={{ color: "var(--ct-muted-fg)" }}
           >
             <ChevronRight size={14} className={commandVisible ? "rotate-90" : ""} />
           </button>
         )}
-        <button type="button" aria-label={expanded ? "Collapse tool details" : "Expand tool details"} onClick={onToggle} className="rounded-sm p-0.5" style={{ color: "var(--ct-fg-muted)" }}>
+        <button type="button" aria-label={expanded ? "Collapse tool details" : "Expand tool details"} onClick={onToggle} className="rounded-sm p-0.5" style={{ color: "var(--ct-muted-fg)" }}>
           <ChevronDown size={13} className={expanded ? "rotate-180" : ""} />
         </button>
       </div>

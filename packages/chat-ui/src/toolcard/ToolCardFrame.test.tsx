@@ -5,6 +5,7 @@ import type { ToolEvent, ToolEventKind } from "@codeterm/chat-core";
 import { CommandCard } from "./CommandCard";
 import { ToolCardFrame } from "./ToolCardFrame";
 import { toolKindVisual } from "./toolKindVisual";
+import { DEFAULT_THEME, themeToCSS } from "../../../../src/lib/themeCss";
 
 const window = new Window({ url: "http://localhost/" });
 for (const [name, value] of Object.entries({ window, document: window.document, navigator: window.navigator, HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node })) {
@@ -43,8 +44,17 @@ const { host: errorHost } = await render(
 if (!errorHost.querySelector<HTMLElement>("[style*='dashed']")) throw new Error("error border regression");
 if (!errorHost.querySelector('[data-testid="toolcard-status"] svg')) throw new Error("error status regression");
 
+const usedThemeVars = [
+  "--ct-border", "--ct-surface", "--ct-muted-fg", "--ct-red", "--ct-yellow", "--ct-green",
+  "--ct-blue", "--ct-cyan", "--ct-magenta", "--ct-orange", "--ct-accent",
+];
+const themeVars = themeToCSS(DEFAULT_THEME);
+for (const variable of usedThemeVars) {
+  if (!(variable in themeVars)) throw new Error(`missing theme token ${variable}`);
+}
 for (const kind of Object.keys(toolKindVisual) as ToolEventKind[]) {
-  if (!toolKindVisual[kind].color.startsWith("var(--ct-")) throw new Error(`un-themed color for ${kind}`);
+  const variable = toolKindVisual[kind].color.match(/var\((--ct-[^)]+)\)/)?.[1];
+  if (!variable || !(variable in themeVars)) throw new Error(`un-themed color for ${kind}`);
 }
 
 console.log("tool card frame tests: 5/5 passed");
