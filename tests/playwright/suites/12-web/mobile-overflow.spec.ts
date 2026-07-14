@@ -402,6 +402,13 @@ async function assertPeerPickerReachable(page: Page, label: string): Promise<voi
   expect(result.reachable, `${label} peer picker reachable ${JSON.stringify(result)}`).toBe(true);
 }
 
+async function dismissPeerPickerWithSupportedControl(page: Page, label: string): Promise<void> {
+  await page.locator('[data-testid="peer-picker-button"]').click();
+  await page.locator('[data-testid="peer-picker-menu"]').waitFor({ state: "hidden", timeout: 5_000 });
+  await settleLayout(page);
+  await assertPeerPickerReachable(page, `${label} after peer picker dismiss`);
+}
+
 function targetPaneModeSwitch(page: Page, paneId: string) {
   return page.locator(`[data-pane-id="${paneId}"]`).locator('[data-testid="pane-mode-switch"]');
 }
@@ -789,6 +796,13 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     expect(transitionSource).not.toContain("workspace.click(");
     const canvasStateSource = assertCanvasStateBeforePaneTransition.toString();
     expect(canvasStateSource).toContain('!el.closest(\'[inert], [aria-hidden="true"]\') && !canvas.contains(el)');
+    const peerDismissSource = dismissPeerPickerWithSupportedControl.toString();
+    expect(peerDismissSource).toContain('[data-testid="peer-picker-button"]');
+    expect(peerDismissSource).toContain(".click()");
+    expect(peerDismissSource).toContain('[data-testid="peer-picker-menu"]');
+    expect(peerDismissSource).toContain('state: "hidden", timeout: 5_000');
+    expect(peerDismissSource).not.toContain("Escape");
+    expect(peerDismissSource).not.toContain(".catch(");
 
     await page.setContent(`
       <style>
@@ -964,9 +978,7 @@ for (const vp of VIEWPORTS) {
       await auditKnownSurfaces(page, `${vp.name} peer menu`);
       await auditViewport(page, `${vp.name} peer menu`, { reachability: "peer-picker-menu" });
       await assertPeerPickerMenuInverseOcclusion(page, target.paneId, `${vp.name} peer menu`);
-      await page.keyboard.press("Escape").catch(() => {});
-      await page.locator('[data-testid="peer-picker-menu"]').waitFor({ state: "hidden", timeout: 5_000 }).catch(() => {});
-      await settleLayout(page);
+      await dismissPeerPickerWithSupportedControl(page, `${vp.name} peer menu`);
       await assertPaneModeTabsReachable(page, target.paneId, `${vp.name} peer menu dismissed`);
 
       await page.locator('[data-testid="titlebar-settings"]').click();
