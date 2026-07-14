@@ -156,7 +156,6 @@ export function PaneSessionChat({
     recovering,
     error,
     retry,
-    allMessages,
     enrichedMessages,
     hiddenMessageCount,
     loadOlder,
@@ -165,22 +164,6 @@ export function PaneSessionChat({
   } = useChatSession({ paneId, agentSessionId, onError, active: isActive });
 
   const lastInstantBottomKeyRef = useRef("");
-  useLayoutEffect(() => {
-    if (!isActive) {
-      lastInstantBottomKeyRef.current = "";
-      return;
-    }
-    const key = `${paneId}:${agentSessionId ?? ""}`;
-    if (!shouldRestoreChatViewport(isActive, loading, allMessages.length, key, lastInstantBottomKeyRef.current)) return;
-    lastInstantBottomKeyRef.current = key;
-    scrollToBottom("auto");
-    const raf = requestAnimationFrame(() => {
-      scrollToBottom("auto");
-    });
-    return () => {
-      cancelAnimationFrame(raf);
-    };
-  }, [agentSessionId, allMessages.length, isActive, loading, paneId, scrollToBottom]);
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   // clears pane.pending_prompt shortly after on the next state poll.
@@ -277,6 +260,24 @@ export function PaneSessionChat({
   );
 
   const deferredEnrichedMessages = useDeferredValue(enrichedMessages);
+  useLayoutEffect(() => {
+    if (!isActive) {
+      lastInstantBottomKeyRef.current = "";
+      return;
+    }
+    const key = `${paneId}:${agentSessionId ?? ""}`;
+    if (!shouldRestoreChatViewport(
+      isActive,
+      loading,
+      deferredEnrichedMessages.length,
+      key,
+      lastInstantBottomKeyRef.current,
+    )) return;
+    lastInstantBottomKeyRef.current = key;
+    scrollToBottom("auto");
+    const raf = requestAnimationFrame(() => scrollToBottom("auto"));
+    return () => cancelAnimationFrame(raf);
+  }, [agentSessionId, deferredEnrichedMessages.length, isActive, loading, paneId, scrollToBottom]);
   const latestFailedToolCallId = useMemo(() => {
     for (let i = deferredEnrichedMessages.length - 1; i >= 0; i -= 1) {
       const msg = deferredEnrichedMessages[i]?.msg;
@@ -376,7 +377,7 @@ export function PaneSessionChat({
       const el = scrollRef.current;
       if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
     });
-  }, [allMessages, inlinePrompt?.question, backendState?.state]);
+  }, [deferredEnrichedMessages, inlinePrompt?.question, backendState?.state]);
   useEffect(() => () => {
     if (autoScrollRafRef.current) cancelAnimationFrame(autoScrollRafRef.current);
   }, []);
