@@ -1,3 +1,39 @@
+import path from "node:path";
+
+// Mirrors dev-console REPO_ROOT without importing it (would cycle).
+export function repoRoot(): string {
+  return process.env.CT_E2E_DEV_ROOT
+    ? path.resolve(process.env.CT_E2E_DEV_ROOT)
+    : path.resolve(__dirname, "..", "..", "..");
+}
+
+// A replay.mjs token: matching-quote-wrapped, or unquoted (no leading quote).
+const REPLAY_TOKEN = /(^|\s)('[^']*replay\.mjs'|"[^"]*replay\.mjs"|[^\s'"][^\s]*replay\.mjs|replay\.mjs)(\s|$)/;
+
+function unquote(token: string): string {
+  const q = token[0];
+  return (q === "'" || q === '"') && token.endsWith(q) ? token.slice(1, -1) : token;
+}
+
+function isAbsoluteReplay(bare: string): boolean {
+  return path.isAbsolute(bare) || /^[A-Za-z]:[\\/]/.test(bare) || bare.startsWith("\\\\");
+}
+
+function quoteIfNeeded(p: string): string {
+  return /\s/.test(p) ? `'${p}'` : p;
+}
+
+// Resolve a repo-relative replay.mjs token to an absolute path; else byte-stable.
+export function normalizeStubAgentCmd(cmd: string | undefined, root: string): string | undefined {
+  if (cmd === undefined) return cmd;
+  const match = REPLAY_TOKEN.exec(cmd);
+  if (!match) return cmd;
+  const bare = unquote(match[2]);
+  if (isAbsoluteReplay(bare)) return cmd;
+  const absolute = quoteIfNeeded(path.resolve(root, bare));
+  return cmd.slice(0, match.index) + match[1] + absolute + match[3] + cmd.slice(match.index + match[0].length);
+}
+
 export type DevInstance = {
   slot: number;
   name: string;
@@ -50,8 +86,10 @@ export function buildDevInstanceEnv(
   workers: number = playwrightWorkerCount(),
 ): NodeJS.ProcessEnv {
   const cargoTargetDir = playwrightCargoTargetDir(instance, platform, workers);
+  const stubAgentCmd = normalizeStubAgentCmd(baseEnv.CODETERM_STUB_AGENT_CMD, repoRoot());
   return {
     ...baseEnv,
+    ...(stubAgentCmd === undefined ? {} : { CODETERM_STUB_AGENT_CMD: stubAgentCmd }),
     CODETERM_INSTANCE: instance.name,
     CODETERM_API_PORT: String(instance.apiPort),
     CODETERM_VITE_PORT: String(instance.vitePort),
