@@ -28,6 +28,8 @@ pub mod mem_host;
 pub mod mesh;
 pub mod message_markers;
 pub mod multiplexer;
+#[cfg(windows)]
+mod native_resize;
 mod notification;
 pub mod pasteboard;
 pub mod paths;
@@ -340,6 +342,8 @@ pub fn run() {
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
                 startup::setup_window_styling(&window);
+                #[cfg(windows)]
+                native_resize::install(&window)?;
                 webview_watchdog::spawn(window);
             }
 

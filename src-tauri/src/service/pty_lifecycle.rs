@@ -131,8 +131,17 @@ async fn backend_read_loop(
     headless: bool,
 ) {
     let mut first_byte_logged = false;
+    let rd_trace = std::env::var("CODETERM_RD_TRACE").is_ok();
+    const FEED_QUEUE_CAPACITY: usize = 1024;
+    let (feed_tx, feed_rx) = tokio::sync::mpsc::channel(FEED_QUEUE_CAPACITY);
+    let feed_svc = svc.clone();
+    let feed_pty_id = pty_id.clone();
+    let feed_task = tokio::task::spawn_blocking(move || {
+        process_pty_feed(feed_rx, feed_svc, feed_pty_id, rd_trace)
+    });
     loop {
         // Blocking read in a dedicated thread — same pattern as read_pty.
+        let read_started = std::time::Instant::now();
         let result = tokio::task::spawn_blocking(move || {
             let mut buf = vec![0u8; 8192];
             let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
@@ -144,6 +153,7 @@ async fn backend_read_loop(
             Ok((buf, reader))
         })
         .await;
+        let read_block_us = read_started.elapsed().as_micros();
 
         match result {
             Ok(Ok((data, reader_back))) => {
@@ -161,33 +171,32 @@ async fn backend_read_loop(
                     }
                 }
 
-                if data.windows(4).any(|w| w == b"\x1b[6n") {
-                    let is_hidden = {
-                        let mux = svc.mux.write();
-                        mux.pane_id_for_pty(&pty_id)
-                            .and_then(|pid| mux.get_pane(&pid).map(|p| p.hidden))
-                            .unwrap_or(false)
-                    };
-                    let no_owner = || {
-                        use tauri::Manager;
-                        svc.app_handle
-                            .try_state::<crate::ResizeOwnerState>()
-                            .map(|ro| ro.lock().get(&pty_id).is_none())
-                            .unwrap_or(true)
-                    };
-                    if should_answer_cursor_query(is_hidden, headless, no_owner()) {
-                        let _ = svc.pty.lock().write(&pty_id, b"\x1b[1;1R");
-                    }
+                let mut reply_count = 0;
+                for reply in terminal_query_replies(&data, headless) {
+                    reply_count += 1;
+                    let _ = svc.pty.lock().write(&pty_id, reply);
                 }
-                let (prev, now) = svc.feed_pty_output(&pty_id, &data);
-
                 let _ = frontend_tx.try_send(data.clone());
+                let data_len = data.len();
+                if feed_tx.send(data).await.is_err() {
+                    log::error!(
+                        "[backend-reader] output processor closed for {}",
+                        &pty_id[..pty_id.len().min(8)]
+                    );
+                    break;
+                }
 
-                svc.emit_pane_status_if_changed(&pty_id, prev, now);
+                if rd_trace && data_len > 16 {
+                    log::info!(
+                        "[rd-trace] pty={} n={} read_block={}us replies={}",
+                        &pty_id[..pty_id.len().min(8)],
+                        data_len,
+                        read_block_us,
+                        reply_count,
+                    );
+                }
             }
             Ok(Err(_e)) => {
-                // EOF — PTY closed.
-                handle_pty_death(&svc, &pty_id);
                 break;
             }
             Err(e) => {
@@ -197,16 +206,56 @@ async fn backend_read_loop(
                     &pty_id[..pty_id.len().min(8)],
                     e
                 );
-                handle_pty_death(&svc, &pty_id);
                 break;
             }
         }
     }
 
+    drop(feed_tx);
+    if let Err(error) = feed_task.await {
+        log::error!(
+            "[backend-reader] output processor failed for {}: {}",
+            &pty_id[..pty_id.len().min(8)],
+            error
+        );
+    }
+    handle_pty_death(&svc, &pty_id);
     log::info!(
         "[backend-reader] exited for pty {}",
         &pty_id[..pty_id.len().min(8)]
     );
+}
+
+fn process_pty_feed(
+    mut rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
+    svc: ServiceState,
+    pty_id: String,
+    rd_trace: bool,
+) {
+    const FEED_BATCH_CAP: usize = 256 * 1024;
+    while let Some(mut data) = rx.blocking_recv() {
+        drain_feed_batch(&mut rx, &mut data, FEED_BATCH_CAP);
+        let started = std::time::Instant::now();
+        let (prev, now) = svc.feed_pty_output(&pty_id, &data);
+        if rd_trace && data.len() > 16 {
+            log::info!(
+                "[feed-batch] pty={} n={} elapsed={}us",
+                &pty_id[..pty_id.len().min(8)],
+                data.len(),
+                started.elapsed().as_micros(),
+            );
+        }
+        svc.emit_pane_status_if_changed(&pty_id, prev, now);
+    }
+}
+
+fn drain_feed_batch(rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>, data: &mut Vec<u8>, cap: usize) {
+    while data.len() < cap {
+        match rx.try_recv() {
+            Ok(next) => data.extend_from_slice(&next),
+            Err(_) => break,
+        }
+    }
 }
 
 /// Mark PTY as dead and emit events — mirrors the Err branch in read_pty.
@@ -309,24 +358,58 @@ impl Drop for BackendReaderLease {
     }
 }
 
-fn should_answer_cursor_query(is_hidden: bool, _headless: bool, no_owner: bool) -> bool {
-    is_hidden || no_owner
+fn terminal_query_replies(data: &[u8], _headless: bool) -> Vec<&'static [u8]> {
+    let mut replies = Vec::with_capacity(3);
+    if data.windows(3).any(|window| window == b"\x1b[c") {
+        replies.push(b"\x1b[?1;2c".as_slice());
+    }
+    if data.windows(4).any(|window| window == b"\x1b[5n") {
+        replies.push(b"\x1b[0n".as_slice());
+    }
+    if data.windows(4).any(|window| window == b"\x1b[6n") {
+        replies.push(b"\x1b[1;1R".as_slice());
+    }
+    replies
 }
 
 #[cfg(test)]
 mod tests {
     #[test]
-    fn cursor_query_is_answered_for_visible_pane_before_renderer_owns_pty() {
-        assert!(super::should_answer_cursor_query(false, false, true));
+    fn resize_burst_is_drained_as_one_available_feed_batch() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(300);
+        for _ in 0..269 {
+            tx.try_send(vec![b'x'; 112]).unwrap();
+        }
+        drop(tx);
+
+        let mut data = rx.blocking_recv().unwrap();
+        super::drain_feed_batch(&mut rx, &mut data, 256 * 1024);
+
+        assert_eq!(data.len(), 269 * 112);
+        assert!(rx.blocking_recv().is_none());
     }
 
     #[test]
-    fn cursor_query_is_left_to_renderer_once_visible_pane_has_owner() {
-        assert!(!super::should_answer_cursor_query(false, false, false));
+    fn device_attributes_query_is_answered_without_frontend_input() {
+        assert_eq!(
+            super::terminal_query_replies(b"\x1b[c", false),
+            vec![b"\x1b[?1;2c".as_slice()]
+        );
     }
 
     #[test]
-    fn cursor_query_is_answered_for_hidden_pane_even_with_owner_state_unknown() {
-        assert!(super::should_answer_cursor_query(true, false, false));
+    fn status_and_cursor_queries_are_answered_after_frontend_input_attaches() {
+        assert_eq!(
+            super::terminal_query_replies(b"\x1b[5n\x1b[6n", false),
+            vec![b"\x1b[0n".as_slice(), b"\x1b[1;1R".as_slice()]
+        );
+    }
+
+    #[test]
+    fn terminal_queries_are_answered_for_headless_panes() {
+        assert_eq!(
+            super::terminal_query_replies(b"\x1b[c\x1b[6n", true),
+            vec![b"\x1b[?1;2c".as_slice(), b"\x1b[1;1R".as_slice()]
+        );
     }
 }

@@ -7,10 +7,31 @@ impl ServiceContext {
             let status = self.agent_tracker.lock().get_status(pty_id);
             return (status, status);
         }
+        let trace = std::env::var("CODETERM_RD_TRACE").is_ok();
+        let stage = std::time::Instant::now();
         self.output_buf.lock().append(pty_id, data);
+        let output_us = stage.elapsed().as_micros();
+        let stage = std::time::Instant::now();
         self.screen_state.lock().process(pty_id, data);
+        let screen_us = stage.elapsed().as_micros();
+        let stage = std::time::Instant::now();
         self.run_watcher.feed(self, pty_id, data);
-        self.process_pty_output(pty_id, data)
+        let watcher_us = stage.elapsed().as_micros();
+        let stage = std::time::Instant::now();
+        let statuses = self.process_pty_output(pty_id, data);
+        let status_us = stage.elapsed().as_micros();
+        if trace && data.len() > 16 {
+            log::info!(
+                "[feed-trace] pty={} n={} output={}us screen={}us watcher={}us status={}us",
+                &pty_id[..pty_id.len().min(8)],
+                data.len(),
+                output_us,
+                screen_us,
+                watcher_us,
+                status_us,
+            );
+        }
+        statuses
     }
 
     pub(crate) fn emit_pane_status_if_changed(

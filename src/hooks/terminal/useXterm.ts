@@ -152,16 +152,7 @@ export function useXterm({
     const term = termRef.current;
     if (!term || !termReady || E2E_TEST_MODE) return;
 
-    if (!renderEnabled) {
-      if (webglRef.current) {
-        webglRef.current.dispose();
-        webglRef.current = null;
-        invoke("report_webgl_status", { state: "disposed_hidden", detail: null }).catch(() => {});
-      }
-      return;
-    }
-
-    if (webglRef.current) return;
+    if (!renderEnabled || webglRef.current) return;
 
     try {
       const webgl = new WebglAddon();
