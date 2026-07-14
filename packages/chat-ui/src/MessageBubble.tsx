@@ -66,6 +66,8 @@ interface MessageBubbleProps {
   onOriginClick?: () => void;
   /** Resolve a pane id/short-id to a tab name for CodeTerm cards (e.g. "Sent to <name>"). */
   resolvePaneName?: PaneNameResolver;
+  /** Focus a referenced Tab from a CodeTerm action card. */
+  onFocusPane?: (paneRef: string) => void;
   /** Open the plan view for a plan, optionally focused on a task/section node. */
   onOpenPlan?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => void;
   resolvePlanRef?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => ResolvedChatPlanRef | null;
@@ -82,8 +84,8 @@ const TOOL_EXPANDED_BY_ID = new Map<string, boolean>();
 function paneOriginTitle(origin: Extract<ChatOrigin, { kind: "pane" }>, resolvePaneName?: PaneNameResolver): string {
   const paneRef = shortPaneRef(origin.paneIdShort);
   const resolved = paneRef ? resolvePaneName?.(paneRef) : undefined;
-  if (isPaneMarkerPlaceholderLabel(origin.title)) return resolved ?? (paneRef || "pane");
-  return origin.title.trim() || resolved || paneRef || "pane";
+  if (isPaneMarkerPlaceholderLabel(origin.title)) return resolved ?? (paneRef || "tab");
+  return origin.title.trim() || resolved || paneRef || "tab";
 }
 
 // Test-only render counter (opt-in: a harness sets window.__bubbleRenderCounts
@@ -95,7 +97,7 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, item, isLatestFailedToolCall = false, origin, originAvatar, onOriginClick, resolvePaneName, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, item, isLatestFailedToolCall = false, origin, originAvatar, onOriginClick, resolvePaneName, onFocusPane, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
   recordBubbleRender(message.id);
   const isFailedToolCall = message.type === "tool_call" && message.toolError === true;
   const shouldAutoExpand = message.type === "tool_call"
@@ -246,7 +248,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
               padding: 0,
               textAlign: "left",
             }}
-            title={onOriginClick ? "Click to focus source pane" : undefined}
+            title={onOriginClick ? "Click to focus source Tab" : undefined}
           >
             {originAvatar ?? <ModelAvatar model={effectiveOrigin.model} />}
             <span className="flex flex-col min-w-0" style={{ lineHeight: 1.1 }}>
@@ -315,7 +317,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
             padding: 0,
             textTransform: "uppercase",
           }}
-          title={onOriginClick ? "Click to focus source pane" : undefined}
+          title={onOriginClick ? "Click to focus source Tab" : undefined}
         >
           <OriginIcon size={12} />
           <span>{label}</span>
@@ -553,6 +555,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
           expanded={expanded}
           onToggle={setExpandedPersistent}
           resolvePaneName={resolvePaneName}
+          onFocusPane={onFocusPane}
           onOpenPlan={onOpenPlan}
           resolvePlanRef={resolvePlanRef}
           fontScale={fontScale}
