@@ -6,7 +6,8 @@
  * reachable at their center; document scroll width is only a secondary signal.
  */
 import { execFileSync } from "node:child_process";
-import { expect, test, type Browser, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
+import { expect, test, type Browser, type Page, type PaneCleanup, API_BASE, readDevToken } from "../../helpers/fixtures";
+import type { ApiClient } from "../../helpers/api-client";
 
 const VIEWPORTS = [
   { width: 320, height: 568, name: "320x568" },
@@ -37,6 +38,16 @@ const OPTIONAL_SURFACES = [
 ] as const;
 
 type ReachabilityMode = "all" | "open-drawer";
+type CanvasLayerExpectation = "overlay" | "inline";
+
+type CreatedPane = { id: string; tab_id?: string };
+type TargetPane = { paneId: string; tabId: string; workspaceId: string };
+type MuxState = {
+  workspaces: Array<{
+    id: string;
+    tabs: Array<{ id: string; pane_id: string }>;
+  }>;
+};
 
 async function newWebPage(browser: Browser, viewport: { width: number; height: number }): Promise<Page> {
   const ctx = await browser.newContext({ viewport });
@@ -128,6 +139,14 @@ async function collectViewportOffenders(page: Page, reachabilityMode: Reachabili
       }
       return false;
     };
+    const hasInactiveSemantics = (el: HTMLElement) => {
+      let current: HTMLElement | null = el;
+      while (current && current !== document.body && current !== document.documentElement) {
+        if (current.hasAttribute("inert") || current.getAttribute("aria-hidden") === "true") return true;
+        current = current.parentElement;
+      }
+      return false;
+    };
     return nodes
       .map((node) => {
         const el = node as HTMLElement;
@@ -139,6 +158,7 @@ async function collectViewportOffenders(page: Page, reachabilityMode: Reachabili
           rect.width <= 0 ||
           rect.height <= 0 ||
           isFullyClippedByAncestor(el, rect) ||
+          hasInactiveSemantics(el) ||
           el.closest(".xterm-accessibility, .xterm-helper-textarea") !== null;
         if (hidden) return null;
         const left = rect.left;
@@ -210,6 +230,145 @@ async function auditViewport(page: Page, label: string, options: { reachability?
     await assertOpenDrawerControlsReachable(page, label);
     await assertSidebarScrimReachable(page, label);
   }
+}
+
+async function prepareTargetPane(api: ApiClient, paneCleanup: PaneCleanup): Promise<TargetPane> {
+  const pane = await paneCleanup.createPane<CreatedPane>({ title: `pw-mobile-layer-${Date.now()}` });
+  await api.post(`/panes/${pane.id}/agent-type`, { agent_type: "claude" });
+  await api.post(`/panes/${pane.id}/chat-view`, { enabled: true });
+  await api.focusPane(pane.id);
+
+  const mux = await api.get<MuxState>("/mux/state");
+  for (const workspace of mux.workspaces) {
+    const tab = workspace.tabs.find((candidate) => candidate.pane_id === pane.id);
+    if (tab) return { paneId: pane.id, tabId: tab.id, workspaceId: workspace.id };
+  }
+  throw new Error(`created pane ${pane.id} has no owning tab in mux state`);
+}
+
+async function waitSidebarClosed(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const drawer = document.querySelector(".ct-sidebar-drawer");
+    const backdrop = document.querySelector(".ct-sidebar-backdrop");
+    if (!drawer) return true;
+    const drawerStyle = window.getComputedStyle(drawer);
+    const backdropStyle = backdrop ? window.getComputedStyle(backdrop) : null;
+    return !drawer.classList.contains("is-open") &&
+      drawer.getAttribute("aria-hidden") === "true" &&
+      drawer.hasAttribute("inert") &&
+      drawerStyle.pointerEvents === "none" &&
+      (!backdrop || (
+        backdrop.getAttribute("aria-hidden") === "true" &&
+        backdropStyle?.pointerEvents === "none"
+      ));
+  }, null, { timeout: 5_000 });
+  await settleLayout(page);
+}
+
+async function openSidebarAndSelectTargetPane(api: ApiClient, page: Page, target: TargetPane, label: string): Promise<void> {
+  await api.focusWorkspace(target.workspaceId);
+  await openSidebar(page);
+
+  const group = page.locator(`[data-testid="workspace-group"][data-workspace-id="${target.workspaceId}"]`).first();
+  await expect(group, `${label} target workspace group visible`).toBeVisible({ timeout: 10_000 });
+  const tab = group.locator(`[data-testid="tab-item"][data-tab-id="${target.tabId}"]`).first();
+  if (!(await tab.isVisible().catch(() => false))) {
+    await group.locator('button[title="Expand"]').first().click();
+  }
+  await expect(tab, `${label} target pane owning data-tab-id row visible`).toBeVisible({ timeout: 10_000 });
+  await tab.click();
+  await waitSidebarClosed(page);
+}
+
+async function openWorkspaceCanvasOverlay(page: Page, label: string): Promise<void> {
+  const button = page.locator('[data-testid="canvas-toolbar-button"]').first();
+  await expect(button, `${label} canvas toolbar button visible`).toBeVisible({ timeout: 10_000 });
+  if ((await button.getAttribute("aria-pressed")) !== "true") await button.click();
+  await expect(
+    page.locator('[data-testid="canvas-view"], [data-testid="plan-view-shell"], [data-testid="canvas-empty"]').first(),
+    `${label} workspace canvas visible`,
+  ).toBeVisible({ timeout: 10_000 });
+  await settleLayout(page);
+}
+
+async function assertCanvasStateBeforePaneTransition(
+  page: Page,
+  paneId: string,
+  expected: CanvasLayerExpectation,
+  label: string,
+): Promise<void> {
+  const state = await page.evaluate(({ targetPaneId, expectedLayer }) => {
+    const canvas = document.querySelector('[data-testid="canvas-view"], [data-testid="plan-view-shell"], [data-testid="canvas-empty"]') as HTMLElement | null;
+    if (!canvas) return { kind: "missing-canvas" as const };
+    const visible = (el: Element | null): el is HTMLElement => {
+      if (!(el instanceof HTMLElement)) return false;
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+    };
+    const visibleControlsOutsideCanvas = Array.from(document.querySelectorAll(
+      '[data-testid="pane-session-chat"], [data-testid="terminal-pane"], [data-testid="chat-composer"], [data-testid="chat-reconnect"]',
+    )).filter((el) => visible(el) && !el.closest('[inert], [aria-hidden="true"]') && !canvas.contains(el));
+    if (expectedLayer === "inline") {
+      return {
+        kind: "inline" as const,
+        paneControlCount: visibleControlsOutsideCanvas.length,
+      };
+    }
+    const paneRoot = document.querySelector(`[data-pane-id="${targetPaneId}"]`) as HTMLElement | null;
+    if (!visible(paneRoot)) {
+      return {
+        kind: "overlay" as const,
+        paneRootVisible: false,
+      };
+    }
+    const rect = paneRoot.getBoundingClientRect();
+    const x = Math.min(Math.max(rect.left + rect.width / 2, 0), document.documentElement.clientWidth - 1);
+    const y = Math.min(Math.max(rect.top + rect.height / 2, 0), document.documentElement.clientHeight - 1);
+    const hit = document.elementFromPoint(x, y);
+    return {
+      kind: "overlay" as const,
+      paneRootVisible: true,
+      hitInsidePaneRoot: hit instanceof Node && (hit === paneRoot || paneRoot.contains(hit)),
+      hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
+    };
+  }, { targetPaneId: paneId, expectedLayer: expected });
+
+  expect(state.kind, `${label} valid canvas state before pane transition ${JSON.stringify(state)}`).not.toBe("missing-canvas");
+  if (state.kind === "inline") {
+    expect(state.paneControlCount, `${label} inline canvas has no outside-canvas chat/terminal controls`).toBe(0);
+    return;
+  }
+  expect(state.paneRootVisible, `${label} overlay target pane root visible ${JSON.stringify(state)}`).toBe(true);
+  expect(state.hitInsidePaneRoot, `${label} overlay canvas blocks click-through to pane root ${JSON.stringify(state)}`).toBe(false);
+}
+
+async function assertWorkspaceLayerTopmost(page: Page, paneId: string, label: string): Promise<void> {
+  await expect
+    .poll(
+      () => page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"]`).evaluate((chat) => {
+        const rect = chat.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return false;
+        const x = Math.min(Math.max(rect.left + rect.width / 2, 0), document.documentElement.clientWidth - 1);
+        const y = Math.min(Math.max(rect.top + rect.height / 2, 0), document.documentElement.clientHeight - 1);
+        const hit = document.elementFromPoint(x, y);
+        return hit instanceof Node && (hit === chat || chat.contains(hit));
+      }).catch(() => false),
+      { timeout: 5_000, message: `${label} workspace layer never became topmost` },
+    )
+    .toBe(true);
+
+  const result = await page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"]`).evaluate((chat) => {
+    const rect = chat.getBoundingClientRect();
+    const x = Math.min(Math.max(rect.left + rect.width / 2, 0), document.documentElement.clientWidth - 1);
+    const y = Math.min(Math.max(rect.top + rect.height / 2, 0), document.documentElement.clientHeight - 1);
+    const hit = document.elementFromPoint(x, y);
+    return {
+      hitInsideChat: hit instanceof Node && (hit === chat || chat.contains(hit)),
+      hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
+    };
+  });
+  expect(result.hitInsideChat, `${label} workspace layer never became topmost ${JSON.stringify(result)}`).toBe(true);
 }
 
 async function assertPeerPickerTopContained(page: Page, label: string): Promise<void> {
@@ -494,6 +653,10 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
         #clipped-descendant { margin-top: 120px; }
         #offscreen-unowned { position: absolute; left: 360px; top: 24px; width: 80px; height: 32px; }
         #partial-unowned { position: absolute; left: 292px; top: 96px; width: 80px; height: 32px; }
+        #covered-clickthrough { position: absolute; left: 40px; top: 180px; width: 120px; height: 32px; }
+        #floating-cover { position: absolute; left: 40px; top: 180px; width: 120px; height: 32px; z-index: 2; background: rgba(0, 0, 0, 0.2); }
+        #inactive-layer { position: absolute; left: 40px; top: 240px; width: 160px; height: 48px; }
+        #inactive-layer-button { width: 120px; height: 32px; }
       </style>
       <div id="root">
         <div id="scroll-owner">
@@ -501,14 +664,49 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
         </div>
         <button id="offscreen-unowned" data-testid="offscreen-unowned">offscreen</button>
         <button id="partial-unowned" data-testid="partial-unowned">partial</button>
+        <button id="covered-clickthrough" data-testid="covered-clickthrough">covered</button>
+        <div id="floating-cover" data-testid="floating-cover"></div>
+        <div id="inactive-layer" inert aria-hidden="true">
+          <button id="inactive-layer-button" data-testid="inactive-layer-button">inactive</button>
+        </div>
       </div>
     `);
 
     const offenders = await collectViewportOffenders(page);
     const ids = offenders.map((item) => item?.testid).sort();
+    const ancestorOnlyIds = await page.locator(INTERACTIVE).evaluateAll((nodes) => {
+      const viewportWidth = document.documentElement.clientWidth;
+      const viewportHeight = document.documentElement.clientHeight;
+      return nodes
+        .map((node) => {
+          const el = node as HTMLElement;
+          const rect = el.getBoundingClientRect();
+          const inBounds =
+            rect.left >= -1 &&
+            rect.right <= viewportWidth + 1 &&
+            rect.top >= -1 &&
+            rect.bottom <= viewportHeight + 1;
+          return inBounds ? null : el.getAttribute("data-testid");
+        })
+        .filter(Boolean);
+    });
     expect(ids).not.toContain("clipped-descendant");
     expect(ids).toContain("offscreen-unowned");
     expect(ids).toContain("partial-unowned");
+    expect(ids).not.toContain("inactive-layer-button");
+    expect(ancestorOnlyIds).not.toContain("covered-clickthrough");
+    expect(ids).toContain("covered-clickthrough");
+    const collectorSource = collectViewportOffenders.toString();
+    expect(collectorSource).toContain('getAttribute("aria-hidden") === "true"');
+    expect(collectorSource).not.toContain("pointerEvents");
+    expect(collectorSource).not.toContain("opacity");
+    const transitionSource = openSidebarAndSelectTargetPane.toString();
+    expect(transitionSource).toContain("api.focusWorkspace(target.workspaceId)");
+    expect(transitionSource).toContain('[data-testid="workspace-group"][data-workspace-id="${target.workspaceId}"]');
+    expect(transitionSource).toContain('[data-testid="tab-item"][data-tab-id="${target.tabId}"]');
+    expect(transitionSource).not.toContain("workspace.click(");
+    const canvasStateSource = assertCanvasStateBeforePaneTransition.toString();
+    expect(canvasStateSource).toContain('!el.closest(\'[inert], [aria-hidden="true"]\') && !canvas.contains(el)');
 
     await page.setContent(`
       <style>
@@ -562,14 +760,24 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
 });
 
 for (const vp of VIEWPORTS) {
-  test(`@golden mobile web primary surfaces stay inside the viewport ${vp.name}`, async ({ webBrowser }, testInfo) => {
+  test(`@golden mobile web primary surfaces stay inside the viewport ${vp.name}`, async ({ webBrowser, api, paneCleanup }, testInfo) => {
     const healthJson = await assertHealthMatchesHead();
     await testInfo.attach("health.json", { body: healthJson, contentType: "application/json" });
 
+    const target = await prepareTargetPane(api, paneCleanup);
     const page = await newWebPage(webBrowser, vp);
     try {
       await openApp(page);
       await settleLayout(page);
+      await openSidebarAndSelectTargetPane(api, page, target, `${vp.name} initial target`);
+      await expect(
+        page.locator(`[data-testid="pane-session-chat"][data-pane-id="${target.paneId}"]`),
+        `${vp.name} target pane chat visible before canvas`,
+      ).toBeVisible({ timeout: 10_000 });
+      await openWorkspaceCanvasOverlay(page, `${vp.name} before pane transition`);
+      await assertCanvasStateBeforePaneTransition(page, target.paneId, "overlay", `${vp.name} before pane transition`);
+      await openSidebarAndSelectTargetPane(api, page, target, `${vp.name} canvas-to-workspace`);
+      await assertWorkspaceLayerTopmost(page, target.paneId, `${vp.name} after target row click`);
       await assertPeerPickerTopContained(page, `${vp.name} initial`);
       await auditViewport(page, `${vp.name} initial`);
       await auditSidebarDrawer(page, `${vp.name} closed sidebar`, false);
