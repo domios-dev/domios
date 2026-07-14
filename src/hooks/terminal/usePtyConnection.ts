@@ -95,21 +95,34 @@ export function usePtyConnection({
     onHistoryReplayStateChange?.(false);
   }, [onHistoryReplayStateChange]);
 
-  const replayHistory = useCallback((term: Terminal, history: Uint8Array | string, viewport: TerminalViewport) => {
+  const replayHistory = useCallback((
+    term: Terminal,
+    history: Uint8Array | string,
+    viewport: TerminalViewport,
+    onComplete?: () => void,
+    onCancel?: () => void,
+  ) => {
     cancelReplay();
     const request = replayRequestRef.current;
     replayTerminalRef.current = term;
     term.element?.style.setProperty("visibility", "hidden");
     onHistoryReplayStateChange?.(true);
+    let settled = false;
     const complete = () => {
       if (request !== replayRequestRef.current) return;
+      settled = true;
+      onComplete?.();
       cancelVisibleReplayRef.current = null;
       restoreTerminalViewport(term, viewport);
       term.element?.style.removeProperty("visibility");
       replayTerminalRef.current = null;
       onHistoryReplayStateChange?.(false);
     };
-    cancelVisibleReplayRef.current = writeTerminalHistory(term, history, complete);
+    const cancelWrite = writeTerminalHistory(term, history, complete);
+    cancelVisibleReplayRef.current = () => {
+      cancelWrite();
+      if (!settled) onCancel?.();
+    };
   }, [cancelReplay, onHistoryReplayStateChange]);
 
   useEffect(() => {
@@ -171,7 +184,7 @@ export function usePtyConnection({
           if (!useOutputStream) resetWebPtyTail(ptyId);
         }
       } else if (ptyId) {
-        const claim = claimInitialTerminalHistory(paneId);
+        const claim = claimInitialTerminalHistory(paneId, term);
         if (claim) {
           historyClaim = claim;
           const history = await fetchPaneHistory(paneId);
@@ -179,10 +192,23 @@ export function usePtyConnection({
             abandonInitialTerminalHistory(claim);
             return;
           }
-          completeInitialTerminalHistory(claim);
-          historyClaim = null;
           if (history) {
-            replayHistory(term, history, { followOutput: true, line: 0 });
+            replayHistory(
+              term,
+              history,
+              { followOutput: true, line: 0 },
+              () => {
+                completeInitialTerminalHistory(claim);
+                historyClaim = null;
+              },
+              () => {
+                abandonInitialTerminalHistory(claim);
+                historyClaim = null;
+              },
+            );
+          } else {
+            completeInitialTerminalHistory(claim);
+            historyClaim = null;
           }
         }
       }
@@ -403,7 +429,7 @@ export function usePtyConnection({
       for (const fn of cleanupFns) fn();
       connectedPtyRef.current = null;
     };
-  }, [ptyId, paneId, paneCwd, termReady, ioEnabled, renderEnabled, resizeClientId, onPtySpawned, replayHistory]);
+  }, [ptyId, paneId, paneCwd, termReady, ioEnabled, resizeClientId, onPtySpawned, replayHistory]);
 
   return { writePty };
 }
