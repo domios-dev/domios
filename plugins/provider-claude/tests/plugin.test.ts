@@ -411,14 +411,37 @@ console.log("\n--- Windows task launch shape ---\n");
       quote: (value: unknown) => `'${String(value).replace(/'/g, "''")}'`,
     },
   }));
+  const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
   const cmd = p.buildLaunchCommand({
     skipPermissions: true,
     args: ["--model", "sonnet"],
-    task: "large prompt body --flag " + "x".repeat(100),
+    task: hostileTask,
   });
   assert(cmd.includes("--append-system-prompt-file 'C:\\Temp\\ct-task'"), "Windows task launch passes a task file path");
   assert(!cmd.includes("Get-Content"), "Windows task launch does not expand task through PowerShell");
-  assert(!cmd.includes("large prompt body"), "Windows task body is not embedded in the command");
+  assert(!cmd.includes("<location>") && !cmd.includes("whoami") && !cmd.includes("юникод"), "Windows task body is not embedded in the command");
+}
+
+console.log("\n--- POSIX task launch shape ---\n");
+{
+  const p = loadClaudeWithHost(baseHost({
+    platform: () => "linux",
+    fs: {
+      fileExists: () => false,
+      readFile: () => null,
+      readJson: () => null,
+      writeTempFile: () => "/tmp/ct-task",
+      writeJson: () => true,
+    },
+    shell: {
+      quoteFor: (value: unknown) => `'${String(value).replace(/'/g, "'\\''")}'`,
+      quote: (value: unknown) => `'${String(value).replace(/'/g, "'\\''")}'`,
+    },
+  }));
+  const cmd = p.buildLaunchCommand({ task: "line one\n<location>/repo</location>\n$HOME `whoami` --flag\nюникод" });
+  assert(cmd.includes("--append-system-prompt-file '/tmp/ct-task'"), "POSIX task launch passes a task file path");
+  assert(!cmd.includes("$(cat "), "POSIX task launch does not expand task into argv");
+  assert(!cmd.includes("<location>") && !cmd.includes("whoami") && !cmd.includes("юникод"), "POSIX task body is absent from the command");
 }
 
 console.log("\n--- parseUsage reset formats ---\n");

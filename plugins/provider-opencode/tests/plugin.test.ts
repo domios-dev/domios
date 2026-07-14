@@ -109,11 +109,12 @@ console.log("\n--- discoverModels ---\n");
     fs: { writeTempFile: () => "C:\\Temp\\opencode task.md" },
     shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` },
   }));
-  const launch = p.buildLaunchCommand({ task: "review the project" });
+  const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
+  const launch = p.buildLaunchCommand({ task: hostileTask });
   assert(launch.includes("$env:OPENCODE_CONFIG_CONTENT ="), "OpenCode passes task instructions through isolated config");
   assert(launch.includes("C:\\\\Temp\\\\opencode task.md"), "OpenCode config references the task file");
   assert(launch.includes("--prompt 'Execute the assigned task."), "OpenCode starts the assigned turn inline");
-  assert(!launch.includes("review the project"), "OpenCode task body is absent from the launch command");
+  assert(!launch.includes("<location>") && !launch.includes("whoami") && !launch.includes("юникод"), "OpenCode task body is absent from the launch command");
 }
 
 {

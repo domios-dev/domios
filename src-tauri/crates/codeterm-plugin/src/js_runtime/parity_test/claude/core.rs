@@ -418,7 +418,7 @@ fn launch_command_with_task_matches_native_shape() {
     }
     let (n, j) = pair();
     let params = AgentLaunchParams {
-        task: Some("count files in repo".into()),
+        task: Some("line one\n<location>/repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод".into()),
         skip_permissions: true,
         ..Default::default()
     };
@@ -430,6 +430,9 @@ fn launch_command_with_task_matches_native_shape() {
         assert!(!cmd.contains("--output-format"), "no stream-json: {cmd}");
         assert!(cmd.contains(" -- "), "task after separator: {cmd}");
         assert!(cmd.contains(".ct-task-"));
+        assert!(cmd.contains("--append-system-prompt-file"));
+        assert!(!cmd.contains("$(cat "));
+        assert!(!cmd.contains("<location>") && !cmd.contains("whoami") && !cmd.contains("юникод"));
         assert!(cmd.contains("--dangerously-skip-permissions"));
     }
 }

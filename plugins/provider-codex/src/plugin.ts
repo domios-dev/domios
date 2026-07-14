@@ -105,6 +105,7 @@ const plugin: PluginModule = {
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
     const parts: string[] = [];
+    let prefix = "";
     parts.push("codex");
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
@@ -118,13 +119,18 @@ const plugin: PluginModule = {
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       parts.push("-c");
-      parts.push(host.platform() === "windows"
-        ? `("developer_instructions=" + (Get-Content -Raw -Encoding UTF8 ${quotedPath}))`
-        : `"developer_instructions=$(cat ${quotedPath})"`);
+      if (host.platform() === "windows") {
+        prefix = "$PSNativeCommandArgumentPassing = 'Standard'; "
+          + `$ctTaskInstructions = Get-Content -Raw -Encoding UTF8 ${quotedPath}; `
+          + "$ctDeveloperInstructions = 'developer_instructions=' + ($ctTaskInstructions | ConvertTo-Json -Compress); ";
+        parts.push("$ctDeveloperInstructions");
+      } else {
+        parts.push(`"developer_instructions=$(cat ${quotedPath})"`);
+      }
       parts.push("--");
       parts.push(host.shell.quoteFor(TASK_START_PROMPT, host.platform()));
     }
-    return parts.join(" ");
+    return prefix + parts.join(" ");
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {

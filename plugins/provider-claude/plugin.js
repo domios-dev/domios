@@ -1043,15 +1043,10 @@ var plugin = {
     }
     if (p.task) {
       const visiblePath = writeTaskTempFile(p.task);
-      if (win) {
-        parts.push("--append-system-prompt-file");
-        parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
-        parts.push("--");
-        parts.push(host.shell.quoteFor(FILE_TASK_PROMPT, host.platform()));
-      } else {
-        parts.push("--");
-        parts.push('"$(cat ' + visiblePath + ')"');
-      }
+      parts.push("--append-system-prompt-file");
+      parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
+      parts.push("--");
+      parts.push(host.shell.quoteFor(FILE_TASK_PROMPT, host.platform()));
     }
     return parts.join(" ");
   },

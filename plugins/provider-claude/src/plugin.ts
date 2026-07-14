@@ -254,19 +254,13 @@ const plugin: PluginModule = {
       // Quote each caller-supplied arg — it reaches a shell (a mesh peer could inject `; cmd`).
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
-    // Windows must not expand large worker prompts through PowerShell/ConPTY/argv.
-    // Put the task in a file-backed system-prompt append and pass only a short user prompt.
+    // Keep large worker prompts out of shell parsing and argv on every platform.
     if (p.task) {
       const visiblePath = writeTaskTempFile(p.task);
-      if (win) {
-        parts.push("--append-system-prompt-file");
-        parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
-        parts.push("--");
-        parts.push(host.shell.quoteFor(FILE_TASK_PROMPT, host.platform()));
-      } else {
-        parts.push("--");
-        parts.push("\"$(cat " + visiblePath + ")\"");
-      }
+      parts.push("--append-system-prompt-file");
+      parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
+      parts.push("--");
+      parts.push(host.shell.quoteFor(FILE_TASK_PROMPT, host.platform()));
     }
     return parts.join(" ");
   },
