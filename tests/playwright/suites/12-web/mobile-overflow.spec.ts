@@ -677,6 +677,7 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     expect(helperSource).toContain("export async function revealOwnedHorizontalSurface");
     expect(specSource).toContain("revealOwnedHorizontalSurface, type ReachabilityMode");
     expect(specSource).toContain("await revealOwnedHorizontalSurface(page, meshTab");
+    expect(specSource).toContain("owner.scrollLeft + viewport - ownerRect.left - width / 2");
     const transitionSource = openSidebarAndSelectTargetPane.toString();
     expect(transitionSource).toContain("api.focusWorkspace(target.workspaceId)");
     expect(transitionSource).toContain('[data-testid="workspace-group"][data-workspace-id="${target.workspaceId}"]');
@@ -792,6 +793,14 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     expect(beforeScroll, "known surface starts outside the viewport before reveal").toBe(true);
     await auditKnownSurfaces(page, "hscroll self-check");
     expect(await page.locator(".ct-hscroll").evaluate((el) => el.scrollLeft), "owned hscroll revealed Network").toBeGreaterThan(0);
+    await page.locator("#owned-partial-sibling").evaluate((el) => {
+      const owner = el.closest(".ct-hscroll") as HTMLElement | null;
+      if (!owner) throw new Error("owned sibling has no hscroll owner");
+      const ownerRect = owner.getBoundingClientRect();
+      const viewport = document.documentElement.clientWidth;
+      const width = el.getBoundingClientRect().width;
+      (el as HTMLElement).style.left = `${owner.scrollLeft + viewport - ownerRect.left - width / 2}px`;
+    });
     const ownedSibling = await page.locator('[data-testid="owned-partial-sibling"]').evaluate((el) => {
       const rect = el.getBoundingClientRect();
       return { left: rect.left, right: rect.right, viewport: document.documentElement.clientWidth };
