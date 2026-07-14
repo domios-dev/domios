@@ -147,6 +147,9 @@ console.log("\n--- buildLaunchCommand (workspace-trust pre-write + invocation) -
   const withModel = p.buildLaunchCommand({ skipPermissions: true, args: ["--model", "auto"] });
   assert(withModel.endsWith("cursor-agent --force --model auto"), "force + model args applied");
   assert(withModel.indexOf("pwd -P") !== -1, "POSIX trust prefix resolves symlinks via pwd -P");
+  const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
+  const withTask = p.buildLaunchCommand({ skipPermissions: true, task: hostileTask });
+  assert(!withTask.includes("<location>") && !withTask.includes("whoami") && !withTask.includes("юникод"), "PTY-delivered Cursor task never enters the shell command");
 }
 
 console.log("\n--- POSIX trustPrefix: JSON-escaped workspacePath ---\n");

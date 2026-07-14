@@ -105,10 +105,14 @@ console.log("\n--- task instructions launch ---\n");
     shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` },
     fs: { ...baseHost({}).fs, writeTempFile: () => "C:\\Temp\\codeterm task.md" },
   }));
-  const cmd = p.buildLaunchCommand({ task: "edit the project", args: ["--model", "gpt-5.5"] });
-  assert(cmd.includes("Get-Content -Raw -Encoding UTF8 'C:\\Temp\\codeterm task.md'"), "Windows loads developer instructions from the task file");
-  assert(cmd.includes("-c (\"developer_instructions=\" +"), "Windows maps the task to developer instructions");
-  assert(!cmd.includes("edit the project"), "task body is absent from the launch command");
+  const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
+  const cmd = p.buildLaunchCommand({ task: hostileTask, args: ["--model", "gpt-5.5"] });
+  assert(cmd.includes("$PSNativeCommandArgumentPassing = 'Standard'"), "Windows uses receiver-safe native argument passing");
+  assert(cmd.includes("$ctTaskInstructions = Get-Content -Raw -Encoding UTF8 'C:\\Temp\\codeterm task.md'"), "Windows loads developer instructions from the task file");
+  assert(cmd.includes("ConvertTo-Json -Compress"), "Windows escapes multiline instructions as one config value");
+  assert(cmd.includes("-c $ctDeveloperInstructions --"), "Windows passes one developer-instructions argument");
+  assert(!cmd.includes('-c ("developer_instructions=" +'), "Windows never expands multiline task text inline in the native call");
+  assert(!cmd.includes("<location>") && !cmd.includes("whoami") && !cmd.includes("юникод"), "task body is absent from the launch command");
 }
 
 console.log("\n--- meta ---\n");

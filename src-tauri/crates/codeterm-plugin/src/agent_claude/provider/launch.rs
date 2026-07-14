@@ -29,19 +29,13 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
         parts.extend(extra.iter().cloned());
     }
 
-    // Windows must not expand large worker prompts through PowerShell/ConPTY/argv.
-    // Put the task in a file-backed system-prompt append and pass only a short user prompt.
+    // Keep large worker prompts out of shell parsing and argv on every platform.
     if let Some(ref task) = params.task {
-        if ShellSyntax::IS_WINDOWS {
-            let path = ShellSyntax::task_file_path(task);
-            parts.push("--append-system-prompt-file".to_string());
-            parts.push(ShellSyntax::quote(&path));
-            parts.push("--".to_string());
-            parts.push(ShellSyntax::quote(FILE_TASK_PROMPT));
-        } else {
-            parts.push("--".to_string());
-            parts.push(ShellSyntax::task_file_expr(task));
-        }
+        let path = ShellSyntax::task_file_path(task);
+        parts.push("--append-system-prompt-file".to_string());
+        parts.push(ShellSyntax::quote(&path));
+        parts.push("--".to_string());
+        parts.push(ShellSyntax::quote(FILE_TASK_PROMPT));
     }
 
     parts.join(" ")
@@ -92,7 +86,7 @@ mod tests {
     fn test_build_launch_with_task() {
         let params = AgentLaunchParams {
             agent_name: None,
-            task: Some("count files".to_string()),
+            task: Some("line one\n<location>/repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод".to_string()),
             args: None,
             skip_permissions: true,
             session_id: None,
@@ -106,18 +100,11 @@ mod tests {
             cmd.contains(" -- "),
             "task positional must follow -- separator"
         );
-        if cfg!(target_os = "windows") {
-            assert!(cmd.contains("--append-system-prompt-file"));
-            assert!(!cmd.contains("Get-Content"));
-            assert!(!cmd.contains("$(cat "));
-            assert!(cmd.contains(FILE_TASK_PROMPT));
-        } else {
-            assert!(
-                cmd.find(" -- ").unwrap() < cmd.find(".ct-task-").unwrap(),
-                "-- must precede the task positional: {}",
-                cmd
-            );
-        }
+        assert!(cmd.contains("--append-system-prompt-file"));
+        assert!(!cmd.contains("Get-Content"));
+        assert!(!cmd.contains("$(cat "));
+        assert!(!cmd.contains("<location>") && !cmd.contains("whoami") && !cmd.contains("юникод"));
+        assert!(cmd.contains(FILE_TASK_PROMPT));
     }
 
     #[test]
@@ -153,19 +140,11 @@ mod tests {
         let model_pos = cmd.find("--model").unwrap();
         let sep_pos = cmd.find(" -- ").unwrap();
         let task_pos = cmd.find(".ct-task-").unwrap();
-        if cfg!(target_os = "windows") {
-            assert!(
-                model_pos < task_pos && task_pos < sep_pos,
-                "order must be flags -> task file flag -> --: {}",
-                cmd
-            );
-        } else {
-            assert!(
-                model_pos < sep_pos && sep_pos < task_pos,
-                "order must be flags -> -- -> task: {}",
-                cmd
-            );
-        }
+        assert!(
+            model_pos < task_pos && task_pos < sep_pos,
+            "order must be flags -> task file flag -> --: {}",
+            cmd
+        );
     }
 
     #[test]
