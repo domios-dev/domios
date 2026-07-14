@@ -640,6 +640,12 @@ export interface ModelInfo {
   available?: boolean | null;
 }
 
+export interface ReasoningEffortInfo {
+  id: string;
+  display_name: string;
+  description?: string;
+}
+
 export interface PresetInfo {
   id: string;
   name: string;
@@ -736,6 +742,10 @@ export interface ProviderDescriptor {
   icon_color?: string;
   available_models: ModelInfo[];
   default_model?: string;
+  /// Reasoning-effort levels the provider supports at launch. Empty ⇒ the
+  /// provider exposes no effort selector and the UI must not render one.
+  reasoning_efforts?: ReasoningEffortInfo[];
+  default_reasoning_effort?: string;
   settings_schema: SettingField[];
   /// Schema rendered into Settings → Notifications. Optional / may be empty
   /// (e.g. Codex contributes none today). Notifications tab iterates providers

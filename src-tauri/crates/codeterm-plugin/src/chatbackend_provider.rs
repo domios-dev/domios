@@ -145,6 +145,8 @@ pub trait ChatBackendProvider: Send + Sync {
             icon_color: self.icon_color().map(|s| s.to_string()),
             available_models: Vec::new(),
             default_model: None,
+            reasoning_efforts: Vec::new(),
+            default_reasoning_effort: None,
             settings_schema: Vec::new(),
             notifications_schema: Vec::new(),
             supports_lazy_skills: false,

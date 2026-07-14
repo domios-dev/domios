@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::provider::{
-    ModelInfo, ReadinessStrategy, SessionIdInjection, TaskDelivery, VerifySubmitStrategy,
+    ModelInfo, ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection, TaskDelivery,
+    VerifySubmitStrategy,
 };
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -273,6 +274,10 @@ pub struct CommandsConfig {
     /// Each element may contain `{model}` placeholder.
     #[serde(default)]
     pub model_launch_args_format: Vec<String>,
+    /// Each element may contain `{effort}` placeholder. Absent ⇒ provider has no
+    /// scriptable reasoning-effort launch flag even if it lists effort levels.
+    #[serde(default)]
+    pub reasoning_effort_launch_args_format: Vec<String>,
 }
 
 /// CamelCase-friendly mirror of `ModelInfo` for plugin.json authors.
@@ -296,6 +301,26 @@ impl From<&SerdeModelInfo> for ModelInfo {
             display_name: s.display_name.clone(),
             description: s.description.clone(),
             available: s.available,
+        }
+    }
+}
+
+/// CamelCase-friendly mirror of `ReasoningEffortInfo` for plugin.json authors.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct SerdeReasoningEffortInfo {
+    pub id: String,
+    pub display_name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+impl From<&SerdeReasoningEffortInfo> for ReasoningEffortInfo {
+    fn from(s: &SerdeReasoningEffortInfo) -> Self {
+        Self {
+            id: s.id.clone(),
+            display_name: s.display_name.clone(),
+            description: s.description.clone(),
         }
     }
 }
