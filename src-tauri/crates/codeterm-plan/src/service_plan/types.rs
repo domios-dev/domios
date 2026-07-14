@@ -37,6 +37,19 @@ pub enum PlanError {
     QaNotRunning,
     OverrideReasonRequired,
     OverrideNotAuthorized,
+    ReviewWipExceeded {
+        wip_count: usize,
+        wip_limit: u32,
+        credit: i64,
+    },
+    ReviewEvidenceRequired,
+    ReviewRoundExceeded {
+        round: u32,
+        max_rounds: u32,
+    },
+    ReviewOracleScopeExpansion,
+    ReviewOverrideIncomplete,
+    ReviewNotInReview,
     GateNotFound,
     GateAlreadyAnswered,
     GateRequiresQuestion,
@@ -150,6 +163,31 @@ impl fmt::Display for PlanError {
                 f,
                 "only the plan Orchestrator (owner) may override a regression gate"
             ),
+            PlanError::ReviewWipExceeded {
+                wip_count,
+                wip_limit,
+                credit,
+            } => write!(
+                f,
+                "review WIP exceeded: {wip_count}/{wip_limit} in_review (credit={credit}); close a review before dispatching more implementation work"
+            ),
+            PlanError::ReviewEvidenceRequired => write!(
+                f,
+                "in_review requires evidence: pass an executable exact QA plan (test_plan + acceptance_criteria) or attach independent review evidence first"
+            ),
+            PlanError::ReviewRoundExceeded { round, max_rounds } => write!(
+                f,
+                "review round {round} exceeds the default max of {max_rounds}; record a P0 exception first with `codeterm plan review override <plan> <task> --owner <o> --reason <r> --reproduction <repro>`"
+            ),
+            PlanError::ReviewOracleScopeExpansion => write!(
+                f,
+                "correction review cannot expand the fixed acceptance oracle without new reproducible release-impact evidence; record a P0 override to proceed"
+            ),
+            PlanError::ReviewOverrideIncomplete => write!(
+                f,
+                "review override requires non-empty owner, reason, and reproduction"
+            ),
+            PlanError::ReviewNotInReview => write!(f, "task is not in_review"),
             PlanError::GateNotFound => write!(f, "decision gate not found"),
             PlanError::GateAlreadyAnswered => write!(f, "gate is already answered; answers are immutable"),
             PlanError::GateRequiresQuestion => write!(f, "gate requires a non-empty question"),
@@ -250,6 +288,31 @@ impl PlanError {
             PlanError::OverrideNotAuthorized => {
                 serde_json::json!({ "type": "override_not_authorized" })
             }
+            PlanError::ReviewWipExceeded {
+                wip_count,
+                wip_limit,
+                credit,
+            } => serde_json::json!({
+                "type": "review_wip_exceeded",
+                "wip_count": wip_count,
+                "wip_limit": wip_limit,
+                "credit": credit
+            }),
+            PlanError::ReviewEvidenceRequired => {
+                serde_json::json!({ "type": "review_evidence_required" })
+            }
+            PlanError::ReviewRoundExceeded { round, max_rounds } => serde_json::json!({
+                "type": "review_round_exceeded",
+                "round": round,
+                "max_rounds": max_rounds
+            }),
+            PlanError::ReviewOracleScopeExpansion => {
+                serde_json::json!({ "type": "review_oracle_scope_expansion" })
+            }
+            PlanError::ReviewOverrideIncomplete => {
+                serde_json::json!({ "type": "review_override_incomplete" })
+            }
+            PlanError::ReviewNotInReview => serde_json::json!({ "type": "review_not_in_review" }),
             PlanError::GateNotFound => serde_json::json!({ "type": "gate_not_found" }),
             PlanError::GateAlreadyAnswered => {
                 serde_json::json!({ "type": "gate_already_answered" })

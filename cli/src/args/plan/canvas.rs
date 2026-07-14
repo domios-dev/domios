@@ -85,6 +85,50 @@ pub enum PlanQaAction {
 }
 
 #[derive(Subcommand)]
+pub enum PlanReviewAction {
+    /// Show review-backpressure status: WIP count/limit, credit, blocked reason
+    Status { plan_id: Option<String> },
+    /// Show batch-compatible QA waves (grouped by task group)
+    Waves { plan_id: Option<String> },
+    /// Record a P0 exception authorizing the next over-round-limit review entry
+    Override {
+        plan_id: Option<String>,
+        task_id: String,
+        #[arg(long)]
+        owner: String,
+        #[arg(long, allow_hyphen_values = true)]
+        reason: String,
+        #[arg(long, allow_hyphen_values = true)]
+        reproduction: String,
+    },
+    /// Read-only ACCEPT verdict: attaches evidence without closing the task
+    Accept {
+        plan_id: Option<String>,
+        task_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        note: String,
+        #[arg(long)]
+        changed_executable_surfaces: bool,
+        #[arg(long)]
+        distinct_oracle: bool,
+        /// Past the default round bound, routes residual risk to a follow-up task
+        #[arg(long, allow_hyphen_values = true)]
+        residual_risk: Option<String>,
+    },
+    /// BOUNCE: atomically exits in_review back to in_progress
+    Bounce {
+        plan_id: Option<String>,
+        task_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        note: String,
+        #[arg(long)]
+        changed_executable_surfaces: bool,
+        #[arg(long)]
+        distinct_oracle: bool,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum PlanLayoutAction {
     /// Set a canvas element's x/y layout override
     Set {

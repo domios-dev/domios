@@ -1813,6 +1813,53 @@ Write the plan completion retrospective (plan-level stride, kind retrospective)
 - `--body-file`
 - `<plan_id>`
 
+#### `codeterm plan review`
+
+Review-backpressure: WIP/credit status, waves, overrides, accept/bounce
+
+#### `codeterm plan review accept`
+
+Read-only ACCEPT verdict: attaches evidence without closing the task
+
+- `--changed_executable_surfaces`
+- `--distinct_oracle`
+- `--note`
+- `<plan_id>`
+- `--residual_risk` — Past the default round bound, routes residual risk to a follow-up task
+- `<task_id>`
+
+#### `codeterm plan review bounce`
+
+BOUNCE: atomically exits in_review back to in_progress
+
+- `--changed_executable_surfaces`
+- `--distinct_oracle`
+- `--note`
+- `<plan_id>`
+- `<task_id>`
+
+#### `codeterm plan review override`
+
+Record a P0 exception authorizing the next over-round-limit review entry
+
+- `--owner`
+- `<plan_id>`
+- `--reason`
+- `--reproduction`
+- `<task_id>`
+
+#### `codeterm plan review status`
+
+Show review-backpressure status: WIP count/limit, credit, blocked reason
+
+- `<plan_id>`
+
+#### `codeterm plan review waves`
+
+Show batch-compatible QA waves (grouped by task group)
+
+- `<plan_id>`
+
 #### `codeterm plan search`
 
 Search synced plan/spec/task/stride history for this project

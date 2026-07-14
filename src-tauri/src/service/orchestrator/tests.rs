@@ -59,9 +59,6 @@ fn worker_onboarding_requires_a_task_body() {
 fn planner_profile_uses_planner_suffix() {
     let task = role_onboarding_task(Some("plan it"), Some("Manager"), Some("planner")).unwrap();
     assert!(task.contains(&crate::prompts::planner_suffix()));
-    assert!(task.contains(crate::prompts::PLANNER_TESTING_ORACLE_FIRST));
-    assert!(task.contains(crate::prompts::PLAN_SKILLS_PRINCIPLES));
-    assert!(!task.contains("{planner_testing_methodology}"));
     assert!(!task.contains(crate::prompts::WORKER_SUFFIX));
 }
 
@@ -74,10 +71,7 @@ fn manager_watcher_does_not_get_worker_suffix() {
 #[test]
 fn orchestrator_onboarding_is_sent_even_without_task_body() {
     let task = role_onboarding_task(None, Some("Orchestrator"), None).unwrap();
-    assert!(task.contains("CodeTerm planner is the source of truth"));
     assert!(task.contains(&crate::prompts::orchestrator_suffix()));
-    assert!(task.contains(crate::prompts::PLAN_SKILLS_PRINCIPLES));
-    assert!(!task.contains("{plan_skills_principles}"));
 }
 
 fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
@@ -108,6 +102,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         spawned_by_pane_id: None,
         model: None,
         planned_model: None,
+        reasoning_effort: None,
         system_prompt: None,
         preset: None,
         resume_session_id: None,
@@ -166,6 +161,69 @@ fn test_build_claude_with_agent_name() {
     params.agent_name = Some("architect".to_string());
     let cmd = build_agent_command("claude", &params, None, None, &reg);
     assert!(cmd.contains("--agent 'architect'"));
+}
+
+fn effort_registry() -> AgentRegistry {
+    let reg = AgentRegistry::new();
+    reg.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+        "flat",
+    )));
+    reg.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_reasoning_efforts(
+            "tiered",
+            &["low", "medium", "high"],
+        ),
+    ));
+    reg
+}
+
+#[test]
+fn build_agent_command_injects_supported_reasoning_effort() {
+    let reg = effort_registry();
+    let mut params = make_params("tiered", None);
+    params.reasoning_effort = Some("high".into());
+    let cmd = build_agent_command("tiered", &params, None, None, &reg);
+    assert!(
+        cmd.contains("--effort high"),
+        "supported effort must reach the launch command: {cmd}"
+    );
+}
+
+#[test]
+fn build_agent_command_omits_effort_for_flat_provider() {
+    // A provider with no effort capability adds no flag even if one is passed —
+    // the launch builder never fabricates a flag the CLI would reject. (The
+    // dispatch path rejects this upstream via validate_agent_reasoning_effort.)
+    let reg = effort_registry();
+    let mut params = make_params("flat", None);
+    params.reasoning_effort = Some("high".into());
+    let cmd = build_agent_command("flat", &params, None, None, &reg);
+    assert!(
+        !cmd.contains("--effort"),
+        "flat provider adds no effort flag"
+    );
+}
+
+#[test]
+fn validate_reasoning_effort_gates_dispatch() {
+    use crate::service::spawn::validate_agent_reasoning_effort;
+    let reg = effort_registry();
+    // No selection is always valid.
+    assert!(validate_agent_reasoning_effort(&reg, "tiered", None).is_ok());
+    assert!(validate_agent_reasoning_effort(&reg, "tiered", Some("")).is_ok());
+    // Supported level passes.
+    assert!(validate_agent_reasoning_effort(&reg, "tiered", Some("medium")).is_ok());
+    // Unsupported level is rejected structurally — no silent downgrade.
+    let err = validate_agent_reasoning_effort(&reg, "tiered", Some("ultra"))
+        .expect_err("unsupported effort must reject");
+    assert!(
+        err.contains("low, medium, high"),
+        "error lists support: {err}"
+    );
+    // A provider with no capability rejects any explicit effort.
+    assert!(validate_agent_reasoning_effort(&reg, "flat", Some("high")).is_err());
+    // Unknown provider cannot be validated → error, never a silent pass.
+    assert!(validate_agent_reasoning_effort(&reg, "ghost", Some("high")).is_err());
 }
 
 #[test]

@@ -23,6 +23,8 @@ fn store_with_task(owner: &str) -> (tempfile::TempDir, PlanStore, String, String
             NewTask {
                 name: "lane".into(),
                 kind: "status_update".into(),
+                acceptance_criteria: vec!["it works".into()],
+                test_plan: Some("run focused test".into()),
                 competition: None,
                 ..Default::default()
             },

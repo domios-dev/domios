@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 32 -->
+<!-- revision: 33 -->
 
 Full reference for the `codeterm plan` CLI and orchestration discipline. The *why* (when to spawn, model routing, role contracts) lives here and in your role prompt — this doc is the authority; machine-specific deltas live in mem preferences (kind=preference, area=orchestration).
 
@@ -189,10 +189,10 @@ Worker lanes normally end this way:
    `codeterm plan qa pass PLAN_ID TASK_ID --note "<evidence>"` closes the task;
    `codeterm plan qa fail PLAN_ID TASK_ID --note "<failure>"` bounces it to
    `in_progress` and nudges the implementing worker.
-5. Orchestrator integrates by merging or rebasing the unmerged lane branch into
-   the integration target. Cherry-pick is forbidden for orchestration lanes. If
-   a branch cannot be merged cleanly or has the wrong ancestry, create a new lane
-   and manually port the diff with a recorded reason.
+5. Orchestrator integrates with a real merge commit from the lane into the
+   integration target. Cherry-pick, squash, replay, and patch-copy are forbidden.
+   If ancestry is wrong, rebase the same lane onto the target, re-run its bounded
+   review, then merge that lane.
 6. Orchestrator closes the worker pane, removes the clean
    worktree, and sets `--cleanup-status done`.
 

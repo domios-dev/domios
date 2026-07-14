@@ -1,6 +1,6 @@
 # Lane Lifecycle Standard
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
 
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not CodeTerm's own repository layout.
@@ -26,15 +26,15 @@ about lifecycle and evidence, not CodeTerm's own repository layout.
 5. QA is serialized per physical machine and parallel across machines. A QA gate
    may fix a failure it directly diagnosed when the fix is mechanical and local
    to that gate; design changes bounce to the worker.
-6. Integrate by merging or rebasing unmerged lane work into the integration
-   target. Do not silently cherry-pick accepted work. If emergency patch-landing
-   is unavoidable, prove patch equivalence, record the landing SHA, and record
-   an explicit superseded verdict before deleting the lane ref/worktree.
+6. Integrate accepted work with a real merge commit from the lane into the
+   integration target. Never cherry-pick, squash, replay, or patch-copy lane
+   commits. Rebase the lane onto the target when necessary, re-run its bounded
+   review, then merge the lane itself.
 7. Run `scripts/merge-stack-audit.sh --target <candidate> <accepted-lane>...`
    before final QA and the master PR. `MERGED` is clean; `PATCH_LANDED_STALE`
    is only patch-equivalence evidence, not ancestry proof. `PATCH_LANDED_STALE`
-   and `UNLANDED` both fail the release gate until the lane is merged, recorded
-   as superseded, or explicitly deferred with a reason.
+   and `UNLANDED` both fail the release gate until the lane is ancestry-merged
+   or explicitly deferred with a reason.
 8. After acceptance, immediately remove merged branches, clean worktrees, stop
    lane-specific dev daemons, and record cleanup status. Deletion-only branch
    pushes must not run build gates.
