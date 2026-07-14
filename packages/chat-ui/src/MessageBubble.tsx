@@ -29,7 +29,6 @@ import {
   ModelAvatar,
   RichMarkdown,
   TEXT_WRAP_CLASS,
-  extractEdits,
   isLargeArtifact,
   renderUserContent,
 } from "./MarkdownBody";
@@ -101,7 +100,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
   const isFailedToolCall = message.type === "tool_call" && message.toolError === true;
   const shouldAutoExpand = message.type === "tool_call"
     && (message.toolInput?.content != null
-      || extractEdits(message).length > 0
+      || Boolean(message.toolEdits?.length)
+      || (item?.kind === "tool" && Boolean(item.event.result) && isImageOnlyToolOutput(item.event.result ?? ""))
       || (isFailedToolCall && isLatestFailedToolCall));
   const [expanded, setExpanded] = useState(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(message.id);
