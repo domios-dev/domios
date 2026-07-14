@@ -322,6 +322,28 @@ console.log("\n--- parseSessionDelta task notification ---\n");
   );
 }
 
+console.log("\n--- canonical tool fields ---\n");
+{
+  const parsed = hostPlugin.parseSessionDelta(JSON.stringify({ type: "assistant", message: { content: [
+    { type: "tool_use", name: "Bash", input: { command: "git status" } },
+    { type: "tool_use", name: "Edit", input: { file_path: "src/demo.ts", old_string: "old", new_string: "new" } },
+    { type: "tool_use", name: "MultiEdit", input: { file_path: "src/multi.ts", edits: [{ old_string: "one", new_string: "two" }, { old_string: "three", new_string: "four" }] } },
+    { type: "tool_use", name: "Mystery", input: { value: "opaque" } },
+  ] } })) as { messages: Array<{ blocks: Array<{ data: Record<string, unknown> }> }> };
+  const data = parsed.messages[0].blocks.map((block) => block.data);
+  eq(data[0].tool_kind, "command", "Claude Bash gets canonical command kind");
+  eq(data[0].tool_summary, "git status", "Claude Bash gets clean command summary");
+  eq(data[1].tool_kind, "edit", "Claude Edit gets canonical edit kind");
+  assert(typeof data[1].tool_detail === "string", "Claude tool_detail stays a string");
+  eq(data[1].tool_edits, [{ path: "src/demo.ts", old: "old", new: "new" }], "Claude Edit emits canonical path and edit pair");
+  eq(data[2].tool_edits, [
+    { path: "src/multi.ts", old: "one", new: "two" },
+    { path: "src/multi.ts", old: "three", new: "four" },
+  ], "Claude MultiEdit propagates parent snake_case path");
+  eq(data[3].tool_kind, "generic", "unknown Claude tool degrades to generic");
+  assert(typeof data[3].tool_summary === "string" && !(data[3].tool_summary as string).includes("{"), "unknown Claude summary is not JSON");
+}
+
 console.log("\n--- discoverModels ---\n");
 
 {
