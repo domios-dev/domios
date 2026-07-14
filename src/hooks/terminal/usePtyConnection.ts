@@ -6,18 +6,12 @@ import { subscribePaneOutput, webOutputStreamActive, type PaneOutputSink } from 
 import { useMuxSelector } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
-import { createHiddenOutputBuffer } from "./hiddenOutputBuffer";
 import {
   TERMINAL_WRITE_SLICE_BYTES,
   writeTerminalBytesInFrames,
   writeTerminalStringInFrames,
 } from "./terminalWriteFrames";
 import { captureTerminalViewport, restoreTerminalViewport, type TerminalViewport } from "./terminalViewport";
-
-// Trailing hidden-pane output kept for replay on show. Roughly a scrollback's
-// worth: older bytes would scroll off xterm's buffer anyway, so evicting them
-// (and resyncing from the backend instead) avoids a multi-second burst replay.
-const HIDDEN_BUFFER_MAX_BYTES = 4 * 1024 * 1024;
 
 async function fetchPaneHistory(paneId: string): Promise<string> {
   try {
@@ -79,11 +73,10 @@ export function usePtyConnection({
     (a, b) => a === b,
   );
   const localFitEnabledRef = useRef(localFitEnabled);
-  const renderEnabledRef = useRef(renderEnabled);
-  const hiddenBufRef = useRef(createHiddenOutputBuffer(HIDDEN_BUFFER_MAX_BYTES));
   const hiddenViewportRef = useRef<TerminalViewport>({ followOutput: true, line: 0 });
   const cancelVisibleReplayRef = useRef<(() => void) | null>(null);
   const replayRequestRef = useRef(0);
+  const replayTerminalRef = useRef<Terminal | null>(null);
   // Web resets the tail cursor once per mount; toggles resume it.
   const webReplayedPtysRef = useRef<Set<string>>(new Set());
   // xterm instance is keep-alive (never destroyed on tab switch); replay scrollback only once per pane lifetime.
@@ -93,17 +86,23 @@ export function usePtyConnection({
     replayRequestRef.current += 1;
     cancelVisibleReplayRef.current?.();
     cancelVisibleReplayRef.current = null;
+    replayTerminalRef.current?.element?.style.removeProperty("visibility");
+    replayTerminalRef.current = null;
     onHistoryReplayStateChange?.(false);
   }, [onHistoryReplayStateChange]);
 
   const replayHistory = useCallback((term: Terminal, history: Uint8Array | string, viewport: TerminalViewport) => {
     cancelReplay();
     const request = replayRequestRef.current;
+    replayTerminalRef.current = term;
+    term.element?.style.setProperty("visibility", "hidden");
     onHistoryReplayStateChange?.(true);
     const complete = () => {
       if (request !== replayRequestRef.current) return;
       cancelVisibleReplayRef.current = null;
       restoreTerminalViewport(term, viewport);
+      term.element?.style.removeProperty("visibility");
+      replayTerminalRef.current = null;
       onHistoryReplayStateChange?.(false);
     };
     cancelVisibleReplayRef.current = typeof history === "string"
@@ -111,41 +110,18 @@ export function usePtyConnection({
       : writeTerminalBytesInFrames(term, history, complete);
   }, [cancelReplay, onHistoryReplayStateChange]);
 
-  const resyncPaneHistory = useCallback((term: Terminal, viewport: TerminalViewport) => {
-    cancelReplay();
-    const request = replayRequestRef.current;
-    void fetchPaneHistory(paneId).then((history) => {
-      if (request !== replayRequestRef.current) return;
-      term.reset();
-      if (history) {
-        replayHistory(term, history, viewport);
-      } else {
-        restoreTerminalViewport(term, viewport);
-      }
-    });
-  }, [cancelReplay, paneId, replayHistory]);
-
   useEffect(() => {
     localFitEnabledRef.current = localFitEnabled;
   }, [localFitEnabled]);
 
   useEffect(() => {
-    renderEnabledRef.current = renderEnabled;
     const term = termRef.current;
     if (!renderEnabled) {
       if (term) hiddenViewportRef.current = captureTerminalViewport(term);
       return;
     }
-    if (hiddenBufRef.current.size === 0 || !term) return;
-    const { payload, dropped } = hiddenBufRef.current.drain();
-    if (dropped) {
-      // Cap evicted older bytes while hidden; a truncated replay could corrupt
-      // alt-screen/SGR state, so resync from the backend's bounded history.
-      resyncPaneHistory(term, hiddenViewportRef.current);
-      return;
-    }
-    replayHistory(term, payload, hiddenViewportRef.current);
-  }, [renderEnabled, termRef, resyncPaneHistory, replayHistory]);
+    if (term) restoreTerminalViewport(term, hiddenViewportRef.current);
+  }, [renderEnabled, termRef]);
 
   useEffect(() => () => {
     cancelReplay();
@@ -189,11 +165,7 @@ export function usePtyConnection({
           replayDoneRef.current.add(ptyId);
           const history = await fetchPaneHistory(paneId);
           if (!disposed && history) {
-            if (renderEnabledRef.current) {
-              replayHistory(term, history, { followOutput: true, line: 0 });
-            } else {
-              hiddenBufRef.current.push(new TextEncoder().encode(history));
-            }
+            replayHistory(term, history, { followOutput: true, line: 0 });
           }
         }
         // One fit() + resize on every (re)connect to sync PTY dimensions.
@@ -270,12 +242,6 @@ export function usePtyConnection({
           const text = new TextDecoder().decode(tail);
           onOutputChunk(text);
         } catch { /* ignore decode errors */ }
-
-        if (!renderEnabledRef.current) {
-          hiddenBufRef.current.push(chunk);
-          if (firstData) firstData = false;
-          return;
-        }
 
         pendingWriteChunks.push(chunk);
         pendingWriteLength += chunk.length;
