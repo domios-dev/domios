@@ -3,6 +3,7 @@ import type {
   ChatOrigin,
   NormalizedChatMessage as ChatMessage,
   ChatAttachment as ImageAttachment,
+  TimelineItem,
 } from "@codeterm/chat-core";
 import { isPaneMarkerPlaceholderLabel, shortPaneRef } from "@codeterm/chat-core";
 import {
@@ -51,6 +52,7 @@ import { CrossPaneMessageShell } from "./crossPaneBubble";
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  item?: TimelineItem;
   isLatestFailedToolCall?: boolean;
   /** Route an interactive widget's answer back to the agent (existing send path). */
   onAnswerInteractive?: InteractiveAnswerHandler;
@@ -94,7 +96,7 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, isLatestFailedToolCall = false, origin, originAvatar, onOriginClick, resolvePaneName, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, item, isLatestFailedToolCall = false, origin, originAvatar, onOriginClick, resolvePaneName, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
   recordBubbleRender(message.id);
   const isFailedToolCall = message.type === "tool_call" && message.toolError === true;
   const shouldAutoExpand = message.type === "tool_call"
@@ -546,7 +548,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
   if (message.type === "tool_call") {
     return (
         <ToolCallBubble
-          message={message}
+          event={item?.kind === "tool" ? item.event : undefined}
+          message={item?.kind === "tool" ? undefined : message}
           expanded={expanded}
           onToggle={setExpandedPersistent}
           resolvePaneName={resolvePaneName}
