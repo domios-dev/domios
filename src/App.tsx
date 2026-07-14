@@ -278,6 +278,21 @@ function AppInner() {
     () => activeWs?.tabs.find((t) => t.id === state.activeTabIds[activeWs.id]),
     [activeWs, state.activeTabIds],
   );
+  const prewarmBackendTab = useCallback(async (tabId: string) => {
+    const current = stateRef.current;
+    const tab = current.workspaces.flatMap((ws) => ws.tabs).find((candidate) => candidate.id === tabId);
+    if (!tab) return;
+    const pane = current.panes[tab.pane_id];
+    if (!pane || pane.virtual || pane.backing?.kind === "chat_backend" || pane.pty_id || !pane.agent_type) return;
+    await invoke("spawn_pty", {
+      paneId: pane.id,
+      cwd: pane.cwd ?? undefined,
+      cols: 120,
+      rows: 30,
+    }).catch((error) => {
+      console.warn(`[prewarm] failed to activate backend for tab ${tabId}:`, error);
+    });
+  }, []);
   const prewarmTabIds = useTabPrewarm({
     workspaceId: activeWs?.id ?? null,
     activeTabId: activeTab?.id ?? null,
@@ -288,6 +303,8 @@ function AppInner() {
           return pane && !pane.virtual && !(activeWs.protected === true && pane.protected === true);
         })
         .map((tab) => tab.id) ?? [],
+    liveTabIds: state.workspaces.flatMap((ws) => ws.tabs.map((tab) => tab.id)),
+    prewarmTab: prewarmBackendTab,
   });
   const showWorkspaceCanvas =
     mainView === "workspace" && !pluginViewId && activeWs != null && !activeTab;

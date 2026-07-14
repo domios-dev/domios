@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   recordRecentTab,
+  retainLiveTabs,
   scheduleSequentialPrewarm,
   selectPrewarmTabIds,
   TAB_PREWARM_LIMIT,
@@ -41,7 +42,7 @@ test("recent history remains bounded to active plus prewarm capacity", () => {
   ]);
 });
 
-test("prewarm mounts one tab per frame and cancellation stops the sequence", () => {
+test("prewarm waits for each backend result and cancellation stops the sequence", async () => {
   const frames: Array<() => void> = [];
   const cancelled: number[] = [];
   const mounted: string[] = [];
@@ -57,12 +58,28 @@ test("prewarm mounts one tab per frame and cancellation stops the sequence", () 
     },
   };
 
-  const cancel = scheduleSequentialPrewarm(["tab-a", "tab-b"], (id) => mounted.push(id), scheduler);
+  const releases: Array<() => void> = [];
+  const cancel = scheduleSequentialPrewarm(
+    ["tab-a", "tab-b"],
+    (id) => new Promise<void>((resolve) => {
+      mounted.push(id);
+      releases.push(resolve);
+    }),
+    scheduler,
+  );
   assert.deepEqual(mounted, []);
   frames.shift()?.();
   assert.deepEqual(mounted, ["tab-a"]);
+  assert.equal(frames.length, 0);
+  releases.shift()?.();
+  await Promise.resolve();
   cancel();
   frames.shift()?.();
   assert.deepEqual(mounted, ["tab-a"]);
   assert.deepEqual(cancelled, [2]);
+});
+
+test("already mounted tabs stay warm until the tab is closed", () => {
+  const mounted = new Set(["tab-a", "tab-b", "closed-tab"]);
+  assert.deepEqual([...retainLiveTabs(mounted, ["tab-a", "tab-b", "tab-c"])], ["tab-a", "tab-b"]);
 });
