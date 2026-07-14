@@ -122,7 +122,7 @@ async function sendAndMeasureRender(page: Page, api: ApiClient, paneId: string, 
     { run: process.env.PERF_DIAG_RUN ?? `perf-${process.pid}-${test.info().workerIndex}`, test: name, index, startedAt },
     recordPerfEvent,
   );
-  await api.post(`/panes/${paneId}/send`, { text: `STUB_ECHO ${marker}`, enter: true });
+  await api.post(`/panes/${paneId}/send`, { text: `STUB_ECHO ${marker}`, enter: true, raw: true });
   bounce.record("sent", { marker, paneId, loadavg: os.loadavg() });
   let tOutputMs: number | null = null;
   let tRenderMs: number | null = null;
