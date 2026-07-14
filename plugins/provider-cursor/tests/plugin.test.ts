@@ -359,6 +359,10 @@ console.log("\n--- parseSessionDelta (real JSONL transcript fixture) ---\n");
   eq(delta.messages[1].blocks[0].kind, "tool_use", "tool_use block preserved");
   eq(delta.messages[1].blocks[0].data.name, "Shell", "tool name preserved");
   eq(delta.messages[1].blocks[0].data.input.command, "echo hello123", "tool input preserved");
+  eq(delta.messages[1].blocks[0].data.tool_kind, "command", "Shell gets canonical command kind");
+  eq(delta.messages[1].blocks[0].data.tool_summary, "echo hello123", "Shell gets clean command summary");
+  eq(delta.messages[1].blocks[0].data.tool_detail, "echo hello123", "Shell gets command detail");
+  eq(delta.messages[1].blocks[0].data.tool_edits, [], "Shell has no edit payload");
   // 3) assistant final text: trailing [REDACTED] trimmed, body kept.
   eq(delta.messages[2].blocks[0].kind, "text", "final assistant block is text");
   eq(delta.messages[2].blocks[0].data.text, "The command printed:\n\n```\nhello123\n```", "trailing [REDACTED] stripped");
@@ -368,6 +372,20 @@ console.log("\n--- parseSessionDelta (real JSONL transcript fixture) ---\n");
   eq(msgs.length, 2, "content search yields the 2 text-bearing turns");
   eq(msgs[0].text, "Run the shell command 'echo hello123' and tell me what it printed.", "search text matches user turn");
   assert(msgs[1].text.indexOf("hello123") !== -1, "search text matches assistant turn");
+}
+
+console.log("\n--- canonical tool fields ---\n");
+{
+  const p = loadCursorWithHost(baseHost({}));
+  const parsed = p.parseSessionDelta(JSON.stringify({ role: "assistant", message: { content: [
+    { type: "tool_use", name: "Edit", input: { file_path: "src/demo.ts", old_string: "old", new_string: "new" } },
+    { type: "tool_use", name: "Mystery", input: { value: "opaque" } },
+  ] } })) as { messages: Array<{ blocks: Array<{ data: Record<string, unknown> }> }> };
+  const data = parsed.messages[0].blocks.map((block) => block.data);
+  eq(data[0].tool_kind, "edit", "Edit gets canonical edit kind");
+  eq(data[0].tool_edits, [{ path: "src/demo.ts", old: "old", new: "new" }], "Edit emits canonical edit pair");
+  eq(data[1].tool_kind, "generic", "unknown tool degrades to generic");
+  assert(typeof data[1].tool_summary === "string" && !(data[1].tool_summary as string).includes("{"), "unknown summary is not JSON");
 }
 
 console.log("\n--- detectSessionModel (store.db JSON blob scan) ---\n");
