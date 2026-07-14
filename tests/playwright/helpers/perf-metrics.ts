@@ -5,6 +5,7 @@
  */
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import type { PerfEventRow } from "./perf-event-bounce";
 
 const defaultPerfDir = path.resolve(__dirname, "..", "artifacts", "perf");
 
@@ -73,10 +74,7 @@ export function recordPerfSamples(metric: PerfSampleMetric): PerfSummary {
   return summary;
 }
 
-export type DiagnosticRowInput = { type: "diagnostic" } & Record<string, unknown>;
-
-// Appends a raw diagnostic row; summary rows keep their exact shape/fields.
-export function recordDiagnosticRow(row: DiagnosticRowInput): void {
+export function recordPerfEvent(row: PerfEventRow): void {
   const dir = perfDir();
   mkdirSync(dir, { recursive: true });
   appendFileSync(path.join(dir, "metrics.jsonl"), JSON.stringify(row) + "\n");
