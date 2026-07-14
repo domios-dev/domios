@@ -10,9 +10,11 @@ interface ToolCardFrameProps {
   children: ReactNode;
   title?: string;
   metric?: ReactNode;
+  chips?: ReactNode;
+  tail?: ReactNode;
 }
 
-export function ToolCardFrame({ event, expanded, onToggle, children, title, metric }: ToolCardFrameProps) {
+export function ToolCardFrame({ event, expanded, onToggle, children, title, metric, chips, tail }: ToolCardFrameProps) {
   const [commandOpen, setCommandOpen] = useState(false);
   const globalShowCommands = useShowCommands();
   const visual = toolKindVisual[event.kind];
@@ -32,7 +34,8 @@ export function ToolCardFrame({ event, expanded, onToggle, children, title, metr
         <Glyph aria-hidden="true" size={14} strokeWidth={2} style={{ color: visual.color, flexShrink: 0 }} />
         <span className="font-medium" style={{ color: visual.color }}>{title ?? visual.label}</span>
         <span className="min-w-0 flex-1 truncate" style={{ color: "var(--ct-muted-fg)" }}>{event.summary || "Tool activity"}</span>
-        {metric}
+        {metric ?? chips}
+        {!expanded && tail}
         <span data-testid="toolcard-status" aria-label={event.status} style={{ color: statusColor }}>
           {event.status === "pending" ? <LoaderCircle className="animate-spin" size={14} /> : event.status === "error" ? <CircleX size={14} /> : <Check size={14} />}
         </span>
