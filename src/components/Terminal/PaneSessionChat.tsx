@@ -522,7 +522,7 @@ export function PaneSessionChat({
             </div>
           )
         )}
-        {deferredEnrichedMessages.map(({ msg, origin }) => {
+        {deferredEnrichedMessages.map(({ msg, item, origin }) => {
           let onOriginClick: (() => void) | undefined;
           let originProviderId: string | null | undefined;
           if (origin?.kind === "pane") {
@@ -541,6 +541,7 @@ export function PaneSessionChat({
             >
               <MessageBubble
                 message={msg}
+                item={item.kind === "tool" ? item : undefined}
                 isLatestFailedToolCall={msg.id === latestFailedToolCallId}
                 origin={origin}
                 resolvePaneName={resolvePaneName}
