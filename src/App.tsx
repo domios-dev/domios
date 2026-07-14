@@ -26,6 +26,7 @@ import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
 import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
+import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
 import { useAgentProviders } from "./hooks/useAgentProviders";
 import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
 import { UpdateProvider } from "./hooks/useUpdate";
@@ -110,7 +111,6 @@ function AppInner() {
   const [mountedMemory, setMountedMemory] = useState(false);
   const [mountedMesh, setMountedMesh] = useState(false);
   const [mountedExtensions, setMountedExtensions] = useState(false);
-  const [mountedTabIds, setMountedTabIds] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     if (mainView === "settings") setMountedSettings(true);
     if (mainView === "memory") setMountedMemory(true);
@@ -278,6 +278,17 @@ function AppInner() {
     () => activeWs?.tabs.find((t) => t.id === state.activeTabIds[activeWs.id]),
     [activeWs, state.activeTabIds],
   );
+  const prewarmTabIds = useTabPrewarm({
+    workspaceId: activeWs?.id ?? null,
+    activeTabId: activeTab?.id ?? null,
+    tabIds:
+      activeWs?.tabs
+        .filter((tab) => {
+          const pane = state.panes[tab.pane_id];
+          return pane && !pane.virtual && !(activeWs.protected === true && pane.protected === true);
+        })
+        .map((tab) => tab.id) ?? [],
+  });
   const showWorkspaceCanvas =
     mainView === "workspace" && !pluginViewId && activeWs != null && !activeTab;
   const workspaceCanvasOpen = useCanvasWorkspaceOpen();
@@ -300,31 +311,6 @@ function AppInner() {
   }, [activeTab]);
   const canvasFocusOpen = useCanvasFocusOpen();
   const canvasFocusTarget = useCanvasFocusTarget();
-  useEffect(() => {
-    if (!activeTab?.id) return;
-    setMountedTabIds((prev) => {
-      if (prev.has(activeTab.id)) return prev;
-      const next = new Set(prev);
-      next.add(activeTab.id);
-      return next;
-    });
-  }, [activeTab?.id]);
-  useEffect(() => {
-    const liveTabIds = new Set(state.workspaces.flatMap((ws) => ws.tabs.map((tab) => tab.id)));
-    setMountedTabIds((prev) => {
-      let changed = false;
-      const next = new Set<string>();
-      for (const id of prev) {
-        if (liveTabIds.has(id)) {
-          next.add(id);
-        } else {
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [state.workspaces]);
-
   const handleNewTab = useCallback(() => {
     if (!activeWs) return;
     const focusedPane = state.focused_pane_id ? state.panes[state.focused_pane_id] : null;
@@ -630,7 +616,7 @@ function AppInner() {
                 // lazy — mount it on boot so its chat/SSE state is live.
                 const isMainTab =
                   ws.protected === true && state.panes[tab.pane_id]?.protected === true;
-                const shouldMountTab = isActiveTab || isMainTab || mountedTabIds.has(tab.id);
+                const shouldMountTab = isActiveTab || isMainTab || prewarmTabIds.has(tab.id);
                 if (!shouldMountTab) return null;
                 const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab;
                 return (
