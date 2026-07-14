@@ -16,6 +16,8 @@ fn store_with_task() -> (PlanStore, String, String) {
             NewTask {
                 name: "parent".into(),
                 kind: "implement".into(),
+                acceptance_criteria: vec!["it works".into()],
+                test_plan: Some("run focused test".into()),
                 competition: None,
                 ..Default::default()
             },

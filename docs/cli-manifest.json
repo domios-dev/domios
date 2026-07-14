@@ -6811,6 +6811,198 @@
           "subcommands": []
         },
         {
+          "name": "review",
+          "about": "Review-backpressure: WIP/credit status, waves, overrides, accept/bounce",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "accept",
+              "about": "Read-only ACCEPT verdict: attaches evidence without closing the task",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "changed_executable_surfaces",
+                  "positional": false,
+                  "value_name": "CHANGED_EXECUTABLE_SURFACES",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "distinct_oracle",
+                  "positional": false,
+                  "value_name": "DISTINCT_ORACLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "note",
+                  "positional": false,
+                  "value_name": "NOTE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "residual_risk",
+                  "positional": false,
+                  "value_name": "RESIDUAL_RISK",
+                  "default": null,
+                  "help": "Past the default round bound, routes residual risk to a follow-up task",
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "bounce",
+              "about": "BOUNCE: atomically exits in_review back to in_progress",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "changed_executable_surfaces",
+                  "positional": false,
+                  "value_name": "CHANGED_EXECUTABLE_SURFACES",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "distinct_oracle",
+                  "positional": false,
+                  "value_name": "DISTINCT_ORACLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "note",
+                  "positional": false,
+                  "value_name": "NOTE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "override",
+              "about": "Record a P0 exception authorizing the next over-round-limit review entry",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "owner",
+                  "positional": false,
+                  "value_name": "OWNER",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reason",
+                  "positional": false,
+                  "value_name": "REASON",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reproduction",
+                  "positional": false,
+                  "value_name": "REPRODUCTION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "status",
+              "about": "Show review-backpressure status: WIP count/limit, credit, blocked reason",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "waves",
+              "about": "Show batch-compatible QA waves (grouped by task group)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "search",
           "about": "Search synced plan/spec/task/stride history for this project",
           "aliases": [],

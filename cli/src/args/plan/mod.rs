@@ -5,7 +5,7 @@ mod task;
 
 pub use canvas::{
     PlanDecisionAction, PlanElementAction, PlanHandoffAction, PlanLayoutAction,
-    PlanMilestoneAction, PlanNoteAction, PlanQaAction,
+    PlanMilestoneAction, PlanNoteAction, PlanQaAction, PlanReviewAction,
 };
 pub use task::PlanTaskAction;
 
@@ -340,6 +340,11 @@ pub enum PlanAction {
     Qa {
         #[command(subcommand)]
         action: PlanQaAction,
+    },
+    /// Review-backpressure: WIP/credit status, waves, overrides, accept/bounce
+    Review {
+        #[command(subcommand)]
+        action: PlanReviewAction,
     },
     /// Canvas layout overrides
     Layout {

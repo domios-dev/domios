@@ -36,6 +36,7 @@ mod relink;
 pub mod reminders;
 pub mod resolve;
 pub mod retrospective;
+pub mod review_gate;
 pub mod search_index;
 pub mod search_related;
 pub mod section_links;
