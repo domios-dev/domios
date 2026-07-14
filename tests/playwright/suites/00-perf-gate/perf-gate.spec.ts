@@ -3,9 +3,11 @@
  * WHY: PTY output must not make replay, history, reload, or IPC churn feel frozen.
  * ORACLE: A rendered terminal marker and its bottom anchor, never daemon logs alone.
  */
+import os from "node:os";
 import { expect, test, stubEnvActive, STUB_ENV_ABSENT_SKIP, type Page } from "../../helpers/perf-fixtures";
 import type { ApiClient } from "../../helpers/api-client";
-import { recordPerfSamples } from "../../helpers/perf-metrics";
+import { recordPerfSamples, recordPerfEvent } from "../../helpers/perf-metrics";
+import { formatPerfFailureState, PerfEventBounce } from "../../helpers/perf-event-bounce";
 import { pollUntil } from "../../helpers/poll";
 import { showTerminalView } from "../../helpers/stub-gate";
 
@@ -17,6 +19,26 @@ const CONFIG_P95_BUDGET_MS = 150;
 const SAMPLE_COUNT = 5;
 const READY_CAP_MS = 8_000;
 const SAMPLE_WAIT_SLACK_MS = 1_500;
+
+interface FocusViewState {
+  rootMounted: boolean;
+  paneVisible: boolean;
+  tabActive: boolean;
+  terminalMode: boolean;
+}
+
+interface ViewportGeometry {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+  bottomDelta: number;
+  anchored: boolean;
+}
+
+function computeAnchored(scrollTop: number, scrollHeight: number, clientHeight: number): Pick<ViewportGeometry, "bottomDelta" | "anchored"> {
+  const bottomDelta = scrollHeight - clientHeight - scrollTop;
+  return { bottomDelta, anchored: scrollHeight <= clientHeight || bottomDelta <= 2 };
+}
 
 test.beforeEach(({ perfSeed }) => {
   // Env present + inactive seed = false-active; FAIL loud (never skip hard metrics).
@@ -56,16 +78,109 @@ async function focusTerminal(page: Page, api: ApiClient, paneId: string): Promis
   await showTerminalView(page, paneId);
 }
 
-async function sendAndMeasureRender(page: Page, api: ApiClient, paneId: string, marker: string): Promise<number> {
+async function paneText(api: ApiClient, paneId: string): Promise<string> {
+  const res = await api.get<{ text?: string } | string>(`/panes/${paneId}/text`);
+  return typeof res === "string" ? res : (res.text ?? "");
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function readFocusView(page: Page, api: ApiClient, paneId: string): Promise<FocusViewState> {
+  const focused = (await api.panes()).find((p) => (p as { id?: string }).id === paneId) as { focused?: boolean; tab_id?: string } | undefined;
+  const dom = await page.evaluate((id) => {
+    const root = document.querySelector("#root");
+    const pane = document.querySelector(`[data-pane-id="${id}"]`) as HTMLElement | null;
+    const term = pane?.querySelector('[data-testid="pane-mode-switch"] [role="tab"][aria-selected="true"]');
+    return {
+      rootMounted: Boolean(root && root.childElementCount > 0),
+      paneVisible: Boolean(pane && pane.offsetParent !== null),
+      terminalMode: (term?.textContent ?? "").includes("Terminal"),
+    };
+  }, paneId);
+  return { ...dom, tabActive: Boolean(focused?.focused) };
+}
+
+async function readViewport(page: Page, paneId: string): Promise<ViewportGeometry | null> {
+  const raw = await page.evaluate((id) => {
+    const vp = document.querySelector(`[data-pane-id="${id}"] .xterm-viewport`) as HTMLElement | null;
+    if (!vp) return null;
+    return { scrollTop: vp.scrollTop, scrollHeight: vp.scrollHeight, clientHeight: vp.clientHeight };
+  }, paneId);
+  if (!raw) return null;
+  const { bottomDelta, anchored } = computeAnchored(raw.scrollTop, raw.scrollHeight, raw.clientHeight);
+  return { ...raw, bottomDelta, anchored };
+}
+
+// Polls pane text and DOM in the SAME pollUntil budget/cadence as before; the
+// render oracle stays the exit condition, output timing is a side-channel probe.
+async function sendAndMeasureRender(page: Page, api: ApiClient, paneId: string, marker: string, name: string, index: number): Promise<number> {
+  const budgetMs = WRITE_RENDER_MAX_BUDGET_MS + SAMPLE_WAIT_SLACK_MS;
   const startedAt = performance.now();
+  const bounce = new PerfEventBounce(
+    { run: process.env.PERF_DIAG_RUN ?? `perf-${process.pid}-${test.info().workerIndex}`, test: name, index, startedAt },
+    recordPerfEvent,
+  );
   await api.post(`/panes/${paneId}/send`, { text: `STUB_ECHO ${marker}`, enter: true });
+  bounce.record("sent", { marker, paneId, loadavg: os.loadavg() });
+  let tOutputMs: number | null = null;
+  let tRenderMs: number | null = null;
   await pollUntil(
-    () => markerVisible(page, paneId, marker),
-    WRITE_RENDER_MAX_BUDGET_MS + SAMPLE_WAIT_SLACK_MS,
+    async () => {
+      if (tOutputMs === null) {
+        try {
+          if ((await paneText(api, paneId)).includes(marker)) {
+            tOutputMs = performance.now() - startedAt;
+            bounce.record("output", { marker, loadavg: os.loadavg() });
+          }
+        } catch (error) {
+          bounce.record("output-error", { error: errorText(error), loadavg: os.loadavg() });
+        }
+      }
+      if (await markerVisible(page, paneId, marker)) {
+        tRenderMs = performance.now() - startedAt;
+        const [focus, viewport] = await Promise.all([readFocusView(page, api, paneId), readViewport(page, paneId)]);
+        bounce.record("render", { marker, loadavg: os.loadavg(), focus, viewport }, tRenderMs);
+        return true;
+      }
+      return false;
+    },
+    budgetMs,
     50,
     `visible marker ${marker}`,
-  );
-  return performance.now() - startedAt;
+  ).catch(() => undefined);
+  if (tRenderMs === null) await captureFailureDiagnostics(page, api, paneId, marker, name, index, budgetMs, bounce);
+  return tRenderMs ?? performance.now() - startedAt;
+}
+
+// Bounded single diagnostic pass on render timeout: one text fetch, status, DOM
+// re-poll, screenshot; throws a phase-named message. No loops/sleeps/retries.
+async function captureFailureDiagnostics(page: Page, api: ApiClient, paneId: string, marker: string, name: string, index: number, budgetMs: number, bounce: PerfEventBounce): Promise<never> {
+  let finalText = "";
+  let outputError: string | null = null;
+  try {
+    finalText = await paneText(api, paneId);
+    if (finalText.includes(marker) && !bounce.recorded("output")) {
+      const tOutputMs = bounce.elapsedMs();
+      bounce.record("output", { marker, late: true, loadavg: os.loadavg() }, tOutputMs);
+    }
+  } catch (error) {
+    outputError = errorText(error);
+    bounce.record("output-error", { error: outputError, late: true, loadavg: os.loadavg() });
+  }
+  const status = await api.get(`/panes/${paneId}/status`).catch(() => null);
+  const finalFocus = await readFocusView(page, api, paneId);
+  const finalViewport = await readViewport(page, paneId);
+  const rerender = await markerVisible(page, paneId, marker).catch(() => false);
+  if (rerender && !bounce.recorded("render")) {
+    const tRenderMs = bounce.elapsedMs();
+    bounce.record("render", { marker, late: true, loadavg: os.loadavg(), focus: finalFocus, viewport: finalViewport }, tRenderMs);
+  }
+  const outputPath = test.info().outputPath(`perf-diag-${name}-${index}-${Date.now()}.png`);
+  await page.screenshot({ path: outputPath }).catch(() => {});
+  bounce.record("capture", { outputPath, finalTextHasMarker: finalText.includes(marker), rerenderVisible: rerender, loadavg: os.loadavg(), focus: finalFocus, viewport: finalViewport, status, ...(outputError === null ? {} : { outputError }) });
+  throw new Error(formatPerfFailureState(bounce, budgetMs));
 }
 
 async function installLongtaskObserver(page: Page): Promise<void> {
@@ -101,7 +216,7 @@ test("@perf stub PTY write reaches rendered terminal within budget", async ({ ui
 
   const samples: number[] = [];
   for (let index = 0; index < SAMPLE_COUNT; index += 1) {
-    samples.push(await sendAndMeasureRender(page, api, front, `PWRENDER${Date.now()}${index}`));
+    samples.push(await sendAndMeasureRender(page, api, front, `PWRENDER${Date.now()}${index}`, "pty-write-to-render", index));
   }
   const summary = recordPerfSamples({
     name: "pty-write-to-render",
@@ -183,7 +298,7 @@ test("@perf stub IPC stays visibly responsive during output churn", async ({ ui,
     const configStartedAt = performance.now();
     await api.get("/config");
     configSamples.push(performance.now() - configStartedAt);
-    visibleSamples.push(await sendAndMeasureRender(page, api, front, `PWIPC${Date.now()}${index}`));
+    visibleSamples.push(await sendAndMeasureRender(page, api, front, `PWIPC${Date.now()}${index}`, "ipc-starvation-visible-render", index));
   }
   const config = recordPerfSamples({
     name: "config-latency-under-churn",
