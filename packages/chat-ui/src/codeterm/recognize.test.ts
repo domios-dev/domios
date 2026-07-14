@@ -1,3 +1,4 @@
+import { COMMAND_PATHS, type CommandPathNode } from "./commandPaths";
 import { recognize } from "./recognize";
 
 let passed = 0,
@@ -38,6 +39,9 @@ ok(recognize('echo hi | codeterm send "x"') === null, "buried after pipe → nul
 ok(recognize("codeterm-dev tab list") !== null, "codeterm-dev recognized");
 eq(recognize("codeterm cron list --json")?.path, ["cron", "list"], "known depth-2 subcommand");
 eq(recognize("codeterm agent spawn claude")?.positionals, ["claude"], "trailing word stays positional");
+eq(recognize("codeterm tab get-text --tab abc")?.path, ["tab", "get-text"], "tab get-text path");
+eq(recognize("codeterm plan task update task_1 --status done")?.path, ["plan", "task", "update"], "depth-3 plan path");
+eq(recognize("codeterm spec link add pl_1 --spec sp_1")?.path, ["spec", "link", "add"], "depth-3 spec path");
 
 console.log("\n--- templates ---\n");
 import { renderTemplate } from "./templates";
@@ -80,6 +84,15 @@ function resolve(node: any, path: string[]): boolean {
   }
   return true;
 }
+
+function manifestTree(node: any): CommandPathNode {
+  return Object.fromEntries((node.subcommands ?? []).flatMap((child: any) => {
+    const branch = manifestTree(child);
+    return [[child.name, branch], ...(child.aliases ?? []).map((alias: string) => [alias, branch])];
+  }));
+}
+
+eq(COMMAND_PATHS, manifestTree(manifest), "recognizer command tree matches manifest");
 
 for (const path of TEMPLATE_PATHS) {
   ok(resolve(manifest, path), `template path exists in manifest: ${path.join(" ")}`);

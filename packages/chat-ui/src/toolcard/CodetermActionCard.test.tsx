@@ -100,16 +100,16 @@ const descriptorCases: Array<[string, string]> = [
   ["codeterm spec create --title \"Requirements\"", "spec"],
   ["codeterm plan section add pl_d17yp2 --handle contract", "section"],
   ["codeterm plan task add pl_d17yp2 --name \"Implement card\"", "plan task"],
-  ["codeterm plan record pl_d17yp2 --task task_4orgnd --step \"decision\"", "plan"],
-  ["codeterm agent report --status in_review --sha abc123", "agent report"],
+  ["codeterm plan record pl_d17yp2 --task task_4orgnd --step \"decision\"", "decision"],
+  ["codeterm agent report --status in_review --sha abc123", "report"],
   ["codeterm send --tab e3fa0754 \"hello\"", "send"],
   ["codeterm mem save --kind fact \"remember this\"", "mem save"],
-  ["codeterm tab list", "tab list"],
-  ["codeterm workspace focus ws_codeterm", "workspace focus"],
-  ["codeterm cron list", "cron list"],
-  ["codeterm keepawake status", "keepawake status"],
+  ["codeterm tab list", "tabs"],
+  ["codeterm workspace focus ws_codeterm", "workspace"],
+  ["codeterm cron list", "crons"],
+  ["codeterm keepawake status", "status"],
   ["codeterm docs ORCHESTRATION", "docs"],
-  ["codeterm plugin list", "plugin list"],
+  ["codeterm plugin list", "plugins"],
 ];
 for (const [command, lead] of descriptorCases) {
   const descriptorHost = await render(<CodetermActionCard event={event(command)} expanded={false} onToggle={() => {}} />);
@@ -123,6 +123,48 @@ await act(async () => commandOpener.click());
 if (!collapsedHost.host.querySelector('[data-testid="toolcard-command"]')?.textContent?.includes("codeterm plan task add")) throw new Error("raw command opener regression");
 const chipHost = await render(<CodetermActionCard event={event("codeterm agent spawn codex --model gpt-5.6-luna")} expanded={false} onToggle={() => {}} />);
 if (!chipHost.host.textContent?.includes("gpt-5.6-luna") || chipHost.host.querySelector('[data-testid="toolcard-command"]')) throw new Error("collapsed chip regression");
+
+const tabOutputHost = await render(<CodetermActionCard event={event("codeterm tab get-text --tab e3fa0754")} expanded={false} onToggle={() => {}} resolvePaneName={() => "Hugo"} />);
+if (!tabOutputHost.host.textContent?.includes("tab get-text") || !tabOutputHost.host.textContent.includes("Hugo")) throw new Error("tab get-text descriptor regression");
+if (!tabOutputHost.host.querySelector(".lucide-scroll-text") || tabOutputHost.host.querySelector(".lucide-terminal")) throw new Error("tab get-text icon must differ from shell command");
+
+const catalogVisuals: Array<[string, string]> = [
+  ['codeterm plan create --title "Plan"', "lucide-map"],
+  ["codeterm plan goal set pl_d17yp2", "lucide-git-branch"],
+  ['codeterm spec create --title "Spec"', "lucide-file-plus-corner"],
+  ["codeterm spec section add sp_d17yp2 --title Requirements", "lucide-file-text"],
+  ["codeterm spec link add pl_d17yp2 --spec sp_d17yp2", "lucide-link-2"],
+  ["codeterm plan section add pl_d17yp2 --title Wave", "lucide-file-plus-corner"],
+  ["codeterm plan section update pl_d17yp2 wave", "lucide-file-pen-line"],
+  ["codeterm plan task add pl_d17yp2 --name Work", "lucide-list-checks"],
+  ["codeterm plan task update task_4orgnd --status done", "lucide-file-pen-line"],
+  ["codeterm plan record pl_d17yp2 --step decision", "lucide-message-square-text"],
+  ["codeterm plan retrospective pl_d17yp2", "lucide-history"],
+  ["codeterm plan skill new verify", "lucide-sparkles"],
+  ["codeterm plan state pl_d17yp2", "lucide-activity"],
+  ["codeterm agent spawn codex --role Worker", "lucide-bot"],
+  ["codeterm agent report --status in_review", "lucide-message-square-text"],
+  ["codeterm agent reports --tab e3fa0754", "lucide-inbox"],
+  ["codeterm orchestrator status", "lucide-users"],
+  ['codeterm send --tab e3fa0754 "hi"', "lucide-send"],
+  ['codeterm send --mesh host "go"', "lucide-radio-tower"],
+  ["codeterm mesh peers", "lucide-network"],
+  ['codeterm mem save "fact"', "lucide-brain"],
+  ['codeterm mem search "query"', "lucide-search"],
+  ["codeterm mem wake-up", "lucide-sunrise"],
+  ["codeterm tab new --cmd dev", "lucide-square-plus"],
+  ["codeterm tab list", "lucide-list-tree"],
+  ["codeterm workspace focus ws", "lucide-folder-kanban"],
+  ["codeterm cron create --schedule daily", "lucide-clock-3"],
+  ["codeterm cron list", "lucide-calendar-clock"],
+  ["codeterm keepawake start", "lucide-coffee"],
+  ["codeterm docs ORCHESTRATION", "lucide-book-open"],
+  ["codeterm plugin list", "lucide-puzzle"],
+];
+for (const [command, iconClass] of catalogVisuals) {
+  const host = await render(<CodetermActionCard event={event(command)} expanded={false} onToggle={() => {}} />);
+  if (!host.host.querySelector(`.${iconClass}`)) throw new Error(`catalog visual regression: ${command} -> ${iconClass}`);
+}
 
 const unknownHost = await render(<CodetermActionCard event={event("codeterm mem search hello")} expanded onToggle={() => {}} />);
 if (unknownHost.host.querySelector("button[data-testid^='codeterm-']")) throw new Error("unexpected navigation button");

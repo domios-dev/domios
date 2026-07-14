@@ -1,5 +1,4 @@
-// Recognize `codeterm …` shell invocations in a Bash tool command string.
-// Paths validated against docs/cli-manifest.json by recognize.test.ts.
+import { COMMAND_PATHS, type CommandPathNode } from "./commandPaths";
 
 export interface CodetermInvocation {
   binary: string;
@@ -10,23 +9,6 @@ export interface CodetermInvocation {
 }
 
 const BINARIES = new Set(["codeterm", "codeterm-dev"]);
-
-const KNOWN_SUBCOMMANDS: Record<string, Set<string>> = {
-  agent: new Set([
-    "spawn", "report", "list", "model", "models", "restart", "providers",
-    "reports", "compact", "stop", "set-orchestrator", "link", "unlink", "allow-spawn",
-  ]),
-  mem: new Set(["save", "search", "get", "delete", "skill", "graph", "worker"]),
-  workspace: new Set(["create", "list", "focus", "rename", "close", "current", "move-tab"]),
-  tab: new Set(["list", "new", "focus", "close", "rename", "exec", "status", "search", "stop", "current"]),
-  plan: new Set(["state", "task", "record", "mode", "approve", "doctor", "get", "list", "update", "reconcile", "loop", "handoff", "element"]),
-  spec: new Set(["show", "list", "section"]),
-  orchestrator: new Set(["status", "heartbeat", "handoff"]),
-  mesh: new Set(["send", "exec", "output", "panes", "peers", "status", "connect"]),
-  cron: new Set(["create", "list", "edit", "delete", "trigger", "history"]),
-  keepawake: new Set(["start", "stop", "status"]),
-  plugin: new Set(["list", "install", "update", "update-system", "remove", "channel"]),
-};
 
 /** Split a shell-ish string into tokens, honoring single/double quotes. */
 export function tokenize(input: string): string[] {
@@ -114,6 +96,7 @@ export function recognize(command: string): CodetermInvocation | null {
   const flags: Record<string, string | true> = {};
   const positionals: string[] = [];
   let seenFlag = false;
+  let pathNode: CommandPathNode = COMMAND_PATHS;
 
   for (; i < tokens.length; i++) {
     const tok = tokens[i];
@@ -135,10 +118,9 @@ export function recognize(command: string): CodetermInvocation | null {
     } else if (tok.startsWith("-") && tok.length > 1) {
       seenFlag = true;
       flags[tok.slice(1)] = true;
-    } else if (!seenFlag && path.length === 0) {
-      path.push(tok); // first bare word = top command
-    } else if (!seenFlag && path.length === 1 && KNOWN_SUBCOMMANDS[path[0]]?.has(tok)) {
-      path.push(tok); // second word only if a known subcommand
+    } else if (!seenFlag && pathNode[tok]) {
+      path.push(tok);
+      pathNode = pathNode[tok];
     } else {
       positionals.push(tok);
     }
