@@ -92,20 +92,18 @@ fn action_preview(actions: &[SendAction]) -> String {
         .join(",")
 }
 
-/// PTY init takes ~1-2s after agent_spawn returns; send fired
-/// immediately would otherwise hit "no PTY" unconditionally. Poll for
-/// the link with this short budget so a script can chain spawn → send.
 pub(super) async fn await_pty_link(state: &AppState, pane_id: &str) -> bool {
     if state.svc.pane_chat_backing(pane_id).is_some() {
         return true;
     }
-    for _ in 0..75 {
-        if state.svc.resolve_pty_id(pane_id).is_ok() {
-            return true;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    }
-    false
+    let svc = state.svc.clone();
+    let pane = pane_id.to_string();
+    tokio::task::spawn_blocking(move || {
+        svc.await_pty_link_blocking(&pane, std::time::Duration::from_secs(15))
+            .is_ok()
+    })
+    .await
+    .unwrap_or(false)
 }
 
 fn record_push_activity(state: &AppState, svc_id: &Option<String>, pane_id: &str, text: &str) {
