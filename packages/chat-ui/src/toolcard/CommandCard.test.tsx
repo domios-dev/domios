@@ -3,7 +3,11 @@ import { CommandCard } from "./CommandCard";
 import { act, assertThemeTokens, event, render } from "./cardTestSetup";
 
 const host = await render(<CommandCard event={event({ kind: "command", summary: "run command", detail: "echo hi" })} expanded onToggle={() => {}} />);
-if (!host.textContent?.includes("command") || !host.textContent.includes("echo hi")) throw new Error("command card content regression");
+if (!host.textContent?.includes("command") || host.textContent.includes("echo hi")) throw new Error("expanded details must keep the raw command hidden");
+const opener = host.querySelector<HTMLButtonElement>('[data-testid="toolcard-command-open"]');
+if (!opener) throw new Error("command opener missing");
+await act(async () => opener.click());
+if (!host.textContent.includes("echo hi")) throw new Error("command opener did not reveal the raw command");
 if (!host.querySelector("svg") || !host.querySelector('[data-testid="toolcard-spinner"]')) throw new Error("command card state regression");
 assertThemeTokens(["--ct-fg", "--ct-muted-fg", "--ct-blue", "--ct-border", "--ct-surface", "--ct-green", "--ct-yellow", "--ct-red"]);
 const collapsed = await render(<CommandCard event={event({ kind: "command", result: "first line\n\nlast output", phase: "result", status: "success" })} expanded={false} onToggle={() => {}} />);

@@ -27,7 +27,11 @@ async function render(node: React.ReactElement) {
 const cases: Array<[string, () => Promise<void>]> = [
   ["command hides raw JSON and shows pending spinner", async () => {
     const { host } = await render(<CommandCard event={event({ detail: "codeterm agent reports the full command" })} expanded onToggle={() => {}} />);
-    if (!host.textContent?.includes("codeterm agent reports the full command") || !host.querySelector('[data-testid="toolcard-spinner"]') || host.textContent.includes('{"raw')) throw new Error("command regression");
+    if (host.textContent?.includes("codeterm agent reports the full command") || !host.querySelector('[data-testid="toolcard-spinner"]') || host.textContent.includes('{"raw')) throw new Error("command privacy regression");
+    const opener = host.querySelector<HTMLButtonElement>('[data-testid="toolcard-command-open"]');
+    if (!opener) throw new Error("command opener missing");
+    await act(async () => opener.click());
+    if (!host.textContent.includes("codeterm agent reports the full command")) throw new Error("command reveal regression");
   }],
   ["edit shows counts and diff", async () => {
     const { host } = await render(<EditCard event={event({ kind: "edit", edits: [{ path: "src/x.ts", old: "const value = 1;", new: "const value = 2;" }] })} expanded onToggle={() => {}} />);

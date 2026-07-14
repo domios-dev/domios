@@ -15,12 +15,13 @@ const expectedLabels: Record<ToolEventKind, string> = {
   search: "search",
   task: "task",
   fetch: "fetch",
-  codeterm: "codeterm",
-  generic: "tool",
+  codeterm: "send",
+  generic: "generic summary",
 };
 
 for (const kind of Object.keys(expectedLabels) as ToolEventKind[]) {
-  const host = await render(<ToolCallBubble event={tool(kind)} expanded={false} onToggle={() => {}} />);
+  const detail = kind === "codeterm" ? 'codeterm send --tab e3fa0754 "hello"' : undefined;
+  const host = await render(<ToolCallBubble event={tool(kind, detail)} expanded={false} onToggle={() => {}} />);
   if (!host.textContent?.includes(expectedLabels[kind])) throw new Error(`${kind} dispatched to the wrong card`);
 }
 
