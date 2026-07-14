@@ -69,6 +69,50 @@ function commandStartIndex(tokens: string[]): number {
   return i;
 }
 
+function executableSegments(input: string): string[] {
+  const segments: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+  let pipelineTail = false;
+
+  const flush = () => {
+    const segment = current.trim();
+    if (segment) segments.push(segment);
+    current = "";
+    pipelineTail = false;
+  };
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (quote) {
+      if (!pipelineTail) current += ch;
+      if (ch === quote) quote = null;
+      else if ((ch === "\\" || ch === "`") && input[i + 1] != null) {
+        i++;
+        if (!pipelineTail) current += input[i];
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      if (!pipelineTail) current += ch;
+      continue;
+    }
+    if (ch === "\r" || ch === "\n" || ch === ";" || ((ch === "&" || ch === "|") && input[i + 1] === ch)) {
+      if (input[i + 1] === ch) i++;
+      flush();
+      continue;
+    }
+    if (ch === "|") {
+      pipelineTail = true;
+      continue;
+    }
+    if (!pipelineTail) current += ch;
+  }
+  flush();
+  return segments;
+}
+
 function codetermSegment(input: string): string | null {
   const tokens = tokenize(input);
   const i = commandStartIndex(tokens);
@@ -77,12 +121,7 @@ function codetermSegment(input: string): string | null {
 
 export function recognize(command: string): CodetermInvocation | null {
   if (!command) return null;
-  if (/[|;]|\|\|/.test(command)) return null;
-
-  const normalized = command
-    .split("&&")
-    .map((part) => part.trim())
-    .find((part) => codetermSegment(part) != null) ?? command;
+  const normalized = executableSegments(command).find((part) => codetermSegment(part) != null) ?? command;
 
   const tokens = tokenize(normalized);
   let i = commandStartIndex(tokens);
@@ -127,5 +166,5 @@ export function recognize(command: string): CodetermInvocation | null {
   }
 
   if (path.length === 0) return null;
-  return { binary, path, flags, positionals, raw: command };
+  return { binary, path, flags, positionals, raw: normalized };
 }

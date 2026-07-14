@@ -124,6 +124,10 @@ if (!collapsedHost.host.querySelector('[data-testid="toolcard-command"]')?.textC
 const chipHost = await render(<CodetermActionCard event={event("codeterm agent spawn codex --model gpt-5.6-luna")} expanded={false} onToggle={() => {}} />);
 if (!chipHost.host.textContent?.includes("gpt-5.6-luna") || chipHost.host.querySelector('[data-testid="toolcard-command"]')) throw new Error("collapsed chip regression");
 
+const reportCard = await render(<CodetermActionCard event={event('codeterm agent report --status in_review --sha 979a8683e --text "STATUS: in_review\nCHANGES: Added cards\nTESTS RUN: 12 passed"')} expanded onToggle={() => {}} />);
+if (!reportCard.host.textContent?.includes("in_review") || !reportCard.host.textContent.includes("979a8683e")) throw new Error("report header regression");
+if (!reportCard.host.textContent.includes("changes") || !reportCard.host.textContent.includes("Added cards") || !reportCard.host.textContent.includes("tests") || !reportCard.host.textContent.includes("12 passed")) throw new Error("report fields regression");
+
 const tabOutputHost = await render(<CodetermActionCard event={event("codeterm tab get-text --tab e3fa0754")} expanded={false} onToggle={() => {}} resolvePaneName={() => "Hugo"} />);
 if (!tabOutputHost.host.textContent?.includes("tab get-text") || !tabOutputHost.host.textContent.includes("Hugo")) throw new Error("tab get-text descriptor regression");
 if (!tabOutputHost.host.querySelector(".lucide-scroll-text") || tabOutputHost.host.querySelector(".lucide-terminal")) throw new Error("tab get-text icon must differ from shell command");

@@ -11,6 +11,7 @@ Planning lifecycle:
 
 Testing and evidence:
 - Start from the oracle: the exact command or observation that proves completion. Choose TDD, fixtures, live UX, or seeded evals to fit the work. Expensive broad gates belong in centralized QA, not every lane.
+- For costly integrations with an uncertain boundary, plan a small isolated probe first and integrate only after its behavior is deterministic.
 - A test plan names exact commands, touched surfaces, numbered steps, and observable pass conditions. If the worker must invent a selector, expected value, or step, the plan is incomplete.
 - A test-primary task uses `executor_role=test-author` and this guidance: {test_author_guidance}
 - Preserve accepted targets and oracles. Diagnose whether a bounce comes from the brief, structure, evidence, or routing; never weaken the oracle to make work pass.

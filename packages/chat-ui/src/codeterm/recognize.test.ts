@@ -29,6 +29,12 @@ eq(recognize('codeterm agent spawn claude --task "go"')?.path, ["agent", "spawn"
 eq(recognize("CODETERM_API_PORT=7686 codeterm tab list")?.path, ["tab", "list"], "env-prefix stripped");
 eq(recognize("cd frontend && codeterm agent reports")?.path, ["agent", "reports"], "cd-prefix chain strips to codeterm segment");
 eq(
+  recognize('cd /d/Developer/codeterm\ncodeterm agent report --status in_review --sha abc123 "done" 2>&1 | tail -3')?.path,
+  ["agent", "report"],
+  "Claude multiline report with output pipe",
+);
+eq(recognize("Set-Location 'D:\\Developer\\codeterm'; codeterm docs ORCHESTRATION")?.path, ["docs"], "PowerShell statement chain");
+eq(
   recognize("env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm plan state pl_1")?.path,
   ["plan", "state"],
   "env wrapper stripped",
