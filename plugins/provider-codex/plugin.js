@@ -692,7 +692,7 @@ var plugin = {
           timestamp: tsIso
         });
       } else if (p.type === "custom_tool_call") {
-        const name = typeof p.name === "string" ? p.name.trim() : "";
+        let name = typeof p.name === "string" ? p.name.trim() : "";
         if (!name) continue;
         let input = {};
         if (name === "apply_patch" && typeof p.input === "string") {
@@ -705,6 +705,11 @@ var plugin = {
           }
         } else if (p.input && typeof p.input === "object" && !Array.isArray(p.input)) {
           input = p.input;
+        }
+        const nestedPatch = name === "exec" && typeof input.raw === "string" ? nestedApplyPatch(input.raw) : null;
+        if (nestedPatch) {
+          name = "apply_patch";
+          input = { patch: nestedPatch };
         }
         const callId = typeof p.call_id === "string" ? p.call_id : "";
         out.push({
@@ -1101,6 +1106,23 @@ function scoreAuthPrompt(screen) {
   if (/\bauthorization code\b/i.test(s)) score += 0.6;
   if (/enter your\b[^\n]*\b(api key|token|credential)/i.test(s)) score += 0.6;
   return score > 1 ? 1 : score;
+}
+function nestedApplyPatch(raw) {
+  const call = /\btools\.apply_patch\(\s*([A-Za-z_$][\w$]*|"(?:\\.|[^"\\])*")\s*\)/.exec(raw);
+  if (!call) return null;
+  let literal = call[1];
+  if (literal.charAt(0) !== '"') {
+    const escaped = literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const declaration = new RegExp(`\\b(?:const|let)\\s+${escaped}\\s*=\\s*("(?:\\\\.|[^"\\\\])*")\\s*;`).exec(raw);
+    if (!declaration) return null;
+    literal = declaration[1];
+  }
+  try {
+    const patch = JSON.parse(literal);
+    return typeof patch === "string" && patch.includes("*** Begin Patch") && patch.includes("*** End Patch") ? patch : null;
+  } catch (_) {
+    return null;
+  }
 }
 function endsWith(s, suffix) {
   return s.length >= suffix.length && s.substring(s.length - suffix.length) === suffix;

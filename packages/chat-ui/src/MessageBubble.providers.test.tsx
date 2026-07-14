@@ -358,14 +358,14 @@ test("codex structured apply_patch renders diff from real-session patch text", a
     assertIncludes(host, "val.to_string()", "structured edit removed hunk");
     assertIncludes(host, "+", "structured edit shows added line count");
     assertIncludes(host, "-", "structured edit shows removed line count");
-    assertIncludes(host, "Success. Updated the following files", "patch_apply_end result");
+    assert(!textOf(host).includes("Success. Updated the following files"), "structured edit hides redundant result output");
   } finally {
     await act(async () => root.unmount());
     host.remove();
   }
 });
 
-test("completed tool output stays one line while collapsed", async () => {
+test("completed text output stays hidden while collapsed", async () => {
   const { host, root } = await renderMessages([{
       id: "compact-result",
       provider: "codex",
@@ -377,9 +377,8 @@ test("completed tool output stays one line while collapsed", async () => {
       toolResult: "first line\n" + "x".repeat(400),
     }]);
   try {
-    const preview = host.querySelector('[title="Show full output"] span:last-child');
-    assert(preview?.className.includes("truncate"), "collapsed result preview truncates");
-    assert(preview?.className.includes("whitespace-nowrap"), "collapsed result preview stays on one line");
+    assert(!host.querySelector('[title="Show full output"]'), "collapsed tool card has no result subtitle");
+    assert(!textOf(host).includes("first line"), "collapsed tool result text stays hidden");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -429,7 +428,9 @@ test("chatBackend exec tool_call renders command card and attached result", asyn
     assert(host.querySelector('[data-testid="chatbackend-tool-exec"]'), "expected exec card");
     assertIncludes(host, "npm test -- --runInBand", "exec card command");
     assertIncludes(host, "cwd /repo/app", "exec card cwd");
-    assertIncludes(host, "Tests passed", "exec card result preview");
+    assert(!textOf(host).includes("Tests passed"), "collapsed exec card hides result text");
+    await clickButtonContaining(host, "npm test -- --runInBand");
+    assertIncludes(host, "Tests passed", "expanded exec card result");
     const execCard = host.querySelector('[data-testid="chatbackend-tool-exec"]');
     assert(execCard, "expected exec card root");
     const execCardText = execCard.textContent ?? "";
