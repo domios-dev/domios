@@ -707,7 +707,7 @@ pub trait AgentProvider: Send + Sync {
     ) -> Result<(), ReasoningEffortRejection> {
         match effort {
             None => Ok(()),
-            Some(e) if e.is_empty() => Ok(()),
+            Some("") => Ok(()),
             Some(e) if self.supports_reasoning_effort(e) => Ok(()),
             Some(e) => Err(ReasoningEffortRejection {
                 provider: self.id().to_string(),
