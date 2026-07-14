@@ -1,13 +1,14 @@
 import { startTransition, type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import {
-  attachToolResults,
+  reduceToolEvents,
   lastSessionResetIndex,
   mergeById,
   mergeTimelineMessages,
   matchedOptimisticEchoes,
   trimAfterSessionReset,
   type NormalizedChatMessage as ChatMessage,
+  type TimelineItem,
   type OptimisticEcho,
 } from "@codeterm/chat-core";
 import { detectChatPrefix, splitChatPrefixedMessages, type ChatOrigin } from "../../lib/chatPrefixes";
@@ -443,22 +444,26 @@ export function useChatSession({
   }, [optimistic, resetCutoffMs]);
 
   const allMessages = useMemo(() => {
-    const grouped = attachToolResults(resetParsed);
-    if (liveOptimistic.length === 0) return grouped;
+    if (liveOptimistic.length === 0) return resetParsed;
     // content-collapse that would swallow a legitimately repeated message).
     const parsedUsers = resetParsed.filter((m) => m.type === "user" || m.type === "local_command");
     const { matchedIds } = matchedOptimisticEchoes(toEchoes(liveOptimistic), parsedUsers);
     const matched = new Set(matchedIds);
     const stillPending = liveOptimistic.filter((m) => !matched.has(m.id));
-    return mergeTimelineMessages(grouped, stillPending);
+    return mergeTimelineMessages(resetParsed, stillPending);
   }, [resetParsed, liveOptimistic]);
 
+  const allTimelineItems = useMemo(() => reduceToolEvents(allMessages), [allMessages]);
+
   const enrichedMessages = useMemo(() => {
-    const visible = allMessages.slice(-visibleMessageCount);
-    const out: Array<{ msg: ChatMessage; origin: ChatOrigin | undefined }> = [];
-    for (const m of visible) {
+    const visible = allTimelineItems.length > visibleMessageCount
+      ? allTimelineItems.slice(-visibleMessageCount)
+      : allTimelineItems;
+    const out: Array<{ msg: ChatMessage; item: TimelineItem; origin: ChatOrigin | undefined }> = [];
+    for (const item of visible) {
+      const m = item.kind === "message" ? item.message : item.event.message;
       if (m.type !== "user") {
-        out.push({ msg: m, origin: undefined });
+        out.push({ msg: m, item, origin: undefined });
         continue;
       }
       const splitPrefixes = splitChatPrefixedMessages(m.content);
@@ -466,6 +471,7 @@ export function useChatSession({
         splitPrefixes.forEach((prefix, index) => {
           out.push({
             msg: { ...m, id: `${m.id}-prefix-${index}`, content: prefix.body },
+            item: { kind: "message", message: { ...m, id: `${m.id}-prefix-${index}`, content: prefix.body } },
             origin: prefix.origin,
           });
         });
@@ -473,18 +479,19 @@ export function useChatSession({
       }
       const prefix = detectChatPrefix(m.content);
       if (!prefix) {
-        out.push({ msg: m, origin: undefined });
+        out.push({ msg: m, item, origin: undefined });
         continue;
       }
       out.push({
         msg: { ...m, content: prefix.body },
+        item: item.kind === "message" ? { kind: "message", message: { ...m, content: prefix.body } } : item,
         origin: prefix.origin,
       });
     }
     return out;
-  }, [allMessages, visibleMessageCount]);
+  }, [allTimelineItems, visibleMessageCount]);
 
-  const hiddenMessageCount = Math.max(0, allMessages.length - enrichedMessages.length);
+  const hiddenMessageCount = Math.max(0, allTimelineItems.length - enrichedMessages.length);
 
   const loadOlder = useCallback(() => {
     if (hiddenMessageCount > 0) {
