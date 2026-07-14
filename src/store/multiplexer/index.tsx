@@ -405,8 +405,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     });
   }, [guardedInvoke]);
 
-  const closeSessionPicker = useCallback((workspaceId: string, tabId: string) => {
-    dispatch({ type: "CLOSE_SESSION_PICKER", workspaceId, tabId });
+  const closeSessionPicker = useCallback((workspaceId: string, tabId: string, replacementTabId?: string) => {
+    dispatch({ type: "CLOSE_SESSION_PICKER", workspaceId, tabId, replacementTabId });
   }, []);
 
   const reopenClosed = useCallback(async (workspaceId: string, index = 0) => {
@@ -550,7 +550,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           model,
           activate: true,
         });
-        refreshFromBackend();
+        await refreshFromBackend();
         return { workspaceId, paneId: res.pane_id };
       } catch (e) {
         notifySpawnFailure(workspaceId, agentId, e);
@@ -570,9 +570,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         if (cwd) setPendingCwd(res.pane_id, cwd);
         setPendingCommand(res.pane_id, res.launch_command);
       }
+      pendingTabSwitchRef.current[res.workspace_id] = { tabId: res.tab_id, deadline: Date.now() + 1000 };
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: res.workspace_id });
+      dispatch({ type: "SET_ACTIVE_TAB", workspaceId: res.workspace_id, tabId: res.tab_id });
       // Snappy local focus; backend also emits the authoritative pane-focused.
       dispatch({ type: "SET_FOCUSED_PANE", paneId: res.pane_id });
-      return { workspaceId: res.workspace_id, paneId: res.pane_id };
+      return { workspaceId: res.workspace_id, paneId: res.pane_id, tabId: res.tab_id };
     } catch (e) {
       notifySpawnFailure(workspaceId, agentId, e);
       return null;
