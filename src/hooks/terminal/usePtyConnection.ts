@@ -12,6 +12,7 @@ import {
   writeTerminalStringInFrames,
 } from "./terminalWriteFrames";
 import { captureTerminalViewport, restoreTerminalViewport, type TerminalViewport } from "./terminalViewport";
+import { claimInitialTerminalHistory } from "./terminalHistoryReplay";
 
 async function fetchPaneHistory(paneId: string): Promise<string> {
   try {
@@ -79,8 +80,6 @@ export function usePtyConnection({
   const replayTerminalRef = useRef<Terminal | null>(null);
   // Web resets the tail cursor once per mount; toggles resume it.
   const webReplayedPtysRef = useRef<Set<string>>(new Set());
-  // xterm instance is keep-alive (never destroyed on tab switch); replay scrollback only once per pane lifetime.
-  const replayDoneRef = useRef<Set<string>>(new Set());
 
   const cancelReplay = useCallback(() => {
     replayRequestRef.current += 1;
@@ -161,8 +160,7 @@ export function usePtyConnection({
           if (!useOutputStream) resetWebPtyTail(ptyId);
         }
       } else if (ptyId) {
-        if (!replayDoneRef.current.has(ptyId)) {
-          replayDoneRef.current.add(ptyId);
+        if (claimInitialTerminalHistory(paneId)) {
           const history = await fetchPaneHistory(paneId);
           if (!disposed && history) {
             replayHistory(term, history, { followOutput: true, line: 0 });
