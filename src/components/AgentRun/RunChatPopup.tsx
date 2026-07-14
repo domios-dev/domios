@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { MessageBubble } from "@codeterm/chat-ui";
+import { MessageBubble, ShowCommandsProvider } from "@codeterm/chat-ui";
 import { reduceToolEvents, type NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
 import { invoke } from "../../lib/bridge";
+import { SquareTerminal } from "lucide-react";
+import { FloatingTooltip } from "../shared/FloatingTooltip";
 
 interface Props {
   title: string;
@@ -36,6 +38,7 @@ export function RunChatPopup({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [showCommands, setShowCommands] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const stickyBottomRef = useRef(true);
@@ -123,7 +126,21 @@ export function RunChatPopup({
           </button>
         </div>
 
-        <div ref={scrollRef} className="flex-1 overflow-auto px-4 py-3">
+        <div ref={scrollRef} className="relative flex-1 overflow-auto px-4 py-3">
+          <FloatingTooltip content={showCommands ? "Hide command details" : "Show command details"} className="sticky float-right right-0 top-0 z-10">
+            <button
+              type="button"
+              aria-label={showCommands ? "Hide command details" : "Show command details"}
+              aria-pressed={showCommands}
+              data-testid="chat-command-visibility-toggle"
+              onClick={() => setShowCommands((visible) => !visible)}
+              className="rounded p-1.5 hover:bg-[var(--ct-bg-hover)]"
+              style={{ color: showCommands ? "var(--ct-accent)" : "var(--ct-muted-fg)" }}
+            >
+              <SquareTerminal size={14} aria-hidden="true" />
+            </button>
+          </FloatingTooltip>
+          <ShowCommandsProvider showCommands={showCommands}>
           {error && <div className="text-[var(--ct-red)] mb-2 text-[11px]">{error}</div>}
           {loaded && !error && messages.length === 0 && (
             <div className="text-[var(--ct-muted-fg)] text-[11px]">No transcript for this run.</div>
@@ -132,6 +149,7 @@ export function RunChatPopup({
             const m = item.kind === "message" ? item.message : item.event.message;
             return <MessageBubble key={m.id} message={m} item={item.kind === "tool" ? item : undefined} />;
           })}
+          </ShowCommandsProvider>
         </div>
 
         {report && (

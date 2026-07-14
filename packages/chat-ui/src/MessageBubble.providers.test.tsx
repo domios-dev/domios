@@ -150,10 +150,27 @@ function assertLink(host: HTMLElement, href: string) {
   assert(link, `expected rendered markdown link ${href}`);
 }
 
-function assertToolIcon(host: HTMLElement, label: string) {
-  const match = buttons(host).find((button) => (button.textContent ?? "").includes(label));
-  assert(match, `expected tool button for ${label}`);
-  assert(match.querySelector("svg"), `expected toolIcons svg for ${label}`);
+function toolCardFor(host: HTMLElement, label: string): HTMLElement | undefined {
+  return Array.from(host.querySelectorAll<HTMLElement>('[data-testid="chat-tool-call"]'))
+    .find((card) => (card.textContent ?? "").includes(label));
+}
+
+function assertToolCard(host: HTMLElement, label: string) {
+  const match = toolCardFor(host, label);
+  assert(match, `expected tool card for ${label}`);
+  assert(match.querySelector("svg"), `expected tool glyph for ${label}`);
+  assert((match.textContent ?? "").includes(label), `expected tool label for ${label}`);
+}
+
+async function expandToolCard(host: HTMLElement, label: string) {
+  const card = toolCardFor(host, label);
+  assert(card, `expected tool card for ${label}`);
+  const expand = card.querySelector<HTMLButtonElement>('[aria-label="Expand tool details"]');
+  assert(expand, `expected explicit details control for ${label}`);
+  await act(async () => {
+    expand.dispatchEvent(new windowAny.MouseEvent("click", { bubbles: true }));
+  });
+  await waitForEffects();
 }
 
 async function clickButtonContaining(host: HTMLElement, label: string) {
@@ -187,9 +204,9 @@ for (const fixture of providerTranscriptFixtures) {
         `${fixture.provider} should send mermaid source to renderer`,
       );
       for (const label of fixture.expected.toolLabels) {
-        assertToolIcon(host, label);
+        assertToolCard(host, label);
       }
-      await clickButtonContaining(host, fixture.expected.toolLabels[0]);
+      await expandToolCard(host, fixture.expected.toolLabels[0]);
       assertIncludes(host, fixture.expected.resultNeedle, `${fixture.provider} tool result`);
       if (fixture.expected.diffNeedle) {
         assertIncludes(host, fixture.expected.diffNeedle, `${fixture.provider} structured edit added line`);
@@ -216,15 +233,15 @@ for (const fixture of providerTranscriptFixtures) {
     const { host, root } = await renderTranscript(fixture);
     try {
       const copyButtonCount = buttons(host).filter((button) => (button.textContent ?? "").includes("Copy")).length;
-      const toolButtonCount = fixture.expected.toolLabels.filter((label) =>
-        buttons(host).some((button) => (button.textContent ?? "").includes(label)),
+      const toolCardCount = fixture.expected.toolLabels.filter((label) =>
+        toolCardFor(host, label) != null,
       ).length;
       const counts = {
         messageFixtures: fixture.messages.length,
         tables: host.querySelectorAll("table").length,
         links: host.querySelectorAll("a").length,
         mermaid: host.querySelectorAll('[data-testid="mock-mermaid"]').length,
-        toolButtons: toolButtonCount,
+        toolCards: toolCardCount,
         copyButtons: copyButtonCount,
         attachmentMentions: textOf(host).includes(fixture.expected.attachmentName) ? 1 : 0,
       };
@@ -233,7 +250,7 @@ for (const fixture of providerTranscriptFixtures) {
       assert(counts.tables === 1, `${fixture.provider} should render one markdown table`);
       assert(counts.links >= 1, `${fixture.provider} should render markdown links`);
       assert(counts.mermaid === 1, `${fixture.provider} should render one mermaid block`);
-      assert(counts.toolButtons === fixture.expected.toolLabels.length, `${fixture.provider} should render all tool buttons`);
+      assert(counts.toolCards === fixture.expected.toolLabels.length, `${fixture.provider} should render all tool cards`);
       assert(counts.copyButtons >= 1, `${fixture.provider} should expose copy interactions`);
       assert(counts.attachmentMentions >= 1, `${fixture.provider} should render attachment context`);
     } finally {
@@ -438,9 +455,17 @@ test("chatBackend exec tool_call renders command card and attached result", asyn
   ]);
   try {
     assert(host.querySelector('[data-testid="chat-tool-call"]'), "expected command card");
+    const commandCard = host.querySelector('[data-testid="chat-tool-call"]') as HTMLElement;
+    assert(commandCard.querySelector("svg"), "command card should render its glyph");
+    assert(commandCard.textContent?.includes("command"), "command card should render its label");
     assertIncludes(host, "npm test -- --runInBand", "exec card command");
-    assert(!textOf(host).includes("Tests passed"), "collapsed exec card hides result text");
-    await clickButtonContaining(host, "npm test -- --runInBand");
+    assert(!commandCard.querySelector('[data-testid="toolcard-result"]'), "collapsed exec card hides result body");
+    const expandDetails = commandCard.querySelector<HTMLButtonElement>('[aria-label="Expand tool details"]');
+    assert(expandDetails, "command card should expose the explicit details control");
+    await act(async () => {
+      expandDetails.dispatchEvent(new windowAny.MouseEvent("click", { bubbles: true }));
+    });
+    await waitForEffects();
     assertIncludes(host, "cwd /repo/app", "exec card cwd");
     assertIncludes(host, "Tests passed", "expanded exec card result");
     const execCard = host.querySelector('[data-testid="chat-tool-call"]');
@@ -616,9 +641,9 @@ test("failed tool card uses dashed neutral border and muted glyph", async () => 
     const style = card!.getAttribute("style") ?? "";
     assert(style.includes("border-style: dashed"), "failed card should be dashed");
     assert(!style.includes("ct-red"), "failed card border should not use red token");
-    const failedGlyph = Array.from(card!.querySelectorAll("span")).find((node) => (node.textContent ?? "").includes("✕"));
+    const failedGlyph = card!.querySelector('[data-testid="toolcard-status"][aria-label="error"] svg');
     assert(failedGlyph, "expected failed glyph");
-    assert(!failedGlyph!.className.includes("text-red"), "failed glyph should not use red token");
+    assert(!failedGlyph!.getAttribute("class")?.includes("text-red"), "failed glyph should not use red token");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -862,7 +887,7 @@ test("read_file renders inline row with pending muted spinner", async () => {
   try {
     const inline = host.querySelector('[data-testid="chat-tool-call"]');
     assert(inline, "read_file should render read tool card");
-    assertIncludes(host, "◜", "pending spinner glyph");
+    assert(inline.querySelector('[data-testid="toolcard-status"][aria-label="pending"] svg'), "pending spinner glyph");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -887,7 +912,7 @@ test("chatBackend unknown tool falls back gracefully", async () => {
   ]);
   try {
     assert(host.querySelector('[data-testid="chat-tool-call"]'), "unknown tool should use generic card");
-    assertToolIcon(host, "mystery tool");
+    assertToolCard(host, "mystery tool");
   } finally {
     await act(async () => root.unmount());
     host.remove();
