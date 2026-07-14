@@ -135,6 +135,8 @@ esac
 # (.codeterm-dev / 7686 / 1420). See AGENTS.md "Process safety".
 CT_INSTANCE="${CODETERM_INSTANCE:-}"
 CT_PORT="${CODETERM_API_PORT:-7686}"
+CT_VITE_PORT="${CODETERM_VITE_PORT:-}"
+CT_CDP_PORT="${CODETERM_CDP_PORT:-}"
 case "$CMD" in
   dev|kill|e2e|e2e:llm)
     if [ "$CT_PORT" = "7685" ]; then
@@ -154,14 +156,14 @@ if [ -n "$CT_INSTANCE" ]; then
   CT_IDENTIFIER="com.codeterm.dev.$(printf '%s' "$CT_SLUG" | tr '-' '.')"
   # Stable per-instance vite port: sum of slug bytes mod 200, +1 offset.
   CT_OFFSET=$(printf '%s' "$CT_SLUG" | od -An -tu1 | awk '{for(i=1;i<=NF;i++)s+=$i} END{print (s%200)+1}')
-  CT_VITE_PORT=$((1420 + CT_OFFSET))
-  CT_CDP_PORT=$((9223 + CT_OFFSET))
+  CT_VITE_PORT="${CT_VITE_PORT:-$((1420 + CT_OFFSET))}"
+  CT_CDP_PORT="${CT_CDP_PORT:-$((9223 + CT_OFFSET))}"
 else
   CT_SLUG=""
   CT_SUFFIX=""
   CT_IDENTIFIER="com.codeterm.dev"
-  CT_VITE_PORT=1420
-  CT_CDP_PORT=9223
+  CT_VITE_PORT="${CT_VITE_PORT:-1420}"
+  CT_CDP_PORT="${CT_CDP_PORT:-9223}"
 fi
 CT_DATA_DIR="$HOME/.codeterm-dev${CT_SUFFIX}"
 # Export so the spawned daemon + its child PTYs inherit the instance identity.
