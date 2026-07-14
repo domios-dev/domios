@@ -41,6 +41,10 @@ pub async fn spawn_pty_core(
     predicted_id: Option<String>,
     pane_id: Option<String>,
 ) -> Result<String, String> {
+    let _activation_permit = match pane_id.clone() {
+        Some(id) => Some(crate::service::pty_activation::acquire_async(id).await?),
+        None => None,
+    };
     let state = &svc.pty;
     let mux_state = &svc.mux;
     let screen_state = &svc.screen_state;
@@ -67,37 +71,20 @@ pub async fn spawn_pty_core(
             }
         }
         if is_protected {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-            loop {
-                if let Some(existing) = mux_state
-                    .read()
-                    .get_pane(pid)
-                    .and_then(|p| p.pty_id.clone())
-                {
-                    let alive = state.lock().get_session(&existing).is_some();
-                    if alive {
-                        log::info!(
-                            "[spawn_pty] protected pane {} already has live backend pty {} — reusing",
-                            pid,
-                            existing,
-                        );
-                        return Ok(existing);
-                    }
-                    log::warn!(
-                        "[spawn_pty] protected pane {} has stale backend pty {} — waiting for relink",
-                        pid,
-                        existing,
-                    );
-                }
-                if std::time::Instant::now() > deadline {
-                    log::warn!(
-                        "[spawn_pty] protected pane {} still has no backend pty after 5s — falling through",
-                        pid,
-                    );
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            let svc_wait = svc.clone();
+            let pane_wait = pid.clone();
+            let relinked = tokio::task::spawn_blocking(move || {
+                svc_wait.await_pty_link_blocking(&pane_wait, std::time::Duration::from_secs(5))
+            })
+            .await
+            .map_err(|error| format!("protected pane relink waiter failed: {error}"))?;
+            if let Ok(existing) = relinked {
+                return Ok(existing);
             }
+            log::warn!(
+                "[spawn_pty] protected pane {} still has no backend pty after 5s — falling through",
+                pid,
+            );
         }
     }
 

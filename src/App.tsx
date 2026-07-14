@@ -283,7 +283,7 @@ function AppInner() {
     const tab = current.workspaces.flatMap((ws) => ws.tabs).find((candidate) => candidate.id === tabId);
     if (!tab) return;
     const pane = current.panes[tab.pane_id];
-    if (!pane || pane.virtual || pane.backing?.kind === "chat_backend" || pane.pty_id || !pane.agent_type) return;
+    if (!pane || pane.virtual || pane.backing?.kind === "chat_backend" || !pane.agent_type) return;
     await invoke("spawn_pty", {
       paneId: pane.id,
       cwd: pane.cwd ?? undefined,

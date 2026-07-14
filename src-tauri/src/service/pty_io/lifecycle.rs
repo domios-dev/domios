@@ -124,6 +124,11 @@ impl ServiceContext {
     }
 
     pub(crate) fn ensure_pane_pty_for_send(&self, pane_id: &str) -> Result<(), String> {
+        let _activation_permit = crate::service::pty_activation::acquire(pane_id);
+        self.ensure_pane_pty_for_send_inner(pane_id)
+    }
+
+    fn ensure_pane_pty_for_send_inner(&self, pane_id: &str) -> Result<(), String> {
         if self.pane_chat_backing(pane_id).is_some() {
             return Ok(());
         }
