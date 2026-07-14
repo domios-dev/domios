@@ -57,6 +57,24 @@
     }
   ],
   "defaultModel": "gpt-5.5",
+  "reasoningEfforts": [
+    {
+      "id": "low",
+      "displayName": "Low",
+      "description": "Fast responses with lighter reasoning."
+    },
+    {
+      "id": "medium",
+      "displayName": "Medium",
+      "description": "Balances speed and reasoning depth for everyday tasks."
+    },
+    {
+      "id": "high",
+      "displayName": "High",
+      "description": "Greater reasoning depth for complex problems."
+    }
+  ],
+  "defaultReasoningEffort": "medium",
   "installer": {
     "macos": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
     "linux": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
@@ -74,6 +92,10 @@
     "modelLaunchArgsFormat": [
       "-m",
       "{model}"
+    ],
+    "reasoningEffortLaunchArgsFormat": [
+      "-c",
+      "model_reasoning_effort=\"{effort}\""
     ]
   }
 }

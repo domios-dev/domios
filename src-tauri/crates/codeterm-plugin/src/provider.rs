@@ -127,6 +127,51 @@ pub struct ModelInfo {
     pub available: Option<bool>,
 }
 
+/// Single reasoning-effort level a provider supports (e.g. codex low/medium/high).
+/// Mirrors `ModelInfo`: capability-declared, surfaced in discovery/API/UI. An
+/// empty `reasoning_efforts` list means the provider exposes no effort selector.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ReasoningEffortInfo {
+    pub id: String,
+    pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Structured rejection when a requested reasoning effort is not supported by a
+/// provider. Carries the exact supported set so callers surface an honest error
+/// instead of silently downgrading. Serializable for API/CLI/report payloads.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct ReasoningEffortRejection {
+    pub provider: String,
+    pub requested: String,
+    pub supported: Vec<String>,
+}
+
+impl std::fmt::Display for ReasoningEffortRejection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.supported.is_empty() {
+            write!(
+                f,
+                "provider '{}' does not support reasoning-effort selection (requested '{}')",
+                self.provider, self.requested
+            )
+        } else {
+            write!(
+                f,
+                "provider '{}' does not support reasoning effort '{}'; supported: {}",
+                self.provider,
+                self.requested,
+                self.supported.join(", ")
+            )
+        }
+    }
+}
+
+impl std::error::Error for ReasoningEffortRejection {}
+
 /// Severity flavor for `SettingField::Info` notes.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -226,6 +271,13 @@ pub struct ProviderDescriptor {
     pub available_models: Vec<ModelInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model: Option<String>,
+    /// Reasoning-effort levels this provider supports at launch. Empty ⇒ the
+    /// provider exposes no effort selector and callers must not offer one.
+    #[serde(default)]
+    pub reasoning_efforts: Vec<ReasoningEffortInfo>,
+    /// Default effort id (must match one of `reasoning_efforts` when non-None).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_reasoning_effort: Option<String>,
     pub settings_schema: Vec<SettingField>,
     /// Schema rendered into the global Settings → Notifications tab,
     /// next to (not inside) the per-provider settings tab. Lets a
@@ -314,7 +366,7 @@ pub enum ProviderTrust {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 9;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 10;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
@@ -620,6 +672,51 @@ pub trait AgentProvider: Send + Sync {
         vec!["--model".into(), model.into()]
     }
 
+    /// Reasoning-effort levels this provider supports. Empty (default) means the
+    /// provider has no effort capability — callers must not offer a selector.
+    fn reasoning_efforts(&self) -> Vec<ReasoningEffortInfo> {
+        Vec::new()
+    }
+
+    /// Default reasoning-effort id, must match one of `reasoning_efforts()`.
+    fn default_reasoning_effort(&self) -> Option<String> {
+        None
+    }
+
+    /// CLI flags to select a reasoning effort at launch. Each provider knows its
+    /// own flag format (e.g. codex `-c model_reasoning_effort="high"`). Returns
+    /// empty when the effort is empty; capability-gating is the caller's job via
+    /// `validate_reasoning_effort`. Default: no capability ⇒ no flags.
+    fn reasoning_effort_launch_args(&self, _effort: &str) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Whether this provider supports the given reasoning-effort id. Default
+    /// checks the declared `reasoning_efforts()` set — capability, not id.
+    fn supports_reasoning_effort(&self, effort: &str) -> bool {
+        self.reasoning_efforts().iter().any(|e| e.id == effort)
+    }
+
+    /// Structurally validate a requested reasoning effort against this provider's
+    /// capability. `None`/empty is always valid (no selection). An unsupported
+    /// value yields a `ReasoningEffortRejection` carrying the supported set —
+    /// callers reject rather than silently downgrade.
+    fn validate_reasoning_effort(
+        &self,
+        effort: Option<&str>,
+    ) -> Result<(), ReasoningEffortRejection> {
+        match effort {
+            None => Ok(()),
+            Some(e) if e.is_empty() => Ok(()),
+            Some(e) if self.supports_reasoning_effort(e) => Ok(()),
+            Some(e) => Err(ReasoningEffortRejection {
+                provider: self.id().to_string(),
+                requested: e.to_string(),
+                supported: self.reasoning_efforts().into_iter().map(|r| r.id).collect(),
+            }),
+        }
+    }
+
     /// In-agent command that triggers context compaction, if supported.
     fn compact_command(&self) -> Option<&str> {
         None
@@ -817,6 +914,8 @@ pub trait AgentProvider: Send + Sync {
             icon_color: self.icon_color().map(|s| s.to_string()),
             available_models: self.available_models(),
             default_model: self.default_model(),
+            reasoning_efforts: self.reasoning_efforts(),
+            default_reasoning_effort: self.default_reasoning_effort(),
             settings_schema: settings,
             notifications_schema: self.notifications_schema(),
             supports_lazy_skills: self.supports_lazy_skills(),

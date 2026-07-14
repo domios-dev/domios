@@ -243,6 +243,11 @@ pub enum PlanTaskAction {
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
         #[arg(
+            long = "reasoning-effort",
+            help = "Provider-supported reasoning effort (rejected if unsupported)"
+        )]
+        reasoning_effort: Option<String>,
+        #[arg(
             long = "parent-tab",
             help = "Parent tab override (defaults to the caller tab)"
         )]

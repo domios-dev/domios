@@ -38,6 +38,12 @@ fn provider_descriptor_round_trip() {
                 available: None,
             }],
             default_model: Some("model-1".into()),
+            reasoning_efforts: vec![ReasoningEffortInfo {
+                id: "high".into(),
+                display_name: "High".into(),
+                description: Some("deeper reasoning".into()),
+            }],
+            default_reasoning_effort: Some("high".into()),
             settings_schema: vec![
                 SettingField::Section {
                     title: "Group".into(),

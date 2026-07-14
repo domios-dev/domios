@@ -233,6 +233,7 @@ pub async fn resume_session_api(
         spawned_by_pane_id: None,
         model: body.model.clone(),
         planned_model: None,
+        reasoning_effort: None,
         system_prompt: None,
         preset: None,
         resume_session_id: Some(meta.session_id.clone()),

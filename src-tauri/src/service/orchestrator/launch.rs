@@ -388,6 +388,15 @@ pub(crate) fn build_agent_command(
             args.extend(model_args);
         }
     }
+    if let Some(ref effort) = params.reasoning_effort {
+        if !effort.is_empty() {
+            if let Some(effort_args) =
+                registry.with_provider(agent_cmd, |p| p.reasoning_effort_launch_args(effort))
+            {
+                args.extend(effort_args);
+            }
+        }
+    }
 
     let launch_params = AgentLaunchParams {
         agent_name: params.agent_name.clone(),
