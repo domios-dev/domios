@@ -247,6 +247,36 @@ console.log("\n--- detectSessionModel (identity-bound, no cwd fallback) ---\n");
   eq(own.detectSessionModel("/cwd", "ses_mine"), "anthropic/claude-own", "this session's own model is returned");
 }
 
+console.log("\n--- canonical tool fields ---\n");
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: (_db: string, sql: string) => {
+        if (sql.indexOf("FROM part") !== -1) {
+          return [
+            { id: 1, ts: 1000, part: JSON.stringify({ type: "tool", tool: "Edit", state: { input: { filePath: "src/demo.ts", oldString: "old", newString: "new" } } }), msg: JSON.stringify({ role: "assistant" }) },
+            { id: 2, ts: 1001, part: JSON.stringify({ type: "tool", tool: "MultiEdit", state: { input: { filePath: "src/multi.ts", edits: [{ oldString: "one", newString: "two" }, { oldString: "three", newString: "four" }] } } }), msg: JSON.stringify({ role: "assistant" }) },
+            { id: 3, ts: 1002, part: JSON.stringify({ type: "tool", tool: "Mystery", state: { input: { value: "opaque" } } }), msg: JSON.stringify({ role: "assistant" }) },
+          ];
+        }
+        return [];
+      },
+    },
+  }));
+  const parsed = p.readStructuredChat("/cwd", "session") as { messages: Array<Record<string, unknown>> };
+  eq(parsed.messages[0].toolKind, "edit", "OpenCode Edit gets canonical edit kind");
+  assert(typeof parsed.messages[0].toolDetail === "string", "OpenCode toolDetail stays a string");
+  eq(parsed.messages[0].toolEdits, [{ path: "src/demo.ts", old: "old", new: "new" }], "OpenCode camelCase edit input becomes canonical path and pair");
+  eq(parsed.messages[1].toolEdits, [
+    { path: "src/multi.ts", old: "one", new: "two" },
+    { path: "src/multi.ts", old: "three", new: "four" },
+  ], "OpenCode MultiEdit propagates parent camelCase path");
+  eq(parsed.messages[2].toolKind, "generic", "unknown OpenCode tool degrades to generic");
+  assert(typeof parsed.messages[2].toolSummary === "string" && !(parsed.messages[2].toolSummary as string).includes("{"), "unknown OpenCode summary is not JSON");
+}
+
 console.log("\n--- parsePrompt (horizontal option row) ---\n");
 {
   const p = loadOpencodeWithHost(ocHost({}));
