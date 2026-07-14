@@ -37,6 +37,7 @@ var OUTPUT_SIGNALS = [
   "\u2579"
 ];
 var TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
+var TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
 var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u25CF"];
 var PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
@@ -123,7 +124,14 @@ var plugin = {
   },
   buildLaunchCommand(params) {
     const p = params || {};
-    const parts = ["opencode"];
+    const parts = [];
+    if (p.task) {
+      const taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
+      if (!taskPath) throw new Error("failed to write OpenCode task instructions");
+      const config = JSON.stringify({ instructions: [taskPath] });
+      parts.push(host.platform() === "windows" ? `$env:OPENCODE_CONFIG_CONTENT = ${host.shell.quoteFor(config, host.platform())};` : `OPENCODE_CONFIG_CONTENT=${host.shell.quoteFor(config, host.platform())}`);
+    }
+    parts.push("opencode");
     const sps = p.structuredPromptServer;
     if (sps && sps.port) {
       const platform = host.platform();
@@ -135,6 +143,9 @@ var plugin = {
     }
     if (p.args && p.args.length > 0) {
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+    }
+    if (p.task) {
+      parts.push("--prompt", host.shell.quoteFor(TASK_START_PROMPT, host.platform()));
     }
     return parts.join(" ");
   },

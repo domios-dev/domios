@@ -365,6 +365,27 @@ test("codex structured apply_patch renders diff from real-session patch text", a
   }
 });
 
+test("completed tool output stays one line while collapsed", async () => {
+  const { host, root } = await renderMessages([{
+      id: "compact-result",
+      provider: "codex",
+      type: "tool_call",
+      content: "",
+      toolName: "shell_command",
+      toolId: "compact-result-call",
+      toolInput: { command: "printf output" },
+      toolResult: "first line\n" + "x".repeat(400),
+    }]);
+  try {
+    const preview = host.querySelector('[title="Show full output"] span:last-child');
+    assert(preview?.className.includes("truncate"), "collapsed result preview truncates");
+    assert(preview?.className.includes("whitespace-nowrap"), "collapsed result preview stays on one line");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 test("codex exec_command rg search does not render as structured edit diff", async () => {
   const { host, root } = await renderMessages([
     codexStructuredEditMessages[0],

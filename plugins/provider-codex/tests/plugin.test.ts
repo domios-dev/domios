@@ -91,10 +91,24 @@ const baseHost = (over: Record<string, unknown>) => ({
     readJson: () => null,
     writeJson: () => true,
     writeFile: () => true,
+    writeTempFile: () => "/tmp/codeterm task.md",
     walkDir: () => [],
   },
   ...over,
 });
+
+console.log("\n--- task instructions launch ---\n");
+{
+  const p = loadCodexWithHost(baseHost({
+    platform: () => "windows",
+    shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` },
+    fs: { ...baseHost({}).fs, writeTempFile: () => "C:\\Temp\\codeterm task.md" },
+  }));
+  const cmd = p.buildLaunchCommand({ task: "edit the project", args: ["--model", "gpt-5.5"] });
+  assert(cmd.includes("Get-Content -Raw -Encoding UTF8 'C:\\Temp\\codeterm task.md'"), "Windows loads developer instructions from the task file");
+  assert(cmd.includes("-c (\"developer_instructions=\" +"), "Windows maps the task to developer instructions");
+  assert(!cmd.includes("edit the project"), "task body is absent from the launch command");
+}
 
 console.log("\n--- meta ---\n");
 eq(plugin.meta.id, "codex", "meta.id is 'codex'");
@@ -480,12 +494,44 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
       payload: {
         type: "function_call",
         name: "exec_command",
+        call_id: "call_exec_1",
         arguments: JSON.stringify({ cmd: 'rg -n "needle" src' }),
+      },
+    }),
+    JSON.stringify({
+      type: "response_item",
+      timestamp: "2026-06-23T18:06:00.100Z",
+      payload: {
+        type: "function_call_output",
+        call_id: "call_exec_1",
+        output: "src/example.ts:1:needle",
+      },
+    }),
+    JSON.stringify({
+      type: "response_item",
+      timestamp: "2026-06-23T18:06:00.200Z",
+      payload: {
+        type: "custom_tool_call",
+        name: "exec",
+        call_id: "call_custom_1",
+        input: JSON.stringify({ command: "git status --short" }),
+      },
+    }),
+    JSON.stringify({
+      type: "response_item",
+      timestamp: "2026-06-23T18:06:00.300Z",
+      payload: {
+        type: "custom_tool_call_output",
+        call_id: "call_custom_1",
+        output: [
+          { type: "input_text", text: "Script completed\n" },
+          { type: "input_text", text: "Exit code: 0\n" },
+        ],
       },
     }),
   ].join("\n");
   const structuredParsed = hostPlugin.parseSessionDelta(structuredChunk) as { messages: any[] };
-  eq(structuredParsed.messages.length, 3, "apply_patch + patch_apply_end + exec_command survive parseSessionDelta");
+  eq(structuredParsed.messages.length, 6, "tool starts and completions survive parseSessionDelta");
   eq(structuredParsed.messages[0].blocks[0].kind, "tool_use", "custom_tool_call maps to tool_use");
   eq(structuredParsed.messages[0].blocks[0].data.name, "apply_patch", "apply_patch name preserved");
   assert(
@@ -496,6 +542,11 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
   eq(structuredParsed.messages[1].blocks[0].kind, "tool_result", "patch_apply_end maps to tool_result");
   eq(structuredParsed.messages[1].blocks[0].data.tool_use_id, "call_patch_1", "patch result links to call_id");
   eq(structuredParsed.messages[2].blocks[0].data.input.command, 'rg -n "needle" src', "exec_command still parses");
+  eq(structuredParsed.messages[2].blocks[0].data.id, "call_exec_1", "function call id is preserved");
+  eq(structuredParsed.messages[3].blocks[0].data.tool_use_id, "call_exec_1", "function result links to call id");
+  eq(structuredParsed.messages[4].blocks[0].data.id, "call_custom_1", "custom call id is preserved");
+  eq(structuredParsed.messages[5].blocks[0].data.tool_use_id, "call_custom_1", "custom result links to call id");
+  eq(structuredParsed.messages[5].blocks[0].data.content, "Script completed\nExit code: 0\n", "custom result text blocks are joined");
 }
 
 console.log("\n--- discoverModels ---\n");
