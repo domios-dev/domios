@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { recordPerfMetric, recordPerfSamples, summarizePerfSamples } from "./perf-metrics";
+import { recordDiagnosticRow, recordPerfMetric, recordPerfSamples, summarizePerfSamples } from "./perf-metrics";
 
 test("summarizePerfSamples emits nearest-rank p50, p95, and max", () => {
   assert.deepEqual(summarizePerfSamples([90, 10, 70, 50, 30]), {
@@ -43,6 +43,28 @@ test("recordPerfSamples writes a deterministic summary row", () => {
       budget: 20,
       mode: "stub",
     });
+  } finally {
+    if (previous === undefined) delete process.env.PERF_METRICS_DIR;
+    else process.env.PERF_METRICS_DIR = previous;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("diagnostic rows append without changing the summary row shape", () => {
+  const dir = mkdtempSync(join(tmpdir(), "codeterm-perf-diag-"));
+  const previous = process.env.PERF_METRICS_DIR;
+  process.env.PERF_METRICS_DIR = dir;
+  try {
+    recordPerfSamples({ name: "pty-write-to-render", unit: "ms", samples: [12, 4, 8], budget: 20, mode: "stub" });
+    recordDiagnosticRow({ type: "diagnostic", name: "pty-write-to-render", index: 0, t_output_ms: 812, t_render_ms: null });
+    const rows = readFileSync(join(dir, "metrics.jsonl"), "utf8").trim().split("\n").map((r) => JSON.parse(r));
+    const summaries = rows.filter((r) => r.type !== "diagnostic");
+    const diagnostics = rows.filter((r) => r.type === "diagnostic");
+    assert.equal(summaries.length, 1);
+    assert.equal(diagnostics.length, 1);
+    assert.deepEqual(summaries[0], { name: "pty-write-to-render", unit: "ms", n: 3, p50: 8, p95: 12, max: 12, budget: 20, mode: "stub" });
+    assert.equal(Object.prototype.hasOwnProperty.call(summaries[0], "type"), false);
+    assert.equal(diagnostics[0].index, 0);
   } finally {
     if (previous === undefined) delete process.env.PERF_METRICS_DIR;
     else process.env.PERF_METRICS_DIR = previous;

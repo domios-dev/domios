@@ -73,6 +73,15 @@ export function recordPerfSamples(metric: PerfSampleMetric): PerfSummary {
   return summary;
 }
 
+export type DiagnosticRowInput = { type: "diagnostic" } & Record<string, unknown>;
+
+// Appends a raw diagnostic row; summary rows keep their exact shape/fields.
+export function recordDiagnosticRow(row: DiagnosticRowInput): void {
+  const dir = perfDir();
+  mkdirSync(dir, { recursive: true });
+  appendFileSync(path.join(dir, "metrics.jsonl"), JSON.stringify(row) + "\n");
+}
+
 export function recordPerfMetric(metric: PerfMetric): void {
   const fallback = metric.p50 ?? metric.p95 ?? metric.max;
   if (metric.value === undefined && fallback === undefined) {
