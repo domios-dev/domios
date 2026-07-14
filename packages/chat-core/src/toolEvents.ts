@@ -32,6 +32,7 @@ export function materializeToolEvent(message: NormalizedChatMessage): ToolEvent 
   if (message.type !== "tool_call" && message.type !== "tool_result") return null;
   const phase = message.type === "tool_call" ? "call" : "result";
   const summary = text(message.toolSummary);
+  const embeddedResult = phase === "call" ? firstNonEmpty(message.toolResult) : undefined;
   return {
     id: message.id,
     toolId: message.toolId,
@@ -40,12 +41,13 @@ export function materializeToolEvent(message: NormalizedChatMessage): ToolEvent 
     summary,
     detail: text(message.toolDetail) || undefined,
     edits: message.toolEdits,
-    result:
-      phase === "result"
-        ? firstNonEmpty(message.toolDetail, message.toolResult, message.content)
-        : undefined,
+    result: phase === "result"
+      ? firstNonEmpty(message.toolDetail, message.toolResult, message.content)
+      : embeddedResult,
     error: message.toolError,
-    status: phase === "call" ? "pending" : message.toolError === true ? "error" : "success",
+    status: phase === "call"
+      ? message.toolError === true ? "error" : embeddedResult ? "success" : "pending"
+      : message.toolError === true ? "error" : "success",
     message,
   };
 }
@@ -84,7 +86,7 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
   for (const message of messages) {
     if (message.type === "tool_call" || message.type === "tool_result") {
       const hasContent = Boolean(
-        message.content.trim() ||
+        message.content?.trim() ||
           message.toolSummary?.trim() ||
           message.toolDetail?.trim() ||
           message.toolResult?.trim() ||

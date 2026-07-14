@@ -22,6 +22,13 @@ function result(id: string, toolId: string, detail: string, patch: Partial<Norma
 }
 
 {
+  const success = materializeToolEvent(call("embedded-success", "embedded-success", { toolResult: "done" }));
+  const error = materializeToolEvent(call("embedded-error", "embedded-error", { toolResult: "failed", toolError: true }));
+  assert(success?.status === "success" && success.result === "done", "embedded call result resolves success");
+  assert(error?.status === "error" && error.result === "failed", "embedded call error resolves failure");
+}
+
+{
   const items = reduceToolEvents([
     call("call", "same"),
     result("result", "same", "ok"),
@@ -86,6 +93,18 @@ function result(id: string, toolId: string, detail: string, patch: Partial<Norma
   const event = materializeToolEvent({ id: "legacy", type: "tool_call", content: "{raw: value}" });
   assert(event?.kind === "generic", "legacy-only tool is generic");
   assert(event?.summary === "", "legacy raw object is not used as canonical summary");
+}
+
+{
+  const canonicalWithoutContent = {
+    id: "canonical-edit",
+    type: "tool_call",
+    toolKind: "edit",
+    toolSummary: "src/main.ts",
+    toolEdits: [{ path: "src/main.ts", old: "a", new: "b" }],
+  } as NormalizedChatMessage;
+  const items = reduceToolEvents([canonicalWithoutContent]);
+  assert(items[0]?.kind === "tool" && items[0].event.kind === "edit", "canonical tool call tolerates absent content");
 }
 
 {
