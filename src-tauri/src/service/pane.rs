@@ -170,6 +170,7 @@ impl ServiceContext {
             );
             self.kill_ptys(&[orphan]);
         }
+        crate::service::orchestrator::pane_relink_signal::notify_pane_relinked();
         self.emit_state_changed();
     }
 

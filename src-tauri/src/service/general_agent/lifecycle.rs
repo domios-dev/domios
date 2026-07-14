@@ -229,6 +229,7 @@ pub fn start_general_agent(
         }
         d
     };
+    crate::service::orchestrator::pane_relink_signal::notify_pane_relinked();
     if let Some(orphan) = displaced {
         svc.kill_ptys(&[orphan]);
     }

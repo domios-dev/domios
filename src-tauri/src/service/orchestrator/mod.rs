@@ -2,6 +2,7 @@
 
 mod batch;
 mod launch;
+pub mod pane_relink_signal;
 pub mod refresh;
 mod spawn;
 mod types;

@@ -393,15 +393,6 @@ impl ServiceContext {
         // Pin agent_type before launch so detect_from_output can start session-id polling.
         // Without this tag, restarts can lose session_id and resume fails silently.
         self.set_and_lock_pane_agent_type(&pane_id, agent_cmd.to_string());
-        if params
-            .role
-            .as_deref()
-            .and_then(|role| Self::parse_role(role).ok())
-            == Some(crate::multiplexer::types::AgentRole::Orchestrator)
-            && !params.skip_orchestrator_onboarding.unwrap_or(false)
-        {
-            self.maybe_deliver_orchestrator_promotion_onboarding(&pane_id, false);
-        }
 
         // 4c. Pin agent_session_id for resume up-front: we know the id from the user's request, so don't wait for detect_session_id polling.
         let launch_session_id = if params.resume_session_id.is_none() {

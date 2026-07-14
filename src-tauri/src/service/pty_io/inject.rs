@@ -4,6 +4,14 @@ use super::{build_spawn_dispatch, poll_shell_prompt};
 use crate::service::ServiceContext;
 
 impl ServiceContext {
+    pub fn send_shell_spawn_after_ready(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
+        let bytes = build_spawn_dispatch(cmd).map_err(|e| e.to_string())?;
+        self.pty
+            .lock()
+            .write(pty_id, &bytes)
+            .map_err(|e| e.to_string())
+    }
+
     /// Launch a shell-level command in an attached pty, bypassing bracketed paste
     /// (see `build_spawn_dispatch` — bash 3.2 can't interpret paste markers).
     pub fn send_shell_spawn(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
@@ -202,6 +210,7 @@ impl ServiceContext {
     pub fn send_shell_spawn_verified(
         &self,
         pty_id: &str,
+        agent_id: &str,
         cmd: &str,
         submit_strategy: crate::agent::provider::VerifySubmitStrategy,
         opts: crate::service::inject_verify::VerifyOpts,
@@ -244,9 +253,6 @@ impl ServiceContext {
 
         let hash_before = snapshot_screen_hash(&self.screen_state, pty_id).unwrap_or_default();
 
-        // Arm the agent signal BEFORE the write so we cannot miss an instant startup.
-        let agent_signal = self.screen_state.lock().arm_agent_signal(pty_id);
-
         let bytes = build_spawn_dispatch(cmd).map_err(|_| InjectionError::PtyClosed {
             pty_id: pty_id.to_string(),
         })?;
@@ -265,7 +271,7 @@ impl ServiceContext {
                         .map(|_| ())
                 }
                 VerifySubmitStrategy::TuiInputDrained { timeout, .. } => {
-                    if agent_signal.wait(timeout) {
+                    if self.await_agent_tui_on_screen(pty_id, agent_id, timeout) {
                         Ok(())
                     } else {
                         log::debug!(

@@ -25,6 +25,7 @@ impl ServiceContext {
                 None
             };
         }
+        super::boot_wait::notify_boot_changed();
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "pane-boot-stage",

@@ -307,30 +307,37 @@ impl ServiceContext {
         self.pty.lock().write(pty_id, &payload)
     }
 
-    /// Poll the screen until the provider's TUI fingerprint shows, bounded by `timeout`. Best-effort.
+    /// Wait for the terminal screen-state signal that a structural agent TUI appeared.
     pub(crate) fn await_agent_tui_on_screen(
         &self,
         pty_id: &str,
         agent_id: &str,
         timeout: std::time::Duration,
     ) -> bool {
+        let signal = self.screen_state.lock().arm_screen_change_signal(pty_id);
         let deadline = std::time::Instant::now() + timeout;
+        let mut generation = signal.generation();
         loop {
-            let screen = self.screen_state.lock().get_screen_text(pty_id);
-            if let Some(text) = screen {
-                let ready = crate::pty::screen_state::screen_has_agent_tui(&text)
-                    || self
-                        .agent_registry
-                        .with_provider(agent_id, |p| p.screen_has_tui(&text))
-                        .unwrap_or(false);
-                if ready {
-                    return true;
-                }
+            let screen = self
+                .screen_state
+                .lock()
+                .get_screen_text(pty_id)
+                .unwrap_or_default();
+            let ready = codeterm_pty::pty::screen_state::screen_has_agent_tui(&screen)
+                || self
+                    .agent_registry
+                    .with_provider(agent_id, |provider| provider.screen_has_tui(&screen))
+                    .unwrap_or(false);
+            if ready {
+                return true;
             }
-            if std::time::Instant::now() >= deadline {
+            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                return false;
+            };
+            if !signal.wait_after(generation, remaining) {
                 return false;
             }
-            std::thread::sleep(std::time::Duration::from_millis(200));
+            generation = signal.generation();
         }
     }
 
@@ -345,25 +352,13 @@ impl ServiceContext {
             return self.chatbackend_pane_send(pane_id, text);
         }
         self.ensure_pane_pty_for_send(pane_id)?;
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(90);
-        loop {
-            let booting = self
-                .mux
-                .read()
-                .get_pane(pane_id)
-                .map(|p| p.agent_booting)
-                .unwrap_or(false);
-            if !booting {
-                break;
-            }
-            if std::time::Instant::now() >= deadline {
-                return Err(format!(
-                    "Agent in pane {} is still booting — input would be lost",
-                    pane_id
-                ));
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-        }
+        let svc = self.clone();
+        let pane = pane_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            svc.await_agent_boot_blocking(&pane, std::time::Duration::from_secs(90))
+        })
+        .await
+        .map_err(|error| format!("agent boot waiter failed: {error}"))??;
         self.send_text(pane_id, text, enter)
     }
 
@@ -372,24 +367,22 @@ impl ServiceContext {
         pane_id: &str,
         timeout: std::time::Duration,
     ) -> Result<(), String> {
-        let deadline = std::time::Instant::now() + timeout;
-        loop {
-            let booting = self
-                .mux
-                .read()
-                .get_pane(pane_id)
-                .map(|p| p.agent_booting)
-                .unwrap_or(false);
-            if !booting {
-                return Ok(());
-            }
-            if std::time::Instant::now() >= deadline {
-                return Err(format!(
-                    "Agent in pane {} is still booting — input would be lost",
-                    pane_id
-                ));
-            }
-            std::thread::sleep(std::time::Duration::from_millis(250));
+        let ready =
+            crate::service::boot_wait::wait_until(std::time::Instant::now() + timeout, || {
+                !self
+                    .mux
+                    .read()
+                    .get_pane(pane_id)
+                    .map(|pane| pane.agent_booting)
+                    .unwrap_or(false)
+            });
+        if ready {
+            Ok(())
+        } else {
+            Err(format!(
+                "Agent in pane {} is still booting — input would be lost",
+                pane_id
+            ))
         }
     }
 
@@ -411,19 +404,16 @@ impl ServiceContext {
         pane_id: &str,
         timeout: std::time::Duration,
     ) -> Result<String, String> {
-        let deadline = std::time::Instant::now() + timeout;
-        loop {
-            if let Ok(pty_id) = self.resolve_pty_id(pane_id) {
-                return Ok(pty_id);
-            }
-            if std::time::Instant::now() >= deadline {
-                return Err(format!(
-                    "Pane {} not found or PTY did not start within {:?}",
-                    pane_id, timeout
-                ));
-            }
-            std::thread::sleep(std::time::Duration::from_millis(200));
-        }
+        crate::service::orchestrator::pane_relink_signal::wait_for_relink(
+            std::time::Instant::now() + timeout,
+            || self.resolve_pty_id(pane_id).ok(),
+        )
+        .ok_or_else(|| {
+            format!(
+                "Pane {} not found or PTY did not start within {:?}",
+                pane_id, timeout
+            )
+        })
     }
 
     /// `send_text` by PTY id, skipping pane→pty resolution — use when the caller

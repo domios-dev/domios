@@ -37,8 +37,83 @@ pub(crate) fn role_onboarding_task(
     }
 }
 
-pub(crate) use crate::agent::provider::{AgentLaunchParams, ReadinessStrategy, TaskDelivery};
+pub(crate) use crate::agent::provider::{AgentLaunchParams, TaskDelivery};
 pub(crate) use crate::agent::registry::AgentRegistry;
+
+fn existing_live_pty(svc: &ServiceContext, pane_id: &str) -> Option<String> {
+    let pty_id = svc
+        .mux
+        .read()
+        .get_pane(pane_id)
+        .and_then(|pane| pane.pty_id.clone())?;
+    svc.pty
+        .lock()
+        .get_session(&pty_id)
+        .is_some()
+        .then_some(pty_id)
+}
+
+fn spawn_backend_pty(svc: &ServiceContext, pane_id: &str) -> Result<String, String> {
+    let cwd = svc
+        .mux
+        .read()
+        .get_pane(pane_id)
+        .and_then(|pane| pane.cwd.clone());
+    let env_vars = svc.pane_env(pane_id);
+    let (pty_id, _) = svc
+        .pty
+        .lock()
+        .spawn(None, cwd, 120, 40, env_vars)
+        .map_err(|error| error.to_string())?;
+
+    let svc_arc = std::sync::Arc::new(svc.clone());
+    let prepared = crate::service::pty_lifecycle::prepare_backend_reader(&svc_arc, &pty_id);
+    if let Some(orphan) = svc.mux.write().link_pty(pane_id, pty_id.clone()) {
+        svc.kill_ptys(&[orphan]);
+    }
+    super::pane_relink_signal::notify_pane_relinked();
+
+    match prepared {
+        Ok(Some(prepared)) => {
+            let reader_pty_id = pty_id.clone();
+            std::thread::spawn(move || {
+                let runtime = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(runtime) => runtime,
+                    Err(error) => {
+                        log::error!(
+                            "launch_agent: backend reader runtime failed for {}: {}",
+                            reader_pty_id,
+                            error
+                        );
+                        return;
+                    }
+                };
+                runtime.block_on(async {
+                    let reader = crate::service::pty_lifecycle::spawn_prepared_backend_reader(
+                        &svc_arc,
+                        &reader_pty_id,
+                        prepared,
+                        true,
+                    );
+                    let _ = reader.await;
+                });
+            });
+        }
+        Ok(None) => {}
+        Err(error) => {
+            log::warn!(
+                "launch_agent: backend reader prepare failed for {}: {}",
+                pane_id,
+                error
+            );
+        }
+    }
+
+    Ok(pty_id)
+}
 
 fn replacement_pty_candidate(
     linked_pty_id: Option<&str>,
@@ -64,7 +139,7 @@ fn await_replacement_pty(
     #[cfg(windows)]
     {
         let deadline = std::time::Instant::now() + timeout;
-        loop {
+        super::pane_relink_signal::wait_for_relink(deadline, || {
             let linked = svc
                 .mux
                 .read()
@@ -73,16 +148,8 @@ fn await_replacement_pty(
             let session_exists = linked
                 .as_deref()
                 .is_some_and(|pty_id| svc.pty.lock().get_session(pty_id).is_some());
-            if let Some(candidate) =
-                replacement_pty_candidate(linked.as_deref(), closed_pty_id, session_exists)
-            {
-                return Some(candidate);
-            }
-            if std::time::Instant::now() >= deadline {
-                return None;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
+            replacement_pty_candidate(linked.as_deref(), closed_pty_id, session_exists)
+        })
     }
 }
 
@@ -100,6 +167,7 @@ pub(crate) fn launch_agent_in_background(
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
     let registry = svc.agent_registry.clone();
+    let launch_started = std::time::Instant::now();
     // thread spawns: callers get the pane id immediately and may send right away.
     if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
         p.agent_booting = true;
@@ -111,113 +179,59 @@ pub(crate) fn launch_agent_in_background(
                 p.agent_booting = value;
             }
         };
-        // 1. Wait for PTY (frontend creates it after mux-state-changed). If frontend doesn't create it (cron/headless tabs), spawn from backend.
-        let frontend_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        let mut pty_id = loop {
-            if let Some(pid) = svc
-                .mux
-                .try_write()
-                .and_then(|m| m.get_pane(&pane_id).and_then(|p| p.pty_id.clone()))
-            {
-                break pid;
-            }
-            if std::time::Instant::now() > frontend_deadline {
-                // Frontend didn't create PTY — spawn from backend (cron/headless)
-                log::info!("launch_agent: backend PTY spawn for {}", pane_id);
-                let cwd = svc
-                    .mux
-                    .write()
-                    .get_pane(&pane_id)
-                    .and_then(|p| p.cwd.clone());
-                let env_vars = svc.pane_env(&pane_id);
-                let spawn_result = svc.pty.lock().spawn(None, cwd, 120, 40, env_vars);
-                match spawn_result {
-                    Ok((pid, _)) => {
-                        let svc_arc = std::sync::Arc::new(svc.clone());
-                        let prepared =
-                            crate::service::pty_lifecycle::prepare_backend_reader(&svc_arc, &pid);
-                        if let Some(orphan) = svc.mux.write().link_pty(&pane_id, pid.clone()) {
-                            svc.kill_ptys(&[orphan]);
-                        }
-                        match prepared {
-                            Ok(Some(prepared)) => {
-                                let pid2 = pid.clone();
-                                std::thread::spawn(move || {
-                                    let rt = match tokio::runtime::Builder::new_current_thread()
-                                        .enable_all()
-                                        .build()
-                                    {
-                                        Ok(rt) => rt,
-                                        Err(e) => {
-                                            log::error!(
-                                                "launch_agent: backend reader runtime failed for {}: {}",
-                                                pid2,
-                                                e
-                                            );
-                                            return;
-                                        }
-                                    };
-                                    rt.block_on(async {
-                                        let h = crate::service::pty_lifecycle::spawn_prepared_backend_reader(
-                                            &svc_arc, &pid2, prepared, true,
-                                        );
-                                        let _ = h.await;
-                                    });
-                                });
-                            }
-                            Ok(None) => {}
-                            Err(e) => {
-                                log::warn!(
-                                    "launch_agent: backend reader prepare failed for {}: {}",
-                                    pane_id,
-                                    e
-                                );
-                            }
-                        }
-                        break pid;
+        let mut pty_id = match existing_live_pty(&svc, &pane_id) {
+            Some(pty_id) => pty_id,
+            None => match spawn_backend_pty(&svc, &pane_id) {
+                Ok(pty_id) => pty_id,
+                Err(error) => {
+                    log::error!(
+                        "launch_agent: backend PTY spawn failed for pane {}: {}",
+                        pane_id,
+                        error
+                    );
+                    svc.emit_boot_stage(
+                        &pane_id,
+                        BootStage::SpawnFailed,
+                        Some(&format!("backend PTY spawn failed: {}", error)),
+                    );
+                    let _ = svc.close_tab(&ws_id, &tab_id);
+                    set_booting(false);
+                    if let Some(tx) = ready_tx {
+                        let _ = tx.send(Err(format!("backend PTY spawn failed: {}", error)));
                     }
-                    Err(e) => {
-                        log::error!(
-                            "launch_agent: backend PTY spawn failed for pane {}: {}",
-                            pane_id,
-                            e
-                        );
-                        svc.emit_boot_stage(
-                            &pane_id,
-                            BootStage::SpawnFailed,
-                            Some(&format!("backend PTY spawn failed: {}", e)),
-                        );
-                        let _ = svc.close_tab(&ws_id, &tab_id);
-                        set_booting(false);
-                        if let Some(tx) = ready_tx {
-                            let _ = tx.send(Err(format!("backend PTY spawn failed: {}", e)));
-                        }
-                        return;
-                    }
+                    return;
                 }
-            }
-            std::thread::sleep(std::time::Duration::from_millis(300));
+            },
         };
         svc.emit_boot_stage(&pane_id, BootStage::PtySpawned, None);
+        log::info!(
+            "launch_agent: pty ready for pane {} after {}ms",
+            pane_id,
+            launch_started.elapsed().as_millis()
+        );
 
-        let (readiness, delivery) = registry
-            .with_provider(&agent_cmd, |p| (p.readiness_strategy(), p.task_delivery()))
-            .unwrap_or((
-                ReadinessStrategy::FixedDelay {
-                    duration: std::time::Duration::from_secs(2),
-                },
-                TaskDelivery::PtyInput,
-            ));
-
-        match readiness {
-            ReadinessStrategy::PollShellPrompt { timeout } => {
-                crate::service::pty_io::poll_shell_prompt(&svc.screen_state, &pty_id, timeout);
+        let delivery = registry
+            .with_provider(&agent_cmd, |provider| provider.task_delivery())
+            .unwrap_or(TaskDelivery::PtyInput);
+        if !crate::service::pty_io::poll_bare_shell_prompt(
+            &svc.screen_state,
+            &pty_id,
+            std::time::Duration::from_secs(30),
+        ) {
+            let error = "bare shell prompt did not become ready".to_string();
+            svc.emit_boot_stage(&pane_id, BootStage::SpawnFailed, Some(&error));
+            set_booting(false);
+            if let Some(tx) = ready_tx {
+                let _ = tx.send(Err(error));
             }
-            ReadinessStrategy::FixedDelay { duration } => {
-                std::thread::sleep(duration);
-            }
+            return;
         }
         svc.emit_boot_stage(&pane_id, BootStage::ShellReady, None);
+        log::info!(
+            "launch_agent: shell ready for pane {} after {}ms",
+            pane_id,
+            launch_started.elapsed().as_millis()
+        );
 
         // 3. Send launch command (verified). Shell prompt was already polled in step 2, so require_prompt_first=false avoids a redundant wait.
         let launch_opts = crate::service::inject_verify::VerifyOpts {
@@ -239,6 +253,7 @@ pub(crate) fn launch_agent_in_background(
         // (#93 — keeps shell-level launch off the bracketed-paste path).
         let first_launch = svc.send_shell_spawn_verified(
             &pty_id,
+            &agent_cmd,
             &launch_cmd,
             launch_strategy.clone(),
             launch_opts.clone(),
@@ -259,6 +274,7 @@ pub(crate) fn launch_agent_in_background(
                         pty_id = replacement;
                         svc.send_shell_spawn_verified(
                             &pty_id,
+                            &agent_cmd,
                             &launch_cmd,
                             launch_strategy,
                             launch_opts,
@@ -288,27 +304,20 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
 
-        // 4. For PtyInput delivery, send task immediately — verified send already gated on receiver-side completion of the launch command.
+        if !svc.await_agent_tui_on_screen(&pty_id, &agent_cmd, std::time::Duration::from_secs(30)) {
+            let error = format!("{} TUI did not become ready", agent_cmd);
+            svc.emit_boot_stage(&pane_id, BootStage::SpawnFailed, Some(&error));
+            set_booting(false);
+            if let Some(tx) = ready_tx {
+                let _ = tx.send(Err(error));
+            }
+            return;
+        }
+
+        // 4. For PtyInput delivery, send task after the provider reports a ready TUI.
         let is_pty_input = matches!(delivery, TaskDelivery::PtyInput);
         if is_pty_input {
             if let Some(ref task_text) = task {
-                let warmup = registry
-                    .with_provider(&agent_cmd, |p| p.task_input_warmup())
-                    .unwrap_or_default();
-                if !warmup.is_zero() {
-                    std::thread::sleep(warmup);
-                }
-                if !svc.await_agent_tui_on_screen(
-                    &pty_id,
-                    &agent_cmd,
-                    std::time::Duration::from_secs(15),
-                ) {
-                    log::warn!(
-                        "launch_agent: timed out waiting for {} TUI before task delivery in pane {}",
-                        agent_cmd,
-                        pane_id
-                    );
-                }
                 set_booting(false);
                 // TUI is visible; use the fast message path without waiting for
                 // this launch thread's own boot flag to clear.
@@ -336,7 +345,11 @@ pub(crate) fn launch_agent_in_background(
 
         set_booting(false);
         svc.emit_boot_stage(&pane_id, BootStage::AgentReady, None);
-        log::info!("launch_agent: agent ready in pane {}", pane_id);
+        log::info!(
+            "launch_agent: agent ready in pane {} after {}ms",
+            pane_id,
+            launch_started.elapsed().as_millis()
+        );
         if let Some(tx) = ready_tx {
             let _ = tx.send(Ok(()));
         }
