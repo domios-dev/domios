@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import type { NormalizedChatMessage as ChatMessage, SlashCommand } from "@codeterm/chat-core";
+import type { NormalizedChatMessage as ChatMessage, SlashCommand, EditPair } from "@codeterm/chat-core";
 import { parseMarker } from "@codeterm/chat-core";
 import { File, Image, Info, Mic, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -10,7 +10,7 @@ import { looksLikeMermaidSource } from "./MermaidBlock";
 import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
 import { inferCodeLanguage } from "./codeLanguage";
 import { pickUiFontScaleValue } from "./uiFontScale";
-import { parseCodexPatch, patchTextFromToolInput } from "./parseCodexPatch";
+export { extractCommand, extractEdits, extractFilePath } from "./toolcard/toolParsing";
 import { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";
 import { parseAttachedDiscussionDoc } from "./discussionDoc";
 
@@ -146,75 +146,6 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
   );
 }
 
-export function extractFilePath(message: ChatMessage): string | null {
-  const patch = patchTextFromToolInput(
-    (message.toolInput as Record<string, unknown> | undefined) ?? null,
-    message.toolArgs,
-  );
-  if (patch) {
-    const files = parseCodexPatch(patch);
-    if (files.length > 0) return files[0].path;
-  }
-  if (message.toolInput) {
-    const input = message.toolInput;
-    const fp = (input.file_path ?? input.filePath ?? input.path) as string | undefined;
-    if (typeof fp === "string" && fp.trim()) return fp;
-  }
-  if (message.toolArgs) {
-    try {
-      const parsed = JSON.parse(message.toolArgs) as Record<string, unknown>;
-      for (const key of ["file_path", "filePath", "path"] as const) {
-        const value = parsed[key];
-        if (typeof value === "string" && value.trim()) return value;
-      }
-    } catch {
-      const match = message.toolArgs.match(/(?:file_path|filePath|path)['":\s]+([^\s'"}\],]+)/);
-      if (match) return match[1];
-    }
-  }
-  return null;
-}
-
-export interface EditPair {
-  old: string;
-  new: string;
-}
-
-/** Extract Edit/MultiEdit before→after pairs from a tool call so the chat can
- *  render a real diff instead of just "file updated". Handles single
- *  old_string/new_string and the MultiEdit `edits` array, from either
- *  `toolInput` or a JSON `toolArgs` fallback. Provider-agnostic. */
-export function extractEdits(message: ChatMessage): EditPair[] {
-  let input: Record<string, unknown> | null =
-    (message.toolInput as Record<string, unknown> | undefined) ?? null;
-  if (!input && message.toolArgs) {
-    try {
-      input = JSON.parse(message.toolArgs) as Record<string, unknown>;
-    } catch {
-      input = null;
-    }
-  }
-  const patch = patchTextFromToolInput(input, message.toolArgs);
-  if (patch) {
-    return parseCodexPatch(patch).flatMap((file) => file.edits);
-  }
-  if (!input) return [];
-  const toPair = (e: Record<string, unknown>): EditPair | null => {
-    // Accept snake_case (claude) and camelCase (opencode et al).
-    const oldS = (e.old_string ?? e.oldString) as unknown;
-    const newS = (e.new_string ?? e.newString) as unknown;
-    if (typeof oldS !== "string" && typeof newS !== "string") return null;
-    return { old: String(oldS ?? ""), new: String(newS ?? "") };
-  };
-  if (Array.isArray(input.edits)) {
-    return input.edits
-      .map((e) => toPair(e as Record<string, unknown>))
-      .filter((e): e is EditPair => e !== null);
-  }
-  const single = toPair(input);
-  return single ? [single] : [];
-}
-
 type DiffLineKind = "del" | "add";
 interface DiffLine {
   kind: DiffLineKind;
@@ -334,41 +265,7 @@ export function shortPath(fullPath: string): string {
   return ".../" + parts.slice(-2).join("/");
 }
 
-export function isShellToolName(name: string | undefined): boolean {
-  const n = (name ?? "").toLowerCase();
-  return n === "bash"
-    || n === "shell"
-    || n === "shell_command"
-    || n === "exec_command"
-    || n === "exec"
-    || n === "powershell"
-    || n.includes("shell")
-    || n.includes("bash");
-}
-
 /** Extract shell command text across Claude/Codex provider shapes. */
-export function extractCommand(message: ChatMessage): string | null {
-  if (message.toolInput) {
-    const cmd = (message.toolInput.command ?? message.toolInput.cmd) as string | undefined;
-    if (cmd) return cmd;
-  }
-  if (message.toolArgs) {
-    try {
-      const parsed = JSON.parse(message.toolArgs);
-      if (parsed && typeof parsed === "object") {
-        const cmd = (parsed.command ?? parsed.cmd) as unknown;
-        if (typeof cmd === "string") return cmd;
-      }
-    } catch {
-      if (isShellToolName(message.toolName)) {
-        const args = message.toolArgs.trim();
-        return args ? args : null;
-      }
-    }
-  }
-  return null;
-}
-
 export function PlainOutput({ text, maxHeight = "12rem" }: { text: string; maxHeight?: string }) {
   return (
     <pre
