@@ -114,6 +114,9 @@ export function useXterm({
       term.unicode.activeVersion = "11";
 
       term.open(containerRef.current);
+      if (viteEnv.DEV) {
+        (containerRef.current as HTMLDivElement & { __codetermTerminal?: Terminal }).__codetermTerminal = term;
+      }
 
       if (E2E_TEST_MODE) {
         invoke("report_webgl_status", { state: "skipped_test_mode", detail: null }).catch(() => {});
@@ -140,6 +143,9 @@ export function useXterm({
       webglRef.current?.dispose();
       webglRef.current = null;
       created?.dispose();
+      if (containerRef.current && viteEnv.DEV) {
+        delete (containerRef.current as HTMLDivElement & { __codetermTerminal?: Terminal }).__codetermTerminal;
+      }
       termRef.current = null;
       fitAddonRef.current = null;
       searchAddonRef.current = null;

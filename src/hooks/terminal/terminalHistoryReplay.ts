@@ -1,25 +1,26 @@
-const hydratedPaneIds = new Set<string>();
-const activeClaims = new Map<string, number>();
+const hydratedTerminals = new WeakSet<object>();
+const activeTerminals = new WeakSet<object>();
 let nextClaimId = 0;
 
 export interface TerminalHistoryClaim {
   paneId: string;
   id: number;
+  terminal: object;
 }
 
-export function claimInitialTerminalHistory(paneId: string): TerminalHistoryClaim | null {
-  if (hydratedPaneIds.has(paneId) || activeClaims.has(paneId)) return null;
-  const claim = { paneId, id: ++nextClaimId };
-  activeClaims.set(paneId, claim.id);
+export function claimInitialTerminalHistory(paneId: string, terminal: object): TerminalHistoryClaim | null {
+  if (hydratedTerminals.has(terminal) || activeTerminals.has(terminal)) return null;
+  const claim = { paneId, id: ++nextClaimId, terminal };
+  activeTerminals.add(terminal);
   return claim;
 }
 
 export function completeInitialTerminalHistory(claim: TerminalHistoryClaim): void {
-  if (activeClaims.get(claim.paneId) !== claim.id) return;
-  activeClaims.delete(claim.paneId);
-  hydratedPaneIds.add(claim.paneId);
+  if (!activeTerminals.has(claim.terminal)) return;
+  activeTerminals.delete(claim.terminal);
+  hydratedTerminals.add(claim.terminal);
 }
 
 export function abandonInitialTerminalHistory(claim: TerminalHistoryClaim): void {
-  if (activeClaims.get(claim.paneId) === claim.id) activeClaims.delete(claim.paneId);
+  activeTerminals.delete(claim.terminal);
 }
