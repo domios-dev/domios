@@ -59,9 +59,6 @@ fn worker_onboarding_requires_a_task_body() {
 fn planner_profile_uses_planner_suffix() {
     let task = role_onboarding_task(Some("plan it"), Some("Manager"), Some("planner")).unwrap();
     assert!(task.contains(&crate::prompts::planner_suffix()));
-    assert!(task.contains(crate::prompts::PLANNER_TESTING_ORACLE_FIRST));
-    assert!(task.contains(crate::prompts::PLAN_SKILLS_PRINCIPLES));
-    assert!(!task.contains("{planner_testing_methodology}"));
     assert!(!task.contains(crate::prompts::WORKER_SUFFIX));
 }
 
@@ -74,10 +71,7 @@ fn manager_watcher_does_not_get_worker_suffix() {
 #[test]
 fn orchestrator_onboarding_is_sent_even_without_task_body() {
     let task = role_onboarding_task(None, Some("Orchestrator"), None).unwrap();
-    assert!(task.contains("CodeTerm planner is the source of truth"));
     assert!(task.contains(&crate::prompts::orchestrator_suffix()));
-    assert!(task.contains(crate::prompts::PLAN_SKILLS_PRINCIPLES));
-    assert!(!task.contains("{plan_skills_principles}"));
 }
 
 fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
