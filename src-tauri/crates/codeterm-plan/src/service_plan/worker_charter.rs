@@ -216,6 +216,8 @@ mod tests {
                 NewTask {
                     name: "Do the thing".into(),
                     kind: "task".into(),
+                    acceptance_criteria: vec!["it works".into()],
+                    test_plan: Some("run focused test".into()),
                     assigned_pane_id: Some("worker-pane".into()),
                     competition: None,
                     ..Default::default()

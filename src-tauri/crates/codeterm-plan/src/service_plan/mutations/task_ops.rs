@@ -56,6 +56,10 @@ impl PlanStore {
                 task.model_rationale = w.map(|s| s.into());
             }
             if let Some(status) = parsed_status {
+                let entering_review =
+                    task.status != TaskStatus::InReview && status == TaskStatus::InReview;
+                let closing_review =
+                    task.status == TaskStatus::InReview && is_terminal_task_status(&status);
                 if task.status != status {
                     task.status = status;
                     task.status_changed_at = now_ms;
@@ -76,7 +80,14 @@ impl PlanStore {
                     );
                     clear_task_assignment(task);
                 }
+                if entering_review {
+                    crate::service_plan::review_gate::fix_oracle_and_consume_override(task, now_ms);
+                    crate::service_plan::review_gate::spend_review_credit(&mut p.review_policy);
+                } else if closing_review {
+                    crate::service_plan::review_gate::earn_review_credit(&mut p.review_policy);
+                }
             }
+            let task = &mut p.tasks[task_index];
             if let Some(priority) = priority {
                 task.priority = parse_task_priority(priority)?;
             }

@@ -462,6 +462,62 @@ fn model_launch_args_match_each_cli_flag_format() {
     }
 }
 
+/// Reasoning-effort capability is declared in the manifest and surfaced through
+/// the descriptor. codex declares low/medium/high with a scriptable `-c`
+/// launch flag; providers that declare no efforts must expose no selector and
+/// reject any requested effort structurally (no silent downgrade).
+#[test]
+fn reasoning_effort_capability_is_declared_and_gated() {
+    if require_plugins().is_none() {
+        return;
+    }
+
+    let codex = load_js("codex");
+    let d = codex.describe();
+    let ids: Vec<String> = d.reasoning_efforts.iter().map(|e| e.id.clone()).collect();
+    assert_eq!(
+        ids,
+        vec!["low", "medium", "high"],
+        "codex must surface its declared effort levels"
+    );
+    assert_eq!(d.default_reasoning_effort.as_deref(), Some("medium"));
+    assert_eq!(
+        codex.reasoning_effort_launch_args("high"),
+        vec![
+            "-c".to_string(),
+            "model_reasoning_effort=\"high\"".to_string()
+        ],
+        "codex effort launch flag must match its CLI config-override contract"
+    );
+    assert!(
+        codex.reasoning_effort_launch_args("").is_empty(),
+        "empty effort must produce no launch flags"
+    );
+    assert!(codex.supports_reasoning_effort("medium"));
+    assert!(codex.validate_reasoning_effort(Some("high")).is_ok());
+    let rejection = codex
+        .validate_reasoning_effort(Some("ultra"))
+        .expect_err("unsupported effort must be rejected");
+    assert_eq!(rejection.requested, "ultra");
+    assert_eq!(rejection.supported, vec!["low", "medium", "high"]);
+
+    // A provider that declares no efforts: no selector, and any effort rejects.
+    let claude = load_js("claude");
+    assert!(
+        claude.describe().reasoning_efforts.is_empty(),
+        "claude declares no efforts ⇒ no selector"
+    );
+    assert!(
+        claude.reasoning_effort_launch_args("high").is_empty(),
+        "no-capability provider adds no effort flags"
+    );
+    assert!(claude.validate_reasoning_effort(None).is_ok());
+    assert!(
+        claude.validate_reasoning_effort(Some("high")).is_err(),
+        "no-capability provider must reject an explicit effort, not silently ignore it"
+    );
+}
+
 /// `supports_stop` (the UI Stop-affordance flag in the provider descriptor)
 /// must stay in lockstep with `stop_keystroke().is_some()` for every bundled
 /// provider — they are two reads of the same capability and a split would show

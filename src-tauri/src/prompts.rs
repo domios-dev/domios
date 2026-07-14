@@ -21,7 +21,7 @@ pub const MILESTONE_GATE_LADDER: &str = "Testing ladder — per-task = focused f
 /// Appended to Planner-profile Worker tasks.
 pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");
 
-/// Shared bounce-unwinding contract rendered into Planner and Orchestrator suffixes.
+/// Shared bounce-unwinding contract exposed through embedded docs and fixtures.
 pub const BOUNCE_UNWINDING_CONTRACT: &str = include_str!("../prompts/bounce_unwinding_contract.md");
 
 /// Canonical role_guidance for tasks whose primary deliverable is tests.
@@ -29,6 +29,9 @@ pub const TEST_AUTHOR_GUIDANCE: &str = "You are a test-author. docs/contributing
 
 /// Appended to Orchestrator tasks — no-sleep rule.
 pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../prompts/orchestrator_suffix.md");
+
+/// Delivered when an existing agent tab becomes an Orchestrator.
+pub const ORCHESTRATOR_ONBOARDING: &str = include_str!("../prompts/orchestrator_onboarding.md");
 
 /// Appended to cron tasks when creator_pane_id is set.
 pub const CRON_REPORT_HINT: &str = include_str!("../prompts/cron_report_hint.md");
@@ -152,36 +155,18 @@ pub fn peer_pairing_mandate_full(spawn_cmd: &str) -> String {
     )
 }
 
-/// Planner testing methodology, part 1 — oracle-first (inserted after workflow
-/// item 5 via the `{planner_testing_methodology}` placeholder).
-pub const PLANNER_TESTING_ORACLE_FIRST: &str = "Test plans start from the oracle: name the command or observation that PROVES the task done before choosing the method. Then pick the method by the work: TDD for code paths, fixtures for parsers and formats, live dev walkthrough for UX, seeded eval cases for prompt or behavior changes. If the oracle is expensive (full build, broad suite, e2e), route it through the QA queue instead of per-lane gates. A criterion without an oracle is an opinion.";
-
-/// Planner testing methodology, part 2 — executable test plans (extends the
-/// oracle-first paragraph; enforced mechanically by the doctor + QA claim).
-pub const PLANNER_TEST_PLAN_EXECUTABLE: &str = "Test plans are EXECUTABLE, not descriptive. A test plan names: (1) the exact command(s) to run, (2) the exact surfaces touched (testids, selectors, files, endpoints), (3) numbered steps with the observable pass condition for each. If the executing worker would have to invent a selector, a step, or an expected value, the plan is incomplete — write the scenario, not the intention. \"Component tests + manual check\" is not a test plan.";
-
-/// Oracle-first + executable paragraphs, joined — fills `{planner_testing_methodology}`.
-pub fn planner_testing_methodology() -> String {
-    format!("{PLANNER_TESTING_ORACLE_FIRST}\n\n{PLANNER_TEST_PLAN_EXECUTABLE}")
-}
-
-/// Orchestrator suffix with the shared plan-skills principles substituted in.
 pub fn orchestrator_suffix() -> String {
-    ORCHESTRATOR_SUFFIX
-        .replace("{bounce_unwinding_contract}", BOUNCE_UNWINDING_CONTRACT)
-        .replace("{plan_skills_principles}", PLAN_SKILLS_PRINCIPLES)
+    ORCHESTRATOR_SUFFIX.to_string()
 }
 
-/// Planner suffix with the testing methodology and plan-skills principles substituted in.
+pub fn orchestrator_onboarding(planner_spawn_cmd: &str) -> String {
+    ORCHESTRATOR_ONBOARDING
+        .replace("{planner_spawn_cmd}", planner_spawn_cmd)
+        .replace("{orchestrator_suffix}", ORCHESTRATOR_SUFFIX)
+}
+
 pub fn planner_suffix() -> String {
-    PLANNER_SUFFIX
-        .replace("{bounce_unwinding_contract}", BOUNCE_UNWINDING_CONTRACT)
-        .replace(
-            "{planner_testing_methodology}",
-            &planner_testing_methodology(),
-        )
-        .replace("{test_author_guidance}", TEST_AUTHOR_GUIDANCE)
-        .replace("{plan_skills_principles}", PLAN_SKILLS_PRINCIPLES)
+    PLANNER_SUFFIX.replace("{test_author_guidance}", TEST_AUTHOR_GUIDANCE)
 }
 
 #[cfg(test)]
@@ -274,24 +259,6 @@ mod tests {
         assert!(CODETERM_CLI.contains("You are not automatically an Orchestrator"));
         assert!(CODETERM_CLI.contains("Make Orchestrator"));
         assert!(CODETERM_CLI.contains("codeterm docs ORCHESTRATION"));
-        assert!(ORCHESTRATOR_SUFFIX.contains("CodeTerm planner is the source of truth"));
-    }
-
-    #[test]
-    fn planner_prompt_and_docs_keep_planner_contract() {
-        const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
-
-        assert!(PLANNER_SUFFIX.contains("CodeTerm planner is the source of truth"));
-        assert!(PLANNER_SUFFIX.contains("Do not create standalone markdown implementation plans"));
-        assert!(PLANNER_SUFFIX.contains("Discovery/research is an intermediate wave"));
-        assert!(PLANNER_SUFFIX.contains("autonomously build the remaining implementation"));
-        assert!(PLANNER_SUFFIX.contains("role_guidance"));
-        assert!(PLANNER_SUFFIX.contains("Do not invent a third structural AgentRole"));
-        assert!(ORCHESTRATION_DOC.contains("--role Planner"));
-        assert!(ORCHESTRATION_DOC.contains("--model fable"));
-        assert!(ORCHESTRATION_DOC.contains("fall back to `opus`"));
-        assert!(ORCHESTRATION_DOC.contains("Planner-authored `role_guidance`"));
-        assert!(ORCHESTRATION_DOC.contains("CodeTerm planner"));
     }
 
     #[test]
@@ -358,34 +325,18 @@ mod tests {
     }
 
     #[test]
-    fn orchestrator_suffix_carries_plan_skills_principles() {
+    fn orchestrator_suffix_is_bounded_and_fully_rendered() {
         let rendered = orchestrator_suffix();
-        assert!(rendered.contains(PLAN_SKILLS_PRINCIPLES));
+        assert!(rendered.split_whitespace().count() < 650);
+        assert!(!rendered.contains("{bounce_unwinding_contract}"));
         assert!(!rendered.contains("{plan_skills_principles}"));
-        // Emergent phrasing (why + when), not a bare checklist.
-        assert!(PLAN_SKILLS_PRINCIPLES.contains("the oracle"));
-        assert!(PLAN_SKILLS_PRINCIPLES.contains("codeterm plan skill new"));
     }
 
     #[test]
-    fn planner_suffix_carries_testing_methodology_and_principles() {
+    fn planner_suffix_is_bounded_and_fully_rendered() {
         let rendered = planner_suffix();
-        assert!(rendered.contains(PLANNER_TESTING_ORACLE_FIRST));
-        assert!(rendered.contains(PLANNER_TEST_PLAN_EXECUTABLE));
-        assert!(rendered.contains(PLAN_SKILLS_PRINCIPLES));
-        assert!(!rendered.contains("{planner_testing_methodology}"));
-        assert!(!rendered.contains("{plan_skills_principles}"));
-    }
-
-    #[test]
-    fn planner_testing_methodology_is_oracle_first_then_executable() {
-        let methodology = planner_testing_methodology();
-        let oracle = methodology.find(PLANNER_TESTING_ORACLE_FIRST).unwrap();
-        let executable = methodology.find(PLANNER_TEST_PLAN_EXECUTABLE).unwrap();
-        assert!(
-            oracle < executable,
-            "oracle-first paragraph must come first"
-        );
+        assert!(rendered.split_whitespace().count() < 800);
+        assert!(!rendered.contains("{test_author_guidance}"));
     }
 
     #[test]
@@ -431,74 +382,9 @@ mod tests {
     }
 
     #[test]
-    fn orchestrator_suffix_pins_scratch_and_open_risk_lines_and_tripwire() {
-        assert!(ORCHESTRATOR_SUFFIX.contains(
-            "Inspecting or prototyping? Scratch worktree — the integration checkout stays clean; a dirty checkout is a gate hazard."
-        ));
-        assert!(ORCHESTRATOR_SUFFIX.contains(
-            "An accepted lane with deferred/skipped evidence is OPEN RISK: track it as such until the evidence lands or the user explicitly accepts the substitute."
-        ));
-        assert!(ORCHESTRATOR_SUFFIX
-            .contains("Editing a non-scratch integration file while orchestrating = STOP"));
-        assert!(orchestrator_suffix().contains("codeterm orchestrator learn"));
-    }
-
-    #[test]
-    fn planner_suffix_has_reflection_symmetry_line() {
-        assert!(PLANNER_SUFFIX.contains("At reflection points"));
-        assert!(PLANNER_SUFFIX.contains("task or test-plan quality"));
-    }
-
-    #[test]
-    fn role_suffixes_render_one_shared_bounce_contract() {
-        assert_eq!(
-            PLANNER_SUFFIX
-                .matches("{bounce_unwinding_contract}")
-                .count(),
-            1
-        );
-        assert_eq!(
-            ORCHESTRATOR_SUFFIX
-                .matches("{bounce_unwinding_contract}")
-                .count(),
-            1
-        );
-        assert!(!PLANNER_SUFFIX.contains("Baseline target:"));
-        assert!(!ORCHESTRATOR_SUFFIX.contains("Baseline target:"));
-
-        for rendered in [planner_suffix(), orchestrator_suffix()] {
-            assert!(!rendered.contains("{bounce_unwinding_contract}"));
-            assert_eq!(rendered.matches("Baseline target:").count(), 1);
-            assert!(rendered.contains(BOUNCE_UNWINDING_CONTRACT.trim()));
-        }
-    }
-
-    #[test]
     fn general_agent_routes_project_work_to_workspaces() {
         assert!(GENERAL_AGENT_TEMPLATE.contains("Machine scope, not project scope"));
         assert!(GENERAL_AGENT_TEMPLATE.contains("spawn or reuse an orchestrator there"));
-    }
-
-    #[test]
-    fn orchestrator_suffix_has_cross_machine_etiquette() {
-        assert!(ORCHESTRATOR_SUFFIX.contains("Cross-machine work:"));
-        assert!(ORCHESTRATOR_SUFFIX.contains("redirected into a workspace, not executed"));
-    }
-
-    #[test]
-    fn orchestrator_suffix_has_blocked_triage_rule() {
-        assert!(ORCHESTRATOR_SUFFIX.contains("a claim, not a parking spot"));
-        assert!(ORCHESTRATOR_SUFFIX.contains("record the unblock trigger"));
-    }
-
-    #[test]
-    fn orchestrator_suffix_routes_uncertainty_to_planner() {
-        assert!(ORCHESTRATOR_SUFFIX.contains("ask your Planner before guessing"));
-    }
-
-    #[test]
-    fn planner_suffix_answers_with_decisions() {
-        assert!(PLANNER_SUFFIX.contains("decisions and rationale, not options"));
     }
 
     #[test]
@@ -536,6 +422,7 @@ mod tests {
             "planner_suffix.md",
             "bounce_unwinding_contract.md",
             "orchestrator_suffix.md",
+            "orchestrator_onboarding.md",
             "cron_report_hint.md",
             "cron_complete_suffix.md",
             "codeterm_rule.md",

@@ -147,6 +147,7 @@ pub struct PlanStateSnapshot {
     // Pending gates minus authorized waivers — the set that actually blocks dispatch.
     pub blocking_regression_gates: Vec<super::milestone_gates::RegressionGate>,
     pub regression_overrides: Vec<RegressionGateOverride>,
+    pub review_gate: super::review_gate::ReviewGateStatus,
     pub next_actions: Vec<NextAction>,
 }
 
@@ -520,6 +521,7 @@ pub fn build_plan_state_snapshot(
         pending_regression_gates: super::milestone_gates::pending_regression_gates(plan),
         blocking_regression_gates: super::milestone_gates::blocking_regression_gates(plan),
         regression_overrides: plan.regression_gate_overrides.clone(),
+        review_gate: super::review_gate::review_gate_status(plan),
         next_actions: vec![],
     };
     snapshot.next_actions = compute_next_actions(&snapshot);
@@ -573,6 +575,11 @@ mod tests {
             status,
             review_stage: Default::default(),
             qa_state: None,
+            review_round: 0,
+            review_oracle: None,
+            review_evidence: vec![],
+            review_override: None,
+            review_audit: vec![],
             status_label: None,
             priority: Default::default(),
             created_at: 0,

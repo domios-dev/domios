@@ -32,6 +32,7 @@ mod plan_mode;
 mod plan_qa;
 mod plan_read;
 mod plan_refs;
+mod plan_review;
 mod plan_role_helpers;
 mod plan_task_dispatch;
 mod plan_task_rpc;

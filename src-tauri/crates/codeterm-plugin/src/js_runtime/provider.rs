@@ -70,8 +70,8 @@ impl From<SerdeSessionMessage> for SessionMessage {
 
 use crate::provider::{
     self, AgentLaunchParams, AgentProvider, ModelInfo, ProviderTrust, ReadinessStrategy,
-    SessionIdInjection, SessionMessage, SessionMetadata, SettingField, TaskDelivery,
-    VerifySubmitStrategy,
+    ReasoningEffortInfo, SessionIdInjection, SessionMessage, SessionMetadata, SettingField,
+    TaskDelivery, VerifySubmitStrategy,
 };
 
 use super::{
@@ -773,6 +773,30 @@ impl AgentProvider for JsProvider {
             return vec!["--model".into(), model.into()];
         }
         tmpl.iter().map(|t| t.replace("{model}", model)).collect()
+    }
+
+    fn reasoning_efforts(&self) -> Vec<ReasoningEffortInfo> {
+        self.manifest
+            .reasoning_efforts
+            .iter()
+            .map(ReasoningEffortInfo::from)
+            .collect()
+    }
+
+    fn default_reasoning_effort(&self) -> Option<String> {
+        self.manifest.default_reasoning_effort.clone()
+    }
+
+    fn reasoning_effort_launch_args(&self, effort: &str) -> Vec<String> {
+        if effort.is_empty() {
+            return Vec::new();
+        }
+        self.manifest
+            .commands
+            .reasoning_effort_launch_args_format
+            .iter()
+            .map(|t| t.replace("{effort}", effort))
+            .collect()
     }
 
     fn compact_command(&self) -> Option<&str> {
