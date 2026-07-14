@@ -9,6 +9,8 @@ export type {
   InteractiveElement,
   InteractiveQuestion,
   InteractiveOption,
+  ToolEventKind,
+  ToolEdit,
 } from "./types";
 export {
   shellCommandMessage,
@@ -27,6 +29,13 @@ export { matchedOptimisticEchoes, type OptimisticEcho } from "./dedupe";
 export { mergeTimelineMessages } from "./timeline";
 export { mergeById } from "./merge";
 export { attachToolResults, isRenderableChatMessage } from "./toolResults";
+export { countAddedLines, countRemovedLines, countAdded, countRemoved, type EditPair } from "./toolNormalize";
+export {
+  materializeToolEvent,
+  reduceToolEvents,
+  type TimelineItem,
+  type ToolEvent,
+} from "./toolEvents";
 export { buildToolPreview, type ToolPreview } from "./toolPreview";
 export { lastSessionResetIndex, trimAfterSessionReset } from "./sessionReset";
 export {
