@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import type { NormalizedChatMessage as ChatMessage, SlashCommand, EditPair } from "@codeterm/chat-core";
+import type { SlashCommand, EditPair } from "@codeterm/chat-core";
 import { parseMarker } from "@codeterm/chat-core";
 import { File, Image, Info, Mic, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
