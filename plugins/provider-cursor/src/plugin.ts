@@ -195,7 +195,7 @@ const plugin: PluginModule = {
       out.push({
         sessionId: stem,
         provider: "cursor",
-        projectPath: null,
+        projectPath: projectPathFromTranscript(root, f.path),
         title: null,
         summary: null,
         filePath: f.path,
@@ -439,6 +439,20 @@ function chatsRoot(): string | null {
 function projectsRoot(): string | null {
   const r = cursorRoot();
   return r ? r + pathSep() + "projects" : null;
+}
+
+function projectPathFromTranscript(root: string, transcript: string): string | null {
+  const sep = pathSep();
+  const prefix = root + sep;
+  if (transcript.indexOf(prefix) !== 0) return null;
+  const slug = transcript.substring(prefix.length).split(sep)[0] || "";
+  let candidate: string;
+  if (host.platform() === "windows" && /^[a-zA-Z]-/.test(slug)) {
+    candidate = slug.charAt(0).toUpperCase() + ":\\" + slug.substring(2).replace(/-/g, "\\");
+  } else {
+    candidate = "/" + slug.replace(/-/g, "/");
+  }
+  return host.fs.fileExists(candidate) ? candidate : null;
 }
 
 function toNativeCwd(cwd: string): string {

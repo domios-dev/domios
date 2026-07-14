@@ -1,6 +1,7 @@
 import type { ToolEdit, ToolEvent } from "@codeterm/chat-core";
 import { countAdded, countRemoved } from "@codeterm/chat-core";
 import { DiffView } from "../MarkdownBody";
+import { languageForEdits } from "../codeLanguage";
 import { ToolOutputContent } from "../ToolOutputContent";
 import { ToolCardFrame } from "./ToolCardFrame";
 
@@ -20,7 +21,7 @@ export function EditCard({ event, expanded, onToggle }: { event: ToolEvent; expa
   return <ToolCardFrame event={event} expanded={expanded} onToggle={onToggle} title="edit" metric={<span data-testid="toolcard-edit-summary" className="font-mono text-[10px]"><span className="text-green-500">+{added}</span> <span className="text-red-400">-{removed}</span></span>}>
     {expanded && Array.from(groups, ([path, fileEdits]) => <section key={path} data-testid="toolcard-edit-file" className="mt-2">
       <div className="mb-1 font-mono text-xs">{path} <span className="opacity-70">+{fileEdits.reduce((n, edit) => n + countAdded(edit), 0)} -{fileEdits.reduce((n, edit) => n + countRemoved(edit), 0)}</span></div>
-      <DiffView edits={fileEdits} />
+      <DiffView edits={fileEdits} language={languageForEdits(path, fileEdits)} />
     </section>)}
     {event.status === "error" && event.result && <div data-testid="toolcard-result" className="mt-2"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>}
   </ToolCardFrame>;

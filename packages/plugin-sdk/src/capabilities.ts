@@ -99,6 +99,11 @@ export interface AgentProvider {
   detectActiveSession?(cwd: string, currentSid?: string): string | null;
   detectSessionModel?(cwd: string, sessionId: string): string | null;
   enumerateSessions?(): unknown[];
+  describeSession?(filePath: string, head?: string): {
+    projectPath?: string;
+    title?: string;
+    summary?: string;
+  } | null;
   parseUsage?(rawText: string, nowMs: number): unknown;
   fetchUsage?(nowMs: number): unknown;
   discoverModels?(): ModelInfo[];

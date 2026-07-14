@@ -201,6 +201,33 @@ console.log("\n--- discoverModels ---\n");
 
 // never a "latest model in cwd" fallback that would surface a SIBLING's model.
 console.log("\n--- detectSessionModel (identity-bound, no cwd fallback) ---\n");
+
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (value: string) => value === dbPath,
+      sqliteQuery: () => [{
+        id: "ses_real",
+        directory: "D:/Developer/codeterm",
+        title: "Tool UI",
+        time_created: 1781000000000,
+        time_updated: 1781000005000,
+      }],
+    },
+  }));
+  eq(p.enumerateSessions(), [{
+    sessionId: "ses_real",
+    provider: "opencode",
+    projectPath: "D:/Developer/codeterm",
+    title: "Tool UI",
+    summary: null,
+    filePath: dbPath,
+    createdTs: 1781000000,
+    modifiedTs: 1781000005,
+  }], "OpenCode sessions expose their SQLite directory for resume");
+}
+
 {
   const dbPath = "~/.local/share/opencode/opencode.db";
   let cwdScanRan = false;
