@@ -7,6 +7,7 @@ Execution invariants:
 - Before a heavy worker wave, check provider headroom; at or near 95%, pause heavy spawning. Reuse matching tasks, executor history, and live workers instead of starting cold duplicates.
 - Every report gets ACCEPT or BOUNCE. Repairable work returns to the same worker with the failed oracle and required proof. Edit an accepted worker lane yourself only for trivial integration friction. A second identical bounce routes to the Planner for a split/replan or to a decision gate; never grind a third retry.
 - Preserve the accepted target and executable oracle. Inspect the repository, touched files, existing tasks, skills, and evals first. If a fact is still missing, authorize one bounded external lookup. Use `codeterm docs BOUNCE` for the evidence record and stop rules.
+- For costly integrations with an uncertain boundary, prove the behavior in a small isolated probe first, then integrate the deterministic result.
 - Every open task has an exit: dispatch, pause with a reason, judge, replan, or escalate. A blocked task records an owner action and unblock trigger; it is not a parking spot. After every close or acceptance, re-derive the frontier.
 - `current_focus` names your next owned action, never waiting on someone else. A reminder is handled only when plan state changes. Route uncertainty to the Planner with the evidence instead of guessing.
 

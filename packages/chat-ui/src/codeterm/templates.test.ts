@@ -1,5 +1,5 @@
 import { recognize } from "./recognize";
-import { renderTemplate, parseSend, planLink, isSend } from "./templates";
+import { renderTemplate, parseSend, planLink, isSend, navigationTarget } from "./templates";
 
 let passed = 0;
 let failed = 0;
@@ -12,6 +12,8 @@ function assert(cond: unknown, name: string) {
     console.error(`  ✗ ${name}`);
   }
 }
+
+assert(navigationTarget(inv("codeterm agent reports --tab e3fa0754"))?.kind === "tab", "reports targets its tab");
 
 function inv(cmd: string) {
   const i = recognize(cmd);

@@ -64,6 +64,10 @@ export function navigationTarget(inv: CodetermInvocation, result?: string): Navi
     const ref = typeof candidate === "string" ? candidate : undefined;
     return ref ? { kind: "tab", id: ref } : null;
   }
+  if (inv.path[0] === "agent" && inv.path[1] === "reports") {
+    const candidate = inv.flags.tab ?? inv.flags.pane;
+    return typeof candidate === "string" ? { kind: "tab", id: candidate } : null;
+  }
   if (inv.path[0] === "tab") {
     const candidate = inv.flags.tab ?? inv.flags.pane ?? inv.positionals[0];
     return typeof candidate === "string" ? { kind: "tab", id: candidate } : null;
@@ -124,6 +128,20 @@ function commandObject(command: string | undefined): string | undefined {
   const port = command.match(/(?:port[ =:]|:)(\d{4,5})\b/i)?.[1] ?? command.match(/\b(7[0-9]{3})\b/)?.[1];
   if (/build\.(?:sh|ps1)\s+dev/i.test(command)) return port ? `dev @ ${port}` : "dev";
   return command.trim().split(/\s+/).slice(0, 3).join(" ");
+}
+
+function reportFields(inv: CodetermInvocation): Array<{ label: string; value: string }> {
+  const body = flagText(inv, "text") ?? inv.positionals.find((value) => /(?:^|\n)(?:STATUS|CHANGES|TESTS RUN|GATES REQUESTED|FOLLOWUP):/i.test(value));
+  const fields = new Map<string, string>();
+  for (const line of body?.split(/\r?\n/) ?? []) {
+    const match = /^(STATUS|CHANGES|TESTS RUN|GATES REQUESTED|FOLLOWUP):\s*(.*)$/i.exec(line.trim());
+    if (match) fields.set(match[1].toLowerCase().replace(" run", ""), match[2]);
+  }
+  const status = flagText(inv, "status") ?? fields.get("status");
+  const sha = flagText(inv, "sha");
+  if (status) fields.set("status", status);
+  if (sha) fields.set("sha", sha);
+  return [...fields].map(([label, value]) => ({ label, value }));
 }
 
 /** Build the compact lead/object/chips payload used by the action card header. */
@@ -203,6 +221,17 @@ export function describeAction(inv: CodetermInvocation, result?: string, resolve
     const lead = action === "spawn" ? "spawn" : action === "list" ? "agents" : action;
     const provider = firstMeaningful(inv);
     const role = flagText(inv, "role");
+    if (action === "report") {
+      const task = firstRef(TASK_RE, inv, result);
+      const status = flagText(inv, "status");
+      const sha = flagText(inv, "sha");
+      return {
+        lead: "report",
+        object: task ? `${task} · ${status ?? "report"}` : status ?? "report",
+        chips: sha ? [sha] : [],
+        fields: reportFields(inv),
+      };
+    }
     const object = action === "spawn" ? [role, provider].filter(Boolean).join(" · ") : action === "reports" ? targetTab(inv, resolve) : action === "list" ? resultCount(result, "live") ?? "roster" : firstRef(TASK_RE, inv, result) ?? flagText(inv, "status") ?? provider;
     return { lead, object, chips: [flagText(inv, "model", "status"), action === "reports" ? resultCount(result, "reports") : undefined].filter((v): v is string => Boolean(v)), detail: flagText(inv, "task", "sha"), fields: action === "spawn" ? [{ label: "provider", value: provider ?? "default" }, { label: "model", value: flagText(inv, "model") ?? "default" }, { label: "role", value: role ?? "Worker" }] : undefined };
   }
@@ -313,7 +342,7 @@ const sendTextTemplate: TemplateFn = (inv, result, resolve) => {
 };
 
 const planTaskTemplate: TemplateFn = (inv, result) => {
-  const action = inv.positionals[0];
+  const action = inv.path[2] ?? inv.positionals[0];
   const link = planLink(inv, result);
   if (action === "update") {
     const status = strFlag(inv, "status");
