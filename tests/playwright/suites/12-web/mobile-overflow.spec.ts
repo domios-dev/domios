@@ -37,7 +37,7 @@ const OPTIONAL_SURFACES = [
   '[data-testid="sidebar"]',
 ] as const;
 
-type ReachabilityMode = "all" | "open-drawer";
+type ReachabilityMode = "all" | "open-drawer" | "peer-picker-menu";
 type CanvasLayerExpectation = "overlay" | "inline";
 
 type CreatedPane = { id: string; tab_id?: string };
@@ -51,7 +51,9 @@ type MuxState = {
 
 async function newWebPage(browser: Browser, viewport: { width: number; height: number }): Promise<Page> {
   const ctx = await browser.newContext({ viewport });
-  return ctx.newPage();
+  const page = await ctx.newPage();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  return page;
 }
 
 async function openApp(page: Page): Promise<void> {
@@ -118,6 +120,9 @@ async function collectViewportOffenders(page: Page, reachabilityMode: Reachabili
     const openBackdrop = mode === "open-drawer"
       ? document.querySelector(".ct-sidebar-backdrop.is-open")
       : null;
+    const peerPickerMenu = mode === "peer-picker-menu"
+      ? document.querySelector('[data-testid="peer-picker-menu"]')
+      : null;
     const clips = (value: string) => /auto|scroll|hidden|clip/.test(value);
     const isFullyClippedByAncestor = (el: HTMLElement, rect: DOMRect) => {
       let parent = el.parentElement;
@@ -172,17 +177,20 @@ async function collectViewportOffenders(page: Page, reachabilityMode: Reachabili
         const inOpenDrawer = !!openDrawer?.contains(el);
         const hitInOpenLayer = hit instanceof Node &&
           (!!openDrawer?.contains(hit) || hit === openDrawer || !!openBackdrop?.contains(hit) || hit === openBackdrop);
+        const inPeerPickerMenu = !!peerPickerMenu?.contains(el);
+        const hitInPeerPickerMenu = hit instanceof Node &&
+          (!!peerPickerMenu?.contains(hit) || hit === peerPickerMenu);
         const inBounds =
           left >= -1 &&
           right <= viewportWidth + 1 &&
           top >= -1 &&
           bottom <= viewportHeight + 1;
-        const layerReachabilityOk =
-          mode === "all"
-            ? reachable
-            : inOpenDrawer
-              ? reachable
-              : !reachable && hitInOpenLayer;
+        let layerReachabilityOk = reachable;
+        if (mode === "open-drawer") {
+          layerReachabilityOk = inOpenDrawer ? reachable : !reachable && hitInOpenLayer;
+        } else if (mode === "peer-picker-menu") {
+          layerReachabilityOk = inPeerPickerMenu ? reachable : reachable || (!reachable && hitInPeerPickerMenu);
+        }
         if (inBounds && layerReachabilityOk) return null;
         return {
           tag: el.tagName.toLowerCase(),
@@ -201,6 +209,8 @@ async function collectViewportOffenders(page: Page, reachabilityMode: Reachabili
           reachable,
           inOpenDrawer,
           hitInOpenLayer,
+          inPeerPickerMenu,
+          hitInPeerPickerMenu,
           hitTag: hit instanceof HTMLElement ? hit.tagName.toLowerCase() : null,
           hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
         };
@@ -390,6 +400,50 @@ async function assertPeerPickerReachable(page: Page, label: string): Promise<voi
     };
   });
   expect(result.reachable, `${label} peer picker reachable ${JSON.stringify(result)}`).toBe(true);
+}
+
+async function assertPaneModeTabsReachable(page: Page, label: string): Promise<void> {
+  const results = await page.locator('[data-testid="pane-mode-switch"] [role="tab"]').evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const el = node as HTMLElement;
+      const rect = el.getBoundingClientRect();
+      const x = Math.min(Math.max(rect.left + rect.width / 2, 0), document.documentElement.clientWidth - 1);
+      const y = Math.min(Math.max(rect.top + rect.height / 2, 0), document.documentElement.clientHeight - 1);
+      const hit = document.elementFromPoint(x, y);
+      return {
+        label: (el.innerText || el.textContent || "").trim(),
+        reachable: hit instanceof Node && (hit === el || el.contains(hit) || hit.contains(el)),
+        hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
+      };
+    }));
+  const tabNames = results.map((item) => item.label).sort();
+  expect(tabNames, `${label} pane mode tabs present ${JSON.stringify(results)}`).toEqual(["Chat", "Terminal"]);
+  expect(results.every((item) => item.reachable), `${label} pane mode tabs reachable ${JSON.stringify(results)}`).toBe(true);
+}
+
+async function assertPeerPickerMenuInverseOcclusion(page: Page, label: string): Promise<void> {
+  const result = await page.locator('[data-testid="pane-mode-switch"] [role="tab"]').evaluateAll((nodes) => {
+    const menu = document.querySelector('[data-testid="peer-picker-menu"]');
+    return nodes.map((node) => {
+      const el = node as HTMLElement;
+      const rect = el.getBoundingClientRect();
+      const x = Math.min(Math.max(rect.left + rect.width / 2, 0), document.documentElement.clientWidth - 1);
+      const y = Math.min(Math.max(rect.top + rect.height / 2, 0), document.documentElement.clientHeight - 1);
+      const hit = document.elementFromPoint(x, y);
+      return {
+        label: (el.innerText || el.textContent || "").trim(),
+        hitInPeerPickerMenu: hit instanceof Node && !!menu && (hit === menu || menu.contains(hit)),
+        reachable: hit instanceof Node && (hit === el || el.contains(hit) || hit.contains(el)),
+        hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
+      };
+    });
+  });
+  const tabNames = result.map((item) => item.label).sort();
+  expect(tabNames, `${label} inverse-occlusion pane mode tabs present ${JSON.stringify(result)}`).toEqual(["Chat", "Terminal"]);
+  expect(
+    result.every((item) => item.hitInPeerPickerMenu && !item.reachable),
+    `${label} inverse-occlusion peer menu covers Chat and Terminal tabs ${JSON.stringify(result)}`,
+  ).toBe(true);
 }
 
 async function waitForOpenDrawerStable(page: Page): Promise<void> {
@@ -754,6 +808,45 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     const blockedDrawerOffenders = await collectViewportOffenders(page, "open-drawer");
     const blockedDrawer = blockedDrawerOffenders.find((item) => item?.testid === "drawer-control");
     expect(blockedDrawer?.hitTestid).toBe("drawer-cover");
+
+    await page.setContent(`
+      <style>
+        html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+        #popup-occluded { position: absolute; left: 40px; top: 32px; width: 120px; height: 32px; }
+        #popup-unrelated { position: absolute; left: 40px; top: 112px; width: 120px; height: 32px; }
+        #unrelated-cover { position: absolute; left: 40px; top: 112px; width: 120px; height: 32px; z-index: 2; }
+        [data-testid="peer-picker-menu"] { position: absolute; left: 32px; top: 24px; width: 160px; height: 72px; z-index: 3; background: white; }
+        #popup-contained { position: absolute; left: 8px; top: 36px; width: 120px; height: 32px; }
+      </style>
+      <div id="root">
+        <button id="popup-occluded" data-testid="popup-occluded">occluded</button>
+        <button id="popup-unrelated" data-testid="popup-unrelated">unrelated</button>
+        <div id="unrelated-cover" data-testid="unrelated-cover"></div>
+        <div data-testid="peer-picker-menu">
+          <button id="popup-contained" data-testid="popup-contained">contained</button>
+        </div>
+      </div>
+    `);
+    const popupOffenders = await collectViewportOffenders(page, "peer-picker-menu");
+    const popupIds = popupOffenders.map((item) => item?.testid).sort();
+    expect(popupIds).not.toContain("popup-contained");
+    expect(popupIds).not.toContain("popup-occluded");
+    expect(popupIds).toContain("popup-unrelated");
+    const popupOccludedHit = await page.locator('[data-testid="popup-occluded"]').evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return {
+        reachable: hit instanceof Node && (hit === el || el.contains(hit) || hit.contains(el)),
+        hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
+      };
+    });
+    expect(popupOccludedHit).toEqual({ reachable: false, hitTestid: "peer-picker-menu" });
+
+    const popupCollectorSource = collectViewportOffenders.toString();
+    expect(popupCollectorSource).toContain('mode === "peer-picker-menu"');
+    expect(popupCollectorSource).toContain("inPeerPickerMenu ? reachable");
+    const popupLayerSource = assertPeerPickerMenuInverseOcclusion.toString();
+    expect(popupLayerSource).toContain("inverse-occlusion peer menu covers Chat and Terminal tabs");
   } finally {
     await page.context().close();
   }
@@ -792,8 +885,12 @@ for (const vp of VIEWPORTS) {
       await page.locator('[data-testid="peer-picker-menu"]').waitFor({ state: "visible", timeout: 5_000 });
       await settleLayout(page);
       await auditKnownSurfaces(page, `${vp.name} peer menu`);
-      await auditViewport(page, `${vp.name} peer menu`);
+      await auditViewport(page, `${vp.name} peer menu`, { reachability: "peer-picker-menu" });
+      await assertPeerPickerMenuInverseOcclusion(page, `${vp.name} peer menu`);
       await page.keyboard.press("Escape").catch(() => {});
+      await page.locator('[data-testid="peer-picker-menu"]').waitFor({ state: "hidden", timeout: 5_000 }).catch(() => {});
+      await settleLayout(page);
+      await assertPaneModeTabsReachable(page, `${vp.name} peer menu dismissed`);
 
       await page.locator('[data-testid="titlebar-settings"]').click();
       await page.locator('[data-testid="settings-menu"]').waitFor({ state: "visible", timeout: 5_000 });
