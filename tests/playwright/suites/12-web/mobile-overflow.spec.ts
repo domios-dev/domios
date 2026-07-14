@@ -400,65 +400,84 @@ async function auditKnownSurfaces(page: Page, label: string): Promise<void> {
 }
 
 async function auditSidebarDrawer(page: Page, label: string, expectedOpen: boolean): Promise<void> {
-  const drawer = page.locator(".ct-sidebar-drawer").first();
-  if (!expectedOpen && (await drawer.count()) === 0) {
-    await expect(page.locator('[data-testid="web-sidebar-open"]'), `${label} closed drawer trigger`).toBeVisible();
-    return;
-  }
-  await drawer.waitFor({ state: "attached", timeout: 5_000 });
-  const result = await drawer.evaluate((el, open) => {
-    const rect = el.getBoundingClientRect();
-    const style = window.getComputedStyle(el);
-    const viewportWidth = document.documentElement.clientWidth;
-    return {
-      open: el.classList.contains("is-open"),
-      ariaHidden: el.getAttribute("aria-hidden"),
-      inert: el.hasAttribute("inert"),
-      pointerEvents: style.pointerEvents,
-      left: rect.left,
-      right: rect.right,
-      width: rect.width,
-      viewportWidth,
-      visibleWidth: Math.max(0, Math.min(rect.right, viewportWidth) - Math.max(rect.left, 0)),
-      maxAllowed: viewportWidth * 0.85 + 1,
-    };
-  }, expectedOpen);
-  expect(result.open, `${label} drawer open state`).toBe(expectedOpen);
   if (expectedOpen) {
+    const drawer = page.locator(".ct-sidebar-drawer.is-open").first();
+    try {
+      await drawer.waitFor({ state: "attached", timeout: 5_000 });
+    } catch (error) {
+      throw new Error(`${label} drawer-never-opened: .ct-sidebar-drawer.is-open did not attach within 5000ms`, {
+        cause: error,
+      });
+    }
+    const result = await drawer.evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      const viewportWidth = document.documentElement.clientWidth;
+      return {
+        open: el.classList.contains("is-open"),
+        ariaHidden: el.getAttribute("aria-hidden"),
+        inert: el.hasAttribute("inert"),
+        pointerEvents: style.pointerEvents,
+        left: rect.left,
+        right: rect.right,
+        width: rect.width,
+        viewportWidth,
+        visibleWidth: Math.max(0, Math.min(rect.right, viewportWidth) - Math.max(rect.left, 0)),
+        maxAllowed: viewportWidth * 0.85 + 1,
+      };
+    });
+    expect(result.open, `${label} drawer open state`).toBe(true);
     expect(result.ariaHidden, `${label} open drawer aria-hidden`).toBe("false");
     expect(result.inert, `${label} open drawer inert`).toBe(false);
     expect(result.pointerEvents, `${label} open drawer pointer events`).toBe("auto");
     expect(result.left, `${label} open drawer left`).toBeGreaterThanOrEqual(-1);
     expect(result.visibleWidth, `${label} open drawer visible width`).toBeLessThanOrEqual(result.maxAllowed);
     expect(result.right, `${label} open drawer right`).toBeLessThanOrEqual(result.viewportWidth + 1);
-  } else {
-    expect(result.ariaHidden, `${label} closed drawer aria-hidden`).toBe("true");
-    expect(result.inert, `${label} closed drawer inert`).toBe(true);
-    expect(result.pointerEvents, `${label} closed drawer pointer events`).toBe("none");
-    expect(result.right, `${label} closed drawer offscreen`).toBeLessThanOrEqual(1);
-    const closedInteractive = drawer.locator(INTERACTIVE).first();
-    if ((await closedInteractive.count()) > 0) {
-      await closedInteractive.focus().catch(() => {});
-      const focusedInside = await drawer.evaluate((el) => el.contains(document.activeElement));
-      expect(focusedInside, `${label} closed drawer focus trap`).toBe(false);
-    }
-    const hitInside = await drawer.evaluate((el) => {
-      const rect = el.getBoundingClientRect();
-      const x = Math.min(Math.max(rect.left + Math.max(rect.width, 1) / 2, 0), document.documentElement.clientWidth - 1);
-      const y = Math.min(Math.max(rect.top + Math.max(rect.height, 1) / 2, 0), document.documentElement.clientHeight - 1);
-      const hit = document.elementFromPoint(x, y);
-      return !!hit && el.contains(hit);
-    });
-    expect(hitInside, `${label} closed drawer hit target`).toBe(false);
-    const backdrop = page.locator(".ct-sidebar-backdrop").first();
-    if ((await backdrop.count()) > 0) {
-      const backdropState = await backdrop.evaluate((el) => ({
-        ariaHidden: el.getAttribute("aria-hidden"),
-        pointerEvents: window.getComputedStyle(el).pointerEvents,
-      }));
-      expect(backdropState.ariaHidden, `${label} closed backdrop aria-hidden`).toBe("true");
-      expect(backdropState.pointerEvents, `${label} closed backdrop pointer events`).toBe("none");
-    }
+    return;
+  }
+
+  const result = await page.evaluate((interactiveSelector) => {
+    const drawer = document.querySelector(".ct-sidebar-drawer") as HTMLElement | null;
+    if (!drawer) return { present: false as const };
+    const rect = drawer.getBoundingClientRect();
+    const style = window.getComputedStyle(drawer);
+    const firstInteractive = drawer.querySelector(interactiveSelector) as HTMLElement | null;
+    firstInteractive?.focus();
+    const backdrop = document.querySelector(".ct-sidebar-backdrop") as HTMLElement | null;
+    const backdropStyle = backdrop ? window.getComputedStyle(backdrop) : null;
+    const x = Math.min(Math.max(rect.left + Math.max(rect.width, 1) / 2, 0), document.documentElement.clientWidth - 1);
+    const y = Math.min(Math.max(rect.top + Math.max(rect.height, 1) / 2, 0), document.documentElement.clientHeight - 1);
+    const hit = document.elementFromPoint(x, y);
+    return {
+      present: true as const,
+      open: drawer.classList.contains("is-open"),
+      ariaHidden: drawer.getAttribute("aria-hidden"),
+      inert: drawer.hasAttribute("inert"),
+      pointerEvents: style.pointerEvents,
+      right: rect.right,
+      focusedInside: drawer.contains(document.activeElement),
+      hitInside: !!hit && drawer.contains(hit),
+      backdrop: backdrop
+        ? {
+            ariaHidden: backdrop.getAttribute("aria-hidden"),
+            pointerEvents: backdropStyle?.pointerEvents,
+          }
+        : null,
+    };
+  }, INTERACTIVE);
+  await expect(page.locator('[data-testid="web-sidebar-open"]'), `${label} closed drawer trigger`).toBeVisible();
+  if (!result.present) return;
+
+  expect(result.open, `${label} drawer open state`).toBe(false);
+  expect(result.ariaHidden, `${label} closed drawer aria-hidden`).toBe("true");
+  expect(result.inert, `${label} closed drawer inert`).toBe(true);
+  expect(result.pointerEvents, `${label} closed drawer pointer events`).toBe("none");
+  expect(result.right, `${label} closed drawer offscreen`).toBeLessThanOrEqual(1);
+  expect(result.focusedInside, `${label} closed drawer focus trap`).toBe(false);
+  expect(result.hitInside, `${label} closed drawer hit target`).toBe(false);
+  if (result.backdrop) {
+    expect(result.backdrop.ariaHidden, `${label} closed backdrop aria-hidden`).toBe("true");
+    expect(result.backdrop.pointerEvents, `${label} closed backdrop pointer events`).toBe("none");
   }
 }
 
