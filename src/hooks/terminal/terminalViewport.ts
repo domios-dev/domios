@@ -6,6 +6,8 @@ type ViewportTerminal = Pick<Terminal, "scrollToBottom" | "scrollToLine"> & {
   };
 };
 
+type QueueableViewportTerminal = ViewportTerminal & Pick<Terminal, "write">;
+
 export interface TerminalViewport {
   followOutput: boolean;
   line: number;
@@ -25,4 +27,14 @@ export function restoreTerminalViewport(term: ViewportTerminal, viewport: Termin
     return;
   }
   term.scrollToLine(Math.min(viewport.line, term.buffer.active.baseY));
+}
+
+export function restoreTerminalViewportAfterQueue(
+  term: QueueableViewportTerminal,
+  viewport: TerminalViewport,
+  isCurrent: () => boolean,
+): void {
+  term.write("", () => {
+    if (isCurrent()) restoreTerminalViewport(term, viewport);
+  });
 }

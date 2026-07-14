@@ -475,7 +475,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                             data.len()
                         );
                     }
-                    coalesce_backend_chunks(&mut rx, &mut data).await;
+                    coalesce_backend_chunks(&mut rx, &mut data);
                     *session.backend_reader_rx.lock().unwrap() = Some(rx);
                     return Ok(data);
                 }
@@ -501,7 +501,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                     let result = rx.recv().await;
                     match result {
                         Some(mut data) => {
-                            coalesce_backend_chunks(&mut rx, &mut data).await;
+                            coalesce_backend_chunks(&mut rx, &mut data);
                             *session.backend_reader_rx.lock().unwrap() = Some(rx);
                             return Ok(data);
                         }
@@ -615,14 +615,9 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
     }
 }
 
-async fn coalesce_backend_chunks(
-    rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>,
-    data: &mut Vec<u8>,
-) {
-    const COALESCE_WAIT: std::time::Duration = std::time::Duration::from_millis(8);
+fn coalesce_backend_chunks(rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>, data: &mut Vec<u8>) {
     const COALESCE_CAP: usize = 64 * 1024;
 
-    tokio::time::sleep(COALESCE_WAIT).await;
     while data.len() < COALESCE_CAP {
         match rx.try_recv() {
             Ok(mut next) => data.append(&mut next),

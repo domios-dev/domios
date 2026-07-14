@@ -6,13 +6,19 @@ import { subscribePaneOutput, webOutputStreamActive, type PaneOutputSink } from 
 import { useMuxSelector } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
+import { writeTerminalHistory } from "./terminalHistoryWrite";
 import {
-  TERMINAL_WRITE_SLICE_BYTES,
-  writeTerminalBytesInFrames,
-  writeTerminalStringInFrames,
-} from "./terminalWriteFrames";
-import { captureTerminalViewport, restoreTerminalViewport, type TerminalViewport } from "./terminalViewport";
-import { claimInitialTerminalHistory } from "./terminalHistoryReplay";
+  captureTerminalViewport,
+  restoreTerminalViewport,
+  restoreTerminalViewportAfterQueue,
+  type TerminalViewport,
+} from "./terminalViewport";
+import {
+  abandonInitialTerminalHistory,
+  claimInitialTerminalHistory,
+  completeInitialTerminalHistory,
+  type TerminalHistoryClaim,
+} from "./terminalHistoryReplay";
 
 async function fetchPaneHistory(paneId: string): Promise<string> {
   try {
@@ -40,7 +46,6 @@ export interface UsePtyConnectionOptions {
   onPtySpawned?: (paneId: string, ptyId: string) => void;
   onShellReady: () => void;
   onOutputChunk: (text: string) => void;
-  jiggleResize: (ptyId: string) => void;
   localFitEnabled?: boolean;
   ioEnabled?: boolean;
   renderEnabled?: boolean;
@@ -62,7 +67,6 @@ export function usePtyConnection({
   onPtySpawned,
   onShellReady,
   onOutputChunk,
-  jiggleResize,
   localFitEnabled = true,
   ioEnabled = true,
   renderEnabled = true,
@@ -78,6 +82,7 @@ export function usePtyConnection({
   const cancelVisibleReplayRef = useRef<(() => void) | null>(null);
   const replayRequestRef = useRef(0);
   const replayTerminalRef = useRef<Terminal | null>(null);
+  const viewportRestoreRequestRef = useRef(0);
   // Web resets the tail cursor once per mount; toggles resume it.
   const webReplayedPtysRef = useRef<Set<string>>(new Set());
 
@@ -104,9 +109,7 @@ export function usePtyConnection({
       replayTerminalRef.current = null;
       onHistoryReplayStateChange?.(false);
     };
-    cancelVisibleReplayRef.current = typeof history === "string"
-      ? writeTerminalStringInFrames(term, history, complete)
-      : writeTerminalBytesInFrames(term, history, complete);
+    cancelVisibleReplayRef.current = writeTerminalHistory(term, history, complete);
   }, [cancelReplay, onHistoryReplayStateChange]);
 
   useEffect(() => {
@@ -115,11 +118,18 @@ export function usePtyConnection({
 
   useEffect(() => {
     const term = termRef.current;
+    const request = ++viewportRestoreRequestRef.current;
     if (!renderEnabled) {
       if (term) hiddenViewportRef.current = captureTerminalViewport(term);
       return;
     }
-    if (term) restoreTerminalViewport(term, hiddenViewportRef.current);
+    if (term) {
+      restoreTerminalViewportAfterQueue(
+        term,
+        hiddenViewportRef.current,
+        () => request === viewportRestoreRequestRef.current,
+      );
+    }
   }, [renderEnabled, termRef]);
 
   useEffect(() => () => {
@@ -144,6 +154,7 @@ export function usePtyConnection({
 
     let cleanupFns: (() => void)[] = [];
     let disposed = false;
+    let historyClaim: TerminalHistoryClaim | null = null;
 
     const setupAndConnect = async () => {
       const predictedId = ptyId || uid();
@@ -160,35 +171,32 @@ export function usePtyConnection({
           if (!useOutputStream) resetWebPtyTail(ptyId);
         }
       } else if (ptyId) {
-        if (claimInitialTerminalHistory(paneId)) {
+        const claim = claimInitialTerminalHistory(paneId);
+        if (claim) {
+          historyClaim = claim;
           const history = await fetchPaneHistory(paneId);
-          if (!disposed && history) {
+          if (disposed) {
+            abandonInitialTerminalHistory(claim);
+            return;
+          }
+          completeInitialTerminalHistory(claim);
+          historyClaim = null;
+          if (history) {
             replayHistory(term, history, { followOutput: true, line: 0 });
           }
         }
-        // One fit() + resize on every (re)connect to sync PTY dimensions.
-        requestAnimationFrame(() => {
-          if (!localFitEnabledRef.current) return;
-          try {
-            fitAddonRef.current?.fit();
-            jiggleResize(ptyId);
-          } catch { /* ignore */ }
-        });
       }
 
       let reading = true;
       let firstData = true;
       let staleRespawnStarted = false;
       const WRITE_HIGH_WATERMARK = 128 * 1024;
-      // Hand the frame-budgeted drainer a multi-slice payload so live bursts
-      // catch up faster than the old fixed 64KB/frame; it still yields per frame.
-      const LIVE_FLUSH_MAX_BYTES = TERMINAL_WRITE_SLICE_BYTES * 4;
+      const LIVE_FLUSH_MAX_BYTES = 256 * 1024;
       let pendingBytes = 0;
       let readPaused = false;
       let resumeResolve: (() => void) | null = null;
       let pendingWriteChunks: Uint8Array[] = [];
       let pendingWriteLength = 0;
-      let writeFrame: number | null = null;
       let cancelActiveWrite: (() => void) | null = null;
       const TRANSIENT_RETRY_BASE_MS = 500;
       const TRANSIENT_RETRY_MAX_MS = 8_000;
@@ -200,7 +208,6 @@ export function usePtyConnection({
       };
 
       const flushPendingWrites = () => {
-        writeFrame = null;
         if (!reading || disposed || pendingWriteLength === 0) return;
 
         const targetLength = Math.min(pendingWriteLength, LIVE_FLUSH_MAX_BYTES);
@@ -216,7 +223,7 @@ export function usePtyConnection({
         }
         pendingWriteLength -= targetLength;
 
-        cancelActiveWrite = writeTerminalBytesInFrames(term, payload, () => {
+        const completeWrite = () => {
           cancelActiveWrite = null;
           pendingBytes -= payload.length;
           if (readPaused && pendingBytes < WRITE_HIGH_WATERMARK / 2) {
@@ -224,9 +231,12 @@ export function usePtyConnection({
             resumeResolve?.();
             resumeResolve = null;
           }
-          if (pendingWriteLength > 0 && writeFrame == null) {
-            writeFrame = requestAnimationFrame(flushPendingWrites);
-          }
+          if (pendingWriteLength > 0) flushPendingWrites();
+        };
+        let cancelled = false;
+        cancelActiveWrite = () => { cancelled = true; };
+        term.write(payload, () => {
+          if (!cancelled) completeWrite();
         });
 
         if (firstData) {
@@ -243,9 +253,7 @@ export function usePtyConnection({
 
         pendingWriteChunks.push(chunk);
         pendingWriteLength += chunk.length;
-        if (writeFrame == null && cancelActiveWrite == null) {
-          writeFrame = requestAnimationFrame(flushPendingWrites);
-        }
+        if (cancelActiveWrite == null) flushPendingWrites();
       };
 
       // multiplexed output stream's `{ended: true}` frame both mean the same thing.
@@ -309,11 +317,6 @@ export function usePtyConnection({
           }
         }
       };
-      const onResizeDisposable = term.onResize(({ cols, rows }) => {
-        invoke("resize_pty", { ptyId: predictedId, cols, rows, clientId: resizeClientId });
-      });
-      cleanupFns.push(() => onResizeDisposable.dispose());
-
       if (IS_WEB && !useOutputStream) {
         const onBootChanged = () => resetWebPtyTail(predictedId);
         window.addEventListener("codeterm-web-boot-changed", onBootChanged);
@@ -382,10 +385,6 @@ export function usePtyConnection({
       cleanupFns.push(() => {
         reading = false;
         unsubscribeOutputStream?.();
-        if (writeFrame != null) {
-          cancelAnimationFrame(writeFrame);
-          writeFrame = null;
-        }
         pendingWriteChunks = [];
         pendingWriteLength = 0;
         cancelActiveWrite?.();
@@ -400,6 +399,7 @@ export function usePtyConnection({
 
     return () => {
       disposed = true;
+      if (historyClaim) abandonInitialTerminalHistory(historyClaim);
       for (const fn of cleanupFns) fn();
       connectedPtyRef.current = null;
     };

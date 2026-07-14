@@ -135,39 +135,27 @@ export const TerminalPane = memo(function TerminalPane({
     renderEnabled: renderTerminal,
   });
   const resizeClientId = useMemo(() => getResizeClientId(), []);
-  const claimTerminalOwnership = useCallback((force = false) => {
-    if (!ownsLivePty && !force) return;
-    const term = termRef.current;
-    const ptyIdNow = connectedPtyRef.current ?? ptyId ?? null;
-    if (!term || !ptyIdNow) return;
-    // Fit to the live container before claiming: a stale cols/rows (from when
-    // this pane was hidden/0-width) would resize the shared PTY to the wrong
-    // width for every client on claim/focus.
-    const el = containerRef.current;
-    if (el && el.clientWidth > 20 && el.clientHeight > 20) {
-      try { fitAddonRef.current?.fit(); } catch { /* ignore */ }
-    }
-    if (term.cols <= 0 || term.rows <= 0) return;
-    void claimResizeOwner(paneId, ptyIdNow, resizeClientId, term.cols, term.rows, force)
-      .then(() => invoke("resize_pty", {
-        ptyId: ptyIdNow,
-        cols: term.cols,
-        rows: term.rows,
-        clientId: resizeClientId,
-      }))
-      .catch(() => {});
-  }, [paneId, ptyId, resizeClientId, ownsLivePty, termRef, connectedPtyRef, fitAddonRef, containerRef]);
-
-  const { jiggleResize } = useTerminalResize({
+  const { commitResize } = useTerminalResize({
     containerRef,
     termRef,
     fitAddonRef,
     connectedPtyRef,
+    ptyId,
     termReady,
     isFocused,
     resizeEnabled: terminalVisible,
     resizeClientId,
   });
+  const claimTerminalOwnership = useCallback((force = false) => {
+    if (!ownsLivePty && !force) return;
+    const term = termRef.current;
+    const ptyIdNow = connectedPtyRef.current ?? ptyId ?? null;
+    if (!term || !ptyIdNow) return;
+    if (term.cols <= 0 || term.rows <= 0) return;
+    void claimResizeOwner(paneId, ptyIdNow, resizeClientId, term.cols, term.rows, force)
+      .then(commitResize)
+      .catch(() => {});
+  }, [paneId, ptyId, resizeClientId, ownsLivePty, termRef, connectedPtyRef, commitResize]);
 
   const shell = useShellIntegration({
     termRef, connectedPtyRef, paneId, ptyId, termReady,
@@ -185,7 +173,6 @@ export const TerminalPane = memo(function TerminalPane({
       shell.feedOutput(text);
       completion.feedOutput(text);
     },
-    jiggleResize,
     localFitEnabled: terminalVisible,
     ioEnabled: ownsLivePty,
     renderEnabled: renderTerminal,
@@ -306,27 +293,14 @@ export const TerminalPane = memo(function TerminalPane({
     if (!terminalVisible || !isVisible || !termReady) return;
     const raf = requestAnimationFrame(() => {
       const term = termRef.current;
-      const fit = fitAddonRef.current;
-      if (!term || !fit) return;
+      if (!term) return;
       try {
-        fit.fit();
         term.refresh(0, term.rows - 1);
-        const ptyId = connectedPtyRef.current;
-        if (ptyId && term.cols > 0 && term.rows > 0) {
-          void claimResizeOwner(paneId, ptyId, resizeClientId, term.cols, term.rows)
-            .then(() => invoke("resize_pty", {
-              ptyId,
-              cols: term.cols,
-              rows: term.rows,
-              clientId: resizeClientId,
-            }))
-            .catch(() => {});
-        }
       } catch { /* ignore */ }
       termRef.current?.focus();
     });
     return () => cancelAnimationFrame(raf);
-  }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, paneId, resizeClientId, termRef, fitAddonRef, connectedPtyRef]);
+  }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, termRef]);
 
   useEffect(() => {
     if (!terminalFallbackOpen || uiMode !== "chat") return;

@@ -90,6 +90,19 @@ Parallel lanes mean cold worktrees; these are the levers that keep builds fast
   targets (embed release, parser-eval) may get swept and rebuild once when
   next needed — cheap now, sccache serves the deps.
 
+## Lane integration preserves ancestry
+
+**Never cherry-pick commits out of a lane or worktree.** Accepted work lands by
+merging the lane branch with a real merge commit, so GitHub's graph and ancestry
+are the source of truth for what shipped. Replaying, squashing, patch-copying,
+or manually reproducing a lane commit is not integration and must not be used
+to make an unmerged branch merely look equivalent. Rebase the lane onto its
+target when needed, run its bounded review again, then merge the lane itself.
+
+Do not delete an accepted lane ref until `git merge-base --is-ancestor
+<lane-tip> <integration-tip>` succeeds. Patch-id equivalence is diagnostic only;
+it never satisfies cleanup, release, or merge-stack acceptance.
+
 **Pre-push gate is tiered by branch.** The `.githooks/pre-push` hook runs the
 FULL gate (shell guards, `cargo check`, fmt, clippy on both crates) only when
 pushing integration branches (`feat/*`, `develop`, `master`). Pushes of
@@ -244,6 +257,21 @@ Blocking/heavy work on the Tauri async runtime starves ALL IPC and freezes the W
 - **Blocking / IO / heavy / subprocess work in a Tauri command → `tokio::task::spawn_blocking`.** Synchronous `dispatch::dispatch`, disk reads, network, `Command::new` all qualify. A plain sync `fn` command runs on the runtime too — same rule applies.
 - **Hot-path commands (fire on tab switch / mount / render) must be cheap and bounded.** Cache expensive snapshots; rebuild on change (file-watcher / explicit action), never on every call.
 - **Measure before optimizing.** The dev build logs `[SLOW-IPC] <cmd> <ms>` + `[LONGTASK]` (frontend `invoke` wrapper → dev log). A trivial command (e.g. `get_config`) blocking seconds means the runtime is starved; the slow command that resolves FIRST is the cause, the rest are queued victims — don't chase the victims. Test under realistic load (many panes), not a clean 2-tab dev instance.
+
+## No sleeps or timer-driven coordination
+
+**Never use sleeps as control flow.** This applies across Rust, TypeScript,
+tests, scripts, launch pipelines, retries, UI lifecycle, PTY input, and process
+management. Forbidden mechanisms include `thread::sleep`, `tokio::time::sleep`,
+`setTimeout`, fixed-delay warmups, polling intervals, delayed Enter/input writes,
+and "settle" waits. They create races instead of proving readiness.
+
+State transitions must wait on explicit handles or observable events: channels,
+condvars, process exit, stream completion, PTY/screen signals, DOM events,
+Playwright locator state, or protocol acknowledgements. A timeout is allowed only
+as a bounded failure deadline around such an event wait; elapsed time must never
+be treated as successful readiness. If an API exposes no readiness signal, add
+one at the ownership boundary instead of adding a delay or retry loop.
 
 ## Process safety
 
@@ -435,7 +463,7 @@ Release preflight is mandatory before the version bump / master PR:
 - `develop` must already contain `origin/master` (`git merge-base --is-ancestor origin/master origin/develop`), or merge `origin/master` into `develop` first and resolve fallout before bumping the version.
 - The current release head must be reviewed in the main checkout, not an abandoned lane worktree. Start dev from `develop` and visually confirm the UI before opening the release PR.
 - Clean orchestration state before cutting: close finished worker panes, remove merged lane worktrees under `../codeterm-worktrees/`, and keep only intentionally preserved stashes.
-- Run `scripts/merge-stack-audit.sh --target <release-head> <accepted-lane-ref>...` before final QA. No accepted lane may remain as a dangling cherry-pick-only ref: it is either ancestry-merged, explicitly deferred, or patch-landed and deleted after equivalence is recorded.
+- Run `scripts/merge-stack-audit.sh --target <release-head> <accepted-lane-ref>...` before final QA. Every accepted lane must be ancestry-merged or explicitly deferred; patch-equivalent and cherry-pick-only refs fail the release preflight.
 - Run the release-head gates on the exact branch that will go to `master`; do not rely on old lane checks.
 - The `develop` → `master` PR must be green and mergeable before merge. Record the merged `origin/master` SHA and tag exactly that SHA.
 
