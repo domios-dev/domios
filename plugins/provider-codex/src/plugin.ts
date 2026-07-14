@@ -3,6 +3,8 @@ import { discoverCodexModels } from "./models";
 import { parseCodexPrompt, parseMenuOptions, responseKeysForIndex, type MenuOption } from "./prompt";
 import { readSessionMeta } from "./sessionMeta";
 import { parseCodexUsage } from "./usage";
+import { unwrapShellCommand } from "./execWrapper";
+import { patchEdits } from "./patchEdits";
 
 const CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 const TITLE_RE = /codex/i;
@@ -234,9 +236,10 @@ const plugin: PluginModule = {
         const name = typeof p.name === "string" ? p.name.trim() : "";
         if (!hasUsefulFunctionCall(name, input, p.arguments)) continue;
         const callId = typeof p.call_id === "string" ? p.call_id : "";
+        const canonical = canonicalToolFields(name, input);
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_use", data: { name: name || "tool", id: callId, input: input } }],
+          blocks: [{ kind: "tool_use", data: { name: name || "tool", id: callId, input: input, ...canonical } }],
           ts: ts,
           timestamp: tsIso,
         });
@@ -267,9 +270,10 @@ const plugin: PluginModule = {
           input = { patch: nestedPatch };
         }
         const callId = typeof p.call_id === "string" ? p.call_id : "";
+        const canonical = canonicalToolFields(name, input);
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_use", data: { name: name, id: callId, input: input } }],
+          blocks: [{ kind: "tool_use", data: { name: name, id: callId, input: input, ...canonical } }],
           ts: ts,
           timestamp: tsIso,
         });
@@ -808,6 +812,19 @@ function nestedApplyPatch(raw: string): string | null {
 }
 interface CodexHookEntry { matcher?: string; hooks?: CodexHookCmd[] }
 interface CodexHooks { hooks?: { SessionStart?: CodexHookEntry[] } }
+
+function canonicalToolFields(name: string, input: Record<string, unknown>): Record<string, unknown> {
+  const raw = typeof input.raw === "string" ? input.raw : "";
+  const command = typeof input.command === "string" ? input.command : typeof input.cmd === "string" ? input.cmd : "";
+  const shell = raw ? unwrapShellCommand(raw) : null;
+  const patch = typeof input.patch === "string" ? input.patch : name === "apply_patch" && typeof input.input === "string" ? input.input : "";
+  const edits = patch ? patchEdits(patch) : [];
+  if (shell) return { tool_kind: "command", tool_summary: shell.command, tool_detail: shell.command };
+  if (command.trim()) return { tool_kind: "command", tool_summary: command.trim(), tool_detail: command.trim() };
+  if (edits.length > 0) return { tool_kind: "edit", tool_summary: edits[0].path, tool_detail: patch, tool_edits: edits };
+  if (patch.indexOf("*** Begin Patch") >= 0) return { tool_kind: "edit", tool_summary: "Apply patch", tool_detail: patch, tool_edits: [] };
+  return { tool_kind: "generic", tool_summary: name || "Tool call", tool_detail: name || "Tool call" };
+}
 
 // Use function declarations for QuickJS strict-mode compatibility with bundler rewrites.
 function endsWith(s: string, suffix: string): boolean {
