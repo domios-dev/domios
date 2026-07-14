@@ -399,14 +399,6 @@ impl ServiceContext {
         // Pin agent_type before launch so detect_from_output has a durable session-id source.
         // Missing this tag leaves Codex/OpenCode panes unresumable after restart.
         self.set_and_lock_pane_agent_type(&pane_id, agent_cmd.clone());
-        if agent
-            .role
-            .as_deref()
-            .and_then(|role| Self::parse_role(role).ok())
-            == Some(crate::multiplexer::types::AgentRole::Orchestrator)
-        {
-            self.maybe_deliver_orchestrator_promotion_onboarding(&pane_id, false);
-        }
         let launch_session_id = if agent.resume_session_id.is_none() {
             self.agent_registry
                 .with_provider(&agent_cmd, |p| p.session_id_injection())
@@ -606,6 +598,7 @@ impl ServiceContext {
         if let Some(orphan) = self.mux.write().link_pty(&pane_id, pty_id.clone()) {
             self.kill_ptys(&[orphan]);
         }
+        crate::service::orchestrator::pane_relink_signal::notify_pane_relinked();
         self.emit_state_changed();
 
         let svc_reader = std::sync::Arc::new(self.clone());
@@ -788,6 +781,7 @@ impl ServiceContext {
         if let Some(orphan) = self.mux.write().link_pty(&pane_id, pty_id.clone()) {
             self.kill_ptys(&[orphan]);
         }
+        crate::service::orchestrator::pane_relink_signal::notify_pane_relinked();
         self.agent_run_pty_map
             .lock()
             .insert(pane_id.clone(), pty_id.clone());

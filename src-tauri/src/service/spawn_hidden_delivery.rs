@@ -9,17 +9,9 @@ pub(super) fn deliver_hidden_pty_task(
     provider: &str,
     task_text: &str,
 ) {
-    let warmup = svc
-        .agent_registry
-        .with_provider(provider, |p| p.task_input_warmup())
-        .unwrap_or_default();
-    if !warmup.is_zero() {
-        std::thread::sleep(warmup);
-    }
     if !svc.await_agent_tui_on_screen(pty_id, provider, std::time::Duration::from_secs(15)) {
         log::warn!(
-            "[spawn.hidden] timed out waiting for {} TUI before task delivery in pane {}",
-            provider,
+            "[spawn.hidden] timed out waiting for agent TUI before task delivery in pane {}",
             pane_id
         );
     }

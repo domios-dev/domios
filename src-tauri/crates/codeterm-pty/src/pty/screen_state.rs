@@ -12,6 +12,52 @@ pub struct PromptSignal {
     cv: Condvar,
 }
 
+#[derive(Default)]
+struct ScreenChangeState {
+    generation: u64,
+    closed: bool,
+}
+
+#[derive(Default)]
+pub struct ScreenChangeSignal {
+    state: Mutex<ScreenChangeState>,
+    cv: Condvar,
+}
+
+impl ScreenChangeSignal {
+    fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.state.lock().generation
+    }
+
+    fn mark_changed(&self) {
+        let mut state = self.state.lock();
+        state.generation = state.generation.wrapping_add(1);
+        self.cv.notify_all();
+    }
+
+    fn close(&self) {
+        let mut state = self.state.lock();
+        state.closed = true;
+        self.cv.notify_all();
+    }
+
+    pub fn wait_after(&self, generation: u64, timeout: Duration) -> bool {
+        let mut state = self.state.lock();
+        if state.generation != generation {
+            return true;
+        }
+        if state.closed {
+            return false;
+        }
+        let _ = self.cv.wait_for(&mut state, timeout);
+        !state.closed && state.generation != generation
+    }
+}
+
 impl PromptSignal {
     pub fn new() -> Arc<Self> {
         Arc::new(Self::default())
@@ -48,6 +94,7 @@ pub struct ScreenState {
     prompt_signals: HashMap<String, Arc<PromptSignal>>,
     bare_prompt_signals: HashMap<String, Arc<PromptSignal>>,
     agent_signals: HashMap<String, Arc<PromptSignal>>,
+    screen_change_signals: HashMap<String, Arc<ScreenChangeSignal>>,
 }
 
 impl ScreenState {
@@ -57,6 +104,7 @@ impl ScreenState {
             prompt_signals: HashMap::new(),
             bare_prompt_signals: HashMap::new(),
             agent_signals: HashMap::new(),
+            screen_change_signals: HashMap::new(),
         }
     }
 
@@ -83,6 +131,9 @@ impl ScreenState {
             if !signal.is_ready() && screen_has_agent_tui(&screen) {
                 signal.mark_ready();
             }
+        }
+        if let Some(signal) = self.screen_change_signals.get(pty_id) {
+            signal.mark_changed();
         }
     }
 
@@ -251,6 +302,13 @@ impl ScreenState {
         signal
     }
 
+    pub fn arm_screen_change_signal(&mut self, pty_id: &str) -> Arc<ScreenChangeSignal> {
+        self.screen_change_signals
+            .entry(pty_id.to_string())
+            .or_insert_with(ScreenChangeSignal::new)
+            .clone()
+    }
+
     pub fn remove(&mut self, pty_id: &str) {
         self.parsers.remove(pty_id);
         if let Some(sig) = self.prompt_signals.remove(pty_id) {
@@ -261,6 +319,9 @@ impl ScreenState {
         }
         if let Some(sig) = self.agent_signals.remove(pty_id) {
             sig.mark_ready();
+        }
+        if let Some(signal) = self.screen_change_signals.remove(pty_id) {
+            signal.close();
         }
     }
 }
@@ -594,5 +655,23 @@ mod tests {
         let sig = PromptSignal::new();
         let got = sig.wait(Duration::from_millis(30));
         assert!(!got);
+    }
+
+    #[test]
+    fn screen_change_signal_wakes_on_process_without_polling() {
+        let mut state = ScreenState::new();
+        let signal = state.arm_screen_change_signal("pty1");
+        let generation = signal.generation();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let waiter = signal.clone();
+        let handle = std::thread::spawn(move || {
+            tx.send(waiter.wait_after(generation, Duration::from_secs(1)))
+                .unwrap();
+        });
+
+        state.process("pty1", b"agent frame");
+
+        assert!(rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        handle.join().unwrap();
     }
 }

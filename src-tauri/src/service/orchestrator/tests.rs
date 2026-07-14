@@ -74,6 +74,15 @@ fn orchestrator_onboarding_is_sent_even_without_task_body() {
     assert!(task.contains(&crate::prompts::orchestrator_suffix()));
 }
 
+#[test]
+fn fresh_spawn_never_uses_existing_pane_promotion_delivery() {
+    for source in [include_str!("spawn.rs"), include_str!("../spawn.rs")] {
+        assert!(!source.contains("maybe_deliver_orchestrator_promotion_onboarding"));
+        assert!(source.contains("role_onboarding_task("));
+        assert!(source.contains("launch_agent_in_background("));
+    }
+}
+
 fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
     SpawnAgentParams {
         agent: Some(agent.to_string()),

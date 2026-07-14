@@ -15,6 +15,7 @@
 pub mod activity;
 pub mod agent_restart;
 pub mod boot_stage;
+mod boot_wait;
 mod command_port_impl;
 pub mod cron;
 pub mod general_agent;
