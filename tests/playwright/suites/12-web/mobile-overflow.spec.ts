@@ -37,7 +37,7 @@ const OPTIONAL_SURFACES = [
   '[data-testid="sidebar"]',
 ] as const;
 
-type ReachabilityMode = "all" | "open-drawer" | "peer-picker-menu";
+type ReachabilityMode = "all" | "open-drawer" | "peer-picker-menu" | "settings-menu";
 type CanvasLayerExpectation = "overlay" | "inline";
 
 type CreatedPane = { id: string; tab_id?: string };
@@ -123,6 +123,9 @@ async function collectViewportOffenders(page: Page, reachabilityMode: Reachabili
     const peerPickerMenu = mode === "peer-picker-menu"
       ? document.querySelector('[data-testid="peer-picker-menu"]')
       : null;
+    const settingsMenu = mode === "settings-menu"
+      ? document.querySelector('[data-testid="settings-menu"]')
+      : null;
     const clips = (value: string) => /auto|scroll|hidden|clip/.test(value);
     const isFullyClippedByAncestor = (el: HTMLElement, rect: DOMRect) => {
       let parent = el.parentElement;
@@ -180,6 +183,9 @@ async function collectViewportOffenders(page: Page, reachabilityMode: Reachabili
         const inPeerPickerMenu = !!peerPickerMenu?.contains(el);
         const hitInPeerPickerMenu = hit instanceof Node &&
           (!!peerPickerMenu?.contains(hit) || hit === peerPickerMenu);
+        const inSettingsMenu = !!settingsMenu?.contains(el);
+        const hitInSettingsMenu = hit instanceof Node &&
+          (!!settingsMenu?.contains(hit) || hit === settingsMenu);
         const inBounds =
           left >= -1 &&
           right <= viewportWidth + 1 &&
@@ -190,6 +196,8 @@ async function collectViewportOffenders(page: Page, reachabilityMode: Reachabili
           layerReachabilityOk = inOpenDrawer ? reachable : !reachable && hitInOpenLayer;
         } else if (mode === "peer-picker-menu") {
           layerReachabilityOk = inPeerPickerMenu ? reachable : reachable || (!reachable && hitInPeerPickerMenu);
+        } else if (mode === "settings-menu") {
+          layerReachabilityOk = inSettingsMenu ? reachable : reachable || (!reachable && hitInSettingsMenu);
         }
         if (inBounds && layerReachabilityOk) return null;
         return {
@@ -211,6 +219,8 @@ async function collectViewportOffenders(page: Page, reachabilityMode: Reachabili
           hitInOpenLayer,
           inPeerPickerMenu,
           hitInPeerPickerMenu,
+          inSettingsMenu,
+          hitInSettingsMenu,
           hitTag: hit instanceof HTMLElement ? hit.tagName.toLowerCase() : null,
           hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
         };
@@ -233,6 +243,8 @@ async function auditViewport(page: Page, label: string, options: { reachability?
 
   if (options.reachability === "open-drawer") {
     await waitForOpenDrawerStable(page);
+  } else if (options.reachability === "settings-menu") {
+    await page.locator('[data-testid="settings-menu"]').waitFor({ state: "visible", timeout: 5_000 });
   }
   const offenders = await collectViewportOffenders(page, options.reachability ?? "all");
   expect(offenders, `${label} offscreen or unreachable controls`).toEqual([]);
@@ -800,7 +812,7 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     expect(peerDismissSource).toContain('[data-testid="peer-picker-button"]');
     expect(peerDismissSource).toContain(".click()");
     expect(peerDismissSource).toContain('[data-testid="peer-picker-menu"]');
-    expect(peerDismissSource).toContain('state: "hidden", timeout: 5_000');
+    expect(peerDismissSource).toMatch(/state:\s*"hidden",\s*timeout:\s*5_?000/);
     expect(peerDismissSource).not.toContain("Escape");
     expect(peerDismissSource).not.toContain(".catch(");
 
@@ -897,6 +909,46 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     await page.setContent(`
       <style>
         html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+        #settings-occluded { position: absolute; left: 40px; top: 32px; width: 120px; height: 32px; }
+        #settings-unrelated { position: absolute; left: 40px; top: 112px; width: 120px; height: 32px; }
+        #settings-unrelated-cover { position: absolute; left: 40px; top: 112px; width: 120px; height: 32px; z-index: 2; }
+        [data-testid="settings-menu"] { position: absolute; left: 32px; top: 24px; width: 160px; height: 72px; z-index: 3; background: white; }
+        #settings-contained { position: absolute; left: 8px; top: 36px; width: 120px; height: 32px; }
+      </style>
+      <div id="root">
+        <button id="settings-occluded" data-testid="settings-occluded">occluded</button>
+        <button id="settings-unrelated" data-testid="settings-unrelated">unrelated</button>
+        <div id="settings-unrelated-cover" data-testid="settings-unrelated-cover"></div>
+        <div data-testid="settings-menu">
+          <button id="settings-contained" data-testid="settings-contained">contained</button>
+        </div>
+      </div>
+    `);
+    const settingsMenuOffenders = await collectViewportOffenders(page, "settings-menu");
+    const settingsMenuIds = settingsMenuOffenders.map((item) => item?.testid).sort();
+    expect(settingsMenuIds).not.toContain("settings-contained");
+    expect(settingsMenuIds).not.toContain("settings-occluded");
+    expect(settingsMenuIds).toContain("settings-unrelated");
+    const settingsOccludedHit = await page.locator('[data-testid="settings-occluded"]').evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return {
+        reachable: hit instanceof Node && (hit === el || el.contains(hit) || hit.contains(el)),
+        hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
+      };
+    });
+    expect(settingsOccludedHit).toEqual({ reachable: false, hitTestid: "settings-menu" });
+
+    const settingsCollectorSource = collectViewportOffenders.toString();
+    expect(settingsCollectorSource).toContain('mode === "settings-menu"');
+    expect(settingsCollectorSource).toContain("inSettingsMenu ? reachable");
+    const auditSource = auditViewport.toString();
+    expect(auditSource).toContain('[data-testid="settings-menu"]');
+    expect(auditSource).toMatch(/state:\s*"visible",\s*timeout:\s*5_?000/);
+
+    await page.setContent(`
+      <style>
+        html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
         [data-testid="pane-mode-switch"] { position: absolute; left: 40px; top: 40px; display: flex; gap: 8px; }
         [data-pane-id="foreign-pane"] [data-testid="pane-mode-switch"] { top: 160px; }
         [role="tab"] { width: 80px; height: 32px; }
@@ -985,7 +1037,7 @@ for (const vp of VIEWPORTS) {
       await page.locator('[data-testid="settings-menu"]').waitFor({ state: "visible", timeout: 5_000 });
       await settleLayout(page);
       await auditKnownSurfaces(page, `${vp.name} settings menu`);
-      await auditViewport(page, `${vp.name} settings menu`);
+      await auditViewport(page, `${vp.name} settings menu`, { reachability: "settings-menu" });
       await page.locator('[data-testid="settings-menu-general"]').click();
       await page.locator('[data-testid="settings-panel"]').waitFor({ state: "visible", timeout: 10_000 });
       await settleLayout(page);
