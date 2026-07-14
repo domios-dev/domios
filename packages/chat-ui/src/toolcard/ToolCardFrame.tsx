@@ -1,41 +1,70 @@
 import type { ToolEvent } from "@codeterm/chat-core";
-import { ChevronDown, Check, CircleX, LoaderCircle, ChevronRight } from "lucide-react";
+import { Check, CircleX, LoaderCircle, ChevronRight } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { toolKindVisual, useShowCommands } from "./toolKindVisual";
+import { toolKindVisual, useShowCommands, type ToolKindVisual } from "./toolKindVisual";
 
 interface ToolCardFrameProps {
   event: ToolEvent;
   expanded: boolean;
   onToggle: () => void;
   children: ReactNode;
-  title?: string;
+  command?: ReactNode;
+  title?: ReactNode;
+  summary?: ReactNode;
   metric?: ReactNode;
   chips?: ReactNode;
   tail?: ReactNode;
+  variant?: "smart" | "codeterm";
+  visualOverride?: ToolKindVisual;
 }
 
-export function ToolCardFrame({ event, expanded, onToggle, children, title, metric, chips, tail }: ToolCardFrameProps) {
+export function ToolCardFrame({ event, expanded, onToggle, children, command, title, summary, metric, chips, tail, variant = "smart", visualOverride }: ToolCardFrameProps) {
   const [commandOpen, setCommandOpen] = useState(false);
   const globalShowCommands = useShowCommands();
-  const visual = toolKindVisual[event.kind];
+  const visual = visualOverride ?? toolKindVisual[event.kind];
   const Glyph = visual.glyph;
   const isCommand = event.kind === "command" || event.kind === "codeterm";
-  const commandVisible = !isCommand || globalShowCommands || commandOpen || expanded;
+  const commandVisible = !isCommand || globalShowCommands || commandOpen;
   const statusColor = event.status === "error" ? "var(--ct-red)" : event.status === "pending" ? "var(--ct-yellow)" : "var(--ct-green)";
+  const borderColor = event.status === "error"
+    ? "color-mix(in srgb, var(--ct-red) 38%, var(--ct-border))"
+    : expanded || variant === "codeterm" ? "var(--ct-border)" : "transparent";
+  const background = event.status === "error"
+    ? "color-mix(in srgb, var(--ct-red) 6%, var(--ct-surface))"
+    : expanded || variant === "codeterm" ? "var(--ct-surface)" : "color-mix(in srgb, var(--ct-surface) 60%, transparent)";
+  const label = title === undefined ? visual.label : title;
 
   return (
     <div
       data-testid="chat-tool-call"
       data-tool-status={event.status}
-      className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 rounded-md border"
-      style={{ borderStyle: event.status === "error" ? "dashed" : "solid", borderColor: "var(--ct-border)", background: "var(--ct-surface)" }}
+      className="group/toolcard mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-lg border transition-colors hover:border-[var(--ct-border)] hover:bg-[var(--ct-surface)]"
+      style={{ borderStyle: event.status === "error" ? "dashed" : "solid", borderColor, background }}
     >
-      <div className="flex min-w-0 items-center gap-2 px-2.5 py-1.5 text-left text-xs">
-        <Glyph aria-hidden="true" size={14} strokeWidth={2} style={{ color: visual.color, flexShrink: 0 }} />
-        <span className="font-medium" style={{ color: visual.color }}>{title ?? visual.label}</span>
-        <span className="min-w-0 flex-1 truncate" style={{ color: "var(--ct-muted-fg)" }}>{event.summary || "Tool activity"}</span>
-        {metric ?? chips}
-        {!expanded && tail}
+      <div className="flex min-w-0 items-center gap-2.5 px-3 py-2 text-left text-xs">
+        <button
+          type="button"
+          aria-label={expanded ? "Collapse tool details" : "Expand tool details"}
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+        >
+          <span
+            className={`flex ${variant === "codeterm" ? "h-[26px] w-[26px] rounded-[7px] border" : "h-6 w-6 rounded-md"} shrink-0 items-center justify-center`}
+            style={{
+              color: visual.color,
+              background: `color-mix(in srgb, ${visual.color} 15%, transparent)`,
+              borderColor: variant === "codeterm" ? `color-mix(in srgb, ${visual.color} 34%, transparent)` : undefined,
+            }}
+          >
+            <Glyph aria-hidden="true" size={variant === "codeterm" ? 15 : 14} strokeWidth={2} />
+          </span>
+          <span className="flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]">
+            {label && <span className="shrink-0 font-semibold" style={{ color: visual.color }}>{label}</span>}
+            <span className="min-w-0 truncate" style={{ color: "var(--ct-fg)" }}>{(summary ?? event.summary) || "Tool activity"}</span>
+            {metric ?? chips}
+            {!expanded && tail}
+          </span>
+        </button>
         <span data-testid="toolcard-status" aria-label={event.status} style={{ color: statusColor }}>
           {event.status === "pending" ? <LoaderCircle className="animate-spin" size={14} /> : event.status === "error" ? <CircleX size={14} /> : <Check size={14} />}
         </span>
@@ -46,17 +75,27 @@ export function ToolCardFrame({ event, expanded, onToggle, children, title, metr
             data-testid="toolcard-command-open"
             aria-expanded={commandVisible}
             onClick={() => setCommandOpen((open) => !open)}
-            className="rounded-sm p-0.5"
-            style={{ color: "var(--ct-muted-fg)" }}
+            className="flex h-5 min-w-[22px] items-center justify-center rounded-[5px] border px-1.5 font-mono text-xs"
+            style={{
+              color: commandVisible ? visual.color : "var(--ct-muted-fg)",
+              borderColor: commandVisible ? `color-mix(in srgb, ${visual.color} 40%, transparent)` : "var(--ct-border)",
+              background: commandVisible ? `color-mix(in srgb, ${visual.color} 12%, transparent)` : "transparent",
+            }}
           >
-            <ChevronRight size={14} className={commandVisible ? "rotate-90" : ""} />
+            ❯
           </button>
         )}
-        <button type="button" aria-label={expanded ? "Collapse tool details" : "Expand tool details"} onClick={onToggle} className="rounded-sm p-0.5" style={{ color: "var(--ct-muted-fg)" }}>
-          <ChevronDown size={13} className={expanded ? "rotate-180" : ""} />
-        </button>
+        <ChevronRight aria-hidden="true" size={14} className={expanded ? "rotate-90" : ""} style={{ color: "var(--ct-muted-fg)" }} />
       </div>
-      {(expanded || (isCommand && commandVisible)) && <div className="border-t px-2.5 py-2" style={{ borderColor: "var(--ct-border)" }}>{children}</div>}
+      {isCommand && commandVisible && command}
+      {expanded && (
+        <div
+          className={variant === "codeterm" ? "border-t px-3.5 pb-3 pt-2" : "pb-3 pl-[46px] pr-3 pt-0.5"}
+          style={{ borderColor: "var(--ct-border)" }}
+        >
+          {children}
+        </div>
+      )}
     </div>
   );
 }

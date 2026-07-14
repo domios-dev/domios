@@ -1,7 +1,6 @@
 import type { ToolEvent } from "@codeterm/chat-core";
 import { ToolOutputContent } from "../ToolOutputContent";
 import { ToolCardFrame } from "./ToolCardFrame";
-import { toolKindVisual } from "./toolKindVisual";
 
 function counts(event: ToolEvent): { matches: string; files: string } {
   const text = [event.summary, event.detail, event.result].filter(Boolean).join("\n");
@@ -12,7 +11,7 @@ function counts(event: ToolEvent): { matches: string; files: string } {
 
 export function SearchCard({ event, expanded, onToggle }: { event: ToolEvent; expanded: boolean; onToggle: () => void }) {
   const result = counts(event);
-  return <ToolCardFrame event={event} expanded={expanded} onToggle={onToggle} title={toolKindVisual.search.label} chips={<span data-testid="toolcard-search-counts" className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px]" style={{ color: "var(--ct-muted-fg)", background: "var(--ct-border)" }}>{result.matches} matches · {result.files} files</span>}>
+  return <ToolCardFrame event={event} expanded={expanded} onToggle={onToggle} title="⌕" chips={<span data-testid="toolcard-search-counts" className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px]" style={{ color: "var(--ct-muted-fg)", background: "var(--ct-border)" }}>{result.matches} matches · {result.files} files</span>}>
     {event.status === "pending" ? <div data-testid="toolcard-spinner" style={{ color: "var(--ct-muted-fg)" }}>Searching…</div> : event.result && <div data-testid="toolcard-result"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>}
   </ToolCardFrame>;
 }
