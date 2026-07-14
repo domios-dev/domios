@@ -37,6 +37,7 @@ import { reattachPaneChat } from "./chatReattach";
 import { planRefViewState } from "./planRefViewState";
 import { shouldRestoreChatViewport } from "./chatViewport";
 import { FloatingTooltip } from "../shared/FloatingTooltip";
+import { resolveTabNavigationTarget } from "./tabNavigation";
 
 interface Props {
   paneId: string;
@@ -118,7 +119,7 @@ export function PaneSessionChat({
     setShowScrollDown(false);
   }, []);
 
-  const { setFocusedPane, addNotification, setActiveWorkspace } = useMultiplexer();
+  const { setFocusedPane, selectTabByPane, addNotification, setActiveWorkspace } = useMultiplexer();
   const paneSelector = useCallback((s: Parameters<typeof selectPane>[0]) => selectPane(s, paneId), [paneId]);
   const pane = useMuxSelector(paneSelector, paneFieldsEqual);
   const paneTitleMap = useMuxSelector(selectPaneTitleMap, paneTitleMapEqual);
@@ -362,9 +363,9 @@ export function PaneSessionChat({
   );
 
   const resolveFocusTab = useCallback((ref: string) => {
-    const fullId = Object.keys(paneAgentTypes).find((id) => id === ref || id.startsWith(ref));
-    if (fullId) setFocusedPane(fullId);
-  }, [paneAgentTypes, setFocusedPane]);
+    const target = resolveTabNavigationTarget(ref, Object.keys(paneAgentTypes), planNav.workspaces);
+    if (target) void selectTabByPane(target.workspaceId, target.paneId);
+  }, [paneAgentTypes, planNav.workspaces, selectTabByPane]);
 
   useEffect(() => {
     if (backendState?.state === "working" || pendingPrompt) {
