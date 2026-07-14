@@ -42,6 +42,8 @@ interface TabPrewarmInput {
   workspaceId: string | null;
   activeTabId: string | null;
   tabIds: readonly string[];
+  liveTabIds: readonly string[];
+  prewarmTab: (tabId: string) => Promise<void>;
 }
 
 interface FrameScheduler {
@@ -56,17 +58,18 @@ const browserFrameScheduler: FrameScheduler = {
 
 export function scheduleSequentialPrewarm(
   tabIds: readonly string[],
-  mount: (tabId: string) => void,
+  prewarm: (tabId: string) => Promise<void>,
   scheduler: FrameScheduler = browserFrameScheduler,
 ): () => void {
   let cancelled = false;
   let index = 0;
   let handle = 0;
-  const next = () => {
+  const next = async () => {
     if (cancelled) return;
     const id = tabIds[index];
     if (!id) return;
-    mount(id);
+    await prewarm(id);
+    if (cancelled) return;
     index += 1;
     if (index < tabIds.length) handle = scheduler.request(next);
   };
@@ -77,22 +80,36 @@ export function scheduleSequentialPrewarm(
   };
 }
 
-export function useTabPrewarm({ workspaceId, activeTabId, tabIds }: TabPrewarmInput): ReadonlySet<string> {
+export function retainLiveTabs(mounted: ReadonlySet<string>, liveTabIds: readonly string[]): Set<string> {
+  const live = new Set(liveTabIds);
+  return new Set(Array.from(mounted).filter((id) => live.has(id)));
+}
+
+export function useTabPrewarm({
+  workspaceId,
+  activeTabId,
+  tabIds,
+  liveTabIds,
+  prewarmTab,
+}: TabPrewarmInput): ReadonlySet<string> {
   const recentByWorkspace = useRef(new Map<string, string[]>());
   const [warmedTabIds, setWarmedTabIds] = useState<Set<string>>(() => new Set());
   const tabKey = tabIds.join("\u0000");
+  const liveTabKey = liveTabIds.join("\u0000");
 
   useEffect(() => {
-    setWarmedTabIds(new Set());
     if (!workspaceId || !activeTabId) return;
 
     const recent = recordRecentTab(recentByWorkspace.current.get(workspaceId) ?? [], activeTabId);
     recentByWorkspace.current.set(workspaceId, recent.filter((id) => tabIds.includes(id)));
+    setWarmedTabIds((current) => new Set(current).add(activeTabId));
     const candidates = selectPrewarmTabIds(tabIds, activeTabId, recent);
-    return scheduleSequentialPrewarm(candidates, (id) => {
-      setWarmedTabIds((current) => new Set(current).add(id));
-    });
-  }, [workspaceId, activeTabId, tabKey]);
+    return scheduleSequentialPrewarm(candidates, prewarmTab);
+  }, [workspaceId, activeTabId, tabKey, prewarmTab]);
+
+  useEffect(() => {
+    setWarmedTabIds((current) => retainLiveTabs(current, liveTabIds));
+  }, [liveTabKey]);
 
   return warmedTabIds;
 }
