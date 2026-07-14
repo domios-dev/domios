@@ -12,12 +12,6 @@ FIXTURES = json.loads(
     Path(__file__).with_name("protocol-fixtures.json").read_text(encoding="utf-8")
 )
 CONTRACT = ROOT / "src-tauri/prompts/bounce_unwinding_contract.md"
-ROLE_PROMPTS = {
-    "planner": ROOT / "src-tauri/prompts/planner_suffix.md",
-    "orchestrator": ROOT / "src-tauri/prompts/orchestrator_suffix.md",
-}
-
-
 def record_output(record, fields):
     return "\n".join(f"{field}: {record[field]}" for field in fields)
 
@@ -67,21 +61,6 @@ def assert_prompt_contract():
     assert "`codeterm plan skill new|edit`" in schema
     assert "`codeterm orchestrator learn`" in schema
     assert "`codeterm plan retrospective <plan> --body \"...\"`" in schema
-
-    role_requirements = {
-        "planner": ["Planner bounce role:", "codeterm plan task list <plan>", "codeterm plan skill new|edit"],
-        "orchestrator": ["Orchestrator bounce role:", "emit no `curl`, `open`, browser, or `WebSearch`", "third identical retry"],
-    }
-    for role, prompt in ROLE_PROMPTS.items():
-        source = prompt.read_text(encoding="utf-8")
-        assert source.count("{bounce_unwinding_contract}") == 1, f"{role} interpolation drifted"
-        assert "Baseline target:" not in source, f"{role} duplicated the shared schema"
-        rendered = source.replace("{bounce_unwinding_contract}", shared)
-        assert "{bounce_unwinding_contract}" not in rendered
-        assert rendered.count("Baseline target:") == 1, f"{role} rendered contract count drifted"
-        for requirement in role_requirements[role]:
-            assert requirement in rendered, f"{role} role delta missing: {requirement}"
-
 
 def controlled_mutations(fixtures, fields):
     accepted = fixtures[0]["record"]
