@@ -4,7 +4,9 @@ import { pollUntil } from "./poll";
 import { stubPaneOutput } from "./stub-gate";
 
 const STUB_PROVIDER = "claude";
-const READY_CAP_MS = 8_000;
+// 30s (old proven stub-gate value) covers cold first-spawn PTY warmup; charged to
+// the worker-fixture timeout, never the per-test --timeout=30000 measurement window.
+const READY_CAP_MS = 30_000;
 
 type SpawnedPane = { pane_id: string };
 
