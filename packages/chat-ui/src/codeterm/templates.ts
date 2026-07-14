@@ -22,6 +22,7 @@ export interface ActionDescriptor {
   chips: string[];
   detail?: string;
   bullets?: string[];
+  fields?: Array<{ label: string; value: string }>;
 }
 
 /** Resolve a pane id/short-id to a human tab name. Returns undefined when unknown. */
@@ -63,6 +64,10 @@ export function navigationTarget(inv: CodetermInvocation, result?: string): Navi
     const ref = typeof candidate === "string" ? candidate : undefined;
     return ref ? { kind: "tab", id: ref } : null;
   }
+  if (inv.path[0] === "tab") {
+    const candidate = inv.flags.tab ?? inv.flags.pane ?? inv.positionals[0];
+    return typeof candidate === "string" ? { kind: "tab", id: candidate } : null;
+  }
   const planId = firstRef(PLAN_RE, inv, result);
   const taskId = firstRef(TASK_RE, inv, result);
   const sectionId = firstRef(SECTION_RE, inv, result);
@@ -74,7 +79,7 @@ export function navigationTarget(inv: CodetermInvocation, result?: string): Navi
   if (sectionId && planId) return { kind: "section", id: sectionId, planId };
   if (taskId && planId) return { kind: "task", id: taskId, planId };
   if (specId) return { kind: "spec", id: specId };
-  if (inv.path[0] === "plan" && inv.positionals[0] === "goal" && planId) return { kind: "goal", id: planId, planId };
+  if (inv.path[0] === "plan" && inv.path[1] === "goal" && planId) return { kind: "goal", id: planId, planId };
   if (memoryId) return { kind: "memory", id: memoryId };
   if (sourceId) return { kind: "source", id: sourceId };
   if (planId) return { kind: "plan", id: planId };
@@ -97,39 +102,135 @@ function safeObject(value: string | undefined, fallback: string): string {
   return value && !/\b(?:pl|task|sec|sp|spec|mem|src)_[a-z0-9][a-z0-9_-]*/i.test(value) ? value : fallback;
 }
 
+function resultCount(result: string | undefined, noun: string): string | undefined {
+  if (!result?.trim()) return undefined;
+  try {
+    const parsed = JSON.parse(result);
+    const count = Array.isArray(parsed) ? parsed.length : Array.isArray(parsed?.items) ? parsed.items.length : undefined;
+    return count == null ? undefined : `${count} ${noun}`;
+  } catch {
+    const lines = result.split("\n").filter((line) => line.trim()).length;
+    return lines > 1 ? `${lines} ${noun}` : undefined;
+  }
+}
+
+function targetTab(inv: CodetermInvocation, resolve?: PaneNameResolver): string {
+  const ref = flagText(inv, "tab", "pane") ?? inv.positionals[0];
+  return ref ? resolve?.(ref) ?? `tab ${ref}` : "current tab";
+}
+
+function commandObject(command: string | undefined): string | undefined {
+  if (!command) return undefined;
+  const port = command.match(/(?:port[ =:]|:)(\d{4,5})\b/i)?.[1] ?? command.match(/\b(7[0-9]{3})\b/)?.[1];
+  if (/build\.(?:sh|ps1)\s+dev/i.test(command)) return port ? `dev @ ${port}` : "dev";
+  return command.trim().split(/\s+/).slice(0, 3).join(" ");
+}
+
 /** Build the compact lead/object/chips payload used by the action card header. */
 export function describeAction(inv: CodetermInvocation, result?: string, resolve?: PaneNameResolver): ActionDescriptor {
   const path = inv.path.join(" ");
   if (isSend(inv)) {
     const sent = parseSend(inv, result, resolve);
-    return { lead: "send", object: sent.recipient, chips: sent.mesh ? [sent.mesh] : [], detail: sent.body };
+    return { lead: sent.mesh ? "mesh →" : "send", object: sent.mesh ?? sent.recipient, chips: sent.mesh ? ["peer"] : [], detail: sent.body };
   }
-  if (path === "plan goal" || (inv.path[0] === "plan" && inv.positionals[0] === "goal")) {
-    return { lead: "goal", object: "Goal", chips: [], detail: flagText(inv, "vector", "vision") };
+  if (path === "tab get-text") {
+    const tab = targetTab(inv, resolve);
+    return { lead: "tab get-text", object: tab, chips: [resultCount(result, "lines")].filter((v): v is string => Boolean(v)), fields: [{ label: "source", value: tab }] };
   }
-  if (inv.path[0] === "plan" && (inv.path[1] === "task" || inv.positionals[0] === "task")) {
+  if (path === "tab new") {
+    const command = flagText(inv, "cmd");
+    return { lead: "tab new", object: commandObject(command) ?? "new tab", chips: ["new tab"], fields: command ? [{ label: "command", value: command }] : undefined };
+  }
+  if (path === "tab list") {
+    return { lead: "tabs", object: resultCount(result, "tabs") ?? "workspace tabs", chips: [] };
+  }
+  if (path === "tab focus") {
+    return { lead: "tab focus", object: targetTab(inv, resolve), chips: ["focused"] };
+  }
+  if (inv.path[0] === "tab") {
+    return { lead: path, object: targetTab(inv, resolve), chips: [], detail: flagText(inv, "cmd", "query") };
+  }
+  if (path === "workspace focus") {
+    return { lead: "workspace", object: firstMeaningful(inv) ?? "current", chips: ["focused"] };
+  }
+  if (path === "workspace list") {
+    return { lead: "workspaces", object: resultCount(result, "workspaces") ?? "available", chips: [] };
+  }
+  if (inv.path[0] === "workspace") {
+    return { lead: path, object: firstMeaningful(inv) ?? flagText(inv, "name") ?? "workspace", chips: [] };
+  }
+  if (path === "plan create") {
+    return { lead: "plan", object: flagText(inv, "title") ?? "New plan", chips: [], fields: [{ label: "title", value: flagText(inv, "title") ?? "New plan" }] };
+  }
+  if (path === "plan goal set") {
+    const plan = firstRef(PLAN_RE, inv, result) ?? "plan";
+    return { lead: "goal", object: `set on ${plan}`, chips: [], fields: ["vector", "constraint", "postulate"].map((key) => ({ label: key, value: flagText(inv, key) ?? "—" })) };
+  }
+  if (inv.path[0] === "plan" && inv.path[1] === "task") {
     const task = firstRef(TASK_RE, inv, result);
     const name = flagText(inv, "name", "title") ?? firstMeaningful(inv, "task", "add", "update", "close");
-    return { lead: "plan task", object: safeObject(name, "Task"), chips: [task ? "task" : ""].filter(Boolean), detail: flagText(inv, "test-plan", "criterion", "correctness", "why") };
+    const action = inv.path[2];
+    const changingDeps = action === "update" && (inv.flags["clear-dependencies"] === true || inv.flags["depends-on"] != null);
+    const lead = changingDeps ? "task deps" : action === "update" ? "task edit" : action === "close" ? "close" : action === "dispatch" ? "dispatch" : "plan task";
+    const model = flagText(inv, "model");
+    return { lead, object: safeObject(name, task ? "Task" : "New task"), chips: [model, action === "close" ? "done" : undefined].filter((v): v is string => Boolean(v)), detail: flagText(inv, "test-plan", "criterion", "correctness", "why"), fields: model ? [{ label: "model", value: model }] : undefined };
   }
-  if (inv.path[0] === "plan" && (inv.path[1] === "section" || inv.positionals[0] === "section")) {
+  if (inv.path[0] === "plan" && inv.path[1] === "section") {
     const section = firstRef(SECTION_RE, inv, result) ?? flagText(inv, "handle");
-    return { lead: "section", object: safeObject(flagText(inv, "title", "name"), "Section"), chips: section && !SECTION_RE.test(section) ? [section] : [], detail: flagText(inv, "body", "body-file") };
+    return { lead: inv.path[2] === "update" ? "section edit" : "section", object: safeObject(flagText(inv, "title", "name"), section ?? "Section"), chips: section && !SECTION_RE.test(section) ? [section] : [], detail: flagText(inv, "body", "body-file") };
   }
+  if (path === "plan record") {
+    const task = firstRef(TASK_RE, inv, result);
+    return { lead: "decision", object: task ? "on task" : firstRef(PLAN_RE, inv, result) ?? "plan", chips: [], detail: firstMeaningful(inv) ?? flagText(inv, "step") };
+  }
+  if (path === "plan retrospective") return { lead: "retro", object: firstRef(PLAN_RE, inv, result) ?? "plan", chips: [], detail: flagText(inv, "body") ?? firstMeaningful(inv) };
+  if (path === "plan state") return { lead: "state", object: firstRef(PLAN_RE, inv, result) ?? "plan", chips: [] };
+  if (path === "plan skill new") return { lead: "skill", object: firstMeaningful(inv) ?? "new skill", chips: [] };
   if (inv.path[0] === "spec") {
     const spec = firstRef(SPEC_RE, inv, result);
-    const isSection = inv.path[1] === "section" || inv.positionals[0] === "section";
-    return { lead: isSection ? "spec §" : "spec", object: safeObject(flagText(inv, "title", "name"), isSection ? "Section" : "Spec"), chips: spec && !SPEC_RE.test(spec) ? [spec] : [], detail: flagText(inv, "body", "body-file") };
+    const isSection = inv.path[1] === "section";
+    const isLink = inv.path[1] === "link";
+    const from = flagText(inv, "spec-section");
+    const to = flagText(inv, "plan-section");
+    return { lead: isLink ? "link" : isSection ? "spec §" : "spec", object: isLink && (from || to) ? `${from ?? "spec"} → ${to ?? "plan"}` : safeObject(flagText(inv, "title", "name"), isLink ? "spec to plan" : isSection ? "Section" : "Spec"), chips: spec && !SPEC_RE.test(spec) ? [spec] : [], detail: flagText(inv, "body", "body-file"), fields: isLink ? [{ label: "from", value: from ?? "spec" }, { label: "to", value: to ?? "plan" }] : undefined };
   }
   if (inv.path[0] === "mem") {
     const memory = firstRef(MEMORY_RE, inv, result);
-    return { lead: `mem ${inv.path[1] ?? "action"}`, object: safeObject(flagText(inv, "title") ?? memory ?? firstMeaningful(inv), "Memory item"), chips: [flagText(inv, "kind") ?? ""].filter(Boolean), detail: firstMeaningful(inv) };
+    return { lead: path, object: safeObject(flagText(inv, "title") ?? memory ?? firstMeaningful(inv), inv.path[1] === "wake-up" ? "identity + critical" : "Memory item"), chips: [flagText(inv, "kind") ?? resultCount(result, "hits")].filter((v): v is string => Boolean(v)), detail: firstMeaningful(inv) };
   }
   if (inv.path[0] === "agent") {
-    return { lead: `agent ${inv.path[1] ?? "action"}`, object: firstMeaningful(inv) ?? flagText(inv, "role", "model"), chips: [flagText(inv, "model", "status") ?? ""].filter(Boolean), detail: flagText(inv, "task", "sha") };
+    const action = inv.path[1] ?? "action";
+    const lead = action === "spawn" ? "spawn" : action === "list" ? "agents" : action;
+    const provider = firstMeaningful(inv);
+    const role = flagText(inv, "role");
+    const object = action === "spawn" ? [role, provider].filter(Boolean).join(" · ") : action === "reports" ? targetTab(inv, resolve) : action === "list" ? resultCount(result, "live") ?? "roster" : firstRef(TASK_RE, inv, result) ?? flagText(inv, "status") ?? provider;
+    return { lead, object, chips: [flagText(inv, "model", "status"), action === "reports" ? resultCount(result, "reports") : undefined].filter((v): v is string => Boolean(v)), detail: flagText(inv, "task", "sha"), fields: action === "spawn" ? [{ label: "provider", value: provider ?? "default" }, { label: "model", value: flagText(inv, "model") ?? "default" }, { label: "role", value: role ?? "Worker" }] : undefined };
   }
-  if (inv.path[0] === "tab" || inv.path[0] === "workspace") {
-    return { lead: path, object: firstMeaningful(inv) ?? flagText(inv, "cmd", "name"), chips: [], detail: flagText(inv, "cmd") };
+  if (path === "mesh peers") {
+    return { lead: "peers", object: resultCount(result, "online") ?? "mesh peers", chips: [] };
+  }
+  if (path === "cron create") {
+    return { lead: "cron", object: flagText(inv, "schedule") ?? "scheduled", chips: ["active"], fields: [{ label: "schedule", value: flagText(inv, "schedule") ?? "—" }, { label: "task", value: flagText(inv, "task") ?? firstMeaningful(inv) ?? "—" }] };
+  }
+  if (path === "cron list") {
+    return { lead: "crons", object: resultCount(result, "scheduled") ?? "scheduled jobs", chips: [] };
+  }
+  if (path === "keepawake start") {
+    return { lead: "keepawake", object: "on", chips: ["holding"] };
+  }
+  if (path === "keepawake status") {
+    return { lead: "status", object: result?.trim() || "keepawake", chips: [] };
+  }
+  if (path === "docs" || path === "doc") {
+    const name = firstMeaningful(inv) ?? "documentation";
+    const chars = result?.length;
+    return { lead: "docs", object: name, chips: chars ? [`${chars} chars`] : [] };
+  }
+  if (path === "plugin list") {
+    return { lead: "plugins", object: resultCount(result, "installed") ?? "installed", chips: [] };
+  }
+  if (path === "orchestrator status") {
+    return { lead: "agents", object: resultCount(result, "live") ?? "orchestration", chips: [], detail: flagText(inv, "plan") };
   }
   if (inv.path[0] === "cron" || inv.path[0] === "keepawake" || inv.path[0] === "plugin" || inv.path[0] === "docs") {
     return { lead: path, object: firstMeaningful(inv) ?? flagText(inv, "schedule", "task", "name"), chips: [], detail: flagText(inv, "schedule", "task") };
