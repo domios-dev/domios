@@ -12,6 +12,12 @@ function hasText(value: string | undefined): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function mergeToolResultText(existing: string | undefined, incoming: string): string {
+  if (!existing || existing === incoming || existing.includes(incoming)) return existing || incoming;
+  if (incoming.includes(existing)) return incoming;
+  return `${existing}\n${incoming}`;
+}
+
 export function isRenderableChatMessage(message: NormalizedChatMessage): boolean {
   if (message.type === "tool_call") {
     return (
@@ -55,9 +61,7 @@ export function attachToolResults<T extends NormalizedChatMessage>(messages: T[]
       if (index != null) {
         const existing = grouped[index];
         const resultText = message.toolResult || message.content;
-        const toolResult = existing.toolResult
-          ? `${existing.toolResult}\n${resultText}`
-          : resultText;
+        const toolResult = mergeToolResultText(existing.toolResult, resultText);
         grouped[index] = {
           ...existing,
           toolResult,
