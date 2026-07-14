@@ -186,6 +186,22 @@ export interface Transcriber {
 
 // ── chatBackend (non-PTY chat transport; mirrors the ChatBackendProvider trait) ──
 
+export type ToolEventKind =
+  | "command"
+  | "edit"
+  | "read"
+  | "search"
+  | "task"
+  | "fetch"
+  | "codeterm"
+  | "generic";
+
+export interface ToolEdit {
+  path: string;
+  old: string;
+  new: string;
+}
+
 // Minimal shared chat shape mapped onto Rust ChatMsg. Only id/type/content are contractual; extra fields are allowed.
 export interface NormalizedChatMessage {
   id: string;
@@ -198,6 +214,11 @@ export interface NormalizedChatMessage {
   fromModel?: string;
   fromMesh?: string;
   inboundKind?: "pane" | "report" | "reminder" | "mesh" | "telegram";
+  /** Provider-neutral canonical tool metadata, available on any chat transport. */
+  toolKind?: ToolEventKind;
+  toolSummary?: string;
+  toolDetail?: string;
+  toolEdits?: ToolEdit[];
   toolError?: boolean;
 }
 
