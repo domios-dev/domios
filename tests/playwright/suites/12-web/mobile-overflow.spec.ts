@@ -402,8 +402,16 @@ async function assertPeerPickerReachable(page: Page, label: string): Promise<voi
   expect(result.reachable, `${label} peer picker reachable ${JSON.stringify(result)}`).toBe(true);
 }
 
-async function assertPaneModeTabsReachable(page: Page, label: string): Promise<void> {
-  const results = await page.locator('[data-testid="pane-mode-switch"] [role="tab"]').evaluateAll((nodes) =>
+function targetPaneModeSwitch(page: Page, paneId: string) {
+  return page.locator(`[data-pane-id="${paneId}"]`).locator('[data-testid="pane-mode-switch"]');
+}
+
+async function assertPaneModeTabsReachable(page: Page, paneId: string, label: string): Promise<void> {
+  const switchLocator = targetPaneModeSwitch(page, paneId);
+  const switchCount = await switchLocator.count();
+  expect(switchCount, `${label} target pane mode switch count for ${paneId}`).toBe(1);
+
+  const results = await switchLocator.locator('[role="tab"]').evaluateAll((nodes) =>
     nodes.map((node) => {
       const el = node as HTMLElement;
       const rect = el.getBoundingClientRect();
@@ -418,11 +426,23 @@ async function assertPaneModeTabsReachable(page: Page, label: string): Promise<v
     }));
   const tabNames = results.map((item) => item.label).sort();
   expect(tabNames, `${label} pane mode tabs present ${JSON.stringify(results)}`).toEqual(["Chat", "Terminal"]);
+  expect(
+    results.filter((item) => item.label === "Chat"),
+    `${label} one Chat control ${JSON.stringify(results)}`,
+  ).toHaveLength(1);
+  expect(
+    results.filter((item) => item.label === "Terminal"),
+    `${label} one Terminal control ${JSON.stringify(results)}`,
+  ).toHaveLength(1);
   expect(results.every((item) => item.reachable), `${label} pane mode tabs reachable ${JSON.stringify(results)}`).toBe(true);
 }
 
-async function assertPeerPickerMenuInverseOcclusion(page: Page, label: string): Promise<void> {
-  const result = await page.locator('[data-testid="pane-mode-switch"] [role="tab"]').evaluateAll((nodes) => {
+async function assertPeerPickerMenuInverseOcclusion(page: Page, paneId: string, label: string): Promise<void> {
+  const switchLocator = targetPaneModeSwitch(page, paneId);
+  const switchCount = await switchLocator.count();
+  expect(switchCount, `${label} inverse-occlusion target pane mode switch count for ${paneId}`).toBe(1);
+
+  const result = await switchLocator.locator('[role="tab"]').evaluateAll((nodes) => {
     const menu = document.querySelector('[data-testid="peer-picker-menu"]');
     return nodes.map((node) => {
       const el = node as HTMLElement;
@@ -440,6 +460,14 @@ async function assertPeerPickerMenuInverseOcclusion(page: Page, label: string): 
   });
   const tabNames = result.map((item) => item.label).sort();
   expect(tabNames, `${label} inverse-occlusion pane mode tabs present ${JSON.stringify(result)}`).toEqual(["Chat", "Terminal"]);
+  expect(
+    result.filter((item) => item.label === "Chat"),
+    `${label} inverse-occlusion one Chat control ${JSON.stringify(result)}`,
+  ).toHaveLength(1);
+  expect(
+    result.filter((item) => item.label === "Terminal"),
+    `${label} inverse-occlusion one Terminal control ${JSON.stringify(result)}`,
+  ).toHaveLength(1);
   expect(
     result.every((item) => item.hitInPeerPickerMenu && !item.reachable),
     `${label} inverse-occlusion peer menu covers Chat and Terminal tabs ${JSON.stringify(result)}`,
@@ -847,6 +875,55 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     expect(popupCollectorSource).toContain("inPeerPickerMenu ? reachable");
     const popupLayerSource = assertPeerPickerMenuInverseOcclusion.toString();
     expect(popupLayerSource).toContain("inverse-occlusion peer menu covers Chat and Terminal tabs");
+    expect(targetPaneModeSwitch.toString()).toContain('[data-pane-id="${paneId}"]');
+    expect(targetPaneModeSwitch.toString()).toContain('[data-testid="pane-mode-switch"]');
+    expect(assertPaneModeTabsReachable.toString()).toContain("target pane mode switch count");
+    expect(assertPeerPickerMenuInverseOcclusion.toString()).toContain("inverse-occlusion target pane mode switch count");
+
+    await page.setContent(`
+      <style>
+        html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+        [data-testid="pane-mode-switch"] { position: absolute; left: 40px; top: 40px; display: flex; gap: 8px; }
+        [data-pane-id="foreign-pane"] [data-testid="pane-mode-switch"] { top: 160px; }
+        [role="tab"] { width: 80px; height: 32px; }
+        [data-testid="peer-picker-menu"] { position: absolute; left: 32px; top: 32px; width: 196px; height: 52px; z-index: 2; background: white; }
+      </style>
+      <div id="root">
+        <div data-pane-id="target-pane">
+          <div data-testid="pane-mode-switch">
+            <button role="tab">Chat</button>
+            <button role="tab">Terminal</button>
+          </div>
+        </div>
+        <div data-pane-id="foreign-pane">
+          <div data-testid="pane-mode-switch">
+            <button role="tab">Chat</button>
+            <button role="tab">Terminal</button>
+          </div>
+        </div>
+        <div data-testid="peer-picker-menu"></div>
+      </div>
+    `);
+    await assertPeerPickerMenuInverseOcclusion(page, "target-pane", "pane cardinality self-check");
+    await page.locator('[data-testid="peer-picker-menu"]').evaluate((el) => el.remove());
+    await assertPaneModeTabsReachable(page, "target-pane", "pane cardinality self-check");
+    await page.locator('[data-pane-id="target-pane"]').evaluate((target) => {
+      const duplicate = document.createElement("div");
+      duplicate.dataset.testid = "pane-mode-switch";
+      for (const label of ["Chat", "Terminal"]) {
+        const tab = document.createElement("button");
+        tab.setAttribute("role", "tab");
+        tab.textContent = label;
+        duplicate.appendChild(tab);
+      }
+      target.appendChild(duplicate);
+    });
+    await expect(
+      assertPaneModeTabsReachable(page, "target-pane", "duplicate pane cardinality self-check"),
+    ).rejects.toThrow(/target pane mode switch count/);
+    await expect(
+      assertPeerPickerMenuInverseOcclusion(page, "target-pane", "duplicate pane cardinality self-check"),
+    ).rejects.toThrow(/inverse-occlusion target pane mode switch count/);
   } finally {
     await page.context().close();
   }
@@ -886,11 +963,11 @@ for (const vp of VIEWPORTS) {
       await settleLayout(page);
       await auditKnownSurfaces(page, `${vp.name} peer menu`);
       await auditViewport(page, `${vp.name} peer menu`, { reachability: "peer-picker-menu" });
-      await assertPeerPickerMenuInverseOcclusion(page, `${vp.name} peer menu`);
+      await assertPeerPickerMenuInverseOcclusion(page, target.paneId, `${vp.name} peer menu`);
       await page.keyboard.press("Escape").catch(() => {});
       await page.locator('[data-testid="peer-picker-menu"]').waitFor({ state: "hidden", timeout: 5_000 }).catch(() => {});
       await settleLayout(page);
-      await assertPaneModeTabsReachable(page, `${vp.name} peer menu dismissed`);
+      await assertPaneModeTabsReachable(page, target.paneId, `${vp.name} peer menu dismissed`);
 
       await page.locator('[data-testid="titlebar-settings"]').click();
       await page.locator('[data-testid="settings-menu"]').waitFor({ state: "visible", timeout: 5_000 });
