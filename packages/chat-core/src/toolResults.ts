@@ -1,4 +1,5 @@
 import type { NormalizedChatMessage } from "./types";
+import { reduceToolEvents } from "./toolEvents";
 
 function hasStructuredValue(value: unknown): boolean {
   if (value == null) return false;
@@ -12,12 +13,6 @@ function hasText(value: string | undefined): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function mergeToolResultText(existing: string | undefined, incoming: string): string {
-  if (!existing || existing === incoming || existing.includes(incoming)) return existing || incoming;
-  if (incoming.includes(existing)) return incoming;
-  return `${existing}\n${incoming}`;
-}
-
 export function isRenderableChatMessage(message: NormalizedChatMessage): boolean {
   if (message.type === "tool_call") {
     return (
@@ -25,57 +20,28 @@ export function isRenderableChatMessage(message: NormalizedChatMessage): boolean
       hasText(message.toolName) ||
       hasText(message.toolArgs) ||
       hasText(message.toolResult) ||
+      hasText(message.toolSummary) ||
+      hasText(message.toolDetail) ||
+      Boolean(message.toolEdits?.length) ||
       hasStructuredValue(message.toolInput) ||
       Boolean(message.interactive?.length)
     );
   }
 
   if (message.type === "tool_result") {
-    return hasText(message.content) || hasText(message.toolResult);
+    return hasText(message.content) || hasText(message.toolResult) || hasText(message.toolDetail);
   }
 
   return true;
 }
 
 export function attachToolResults<T extends NormalizedChatMessage>(messages: T[]): T[] {
-  const grouped: T[] = [];
-  const toolIndex = new Map<string, number>();
-  let lastUnresolvedToolIndex: number | null = null;
-
-  for (const message of messages) {
-    if (!isRenderableChatMessage(message)) {
-      continue;
-    }
-
-    if (message.type === "tool_call") {
-      if (message.toolId) {
-        toolIndex.set(message.toolId, grouped.length);
-      }
-      lastUnresolvedToolIndex = grouped.length;
-      grouped.push(message);
-      continue;
-    }
-
-    if (message.type === "tool_result") {
-      const index = message.toolId ? toolIndex.get(message.toolId) : lastUnresolvedToolIndex;
-      if (index != null) {
-        const existing = grouped[index];
-        const resultText = message.toolResult || message.content;
-        const toolResult = mergeToolResultText(existing.toolResult, resultText);
-        grouped[index] = {
-          ...existing,
-          toolResult,
-          toolError: message.toolError === true ? true : existing.toolError,
-        };
-        if (!message.toolId || message.toolId === existing.toolId) {
-          lastUnresolvedToolIndex = null;
-        }
-        continue;
-      }
-    }
-
-    grouped.push(message);
-  }
-
-  return grouped;
+  const compatibilityMessages = messages.map((message) =>
+    message.type === "tool_result" && !message.toolDetail
+      ? { ...message, toolDetail: message.toolResult || message.content }
+      : message,
+  );
+  return reduceToolEvents(compatibilityMessages.filter(isRenderableChatMessage)).map((item) =>
+    item.kind === "message" ? item.message : item.event.message,
+  ) as T[];
 }
