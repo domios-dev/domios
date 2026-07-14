@@ -98,6 +98,7 @@ const baseHost = (over: Record<string, unknown>) => ({
 });
 
 console.log("\n--- task instructions launch ---\n");
+
 {
   const p = loadCodexWithHost(baseHost({
     platform: () => "windows",
@@ -568,7 +569,25 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
   for (const message of parsed.messages) {
     eq(message.blocks[0].data.name, "apply_patch", "nested exec normalizes to apply_patch");
     eq(message.blocks[0].data.input.patch, patch, "nested exec preserves patch text for DiffView");
+    eq(message.blocks[0].data.tool_kind, "edit", "nested apply_patch emits edit kind");
+    eq(message.blocks[0].data.tool_edits[0].path, "src/demo.ts", "nested apply_patch emits edit path");
   }
+}
+
+{
+  const command = String.raw`const r = await tools.shell_command({command:"powershell -Command \"Write-Host 'ready'; Get-ChildItem -Filter \\\"*.ts\\\"\"",workdir:"D:\\x",timeout_ms:20000}); text(r)`;
+  const malformed = String.raw`const r = await tools.shell_command({command:"unterminated}); text(r)`;
+  const parsed = hostPlugin.parseSessionDelta([
+    JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call", name: "exec", input: JSON.stringify({ raw: command }) } }),
+    JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call", name: "exec", input: JSON.stringify({ raw: malformed }) } }),
+  ].join("\n")) as { messages: any[] };
+  const commandData = parsed.messages[0].blocks[0].data;
+  eq(commandData.tool_kind, "command", "nested shell wrapper emits command kind");
+  eq(commandData.tool_summary, `powershell -Command "Write-Host 'ready'; Get-ChildItem -Filter \\\"*.ts\\\""`, "nested shell wrapper preserves escaped command");
+  eq(commandData.tool_detail, commandData.tool_summary, "command detail is the full command string");
+  const malformedData = parsed.messages[1].blocks[0].data;
+  eq(malformedData.tool_kind, "generic", "malformed shell wrapper falls back to generic");
+  assert(!String(malformedData.tool_summary).includes("{"), "malformed shell wrapper does not expose JSON summary");
 }
 
 console.log("\n--- discoverModels ---\n");
