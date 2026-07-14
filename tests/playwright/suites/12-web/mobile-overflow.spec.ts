@@ -53,7 +53,7 @@ async function openSidebar(page: Page): Promise<void> {
   if (await burger.isVisible().catch(() => false)) {
     await burger.click();
   }
-  await page.locator(".ct-sidebar-drawer.is-open").waitFor({ state: "attached", timeout: 5_000 });
+  await expect(page.locator(".ct-sidebar-drawer.is-open"), "drawer-never-opened").toBeAttached({ timeout: 5_000 });
   await page.locator('[data-testid="workspace-item"]').first().waitFor({ state: "visible", timeout: 10_000 });
   await settleLayout(page);
 }
