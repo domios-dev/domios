@@ -6,6 +6,7 @@
  * reachable at their center; document scroll width is only a secondary signal.
  */
 import { execFileSync } from "node:child_process";
+import type { Locator } from "@playwright/test";
 import { expect, test, type Browser, type Page, type PaneCleanup, API_BASE, readDevToken } from "../../helpers/fixtures";
 import type { ApiClient } from "../../helpers/api-client";
 
@@ -37,7 +38,7 @@ const OPTIONAL_SURFACES = [
   '[data-testid="sidebar"]',
 ] as const;
 
-type ReachabilityMode = "all" | "open-drawer" | "peer-picker-menu" | "settings-menu";
+type ReachabilityMode = "all" | "open-drawer" | "peer-picker-menu" | "settings-menu" | "workspace-dropdown";
 type CanvasLayerExpectation = "overlay" | "inline";
 
 type CreatedPane = { id: string; tab_id?: string };
@@ -126,6 +127,15 @@ async function collectViewportOffenders(page: Page, reachabilityMode: Reachabili
     const settingsMenu = mode === "settings-menu"
       ? document.querySelector('[data-testid="settings-menu"]')
       : null;
+    const workspaceOption = mode === "workspace-dropdown"
+      ? Array.from(document.querySelectorAll('[data-testid^="picker-workspace-option-"]')).find((node) => {
+        const rect = node.getBoundingClientRect();
+        const style = window.getComputedStyle(node);
+        return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+      })
+      : null;
+    const workspaceFloat = workspaceOption?.closest(".ct-float") as HTMLElement | null;
+    const workspaceDropdown = workspaceFloat && window.getComputedStyle(workspaceFloat).position === "fixed" ? workspaceFloat : null;
     const clips = (value: string) => /auto|scroll|hidden|clip/.test(value);
     const isFullyClippedByAncestor = (el: HTMLElement, rect: DOMRect) => {
       let parent = el.parentElement;
@@ -186,6 +196,9 @@ async function collectViewportOffenders(page: Page, reachabilityMode: Reachabili
         const inSettingsMenu = !!settingsMenu?.contains(el);
         const hitInSettingsMenu = hit instanceof Node &&
           (!!settingsMenu?.contains(hit) || hit === settingsMenu);
+        const inWorkspaceDropdown = !!workspaceDropdown?.contains(el);
+        const hitInWorkspaceDropdown = hit instanceof Node &&
+          (!!workspaceDropdown?.contains(hit) || hit === workspaceDropdown);
         const inBounds =
           left >= -1 &&
           right <= viewportWidth + 1 &&
@@ -198,6 +211,8 @@ async function collectViewportOffenders(page: Page, reachabilityMode: Reachabili
           layerReachabilityOk = inPeerPickerMenu ? reachable : reachable || (!reachable && hitInPeerPickerMenu);
         } else if (mode === "settings-menu") {
           layerReachabilityOk = inSettingsMenu ? reachable : reachable || (!reachable && hitInSettingsMenu);
+        } else if (mode === "workspace-dropdown") {
+          layerReachabilityOk = inWorkspaceDropdown ? reachable : reachable || (!reachable && hitInWorkspaceDropdown);
         }
         if (inBounds && layerReachabilityOk) return null;
         return {
@@ -221,6 +236,8 @@ async function collectViewportOffenders(page: Page, reachabilityMode: Reachabili
           hitInPeerPickerMenu,
           inSettingsMenu,
           hitInSettingsMenu,
+          inWorkspaceDropdown,
+          hitInWorkspaceDropdown,
           hitTag: hit instanceof HTMLElement ? hit.tagName.toLowerCase() : null,
           hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
         };
@@ -245,6 +262,8 @@ async function auditViewport(page: Page, label: string, options: { reachability?
     await waitForOpenDrawerStable(page);
   } else if (options.reachability === "settings-menu") {
     await page.locator('[data-testid="settings-menu"]').waitFor({ state: "visible", timeout: 5_000 });
+  } else if (options.reachability === "workspace-dropdown") {
+    await page.locator('[data-testid^="picker-workspace-option-"]').first().waitFor({ state: "visible", timeout: 5_000 });
   }
   const offenders = await collectViewportOffenders(page, options.reachability ?? "all");
   expect(offenders, `${label} offscreen or unreachable controls`).toEqual([]);
@@ -419,6 +438,28 @@ async function dismissPeerPickerWithSupportedControl(page: Page, label: string):
   await page.locator('[data-testid="peer-picker-menu"]').waitFor({ state: "hidden", timeout: 5_000 });
   await settleLayout(page);
   await assertPeerPickerReachable(page, `${label} after peer picker dismiss`);
+}
+
+async function dismissWorkspaceDropdownWithSupportedControl(page: Page, label: string): Promise<void> {
+  await page.locator('[data-testid="picker-workspace"]').first().click();
+  await page.waitForFunction(() => {
+    const option = document.querySelector('[data-testid^="picker-workspace-option-"]') as HTMLElement | null;
+    const root = option?.closest(".ct-float") as HTMLElement | null;
+    const visible = (el: HTMLElement | null) => !!el && window.getComputedStyle(el).display !== "none" && window.getComputedStyle(el).visibility !== "hidden" && el.getBoundingClientRect().width > 0;
+    return !visible(option) && !visible(root);
+  }, null, { timeout: 5_000 });
+  await settleLayout(page);
+  await assertControlsReachable(page, '[data-testid^="picker-provider-"], [data-testid^="picker-model-"]', `${label} after workspace dismiss`);
+}
+
+async function assertControlsReachable(page: Page, selector: string, label: string): Promise<void> {
+  const results = await page.locator(selector).evaluateAll((nodes) => nodes.map((el) => {
+    const rect = (el as HTMLElement).getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return hit instanceof Node && (hit === el || el.contains(hit) || hit.contains(el));
+  }));
+  expect(results.length, `${label} controls present`).toBeGreaterThan(0);
+  expect(results.every(Boolean), `${label} controls reachable`).toBe(true);
 }
 
 function targetPaneModeSwitch(page: Page, paneId: string) {
@@ -646,10 +687,25 @@ async function clickSidebarScrimAndAssertClosed(page: Page, label: string): Prom
   await assertPeerPickerReachable(page, `${label} after scrim close`);
 }
 
+async function revealOwnedHorizontalSurface(page: Page, loc: Locator, label: string): Promise<void> {
+  const owner = loc.locator("xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' ct-hscroll ')]").first();
+  if (!await owner.count()) return;
+  const metrics = await owner.evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    return { left: rect.left, right: rect.right, width: rect.width, viewport: document.documentElement.clientWidth, overflowX: window.getComputedStyle(el).overflowX };
+  });
+  expect(metrics.left, `${label} hscroll owner left`).toBeGreaterThanOrEqual(-1);
+  expect(metrics.right, `${label} hscroll owner right`).toBeLessThanOrEqual(metrics.viewport + 1);
+  expect(metrics.overflowX, `${label} hscroll owner overflow-x`).toMatch(/^(auto|scroll)$/);
+  await loc.scrollIntoViewIfNeeded();
+  await settleLayout(page);
+}
+
 async function auditKnownSurfaces(page: Page, label: string): Promise<void> {
   for (const selector of OPTIONAL_SURFACES) {
     const loc = page.locator(selector).first();
     if (!(await loc.isVisible().catch(() => false))) continue;
+    await revealOwnedHorizontalSurface(page, loc, `${label} ${selector}`);
     const box = await loc.boundingBox();
     if (!box) continue;
     expect(box.x, `${label} ${selector} left`).toBeGreaterThanOrEqual(-1);
@@ -896,6 +952,25 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     });
     expect(popupOccludedHit).toEqual({ reachable: false, hitTestid: "peer-picker-menu" });
 
+    await page.setContent(`<style>html,body{margin:0;overflow:hidden}.ct-float{position:fixed;left:32px;top:24px;width:160px;height:72px;z-index:3}button{position:absolute;width:120px;height:32px}#workspace-covered{left:40px;top:32px}#workspace-unrelated,#workspace-cover{left:40px;top:112px}#workspace-cover{z-index:2}</style><button id="workspace-covered" data-testid="workspace-covered">covered</button><button id="workspace-unrelated" data-testid="workspace-unrelated">unrelated</button><div id="workspace-cover"></div><div class="ct-float"><button data-testid="picker-workspace-option-x">option</button></div>`);
+    const workspaceIds = (await collectViewportOffenders(page, "workspace-dropdown")).map((item) => item?.testid);
+    expect(workspaceIds).not.toContain("picker-workspace-option-x");
+    expect(workspaceIds).not.toContain("workspace-covered");
+    expect(workspaceIds).toContain("workspace-unrelated");
+    const workspaceDismissSource = dismissWorkspaceDropdownWithSupportedControl.toString();
+    expect(workspaceDismissSource).toContain('[data-testid="picker-workspace"]');
+    expect(workspaceDismissSource).not.toContain("Escape");
+    expect(workspaceDismissSource).not.toContain(".catch(");
+
+    await page.setContent(`<style>html,body{margin:0;overflow:hidden}.ct-hscroll{width:100px;overflow-x:auto;white-space:nowrap}.ct-hscroll button{margin-left:360px;width:80px}</style><div class="ct-hscroll"><button data-testid="mesh-tab-network">Network</button></div>`);
+    const beforeScroll = await page.locator('[data-testid="mesh-tab-network"]').evaluate((el) => el.getBoundingClientRect().right > document.documentElement.clientWidth);
+    expect(beforeScroll, "box-only known-surface audit false-reds owned hscroll child").toBe(true);
+    await auditKnownSurfaces(page, "hscroll self-check");
+    expect(await page.locator(".ct-hscroll").evaluate((el) => el.scrollLeft), "owned hscroll revealed").toBeGreaterThan(0);
+    expect((await collectViewportOffenders(page)).map((item) => item?.testid)).not.toContain("mesh-tab-network");
+    await page.setContent(`<button data-testid="mesh-tab-network" style="position:absolute;left:360px">Network</button>`);
+    await expect(auditKnownSurfaces(page, "unowned hscroll self-check")).rejects.toThrow(/right/);
+
     const popupCollectorSource = collectViewportOffenders.toString();
     expect(popupCollectorSource).toContain('mode === "peer-picker-menu"');
     expect(popupCollectorSource).toContain("inPeerPickerMenu ? reachable");
@@ -1060,14 +1135,18 @@ for (const vp of VIEWPORTS) {
           await workspaceSelect.click();
           await page.locator('[data-testid^="picker-workspace-option-"]').first().waitFor({ state: "visible", timeout: 5_000 });
           await settleLayout(page);
-          await auditViewport(page, `${vp.name} picker workspace dropdown`);
-          await page.keyboard.press("Escape").catch(() => {});
+          await auditViewport(page, `${vp.name} picker workspace dropdown`, { reachability: "workspace-dropdown" });
+          await dismissWorkspaceDropdownWithSupportedControl(page, `${vp.name} picker workspace dropdown`);
         }
       }
 
       await openSidebar(page);
       await page.locator('[data-testid="nav-mesh"]').click();
-      await page.locator('[data-testid="mesh-tab-network"]').waitFor({ state: "visible", timeout: 10_000 });
+      const meshTab = page.locator('[data-testid="mesh-tab-network"]');
+      await meshTab.waitFor({ state: "visible", timeout: 10_000 });
+      const meshToolbar = page.locator(".ct-hscroll").filter({ has: meshTab });
+      await expect(meshToolbar, `${vp.name} mesh exact hscroll toolbar owner`).toHaveCount(1);
+      await revealOwnedHorizontalSurface(page, meshTab, `${vp.name} mesh`);
       await settleLayout(page);
       await auditKnownSurfaces(page, `${vp.name} mesh`);
       await auditViewport(page, `${vp.name} mesh`);
