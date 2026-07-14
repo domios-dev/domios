@@ -1135,7 +1135,7 @@ mod tests {
             canvas: ElementCanvas::default(),
             milestones: vec![],
             execution_attempts: vec![],
-            park_reason: None,
+            pause_reason: None,
             attachments: vec![],
         };
         t.review_round = 1;

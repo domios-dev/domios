@@ -468,7 +468,7 @@ impl PlanStore {
                         canvas: Default::default(),
                         milestones: vec![],
                         execution_attempts: vec![],
-                        park_reason: None,
+                        pause_reason: None,
                         attachments: vec![],
                     };
                     follow_up.id = fid.clone();

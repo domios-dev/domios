@@ -44,6 +44,12 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::DependencyTaskReferenced { .. }
         | PlanError::DependencySelfReference
         | PlanError::DependencyCycle
+        | PlanError::ReviewWipExceeded { .. }
+        | PlanError::ReviewEvidenceRequired
+        | PlanError::ReviewRoundExceeded { .. }
+        | PlanError::ReviewOracleScopeExpansion
+        | PlanError::ReviewOverrideIncomplete
+        | PlanError::ReviewNotInReview
         | PlanError::BudgetExhausted { .. } => StatusCode::BAD_REQUEST,
         PlanError::OverrideNotAuthorized => StatusCode::FORBIDDEN,
         PlanError::WritePending { .. } => StatusCode::SERVICE_UNAVAILABLE,
