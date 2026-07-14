@@ -5,6 +5,7 @@
  */
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import type { PerfEventRow } from "./perf-event-bounce";
 
 const defaultPerfDir = path.resolve(__dirname, "..", "artifacts", "perf");
 
@@ -71,6 +72,12 @@ export function recordPerfSamples(metric: PerfSampleMetric): PerfSummary {
   const summary = summarizePerfSamples(metric.samples);
   appendSummary(metric, summary);
   return summary;
+}
+
+export function recordPerfEvent(row: PerfEventRow): void {
+  const dir = perfDir();
+  mkdirSync(dir, { recursive: true });
+  appendFileSync(path.join(dir, "metrics.jsonl"), JSON.stringify(row) + "\n");
 }
 
 export function recordPerfMetric(metric: PerfMetric): void {
