@@ -189,7 +189,8 @@ export function Sidebar({
   const handleNewSession = useCallback((workspaceId: string, workspaceCwd: string | null) => {
     // Virtual only — no backend pane/PTY until the picker is confirmed.
     openSessionPicker(workspaceId, workspaceCwd ?? undefined);
-  }, [openSessionPicker]);
+    onNavigateToTab?.();
+  }, [openSessionPicker, onNavigateToTab]);
 
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => new Set(state.active_workspace_id ? [state.active_workspace_id] : []),
