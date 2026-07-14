@@ -36,7 +36,7 @@ export class PerfEventBounce {
   constructor(
     private readonly options: PerfEventBounceOptions,
     private readonly append: PerfEventAppender,
-    private readonly now: () => number = performance.now,
+    private readonly now: () => number = () => performance.now(),
   ) {}
 
   record(phase: PerfEventPhase, details: Record<string, unknown> = {}, tMsOverride?: number): PerfEventRow | null {

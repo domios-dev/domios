@@ -2,6 +2,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { formatPerfFailureState, PerfEventBounce, type PerfEventRow } from "./perf-event-bounce";
 
+test("event bounce uses a receiver-safe default clock", () => {
+  const rows: PerfEventRow[] = [];
+  const startedAt = performance.now();
+  const bounce = new PerfEventBounce({ run: "run-default-clock", test: "pty-write-to-render", index: 7, startedAt }, (row) => rows.push(row));
+
+  const row = bounce.record("sent");
+  const elapsedMs = bounce.elapsedMs();
+
+  assert.equal(row?.phase, "sent");
+  assert.equal(rows[0]?.phase, "sent");
+  assert.ok(rows[0].t_ms >= 0);
+  assert.ok(elapsedMs >= 0);
+});
+
 test("event bounce is append-only with one row per lifecycle phase", () => {
   const rows: PerfEventRow[] = [];
   let now = 100;
