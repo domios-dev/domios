@@ -249,7 +249,7 @@ const plugin: PluginModule = {
           timestamp: tsIso,
         });
       } else if (p.type === "custom_tool_call") {
-        const name = typeof p.name === "string" ? p.name.trim() : "";
+        let name = typeof p.name === "string" ? p.name.trim() : "";
         if (!name) continue;
         let input: Record<string, unknown> = {};
         if (name === "apply_patch" && typeof p.input === "string") {
@@ -258,6 +258,13 @@ const plugin: PluginModule = {
           try { input = JSON.parse(p.input); } catch (_) { input = { raw: p.input }; }
         } else if (p.input && typeof p.input === "object" && !Array.isArray(p.input)) {
           input = p.input as Record<string, unknown>;
+        }
+        const nestedPatch = name === "exec" && typeof input.raw === "string"
+          ? nestedApplyPatch(input.raw)
+          : null;
+        if (nestedPatch) {
+          name = "apply_patch";
+          input = { patch: nestedPatch };
         }
         const callId = typeof p.call_id === "string" ? p.call_id : "";
         out.push({
@@ -779,6 +786,26 @@ interface CodexPayload {
 }
 interface CodexEntry { type?: string; payload?: CodexPayload; timestamp?: string }
 interface CodexHookCmd { type?: string; command?: string; commandWindows?: string; timeout?: number; _source?: string }
+
+function nestedApplyPatch(raw: string): string | null {
+  const call = /\btools\.apply_patch\(\s*([A-Za-z_$][\w$]*|"(?:\\.|[^"\\])*")\s*\)/.exec(raw);
+  if (!call) return null;
+  let literal = call[1];
+  if (literal.charAt(0) !== '"') {
+    const escaped = literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const declaration = new RegExp(`\\b(?:const|let)\\s+${escaped}\\s*=\\s*("(?:\\\\.|[^"\\\\])*")\\s*;`).exec(raw);
+    if (!declaration) return null;
+    literal = declaration[1];
+  }
+  try {
+    const patch = JSON.parse(literal);
+    return typeof patch === "string" && patch.includes("*** Begin Patch") && patch.includes("*** End Patch")
+      ? patch
+      : null;
+  } catch (_) {
+    return null;
+  }
+}
 interface CodexHookEntry { matcher?: string; hooks?: CodexHookCmd[] }
 interface CodexHooks { hooks?: { SessionStart?: CodexHookEntry[] } }
 

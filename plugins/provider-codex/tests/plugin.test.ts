@@ -549,6 +549,28 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
   eq(structuredParsed.messages[5].blocks[0].data.content, "Script completed\nExit code: 0\n", "custom result text blocks are joined");
 }
 
+{
+  const patch = "*** Begin Patch\n*** Update File: src/demo.ts\n@@\n-old\n+new\n*** End Patch";
+  const directRaw = `text(await tools.apply_patch(${JSON.stringify(patch)}));`;
+  const variableRaw = `const patch = ${JSON.stringify(patch)};\ntext(await tools.apply_patch(patch));`;
+  const chunk = [directRaw, variableRaw].map((raw, index) => JSON.stringify({
+    type: "response_item",
+    payload: {
+      type: "custom_tool_call",
+      name: "exec",
+      call_id: `call_nested_patch_${index}`,
+      input: JSON.stringify({ raw }),
+    },
+  })).join("\n");
+  const parsed = hostPlugin.parseSessionDelta(chunk) as { messages: any[] };
+
+  eq(parsed.messages.length, 2, "nested patch calls survive parseSessionDelta");
+  for (const message of parsed.messages) {
+    eq(message.blocks[0].data.name, "apply_patch", "nested exec normalizes to apply_patch");
+    eq(message.blocks[0].data.input.patch, patch, "nested exec preserves patch text for DiffView");
+  }
+}
+
 console.log("\n--- discoverModels ---\n");
 
 {

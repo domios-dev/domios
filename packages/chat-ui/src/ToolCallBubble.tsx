@@ -25,7 +25,7 @@ import {
 import { ToolIcon } from "./toolIcons";
 import { InlineToolRow } from "./InlineToolRow";
 import { ToolOutputContent } from "./ToolOutputContent";
-import { isImageOnlyToolOutput, toolResultPreviewLine } from "./toolImageOutput";
+import { isImageOnlyToolOutput } from "./toolImageOutput";
 import { distinctToolRawContent } from "./toolRawContent";
 import {
   contentSize,
@@ -232,17 +232,6 @@ export function ToolCallBubble({
             <ChevronIcon expanded={expanded} className="ml-1 opacity-0 transition-opacity group-hover:opacity-100" />
           </button>
 
-          {message.toolResult && !expanded && !isImageOnlyToolOutput(message.toolResult) && (
-            <button
-              onClick={() => onToggle(true)}
-              className="mt-0.5 flex min-w-0 items-start gap-1 pl-2.5 text-left text-[11px] font-mono"
-              style={{ color: "var(--ct-muted-fg)" }}
-              title="Show full output"
-            >
-              <span className="flex-shrink-0 opacity-40">{"→"}</span>
-              <span className="min-w-0 flex-1 truncate whitespace-nowrap opacity-70">{toolResultPreviewLine(message.toolResult)}</span>
-            </button>
-          )}
           {message.toolResult && !expanded && isImageOnlyToolOutput(message.toolResult) && (
             <div className="mt-1 pl-2.5">
               <ToolOutputContent text={message.toolResult} />
@@ -351,19 +340,6 @@ export function ToolCallBubble({
           <ChevronIcon expanded={expanded} className="ml-1 opacity-0 transition-opacity group-hover:opacity-100" />
         </button>
 
-        {/* Compact inline tail — last line of output, always visible while
-            collapsed. Click to reveal the full result under the command. */}
-        {resultText && !expanded && !isImageOnlyToolOutput(resultText) && (
-          <button
-            onClick={() => onToggle(true)}
-            className="mt-0.5 flex min-w-0 items-start gap-1 pl-2.5 text-left text-[11px] font-mono"
-            style={{ color: "var(--ct-muted-fg)" }}
-            title="Show full output"
-          >
-            <span className="flex-shrink-0 opacity-40">{"→"}</span>
-            <span className="min-w-0 flex-1 truncate whitespace-nowrap opacity-70">{toolResultPreviewLine(resultText)}</span>
-          </button>
-        )}
         {resultText && !expanded && isImageOnlyToolOutput(resultText) && (
           <div className="mt-1 pl-2.5">
             <ToolOutputContent text={resultText} />
@@ -387,7 +363,7 @@ export function ToolCallBubble({
                 {detailText}
               </pre>
             )}
-            {resultText && (
+            {resultText && edits.length === 0 && (
               <div className="mt-2">
                 <div
                   className="mb-1 text-[10px] font-medium uppercase tracking-wide"
