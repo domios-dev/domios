@@ -478,6 +478,104 @@ function codexParseWeeklyResets(raw, nowMs) {
   return cand.getTime();
 }
 
+// plugins/provider-codex/src/execWrapper.ts
+function quotedValue(source, key) {
+  const keyMatch = new RegExp("\\b" + key + "\\s*:\\s*").exec(source);
+  if (!keyMatch) return null;
+  const quoteIndex = keyMatch.index + keyMatch[0].length;
+  const quote = source[quoteIndex];
+  if (quote !== '"' && quote !== "'") return null;
+  let value = "";
+  for (let i = quoteIndex + 1; i < source.length; i++) {
+    const char = source[i];
+    if (char === quote) return decodeString(value, quote);
+    if (char === "\\" && i + 1 < source.length) {
+      value += char + source[++i];
+    } else {
+      value += char;
+    }
+  }
+  return null;
+}
+function decodeString(value, quote) {
+  return value.replace(/\\(.)/g, (_match, escaped) => {
+    if (escaped === "n") return "\n";
+    if (escaped === "r") return "\r";
+    if (escaped === "t") return "	";
+    if (escaped === "\\" || escaped === '"' || quote === "'" && escaped === "'") return escaped;
+    return "\\" + escaped;
+  });
+}
+function callObject(source) {
+  const start = source.indexOf("tools.shell_command");
+  const open = start < 0 ? -1 : source.indexOf("{", start);
+  if (open < 0) return null;
+  let depth = 0;
+  let quote = "";
+  for (let i = open; i < source.length; i++) {
+    const char = source[i];
+    if (quote) {
+      if (char === "\\") i++;
+      else if (char === quote) quote = "";
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === "{") {
+      depth++;
+    } else if (char === "}" && --depth === 0) {
+      return source.substring(open + 1, i);
+    }
+  }
+  return null;
+}
+function unwrapShellCommand(raw) {
+  if (typeof raw !== "string") return null;
+  try {
+    const body = callObject(raw);
+    if (!body) return null;
+    const command = quotedValue(body, "command") || quotedValue(body, "cmd");
+    if (!command || !command.trim()) return null;
+    const workdir = quotedValue(body, "workdir") || void 0;
+    const timeoutText = /\btimeout_ms\s*:\s*(\d+)/.exec(body);
+    const timeout_ms = timeoutText ? Number(timeoutText[1]) : void 0;
+    return { command, ...workdir ? { workdir } : {}, ...timeout_ms !== void 0 ? { timeout_ms } : {} };
+  } catch (_) {
+    return null;
+  }
+}
+
+// plugins/provider-codex/src/patchEdits.ts
+function patchEdits(patch) {
+  if (typeof patch !== "string" || patch.indexOf("*** Begin Patch") < 0) return [];
+  try {
+    const edits = [];
+    let path = null;
+    let oldLines = [];
+    let newLines = [];
+    const flush = () => {
+      if (path && (oldLines.length > 0 || newLines.length > 0)) edits.push({ path, old: oldLines.join("\n"), new: newLines.join("\n") });
+      oldLines = [];
+      newLines = [];
+    };
+    for (const line of patch.replace(/\r\n/g, "\n").split("\n")) {
+      const header = /^\*\*\* (?:Update|Add|Delete) File: (.+)$/.exec(line);
+      if (header) {
+        flush();
+        path = header[1].trim();
+      } else if (line === "@@" || line.indexOf("@@ ") === 0) {
+        flush();
+      } else if (path && line.indexOf("-") === 0) {
+        oldLines.push(line.substring(1));
+      } else if (path && line.indexOf("+") === 0) {
+        newLines.push(line.substring(1));
+      }
+    }
+    flush();
+    return edits;
+  } catch (_) {
+    return [];
+  }
+}
+
 // plugins/provider-codex/src/plugin.ts
 var CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 var TITLE_RE = /codex/i;
@@ -677,9 +775,10 @@ var plugin = {
         const name = typeof p.name === "string" ? p.name.trim() : "";
         if (!hasUsefulFunctionCall(name, input, p.arguments)) continue;
         const callId = typeof p.call_id === "string" ? p.call_id : "";
+        const canonical = canonicalToolFields(name, input);
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_use", data: { name: name || "tool", id: callId, input } }],
+          blocks: [{ kind: "tool_use", data: { name: name || "tool", id: callId, input, ...canonical } }],
           ts,
           timestamp: tsIso
         });
@@ -712,9 +811,10 @@ var plugin = {
           input = { patch: nestedPatch };
         }
         const callId = typeof p.call_id === "string" ? p.call_id : "";
+        const canonical = canonicalToolFields(name, input);
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_use", data: { name, id: callId, input } }],
+          blocks: [{ kind: "tool_use", data: { name, id: callId, input, ...canonical } }],
           ts,
           timestamp: tsIso
         });
@@ -1123,6 +1223,18 @@ function nestedApplyPatch(raw) {
   } catch (_) {
     return null;
   }
+}
+function canonicalToolFields(name, input) {
+  const raw = typeof input.raw === "string" ? input.raw : "";
+  const command = typeof input.command === "string" ? input.command : typeof input.cmd === "string" ? input.cmd : "";
+  const shell = raw ? unwrapShellCommand(raw) : null;
+  const patch = typeof input.patch === "string" ? input.patch : name === "apply_patch" && typeof input.input === "string" ? input.input : "";
+  const edits = patch ? patchEdits(patch) : [];
+  if (shell) return { tool_kind: "command", tool_summary: shell.command, tool_detail: shell.command };
+  if (command.trim()) return { tool_kind: "command", tool_summary: command.trim(), tool_detail: command.trim() };
+  if (edits.length > 0) return { tool_kind: "edit", tool_summary: edits[0].path, tool_detail: patch, tool_edits: edits };
+  if (patch.indexOf("*** Begin Patch") >= 0) return { tool_kind: "edit", tool_summary: "Apply patch", tool_detail: patch, tool_edits: [] };
+  return { tool_kind: "generic", tool_summary: name || "Tool call", tool_detail: name || "Tool call" };
 }
 function endsWith(s, suffix) {
   return s.length >= suffix.length && s.substring(s.length - suffix.length) === suffix;
