@@ -527,9 +527,27 @@ function callObject(source) {
   }
   return null;
 }
+function jsonCallObject(source) {
+  const match = /\btools\.shell_command\(\s*(\{[\s\S]*\})\s*\)\s*;/.exec(source);
+  if (!match) return null;
+  try {
+    const value = JSON.parse(match[1]);
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  } catch (_) {
+    return null;
+  }
+}
 function unwrapShellCommand(raw) {
   if (typeof raw !== "string") return null;
   try {
+    const value = jsonCallObject(raw);
+    if (value) {
+      const command2 = typeof value.command === "string" ? value.command : typeof value.cmd === "string" ? value.cmd : "";
+      if (!command2.trim()) return null;
+      const workdir2 = typeof value.workdir === "string" && value.workdir ? value.workdir : void 0;
+      const timeout_ms2 = typeof value.timeout_ms === "number" ? value.timeout_ms : void 0;
+      return { command: command2, ...workdir2 ? { workdir: workdir2 } : {}, ...timeout_ms2 !== void 0 ? { timeout_ms: timeout_ms2 } : {} };
+    }
     const body = callObject(raw);
     if (!body) return null;
     const command = quotedValue(body, "command") || quotedValue(body, "cmd");

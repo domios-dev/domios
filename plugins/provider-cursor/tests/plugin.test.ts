@@ -408,15 +408,16 @@ console.log("\n--- detectSessionModel (store.db JSON blob scan) ---\n");
 console.log("\n--- enumerateSessions (walk ~/.cursor/projects agent-transcripts) ---\n");
 {
   const sid = "cbf7919a-ce25-423d-8e18-1aaae2d82701";
-  const base = `/home/u/.cursor/projects/private-tmp-ct-cw2-probe/agent-transcripts/${sid}`;
+  const base = `C:\\Users\\u\\.cursor\\projects\\D-Developer-codeterm\\agent-transcripts\\${sid}`;
   const p = loadCursorWithHost(baseHost({
-    homeDir: () => "/home/u",
+    homeDir: () => "C:\\Users\\u",
+    platform: () => "windows",
     fs: {
       ...baseHost({}).fs,
-      fileExists: () => true,
+      fileExists: (value: string) => value === "D:\\Developer\\codeterm" || value.indexOf(".cursor") !== -1,
       walkDir: () => [
-        { name: `${sid}.jsonl`, path: `${base}/${sid}.jsonl`, isFile: true, isDir: false, size: 523, createdMs: 1781885008048, modifiedMs: 1781885033657 },
-        { name: "repo.json", path: "/home/u/.cursor/projects/private-tmp-ct-cw2-probe/repo.json", isFile: true, isDir: false, size: 50, createdMs: null, modifiedMs: null },
+        { name: `${sid}.jsonl`, path: `${base}\\${sid}.jsonl`, isFile: true, isDir: false, size: 523, createdMs: 1781885008048, modifiedMs: 1781885033657 },
+        { name: "repo.json", path: "C:\\Users\\u\\.cursor\\projects\\D-Developer-codeterm\\repo.json", isFile: true, isDir: false, size: 50, createdMs: null, modifiedMs: null },
       ],
     },
   }));
@@ -424,6 +425,7 @@ console.log("\n--- enumerateSessions (walk ~/.cursor/projects agent-transcripts)
   eq(sessions.length, 1, "only the agent-transcript jsonl enumerated (repo.json ignored)");
   eq(sessions[0].sessionId, sid, "session id is the transcript uuid");
   eq(sessions[0].provider, "cursor", "provider tagged cursor");
+  eq(sessions[0].projectPath, "D:\\Developer\\codeterm", "projectPath decoded and verified against the filesystem");
   eq(sessions[0].createdTs, Math.floor(1781885008048 / 1000), "createdTs from file stat (unix seconds)");
 }
 

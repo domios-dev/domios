@@ -134,6 +134,25 @@ assert(plugin.detect({ bytes: "", title: "claude" }), "plugin.detect delegates t
 
 const hostPlugin = loadHostPlugin();
 
+eq(
+  hostPlugin.describeSession(
+    "/tmp/session.jsonl",
+    [
+      JSON.stringify({ type: "mode", mode: "normal" }),
+      JSON.stringify({ type: "file-history-snapshot", snapshot: {} }),
+      JSON.stringify({ type: "attachment", cwd: "D:\\Developer\\codeterm" }),
+    ].join("\n"),
+  ),
+  { projectPath: "D:\\Developer\\codeterm" },
+  "describeSession finds cwd after metadata-only rows",
+);
+
+eq(
+  hostPlugin.describeSession("/tmp/session.jsonl", "not-json\n{}"),
+  null,
+  "describeSession stays honest when cwd is absent",
+);
+
 console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
 
 {

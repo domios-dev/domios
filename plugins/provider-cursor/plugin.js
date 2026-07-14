@@ -190,7 +190,7 @@ var plugin = {
       out.push({
         sessionId: stem,
         provider: "cursor",
-        projectPath: null,
+        projectPath: projectPathFromTranscript(root, f.path),
         title: null,
         summary: null,
         filePath: f.path,
@@ -377,6 +377,19 @@ function chatsRoot() {
 function projectsRoot() {
   const r = cursorRoot();
   return r ? r + pathSep() + "projects" : null;
+}
+function projectPathFromTranscript(root, transcript) {
+  const sep = pathSep();
+  const prefix = root + sep;
+  if (transcript.indexOf(prefix) !== 0) return null;
+  const slug = transcript.substring(prefix.length).split(sep)[0] || "";
+  let candidate;
+  if (host.platform() === "windows" && /^[a-zA-Z]-/.test(slug)) {
+    candidate = slug.charAt(0).toUpperCase() + ":\\" + slug.substring(2).replace(/-/g, "\\");
+  } else {
+    candidate = "/" + slug.replace(/-/g, "/");
+  }
+  return host.fs.fileExists(candidate) ? candidate : null;
 }
 function toNativeCwd(cwd) {
   const s = String(cwd || "");

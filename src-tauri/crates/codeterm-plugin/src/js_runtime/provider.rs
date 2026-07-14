@@ -1,3 +1,4 @@
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,6 +26,21 @@ struct SerdeSessionMetadata {
     created_ts: Option<i64>,
     #[serde(default)]
     modified_ts: Option<i64>,
+}
+
+fn session_description_head(path: &Path) -> String {
+    let Ok(file) = std::fs::File::open(path) else {
+        return String::new();
+    };
+    let mut head = String::new();
+    for line in BufReader::new(file).lines().map_while(Result::ok).take(64) {
+        if head.len() + line.len() > 64 * 1024 {
+            break;
+        }
+        head.push_str(&line);
+        head.push('\n');
+    }
+    head
 }
 
 impl SerdeSessionMetadata {
@@ -543,8 +559,13 @@ impl AgentProvider for JsProvider {
                     .and_then(|m| provider::fs_time_to_unix(m.modified().ok()));
                 // Ask the plugin to dig title/summary/project_path out of the session file. We pass the path string — the plugin may choose to ignore (e.g.
                 // plain JSONL provider that only cares about per-line cwd via parse_session_messages).
-                let extra: Option<Value> =
-                    self.try_call("describeSession", &[json!(file_path_buf.to_string_lossy())]);
+                let extra: Option<Value> = self.try_call(
+                    "describeSession",
+                    &[
+                        json!(file_path_buf.to_string_lossy()),
+                        json!(session_description_head(&file_path_buf)),
+                    ],
+                );
                 let title = extra
                     .as_ref()
                     .and_then(|v| v.get("title"))

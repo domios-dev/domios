@@ -30,8 +30,9 @@ const cases: Array<[string, () => Promise<void>]> = [
     if (!host.textContent?.includes("codeterm agent reports the full command") || !host.querySelector('[data-testid="toolcard-spinner"]') || host.textContent.includes('{"raw')) throw new Error("command regression");
   }],
   ["edit shows counts and diff", async () => {
-    const { host } = await render(<EditCard event={event({ kind: "edit", edits: [{ path: "x", old: "a", new: "b" }] })} expanded onToggle={() => {}} />);
-    if (!host.textContent?.includes("x +1 -1") || !host.textContent.includes("- a") || !host.textContent.includes("+ b")) throw new Error("edit card regression");
+    const { host } = await render(<EditCard event={event({ kind: "edit", edits: [{ path: "src/x.ts", old: "const value = 1;", new: "const value = 2;" }] })} expanded onToggle={() => {}} />);
+    const highlightedKeyword = Array.from(host.querySelectorAll("span")).some((node) => node.textContent === "const");
+    if (!host.textContent?.includes("src/x.ts +1 -1") || !host.textContent.includes("- const value = 1;") || !host.textContent.includes("+ const value = 2;") || !highlightedKeyword) throw new Error("edit card regression");
   }],
   ["error renders dashed card and result", async () => {
     const { host } = await render(<GenericToolCard event={event({ kind: "search", phase: "result", status: "error", result: "RESULT" })} expanded onToggle={() => {}} />);

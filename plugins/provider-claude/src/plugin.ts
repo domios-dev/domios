@@ -97,6 +97,19 @@ const TUI_FRAGMENTS = [
 const SESSION_EXPLICIT_RE = /session(?:\s+id)?\s*[:=]\s*([a-z]+-[a-z]+-\d{2,6})\b/i;
 const SESSION_BARE_RE = /(?:^|\n)\s*([a-z]{4,10}-[a-z]{4,10}-\d{4})\s*(?:$|\n)/m;
 
+function sessionProjectPath(head: string): string | null {
+  const lines = String(head || "").split("\n", 64);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]?.trim();
+    if (!line) continue;
+    try {
+      const entry = JSON.parse(line) as { cwd?: unknown };
+      if (typeof entry.cwd === "string" && entry.cwd.trim()) return entry.cwd;
+    } catch {}
+  }
+  return null;
+}
+
 function isBrailleSpinner(ch: string): boolean {
   if (!ch) return false;
   const code = ch.charCodeAt(0);
@@ -171,6 +184,11 @@ const plugin: PluginModule = {
     m = SESSION_BARE_RE.exec(s);
     if (m && m[1]) return m[1];
     return null;
+  },
+
+  describeSession(_filePath: string, head?: string) {
+    const projectPath = sessionProjectPath(head ?? "");
+    return projectPath ? { projectPath } : null;
   },
 
   detectEvents(text: string): string[] {

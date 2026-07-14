@@ -186,6 +186,28 @@ const plugin: PluginModule = {
     return null;
   },
 
+  enumerateSessions(): unknown[] {
+    const db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return [];
+    const rows = host.fs.sqliteQuery<{
+      id?: string;
+      directory?: string;
+      title?: string;
+      time_created?: number;
+      time_updated?: number;
+    }>(db, "SELECT id, directory, title, time_created, time_updated FROM session ORDER BY time_updated DESC", []);
+    return rows.filter((row) => typeof row.id === "string" && row.id.startsWith("ses_")).map((row) => ({
+      sessionId: row.id,
+      provider: "opencode",
+      projectPath: typeof row.directory === "string" && row.directory ? row.directory : null,
+      title: typeof row.title === "string" && row.title ? row.title : null,
+      summary: null,
+      filePath: db,
+      createdTs: typeof row.time_created === "number" ? Math.floor(row.time_created / 1000) : null,
+      modifiedTs: typeof row.time_updated === "number" ? Math.floor(row.time_updated / 1000) : null,
+    }));
+  },
+
   checkIntegration(): unknown {
     const cfg = opencodeConfigPath();
     const pluginPath = opencodeBindingPluginPath();
