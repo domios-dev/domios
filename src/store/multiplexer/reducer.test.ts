@@ -626,6 +626,25 @@ test("CLOSE_SESSION_PICKER closes on workspace key even when the tab id mismatch
   assert(closed.panes[virtual.pane.id] === undefined, "virtual pane removed");
 });
 
+test("CLOSE_SESSION_PICKER keeps the exact spawned tab active", () => {
+  const created: Tab = { id: "tab-created", pane_id: "pane-created" } as unknown as Tab;
+  const withTab: MultiplexerState = {
+    workspaces: [{ id: "w1", name: "W", tabs: [created], active_tab_id: created.id, cwd: null } as unknown as Workspace],
+    panes: { "pane-created": { id: "pane-created", title: "Created" } as unknown as Pane },
+    active_workspace_id: "w1",
+    focused_pane_id: "pane-created",
+    generation: 1,
+  };
+  const virtual = makeVirtualPickerTab();
+  const open = reducer(reducer(base(), { type: "SET_STATE", state: withTab }), {
+    type: "OPEN_SESSION_PICKER", workspaceId: "w1", virtual,
+  });
+  const closed = reducer(open, {
+    type: "CLOSE_SESSION_PICKER", workspaceId: "w1", tabId: virtual.tab.id, replacementTabId: created.id,
+  });
+  assert(closed.activeTabIds.w1 === created.id, "picker close keeps the spawned tab selected");
+});
+
 test("close-then-select: SET_ACTIVE_TAB after close targets the created tab, picker gone", () => {
   // Backend snapshot carries the created (orchestrator) tab alongside the picker.
   const created: Tab = { id: "tab-created", pane_id: "pane-created" } as unknown as Tab;

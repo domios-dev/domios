@@ -46,7 +46,7 @@ export type Action =
   | { type: "UPDATE_PANE_STATUS"; paneId: string; status: PaneStatus }
   | { type: "UPDATE_BOOT_STAGE"; paneId: string; stage: BootStage; reason?: string | null }
   | { type: "OPEN_SESSION_PICKER"; workspaceId: string; virtual: VirtualPickerTab }
-  | { type: "CLOSE_SESSION_PICKER"; workspaceId: string; tabId: string }
+  | { type: "CLOSE_SESSION_PICKER"; workspaceId: string; tabId: string; replacementTabId?: string }
   | { type: "RESET_PEER_CONTEXT" }
   | { type: "RESET_GENERATION" };
 
@@ -548,7 +548,10 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         workspaces: state.workspaces.map((w) => {
           if (w.id !== action.workspaceId) return w;
           const remaining = w.tabs.filter((t) => t.id !== pickerTabId);
-          if (nextActive[action.workspaceId] === pickerTabId) {
+          const replacement = action.replacementTabId;
+          if (replacement && remaining.some((tab) => tab.id === replacement)) {
+            nextActive[action.workspaceId] = replacement;
+          } else if (nextActive[action.workspaceId] === pickerTabId) {
             const fallback = remaining[remaining.length - 1]?.id;
             if (fallback) nextActive[action.workspaceId] = fallback;
             else delete nextActive[action.workspaceId];

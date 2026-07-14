@@ -116,10 +116,10 @@ export const TerminalPane = memo(function TerminalPane({
   }, [paneId, chatCapable, pane?.chat_view, mobileWebDefaultChat]);
   const [uiMode, setUiMode] = useState<PaneUiMode>(computeMode);
   const [terminalFallbackOpen, setTerminalFallbackOpen] = useState(false);
+  const [historyReplaying, setHistoryReplaying] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const terminalVisible = uiMode === "terminal" || terminalFallbackOpen;
-  const wasTerminalVisibleRef = useRef(terminalVisible);
   const ownsLivePty = terminalOwnsLivePty({
     terminalVisible,
     paneVisible: isVisible,
@@ -190,6 +190,7 @@ export const TerminalPane = memo(function TerminalPane({
     ioEnabled: ownsLivePty,
     renderEnabled: renderTerminal,
     resizeClientId,
+    onHistoryReplayStateChange: setHistoryReplaying,
   });
 
   useAgentDetection({ termRef, paneId, termReady });
@@ -302,22 +303,13 @@ export const TerminalPane = memo(function TerminalPane({
 
   // Refit xterm when the terminal layout changes so rows match the actual terminal box.
   useEffect(() => {
-    const terminalOnScreen = terminalVisible && isVisible;
-    const openingTerminal = terminalOnScreen && !wasTerminalVisibleRef.current;
-    if (!terminalVisible || !termReady) {
-      if (!terminalVisible) wasTerminalVisibleRef.current = false;
-      return;
-    }
+    if (!terminalVisible || !isVisible || !termReady) return;
     const raf = requestAnimationFrame(() => {
       const term = termRef.current;
       const fit = fitAddonRef.current;
       if (!term || !fit) return;
       try {
         fit.fit();
-        if (openingTerminal) {
-          term.scrollToBottom();
-          requestAnimationFrame(() => term.scrollToBottom());
-        }
         term.refresh(0, term.rows - 1);
         const ptyId = connectedPtyRef.current;
         if (ptyId && term.cols > 0 && term.rows > 0) {
@@ -332,7 +324,6 @@ export const TerminalPane = memo(function TerminalPane({
         }
       } catch { /* ignore */ }
       termRef.current?.focus();
-      wasTerminalVisibleRef.current = terminalOnScreen;
     });
     return () => cancelAnimationFrame(raf);
   }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, paneId, resizeClientId, termRef, fitAddonRef, connectedPtyRef]);
@@ -506,7 +497,7 @@ export const TerminalPane = memo(function TerminalPane({
           borderBottom: mobileSheet ? "none" : undefined,
           boxShadow: fallbackChat && !mobileSheet ? FB_SHADOW : undefined,
           background: terminalBackground,
-          visibility: terminalVisible ? "visible" : "hidden",
+          visibility: terminalVisible && !historyReplaying ? "visible" : "hidden",
           pointerEvents: terminalVisible ? "auto" : "none",
           zIndex: terminalFallbackOpen ? 4 : uiMode === "terminal" ? 1 : 0,
           animation: mobileSheet

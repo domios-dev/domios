@@ -35,6 +35,7 @@ import { ChatSetupState, chatSetupView } from "./ChatSetupState";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { reattachPaneChat } from "./chatReattach";
 import { planRefViewState } from "./planRefViewState";
+import { shouldRestoreChatViewport } from "./chatViewport";
 
 interface Props {
   paneId: string;
@@ -169,21 +170,17 @@ export function PaneSessionChat({
       lastInstantBottomKeyRef.current = "";
       return;
     }
-    if (loading) return;
     const key = `${paneId}:${agentSessionId ?? ""}`;
-    if (lastInstantBottomKeyRef.current === key) return;
+    if (!shouldRestoreChatViewport(isActive, loading, allMessages.length, key, lastInstantBottomKeyRef.current)) return;
     lastInstantBottomKeyRef.current = key;
     scrollToBottom("auto");
-    let raf2 = 0;
-    const raf1 = requestAnimationFrame(() => {
+    const raf = requestAnimationFrame(() => {
       scrollToBottom("auto");
-      raf2 = requestAnimationFrame(() => scrollToBottom("auto"));
     });
     return () => {
-      cancelAnimationFrame(raf1);
-      if (raf2) cancelAnimationFrame(raf2);
+      cancelAnimationFrame(raf);
     };
-  }, [agentSessionId, isActive, loading, paneId, scrollToBottom]);
+  }, [agentSessionId, allMessages.length, isActive, loading, paneId, scrollToBottom]);
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   // clears pane.pending_prompt shortly after on the next state poll.

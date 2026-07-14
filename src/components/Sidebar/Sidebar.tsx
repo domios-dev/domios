@@ -79,6 +79,7 @@ export function Sidebar({
     setTabTitle,
     spawnAgentTab,
     createOrchestrationPair,
+    selectTabByPane,
     addNotification,
   } = useMultiplexer();
   const state = useMuxState();
@@ -174,7 +175,9 @@ export function Sidebar({
     if (!orchestrationModal) return;
     const workspaceId = orchestrationModal.workspaceId;
     setOrchestrationModal(null);
-    createOrchestrationPair({ ...result, workspaceId }).catch((e) => {
+    createOrchestrationPair({ ...result, workspaceId }).then((created) => {
+      void selectTabByPane(workspaceId, created.orchestrator_pane_id);
+    }).catch((e) => {
       addNotification({
         pane_id: null,
         workspace_id: workspaceId,
@@ -184,7 +187,7 @@ export function Sidebar({
         sticky: true,
       });
     });
-  }, [addNotification, createOrchestrationPair, orchestrationModal]);
+  }, [addNotification, createOrchestrationPair, orchestrationModal, selectTabByPane]);
 
   const handleNewSession = useCallback((workspaceId: string, workspaceCwd: string | null) => {
     // Virtual only — no backend pane/PTY until the picker is confirmed.

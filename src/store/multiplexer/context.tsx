@@ -12,6 +12,7 @@ import type { MuxStateStore } from "./selectorStore";
 export interface SpawnedPane {
   workspaceId: string;
   paneId: string;
+  tabId?: string;
 }
 
 export interface MultiplexerActionsContextType {
@@ -32,7 +33,7 @@ export interface MultiplexerActionsContextType {
   openSessionPicker: (workspaceId: string, cwd?: string) => void;
   /** Remove an open virtual picker tab (cancel, or after confirm materializes
    *  the real pane). */
-  closeSessionPicker: (workspaceId: string, tabId: string) => void;
+  closeSessionPicker: (workspaceId: string, tabId: string, replacementTabId?: string) => void;
   closeTab: (workspaceId: string, tabId: string) => void;
   /** Reopen a recently-closed pane (index 0 = most recent). */
   reopenClosed: (workspaceId: string, index?: number) => void;

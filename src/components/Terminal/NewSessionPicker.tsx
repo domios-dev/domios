@@ -163,13 +163,17 @@ export function NewSessionPicker({
   // created tab, THEN drop the picker — the new session replaces it in place
   // with no blank flash. `null` / a throw keeps the picker open to retry.
   const finishSpawn = useCallback(async (
-    runner: () => Promise<{ workspaceId: string; paneId: string } | null>,
+    runner: () => Promise<{ workspaceId: string; paneId: string; tabId?: string } | null>,
   ) => {
     setBusy(true);
+    let replacementTabId: string | undefined;
     try {
       const created = await runner();
       if (created) {
-        await selectTabByPane(created.workspaceId, created.paneId).catch(() => {});
+        replacementTabId = created.tabId;
+        if (!created.tabId) {
+          await selectTabByPane(created.workspaceId, created.paneId).catch(() => {});
+        }
       }
     } catch (e) {
       addNotification({
@@ -184,7 +188,7 @@ export function NewSessionPicker({
       // The picker never survives a Start click: success replaces it with the
       // session, failure surfaces as a notification. A stuck picker is worse
       // than either.
-      closeSessionPicker(workspaceId, tabId);
+      closeSessionPicker(workspaceId, tabId, replacementTabId);
       setBusy(false);
     }
   }, [addNotification, closeSessionPicker, selectTabByPane, tabId, workspaceId]);
