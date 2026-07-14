@@ -105,6 +105,19 @@ console.log("\n--- discoverModels ---\n");
 
 {
   const p = loadOpencodeWithHost(ocHost({
+    platform: () => "windows",
+    fs: { writeTempFile: () => "C:\\Temp\\opencode task.md" },
+    shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` },
+  }));
+  const launch = p.buildLaunchCommand({ task: "review the project" });
+  assert(launch.includes("$env:OPENCODE_CONFIG_CONTENT ="), "OpenCode passes task instructions through isolated config");
+  assert(launch.includes("C:\\\\Temp\\\\opencode task.md"), "OpenCode config references the task file");
+  assert(launch.includes("--prompt 'Execute the assigned task."), "OpenCode starts the assigned turn inline");
+  assert(!launch.includes("review the project"), "OpenCode task body is absent from the launch command");
+}
+
+{
+  const p = loadOpencodeWithHost(ocHost({
     exec: () => JSON.stringify({ code: 0, stdout: "opencode/big-pickle\nanthropic/claude-opus-4-8\n" }),
   }));
   eq(

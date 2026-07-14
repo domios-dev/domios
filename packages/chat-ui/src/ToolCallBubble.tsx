@@ -21,7 +21,6 @@ import {
   languageForEdits,
   languageFromPath,
   shortPath,
-  TEXT_WRAP_CLASS,
 } from "./MarkdownBody";
 import { ToolIcon } from "./toolIcons";
 import { InlineToolRow } from "./InlineToolRow";
@@ -64,7 +63,7 @@ export function ToolCallBubble({
   const toolContent = hasToolContent ? String(message.toolInput!.content) : null;
   const edits = extractEdits(message);
   const toolStatus: "running" | "completed" | "failed" =
-    message.toolError === true ? "failed" : (message.toolResult ? "completed" : "running");
+    message.toolError === true ? "failed" : (message.toolResult !== undefined ? "completed" : "running");
   const statusGlyph = toolStatus === "running" ? "◜" : toolStatus === "failed" ? "✕" : "✓";
   const statusGlyphClass = toolStatus === "running" ? "animate-spin opacity-60" : (toolStatus === "completed" ? "opacity-60" : "opacity-100");
   const cardBorderStyle = toolStatus === "failed" ? "dashed" : "solid";
@@ -241,7 +240,7 @@ export function ToolCallBubble({
               title="Show full output"
             >
               <span className="flex-shrink-0 opacity-40">{"→"}</span>
-              <span className={`min-w-0 flex-1 ${TEXT_WRAP_CLASS} opacity-70`}>{toolResultPreviewLine(message.toolResult)}</span>
+              <span className="min-w-0 flex-1 truncate whitespace-nowrap opacity-70">{toolResultPreviewLine(message.toolResult)}</span>
             </button>
           )}
           {message.toolResult && !expanded && isImageOnlyToolOutput(message.toolResult) && (
@@ -362,7 +361,7 @@ export function ToolCallBubble({
             title="Show full output"
           >
             <span className="flex-shrink-0 opacity-40">{"→"}</span>
-            <span className={`min-w-0 flex-1 ${TEXT_WRAP_CLASS} opacity-70`}>{toolResultPreviewLine(resultText)}</span>
+            <span className="min-w-0 flex-1 truncate whitespace-nowrap opacity-70">{toolResultPreviewLine(resultText)}</span>
           </button>
         )}
         {resultText && !expanded && isImageOnlyToolOutput(resultText) && (

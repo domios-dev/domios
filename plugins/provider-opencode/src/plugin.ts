@@ -17,6 +17,7 @@ const OUTPUT_SIGNALS = [
   "╹",
 ];
 const TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
+const TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
 const QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 const QUESTION_MENU_SELECTORS = [">", "❯", "▶", "➤", "→", "●"];
 const PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
@@ -125,7 +126,16 @@ const plugin: PluginModule = {
 
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
-    const parts = ["opencode"];
+    const parts: string[] = [];
+    if (p.task) {
+      const taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
+      if (!taskPath) throw new Error("failed to write OpenCode task instructions");
+      const config = JSON.stringify({ instructions: [taskPath] });
+      parts.push(host.platform() === "windows"
+        ? `$env:OPENCODE_CONFIG_CONTENT = ${host.shell.quoteFor(config, host.platform())};`
+        : `OPENCODE_CONFIG_CONTENT=${host.shell.quoteFor(config, host.platform())}`);
+    }
+    parts.push("opencode");
     // reply over HTTP instead of scraping the PTY picker.
     const sps = p.structuredPromptServer;
     if (sps && sps.port) {
@@ -139,6 +149,9 @@ const plugin: PluginModule = {
     if (p.args && p.args.length > 0) {
       // Quote each arg — caller-supplied via the spawn API; prevents shell injection.
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+    }
+    if (p.task) {
+      parts.push("--prompt", host.shell.quoteFor(TASK_START_PROMPT, host.platform()));
     }
     return parts.join(" ");
   },

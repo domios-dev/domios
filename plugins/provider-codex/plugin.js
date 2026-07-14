@@ -492,6 +492,7 @@ var OUTPUT_FINGERPRINTS = [
   "codex>"
 ];
 var TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
+var TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
 var plugin = {
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));
@@ -553,6 +554,15 @@ var plugin = {
     }
     if (p.args && p.args.length > 0) {
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+    }
+    if (p.task) {
+      const taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
+      if (!taskPath) throw new Error("failed to write Codex task instructions");
+      const quotedPath = host.shell.quoteFor(taskPath, host.platform());
+      parts.push("-c");
+      parts.push(host.platform() === "windows" ? `("developer_instructions=" + (Get-Content -Raw -Encoding UTF8 ${quotedPath}))` : `"developer_instructions=$(cat ${quotedPath})"`);
+      parts.push("--");
+      parts.push(host.shell.quoteFor(TASK_START_PROMPT, host.platform()));
     }
     return parts.join(" ");
   },
@@ -666,18 +676,18 @@ var plugin = {
         if (input && input.cmd && !input.command) input.command = input.cmd;
         const name = typeof p.name === "string" ? p.name.trim() : "";
         if (!hasUsefulFunctionCall(name, input, p.arguments)) continue;
+        const callId = typeof p.call_id === "string" ? p.call_id : "";
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_use", data: { name: name || "tool", input } }],
+          blocks: [{ kind: "tool_use", data: { name: name || "tool", id: callId, input } }],
           ts,
           timestamp: tsIso
         });
-      } else if (p.type === "function_call_output") {
-        let content = p.output;
-        if (content && typeof content === "object") content = JSON.stringify(content);
+      } else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
+        const callId = typeof p.call_id === "string" ? p.call_id : "";
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_result", data: { content: String(content == null ? "" : content) } }],
+          blocks: [{ kind: "tool_result", data: { content: codexToolOutputText(p.output), tool_use_id: callId } }],
           ts,
           timestamp: tsIso
         });
@@ -1262,10 +1272,25 @@ function isValidCodexSessionDelta(v) {
   if (v.type !== "response_item") return false;
   if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
   const kind = v.payload.type;
-  if (kind !== "message" && kind !== "function_call" && kind !== "function_call_output" && kind !== "custom_tool_call") {
+  if (kind !== "message" && kind !== "function_call" && kind !== "function_call_output" && kind !== "custom_tool_call" && kind !== "custom_tool_call_output") {
     return false;
   }
   return true;
+}
+function codexToolOutputText(output) {
+  if (typeof output === "string") return output;
+  if (Array.isArray(output)) {
+    const text = [];
+    for (let i = 0; i < output.length; i++) {
+      const item = output[i];
+      if (item && typeof item === "object" && typeof item.text === "string") {
+        text.push(item.text);
+      }
+    }
+    if (text.length > 0) return text.join("");
+  }
+  if (output == null) return "";
+  return typeof output === "object" ? JSON.stringify(output) : String(output);
 }
 function validateEntry(v) {
   return isValidCodexSessionDelta(v);

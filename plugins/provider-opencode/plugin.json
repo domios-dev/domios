@@ -15,8 +15,7 @@
       "kind": "poll_shell_prompt",
       "timeoutSecs": 30
     },
-    "taskDelivery": "pty_input",
-    "taskInputWarmupMs": 5000,
+    "taskDelivery": "inline_flag",
     "verifySubmit": {
       "kind": "tui_input_drained",
       "timeoutSecs": 15,
