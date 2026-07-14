@@ -16,6 +16,22 @@ export type ChatMessageKind =
 /** Lifecycle status of a `shell_command` chat item (OSC 133/633 boundaries). */
 export type ShellCommandStatus = "running" | "ok" | "failed";
 
+export type ToolEventKind =
+  | "command"
+  | "edit"
+  | "read"
+  | "search"
+  | "task"
+  | "fetch"
+  | "codeterm"
+  | "generic";
+
+export interface ToolEdit {
+  path: string;
+  old: string;
+  new: string;
+}
+
 export interface ChatAttachment {
   id: string;
   mimeType: string;
@@ -73,6 +89,10 @@ export interface NormalizedChatMessage {
   toolId?: string;
   toolResult?: string;
   toolError?: boolean;
+  toolKind?: ToolEventKind;
+  toolSummary?: string;
+  toolDetail?: string;
+  toolEdits?: ToolEdit[];
   collapsed?: boolean;
   duration?: string;
   payload?: unknown;
