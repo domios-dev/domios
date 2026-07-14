@@ -66,6 +66,12 @@ post-`--` flags to the script as positional test-file filters, so Playwright
 treats `--timeout=30000` as a path and reports "No tests found". Only the
 direct `npx playwright test ...` invocation applies the caps as flags.
 
+The harness normalizes the `CODETERM_STUB_AGENT_CMD` replay path to absolute
+against the repo root (`CT_E2E_DEV_ROOT` or the checkout root) before the daemon
+env handoff, so a repo-root-relative value like
+`node tests/playwright/fixtures/stub-agent/replay.mjs` resolves correctly even
+though the agent PTY runs with cwd `src-tauri`.
+
 On Windows PowerShell, start/restart dev with `.\build.ps1 dev --wait`.
 Do not call plain `bash ./build.sh ...` from PowerShell; it can resolve to
 WSL. Use `build.ps1` or Git Bash directly.

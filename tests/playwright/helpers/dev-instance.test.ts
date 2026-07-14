@@ -11,11 +11,20 @@ import {
   devInstanceForSlot,
   devInstanceTeardownPorts,
   devStartArgs,
+  normalizeStubAgentCmd,
   playwrightCargoTargetDir,
   teardownInstances,
   type DevInstance,
   type InstanceLifecycle,
 } from "./dev-instance";
+
+function hasRelativeReplay(cmd: string): boolean {
+  const raw = /(?:^|\s)('[^']*replay\.mjs'|"[^"]*replay\.mjs"|[^\s'"][^\s]*replay\.mjs|replay\.mjs)(?:\s|$)/.exec(cmd)?.[1];
+  if (!raw) return false;
+  const q = raw[0];
+  const token = (q === "'" || q === '"') && raw.endsWith(q) ? raw.slice(1, -1) : raw;
+  return !(token.startsWith("/") || /^[A-Za-z]:[\\/]/.test(token) || token.startsWith("\\\\"));
+}
 
 const ENV_KEYS = [
   "CT_E2E_WORKERS",
@@ -261,4 +270,109 @@ test("a synchronous kill failure still tears down the rest and surfaces", async 
     assert.deepEqual(killed, ["pw2", "pw1"], "both kills attempted despite pw2 throwing");
     assert.deepEqual(asserted, ["pw1"], "pw1 still asserted; pw2 skipped after its kill threw");
   });
+});
+
+const REPLAY_REL = "tests/playwright/fixtures/stub-agent/replay.mjs";
+
+test("POSIX relative replay path resolves to absolute under the repo root", () => {
+  const root = "/Users/dev/codeterm";
+  const cmd = normalizeStubAgentCmd(`node ${REPLAY_REL}`, root);
+  assert.equal(cmd, `node ${root}/${REPLAY_REL}`);
+  assert.ok(!hasRelativeReplay(cmd!), "no repo-relative replay token remains");
+});
+
+test("only the replay token is rewritten; node, flags, and other relative tokens are preserved", () => {
+  const root = "/Users/dev/codeterm";
+  const cmd = `node ${REPLAY_REL} --stub-provider --model foo -- other/rel.mjs`;
+  const out = normalizeStubAgentCmd(cmd, root)!;
+  assert.equal(out, `node ${root}/${REPLAY_REL} --stub-provider --model foo -- other/rel.mjs`);
+  assert.ok(out.includes(" --stub-provider --model foo -- other/rel.mjs"), "flags + other relative token byte-stable");
+});
+
+test("space-containing repo root yields a single-quoted absolute token", () => {
+  const root = "/Users/a b/codeterm";
+  const cmd = normalizeStubAgentCmd(`node ${REPLAY_REL}`, root)!;
+  assert.equal(cmd, `node '${root}/${REPLAY_REL}'`, "space-containing path stays one single-quoted token");
+  assert.ok(!cmd.includes('"'), "single quotes, not double");
+});
+
+test("a single-quoted relative replay path resolves cleanly under a space-containing root", () => {
+  const root = "/Users/a b/codeterm";
+  const cmd = normalizeStubAgentCmd(`node '${REPLAY_REL}'`, root)!;
+  assert.equal(cmd, `node '${root}/${REPLAY_REL}'`, "input single quotes stripped, clean absolute emitted");
+  assert.ok(!/\/'|'tests/.test(cmd), "no embedded input-quote fragments");
+  assert.ok(!hasRelativeReplay(cmd), "no repo-relative replay token remains");
+  assert.equal(normalizeStubAgentCmd(cmd, root), cmd, "idempotent");
+});
+
+test("a double-quoted relative replay path resolves cleanly under a space-containing root", () => {
+  const root = "/Users/a b/codeterm";
+  const cmd = normalizeStubAgentCmd(`node "${REPLAY_REL}"`, root)!;
+  assert.equal(cmd, `node '${root}/${REPLAY_REL}'`, "double input quote stripped, single-quote emitted");
+  assert.ok(!/\/"|"tests/.test(cmd), "no embedded input-quote fragments");
+  assert.ok(!hasRelativeReplay(cmd), "no repo-relative replay token remains");
+  assert.equal(normalizeStubAgentCmd(cmd, root), cmd, "idempotent");
+});
+
+test("unbalanced or mixed quoting around the replay token is left byte-stable", () => {
+  const root = "/Users/a b/codeterm";
+  const inputs = [
+    `node "${REPLAY_REL}`,
+    `node '${REPLAY_REL}`,
+    `node '${REPLAY_REL}"`,
+    `node "${REPLAY_REL}'`,
+  ];
+  for (const cmd of inputs) {
+    assert.equal(normalizeStubAgentCmd(cmd, root), cmd, `unbalanced/mixed not repaired: ${cmd}`);
+    assert.equal(normalizeStubAgentCmd(cmd, root), normalizeStubAgentCmd(normalizeStubAgentCmd(cmd, root), root), "idempotent");
+  }
+});
+
+test("already-absolute replay paths are byte-stable across the C:\\, C:/, POSIX /, and UNC forms", () => {
+  const matrix = [
+    "node C:\\ct\\replay.mjs --flag",
+    "node C:/ct/replay.mjs --flag",
+    "node /opt/codeterm/replay.mjs",
+    "node \\\\host\\ct\\replay.mjs",
+  ];
+  for (const cmd of matrix) {
+    assert.equal(normalizeStubAgentCmd(cmd, "/Users/dev/codeterm"), cmd);
+  }
+});
+
+test("an unrelated command with no replay.mjs is byte-stable", () => {
+  const cmd = "node fixtures/stub-agent/other.mjs --flag value";
+  assert.equal(normalizeStubAgentCmd(cmd, "/Users/dev/codeterm"), cmd);
+  assert.equal(normalizeStubAgentCmd(undefined, "/Users/dev/codeterm"), undefined);
+});
+
+test("idempotency pins the single-quote-if-needed output policy", () => {
+  // wantsQuote: the resolved absolute path contains whitespace.
+  const cases: [string, string, boolean][] = [
+    [`node ${REPLAY_REL}`, "/Users/dev/codeterm", false],
+    [`node ${REPLAY_REL}`, "/Users/a b/codeterm", true],
+    ["node C:\\ct\\replay.mjs", "/Users/dev/codeterm", false],
+    ["node C:/ct/replay.mjs", "/Users/dev/codeterm", false],
+    ["node /opt/codeterm/replay.mjs", "/Users/dev/codeterm", false],
+    ["node fixtures/other.mjs --flag v", "/Users/dev/codeterm", false],
+  ];
+  for (const [cmd, root, wantsQuote] of cases) {
+    const once = normalizeStubAgentCmd(cmd, root)!;
+    assert.ok(!once.includes('"'), `never emits double quotes: ${once}`);
+    assert.equal(once.includes("'"), wantsQuote, `single-quote iff whitespace: ${once}`);
+    assert.equal(normalizeStubAgentCmd(once, root), once, `second pass byte-stable, same quote form: ${once}`);
+  }
+});
+
+test("normalizing the stub cmd never mutates the caller's base env", () => {
+  const base = { PATH: "/bin", CODETERM_STUB_AGENT_CMD: `node ${REPLAY_REL}` } as const;
+  const snapshot = { ...base };
+  buildDevInstanceEnv(devInstanceForSlot(0), base, "linux", 1);
+  assert.deepEqual(base, snapshot, "baseEnv untouched");
+});
+
+test("the resulting daemon env carries no repo-relative replay token", () => {
+  const base = { PATH: "/bin", CODETERM_STUB_AGENT_CMD: `node ${REPLAY_REL}` } as const;
+  const env = buildDevInstanceEnv(devInstanceForSlot(0), base, "linux", 1);
+  assert.ok(!hasRelativeReplay(env.CODETERM_STUB_AGENT_CMD!), "env replay token is absolute");
 });
