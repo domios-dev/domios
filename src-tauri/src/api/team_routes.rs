@@ -339,6 +339,23 @@ mod tests {
             .0,
             StatusCode::FORBIDDEN
         );
+        let foreign = mux.create_pane();
+        let mut foreign_headers = HeaderMap::new();
+        foreign_headers.insert("X-CodeTerm-Pane-Id", foreign.parse().unwrap());
+        assert_eq!(
+            close_team_adapter(&foreign_headers, team_id.clone(), |team_id, caller| {
+                crate::service::close_team_with_state_change(
+                    &mut mux,
+                    &events,
+                    &team_id,
+                    Some(&caller),
+                )
+                .map(|result| result.0)
+            })
+            .unwrap_err()
+            .0,
+            StatusCode::FORBIDDEN
+        );
         let mut manager_headers = HeaderMap::new();
         manager_headers.insert("X-CodeTerm-Pane-Id", orchestrator.parse().unwrap());
         assert_eq!(
