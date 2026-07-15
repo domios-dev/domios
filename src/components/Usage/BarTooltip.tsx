@@ -1,4 +1,5 @@
 import { createPortal } from "react-dom";
+import { clampPortalCenter } from "./portalPosition";
 import type { Bucket } from "./cycle";
 
 export interface BarHover {
@@ -93,12 +94,7 @@ export function BarTooltip({ hover, showProjection }: Props) {
     );
   }
 
-  const TIP_HALF_W = 130;
-  const MARGIN = 8;
-  const clampedX = Math.max(
-    MARGIN + TIP_HALF_W,
-    Math.min(window.innerWidth - MARGIN - TIP_HALF_W, x),
-  );
+  const clampedX = clampPortalCenter(x, 260, window.innerWidth);
 
   return createPortal(
     <div className="ct-usage-tip" style={{ left: clampedX, top: y }} role="tooltip">
