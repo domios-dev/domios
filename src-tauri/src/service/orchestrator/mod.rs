@@ -9,7 +9,9 @@ mod types;
 
 pub(crate) use launch::{build_agent_command, launch_agent_in_background, role_onboarding_task};
 #[cfg(test)]
-pub(crate) use launch::{skip_local_worker_role, spawn_onboarding_task, AgentRegistry};
+pub(crate) use launch::{
+    should_deliver_spawn_preferences, skip_local_worker_role, spawn_onboarding_task, AgentRegistry,
+};
 pub use refresh::{RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning};
 pub use types::{BatchOp, SpawnAgentParams, SpawnIdentityProvenance, SpawnResult};
 

@@ -49,6 +49,13 @@ pub(crate) fn spawn_onboarding_task(params: &SpawnAgentParams) -> Option<String>
     }
 }
 
+pub(crate) fn should_deliver_spawn_preferences(
+    is_planner: bool,
+    onboarding_task: Option<&str>,
+) -> bool {
+    is_planner && onboarding_task.is_some()
+}
+
 pub(crate) use crate::agent::provider::{AgentLaunchParams, TaskDelivery};
 pub(crate) use crate::agent::registry::AgentRegistry;
 

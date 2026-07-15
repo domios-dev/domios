@@ -92,6 +92,16 @@ fn explicit_orchestrator_task_still_starts_an_execution_turn() {
 }
 
 #[test]
+fn idle_planner_does_not_receive_a_preferences_turn() {
+    assert!(!should_deliver_spawn_preferences(true, None));
+    assert!(should_deliver_spawn_preferences(
+        true,
+        Some("plan this goal")
+    ));
+    assert!(!should_deliver_spawn_preferences(false, Some("execute")));
+}
+
+#[test]
 fn fresh_spawn_never_uses_existing_pane_promotion_delivery() {
     for source in [include_str!("spawn.rs"), include_str!("../spawn.rs")] {
         assert!(!source.contains("maybe_deliver_orchestrator_promotion_onboarding"));

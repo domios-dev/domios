@@ -1,5 +1,6 @@
 use super::launch::{
-    build_agent_command, launch_agent_in_background, skip_local_worker_role, spawn_onboarding_task,
+    build_agent_command, launch_agent_in_background, should_deliver_spawn_preferences,
+    skip_local_worker_role, spawn_onboarding_task,
 };
 use super::types::{ReasoningEffortProvenance, SpawnAgentParams, SpawnResult};
 use crate::service::{spawn_title, ServiceContext};
@@ -460,7 +461,7 @@ impl ServiceContext {
             bg_task
         };
         // Planner-start injection point: pull machine-local orchestration preferences off the hot path.
-        if is_planner {
+        if should_deliver_spawn_preferences(is_planner, bg_task.as_deref()) {
             self.deliver_orchestration_preferences(&pane_id);
         }
         // Tag with the spawner's origin prefix (FROM-<spawner>) for every provider —
