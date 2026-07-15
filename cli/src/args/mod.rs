@@ -15,5 +15,6 @@ pub mod sessions;
 pub mod spec;
 pub mod system;
 pub mod task;
+pub mod team;
 pub mod update;
 pub mod usage;

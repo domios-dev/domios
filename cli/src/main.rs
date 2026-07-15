@@ -210,6 +210,7 @@ pub use args::sessions::SessionsAction;
 pub use args::spec::SpecAction;
 pub use args::system::SystemAction;
 pub use args::task::{CanvasAction, TaskAction};
+pub use args::team::TeamAction;
 pub use args::update::UpdateAction;
 pub use args::usage::UsageAction;
 
@@ -438,6 +439,11 @@ fn main() {
                 Some(result) => result,
                 None => return,
             }
+        }
+
+        Commands::Team { action } => {
+            cmd::team::handle(&mut client, cli.json, action);
+            return;
         }
 
         Commands::Orchestrator { action } => {

@@ -53,9 +53,9 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::BudgetExhausted { .. } => StatusCode::BAD_REQUEST,
         PlanError::OverrideNotAuthorized => StatusCode::FORBIDDEN,
         PlanError::WritePending { .. } => StatusCode::SERVICE_UNAVAILABLE,
-        PlanError::ReadbackMismatch { .. } | PlanError::TeamAlreadyHasActivePlan { .. } => {
-            StatusCode::CONFLICT
-        }
+        PlanError::ReadbackMismatch { .. }
+        | PlanError::TeamAlreadyHasActivePlan { .. }
+        | PlanError::PlanAlreadyBoundToTeam { .. } => StatusCode::CONFLICT,
         PlanError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     (status, Json(json!({ "plan_error": e.to_json() })))

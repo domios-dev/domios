@@ -10,8 +10,9 @@ use crate::multiplexer::types::AgentRole;
 use crate::plan::{
     Goal, Milestone, OrchestratorRef, Plan, PlannerRequest, PlannerRequestState, Spec,
 };
-use crate::service::plan::{NewTask, PlanStore};
+use crate::service::plan::{NewTask, PlanError, PlanStore};
 use crate::service::test_support::test_harness;
+use crate::service::FirstPlanTeamError;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Barrier};
 
@@ -912,6 +913,7 @@ fn first_plan_mints_team_enrolls_manager_and_binds() {
             dir.path().display().to_string(),
             OrchestratorRef::from_pane(&owner_pane_id),
             vec![],
+            None,
             1,
         )
         .unwrap();
@@ -960,6 +962,7 @@ fn concurrent_first_plan_and_first_child_converge() {
             plan_root,
             OrchestratorRef::from_pane(&plan_owner),
             vec![],
+            None,
             1,
         )
     });
@@ -1012,11 +1015,12 @@ fn first_plan_failure_is_atomic() {
             invalid_project.display().to_string(),
             OrchestratorRef::from_pane(&owner_pane_id),
             vec![],
+            None,
             1,
         )
         .unwrap_err();
 
-    assert!(error.contains("io error"));
+    assert!(matches!(error, FirstPlanTeamError::Plan(PlanError::Io(_))));
     assert!(harness.service.plan_store.list_index().is_empty());
     let mux = harness.service.mux.read();
     assert_eq!(mux.team_count(), 0);

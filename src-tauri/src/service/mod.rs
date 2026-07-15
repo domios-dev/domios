@@ -59,6 +59,7 @@ pub(crate) mod spawn_title;
 pub mod store;
 pub mod structured_prompt;
 pub mod sync_watcher;
+mod team;
 #[cfg(test)]
 pub(crate) mod test_support;
 #[cfg(test)]
@@ -86,6 +87,7 @@ use crate::{
 };
 
 // Re-export public types used by callers.
+pub(crate) use hierarchy::FirstPlanTeamError;
 pub use hierarchy::PaneStatusInfo;
 pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_echo, wait_for_submit_shell,
@@ -98,6 +100,7 @@ pub use orchestrator::{
 };
 pub use pane::{normalize_pane_description, MAX_PANE_DESCRIPTION_CHARS};
 pub use pane_budget::{evaluate_pane_budget, PaneBudgetLevel, PaneBudgetNotice};
+pub(crate) use team::TeamPlanError;
 pub(crate) use worker_identity::{persist_attempt_executor_identity, respawn_title_provenance};
 pub(crate) use worker_persona::WorkerPersonaReservations;
 

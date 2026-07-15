@@ -3,17 +3,18 @@
 mod first_plan;
 mod plan_reminder_nudge;
 mod planner_delivery;
+mod status;
+
+pub(crate) use first_plan::FirstPlanTeamError;
+pub use status::PaneStatusInfo;
 
 use planner_delivery::{
     epoch_ms, planner_rehydrate_payload, planner_request_payload, planner_specs_for_plan,
 };
 
-use serde::Serialize;
-
 use super::{ReportResult, ServiceContext, ServiceState};
 use crate::agent::ledger::LedgerRow;
 use crate::agent::reports::{ReportDetails, ReportModelIdentity, ReportStatus};
-use crate::multiplexer::types::AgentRole;
 use crate::plan::AgentRef;
 use tauri::Manager;
 
@@ -891,36 +892,6 @@ impl ServiceContext {
         let mux = self.mux.read();
         ledger_with_live_children(&mux, orchestrator_pane_id, rows, epoch_seconds())
     }
-
-    pub fn get_pane_status(&self, pane_id: &str) -> Result<PaneStatusInfo, String> {
-        let mux = self.mux.write();
-        let pane = mux
-            .get_pane(pane_id)
-            .ok_or(format!("Pane not found: {}", pane_id))?;
-
-        let status = if let Some(ref pty_id) = pane.pty_id {
-            let tracker = self.agent_tracker.lock();
-            format!("{:?}", tracker.get_status(pty_id))
-        } else {
-            "Idle".to_string()
-        };
-
-        let children = mux.get_children_ids(pane_id);
-
-        Ok(PaneStatusInfo {
-            pane_id: pane.id.clone(),
-            status,
-            agent_type: pane.agent_type.clone(),
-            agent_session_id: pane.agent_session_id.clone(),
-            role: pane.role,
-            parent_pane_id: pane.parent_pane_id.clone(),
-            can_spawn: pane.can_spawn,
-            depth: pane.depth,
-            children,
-            cwd: pane.cwd.clone(),
-            title: pane.title.clone(),
-        })
-    }
 }
 
 fn report_task_status_transition(
@@ -1178,21 +1149,6 @@ pub fn worker_death_report(
         storage_key,
         format!("{role_label} {} EXITED without reporting (dead)", pane_id),
     ))
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct PaneStatusInfo {
-    pub pane_id: String,
-    pub status: String,
-    pub agent_type: Option<String>,
-    pub agent_session_id: Option<String>,
-    pub role: Option<AgentRole>,
-    pub parent_pane_id: Option<String>,
-    pub can_spawn: bool,
-    pub depth: u8,
-    pub children: Vec<String>,
-    pub cwd: Option<String>,
-    pub title: String,
 }
 
 #[cfg(test)]

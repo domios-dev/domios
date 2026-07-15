@@ -39,6 +39,7 @@ mod plan_task_rpc;
 mod plan_time;
 mod services;
 mod spec;
+mod team;
 mod workspace;
 
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -565,6 +566,10 @@ fn dispatch(
                 "agent.report",
                 "agent.reports",
                 "orchestration.new",
+                "team.list",
+                "team.show",
+                "team.rename",
+                "team.adopt_plan",
                 "orchestrator.refresh",
                 "plan.create",
                 "plan.adopt",
@@ -686,6 +691,7 @@ fn dispatch(
     let prefix = method.split(['.', ':']).next().unwrap_or("");
     match prefix {
         "workspace" => workspace::dispatch(method, &params, mux, app, svc),
+        "team" => team::dispatch(method, &params, mux, svc),
         "pane" | "agents" | "browser" => pane::dispatch(method, &params, mux, app, svc),
         "notification" => notification::dispatch(method, &params, notif, app),
         "agent" => agent::dispatch(method, &params, app, svc),
