@@ -68,6 +68,7 @@ pub fn mux_rename_workspace(
     svc.rename_workspace(&workspace_id, &name)
 }
 
+#[cfg(test)]
 pub fn mux_rename_team_core(
     mux: &mut crate::multiplexer::state::MultiplexerState,
     team_id: String,
