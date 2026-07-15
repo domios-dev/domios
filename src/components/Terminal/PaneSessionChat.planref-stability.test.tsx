@@ -61,7 +61,7 @@ function muxActions(): MultiplexerActionsContextType {
 
 function muxStateFor(panes: Record<string, Pane>): ExtendedState {
   return {
-    workspaces: [], panes, active_workspace_id: null,
+    workspaces: [], panes, teams: [], active_workspace_id: null,
     focused_pane_id: Object.keys(panes)[0] ?? null,
     notifications: [], paneStatuses: {}, toasts: [], activeTabIds: {},
     generation: 1, virtualTabs: {},

@@ -103,6 +103,7 @@ function muxStateFor(panes: Record<string, Pane>): ExtendedState {
   return {
     workspaces: [],
     panes,
+    teams: [],
     active_workspace_id: null,
     focused_pane_id: Object.keys(panes)[0] ?? null,
     notifications: [],
