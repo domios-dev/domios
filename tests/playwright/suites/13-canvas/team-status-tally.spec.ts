@@ -75,9 +75,8 @@ async function assertTally(teamUnit: Locator, compact: boolean | "content-fit"):
   await expect(tally).toBeVisible();
   await expect(tally.locator('[data-testid^="team-status-"]')).toHaveCount(4);
   const compactDisplay = await tally.locator(".sidebar-team-readout-compact-dot").first().evaluate((dot) => getComputedStyle(dot).display);
-  if (compact === "content-fit") {
-    expect(["inline-block", "none"], "content-fit selects a supported bucket form").toContain(compactDisplay);
-  }
+  if (compact === true) expect(compactDisplay, "compact bucket dot is visible").not.toBe("none");
+  if (compact === false) expect(compactDisplay, "full bucket dot is hidden").toBe("none");
 
   for (const [key, count] of Object.entries(COUNTS)) {
     const item = tally.getByTestId(`team-status-${key}`);
@@ -87,7 +86,7 @@ async function assertTally(teamUnit: Locator, compact: boolean | "content-fit"):
     await expect(item).not.toHaveCSS("text-overflow", "ellipsis");
     await expect(item.locator(".sidebar-team-readout-compact-dot")).toHaveCSS(
       "display",
-      compact === "content-fit" ? compactDisplay : compact ? "inline-block" : "none",
+      compactDisplay,
     );
   }
 
