@@ -245,6 +245,9 @@ pub struct TaskExecutionReportSnapshot {
     pub message: Option<String>,
     #[serde(default)]
     pub status: Option<String>,
+    /// Pane that submitted a proxy report; None means the executor reported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reporter_pane_id: Option<String>,
     #[serde(default)]
     pub changed_files: Vec<String>,
     #[serde(default)]
@@ -702,6 +705,9 @@ pub struct Plan {
     #[serde(default)]
     pub paused_from_mode: Option<PlanMode>,
     pub owner: OrchestratorRef,
+    /// Optional 1:1 team binding; None keeps legacy plans teamless.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<String>,
     pub project_path: String,
     #[serde(default)]
     pub canonical_project_path: String,
@@ -770,6 +776,7 @@ impl Plan {
             mode: PlanMode::Planning,
             paused_from_mode: None,
             owner,
+            team_id: None,
             project_path: project_path.clone(),
             canonical_project_path: project_path,
             created_at: 0,
