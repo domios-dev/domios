@@ -433,7 +433,10 @@ test("team header renders the live compact status tally", async () => {
   assert(host.querySelector('[data-testid="team-icon"]'), "team identity remains in the header");
   assert(!host.querySelector('[data-testid="team-donut"]'), "superseded donut is absent");
   assert(!host.querySelector('[data-testid="team-open-effort"]'), "superseded effort row is absent");
-  assert(tally?.textContent === "3 todo · 1 review · 1 blocked · 3 done", `tally=${tally?.textContent}`);
+  assert(
+    Array.from(tally?.querySelectorAll('[data-testid^="team-status-"]') ?? []).map((item) => item.textContent?.trim()).join(",") === "3 todo,1 review,1 blocked,3 done",
+    `tally=${tally?.textContent}`,
+  );
   const items = Array.from(tally?.querySelectorAll('[data-testid^="team-status-"]') ?? []) as HTMLElement[];
   assert(items.map((item) => item.style.color).join(",") === [
     TASK_STATUS_COLORS.in_progress,
@@ -441,6 +444,9 @@ test("team header renders the live compact status tally", async () => {
     TASK_STATUS_COLORS.blocked,
     TASK_STATUS_COLORS.done,
   ].join(","), "tally colors use the status tokens in board order");
+  assert(items.length === 4, "tally exposes all four status buckets");
+  assert(items.every((item) => item.querySelector(".sidebar-team-readout-compact-dot")), "every bucket emits compact dot markup");
+  assert(items.map((item) => item.querySelector(".sidebar-team-readout-label")?.textContent?.trim()).join(",") === "todo,review,blocked,done", "full labels remain available when the title column fits");
   const planButtons = host.querySelectorAll('[data-testid="team-plan-button"]');
   assert(planButtons.length === 1, "exactly one bound-plan button is rendered");
   assert(planButtons[0].textContent === "", "plan button is icon-only");
@@ -458,7 +464,7 @@ test("team header renders the live compact status tally", async () => {
   ));
   await rerender([updatedPlan]);
   assert(
-    host.querySelector('[data-testid="team-status-tally"]')?.textContent === "3 todo · 1 review · 0 blocked · 4 done",
+    Array.from(host.querySelector('[data-testid="team-status-tally"]')?.querySelectorAll('[data-testid^="team-status-"]') ?? []).map((item) => item.textContent?.trim()).join(",") === "3 todo,1 review,0 blocked,4 done",
     "live plan updates replace the tally counts",
   );
   await act(async () => root.unmount());
