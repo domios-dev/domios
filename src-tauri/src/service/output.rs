@@ -503,11 +503,8 @@ impl ServiceContext {
     /// `chat_start` stays "pending" forever and the chat view renders empty even
     /// though the TUI works.
     ///
-    /// Also handles session re-detection after /new: when a pinned session is stale
-    /// (a newer session for this cwd appeared, e.g. cursor created a fresh session
-    /// after the user ran /new), the pinned id is evicted and the new one is bound.
-    /// Only runs for hookless providers (cursor); hook-based providers update via
-    /// the hook endpoint, never by polling. Throttled to 1/s.
+    /// Once bound, ownership stays pinned to this pane. Session replacement must
+    /// arrive through an explicit provider event, never a cwd-wide disk heuristic.
     fn maybe_detect_agent_session(&self, pane_id: &str, agent_type: &str) {
         let (cwd, set_at_elapsed, current_session) = {
             let mux = self.mux.read();
@@ -522,6 +519,9 @@ impl ServiceContext {
             let sid = pane.agent_session_id.clone();
             (cwd, elapsed, sid)
         };
+        if !should_detect_unbound_session(current_session.as_deref()) {
+            return;
+        }
         if cwd.is_empty() {
             return;
         }
@@ -548,33 +548,6 @@ impl ServiceContext {
                 }
             }
             cd.insert(pane_id.to_string(), now);
-        }
-
-        if let Some(old_sid) = current_session {
-            let mut stale_exclude = self.mux.read().other_session_ids(pane_id);
-            stale_exclude.push(old_sid.clone());
-            let new_sid = self
-                .agent_registry
-                .with_provider(agent_type, |p| {
-                    p.detect_session_id(
-                        &cwd,
-                        &stale_exclude,
-                        Some(std::time::Duration::from_secs(30)),
-                    )
-                })
-                .flatten();
-            if let Some(sid) = new_sid {
-                log::info!(
-                    "[output] stale session evicted {} → {} for pane {} ({})",
-                    old_sid,
-                    sid,
-                    pane_id,
-                    agent_type
-                );
-                self.set_agent_session_id(pane_id, Some(sid));
-                self.emit_state_changed();
-            }
-            return;
         }
 
         let exclude = self.mux.read().other_session_ids(pane_id);
@@ -794,6 +767,10 @@ impl ServiceContext {
     }
 }
 
+fn should_detect_unbound_session(current_session: Option<&str>) -> bool {
+    current_session.is_none()
+}
+
 struct LegacyAutoApproveResponse {
     kind: &'static str,
     bytes: Vec<u8>,
@@ -880,7 +857,7 @@ fn exit_debounce(
 
 #[cfg(test)]
 mod exit_detection_tests {
-    use super::{exit_debounce, screen_ends_in_shell_prompt};
+    use super::{exit_debounce, screen_ends_in_shell_prompt, should_detect_unbound_session};
     use std::time::{Duration, Instant};
 
     #[test]
@@ -923,5 +900,13 @@ mod exit_detection_tests {
             "shell prompt persisted past debounce — real exit, clear"
         );
         assert_eq!(next, None, "suspicion reset after clearing");
+    }
+
+    #[test]
+    fn session_detection_never_replaces_a_bound_session() {
+        assert!(should_detect_unbound_session(None));
+        assert!(!should_detect_unbound_session(Some(
+            "session-owned-by-pane"
+        )));
     }
 }
