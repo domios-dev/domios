@@ -17,11 +17,10 @@ import { MarkdownDescription } from "./MarkdownDescription";
 import { PluginIcon } from "./PluginIcon";
 import { GroupLabel, iconOf, type AppConfigShape } from "./shared";
 import { invoke } from "../../lib/bridge";
-import { configureWithAI } from "../../lib/pluginConfigure";
-import type { DaemonApiConfig } from "../../lib/webApi";
 import type { AppConfig, PluginActivity, ProviderConfig } from "../../lib/types";
 import { resolvePluginActivityDisplay, type PluginActivityDisplayMap } from "../../lib/usePluginActivity";
 import { PluginActivityInline } from "./PluginActivityInline";
+import { ConfigureWithAiButton } from "./ConfigureWithAiButton";
 
 export type ActionKind = "install" | "update" | "remove";
 export type ActionOptions = { removeData?: boolean };
@@ -140,6 +139,7 @@ export function PluginDetailPanel({
               {busyKey("remove") ? "Removing…" : "Uninstall"}
             </button>
           )}
+          <ConfigureWithAiButton entry={entry} />
         </div>
       </div>
 
@@ -240,32 +240,6 @@ export function PluginDetailPanel({
             title={`Open a chat pane backed by ${entry.displayName}`}
           >
             Open chat
-          </button>
-        </div>
-      )}
-
-      {/* Universal "Configure with AI" (Part D): spawns a safety-wrapped pane.
-          Shown once installed; works for plugins with or without settings. */}
-      {entry.installed && !entry.pendingReload && (
-        <div style={{ marginBottom: 16 }}>
-          <button
-            data-testid="extensions-configure-ai"
-            data-plugin-id={entry.id}
-            onClick={() => {
-              const help =
-                entry.configHelp ||
-                `Help the user configure and use the ${entry.displayName} plugin.`;
-              void (async () => {
-                const cfg = await invoke<{ api?: DaemonApiConfig }>("get_config").catch(
-                  () => ({}) as { api?: DaemonApiConfig },
-                );
-                await configureWithAI(entry.id, entry.displayName, help, cfg.api ?? {});
-              })();
-            }}
-            style={primaryBtnStyle("install", false)}
-            title={`Open an AI chat that configures ${entry.displayName} for you`}
-          >
-            Configure with AI
           </button>
         </div>
       )}

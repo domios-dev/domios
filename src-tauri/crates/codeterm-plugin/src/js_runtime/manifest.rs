@@ -124,9 +124,8 @@ pub struct PluginManifest {
     #[serde(default)]
     pub settings_schema: Option<String>,
 
-    /// Agent-facing, one-paragraph "how to use me + what knobs I expose" string.
-    /// Read into the snapshot's `config_help` and wrapped by core into the
-    /// safety-enveloped "Configure with AI" prompt. Every plugin should declare it.
+    /// Opt-in agent-facing configuration instructions. When absent, the UI does
+    /// not offer AI configuration for this plugin.
     #[serde(default)]
     pub config_help: Option<String>,
 
