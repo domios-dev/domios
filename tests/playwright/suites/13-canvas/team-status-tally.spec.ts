@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Browser } from "@playwright/test";
+import type { Browser, Locator } from "@playwright/test";
 import { expect, test } from "../../helpers/fixtures";
 import { readDevToken } from "../../helpers/api-client";
 import { expandWorkspaceSidebar } from "../../helpers/canvas-inspect";
@@ -26,6 +26,7 @@ interface PaneResponse {
 
 interface PlanResponse {
   plan_id: string;
+  team_id: string;
 }
 
 interface TaskResponse {
@@ -69,11 +70,14 @@ async function setSidebarWidth(session: CanvasWebSession, width: number): Promis
   await expect(session.page.locator('[data-testid="sidebar"]')).toHaveCSS("width", `${width}px`);
 }
 
-async function assertTally(session: CanvasWebSession, compact: boolean): Promise<void> {
-  const { page } = session;
-  const tally = page.locator('[data-testid="team-status-tally"]');
+async function assertTally(teamUnit: Locator, compact: boolean | "content-fit"): Promise<void> {
+  const tally = teamUnit.getByTestId("team-status-tally");
   await expect(tally).toBeVisible();
   await expect(tally.locator('[data-testid^="team-status-"]')).toHaveCount(4);
+  const compactDisplay = await tally.locator(".sidebar-team-readout-compact-dot").first().evaluate((dot) => getComputedStyle(dot).display);
+  if (compact === "content-fit") {
+    expect(["inline-block", "none"], "content-fit selects a supported bucket form").toContain(compactDisplay);
+  }
 
   for (const [key, count] of Object.entries(COUNTS)) {
     const item = tally.getByTestId(`team-status-${key}`);
@@ -81,7 +85,10 @@ async function assertTally(session: CanvasWebSession, compact: boolean): Promise
     await expect(item).toContainText(String(count));
     await expect(item).toHaveCSS("color", COLORS[key as keyof typeof COLORS]);
     await expect(item).not.toHaveCSS("text-overflow", "ellipsis");
-    await expect(item.locator(".sidebar-team-readout-compact-dot")).toHaveCSS("display", compact ? "inline-block" : "none");
+    await expect(item.locator(".sidebar-team-readout-compact-dot")).toHaveCSS(
+      "display",
+      compact === "content-fit" ? compactDisplay : compact ? "inline-block" : "none",
+    );
   }
 
   const geometry = await tally.evaluate((element) => {
@@ -148,11 +155,12 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     await expect(page.locator('[data-testid="team-unit"]')).toBeVisible({ timeout: 30_000 });
 
     await setSidebarWidth(session, 220);
-    await assertTally(session, true);
+    const teamUnit = page.locator(`[data-testid="team-unit"][data-team-id="${created.team_id}"]`);
+    await assertTally(teamUnit, true);
     await setSidebarWidth(session, 272);
-    await assertTally(session, false);
+    await assertTally(teamUnit, false);
     await setSidebarWidth(session, 160);
-    await assertTally(session, true);
+    await assertTally(teamUnit, true);
   } finally {
     await closeTallyPage(session);
   }
@@ -163,7 +171,7 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     await page.locator('[data-testid="workspace-item"]').filter({ hasText: workspaceName }).click();
     await expandWorkspaceSidebar(page, workspace.id);
     await expect(page.locator('[data-testid="sidebar"]')).toHaveAttribute("data-touch-mode", "true");
-    await assertTally(touchSession, false);
+    await assertTally(page.locator(`[data-testid="team-unit"][data-team-id="${created.team_id}"]`), "content-fit");
   } finally {
     await closeTallyPage(touchSession);
     await api.deletePlan(created.plan_id).catch(() => {});

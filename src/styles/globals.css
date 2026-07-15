@@ -1608,8 +1608,8 @@ button,
   display: none;
 }
 
-/* 240px includes the full tally's measured width plus the header's fixed controls. */
-@container (max-width: 240px) {
+/* 280px gives the full labels the header width otherwise occupied by fixed controls. */
+@container (max-width: 280px) {
   .sidebar-team-header {
     flex-wrap: wrap;
   }
@@ -1618,7 +1618,10 @@ button,
     flex-basis: 100%;
     order: 2;
   }
+}
 
+/* 240px is where the full labels no longer fit even in the dedicated tally row. */
+@container (max-width: 240px) {
   .sidebar-team-readout {
     flex-wrap: wrap;
     gap: 4px;
