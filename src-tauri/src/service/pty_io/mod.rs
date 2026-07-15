@@ -12,6 +12,7 @@ mod send;
 pub(crate) mod submit_transaction;
 
 pub(crate) use actions::{await_action_deadline, execute_ordered_actions, OrderedPtyAction};
+#[cfg(test)]
 pub(crate) use lifecycle::pane_identity_env;
 pub(crate) use send::build_spawn_dispatch;
 pub(crate) use send::provider_or_generic_tui;
