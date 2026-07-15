@@ -75,7 +75,7 @@ pub fn mux_rename_team_core(
     caller_pane_id: Option<String>,
 ) -> Result<Team, String> {
     let caller_pane_id = require_team_rename_caller(caller_pane_id)?;
-    crate::service::team::rename_team_core(mux, &team_id, name, Some(&caller_pane_id))
+    crate::service::rename_team_core(mux, &team_id, name, Some(&caller_pane_id))
 }
 
 pub(crate) fn mux_rename_team_service_core(
@@ -187,7 +187,7 @@ mod tests {
         let events = crate::api::events::EventBroadcaster::new();
         let mut receiver = events.subscribe();
 
-        crate::service::team::rename_team_with_state_change(
+        crate::service::rename_team_with_state_change(
             &mut mux,
             &events,
             &team_id,
