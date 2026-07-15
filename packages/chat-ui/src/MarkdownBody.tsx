@@ -53,7 +53,7 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
         h3: ({ node: _node, ...props }) => (
           <h3 className={`${h3Text} font-medium mt-1.5 mb-0.5`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
-        p: ({ node: _node, ...props }) => <p className={`my-1 ${TEXT_WRAP_CLASS}`} {...props} />,
+        p: ({ node: _node, ...props }) => <p className={`my-1 whitespace-pre-wrap ${TEXT_WRAP_CLASS}`} {...props} />,
         ul: ({ node: _node, ...props }) => <ul className="list-disc ml-5 my-1" {...props} />,
         ol: ({ node: _node, ...props }) => <ol className="list-decimal ml-5 my-1" {...props} />,
         li: ({ node: _node, children, ...props }) => (

@@ -4,6 +4,8 @@ import { InboundActivityCard } from "./InboundActivityCard";
 import type { OpenPlan, ResolvedChatPlanRef } from "./LinkedText";
 import { LinkedText } from "./LinkedText";
 import { hasPlanRefs } from "./planRefs";
+import { decodeCliMessageText } from "./messageText";
+import { pickUiFontScaleValue } from "../uiFontScale";
 
 interface ReportField {
   label: string;
@@ -21,7 +23,7 @@ const FIELD_RE = /^(task|status|branch|sha|tests|changed|skipped|changes|tests r
 
 export function parseInboundReport(text: string): InboundReportDescriptor {
   const fields: ReportField[] = [];
-  for (const part of text.split(/\r?\n|\s+\|\s+(?=[A-Z][A-Z ]+:)/)) {
+  for (const part of decodeCliMessageText(text).split(/\n|\s+\|\s+(?=[A-Z][A-Z ]+:)/)) {
     const match = FIELD_RE.exec(part.trim());
     if (!match) continue;
     fields.push({ label: match[1].toLowerCase().replace(" run", ""), value: match[2].trim() });
@@ -43,6 +45,7 @@ interface Props {
   onFocusTab?: () => void;
   onOpenPlan?: OpenPlan;
   resolvePlanRef?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => ResolvedChatPlanRef | null;
+  fontScale?: number;
 }
 
 function taskObject(task: string | undefined): string {
@@ -51,10 +54,11 @@ function taskObject(task: string | undefined): string {
   return parts[parts.length - 1] || task;
 }
 
-export function InboundReportCard({ message, sender, expanded, onToggle, onFocusTab, onOpenPlan, resolvePlanRef }: Props) {
+export function InboundReportCard({ message, sender, expanded, onToggle, onFocusTab, onOpenPlan, resolvePlanRef, fontScale }: Props) {
   const descriptor = parseInboundReport(message.content);
   const failed = /^(?:blocked|error|failed)$/i.test(descriptor.status ?? "");
   const chips = [descriptor.status, descriptor.sha].filter((value): value is string => Boolean(value));
+  const textSize = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
 
   return (
     <InboundActivityCard
@@ -69,7 +73,7 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
       chips={chips}
       onFocusTab={onFocusTab}
     >
-      <dl className="grid max-h-64 grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 overflow-y-auto text-xs">
+      <dl className={`grid max-h-64 grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 overflow-y-auto ${textSize}`}>
         {descriptor.fields.map((field, index) => (
           <div key={`${field.label}-${index}`} className="contents">
             <dt className="font-mono" style={{ color: "var(--ct-muted-fg)" }}>{field.label}</dt>

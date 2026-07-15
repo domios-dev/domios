@@ -2,7 +2,7 @@ import type { ToolEvent } from "@codeterm/chat-core";
 import { recognize } from "../codeterm/recognize";
 import { describeAction, isSend, navigationTarget, type NavigationTarget, type PaneNameResolver } from "../codeterm/templates";
 import { CompactMessageContent } from "../codeterm/CompactMessageContent";
-import { ToolCardFrame } from "./ToolCardFrame";
+import { ToolCardActionButton, ToolCardFrame } from "./ToolCardFrame";
 import type { OpenPlan, ResolvedChatPlanRef } from "../codeterm/LinkedText";
 import { ToolOutputContent } from "../ToolOutputContent";
 import {
@@ -12,6 +12,7 @@ import {
   Puzzle, RadioTower, ScrollText, Search, Send, Sparkles, SquarePlus, Sunrise, Terminal, Users,
 } from "lucide-react";
 import type { ToolKindVisual } from "./toolKindVisual";
+import { decodeCliMessageText } from "../codeterm/messageText";
 
 type PlanFocusKind = "plan" | "task" | "section";
 
@@ -142,10 +143,11 @@ export function CodetermActionCard({
       visualOverride={inv ? actionVisual(inv) : undefined}
       command={<div data-testid="toolcard-command" className="border-t px-3 py-2 whitespace-pre-wrap break-words font-mono text-xs" style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)", background: "var(--ct-bg)" }}>{event.detail || event.summary}</div>}
       metric={collapsedChips.length ? <span className="flex flex-wrap gap-1">{collapsedChips.map((chip) => <span key={chip} className="rounded border px-1.5 py-0.5 text-[10px]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>{chip}</span>)}</span> : undefined}
+      action={canNavigate && target?.kind === "tab" ? <ToolCardActionButton label="Show Tab" onClick={() => onFocusPane!(target.id)} testId="codeterm-focus-tab" /> : undefined}
     >
       {inv && isSend(inv) ? (
         <CompactMessageContent
-          text={descriptor.detail ?? ""}
+          text={decodeCliMessageText(descriptor.detail ?? "")}
           onOpenPlan={onOpenPlan}
           resolvePlanRef={resolvePlanRef}
           fontScale={fontScale}
@@ -164,18 +166,6 @@ export function CodetermActionCard({
       ) : null}
       {descriptor.bullets && <ul className="mt-2 list-disc pl-4 text-xs" style={{ color: "var(--ct-muted-fg)" }}>{descriptor.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
       {showResult && <div data-testid="toolcard-result" className="mt-2"><ToolOutputContent text={event.result!} maxHeight="12rem" /></div>}
-      {canNavigate && target?.kind === "tab" && (
-        <button
-          type="button"
-          data-testid="codeterm-focus-tab"
-          title="Focus Tab"
-          onClick={() => onFocusPane!(target.id)}
-          className="mt-2 rounded-md border px-2.5 py-1 font-mono text-[11.5px]"
-          style={{ borderColor: "color-mix(in srgb, var(--ct-accent) 32%, transparent)", color: "var(--ct-accent)", background: "color-mix(in srgb, var(--ct-accent) 12%, transparent)" }}
-        >
-          Focus Tab
-        </button>
-      )}
       {canNavigate && target && target.kind !== "tab" && (
         <button
           type="button"

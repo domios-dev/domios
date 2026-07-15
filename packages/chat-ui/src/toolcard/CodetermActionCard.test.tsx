@@ -42,7 +42,7 @@ if (planCalls[0]?.join("|") !== `${PLAN}|${TASK}|task`) throw new Error("plan na
 const focusCalls: string[] = [];
 const sendHost = await render(<CodetermActionCard event={event('codeterm send --tab e3fa0754 "hello"')} expanded onToggle={() => {}} resolvePaneName={(ref) => ref === "e3fa0754" ? "Hugo" : undefined} onFocusPane={(ref) => focusCalls.push(ref)} />);
 const focusTab = sendHost.host.querySelector<HTMLButtonElement>('[data-testid="codeterm-focus-tab"]');
-if (!focusTab || focusTab.textContent !== "Focus Tab" || focusTab.textContent.includes("e3fa0754")) throw new Error("tab navigation label regression");
+if (!focusTab || focusTab.textContent !== "Show Tab" || focusTab.textContent.includes("e3fa0754")) throw new Error("tab navigation label regression");
 await act(async () => focusTab.click());
 if (focusCalls[0] !== "e3fa0754") throw new Error("tab focus callback regression");
 const successfulSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), result: "OK (sent)\nOK" }} expanded onToggle={() => {}} />);
