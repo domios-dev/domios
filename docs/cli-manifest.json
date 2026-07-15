@@ -10832,6 +10832,22 @@
           "subcommands": []
         },
         {
+          "name": "close",
+          "about": "Close every member pane and remove the Team registry entry",
+          "aliases": [],
+          "args": [
+            {
+              "name": "team_id",
+              "positional": true,
+              "value_name": "TEAM_ID",
+              "default": null,
+              "help": "Team ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "list",
           "about": "List registered Teams",
           "aliases": [],

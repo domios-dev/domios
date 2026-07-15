@@ -105,6 +105,25 @@ pub fn mux_rename_team(
     mux_rename_team_service_core(svc.inner(), team_id, name, Some(caller_tab_id))
 }
 
+pub(crate) fn mux_close_team_service_core(
+    svc: &ServiceState,
+    team_id: String,
+    caller_pane_id: Option<String>,
+) -> Result<Team, String> {
+    let caller_pane_id =
+        caller_pane_id.ok_or_else(|| "callerTabId is required to close a Team".to_string())?;
+    svc.close_team(&team_id, Some(&caller_pane_id))
+}
+
+#[tauri::command]
+pub fn mux_close_team(
+    svc: State<'_, ServiceState>,
+    team_id: String,
+    caller_tab_id: String,
+) -> Result<Team, String> {
+    mux_close_team_service_core(svc.inner(), team_id, Some(caller_tab_id))
+}
+
 pub(crate) async fn mux_add_team_member_service_core(
     svc: &ServiceState,
     team_id: String,
