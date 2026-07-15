@@ -3,7 +3,7 @@ use crate::plan::{Plan, PlanMode, PlanStatus, TaskStatus};
 use crate::service::plan::heartbeat::is_plan_complete;
 use crate::service::{ServiceContext, ServiceState};
 use codeterm_types::pty::PaneStatus;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const MAX_PLAN_REMINDER_POLL_SECS: u64 = 60;
@@ -73,6 +73,68 @@ fn plan_reminder_target(
     }
 }
 
+fn send_due_plan_time_reminders_with(
+    plans: &[Plan],
+    counter: &crate::service::plan::reminders::TurnCounter,
+    now: u64,
+    interval_secs: u64,
+    pane_is_idle: impl Fn(&str) -> bool,
+    deliver: impl Fn(
+        &str,
+        &PlanReminderTarget,
+        crate::service::plan::reminders::NudgeKind,
+    ) -> Result<(), String>,
+) {
+    let targets = timed_plan_reminder_targets(plans);
+    let eligible_panes: HashSet<String> = targets
+        .iter()
+        .map(|target| target.pane_id.clone())
+        .collect();
+    counter.retain_time_reminders(&eligible_panes);
+    let candidates = targets.len();
+    let mut due = 0usize;
+    for timed in targets {
+        counter.record_time_tick(&timed.pane_id, now);
+        let is_idle_owner = matches!(&timed.target, PlanReminderTarget::Owner { .. })
+            && pane_is_idle(&timed.pane_id);
+        let is_due = if is_idle_owner {
+            counter.idle_owner_time_nudge_due(&timed.pane_id, now, interval_secs)
+        } else {
+            counter.time_nudge_due(&timed.pane_id, now, interval_secs)
+        };
+        if !is_due {
+            continue;
+        }
+        due += 1;
+        counter.record_time_due(&timed.pane_id, now);
+        match deliver(
+            &timed.pane_id,
+            &timed.target,
+            timed.target.time_nudge_kind(),
+        ) {
+            Ok(()) => {
+                log::info!(
+                    "[plan-reminder] delivered {:?} nudge to pane {}",
+                    timed.target.time_nudge_kind(),
+                    timed.pane_id
+                );
+                counter.mark_time_nudged(&timed.pane_id, now);
+                counter.record_time_delivery(&timed.pane_id, now);
+            }
+            Err(reason) => {
+                log::warn!(
+                    "[plan-reminder] FAILED to deliver nudge to pane {} (target {:?}): {}",
+                    timed.pane_id,
+                    timed.target,
+                    reason
+                );
+                counter.record_time_failure(&timed.pane_id, reason);
+            }
+        }
+    }
+    log::info!("[plan-reminder] tick: {candidates} candidate pane(s), {due} due");
+}
+
 impl ServiceContext {
     pub(super) fn maybe_send_plan_reminder(&self, pane_id: &str, role: Option<AgentRole>) {
         self.maybe_send_plan_reminder_for(pane_id, role, PlanReminderScope::AnyEligible);
@@ -111,9 +173,12 @@ impl ServiceContext {
         if !self.plan_turn_counter.record_poll(caller) {
             return;
         }
+        if let Err(reason) = self.ensure_plan_reminder_routable(caller) {
+            log::warn!("[plan-reminder] polling nudge not delivered to {caller}: {reason}");
+            return;
+        }
         let text = crate::service::plan::reminders::polling_nudge_text();
-        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
-        let _ = crate::service::messenger::Messenger::deliver(self, caller, envelope, &text);
+        let _ = self.deliver_automated_plan_reminder(caller, &text);
     }
 
     pub(crate) fn maybe_send_idle_plan_poke(&self, pane_id: &str) {
@@ -144,6 +209,10 @@ impl ServiceContext {
         ) {
             return;
         }
+        if let Err(reason) = self.ensure_plan_reminder_routable(pane_id) {
+            log::warn!("[plan-reminder] idle poke not delivered to {pane_id}: {reason}");
+            return;
+        }
 
         let phrase_index = self.plan_turn_counter.idle_phrase_index(pane_id);
         let text = crate::service::plan::reminders::idle_poke_text(
@@ -157,9 +226,7 @@ impl ServiceContext {
             Some(pane_id),
             &text,
         );
-        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
-        let success =
-            crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text).is_ok();
+        let success = self.deliver_automated_plan_reminder(pane_id, &text).is_ok();
 
         if success {
             self.plan_turn_counter.mark_time_nudged(pane_id, now);
@@ -223,58 +290,14 @@ impl ServiceContext {
             return;
         }
         let now = current_epoch_secs();
-        let targets = timed_plan_reminder_targets(&self.plan_store.list_full());
-        self.retain_time_reminder_eligibility(&targets);
-        let candidates = targets.len();
-        let mut due = 0usize;
-        for timed in targets {
-            self.plan_turn_counter.record_time_tick(&timed.pane_id, now);
-            let is_idle_owner = matches!(&timed.target, PlanReminderTarget::Owner { .. })
-                && self.plan_reminder_pane_is_idle(&timed.pane_id);
-            let is_due = if is_idle_owner {
-                self.plan_turn_counter.idle_owner_time_nudge_due(
-                    &timed.pane_id,
-                    now,
-                    cfg.nudge_interval_secs,
-                )
-            } else {
-                self.plan_turn_counter
-                    .time_nudge_due(&timed.pane_id, now, cfg.nudge_interval_secs)
-            };
-            if !is_due {
-                continue;
-            }
-            due += 1;
-            self.plan_turn_counter.record_time_due(&timed.pane_id, now);
-            let delivery = self.deliver_plan_reminder_target(
-                &timed.pane_id,
-                &timed.target,
-                timed.target.time_nudge_kind(),
-            );
-            // A reminder that silently fails to deliver is indistinguishable
-            // from the feature not existing — log both outcomes.
-            if delivery.is_ok() {
-                log::info!(
-                    "[plan-reminder] delivered {:?} nudge to pane {}",
-                    timed.target.time_nudge_kind(),
-                    timed.pane_id
-                );
-                self.plan_turn_counter.mark_time_nudged(&timed.pane_id, now);
-                self.plan_turn_counter
-                    .record_time_delivery(&timed.pane_id, now);
-            } else {
-                let reason = delivery.unwrap_err();
-                log::warn!(
-                    "[plan-reminder] FAILED to deliver nudge to pane {} (target {:?}): {}",
-                    timed.pane_id,
-                    timed.target,
-                    reason
-                );
-                self.plan_turn_counter
-                    .record_time_failure(&timed.pane_id, reason);
-            }
-        }
-        log::info!("[plan-reminder] tick: {candidates} candidate pane(s), {due} due");
+        send_due_plan_time_reminders_with(
+            &self.plan_store.list_full(),
+            &self.plan_turn_counter,
+            now,
+            cfg.nudge_interval_secs,
+            |pane_id| self.plan_reminder_pane_is_idle(pane_id),
+            |pane_id, target, kind| self.deliver_plan_reminder_target(pane_id, target, kind),
+        );
         self.send_due_complete_wrapup_reminders(now, cfg.nudge_interval_secs);
     }
 
@@ -318,9 +341,13 @@ impl ServiceContext {
             {
                 continue;
             }
+            if let Err(reason) = self.ensure_plan_reminder_routable(&pane_id) {
+                log::warn!("[plan-reminder] complete wrapup not delivered to {pane_id}: {reason}");
+                continue;
+            }
             let text = crate::service::plan::complete_wrapup::complete_wrapup_message(&plan_id);
-            let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
-            if crate::service::messenger::Messenger::deliver(self, &pane_id, envelope, &text)
+            if self
+                .deliver_automated_plan_reminder(&pane_id, &text)
                 .is_ok()
             {
                 self.plan_turn_counter.mark_complete_wrapup_sent(&plan_id);
@@ -335,6 +362,7 @@ impl ServiceContext {
         target: &PlanReminderTarget,
         kind: crate::service::plan::reminders::NudgeKind,
     ) -> Result<(), String> {
+        self.ensure_plan_reminder_routable(pane_id)?;
         let mut text = crate::service::plan::reminders::nudge_text(kind);
         let text = match target {
             PlanReminderTarget::Owner { plan_id } => {
@@ -373,14 +401,31 @@ impl ServiceContext {
                 .plan_store
                 .prepend_worker_charter_for_pane(pane_id, &text),
         };
-        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
-        match crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text) {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                log::warn!("[plan-reminder] deliver to {} failed: {}", pane_id, e);
-                Err(format!("{e}; retry on next scheduler tick"))
-            }
+        self.deliver_automated_plan_reminder(pane_id, &text)
+    }
+
+    fn ensure_plan_reminder_routable(&self, pane_id: &str) -> Result<(), String> {
+        let live = {
+            let mux = self.mux.read();
+            mux.resolve_pane_id(pane_id)
+                .and_then(|resolved| mux.get_pane(&resolved))
+                .is_some_and(crate::service::plan_reconcile::pane_has_live_agent)
+        };
+        if live {
+            Ok(())
+        } else {
+            Err("agent_unavailable: plan reminder target has no verified live agent session".into())
         }
+    }
+
+    fn deliver_automated_plan_reminder(&self, pane_id: &str, text: &str) -> Result<(), String> {
+        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
+        crate::service::messenger::Messenger::deliver(self, pane_id, envelope, text)
+            .map(|_| ())
+            .map_err(|e| {
+                log::warn!("[plan-reminder] deliver to {} failed: {}", pane_id, e);
+                format!("{e}; retry on next scheduler tick")
+            })
     }
 
     // at concrete drift instead of a generic reminder. None when nothing is aged.
@@ -510,7 +555,17 @@ fn complete_wrapup_targets(plans: &[Plan]) -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::multiplexer::state::MultiplexerState;
     use crate::plan::{ElementCanvas, OrchestratorRef, Task, TaskLaneMetadata, TaskPriority};
+    use codeterm_types::pty::BootStage;
+    use std::cell::RefCell;
+
+    fn reminder_test_pane() -> (MultiplexerState, String) {
+        let (mut mux, pane_id) = MultiplexerState::new();
+        mux.set_pane_role(&pane_id, AgentRole::Orchestrator, None)
+            .unwrap();
+        (mux, pane_id)
+    }
 
     fn plan(id: &str, owner: &str, mode: PlanMode, tasks: Vec<Task>) -> Plan {
         let mut plan = Plan::new(
@@ -641,6 +696,89 @@ mod tests {
                 plan_id: "pl_owner".into()
             })
         );
+    }
+
+    fn owner_plan(pane_id: &str) -> Plan {
+        plan(
+            "plan-reminder-test",
+            pane_id,
+            PlanMode::Execution,
+            vec![task("open", TaskStatus::Pending, None)],
+        )
+    }
+
+    #[test]
+    fn reminder_role_only_shell_records_failure_without_pty_write_or_nudge() {
+        let (mux, pane_id) = reminder_test_pane();
+        let counter = crate::service::plan::reminders::TurnCounter::new();
+        let writes = RefCell::new(Vec::new());
+        let plans = vec![owner_plan(&pane_id)];
+
+        send_due_plan_time_reminders_with(
+            &plans,
+            &counter,
+            100,
+            10,
+            |_| true,
+            |id, _, _| {
+                if crate::service::plan_reconcile::pane_has_live_agent(mux.get_pane(id).unwrap()) {
+                    writes.borrow_mut().push(id.to_string());
+                    Ok(())
+                } else {
+                    Err("agent_unavailable: plan reminder target has no verified live agent session".into())
+                }
+            },
+        );
+
+        let telemetry = counter.time_reminder_telemetry(&pane_id);
+        assert!(writes.borrow().is_empty());
+        assert!(telemetry.last_due.is_some());
+        assert!(telemetry.last_delivery.is_none());
+        assert!(telemetry
+            .delivery_failure_retry_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("verified live agent session")));
+        assert!(counter.time_nudge_due(&pane_id, 100, 10));
+    }
+
+    #[test]
+    fn reminder_session_verified_agent_delivers_once_and_marks_nudged() {
+        let (mut mux, pane_id) = reminder_test_pane();
+        let counter = crate::service::plan::reminders::TurnCounter::new();
+        let plans = vec![owner_plan(&pane_id)];
+        {
+            let pane = mux.get_pane_mut(&pane_id).unwrap();
+            pane.agent_type = Some("test-provider".into());
+            pane.agent_session_id = Some("session-1".into());
+            pane.session_binding_nonce = Some("nonce-1".into());
+            pane.reported_session_binding_nonce = Some("nonce-1".into());
+            pane.pty_id = Some("recording-pty".into());
+            pane.chat_view = true;
+            pane.boot_stage = Some(BootStage::AgentReady);
+        }
+        let writes = RefCell::new(Vec::new());
+
+        for _ in 0..2 {
+            send_due_plan_time_reminders_with(
+                &plans,
+                &counter,
+                100,
+                10,
+                |_| true,
+                |id, _, _| {
+                    assert!(crate::service::plan_reconcile::pane_has_live_agent(
+                        mux.get_pane(id).unwrap()
+                    ));
+                    writes.borrow_mut().push(id.to_string());
+                    Ok(())
+                },
+            );
+        }
+
+        let telemetry = counter.time_reminder_telemetry(&pane_id);
+        assert_eq!(writes.borrow().len(), 1);
+        assert!(telemetry.last_delivery.is_some());
+        assert!(telemetry.delivery_failure_retry_reason.is_none());
     }
 
     #[test]
