@@ -673,9 +673,36 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
     cmd,
   );
   assert(
-    writtenScript.includes('codeterm-$profileSuffix.config.toml') && writtenScript.includes("Remove-Item -LiteralPath $profilePath"),
+    writtenScript.includes("codeterm-profile-cleanup-v1") &&
+      writtenScript.includes('codeterm-$profileSuffix.config.toml') &&
+      writtenScript.includes("Remove-Item -LiteralPath $profilePath"),
     "Windows session_start removes the pane-scoped profile after Codex loads it",
     writtenScript,
+  );
+}
+
+{
+  const staleScript = "# codeterm-codex-session-binding-v1\n$env:CODETERM_SESSION_BINDING_NONCE";
+  const p = loadCodexWithHost(baseHost({
+    platform: () => "windows",
+    fs: {
+      fileExists: (path: string) => path.endsWith("hooks.json") || path.endsWith("codeterm-session-start.ps1"),
+      readJson: () => ({
+        hooks: {
+          SessionStart: [{ hooks: [{
+            _source: "codeterm-codex-session-binding-v1",
+            commandWindows: 'powershell -File "codeterm-session-start.ps1"',
+          }] }],
+        },
+      }),
+      readFile: (path: string) => path.endsWith("codeterm-session-start.ps1") ? staleScript : "",
+      writeJson: () => true,
+      writeFile: () => true,
+    },
+  }));
+  assert(
+    p.checkIntegration().session_start_hook === false,
+    "Windows integration rejects a pre-cleanup hook so startup reinstalls it",
   );
 }
 
