@@ -277,9 +277,6 @@ fn ordered_roots(
             out.push(path);
         }
     } else {
-        if let Some(path) = workspace_plugins {
-            out.push(path);
-        }
         out.push(user_plugins);
     }
     out
@@ -629,10 +626,18 @@ mod tests {
     }
 
     #[test]
-    fn production_root_order_keeps_user_overrides() {
+    fn production_root_order_excludes_workspace_plugins() {
         let user = PathBuf::from("/data/plugins");
         let roots = ordered_roots(Some(Path::new("/repo")), user.clone(), false);
-        assert_eq!(roots, vec![PathBuf::from("/repo/plugins"), user]);
+        assert_eq!(roots, vec![user]);
+    }
+
+    #[test]
+    fn root_order_without_workspace_root_uses_user_plugins() {
+        let user = PathBuf::from("/data/plugins");
+
+        assert_eq!(ordered_roots(None, user.clone(), true), vec![user.clone()]);
+        assert_eq!(ordered_roots(None, user.clone(), false), vec![user]);
     }
 
     #[test]
