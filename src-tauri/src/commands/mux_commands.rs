@@ -4,6 +4,7 @@ use tauri::State;
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::state::{MultiplexerSnapshot, WorkspaceInfo};
 use crate::service::{BatchOp, ServiceState};
+use codeterm_types::team::Team;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TabInfo {
@@ -65,6 +66,45 @@ pub fn mux_rename_workspace(
     name: String,
 ) -> Result<(), String> {
     svc.rename_workspace(&workspace_id, &name)
+}
+
+pub fn mux_rename_team_core(
+    svc: &ServiceState,
+    team_id: String,
+    name: String,
+    caller_pane_id: Option<String>,
+) -> Result<Team, String> {
+    let caller_pane_id = require_team_rename_caller(caller_pane_id)?;
+    svc.rename_team(&team_id, name, Some(&caller_pane_id))
+}
+
+fn require_team_rename_caller(caller_pane_id: Option<String>) -> Result<String, String> {
+    caller_pane_id.ok_or_else(|| "callerTabId is required to rename a Team".into())
+}
+
+/// Rename a Team through the service boundary so authorization and the state
+/// change event remain identical for desktop and web callers.
+#[tauri::command]
+pub fn mux_rename_team(
+    svc: State<'_, ServiceState>,
+    team_id: String,
+    name: String,
+    caller_tab_id: String,
+) -> Result<Team, String> {
+    mux_rename_team_core(svc.inner(), team_id, name, Some(caller_tab_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mux_rename_team_rejects_missing_caller() {
+        assert_eq!(
+            require_team_rename_caller(None).unwrap_err(),
+            "callerTabId is required to rename a Team"
+        );
+    }
 }
 
 /// Move a tab from one workspace to another.
