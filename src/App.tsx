@@ -12,6 +12,7 @@ import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/M
 import { MeshPanel } from "./components/MeshPanel/MeshPanel";
 import { ExtensionsView } from "./components/Extensions/ExtensionsView";
 import { PluginView } from "./components/Extensions/PluginView";
+import { pluginViewBelongsToActiveTab, pluginViewScope, type PluginViewScope } from "./components/Extensions/pluginViewScope";
 import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
@@ -104,6 +105,7 @@ function AppInner() {
   const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "extensions">("workspace");
   const [pluginViewId, setPluginViewId] = useState<string | null>(null);
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
+  const [pluginViewOwner, setPluginViewOwner] = useState<PluginViewScope | null>(null);
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   // Lazy-mount panels: mount once on first open, stay mounted for instant switching.
@@ -229,6 +231,7 @@ function AppInner() {
           ? stateRef.current.panes[stateRef.current.focused_pane_id]
           : null;
         setPluginViewCwd(detail?.cwd || fp?.cwd || null);
+        setPluginViewOwner(pluginViewScope(stateRef.current.active_workspace_id, stateRef.current.activeTabIds));
         setPluginViewId(panel.slice("view:".length));
       } else if (panel === "extensions") {
         setExtensionsOpen(true);
@@ -281,6 +284,20 @@ function AppInner() {
     () => activeWs?.tabs.find((t) => t.id === state.activeTabIds[activeWs.id]),
     [activeWs, state.activeTabIds],
   );
+  const activePluginViewScope = useMemo(
+    () => pluginViewScope(state.active_workspace_id, state.activeTabIds),
+    [state.active_workspace_id, state.activeTabIds],
+  );
+  const closePluginView = useCallback(() => {
+    setPluginViewId(null);
+    setPluginViewCwd(null);
+    setPluginViewOwner(null);
+  }, []);
+  useEffect(() => {
+    if (pluginViewId && !pluginViewBelongsToActiveTab(pluginViewOwner, activePluginViewScope)) {
+      closePluginView();
+    }
+  }, [activePluginViewScope, closePluginView, pluginViewId, pluginViewOwner]);
   const prewarmBackendTab = useCallback(async (tabId: string) => {
     const current = stateRef.current;
     const tab = current.workspaces.flatMap((ws) => ws.tabs).find((candidate) => candidate.id === tabId);
@@ -576,7 +593,7 @@ function AppInner() {
           )}
           {pluginViewId && (
             <div className="absolute inset-0 z-30">
-              <PluginView pluginId={pluginViewId} api={config.api} cwd={pluginViewCwd} onClose={() => setPluginViewId(null)} />
+              <PluginView pluginId={pluginViewId} api={config.api} cwd={pluginViewCwd} onClose={closePluginView} />
             </div>
           )}
           {showInlineWorkspaceCanvas && (
