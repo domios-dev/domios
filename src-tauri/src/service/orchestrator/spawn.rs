@@ -1,5 +1,5 @@
 use super::launch::{
-    build_agent_command, launch_agent_in_background, role_onboarding_task, skip_local_worker_role,
+    build_agent_command, launch_agent_in_background, skip_local_worker_role, spawn_onboarding_task,
 };
 use super::types::{ReasoningEffortProvenance, SpawnAgentParams, SpawnResult};
 use crate::service::{spawn_title, ServiceContext};
@@ -423,11 +423,7 @@ impl ServiceContext {
             &params.cwd.clone().unwrap_or_default(),
         );
 
-        let bg_task = role_onboarding_task(
-            params.task.as_deref(),
-            params.role.as_deref(),
-            params.role_profile.as_deref(),
-        );
+        let bg_task = spawn_onboarding_task(&params);
         // Planner gets a short display hint (pending_greeting, user-facing only)
         // plus its FULL onboarding as real launch input attributed to CodeTerm —
         // never a FROM-<orchestrator> relay, mirroring the Orchestrator's onboarding.

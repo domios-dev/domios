@@ -3,16 +3,24 @@ import { BusyState } from "../shared/BusyState";
 import type { Pane } from "../../lib/types";
 import { paneBootOverlayView, type PaneBootOverlayView } from "./bootOverlay";
 
-export function chatSetupStageLabel(stage: Pane["boot_stage"], providerName: string): string {
+export function chatSetupSubject(pane: Pane | null | undefined, providerName: string): string {
+  if (pane?.role === "Orchestrator") return "Orchestrator";
+  if (pane?.role === "Worker") return "Worker";
+  if (pane?.role === "Manager" && pane.role_profile === "planner") return "Planner";
+  if (pane?.role === "Manager") return "Manager";
+  return providerName;
+}
+
+export function chatSetupStageLabel(stage: Pane["boot_stage"], subject: string): string {
   switch (stage) {
     case "pty_starting":
     case "pty_spawned":
-      return "Preparing the terminal";
+      return `Preparing ${subject}`;
     case "shell_ready":
     case "agent_launching":
-      return `Launching ${providerName}`;
+      return `Starting ${subject}`;
     default:
-      return `Setting up ${providerName}`;
+      return `Setting up ${subject}`;
   }
 }
 
@@ -36,6 +44,7 @@ export function ChatSetupStatusLine({
   providerName: string;
 }) {
   if (chatSetupView(pane).kind !== "starting") return null;
+  const subject = chatSetupSubject(pane, providerName);
   return (
     <div
       className="flex shrink-0 items-center border-t px-3 py-1.5"
@@ -44,7 +53,7 @@ export function ChatSetupStatusLine({
     >
       <BusyState
         labelKey="paneBoot"
-        label={chatSetupStageLabel(pane?.boot_stage, providerName)}
+        label={chatSetupStageLabel(pane?.boot_stage, subject)}
         phase="work"
         inline
         style={{ fontSize: 11 }}
@@ -54,6 +63,7 @@ export function ChatSetupStatusLine({
 }
 
 export function ChatSetupState({ pane, view, providerId, providerName, onOpenTerminal }: ChatSetupStateProps) {
+  const subject = chatSetupSubject(pane, providerName);
   if (view.kind === "failed") {
     return (
       <div className="flex justify-center py-10 px-4" data-testid="chat-launch-failed">
@@ -65,7 +75,7 @@ export function ChatSetupState({ pane, view, providerId, providerName, onOpenTer
           }}
         >
           <div className="text-sm font-semibold" style={{ color: "var(--ct-fg)" }}>
-            {providerName} failed to launch
+            {subject} failed to launch
           </div>
           {view.reason && (
             <div className="mt-1 text-xs opacity-75 break-words" title={view.reason}>
@@ -90,7 +100,7 @@ export function ChatSetupState({ pane, view, providerId, providerName, onOpenTer
 
   if (view.kind !== "starting") return null;
 
-  const stageLabel = chatSetupStageLabel(pane?.boot_stage, providerName);
+  const stageLabel = chatSetupStageLabel(pane?.boot_stage, subject);
   return (
     <div
       className="flex flex-col items-center justify-center gap-3 py-12 px-4 text-center"
@@ -115,7 +125,7 @@ export function ChatSetupState({ pane, view, providerId, providerName, onOpenTer
         style={{ color: "var(--ct-fg)", fontSize: 13 }}
       />
       <span className="text-xs" style={{ color: "var(--ct-muted-fg, #8b949e)" }}>
-        The conversation opens as soon as the agent is ready.
+        {providerName} is connecting. You can start as soon as this status clears.
       </span>
     </div>
   );

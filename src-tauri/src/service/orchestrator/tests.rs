@@ -75,6 +75,23 @@ fn orchestrator_onboarding_is_sent_even_without_task_body() {
 }
 
 #[test]
+fn paired_orchestrator_starts_idle_without_a_synthetic_turn() {
+    let mut params = make_params("codex", None);
+    params.role = Some("Orchestrator".into());
+    params.skip_orchestrator_onboarding = Some(true);
+    assert_eq!(spawn_onboarding_task(&params), None);
+}
+
+#[test]
+fn explicit_orchestrator_task_still_starts_an_execution_turn() {
+    let mut params = make_params("codex", Some("inspect the launch path"));
+    params.role = Some("Orchestrator".into());
+    params.skip_orchestrator_onboarding = Some(true);
+    let task = spawn_onboarding_task(&params).expect("explicit task");
+    assert!(task.starts_with("inspect the launch path"));
+}
+
+#[test]
 fn fresh_spawn_never_uses_existing_pane_promotion_delivery() {
     for source in [include_str!("spawn.rs"), include_str!("../spawn.rs")] {
         assert!(!source.contains("maybe_deliver_orchestrator_promotion_onboarding"));
