@@ -1,7 +1,14 @@
 export interface TeamActions {
   onRenameTeam: (teamId: string, name: string) => Promise<void>;
-  onAddTeamMember?: undefined;
+  onAddTeamMember: (
+    teamId: string,
+    role: TeamMemberRole,
+    providerId: string,
+    managerPaneId: string,
+  ) => Promise<void>;
 }
+
+export type TeamMemberRole = "planner" | "worker";
 
 type Invoke = (command: string, args: Record<string, unknown>) => Promise<unknown>;
 
@@ -15,6 +22,14 @@ export function buildTeamActions({
   return {
     async onRenameTeam(teamId, name) {
       await invoke("mux_rename_team", { teamId, name, callerTabId: callerTabId() });
+    },
+    async onAddTeamMember(teamId, role, providerId, managerPaneId) {
+      await invoke("mux_add_team_member", {
+        teamId,
+        role,
+        provider: providerId,
+        callerTabId: managerPaneId,
+      });
     },
   };
 }
