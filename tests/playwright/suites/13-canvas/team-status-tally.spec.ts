@@ -142,16 +142,18 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
       });
     }
   };
-  await Promise.all([
-    addTask("todo pending"),
-    addTask("todo active", "in_progress"),
-    addTask("todo queued"),
-    addTask("review", "in_review"),
-    addTask("blocked", "blocked"),
-    addTask("done one", "done"),
-    addTask("done two", "done"),
-    addTask("done three", "done"),
-  ]);
+  for (const [name, status] of [
+    ["todo pending"],
+    ["todo active", "in_progress"],
+    ["todo queued"],
+    ["review", "in_review"],
+    ["blocked", "blocked"],
+    ["done one", "done"],
+    ["done two", "done"],
+    ["done three", "done"],
+  ]) {
+    await addTask(name, status);
+  }
 
   await api.focusWorkspace(workspace.id);
   const session = await openTallyPage(webBrowser);
