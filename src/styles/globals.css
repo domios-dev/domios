@@ -1361,6 +1361,7 @@ button,
   overflow: visible;
   border-radius: 9px;
   background: color-mix(in srgb, var(--ct-fg) 3.5%, transparent);
+  container-type: inline-size;
 }
 
 .sidebar-team-header {
@@ -1586,18 +1587,58 @@ button,
 }
 
 .sidebar-team-readout {
+  display: flex;
   min-width: 0;
   margin: 2px 12px 7px;
-  overflow: hidden;
+  justify-content: center;
+  gap: 5px;
   font-size: 10.5px;
   font-weight: 600;
   line-height: 1.4;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sidebar-team-readout-dot {
-  color: color-mix(in srgb, var(--ct-muted-fg) 62%, var(--ct-bg));
+.sidebar-team-readout-item {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.sidebar-team-readout-compact-dot {
+  display: none;
+}
+
+/* 280px gives the full labels the header width otherwise occupied by fixed controls. */
+@container (max-width: 280px) {
+  .sidebar-team-header {
+    flex-wrap: wrap;
+  }
+
+  .sidebar-team-title-block {
+    flex-basis: 100%;
+    order: 2;
+  }
+}
+
+/* 240px is where the full labels no longer fit even in the dedicated tally row. */
+@container (max-width: 240px) {
+  .sidebar-team-readout {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .sidebar-team-readout-label {
+    display: none;
+  }
+
+  .sidebar-team-readout-compact-dot {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    margin-right: 2px;
+    border-radius: 50%;
+    background: currentColor;
+  }
 }
 
 .sidebar-team-no-plan {
