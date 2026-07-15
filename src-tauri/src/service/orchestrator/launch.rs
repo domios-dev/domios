@@ -548,8 +548,12 @@ pub(crate) fn build_agent_command(
     }
     if let Some(ref effort) = params.reasoning_effort {
         if !effort.is_empty() {
-            if let Some(effort_args) =
-                registry.with_provider(agent_cmd, |p| p.reasoning_effort_launch_args(effort))
+            if let Some(effort_args) = registry
+                .with_provider(agent_cmd, |p| {
+                    p.supports_reasoning_effort(effort)
+                        .then(|| p.reasoning_effort_launch_args(effort))
+                })
+                .flatten()
             {
                 args.extend(effort_args);
             }
