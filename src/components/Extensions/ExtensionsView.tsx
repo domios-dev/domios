@@ -19,7 +19,7 @@ import type { ChannelRecord } from "./types";
 import type { AppConfig, PluginActivity } from "../../lib/types";
 import type { PluginActivityDisplayMap } from "../../lib/usePluginActivity";
 import { SELECT_EXTENSION_EVENT } from "../Titlebar/extensionsTrayLogic";
-import { Plus, RefreshCw } from "lucide-react";
+import { ArrowLeft, Plus, RefreshCw } from "lucide-react";
 import {
   ensurePluginSnapshot,
   invalidatePluginSnapshotStore,
@@ -61,6 +61,7 @@ export function ExtensionsView({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
   const [addChannelOpen, setAddChannelOpen] = useState(false);
+  const [narrowDetailOpen, setNarrowDetailOpen] = useState(false);
 
   const refreshConfig = useCallback(async () => {
     try {
@@ -84,6 +85,8 @@ export function ExtensionsView({
     const onSelect = (e: Event) => {
       const id = (e as CustomEvent<{ id: string | null }>).detail?.id ?? null;
       setSelectedId(id);
+      setSelectedChannel(null);
+      setNarrowDetailOpen(id !== null);
     };
     window.addEventListener(SELECT_EXTENSION_EVENT, onSelect);
     return () => window.removeEventListener(SELECT_EXTENSION_EVENT, onSelect);
@@ -215,7 +218,7 @@ export function ExtensionsView({
 
   return (
     <div className="h-full overflow-hidden" style={{ background: "var(--ct-bg)", color: "var(--ct-fg)" }} data-testid="extensions-view">
-      <div style={{ display: "flex", flexDirection: "column", height: "100%", maxWidth: 1100, margin: "0 auto", padding: "24px 24px 0" }}>
+      <div className="mx-auto flex h-full max-w-[1100px] flex-col px-3 pt-3 sm:px-4 sm:pt-4 md:px-6 md:pt-6">
         {snapshotState.loading && (
           <div data-testid="extensions-loading" style={{ fontSize: 12.5, color: "var(--ct-muted)", marginBottom: 12, flex: "none" }}>
             Loading plugins…
@@ -236,8 +239,11 @@ export function ExtensionsView({
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 20, flex: 1, minHeight: 0 }}>
-          <div style={{ width: 320, flex: "none", display: "flex", flexDirection: "column", minHeight: 0 }} data-testid="extensions-sidebar">
+        <div className="flex min-h-0 flex-1 gap-0 md:gap-5" data-narrow-view={narrowDetailOpen ? "detail" : "list"}>
+          <div
+            className={`${narrowDetailOpen ? "hidden md:flex" : "flex"} min-h-0 w-full flex-col md:w-80 md:flex-none`}
+            data-testid="extensions-sidebar"
+          >
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
               <button
                 data-testid="extensions-refresh"
@@ -269,11 +275,18 @@ export function ExtensionsView({
               <PluginList
                 entries={visibleEntries}
                 selectedId={selectedId}
-                onSelect={setSelectedId}
+                onSelect={(id) => {
+                  setSelectedId(id);
+                  setSelectedChannel(null);
+                  setNarrowDetailOpen(true);
+                }}
                 query={query}
                 onQuery={setQuery}
                 filter={filter}
-                onFilter={setFilter}
+                onFilter={(next) => {
+                  setFilter(next);
+                  setNarrowDetailOpen(false);
+                }}
                 updateCount={updates}
                 pinned={pinned}
                 onTogglePin={togglePin}
@@ -283,12 +296,30 @@ export function ExtensionsView({
                 channels={snapshot.channels}
                 selectedChannel={selectedChannel}
                 channelPluginCounts={channelPluginCounts}
-                onSelectChannel={setSelectedChannel}
+                onSelectChannel={(name) => {
+                  setSelectedChannel(name);
+                  setSelectedId(null);
+                  setNarrowDetailOpen(true);
+                }}
               />
             </div>
           </div>
 
-          <div style={{ flex: 1, minWidth: 0, overflowY: "auto", paddingBottom: 24, borderLeft: "1px solid var(--ct-border-subtle, rgba(255,255,255,0.06))", paddingLeft: 20 }} data-testid="extensions-detail-pane">
+          <div
+            className={`${narrowDetailOpen ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col overflow-y-auto pb-6 md:border-l md:pl-5`}
+            style={{ borderColor: "var(--ct-border-subtle, rgba(255,255,255,0.06))" }}
+            data-testid="extensions-detail-pane"
+          >
+            <button
+              type="button"
+              className="mb-3 flex w-fit items-center gap-1.5 rounded px-1 py-1 text-sm md:hidden"
+              style={{ color: "var(--ct-muted)" }}
+              data-testid="extensions-detail-back"
+              onClick={() => setNarrowDetailOpen(false)}
+            >
+              <ArrowLeft size={15} />
+              Plugins
+            </button>
             {filter === "channels" ? (
               <ChannelDetailPanel
                 channel={selectedChannelRecord}

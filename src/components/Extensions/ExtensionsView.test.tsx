@@ -153,6 +153,28 @@ function cleanup() {
 
 setupDom();
 
+test("selecting a plugin opens its detail view and back returns to the list", async () => {
+  const { host, root } = await renderExtensions();
+  const row = host.querySelector('[data-testid="extensions-plugin-row"]');
+  assert(row instanceof window.HTMLElement, "plugin row should render");
+
+  await act(async () => {
+    row.click();
+  });
+
+  const layout = host.querySelector("[data-narrow-view]");
+  assert(layout?.getAttribute("data-narrow-view") === "detail", "selection should open the narrow detail view");
+  assert(host.querySelector('[data-testid="extensions-detail-back"]'), "detail view should provide a back control");
+
+  await act(async () => {
+    button(host, '[data-testid="extensions-detail-back"]').click();
+  });
+  assert(layout?.getAttribute("data-narrow-view") === "list", "back should restore the narrow plugin list");
+
+  await act(async () => root.unmount());
+  cleanup();
+});
+
 test("Channels tab renders compact collapsed channel rows", async () => {
   const { host, root } = await renderExtensions();
   await openChannels(host);
