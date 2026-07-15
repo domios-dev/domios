@@ -8,6 +8,7 @@ import { FIXTURE_PLAN, FIXTURE_TASK } from "../Canvas/cards/fixtures.testdata";
 import { groupTasksIntoColumns } from "../Canvas/planView/boardModel";
 import { TaskStatus, type Plan, type Task } from "../Canvas/types";
 import { SidebarDnd } from "./sortable";
+import { canvasFocusStore } from "../Canvas/canvasFocusStore";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import {
   deriveTeamTaskBuckets,
@@ -95,6 +96,9 @@ async function renderSidebar({
   activeTabId,
   onActivateTab = () => {},
   onCloseTab = () => {},
+  onRenameTeam,
+  onAddTeamMember,
+  onArchiveTeam,
 }: {
   panes: Record<string, Pane>;
   tabs: Tab[];
@@ -103,6 +107,9 @@ async function renderSidebar({
   activeTabId?: string | null;
   onActivateTab?: (tabId: string) => void;
   onCloseTab?: (tabId: string) => void;
+  onRenameTeam?: (teamId: string, name: string) => void;
+  onAddTeamMember?: (teamId: string, role: "orchestrator" | "planner" | "worker", providerId: string, parentPaneId: string | null) => void;
+  onArchiveTeam?: (teamId: string) => void;
 }): Promise<{ host: HTMLDivElement; root: Root }> {
   const workspace: Workspace = {
     id: "workspace",
@@ -142,6 +149,9 @@ async function renderSidebar({
           onCloseTab={onCloseTab}
           onRenameTab={() => {}}
           onNewSession={() => {}}
+          onRenameTeam={onRenameTeam}
+          onAddTeamMember={onAddTeamMember}
+          onArchiveTeam={onArchiveTeam}
         />
       </SidebarDnd>,
     );
@@ -178,6 +188,33 @@ test("team_renders_flat_sections", async () => {
   );
   assert(workers.querySelectorAll('[data-testid="tab-item"]').length === 3, "three workers render once");
   assert(!team.querySelector(".sidebar-hierarchy-level"), "no nested member tree nodes");
+  await act(async () => root.unmount());
+});
+
+test("team menu hides unsupported actions and creates effort with a team-bound manager target", async () => {
+  const panes = {
+    manager: pane({ id: "manager", title: "Manager", role: "Orchestrator", team_id: TEAM.id }),
+  };
+  canvasFocusStore.closeWorkspace();
+  const { host, root } = await renderSidebar({
+    panes,
+    tabs: [tab("tab-manager", "manager", 0)],
+    onRenameTeam: () => {},
+  });
+  const trigger = host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement | null;
+  assert(trigger, "team menu trigger exists");
+  await act(async () => trigger.click());
+  const menu = document.querySelector('[data-testid="team-menu"]');
+  assert(menu?.textContent?.includes("Rename"), "supported rename remains available");
+  assert(!menu?.textContent?.includes("Add orchestrator"), "unsupported staffing is hidden");
+  assert(!menu?.textContent?.includes("Archive"), "unsupported archive is hidden");
+  const create = Array.from(menu?.querySelectorAll("button") ?? []).find((button) => button.textContent?.includes("Create effort")) as HTMLButtonElement | undefined;
+  assert(create, "create effort is available");
+  await act(async () => create.click());
+  const target = canvasFocusStore.getWorkspaceTarget();
+  assert(target?.focusPaneId === "manager", "create effort targets the team manager pane");
+  assert(target?.planId === undefined, "create effort never opens an undefined generic target");
+  canvasFocusStore.closeWorkspace();
   await act(async () => root.unmount());
 });
 
