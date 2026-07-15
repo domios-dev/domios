@@ -131,6 +131,8 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
       type: "implement",
       sections: section.section_id,
       body: "fixture",
+      acceptance_criteria: ["Status tally fixture is observable"],
+      test_plan: "npx tsx src/components/Sidebar/SidebarWorkspaceTabs.test.tsx",
       parent: null,
     });
     if (status) {
