@@ -87,6 +87,8 @@ pub struct TeamResolution {
 pub struct MultiplexerSnapshot {
     pub workspaces: Vec<Workspace>,
     pub panes: HashMap<String, Pane>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub teams: Vec<Team>,
     pub active_workspace_id: Option<String>,
     pub focused_pane_id: Option<String>,
     /// Monotonic generation; the reducer drops any snapshot whose value is
@@ -140,7 +142,18 @@ impl MultiplexerState {
 
     /// All registered teams (unordered).
     pub fn list_teams(&self) -> Vec<Team> {
-        self.teams.values().cloned().collect()
+        let mut teams: Vec<_> = self.teams.values().cloned().collect();
+        teams.sort_by(|a, b| a.id.cmp(&b.id));
+        teams
+    }
+
+    pub fn rename_team(&mut self, id: &str, name: String) -> Result<Team, String> {
+        let team = self
+            .teams
+            .get_mut(id)
+            .ok_or_else(|| format!("Team {id} not found"))?;
+        team.name = Some(name);
+        Ok(team.clone())
     }
 
     /// Number of registered teams.

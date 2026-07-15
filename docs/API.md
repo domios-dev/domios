@@ -844,6 +844,10 @@ This is the same flow `codeterm agent restart --tab PANE_ID [--force] [--grace-s
 
 Task execution attempts are append-only history on `Task.execution_attempts`. The CLI/API uses the canonical stable `TaskExecutionAttempt.id` as `attempt_id`; `executor_pane_id` remains the executor identity and is not the primary key. Respawning creates a new Worker pane and a new live attempt; it never reactivates the selected historical attempt.
 
+### Team-bound plan creation
+
+An orchestrator's first plan creation is atomic: its response includes `plan.team_id`, top-level `team_id`, and `team_minted`. When `team_minted` is true, `_hints` includes `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION`. The `mux-state-changed` snapshot includes the Team registry in `teams` and each pane's `team_id`; committed plan mutations also emit `plan-changed`. A Team with an active plan refuses a second plan with the unchanged `team_already_has_active_plan` error.
+
 | Method | Path | Body / Query | Description |
 |--------|------|--------------|-------------|
 | GET | `/api/plans/{id}/tasks/{tid}/attempts` | — | List execution attempts recorded for one task |
@@ -1111,6 +1115,10 @@ Newline-delimited JSON:
 | `workspace.reopen_closed` | `{workspace_id, index?}` | Reopen the nth recently-closed pane in a workspace (`index` 0 = most recent). Returns `TabInfo`. |
 | `workspace.reopen_closed_group` | `{group_id}` | Reopen a closed group by `group_id`. Returns `{workspace_id, tab_id, pane_id}`. |
 | `workspace.move_tab` | `{tab_id, from_workspace_id, to_workspace_id}` | Move tab |
+| `team.list` | — | Return `{teams: Team[]}` from the live Team registry. |
+| `team.show` | `{team_id}` | Return `{team: Team}` or reject an unknown Team. |
+| `team.rename` | `{team_id, name, caller_pane_id?}` | Rename a Team and emit `mux-state-changed`. |
+| `team.adopt_plan` | `{team_id, plan_id, caller_pane_id?}` | Bind an existing plan 1:1 to a Team; return `{team_id, plan}` and emit both `plan-changed` and `mux-state-changed`. |
 | `pane.list` | — | List panes |
 | `pane.focus` | `{pane_id}` | Focus pane |
 | `pane.close` | `{pane_id}` | Close pane |
@@ -1153,6 +1161,8 @@ Newline-delimited JSON:
 | `services.regenerate_token` | `{id}` | Rotate push token. Returns `{token}`. |
 | `activity.list` | `{source?, since?, limit?}` | Read recent activity events (push / health / peer / cron). Defaults: `limit=500`. |
 | `bridge.send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to external service (Telegram). `type`: `text`/`photo`/`document`/`voice`/`animation`/`video`/`sticker`. `file`: absolute path for media. `append`: concatenate to previous message. |
+
+For `team.rename` and `team.adopt_plan`, omitted `caller_pane_id` is the trusted direct-user path on the local socket. When present, the caller must belong to the same Team and be its Orchestrator or planner-profile Manager; Workers and foreign panes are rejected before mutation. `team.adopt_plan` preserves the structured `team_already_has_active_plan` conflict when the Team already owns another active plan. Events are emitted only after persistence succeeds.
 
 ## CLI
 
@@ -1279,4 +1289,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 75 -->
+<!-- revision: 76 -->

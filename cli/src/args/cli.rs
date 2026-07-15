@@ -28,6 +28,7 @@ use super::sessions::SessionsAction;
 use super::spec::SpecAction;
 use super::system::SystemAction;
 use super::task::{CanvasAction, TaskAction};
+use super::team::TeamAction;
 use super::update::UpdateAction;
 use super::usage::UsageAction;
 
@@ -83,6 +84,12 @@ pub enum Commands {
     Workspace {
         #[command(subcommand)]
         action: WorkspaceAction,
+    },
+
+    /// Team registry and 1:1 plan binding
+    Team {
+        #[command(subcommand)]
+        action: TeamAction,
     },
 
     /// Orchestrator helpers

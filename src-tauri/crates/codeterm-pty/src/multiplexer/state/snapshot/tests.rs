@@ -101,6 +101,23 @@ fn team_snapshot_roundtrip() {
 }
 
 #[test]
+fn snapshot_includes_teams() {
+    use codeterm_types::team::Team;
+
+    let mut state = MultiplexerState::empty();
+    let workspace_id = state.create_workspace("Team WS".to_string(), None).id;
+    let team = Team::new(&workspace_id, 1);
+    let team_id = team.id.clone();
+    state.upsert_team(team);
+    let (_tab_id, pane_id) = state.create_tab(&workspace_id).unwrap();
+    state.get_pane_mut(&pane_id).unwrap().team_id = Some(team_id.clone());
+
+    let snapshot = serde_json::to_value(state.snapshot()).unwrap();
+    assert_eq!(snapshot["teams"][0]["id"], team_id);
+    assert_eq!(snapshot["panes"][pane_id]["team_id"], team_id);
+}
+
+#[test]
 fn legacy_snapshot_no_team_fields_restores() {
     // A pre-team last.json lacks both the top-level `teams` array and each
     // leaf's `team_id`. Emulate one by stripping those keys from a current

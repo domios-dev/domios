@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -8,6 +8,8 @@ do not edit it by hand. Conventions: target tabs use `--tab`; `--json` is
 a global flag on every command.
 
 **Planning?** Read the EFFORT workflow first — `docs/ORCHESTRATION.md` (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides; author GOAL-first, Spec=WHAT, Plan=HOW built from the spec, M:N section links). Don't cram requirements into plan sections; the Spec holds WHAT.
+
+The Team verbs are `codeterm team list|show|rename|adopt-plan`. Agent callers may rename or adopt only for their own `team_id` when they are the Team's Orchestrator or planner Manager; direct local user calls remain allowed. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
 
 <!-- cli:auto-start -->
 #### `codeterm agent`
@@ -121,6 +123,7 @@ Spawn a new agent; roleless unless --role is provided
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
 - `--plan-task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
+- `--reasoning-effort` — Reasoning-effort level (provider-specific, e.g. codex low/medium/high). Capability-validated: an unsupported value is rejected, never silently downgraded. Run `codeterm agent models <provider>` to see supported levels
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
 - `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
 - `--system` — Override the shell system prompt when spawning a chatBackend shell
@@ -984,7 +987,7 @@ Print L0+L1 wake-up context (GA init injection)
 - `--explain` — Append a per-item L1 score breakdown for debugging selection
 - `--l0-only` — Identity layer only (~100 tokens)
 - `--no-l0` — Skip identity layer (return L1 only)
-- `--workspace` — Current workspace id — boosts pinned-in-workspace items in L1
+- `--workspace` — Workspace override; defaults to the calling tab's workspace
 
 #### `codeterm mem worker`
 
@@ -1821,19 +1824,19 @@ Review-backpressure: WIP/credit status, waves, overrides, accept/bounce
 
 Read-only ACCEPT verdict: attaches evidence without closing the task
 
-- `--changed_executable_surfaces`
-- `--distinct_oracle`
+- `--changed-executable-surfaces`
+- `--distinct-oracle`
 - `--note`
 - `<plan_id>`
-- `--residual_risk` — Past the default round bound, routes residual risk to a follow-up task
+- `--residual-risk` — Past the default round bound, routes residual risk to a follow-up task
 - `<task_id>`
 
 #### `codeterm plan review bounce`
 
 BOUNCE: atomically exits in_review back to in_progress
 
-- `--changed_executable_surfaces`
-- `--distinct_oracle`
+- `--changed-executable-surfaces`
+- `--distinct-oracle`
 - `--note`
 - `<plan_id>`
 - `<task_id>`
@@ -2076,6 +2079,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--model`
 - `--parent-tab` — Parent tab override (defaults to the caller tab)
 - `<plan_id>`
+- `--reasoning-effort` — Provider-supported reasoning effort (rejected if unsupported)
 - `<task_id>`
 - `--workspace`
 
@@ -2737,6 +2741,34 @@ Show one task with plan and section context
 Assign the task to the caller's tab
 
 - `<task_id>`
+
+#### `codeterm team`
+
+Team registry and 1:1 plan binding
+
+#### `codeterm team adopt-plan`
+
+Bind an existing plan to a Team
+
+- `<plan_id>` — Plan ID
+- `<team_id>` — Team ID
+
+#### `codeterm team list`
+
+List registered Teams
+
+#### `codeterm team rename`
+
+Give a Team a human-readable name
+
+- `<name>` — New Team name
+- `<team_id>` — Team ID
+
+#### `codeterm team show`
+
+Show one Team
+
+- `<team_id>` — Team ID
 
 #### `codeterm theme`
 
