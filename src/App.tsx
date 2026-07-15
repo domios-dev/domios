@@ -63,7 +63,7 @@ function AppInner() {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 640,
   );
-  const openSidebar = useCallback(() => setSidebarOpen(true), []);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const toggleSidebar = useCallback(() => setSidebarOpen((open) => !open), []);
   // On phones the sidebar is an overlay (≤640px) — collapse it right after a selection so picking a tab/panel is one tap, not two.
   const closeSidebarOnMobile = useCallback(() => {
@@ -475,7 +475,7 @@ function AppInner() {
           own --ct-safe-top padding covers the web notch/status-bar inset. */}
       <Titlebar
         onToggleSidebar={toggleSidebar}
-        showSidebarToggle={!sidebarOpen && (mainView !== "workspace" || workspaceCanvasVisible || !activeTab)}
+        showSidebarToggle={!sidebarOpen}
         onNewTab={handleNewTab}
         theme={stableTheme}
         onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
@@ -505,6 +505,7 @@ function AppInner() {
               inert={!sidebarShown || undefined}
             >
               <Sidebar
+                onCollapse={closeSidebar}
                 onOpenMemory={() => { setMemoryOpen(true); closeSidebarOnMobile(); }}
                 onOpenMesh={() => { setMeshOpen(true); closeSidebarOnMobile(); }}
                 onOpenExtensions={() => { setExtensionsOpen(true); closeSidebarOnMobile(); }}
@@ -642,7 +643,6 @@ function AppInner() {
                   chatFirst={chatPaneDefault}
                   chatDefaultPrompted={chatDefaultPrompted}
                   agentsConfig={config.agents}
-                  onOpenSidebar={!sidebarOpen ? openSidebar : undefined}
                 />
               </div>
                 );
