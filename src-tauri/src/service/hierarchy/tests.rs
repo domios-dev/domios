@@ -927,6 +927,8 @@ fn first_plan_mints_team_enrolls_manager_and_binds() {
     let owner = mux.get_pane(&owner_pane_id).unwrap();
     assert_eq!(owner.role, Some(AgentRole::Orchestrator));
     assert_eq!(owner.team_id.as_deref(), Some(outcome.team_id.as_str()));
+    drop(mux);
+    std::mem::forget(harness);
 }
 
 #[test]
@@ -991,6 +993,8 @@ fn concurrent_first_plan_and_first_child_converge() {
         outcome.plan.team_id.as_deref(),
         Some(outcome.team_id.as_str())
     );
+    drop(mux);
+    std::mem::forget(harness);
 }
 
 #[test]
@@ -1017,4 +1021,6 @@ fn first_plan_failure_is_atomic() {
     let mux = harness.service.mux.read();
     assert_eq!(mux.team_count(), 0);
     assert!(mux.get_pane(&owner_pane_id).unwrap().team_id.is_none());
+    drop(mux);
+    std::mem::forget(harness);
 }
