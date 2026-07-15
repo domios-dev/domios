@@ -107,10 +107,13 @@ console.log("\n--- task instructions launch ---\n");
   }));
   const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
   const cmd = p.buildLaunchCommand({ task: hostileTask, args: ["--model", "gpt-5.5"] });
-  assert(cmd.includes("$PSNativeCommandArgumentPassing = 'Standard'"), "Windows uses receiver-safe native argument passing");
+  assert(cmd.includes("System.Web.Script.Serialization.JavaScriptSerializer"), "Windows serializes instructions without native argv interpolation");
   assert(cmd.includes("$ctTaskInstructions = Get-Content -Raw -Encoding UTF8 'C:\\Temp\\codeterm task.md'"), "Windows loads developer instructions from the task file");
-  assert(cmd.includes("ConvertTo-Json -Compress"), "Windows escapes multiline instructions as one config value");
-  assert(cmd.includes("-c $ctDeveloperInstructions --"), "Windows passes one developer-instructions argument");
+  assert(cmd.includes("$env:CODETERM_PANE_ID -replace '[^A-Za-z0-9_-]', '-'"), "Windows scopes the temporary profile to the pane lifecycle");
+  assert(cmd.includes("Set-Content -LiteralPath $ctProfilePath"), "Windows writes a temporary Codex profile");
+  assert(cmd.includes("Remove-Item -LiteralPath 'C:\\Temp\\codeterm task.md'"), "Windows removes the copied task file before Codex starts");
+  assert(cmd.includes("--profile $ctProfileName --"), "Windows passes only the short profile name through native argv");
+  assert(cmd.includes("finally { Remove-Item -LiteralPath $ctProfilePath"), "Windows removes the temporary profile on exit");
   assert(!cmd.includes('-c ("developer_instructions=" +'), "Windows never expands multiline task text inline in the native call");
   assert(!cmd.includes("<location>") && !cmd.includes("whoami") && !cmd.includes("юникод"), "task body is absent from the launch command");
 }
@@ -649,13 +652,15 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
 // session-start report can prove pane ownership (release/1.4.6 binding-nonce).
 {
   let writtenJson: any = null;
+  let writtenScript = "";
   const host = baseHost({
+    platform: () => "windows",
     fs: {
       fileExists: () => false,
       readJson: () => null,
       readFile: () => null,
       writeJson: (_p: string, json: unknown) => { writtenJson = json; return true; },
-      writeFile: () => true,
+      writeFile: (_p: string, body: string) => { writtenScript = body; return true; },
     },
   });
   const p = loadCodexWithHost(host);
@@ -666,6 +671,11 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
     cmd.indexOf("X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}") !== -1,
     "session_start hook curl carries the binding-nonce header",
     cmd,
+  );
+  assert(
+    writtenScript.includes('codeterm-$profileSuffix.config.toml') && writtenScript.includes("Remove-Item -LiteralPath $profilePath"),
+    "Windows session_start removes the pane-scoped profile after Codex loads it",
+    writtenScript,
   );
 }
 

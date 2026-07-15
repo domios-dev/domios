@@ -101,6 +101,13 @@ fn parse_session_delta_strips_user_query_and_maps_tool_use() {
         asst.blocks[1].data.get("name").and_then(|v| v.as_str()),
         Some("Edit")
     );
+    assert_eq!(
+        asst.blocks[1]
+            .data
+            .get("tool_status")
+            .and_then(|v| v.as_str()),
+        Some("success")
+    );
 }
 
 #[test]

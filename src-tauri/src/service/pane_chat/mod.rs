@@ -427,6 +427,11 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                 let tool_summary = get_optional_string(&b.data, "tool_summary");
                 let tool_detail = get_optional_string(&b.data, "tool_detail");
                 let tool_edits = b.data.get("tool_edits").cloned();
+                let tool_error = match b.data.get("tool_status").and_then(|v| v.as_str()) {
+                    Some("success") => Some(false),
+                    Some("error") => Some(true),
+                    _ => None,
+                };
                 let tool_id = b.data.get("id").and_then(|v| v.as_str());
                 let interactive = rich
                     .interactive
@@ -449,6 +454,7 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                     tool_args: tool_detail,
                     tool_input: b.data.get("input").cloned(),
                     tool_id: tool_id.map(String::from),
+                    tool_error,
                     collapsed: true,
                     interactive,
                     ..Default::default()
@@ -879,6 +885,26 @@ mod chat_snapshot_tests {
         assert_eq!(msgs[1].tool_detail, None);
         assert_eq!(msgs[1].tool_args, None);
         assert_eq!(msgs[1].content, "");
+    }
+
+    #[test]
+    fn completed_tool_use_preserves_explicit_lifecycle() {
+        let rich = RichMessage {
+            role: "assistant".into(),
+            blocks: vec![MessageBlock {
+                kind: "tool_use".into(),
+                data: json!({
+                    "name": "Read",
+                    "tool_kind": "read",
+                    "tool_summary": "src/main.rs",
+                    "tool_status": "success"
+                }),
+            }],
+            ..Default::default()
+        };
+        let msgs = rich_to_chat_msgs(&rich, 0);
+        assert_eq!(msgs[0].tool_error, Some(false));
+        assert_eq!(msgs[0].tool_result, None);
     }
 
     #[test]
