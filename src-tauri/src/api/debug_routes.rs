@@ -126,7 +126,7 @@ pub async fn reset_latch(
     Ok(Json(serde_json::json!({"latched": false})))
 }
 
-pub async fn mark_clean_restart(
+pub async fn clean_restart(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
@@ -134,9 +134,15 @@ pub async fn mark_clean_restart(
     if !cfg!(debug_assertions) {
         return Err((
             StatusCode::CONFLICT,
-            "clean restart marker is only available in debug builds".to_string(),
+            "clean restart is only available in debug builds".to_string(),
         ));
     }
-    crate::crash::record_clean_shutdown(crate::crash::lifecycle::ShutdownReason::Restart);
-    Ok(Json(serde_json::json!({"ok": true})))
+    let app = state.svc.app_handle.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::crash::shutdown::mark_shutting_down_for(
+            crate::crash::lifecycle::ShutdownReason::Restart,
+        );
+        app.exit(0);
+    });
+    Ok(Json(serde_json::json!({"accepted": true})))
 }

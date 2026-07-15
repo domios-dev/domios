@@ -90,7 +90,7 @@ HOME="$marker_fixture/home" \
 PATH="$marker_fixture/bin:$PATH" \
 CODETERM_INSTANCE=marker-test \
 CODETERM_API_PORT=7799 \
-CODETERM_TEST_KILL_MARKER_ONLY=1 \
+CODETERM_TEST_KILL_CLEAN_REQUEST_ONLY=1 \
 CODETERM_TEST_CURL_LOG="$marker_fixture/curl.log" \
   ./build.sh kill >/dev/null
 
@@ -98,8 +98,8 @@ grep -q 'Authorization: Bearer matching-instance-token' "$marker_fixture/curl.lo
   echo "dev kill must authenticate with the matching instance token" >&2
   exit 1
 }
-grep -q 'POST http://127.0.0.1:7799/api/debug/shutdown/mark-clean-restart' "$marker_fixture/curl.log" || {
-  echo "dev kill must mark the matching dev instance before force-kill fallback" >&2
+grep -q 'POST http://127.0.0.1:7799/api/debug/shutdown/clean-restart' "$marker_fixture/curl.log" || {
+  echo "dev kill must request a clean restart from the matching dev instance" >&2
   exit 1
 }
 

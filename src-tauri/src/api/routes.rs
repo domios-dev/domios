@@ -354,8 +354,8 @@ pub fn create_router(state: AppState) -> Router {
             post(debug_routes::reset_latch),
         );
     let router = router.route(
-        "/api/debug/shutdown/mark-clean-restart",
-        post(debug_routes::mark_clean_restart),
+        "/api/debug/shutdown/clean-restart",
+        post(debug_routes::clean_restart),
     );
     let router = pane_agent_routes::mount(router);
     #[cfg(debug_assertions)]

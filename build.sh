@@ -61,8 +61,8 @@ kill_dev() {
     echo "Dry-run dev kill instance='${CT_INSTANCE:-default}' api=$CT_PORT vite=$CT_VITE_PORT cdp=$CT_CDP_PORT identifier=$CT_IDENTIFIER"
     return
   fi
-  mark_dev_clean_restart 2>/dev/null || true
-  if [ "${CODETERM_TEST_KILL_MARKER_ONLY:-0}" = "1" ]; then
+  if [ "${CODETERM_TEST_KILL_CLEAN_REQUEST_ONLY:-0}" = "1" ]; then
+    request_dev_clean_restart 2>/dev/null || true
     return
   fi
   kill_web_watch 2>/dev/null || true
@@ -77,13 +77,15 @@ kill_dev() {
     local dev_pids
     dev_pids="$(lsof -tiTCP:"$CT_PORT" -sTCP:LISTEN 2>/dev/null || true)"
     if [ -n "$dev_pids" ]; then
-      echo "$dev_pids" | xargs kill 2>/dev/null || true
-      for _ in $(seq 1 30); do
-        [ -z "$(lsof -tiTCP:"$CT_PORT" -sTCP:LISTEN 2>/dev/null || true)" ] && break
-        sleep 0.1
-      done
-      dev_pids="$(lsof -tiTCP:"$CT_PORT" -sTCP:LISTEN 2>/dev/null || true)"
-      [ -z "$dev_pids" ] || echo "$dev_pids" | xargs kill -9 2>/dev/null || true
+      request_dev_clean_restart 2>/dev/null || true
+      local graceful=1
+      while IFS= read -r dev_pid; do
+        wait_for_dev_exit "$dev_pid" || graceful=0
+      done <<< "$dev_pids"
+      if [ "$graceful" != "1" ]; then
+        echo "Clean shutdown deadline elapsed; force-killing dev instance on port $CT_PORT..."
+        echo "$dev_pids" | xargs kill -9 2>/dev/null || true
+      fi
     fi
     local vite_pids
     vite_pids="$(lsof -ti:"$CT_VITE_PORT" 2>/dev/null || true)"
@@ -96,9 +98,11 @@ kill_dev() {
     local dev_pid
     dev_pid=$(netstat -ano 2>/dev/null | grep ":$CT_PORT.*LISTEN" | awk '{print $5}' | head -1 || true)
     if [ -n "$dev_pid" ] && [ "$dev_pid" != "0" ]; then
-      echo "Killing dev instance (PID $dev_pid on port $CT_PORT)..."
-      taskkill //PID "$dev_pid" //T //F 2>/dev/null || true
-      sleep 1
+      request_dev_clean_restart 2>/dev/null || true
+      if ! wait_for_dev_exit "$dev_pid"; then
+        echo "Clean shutdown deadline elapsed; force-killing dev instance (PID $dev_pid on port $CT_PORT)..."
+        taskkill //PID "$dev_pid" //T //F 2>/dev/null || true
+      fi
     fi
     local vite_pid
     vite_pid=$(netstat -ano 2>/dev/null | grep ":$CT_VITE_PORT.*LISTEN" | awk '{print $5}' | head -1 || true)
@@ -109,7 +113,7 @@ kill_dev() {
   fi
 }
 
-mark_dev_clean_restart() {
+request_dev_clean_restart() {
   local config="$CT_DATA_DIR/config.toml"
   [ -f "$config" ] || return 1
 
@@ -119,8 +123,19 @@ mark_dev_clean_restart() {
 
   curl --fail --silent --show-error --max-time 3 \
     -H "Authorization: Bearer $token" \
-    -X POST "http://127.0.0.1:$CT_PORT/api/debug/shutdown/mark-clean-restart" \
+    -X POST "http://127.0.0.1:$CT_PORT/api/debug/shutdown/clean-restart" \
     >/dev/null
+}
+
+wait_for_dev_exit() {
+  local pid="$1"
+  if [[ "$OSTYPE" == linux* ]]; then
+    timeout 10 bash -c 'while kill -0 "$1" 2>/dev/null; do sleep 0.1; done' -- "$pid"
+  elif [[ "$OSTYPE" == darwin* ]]; then
+    perl -e '$pid = shift; $SIG{ALRM} = sub { exit 1 }; alarm 10; while (kill 0, $pid) { select undef, undef, undef, 0.1 }' "$pid"
+  else
+    powershell.exe -NoProfile -Command "Wait-Process -Id $pid -Timeout 10" >/dev/null 2>&1
+  fi
 }
 
 CMD="${1:-dev}"
