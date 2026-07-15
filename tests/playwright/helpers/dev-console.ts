@@ -135,7 +135,6 @@ function bash(instance: DevInstance, args: string[], timeoutMs: number): void {
 }
 
 export function killDevConsole(instance = currentDevInstance()): void {
-  markCleanRestartBeforeKill(instance);
   // A failing kill must not abort setup: on a fresh/CI runner there is nothing
   // to kill, and Windows process enumeration can EPERM on the protected
   // %USERPROFILE%\AppData junction. killDevLeftovers + `dev --wait` recover.
@@ -145,28 +144,6 @@ export function killDevConsole(instance = currentDevInstance()): void {
     console.warn(`[dev-console] build.sh kill failed (continuing): ${e}`);
   }
   killDevLeftovers(instance);
-}
-
-function markCleanRestartBeforeKill(instance: DevInstance): void {
-  try {
-    const token = readDevToken(instance);
-    execFileSync(
-      process.execPath,
-      [
-        "-e",
-        [
-          "const [url, token] = process.argv.slice(1);",
-          "fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(3000) })",
-          "  .catch(() => undefined);",
-        ].join(""),
-        `${instance.apiBase}/api/debug/shutdown/mark-clean-restart`,
-        token,
-      ],
-      { timeout: 5_000, stdio: "ignore" },
-    );
-  } catch {
-    /* best effort — real crashes must still surface */
-  }
 }
 
 /**
