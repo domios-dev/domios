@@ -183,6 +183,15 @@ impl ServiceContext {
         spec: SpawnPaneSpec,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<PaneHandle, String> {
+        self.spawn_pane_with_ready_and_state_change(spec, ready_tx, true)
+    }
+
+    pub(crate) fn spawn_pane_with_ready_and_state_change(
+        &self,
+        spec: SpawnPaneSpec,
+        ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+        emit_state_change: bool,
+    ) -> Result<PaneHandle, String> {
         match (&spec.visibility, &spec.command) {
             (PaneVisibility::Visible, PaneCommand::Agent(_)) => {
                 self.spawn_visible_agent_impl(spec, ready_tx)
@@ -191,10 +200,10 @@ impl ServiceContext {
             (PaneVisibility::Visible, PaneCommand::Shell) => self.spawn_visible_shell_impl(spec),
             (PaneVisibility::Hidden, PaneCommand::Shell) => self.spawn_hidden_shell_impl(spec),
             (PaneVisibility::Visible, PaneCommand::ChatBackend { .. }) => {
-                self.spawn_chatbackend_impl(spec)
+                self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change)
             }
             (PaneVisibility::Hidden, PaneCommand::ChatBackend { .. }) => {
-                self.spawn_chatbackend_impl(spec)
+                self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change)
             }
         }
     }

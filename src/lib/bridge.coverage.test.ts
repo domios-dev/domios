@@ -85,6 +85,10 @@ assert(
     bridgeSource,
   ),
 );
+assert(
+  "mux_add_team_member maps to the Team members route with caller-pane identity",
+  /mux_add_team_member:\s*\(a\)\s*=>[\s\S]*?\/api\/teams\/\$\{enc\(s\(a, "teamId"\)\)\}\/members[\s\S]*?provider: a\.provider[\s\S]*?role: a\.role[\s\S]*?a\.callerTabId/.test(httpBlock),
+);
 
 for (const [cmd, reason] of Object.entries(WEB_UNSUPPORTED)) {
   assert(`WEB_UNSUPPORTED ${cmd} has justification`, reason.trim().length > 0);
