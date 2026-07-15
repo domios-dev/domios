@@ -379,9 +379,9 @@ export function Sidebar({
     return () => clearTimeout(timer);
   }, [appearingTabs]);
   const [pendingTeamClose, setPendingTeamClose] = useState<{
-    wsId: string;
+    teamId: string;
+    managerPaneId: string;
     teamName: string;
-    tabIds: string[];
     members: OrchestrationGroupMember[];
   } | null>(null);
 
@@ -405,7 +405,7 @@ export function Sidebar({
     performCloseTab(wsId, tabId);
   }, [performCloseTab]);
 
-  const requestTeamClose = useCallback((wsId: string, teamId: string) => {
+  const requestTeamClose = useCallback((wsId: string, teamId: string, managerPaneId: string) => {
     const ws = state.workspaces.find((workspace) => workspace.id === wsId);
     if (!ws) return;
     const teamTabs = ws.tabs.filter(
@@ -413,9 +413,9 @@ export function Sidebar({
     );
     const team = state.teams.find((candidate) => candidate.id === teamId);
     setPendingTeamClose({
-      wsId,
+      teamId,
+      managerPaneId,
       teamName: team?.name?.trim() || "Team",
-      tabIds: teamTabs.map((tab) => tab.id),
       members: teamTabs.map((tab) => {
         const pane = state.panes[tab.pane_id];
         return {
@@ -652,7 +652,9 @@ export function Sidebar({
                           onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
                           onRenameTeam={teamActions?.onRenameTeam}
                           onAddTeamMember={teamActions?.onAddTeamMember}
-                          onCloseTeam={(teamId) => requestTeamClose(ws.id, teamId)}
+                          onCloseTeam={teamActions?.onCloseTeam
+                            ? (teamId, managerPaneId) => requestTeamClose(ws.id, teamId, managerPaneId)
+                            : undefined}
                         />
                       </div>
                     </div>
@@ -886,9 +888,10 @@ export function Sidebar({
           members={pendingTeamClose.members}
           onCancel={() => setPendingTeamClose(null)}
           onConfirm={() => {
-            for (const tabId of pendingTeamClose.tabIds) {
-              performCloseTab(pendingTeamClose.wsId, tabId);
-            }
+            void teamActions?.onCloseTeam?.(
+              pendingTeamClose.teamId,
+              pendingTeamClose.managerPaneId,
+            );
             setPendingTeamClose(null);
           }}
         />

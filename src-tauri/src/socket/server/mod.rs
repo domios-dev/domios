@@ -569,6 +569,7 @@ fn dispatch(
                 "team.list",
                 "team.show",
                 "team.rename",
+                "team.close",
                 "team.adopt_plan",
                 "orchestrator.refresh",
                 "plan.create",

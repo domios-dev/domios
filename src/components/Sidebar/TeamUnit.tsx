@@ -17,7 +17,7 @@ export interface SidebarTeamActions {
     providerId: string,
     managerPaneId: string,
   ) => void | Promise<void>;
-  onCloseTeam?: (teamId: string) => void;
+  onCloseTeam?: (teamId: string, managerPaneId: string) => void | Promise<void>;
 }
 
 export interface TeamTaskBucket {
@@ -59,7 +59,7 @@ interface TeamMenuProps {
   providers: ProviderDescriptor[];
   onRename?: () => void;
   onAddMember?: (role: TeamMemberRole, providerId: string) => void | Promise<void>;
-  onCloseTeam: () => void;
+  onCloseTeam?: () => void;
 }
 
 function TeamMenu({ providers, onRename, onAddMember, onCloseTeam }: TeamMenuProps) {
@@ -166,10 +166,12 @@ function TeamMenu({ providers, onRename, onAddMember, onCloseTeam }: TeamMenuPro
                   Add {role} <ChevronRight size={11} className="ml-auto" />
                 </button>
               ))}
-              <div className="sidebar-team-menu-separator" />
-              <button type="button" className="sidebar-team-menu-danger" onClick={() => run(onCloseTeam)}>
-                <LogOut size={11} /> Close Team
-              </button>
+              {onCloseTeam && <>
+                <div className="sidebar-team-menu-separator" />
+                <button type="button" className="sidebar-team-menu-danger" onClick={() => run(onCloseTeam)}>
+                  <LogOut size={11} /> Close Team
+                </button>
+              </>}
             </>
           )}
           {actionError && <div data-testid="team-menu-error" role="alert">{actionError}</div>}
@@ -193,7 +195,7 @@ export interface TeamUnitProps {
   onRenameTeam?: (teamId: string, name: string) => void | Promise<void>;
   onOpenEffort: (target: TeamEffortTarget) => void;
   onAddMember?: (role: TeamMemberRole, providerId: string) => void | Promise<void>;
-  onCloseTeam: (teamId: string) => void;
+  onCloseTeam?: (teamId: string) => void;
 }
 
 export interface TeamEffortTarget {
@@ -340,7 +342,7 @@ export function TeamUnit({
             setEditing(true);
           } : undefined}
           onAddMember={onAddMember}
-          onCloseTeam={() => onCloseTeam(team.id)}
+          onCloseTeam={onCloseTeam ? () => onCloseTeam(team.id) : undefined}
         />
       </div>
       {expanded && (
