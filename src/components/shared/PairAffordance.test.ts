@@ -1,4 +1,5 @@
-// Run: npx tsx src/components/shared/PairAffordance.test.ts
+// WHY: TeamUnit migration must not restore obsolete sidebar pair/exclusion implementation details.
+// Run: node node_modules/.pnpm/tsx@4.22.4/node_modules/tsx/dist/cli.mjs src/components/shared/PairAffordance.test.ts
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -25,17 +26,16 @@ assert(source.includes("pair-affordance--${layout}"), "layout-specific class");
 assert(source.includes('data-pair-affordance-layout={layout}'), "layout data attribute");
 
 assert(sidebar.includes("resolvePlanPeerPair"), "Sidebar derives pair from plan refs");
-assert(sidebarWorkspace.includes("peerExclude"), "Sidebar excludes planner from worker subtree");
-// it uses the Managers/Workers section taxonomy instead (round-21).
 assert(
-  sidebarWorkspace.includes("OrchestrationGroupSection") &&
-    sidebarWorkspace.includes('section="manager"') &&
-    sidebarWorkspace.includes('section="worker"'),
-  "Sidebar renders the orchestration group as Managers/Workers sections",
+  sidebarWorkspace.includes("<TeamUnit") && sidebarWorkspace.includes("sortTeamManagers"),
+  "Sidebar renders TeamUnit groups with ordered managers",
 );
 assert(
-  !sidebar.includes("<PairAffordance") && !sidebarWorkspace.includes("<PairAffordance"),
-  "Sidebar stopped rendering the same-level PairAffordance pair",
+  !sidebar.includes("<PairAffordance") &&
+    !sidebarWorkspace.includes("<PairAffordance") &&
+    !sidebarWorkspace.includes("peerExclude") &&
+    !sidebarWorkspace.includes("OrchestrationGroupSection"),
+  "Sidebar has no legacy same-level pair or section/exclusion implementation",
 );
 
 assert(header.includes("<PairAffordance"), "PlanContextHeader uses PairAffordance");
@@ -46,4 +46,4 @@ assert(hierarchy.includes("excludePaneIds"), "Hierarchy subtree can exclude atta
 assert(!css.includes(".pair-affordance-rail"), "dead sidebar rail styles removed");
 assert(!source.includes('layout === "sidebar"'), "PairAffordance sidebar layout removed");
 
-console.log("✓ PairAffordance: chips/card only; sidebar uses Managers/Workers sections");
+console.log("✓ PairAffordance: chips/card only; sidebar uses TeamUnit groups");
