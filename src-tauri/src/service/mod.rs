@@ -60,6 +60,7 @@ pub mod store;
 pub mod structured_prompt;
 pub mod sync_watcher;
 mod team;
+pub(crate) use team::{rename_team_core, rename_team_with_state_change};
 #[cfg(test)]
 pub(crate) mod test_support;
 #[cfg(test)]

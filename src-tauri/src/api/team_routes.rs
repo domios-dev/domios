@@ -123,7 +123,7 @@ mod tests {
                 name: "Renamed".into(),
             },
             |team_id, caller_pane_id, name| {
-                crate::service::team::rename_team_with_state_change(
+                crate::service::rename_team_with_state_change(
                     &mut mux,
                     &events,
                     &team_id,
@@ -153,7 +153,7 @@ mod tests {
                     name: "Denied worker".into(),
                 },
                 |team_id, caller_pane_id, name| {
-                    crate::service::team::rename_team_with_state_change(
+                    crate::service::rename_team_with_state_change(
                         &mut mux,
                         &events,
                         &team_id,
@@ -176,7 +176,7 @@ mod tests {
                     name: "Denied foreign".into(),
                 },
                 |team_id, caller_pane_id, name| {
-                    crate::service::team::rename_team_with_state_change(
+                    crate::service::rename_team_with_state_change(
                         &mut mux,
                         &events,
                         &team_id,
@@ -221,7 +221,7 @@ mod tests {
                     name: "Missing team".into(),
                 },
                 |team_id, caller_pane_id, name| {
-                    crate::service::team::rename_team_with_state_change(
+                    crate::service::rename_team_with_state_change(
                         &mut mux,
                         &events,
                         &team_id,
