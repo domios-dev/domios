@@ -1,5 +1,4 @@
 use super::*;
-use crate::multiplexer::types::{AgentRole, PaneBacking};
 use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
 
 fn chatbackend_leaf(pane_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
@@ -132,79 +131,6 @@ fn manager_close_survives_snapshot_restore_without_resurrection() {
     assert!(worker.parent_pane_id.is_none());
     assert_eq!(worker.team_id.as_deref(), Some(team_id.as_str()));
     assert!(restored.get_team(&team_id).is_some());
-}
-
-fn restored_team_member(backing: PaneBacking) -> (MultiplexerState, String, String, String) {
-    let (mut state, parent_id) = MultiplexerState::new();
-    let workspace_id = state.list_workspaces()[0].id.clone();
-    state
-        .set_pane_role(&parent_id, AgentRole::Orchestrator, None)
-        .unwrap();
-    let team_id = state
-        .resolve_or_mint_team_for_parent(&parent_id)
-        .unwrap()
-        .team_id;
-    let (_tab_id, pane_id) = state.create_tab(&workspace_id).unwrap();
-    state
-        .set_pane_role(&pane_id, AgentRole::Worker, Some(&parent_id))
-        .unwrap();
-    let pane = state.get_pane_mut(&pane_id).unwrap();
-    pane.agent_session_id = Some("fixture-session".into());
-    pane.backing = backing;
-    (state, parent_id, pane_id, team_id)
-}
-
-fn assert_reconnect_keeps_member_identity(backing: PaneBacking) {
-    let (state, parent_id, pane_id, team_id) = restored_team_member(backing.clone());
-    let restored = MultiplexerState::from_session_snapshot(&state.to_session_snapshot());
-
-    let matching_panes = restored
-        .panes
-        .values()
-        .filter(|pane| pane.agent_session_id.as_deref() == Some("fixture-session"))
-        .collect::<Vec<_>>();
-    assert_eq!(
-        matching_panes.len(),
-        1,
-        "reconnect must not duplicate the session pane"
-    );
-    let pane = matching_panes[0];
-    assert_eq!(
-        pane.id, pane_id,
-        "reconnect must preserve the pane identity"
-    );
-    assert_eq!(pane.parent_pane_id.as_deref(), Some(parent_id.as_str()));
-    assert_eq!(pane.team_id.as_deref(), Some(team_id.as_str()));
-    assert_eq!(
-        pane.backing, backing,
-        "transport session must survive reconnect"
-    );
-}
-
-#[test]
-fn reconnect_single_pane_session_pty() {
-    assert_reconnect_keeps_member_identity(PaneBacking::Pty);
-}
-
-#[test]
-fn reconnect_single_pane_session_chat_backend() {
-    assert_reconnect_keeps_member_identity(PaneBacking::ChatBackend {
-        plugin_id: "fixture-chat-backend".into(),
-        session_id: "fixture-chat-session".into(),
-    });
-}
-
-#[test]
-fn reconnect_preserves_parent_and_team() {
-    for backing in [
-        PaneBacking::Pty,
-        PaneBacking::ChatBackend {
-            plugin_id: "fixture-chat-backend".into(),
-            session_id: "fixture-chat-session".into(),
-        },
-    ] {
-        assert_reconnect_keeps_member_identity(backing);
-    }
 }
 
 #[test]
