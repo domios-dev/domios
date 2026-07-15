@@ -27,6 +27,14 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+function parseDonutSegments(background: string): Array<[string, number, number]> {
+  return Array.from(background.matchAll(/(rgba\([^)]+\))\s+([\d.]+)%\s+([\d.]+)%/g), (match) => [
+    match[1],
+    Number(match[2]),
+    Number(match[3]),
+  ]);
+}
+
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const window = new Window({ url: "http://localhost/" });
@@ -111,7 +119,7 @@ async function renderSidebar({
   onRenameTeam?: (teamId: string, name: string) => void;
   onAddTeamMember?: (teamId: string, role: "orchestrator" | "planner" | "worker", providerId: string, parentPaneId: string | null) => void;
   onCloseTeam?: (teamId: string) => void;
-}): Promise<{ host: HTMLDivElement; root: Root }> {
+}): Promise<{ host: HTMLDivElement; root: Root; rerender: (nextPlans: Plan[]) => Promise<void> }> {
   const workspace: Workspace = {
     id: "workspace",
     name: "Workspace",
@@ -122,7 +130,7 @@ async function renderSidebar({
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  await act(async () => {
+  const rerender = async (nextPlans: Plan[]) => act(async () => {
     root.render(
       <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
         <SidebarWorkspaceTabs
@@ -133,7 +141,7 @@ async function renderSidebar({
           paneStatuses={statuses}
           teams={[TEAM]}
           planIndex={[]}
-          plans={plans}
+          plans={nextPlans}
           activeWork={null}
           remoteWorkers={{}}
           providers={[]}
@@ -157,7 +165,8 @@ async function renderSidebar({
       </SidebarDnd>,
     );
   });
-  return { host, root };
+  await rerender(plans);
+  return { host, root, rerender };
 }
 
 setupDom();
@@ -239,14 +248,16 @@ test("donut_counts_match_board", async () => {
     orchestrator: pane({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
   };
   const currentPlan = plan([
-    task("pending", TaskStatus.Pending),
+    task("pending-one", TaskStatus.Pending),
+    task("pending-two", TaskStatus.Pending),
     task("progress", TaskStatus.InProgress),
     task("review", TaskStatus.InReview),
     task("blocked", TaskStatus.Blocked),
     task("done-one", TaskStatus.Done),
     task("done-two", TaskStatus.Done),
+    task("done-three", TaskStatus.Done),
   ]);
-  const { host, root } = await renderSidebar({
+  const { host, root, rerender } = await renderSidebar({
     panes,
     tabs: [tab("tab-orchestrator", "orchestrator", 0)],
     plans: [currentPlan],
@@ -260,10 +271,21 @@ test("donut_counts_match_board", async () => {
   assert(host.querySelector('[data-testid="team-icon"]'), "team identity remains in the header");
   assert(donut?.closest('[data-testid="team-open-effort"]'), "segmented progress belongs to the effort row");
   assert(donut?.getAttribute("data-buckets") === JSON.stringify(expected), "donut props deep-equal board-derived buckets");
+  assert(JSON.stringify(parseDonutSegments(donutBackground(expected))) === JSON.stringify([
+    [TASK_STATUS_COLORS.in_progress, 0, 37.5],
+    [TASK_STATUS_COLORS.in_review, 37.5, 50],
+    [TASK_STATUS_COLORS.blocked, 50, 62.5],
+    [TASK_STATUS_COLORS.done, 62.5, 100],
+  ]), "ring segments match the board bucket counts and colors");
+
+  const updatedPlan = plan(currentPlan.tasks.map((item) =>
+    item.id === "blocked" ? { ...item, status: TaskStatus.Done } : item
+  ));
+  await rerender([updatedPlan]);
+  const updated = deriveTeamTaskBuckets(updatedPlan, panes);
   assert(
-    donutBackground(expected) ===
-      `conic-gradient(${TASK_STATUS_COLORS.in_progress} 0% 33.3333%, ${TASK_STATUS_COLORS.in_review} 33.3333% 50%, ${TASK_STATUS_COLORS.blocked} 50% 66.6667%, ${TASK_STATUS_COLORS.done} 66.6667% 100%)`,
-    "ring segments match the board bucket counts and colors",
+    host.querySelector('[data-testid="team-donut"]')?.getAttribute("data-buckets") === JSON.stringify(updated),
+    "live plan updates replace the rendered segment counts",
   );
   await act(async () => root.unmount());
 });
