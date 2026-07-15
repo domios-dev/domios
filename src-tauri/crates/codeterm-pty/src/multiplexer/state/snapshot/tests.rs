@@ -101,6 +101,39 @@ fn team_snapshot_roundtrip() {
 }
 
 #[test]
+fn manager_close_survives_snapshot_restore_without_resurrection() {
+    use crate::multiplexer::types::AgentRole;
+
+    let (mut state, root_id) = MultiplexerState::new();
+    let workspace_id = state.list_workspaces()[0].id.clone();
+    state
+        .set_pane_role(&root_id, AgentRole::Orchestrator, None)
+        .unwrap();
+    let team_id = state
+        .resolve_or_mint_team_for_parent(&root_id)
+        .unwrap()
+        .team_id;
+    let (_tab, manager_id) = state.create_tab(&workspace_id).unwrap();
+    state
+        .set_pane_role(&manager_id, AgentRole::Manager, Some(&root_id))
+        .unwrap();
+    let (_tab, worker_id) = state.create_tab(&workspace_id).unwrap();
+    state
+        .set_pane_role(&worker_id, AgentRole::Worker, Some(&root_id))
+        .unwrap();
+    state.repoint_parent(&worker_id, &manager_id);
+
+    state.close_pane(&manager_id).unwrap();
+    let restored = MultiplexerState::from_session_snapshot(&state.to_session_snapshot());
+
+    assert!(restored.get_pane(&manager_id).is_none());
+    let worker = restored.get_pane(&worker_id).expect("worker restores");
+    assert!(worker.parent_pane_id.is_none());
+    assert_eq!(worker.team_id.as_deref(), Some(team_id.as_str()));
+    assert!(restored.get_team(&team_id).is_some());
+}
+
+#[test]
 fn snapshot_includes_teams() {
     use codeterm_types::team::Team;
 
