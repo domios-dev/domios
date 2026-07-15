@@ -166,6 +166,7 @@ mod tests {
         let team: codeterm_types::team::Team = serde_json::from_slice(&body).unwrap();
         assert_eq!(team.id, team_id);
         assert_eq!(team.name.as_deref(), Some("Renamed"));
+        std::mem::forget(harness);
     }
 
     #[tokio::test]
@@ -214,5 +215,6 @@ mod tests {
             harness.service.mux.read().get_team(&team_id).unwrap().name,
             None
         );
+        std::mem::forget(harness);
     }
 }

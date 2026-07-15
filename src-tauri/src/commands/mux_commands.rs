@@ -172,6 +172,7 @@ mod tests {
                 .as_deref(),
             Some("Planned")
         );
+        std::mem::forget(harness);
     }
 
     #[test]
@@ -198,6 +199,7 @@ mod tests {
             harness.service.mux.read().get_team(&team_id).unwrap().name,
             None
         );
+        std::mem::forget(harness);
     }
 
     #[test]
@@ -222,6 +224,7 @@ mod tests {
             events.try_recv(),
             Err(tokio::sync::broadcast::error::TryRecvError::Empty)
         ));
+        std::mem::forget(harness);
     }
 }
 
