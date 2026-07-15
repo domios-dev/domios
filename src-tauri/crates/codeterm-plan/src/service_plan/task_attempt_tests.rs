@@ -668,7 +668,9 @@ fn report_does_not_rebind_executor() {
         )
         .unwrap();
     // Explicit assignment path binds the real executor A.
-    store.assign_task(&p.id, &task_id, "pane_A", None, 3).unwrap();
+    store
+        .assign_task(&p.id, &task_id, "pane_A", None, 3)
+        .unwrap();
 
     // Exercise the report path: lane truth, milestone, then attempt report.
     let reporter_b = AgentRef::from_pane("pane_B");

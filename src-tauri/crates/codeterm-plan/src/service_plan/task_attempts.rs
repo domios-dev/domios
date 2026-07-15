@@ -827,8 +827,8 @@ impl PlanStore {
                         .rposition(|attempt| attempt.executor_pane_id == reporter_pane)
                 });
             if let Some(attempt) = target_idx.map(|idx| &mut task.execution_attempts[idx]) {
-                let reporter_pane_id = (attempt.executor_pane_id != reporter_pane)
-                    .then(|| reporter_pane.to_string());
+                let reporter_pane_id =
+                    (attempt.executor_pane_id != reporter_pane).then(|| reporter_pane.to_string());
                 attempt.report = Some(TaskExecutionReportSnapshot {
                     id: format!("report_{now_ms}"),
                     message: Some(message.into()),

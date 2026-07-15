@@ -27,9 +27,7 @@ impl MultiplexerState {
                 minted: false,
             });
         }
-        let workspace_id = self
-            .find_workspace_for_pane(parent_id)
-            .unwrap_or_default();
+        let workspace_id = self.find_workspace_for_pane(parent_id).unwrap_or_default();
         let team = Team::new(workspace_id, now_millis());
         let team_id = team.id.clone();
         self.upsert_team(team);
