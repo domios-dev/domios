@@ -13,6 +13,7 @@ fn chatbackend_leaf(pane_id: &str, plugin_id: &str, session_id: &str) -> SplitNo
         claude_session_id: None,
         role: None,
         role_profile: None,
+        team_id: None,
         parent_pane_id: None,
         spawned_by_pane_id: None,
         report_target_pane_id: None,
@@ -38,6 +39,7 @@ fn snapshot_with(leaf: SplitNodeSnapshot) -> SessionSnapshot {
         version: "test".into(),
         timestamp: 0,
         active_workspace_id: Some("ws".into()),
+        teams: vec![],
         workspaces: vec![WorkspaceSnapshot {
             id: "ws".into(),
             name: "ws".into(),
@@ -54,6 +56,86 @@ fn snapshot_with(leaf: SplitNodeSnapshot) -> SessionSnapshot {
             }],
         }],
     }
+}
+
+#[test]
+fn team_snapshot_roundtrip() {
+    use codeterm_types::team::{Team, TeamLifecycle};
+
+    let mut state = MultiplexerState::empty();
+    let wsid = state.create_workspace("Team WS".to_string(), None).id;
+
+    let team = Team {
+        id: "team_abc123".into(),
+        name: Some("Alpha".into()),
+        lifecycle: TeamLifecycle::Active,
+        created_at: 1_700_000_000_000,
+        workspace_id: wsid.clone(),
+    };
+    state.upsert_team(team.clone());
+
+    let (_t1, m1) = state.create_tab(&wsid).unwrap();
+    let (_t2, m2) = state.create_tab(&wsid).unwrap();
+    state.get_pane_mut(&m1).unwrap().team_id = Some(team.id.clone());
+    state.get_pane_mut(&m2).unwrap().team_id = Some(team.id.clone());
+
+    let snap = state.to_session_snapshot();
+    let restored = MultiplexerState::from_session_snapshot(&snap);
+
+    assert_eq!(
+        restored.get_team("team_abc123"),
+        Some(&team),
+        "teams registry must survive the snapshot round-trip"
+    );
+    assert_eq!(restored.team_count(), 1, "exactly one team survives");
+    assert_eq!(
+        restored.panes.get(&m1).unwrap().team_id.as_deref(),
+        Some("team_abc123"),
+        "member pane team_id must survive the round-trip"
+    );
+    assert_eq!(
+        restored.panes.get(&m2).unwrap().team_id.as_deref(),
+        Some("team_abc123"),
+        "second member pane team_id must survive too"
+    );
+}
+
+#[test]
+fn legacy_snapshot_no_team_fields_restores() {
+    // A pre-team last.json lacks both the top-level `teams` array and each
+    // leaf's `team_id`. Emulate one by stripping those keys from a current
+    // snapshot, then prove it still restores cleanly and teamless.
+    let (mut state, _root) = MultiplexerState::new();
+    let wsid = state.list_workspaces()[0].id.clone();
+    let (_t, pane_id) = state.create_tab(&wsid).unwrap();
+
+    let snap = state.to_session_snapshot();
+    let mut json = serde_json::to_value(&snap).unwrap();
+    json.as_object_mut().unwrap().remove("teams");
+    for ws in json["workspaces"].as_array_mut().unwrap() {
+        for tab in ws["tabs"].as_array_mut().unwrap() {
+            tab["split_tree"].as_object_mut().unwrap().remove("team_id");
+        }
+    }
+    assert!(
+        json.get("teams").is_none(),
+        "fixture must genuinely lack the new team fields"
+    );
+
+    let legacy: SessionSnapshot =
+        serde_json::from_value(json).expect("legacy snapshot must deserialize with defaults");
+    let restored = MultiplexerState::from_session_snapshot(&legacy);
+
+    assert_eq!(restored.team_count(), 0, "legacy snapshot mints no teams");
+    assert!(
+        restored.panes.contains_key(&pane_id),
+        "legacy pane must restore"
+    );
+    assert_eq!(
+        restored.panes.get(&pane_id).unwrap().team_id,
+        None,
+        "legacy pane restores teamless"
+    );
 }
 
 #[test]
@@ -146,6 +228,7 @@ fn pty_pane_round_trips_without_chatbackend_fields() {
         claude_session_id: Some("c-1".into()),
         role: None,
         role_profile: None,
+        team_id: None,
         parent_pane_id: None,
         spawned_by_pane_id: None,
         report_target_pane_id: None,
@@ -182,6 +265,7 @@ fn pane_description_round_trips_through_snapshot() {
         claude_session_id: None,
         role: Some("Worker".into()),
         role_profile: Some("planner".into()),
+        team_id: None,
         parent_pane_id: None,
         spawned_by_pane_id: None,
         report_target_pane_id: None,
@@ -235,6 +319,7 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
         claude_session_id: None,
         role: Some("Worker".into()),
         role_profile: None,
+        team_id: None,
         parent_pane_id: Some("orch-1".into()),
         spawned_by_pane_id: Some("spawner-1".into()),
         report_target_pane_id: Some("target-1".into()),
@@ -281,6 +366,7 @@ fn legacy_tab_title_seeds_default_provider_pane_title() {
         claude_session_id: None,
         role: Some("Worker".into()),
         role_profile: None,
+        team_id: None,
         parent_pane_id: None,
         spawned_by_pane_id: None,
         report_target_pane_id: None,
@@ -526,6 +612,7 @@ fn spawned_by_round_trips_through_snapshot() {
         claude_session_id: None,
         role: Some("Worker".into()),
         role_profile: None,
+        team_id: None,
         parent_pane_id: Some("orch".into()),
         spawned_by_pane_id: Some("spawner".into()),
         report_target_pane_id: None,

@@ -5,6 +5,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::types::{AgentRole, Pane, PaneBacking, PaneType, Tab, TitleLevel, Workspace};
+use codeterm_types::team::Team;
 
 mod alias;
 mod closed;
@@ -59,6 +60,10 @@ pub struct MultiplexerState {
     pty_to_pane: HashMap<String, String>,
     /// Alias registry: human-readable name -> pane_id.
     pane_aliases: HashMap<String, String>,
+    /// Team registry: team_id -> Team. Membership itself lives on each pane's
+    /// `team_id`; this holds the team's own metadata (name, lifecycle). Persisted
+    /// in the session snapshot.
+    teams: HashMap<String, Team>,
     /// Monotonic snapshot generation. Every `snapshot()` stamps a strictly
     /// increasing value so the frontend reducer can ignore a stale snapshot
     /// (older generation) that resolves after a newer one — kills the
@@ -106,9 +111,35 @@ impl MultiplexerState {
             focused_pane_id: None,
             pty_to_pane: HashMap::new(),
             pane_aliases: HashMap::new(),
+            teams: HashMap::new(),
             generation: AtomicU64::new(0),
             closed_store: ClosedPanesStore::in_memory(),
         }
+    }
+
+    /// Register or replace a team by its id.
+    pub fn upsert_team(&mut self, team: Team) {
+        self.teams.insert(team.id.clone(), team);
+    }
+
+    /// Look up a team by id.
+    pub fn get_team(&self, id: &str) -> Option<&Team> {
+        self.teams.get(id)
+    }
+
+    /// Remove a team by id, returning it if present.
+    pub fn remove_team(&mut self, id: &str) -> Option<Team> {
+        self.teams.remove(id)
+    }
+
+    /// All registered teams (unordered).
+    pub fn list_teams(&self) -> Vec<Team> {
+        self.teams.values().cloned().collect()
+    }
+
+    /// Number of registered teams.
+    pub fn team_count(&self) -> usize {
+        self.teams.len()
     }
 
     /// Swap the in-memory closed-history store for a durable file-backed one.
@@ -148,6 +179,7 @@ impl MultiplexerState {
             shell_integration_nonce: None,
             role: Some(AgentRole::Orchestrator),
             role_profile: None,
+            team_id: None,
             watcher: None,
             parent_pane_id: None,
             pending_paired_planner_pane_id: None,
@@ -203,6 +235,7 @@ impl MultiplexerState {
             focused_pane_id: Some(pane_id.clone()),
             pty_to_pane: HashMap::new(),
             pane_aliases: HashMap::new(),
+            teams: HashMap::new(),
             generation: AtomicU64::new(0),
             closed_store: ClosedPanesStore::in_memory(),
         };

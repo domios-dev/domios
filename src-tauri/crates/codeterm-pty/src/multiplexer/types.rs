@@ -284,6 +284,10 @@ pub struct Pane {
     /// Behavioral profile layered on top of the structural role.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role_profile: Option<String>,
+    /// Team membership: the `(team_id, role, role_profile)` triple IS the
+    /// membership relation. `None` = teamless. Minted at the spawn edge (Phase 2).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub team_id: Option<String>,
     /// Watcher-mode machine state (charter, policy, tick counters).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub watcher: Option<WatcherSpec>,
@@ -450,6 +454,7 @@ mod tests {
             shell_integration_nonce: None,
             role: None,
             role_profile: None,
+            team_id: None,
             watcher: None,
             parent_pane_id: None,
             pending_paired_planner_pane_id: None,
