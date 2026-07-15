@@ -109,12 +109,14 @@ pub fn record_startup() -> RecoveryState {
     if let Some(crash) = &last_crash {
         write_json(&last_crash_path(), crash);
         append_crash_history(crash);
+    } else {
+        let _ = std::fs::remove_file(last_crash_path());
     }
     let _ = std::fs::remove_file(pending_crash_path());
 
     RecoveryState {
         current,
-        last_crash: last_crash.or_else(|| read_json(&last_crash_path())),
+        last_crash,
         last_clean_shutdown: clean,
     }
 }
@@ -338,7 +340,7 @@ mod tests {
     }
 
     #[test]
-    fn dev_kill_marker_suppresses_power_loss_for_matching_epoch() {
+    fn clean_kill_sequence_writes_clean_record() {
         let previous = ProcessEpoch {
             epoch: "dev-run".into(),
             pid: 41,
@@ -363,6 +365,47 @@ mod tests {
         };
 
         assert!(classify_previous_if_unclean(previous, &clean, &current, 1_000).is_none());
+    }
+
+    #[test]
+    fn abnormal_termination_records_exactly_once() {
+        let previous = ProcessEpoch {
+            epoch: "unclean".into(),
+            pid: 41,
+            started_at: 10,
+            last_healthy_at: 20,
+            build_hash: "old".into(),
+            platform: "windows".into(),
+        };
+        let current = ProcessEpoch {
+            epoch: "first-restart".into(),
+            pid: 42,
+            started_at: 100,
+            last_healthy_at: 100,
+            build_hash: "new".into(),
+            platform: "windows".into(),
+        };
+
+        let crash = classify_previous_if_unclean(previous, &None, &current, 100)
+            .expect("unclean previous epoch must be recorded");
+        assert_eq!(crash.previous.pid, 41);
+        assert!((1_000..=MAX_BACKOFF_SECS * 1_000).contains(&crash.supervisor_action.backoff_ms));
+
+        let clean = Some(CleanShutdownRecord {
+            reason: ShutdownReason::Restart,
+            epoch: Some(current.epoch.clone()),
+            pid: current.pid,
+            at: 110,
+        });
+        let next = ProcessEpoch {
+            epoch: "second-restart".into(),
+            pid: 43,
+            started_at: 120,
+            last_healthy_at: 120,
+            build_hash: "new".into(),
+            platform: "windows".into(),
+        };
+        assert!(classify_previous_if_unclean(current, &clean, &next, 120).is_none());
     }
 
     #[test]
