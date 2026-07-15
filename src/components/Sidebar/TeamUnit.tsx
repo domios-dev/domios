@@ -7,7 +7,7 @@ import type { Plan } from "../Canvas/types";
 import { BOARD_COLUMN_DEFS, groupTasksIntoColumns } from "../Canvas/planView/boardModel";
 import { summarizeWorkers } from "./orchestrationSections";
 
-export type TeamMemberRole = "orchestrator" | "planner" | "worker";
+export type TeamMemberRole = "planner" | "worker";
 
 export interface SidebarTeamActions {
   onRenameTeam?: (teamId: string, name: string) => void | Promise<void>;
@@ -15,8 +15,8 @@ export interface SidebarTeamActions {
     teamId: string,
     role: TeamMemberRole,
     providerId: string,
-    parentPaneId: string | null,
-  ) => void;
+    managerPaneId: string,
+  ) => void | Promise<void>;
   onCloseTeam?: (teamId: string) => void;
 }
 
@@ -58,16 +58,22 @@ export function deriveTeamTaskBuckets(
 interface TeamMenuProps {
   providers: ProviderDescriptor[];
   onRename?: () => void;
-  onAddMember?: (role: TeamMemberRole, providerId: string) => void;
+  onAddMember?: (role: TeamMemberRole, providerId: string) => void | Promise<void>;
   onCloseTeam: () => void;
 }
 
 function TeamMenu({ providers, onRename, onAddMember, onCloseTeam }: TeamMenuProps) {
   const [open, setOpen] = useState(false);
   const [providerRole, setProviderRole] = useState<TeamMemberRole | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [addingMember, setAddingMember] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const addingMemberRef = useRef(false);
+  const spawnProviders = providers.filter(
+    (provider) => provider.transport === "pty" || provider.transport === "chat_backend",
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -88,6 +94,23 @@ function TeamMenu({ providers, onRename, onAddMember, onCloseTeam }: TeamMenuPro
     action();
   };
 
+  const addMember = async (role: TeamMemberRole, providerId: string) => {
+    if (!onAddMember || addingMemberRef.current) return;
+    addingMemberRef.current = true;
+    setAddingMember(true);
+    setActionError(null);
+    try {
+      await onAddMember(role, providerId);
+      setOpen(false);
+      setProviderRole(null);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not add team member. Try again.");
+    } finally {
+      addingMemberRef.current = false;
+      setAddingMember(false);
+    }
+  };
+
   return (
     <div ref={rootRef} className="sidebar-team-menu-root">
       <button
@@ -105,6 +128,7 @@ function TeamMenu({ providers, onRename, onAddMember, onCloseTeam }: TeamMenuPro
           });
           setOpen((value) => !value);
           setProviderRole(null);
+          setActionError(null);
         }}
       >
         ⋮
@@ -123,11 +147,12 @@ function TeamMenu({ providers, onRename, onAddMember, onCloseTeam }: TeamMenuPro
                 <ChevronRight size={11} className="rotate-180" /> Back
               </button>
               <div className="sidebar-team-menu-label">Choose agent</div>
-              {onAddMember && providers.map((provider) => (
+              {onAddMember && spawnProviders.map((provider) => (
                 <button
                   type="button"
                   key={provider.id}
-                  onClick={() => run(() => onAddMember(providerRole, provider.id))}
+                  disabled={addingMember}
+                  onClick={() => void addMember(providerRole, provider.id)}
                 >
                   {provider.display_name}
                 </button>
@@ -136,7 +161,7 @@ function TeamMenu({ providers, onRename, onAddMember, onCloseTeam }: TeamMenuPro
           ) : (
             <>
               {onRename && <button type="button" onClick={() => run(onRename)}>Rename</button>}
-              {onAddMember && (["orchestrator", "planner", "worker"] as const).map((role) => (
+              {onAddMember && (["planner", "worker"] as const).map((role) => (
                 <button type="button" key={role} onClick={() => setProviderRole(role)}>
                   Add {role} <ChevronRight size={11} className="ml-auto" />
                 </button>
@@ -147,6 +172,7 @@ function TeamMenu({ providers, onRename, onAddMember, onCloseTeam }: TeamMenuPro
               </button>
             </>
           )}
+          {actionError && <div data-testid="team-menu-error" role="alert">{actionError}</div>}
         </div>,
         document.body,
       )}
@@ -166,7 +192,7 @@ export interface TeamUnitProps {
   providers: ProviderDescriptor[];
   onRenameTeam?: (teamId: string, name: string) => void | Promise<void>;
   onOpenEffort: (target: TeamEffortTarget) => void;
-  onAddMember?: (role: TeamMemberRole, providerId: string) => void;
+  onAddMember?: (role: TeamMemberRole, providerId: string) => void | Promise<void>;
   onCloseTeam: (teamId: string) => void;
 }
 
