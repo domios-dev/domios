@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, ListTodo, LogOut } from "lucide-react";
+import { ChevronRight, LogOut, UsersRound } from "lucide-react";
 import type { Pane, ProviderDescriptor, Team } from "../../lib/types";
 import { TASK_STATUS_COLORS } from "../Canvas/settings";
 import type { Plan } from "../Canvas/types";
@@ -52,12 +52,24 @@ export function deriveTeamTaskBuckets(
 
 export function donutBackground(buckets: readonly TeamTaskBucket[]): string {
   const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
-  const done = buckets.find((bucket) => bucket.key === "done")?.count ?? 0;
-  const progress = total === 0 ? 0 : (done / total) * 100;
   const track = "color-mix(in srgb, var(--ct-fg) 14%, transparent)";
-  if (progress === 0) return track;
-  if (progress === 100) return "var(--ct-green)";
-  return `conic-gradient(var(--ct-green) 0% ${progress}%, ${track} ${progress}% 100%)`;
+  if (total === 0) return track;
+
+  const active = buckets.filter((bucket) => bucket.count > 0);
+  if (active.length === 1) return active[0].color;
+
+  let consumed = 0;
+  const segments = active.map((bucket) => {
+    const start = (consumed / total) * 100;
+    consumed += bucket.count;
+    const end = (consumed / total) * 100;
+    return `${bucket.color} ${formatPercent(start)}% ${formatPercent(end)}%`;
+  });
+  return `conic-gradient(${segments.join(", ")})`;
+}
+
+function formatPercent(value: number): string {
+  return Number(value.toFixed(4)).toString();
 }
 
 export function TeamDonut({ buckets }: { buckets: readonly TeamTaskBucket[] }) {
@@ -268,7 +280,9 @@ export function TeamUnit({
         >
           <ChevronRight size={11} />
         </button>
-        <TeamDonut buckets={buckets} />
+        <span data-testid="team-icon" className="sidebar-team-icon" aria-hidden>
+          <UsersRound size={14} />
+        </span>
         <span className="sidebar-team-title-block">
           {editing ? (
             <input
@@ -309,7 +323,7 @@ export function TeamUnit({
               className="sidebar-team-effort-row"
               onClick={() => onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan.id })}
             >
-              <ListTodo size={13} />
+              <TeamDonut buckets={buckets} />
               <span>{plan.title}</span>
               <span className="sidebar-team-effort-action">Open effort</span>
             </button>

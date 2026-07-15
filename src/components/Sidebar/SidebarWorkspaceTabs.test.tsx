@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type { Pane, Tab, Team, Workspace } from "../../lib/types";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../Canvas/cards/fixtures.testdata";
 import { groupTasksIntoColumns } from "../Canvas/planView/boardModel";
+import { TASK_STATUS_COLORS } from "../Canvas/settings";
 import { TaskStatus, type Plan, type Task } from "../Canvas/types";
 import { SidebarDnd } from "./sortable";
 import { canvasFocusStore } from "../Canvas/canvasFocusStore";
@@ -256,7 +257,14 @@ test("donut_counts_match_board", async () => {
   const expected = deriveTeamTaskBuckets(currentPlan, panes);
   assert(expected[0].count === (boardCounts.get("pending") ?? 0) + (boardCounts.get("in_progress") ?? 0), "todo folds board pending + in-progress");
   const donut = host.querySelector('[data-testid="team-donut"]');
+  assert(host.querySelector('[data-testid="team-icon"]'), "team identity remains in the header");
+  assert(donut?.closest('[data-testid="team-open-effort"]'), "segmented progress belongs to the effort row");
   assert(donut?.getAttribute("data-buckets") === JSON.stringify(expected), "donut props deep-equal board-derived buckets");
+  assert(
+    donutBackground(expected) ===
+      `conic-gradient(${TASK_STATUS_COLORS.in_progress} 0% 33.3333%, ${TASK_STATUS_COLORS.in_review} 33.3333% 50%, ${TASK_STATUS_COLORS.blocked} 50% 66.6667%, ${TASK_STATUS_COLORS.done} 66.6667% 100%)`,
+    "ring segments match the board bucket counts and colors",
+  );
   await act(async () => root.unmount());
 });
 
@@ -274,7 +282,7 @@ test("completed effort renders a solid progress ring without an inner glyph", as
 
   const donut = host.querySelector('[data-testid="team-donut"]') as HTMLElement | null;
   assert(donut?.dataset.progress === "2/2", "ring exposes completed task progress");
-  assert(donutBackground(buckets) === "var(--ct-green)", "completed effort resolves to a solid progress ring");
+  assert(donutBackground(buckets) === TASK_STATUS_COLORS.done, "completed effort resolves to a solid status ring");
   assert(!donut?.style.background.includes("conic-gradient"), "solid donut never uses a sparse gradient");
   assert(!donut?.querySelector("svg"), "progress ring has no inner icon");
   await act(async () => root.unmount());
