@@ -6,6 +6,7 @@ import { Window } from "happy-dom";
 import { FIXTURE_MILESTONE, FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { TaskStatus, type Plan, type Task } from "../types";
 import { PlanDetailOverlay } from "./PlanDetailOverlay";
+import type { ApiConfig } from "../../../lib/types";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -27,6 +28,14 @@ function setupDom() {
 }
 
 setupDom();
+
+const API: ApiConfig = {
+  enabled: true,
+  host: "127.0.0.1",
+  port: 7686,
+  token: "test-token",
+  cors: false,
+};
 
 async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div");
@@ -82,6 +91,54 @@ test("renders plan detail with progress", async () => {
   assert(host.querySelector('[data-testid="plan-detail-title"]')?.textContent === "Auth rollout", "plan title");
   assert(host.querySelector('[data-testid="canvas-detail-progress"]'), "plan progress");
   assert(host.querySelector('[data-testid="canvas-detail-section"]'), "plan section");
+});
+
+test("parked plan resume is reachable from plan detail", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  Object.defineProperty(globalThis, "fetch", {
+    value: async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    },
+    configurable: true,
+  });
+  const plan: Plan = { ...FIXTURE_PLAN, mode: "paused" };
+  const { host } = await render(
+    <PlanDetailOverlay kind="plan" plan={plan} api={API} onClose={() => {}} />,
+  );
+  const resume = host.querySelector('[data-testid="plan-resume-button"]') as HTMLButtonElement;
+  assert(resume, "resume is available in plan detail");
+  await act(async () => {
+    resume.click();
+    await Promise.resolve();
+  });
+  assert(calls.some((call) => call.url.endsWith(`/api/plans/${plan.id}/resume`)), "resume request sent");
+});
+
+test("active plan park is reachable from plan detail", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  Object.defineProperty(globalThis, "fetch", {
+    value: async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    },
+    configurable: true,
+  });
+  const originalPrompt = window.prompt;
+  window.prompt = () => "waiting for quota";
+  const { host } = await render(
+    <PlanDetailOverlay kind="plan" plan={FIXTURE_PLAN} api={API} onClose={() => {}} />,
+  );
+  const park = host.querySelector('[data-testid="plan-park-button"]') as HTMLButtonElement;
+  assert(park, "park is available in plan detail");
+  await act(async () => {
+    park.click();
+    await Promise.resolve();
+  });
+  window.prompt = originalPrompt;
+  const pause = calls.find((call) => call.url.endsWith(`/api/plans/${FIXTURE_PLAN.id}/pause`));
+  assert(pause, "pause request sent");
+  assert(JSON.parse(String(pause.init?.body)).reason === "waiting for quota", "park reason sent");
 });
 
 test("renders spec detail from specSections", async () => {

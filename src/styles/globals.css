@@ -2709,12 +2709,12 @@ button.plan-peer-chip:focus-visible {
 }
 .plan-context-header-wide.is-expanded {
   padding-top: 0.35rem;
-  padding-right: 2rem;
+  padding-left: 2rem;
 }
 .plan-context-wide-chevron {
   position: absolute;
   top: 0.35rem;
-  right: 0.35rem;
+  left: 0.35rem;
   z-index: 1;
   display: flex;
   align-items: center;
