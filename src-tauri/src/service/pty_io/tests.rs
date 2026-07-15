@@ -3,6 +3,7 @@ use super::*;
 use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
 use crate::service::plan::{NewTask, PlanStore, TaskLaneUpdate};
 use crate::service::pty_io::lifecycle::{active_pane_lane_base, pane_task_env};
+use crate::service::pty_io::lifecycle::{claim_restored_launch, restore_and_schedule_launch};
 
 fn apply_enter(text: &str, enter: bool) -> String {
     if enter && !text.ends_with('\r') && !text.ends_with('\n') {
@@ -67,6 +68,107 @@ fn protected_agent_send_skips_materialization() {
     assert_eq!(
         restored_agent_materialization(true, false, true, Some("codex"), Some("session-1"), true),
         None
+    );
+}
+
+#[test]
+fn concurrent_restore_single_winner_cas() {
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::AgentRole;
+    use codeterm_util::lock_hold::TimedRwLock;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier};
+
+    let (mut state, parent_id) = MultiplexerState::new();
+    let workspace_id = state.list_workspaces()[0].id.clone();
+    state
+        .set_pane_role(&parent_id, AgentRole::Orchestrator, None)
+        .unwrap();
+    let team_id = state
+        .resolve_or_mint_team_for_parent(&parent_id)
+        .unwrap()
+        .team_id;
+    let pane_id = state.create_tab(&workspace_id).unwrap().1;
+    state
+        .set_pane_role(&pane_id, AgentRole::Worker, Some(&parent_id))
+        .unwrap();
+    let pane = state.get_pane_mut(&pane_id).unwrap();
+    pane.agent_type = Some("fixture-provider".into());
+    pane.agent_session_id = Some("fixture-session".into());
+    pane.cwd = Some("fixture-cwd".into());
+    pane.restored_from_snapshot = true;
+    let mux: MuxState = Arc::new(TimedRwLock::new("restore-test", state));
+    let barrier = Arc::new(Barrier::new(3));
+    let schedules = Arc::new(AtomicUsize::new(0));
+    let results = (0..2)
+        .map(|_| {
+            let mux = mux.clone();
+            let pane_id = pane_id.clone();
+            let barrier = barrier.clone();
+            let schedules = schedules.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                restore_and_schedule_launch(
+                    &mux,
+                    &pane_id,
+                    "fixture-provider",
+                    Some("fixture-session"),
+                    Some("fixture-cwd"),
+                    true,
+                    |_| {
+                        schedules.fetch_add(1, Ordering::SeqCst);
+                    },
+                )
+                .unwrap()
+                .is_some()
+            })
+        })
+        .collect::<Vec<_>>();
+    barrier.wait();
+    assert_eq!(
+        results
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .filter(|won| *won)
+            .count(),
+        1
+    );
+    assert_eq!(schedules.load(Ordering::SeqCst), 1);
+    let pane = mux.read().get_pane(&pane_id).unwrap().clone();
+    assert_eq!(pane.parent_pane_id.as_deref(), Some(parent_id.as_str()));
+    assert_eq!(pane.team_id.as_deref(), Some(team_id.as_str()));
+    assert_eq!(pane.agent_session_id.as_deref(), Some("fixture-session"));
+}
+
+#[test]
+fn stale_session_validity_cannot_claim_changed_pane() {
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use codeterm_util::lock_hold::TimedRwLock;
+    use std::sync::Arc;
+    let (mut state, pane_id) = MultiplexerState::new();
+    let pane = state.get_pane_mut(&pane_id).unwrap();
+    pane.agent_type = Some("fixture-provider".into());
+    pane.agent_session_id = Some("new".into());
+    pane.cwd = Some("cwd".into());
+    pane.restored_from_snapshot = true;
+    let mux: MuxState = Arc::new(TimedRwLock::new("restore-test", state));
+    assert!(claim_restored_launch(
+        &mux,
+        &pane_id,
+        "fixture-provider",
+        Some("old"),
+        Some("cwd"),
+        true
+    )
+    .unwrap()
+    .is_none());
+    assert!(
+        mux.read()
+            .get_pane(&pane_id)
+            .unwrap()
+            .restored_from_snapshot
     );
 }
 
