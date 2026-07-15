@@ -345,6 +345,7 @@ mod tests {
             version: "test".into(),
             timestamp: 0,
             active_workspace_id: Some("ws".into()),
+            teams: vec![],
             workspaces: vec![WorkspaceSnapshot {
                 id: "ws".into(),
                 name: "Welcome".into(),
@@ -367,6 +368,7 @@ mod tests {
                         claude_session_id: None,
                         role: None,
                         role_profile: None,
+                        team_id: None,
                         parent_pane_id: None,
                         spawned_by_pane_id: None,
                         report_target_pane_id: None,

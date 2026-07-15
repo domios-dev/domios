@@ -113,6 +113,7 @@ impl MultiplexerState {
                 claude_session_id: pane.and_then(|p| p.agent_session_id.clone()),
                 role: pane.and_then(|p| p.role.map(|r| format!("{:?}", r))),
                 role_profile: pane.and_then(|p| p.role_profile.clone()),
+                team_id: pane.and_then(|p| p.team_id.clone()),
                 parent_pane_id: pane.and_then(|p| p.parent_pane_id.clone()),
                 spawned_by_pane_id: pane.and_then(|p| p.spawned_by_pane_id.clone()),
                 report_target_pane_id: pane.and_then(|p| p.report_target_pane_id.clone()),
@@ -178,6 +179,7 @@ impl MultiplexerState {
             timestamp,
             workspaces,
             active_workspace_id: self.active_workspace_id.clone(),
+            teams: self.teams.values().cloned().collect(),
         }
     }
 
@@ -215,6 +217,7 @@ impl MultiplexerState {
                 claude_session_id,
                 role,
                 role_profile,
+                team_id,
                 parent_pane_id,
                 spawned_by_pane_id,
                 report_target_pane_id,
@@ -317,6 +320,7 @@ impl MultiplexerState {
                     shell_integration_nonce: None,
                     role: parsed_role,
                     role_profile: role_profile.clone(),
+                    team_id: team_id.clone(),
                     watcher: watcher.clone(),
                     parent_pane_id: parent_pane_id.clone(),
                     pending_paired_planner_pane_id: None,
@@ -348,6 +352,12 @@ impl MultiplexerState {
             );
             Some(pane_id.clone())
         }
+
+        let teams: HashMap<String, codeterm_types::team::Team> = snapshot
+            .teams
+            .iter()
+            .map(|t| (t.id.clone(), t.clone()))
+            .collect();
 
         let mut panes = HashMap::new();
         let workspaces: Vec<Workspace> = snapshot.workspaces.iter().map(|ws| {
@@ -386,6 +396,7 @@ impl MultiplexerState {
             focused_pane_id: None,
             pty_to_pane: HashMap::new(),
             pane_aliases: HashMap::new(),
+            teams,
             generation: std::sync::atomic::AtomicU64::new(0),
             // startup), not the session snapshot.
             closed_store: super::ClosedPanesStore::in_memory(),
