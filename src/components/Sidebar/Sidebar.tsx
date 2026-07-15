@@ -42,6 +42,7 @@ import { collectOrchestrationGroupMembers, type OrchestrationGroupMember } from 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
 interface SidebarProps {
+  onCollapse?: () => void;
   onOpenMemory?: () => void;
   onOpenMesh?: () => void;
   onOpenExtensions?: () => void;
@@ -53,6 +54,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({
+  onCollapse,
   onOpenMemory,
   onOpenMesh,
   onOpenExtensions,
@@ -269,11 +271,13 @@ export function Sidebar({
   const lastExpandedWidth = useRef(220);
   const sidebarDragging = useRef(false);
   const sidebarMoved = useRef(false);
+  const collapseOnRelease = useRef(false);
 
   const handleSidebarDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     sidebarDragging.current = true;
     sidebarMoved.current = false;
+    collapseOnRelease.current = false;
     const startX = e.clientX;
     const startWidth = sidebarWidth;
     const startCollapsed = isSidebarCollapsed;
@@ -289,9 +293,11 @@ export function Sidebar({
       const baseWidth = startCollapsed ? lastExpandedWidth.current : startWidth;
       const newWidth = Math.max(48, Math.min(400, baseWidth + delta));
       if (newWidth <= 56) {
+        collapseOnRelease.current = true;
         setIsSidebarCollapsed(true);
         return;
       }
+      collapseOnRelease.current = false;
       setIsSidebarCollapsed(false);
       setSidebarWidth(newWidth);
       lastExpandedWidth.current = newWidth;
@@ -302,16 +308,21 @@ export function Sidebar({
       document.removeEventListener("mouseup", onUp);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      if (collapseOnRelease.current) onCollapse?.();
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
-  }, [isSidebarCollapsed, sidebarWidth]);
+  }, [isSidebarCollapsed, onCollapse, sidebarWidth]);
 
   const handleSidebarGrabClick = useCallback(() => {
     if (sidebarMoved.current) {
       sidebarMoved.current = false;
+      return;
+    }
+    if (onCollapse) {
+      onCollapse();
       return;
     }
     if (isSidebarCollapsed) {
@@ -321,7 +332,7 @@ export function Sidebar({
       lastExpandedWidth.current = sidebarWidth;
       setIsSidebarCollapsed(true);
     }
-  }, [isSidebarCollapsed, sidebarWidth]);
+  }, [isSidebarCollapsed, onCollapse, sidebarWidth]);
 
   const sidebarRef = useRef<HTMLDivElement>(null);
   const touchMode = useTouchOptimizedUi();
@@ -774,7 +785,7 @@ export function Sidebar({
         type="button"
         onMouseDown={handleSidebarDragStart}
         onClick={handleSidebarGrabClick}
-        className={`absolute top-1/2 z-20 flex -translate-y-1/2 cursor-col-resize items-center justify-center rounded-r !border border-l-0 !border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-surface)_78%,transparent)] text-[var(--ct-muted-fg)] shadow-sm transition-colors hover:border-[var(--ct-accent)] hover:bg-[var(--ct-surface)] hover:text-[var(--ct-fg)] ${isSidebarCollapsed ? "left-0 h-8 w-2.5" : "left-[100%] -ml-[2px] h-9 w-3"}`}
+        className={`absolute top-1/2 z-20 flex -translate-y-1/2 cursor-col-resize items-center justify-center rounded-r !border border-l-0 !border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-surface)_78%,transparent)] text-[var(--ct-muted-fg)] shadow-sm transition-colors hover:border-[var(--ct-accent)] hover:bg-[var(--ct-surface)] hover:text-[var(--ct-fg)] max-sm:hidden ${isSidebarCollapsed ? "left-0 h-8 w-2.5" : "left-[100%] -ml-[2px] h-9 w-3"}`}
         title={isSidebarCollapsed ? "Expand sidebar" : "Resize sidebar; click to collapse"}
       >
         <span className="h-4 w-px rounded-full bg-current opacity-60" />

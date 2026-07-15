@@ -33,7 +33,6 @@ interface TabContentProps {
   chatFirst: boolean;
   chatDefaultPrompted: boolean;
   agentsConfig?: AppConfig["agents"];
-  onOpenSidebar?: () => void;
 }
 
 export function TabContent({
@@ -54,7 +53,6 @@ export function TabContent({
   chatDefaultPrompted,
   api,
   agentsConfig,
-  onOpenSidebar,
 }: TabContentProps) {
   const descriptor = useAgentDescriptor(pane?.agent_type);
   const { providers } = useAgentProviders();
@@ -125,7 +123,6 @@ export function TabContent({
           isWatcherPane={pane.watcher != null}
           watcherLastStatus={pane.watcher?.last_status ?? null}
           showChatReconnect={isChatBackend || pane.agent_type != null}
-          onOpenSidebar={onOpenSidebar}
         />
         <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>
           {body}
