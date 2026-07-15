@@ -1,5 +1,6 @@
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "./lib/bridge";
+import { buildTeamActions } from "./lib/teamActions";
 import { getCurrentPaneUiMode, listenPaneUiModeDefaultChanged } from "./lib/clientPaneUiMode";
 import { isChatDefaultEnabled } from "./lib/chatUiMode";
 import { pruneOrphanComposerDrafts } from "./lib/composerDraftGc";
@@ -200,6 +201,13 @@ function AppInner() {
 
   const stateRef = useRef(state);
   stateRef.current = state;
+  const teamActions = useMemo(
+    () => buildTeamActions({
+      callerTabId: () => stateRef.current.focused_pane_id,
+      invoke,
+    }),
+    [],
+  );
 
   // Reclaim composer drafts left behind by closed panes so a reused/colliding
   // pane id can never inherit a dead pane's unsent text.
@@ -534,6 +542,7 @@ function AppInner() {
                 config={config}
                 uiFontScale={uiFontScale}
                 workspaceCanvasActive={workspaceCanvasVisible}
+                teamActions={teamActions}
               />
             </div>
           </>

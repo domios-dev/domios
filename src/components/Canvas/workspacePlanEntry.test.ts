@@ -6,6 +6,7 @@ import type { PlanIndexEntry } from "./plansApi";
 import { canvasFocusStore } from "./canvasFocusStore";
 import {
   deriveWorkspacePlanEntries,
+  openTeamPlanCanvas,
   openPanePlanFocus,
   openWorkspacePlanCanvas,
   resolvePanePlanFocusTarget,
@@ -273,6 +274,17 @@ test("openWorkspacePlanCanvas opens workspace target on the focus store", () => 
   openWorkspacePlanCanvas({ focusPaneId: "orch-1", planId: FIXTURE_PLAN.id });
   assert(canvasFocusStore.isWorkspaceOpen(), "workspace canvas open");
   assert(canvasFocusStore.getWorkspaceTarget()?.planId === FIXTURE_PLAN.id, "plan id stored");
+  canvasFocusStore.closeWorkspace();
+});
+
+test("openTeamPlanCanvas keeps the team and manager target explicit", () => {
+  canvasFocusStore.closeWorkspace();
+  openTeamPlanCanvas({ teamId: "team-1", managerPaneId: "manager-1" });
+  const target = canvasFocusStore.getWorkspaceTarget();
+  assert(target?.teamId === "team-1", "team target survives the focus store");
+  assert(target?.managerPaneId === "manager-1", "manager target survives the focus store");
+  assert(target?.focusPaneId === "manager-1", "manager target stored");
+  assert(target?.planId === undefined, "create flow does not fabricate a plan id");
   canvasFocusStore.closeWorkspace();
 });
 

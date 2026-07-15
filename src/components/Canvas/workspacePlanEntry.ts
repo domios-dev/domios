@@ -115,6 +115,21 @@ export function openWorkspacePlanCanvas(target?: CanvasWorkspaceTarget): void {
   canvasFocusStore.openWorkspace(target ?? undefined);
 }
 
+export interface TeamPlanCanvasTarget {
+  teamId: string;
+  managerPaneId: string | null;
+  planId?: string;
+}
+
+export function openTeamPlanCanvas(target: TeamPlanCanvasTarget): void {
+  openWorkspacePlanCanvas({
+    teamId: target.teamId,
+    managerPaneId: target.managerPaneId,
+    focusPaneId: target.managerPaneId ?? undefined,
+    planId: target.planId,
+  });
+}
+
 export function openWorkspacePlanForEntries(entries: readonly PlanIndexEntry[]): void {
   openWorkspacePlanCanvas({
     planId: entries.length === 1 ? entries[0].plan_id : undefined,
