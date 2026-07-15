@@ -331,6 +331,56 @@ fn fresh_launch_with_matching_nonce_accepts_unpersisted_session() {
 }
 
 #[test]
+fn reconnect_full_sequence_hook_accepted_with_chat_metadata() {
+    use crate::service::boot_stage::{allows_shell_prompt_exit, BootStage};
+
+    let (mux, pane_id) = shared_mux();
+    {
+        let mut g = mux.write();
+        let pane = g.get_pane_mut(&pane_id).unwrap();
+        pane.cwd = Some("/tmp/project".into());
+        pane.agent_type = Some("claude".into());
+        pane.agent_type_locked = false;
+        pane.session_binding_nonce = Some("fresh-launch".into());
+        pane.restored_from_snapshot = true;
+    }
+
+    for stage in [
+        BootStage::PtyStarting,
+        BootStage::PtySpawned,
+        BootStage::ShellReady,
+        BootStage::AgentLaunching,
+    ] {
+        mux.write().get_pane_mut(&pane_id).unwrap().boot_stage = Some(stage);
+        assert!(!allows_shell_prompt_exit(Some(stage)));
+        assert_eq!(
+            mux.read().get_pane(&pane_id).unwrap().agent_type.as_deref(),
+            Some("claude")
+        );
+    }
+
+    let observed_stage = mux.read().get_pane(&pane_id).unwrap().boot_stage;
+    mux.write().get_pane_mut(&pane_id).unwrap().boot_stage = Some(BootStage::AgentReady);
+    assert!(!allows_shell_prompt_exit(observed_stage));
+
+    let registry = registry_with_sessions(vec![("claude", vec![])]);
+    bind_reported_session(
+        &mux,
+        &registry,
+        &pane_id,
+        "claude",
+        "fresh-session",
+        Some("fresh-launch"),
+    )
+    .expect("fresh launch hook must retain and bind pane identity");
+
+    let snapshot = mux.read().snapshot();
+    let pane = snapshot.panes.get(&pane_id).unwrap();
+    assert_eq!(pane.agent_type.as_deref(), Some("claude"));
+    assert_eq!(pane.agent_session_id.as_deref(), Some("fresh-session"));
+}
+
+#[test]
 fn session_start_string_reads_codex_session_meta_payload() {
     let body = serde_json::json!({
         "type": "session_meta",
