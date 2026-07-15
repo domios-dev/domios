@@ -218,6 +218,7 @@ pub fn run() {
             commands::mux_commands::mux_set_active_workspace,
             commands::mux_commands::mux_close_workspace,
             commands::mux_commands::mux_rename_workspace,
+            commands::mux_commands::mux_rename_team,
             commands::mux_commands::mux_move_tab,
             commands::mux_commands::mux_reorder_tab,
             commands::mux_commands::mux_reorder_child,
