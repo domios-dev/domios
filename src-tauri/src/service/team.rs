@@ -1,7 +1,7 @@
 use codeterm_types::team::Team;
 
 use crate::multiplexer::state::MultiplexerState;
-use crate::multiplexer::types::AgentRole;
+use crate::multiplexer::types::{AgentRole, PaneBacking};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 
@@ -87,33 +87,23 @@ impl ServiceContext {
         team_id: &str,
         caller_pane_id: Option<&str>,
     ) -> Result<Team, String> {
-        let member_pane_ids: Vec<String> = {
-            let mux = self.mux.read();
-            authorize_team_manager(&mux, team_id, caller_pane_id)?;
-            mux.snapshot()
-                .panes
-                .values()
-                .filter(|pane| pane.team_id.as_deref() == Some(team_id))
-                .map(|pane| pane.id.clone())
-                .collect()
-        };
-        for pane_id in &member_pane_ids {
-            self.chat_registry.stop(pane_id);
-            if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
-                let _ = self.chatbackend_close(&plugin_id, &session_id);
-            }
-        }
-        let (team, member_pane_ids, pty_ids) = {
+        let (team, cleanup) = {
             let mut mux = self.mux.write();
             close_team_with_state_change(&mut mux, &self.events, team_id, caller_pane_id)?
         };
-        for pane_id in &member_pane_ids {
+        for pane_id in &cleanup.member_pane_ids {
+            self.chat_registry.stop(pane_id);
+        }
+        for (plugin_id, session_id) in &cleanup.chat_backings {
+            let _ = self.chatbackend_close(plugin_id, session_id);
+        }
+        for pane_id in &cleanup.member_pane_ids {
             self.flag_bound_tasks_for_gone_pane(pane_id, 0);
             self.prompt_detector.lock().remove_pane(pane_id);
             crate::service::structured_prompt::clear_pane(pane_id);
             self.remote_workers.forget_orchestrator(pane_id);
         }
-        self.kill_ptys(&pty_ids);
+        self.kill_ptys(&cleanup.pty_ids);
         self.emit_state_changed_after_bus_publish();
         Ok(team)
     }
@@ -140,6 +130,13 @@ impl ServiceContext {
         self.emit_state_changed();
         Ok(plan)
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct CloseTeamCleanup {
+    member_pane_ids: Vec<String>,
+    chat_backings: Vec<(String, String)>,
+    pty_ids: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -258,7 +255,7 @@ pub(crate) fn close_team_with_state_change(
     events: &crate::api::events::EventBroadcaster,
     team_id: &str,
     caller_pane_id: Option<&str>,
-) -> Result<(Team, Vec<String>, Vec<String>), String> {
+) -> Result<(Team, CloseTeamCleanup), String> {
     authorize_team_manager(mux, team_id, caller_pane_id)?;
     let member_pane_ids: Vec<String> = mux
         .snapshot()
@@ -266,6 +263,16 @@ pub(crate) fn close_team_with_state_change(
         .values()
         .filter(|pane| pane.team_id.as_deref() == Some(team_id))
         .map(|pane| pane.id.clone())
+        .collect();
+    let chat_backings = member_pane_ids
+        .iter()
+        .filter_map(|pane_id| match mux.get_pane(pane_id)?.backing.clone() {
+            PaneBacking::ChatBackend {
+                plugin_id,
+                session_id,
+            } => Some((plugin_id, session_id)),
+            PaneBacking::Pty => None,
+        })
         .collect();
     let mut pty_ids = Vec::new();
     for pane_id in &member_pane_ids {
@@ -277,7 +284,14 @@ pub(crate) fn close_team_with_state_change(
         .remove_team(team_id)
         .ok_or_else(|| format!("Team {team_id} not found"))?;
     crate::service::publish_mux_state_changed(events);
-    Ok((team, member_pane_ids, pty_ids))
+    Ok((
+        team,
+        CloseTeamCleanup {
+            member_pane_ids,
+            chat_backings,
+            pty_ids,
+        },
+    ))
 }
 
 fn authorize_team_manager(
@@ -380,7 +394,7 @@ mod tests {
         let events = crate::api::events::EventBroadcaster::new();
         let mut subscription = events.subscribe();
 
-        let (closed, _, _) =
+        let (closed, _) =
             close_team_with_state_change(&mut mux, &events, &team_id, Some(&orchestrator)).unwrap();
 
         assert_eq!(closed.id, team_id);
@@ -427,6 +441,26 @@ mod tests {
             close_team_with_state_change(&mut mux, &events, &team_id, Some(&orchestrator),)
                 .unwrap_err()
                 .contains("not found")
+        );
+    }
+
+    #[test]
+    fn close_team_removes_chat_backend_member_and_registry() {
+        let (mut mux, team_id, orchestrator, _, worker) = team_members();
+        mux.get_pane_mut(&worker).unwrap().backing = PaneBacking::ChatBackend {
+            plugin_id: "chat-backend".into(),
+            session_id: "session-1".into(),
+        };
+        let events = crate::api::events::EventBroadcaster::new();
+
+        let (_, cleanup) =
+            close_team_with_state_change(&mut mux, &events, &team_id, Some(&orchestrator)).unwrap();
+
+        assert!(mux.get_team(&team_id).is_none());
+        assert!(mux.get_pane(&worker).is_none());
+        assert_eq!(
+            cleanup.chat_backings,
+            vec![("chat-backend".into(), "session-1".into())]
         );
     }
 

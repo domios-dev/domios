@@ -44,6 +44,34 @@ async function main() {
   await act(async () => close.click());
   assert(closes === 1, "Close Team invokes its single handler exactly once");
   await act(async () => root.unmount());
+
+  const managerlessHost = document.createElement("div");
+  document.body.appendChild(managerlessHost);
+  const managerlessRoot = createRoot(managerlessHost);
+  await act(async () => {
+    managerlessRoot.render(
+      <TeamUnit
+        team={{ id: "team-2", name: "Managerless", lifecycle: "forming", created_at: 0, workspace_id: "ws" }}
+        plan={null}
+        panes={{}}
+        managers={null}
+        managerCount={0}
+        workers={null}
+        workerCount={0}
+        workingWorkerCount={0}
+        providers={[]}
+        onOpenEffort={() => {}}
+      />,
+    );
+  });
+  await act(async () => (managerlessHost.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement).click());
+  assert(
+    !Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+      .some((button) => button.textContent?.includes("Close Team")),
+    "managerless Team has no Close Team item or handler",
+  );
+  assert(closes === 1, "managerless Team causes zero close invocations");
+  await act(async () => managerlessRoot.unmount());
   console.log("TeamUnit close tests passed");
 }
 
