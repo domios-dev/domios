@@ -115,6 +115,7 @@ impl ServiceContext {
             pane_cwd,
             agent_session_id,
             is_planner,
+            observed_boot_stage,
         ) = {
             let mux = self.mux.read();
             let pid = mux.pane_id_for_pty(pty_id);
@@ -131,6 +132,7 @@ impl ServiceContext {
             let cwd = pane.and_then(|p| p.cwd.clone());
             let sid = pane.and_then(|p| p.agent_session_id.clone());
             let planner = pane.is_some_and(|p| p.role_profile.as_deref() == Some("planner"));
+            let boot_stage = pane.and_then(|p| p.boot_stage);
             (
                 pid,
                 at,
@@ -142,6 +144,7 @@ impl ServiceContext {
                 cwd,
                 sid,
                 planner,
+                boot_stage,
             )
         };
 
@@ -191,6 +194,11 @@ impl ServiceContext {
                 // Keep a short grace after session-tagging so early prompt snapshots don't trigger false exits.
                 // Locked panes skip output-based clearing because slow startup can leave stale prompt text visible.
                 if in_grace_cached || (locked_cached && !is_planner) {
+                    agent_type
+                } else if !super::boot_stage::allows_shell_prompt_exit(observed_boot_stage) {
+                    if let Some(pane) = self.mux.write().get_pane_mut(pid) {
+                        pane.exit_suspected_at = None;
+                    }
                     agent_type
                 } else {
                     let screen = self
@@ -858,6 +866,7 @@ fn exit_debounce(
 #[cfg(test)]
 mod exit_detection_tests {
     use super::{exit_debounce, screen_ends_in_shell_prompt, should_detect_unbound_session};
+    use crate::service::boot_stage::{allows_shell_prompt_exit, BootStage};
     use std::time::{Duration, Instant};
 
     #[test]
@@ -908,5 +917,34 @@ mod exit_detection_tests {
         assert!(!should_detect_unbound_session(Some(
             "session-owned-by-pane"
         )));
+    }
+
+    #[test]
+    fn reconnect_prompt_during_launch_keeps_identity() {
+        for stage in [
+            BootStage::PtyStarting,
+            BootStage::PtySpawned,
+            BootStage::ShellReady,
+            BootStage::AgentLaunching,
+        ] {
+            assert!(
+                !allows_shell_prompt_exit(Some(stage)),
+                "prompt observed during {stage:?} must not clear identity"
+            );
+        }
+    }
+
+    #[test]
+    fn prompt_observation_uses_captured_stage_when_agent_ready_is_imminent() {
+        let observed_stage = BootStage::AgentLaunching;
+        let current_stage = BootStage::AgentReady;
+
+        assert_eq!(current_stage, BootStage::AgentReady);
+        assert!(!allows_shell_prompt_exit(Some(observed_stage)));
+    }
+
+    #[test]
+    fn post_agent_ready_shell_prompt_still_clears() {
+        assert!(allows_shell_prompt_exit(Some(BootStage::AgentReady)));
     }
 }
