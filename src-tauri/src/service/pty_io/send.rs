@@ -192,20 +192,26 @@ impl ServiceContext {
         if target()? != (pty_id.clone(), provider_id.clone()) {
             return Err("agent_unavailable: planner transport changed".into());
         }
-        self.send_text_verified(
-            &pty_id,
+        super::submit_transaction::submit_entry(
+            super::submit_transaction::PtySubmitEntry::Planner,
             text,
-            true,
-            strategy,
-            crate::service::inject_verify::VerifyOpts {
-                require_prompt_first: false,
-                verify_echo: false,
-                verify_submit: true,
-                ..Default::default()
+            |text| {
+                self.send_text_verified(
+                    &pty_id,
+                    text,
+                    true,
+                    strategy,
+                    crate::service::inject_verify::VerifyOpts {
+                        require_prompt_first: false,
+                        verify_echo: false,
+                        verify_submit: true,
+                        ..Default::default()
+                    },
+                )
+                .map(|_| ())
+                .map_err(|error| error.to_string())
             },
         )
-        .map(|_| ())
-        .map_err(|error| error.to_string())
     }
 
     /// Send text to a pane (chatBackend or PTY). PTY link is awaited up to 15s so
@@ -280,10 +286,15 @@ impl ServiceContext {
                 verify_submit: true,
                 ..Default::default()
             };
-            return self
-                .send_text_verified(pty_id, &text, enter, strategy, opts)
-                .map(|_| ())
-                .map_err(|e| e.to_string());
+            return super::submit_transaction::submit_entry(
+                super::submit_transaction::PtySubmitEntry::Direct,
+                &text,
+                |text| {
+                    self.send_text_verified(pty_id, text, enter, strategy, opts)
+                        .map(|_| ())
+                        .map_err(|e| e.to_string())
+                },
+            );
         }
         self.send_text_to_pty(pty_id, text, enter)
     }
@@ -421,20 +432,26 @@ impl ServiceContext {
     /// `send_text` by PTY id, skipping pane→pty resolution — use when the caller
     /// holds a verified pty_id and must not race a `link_pty` swap of `pane.pty_id`.
     pub fn send_text_to_pty(&self, pty_id: &str, text: &str, enter: bool) -> Result<(), String> {
-        self.send_text_verified(
-            pty_id,
+        super::submit_transaction::submit_entry(
+            super::submit_transaction::PtySubmitEntry::Direct,
             text,
-            enter,
-            crate::agent::provider::VerifySubmitStrategy::None,
-            crate::service::inject_verify::VerifyOpts {
-                require_prompt_first: false,
-                verify_echo: enter,
-                verify_submit: enter,
-                ..Default::default()
+            |text| {
+                self.send_text_verified(
+                    pty_id,
+                    text,
+                    enter,
+                    crate::agent::provider::VerifySubmitStrategy::None,
+                    crate::service::inject_verify::VerifyOpts {
+                        require_prompt_first: false,
+                        verify_echo: enter,
+                        verify_submit: enter,
+                        ..Default::default()
+                    },
+                )
+                .map(|_| ())
+                .map_err(|error| error.to_string())
             },
         )
-        .map(|_| ())
-        .map_err(|error| error.to_string())
     }
 
     /// Write raw bytes (no bracket paste) — for keystrokes the TUI must interpret (vim j/k, arrows).

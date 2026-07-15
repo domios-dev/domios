@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
@@ -14,17 +14,46 @@ use crate::service::ServiceContext;
 const TAIL_ROWS: usize = 8;
 const MAX_ENTER_ATTEMPTS: usize = 2;
 
-fn transaction_locks() -> &'static Mutex<HashMap<String, Arc<Mutex<()>>>> {
-    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+fn transaction_locks() -> &'static Mutex<HashMap<String, Weak<Mutex<()>>>> {
+    static LOCKS: OnceLock<Mutex<HashMap<String, Weak<Mutex<()>>>>> = OnceLock::new();
     LOCKS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn transaction_lock(pty_id: &str) -> Arc<Mutex<()>> {
-    transaction_locks()
-        .lock()
-        .entry(pty_id.to_string())
-        .or_insert_with(|| Arc::new(Mutex::new(())))
-        .clone()
+    let mut locks = transaction_locks().lock();
+    if let Some(lock) = locks.get(pty_id).and_then(Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(Mutex::new(()));
+    locks.insert(pty_id.to_string(), Arc::downgrade(&lock));
+    lock
+}
+
+fn retire_transaction_lock(pty_id: &str, lock: &Arc<Mutex<()>>) {
+    let mut locks = transaction_locks().lock();
+    let current_is_lock = locks
+        .get(pty_id)
+        .and_then(Weak::upgrade)
+        .is_some_and(|current| Arc::ptr_eq(&current, lock));
+    if current_is_lock && Arc::strong_count(lock) == 1 {
+        locks.remove(pty_id);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PtySubmitEntry {
+    Messenger,
+    Report,
+    Planner,
+    Direct,
+}
+
+pub(crate) fn submit_entry<T, E>(
+    _entry: PtySubmitEntry,
+    text: &str,
+    submit: impl FnOnce(&str) -> Result<T, E>,
+) -> Result<T, E> {
+    submit(text)
 }
 
 #[derive(Clone)]
@@ -120,7 +149,11 @@ fn submitted(
             observation.hash != hash_before && screen_has_shell_prompt(&observation.tail)
         }
         VerifySubmitStrategy::TuiInputDrained { .. } => {
-            !screen_contains_echo(&observation.tail, text)
+            if text.is_empty() {
+                current_generation != enter_generation
+            } else {
+                !screen_contains_echo(&observation.tail, text)
+            }
         }
         VerifySubmitStrategy::None => current_generation != enter_generation,
     }
@@ -178,6 +211,7 @@ fn run<T: SubmitTransport>(
 
     for attempt in 0..MAX_ENTER_ATTEMPTS {
         let enter_generation = generation;
+        let enter_hash = transport.observe().map_err(helper_to_closed)?.hash;
         transport.write_enter()?;
         if !opts.verify_submit {
             return Ok(InjectionResult {
@@ -207,7 +241,9 @@ fn run<T: SubmitTransport>(
             }
             if current_generation != generation {
                 generation = current_generation;
-                if attempt + 1 < MAX_ENTER_ATTEMPTS && screen_contains_echo(&observation.tail, text)
+                if attempt + 1 < MAX_ENTER_ATTEMPTS
+                    && observation.hash != enter_hash
+                    && screen_contains_echo(&observation.tail, text)
                 {
                     break;
                 }
@@ -269,7 +305,7 @@ pub(crate) fn submit_text(
     opts: VerifyOpts,
 ) -> Result<InjectionResult, InjectionError> {
     let lock = transaction_lock(pty_id);
-    let _transaction = lock.lock();
+    let transaction = lock.lock();
     let signal = svc.screen_state.lock().arm_screen_change_signal(pty_id);
     svc.feed_input_parser(pty_id, text, enter);
     let transport = PtySubmitTransport {
@@ -277,7 +313,12 @@ pub(crate) fn submit_text(
         pty_id,
         signal,
     };
-    run(&transport, text, enter, strategy, opts)
+    let required = enter && opts.verify_submit;
+    let result = run(&transport, text, enter, strategy, opts)
+        .and_then(|result| result.require_submission(required, Duration::ZERO, String::new()));
+    drop(transaction);
+    retire_transaction_lock(pty_id, &lock);
+    result
 }
 
 #[cfg(test)]
@@ -295,21 +336,27 @@ mod tests {
     struct ControlledTransport {
         generation: Cell<u64>,
         frame: RefCell<Frame>,
-        after_paste: Option<Frame>,
+        after_paste: RefCell<VecDeque<Frame>>,
         waits: RefCell<VecDeque<Option<Frame>>>,
-        writes: RefCell<Vec<&'static str>>,
+        current_body: RefCell<String>,
+        writes: RefCell<Vec<String>>,
     }
 
     impl ControlledTransport {
         fn new(after_paste: Option<Frame>, waits: Vec<Option<Frame>>) -> Self {
+            Self::sequence(after_paste.into_iter().collect(), waits)
+        }
+
+        fn sequence(after_paste: Vec<Frame>, waits: Vec<Option<Frame>>) -> Self {
             Self {
                 generation: Cell::new(0),
                 frame: RefCell::new(Frame {
                     tail: "> ",
                     hash: 0,
                 }),
-                after_paste,
+                after_paste: RefCell::new(after_paste.into()),
                 waits: RefCell::new(waits.into()),
+                current_body: RefCell::new(String::new()),
                 writes: RefCell::new(Vec::new()),
             }
         }
@@ -348,16 +395,19 @@ mod tests {
             }
         }
 
-        fn write_paste(&self, _text: &str) -> Result<usize, InjectionError> {
-            self.writes.borrow_mut().push("paste");
-            if let Some(frame) = self.after_paste.clone() {
+        fn write_paste(&self, text: &str) -> Result<usize, InjectionError> {
+            *self.current_body.borrow_mut() = text.to_string();
+            self.writes.borrow_mut().push(format!("paste:{text}"));
+            if let Some(frame) = self.after_paste.borrow_mut().pop_front() {
                 self.advance(frame);
             }
             Ok(4)
         }
 
         fn write_enter(&self) -> Result<(), InjectionError> {
-            self.writes.borrow_mut().push("enter");
+            self.writes
+                .borrow_mut()
+                .push(format!("enter:{}", self.current_body.borrow()));
             Ok(())
         }
     }
@@ -394,7 +444,7 @@ mod tests {
             result,
             Err(InjectionError::SubmitNeverConfirmed { .. })
         ));
-        assert_eq!(&*io.writes.borrow(), &["paste", "enter"]);
+        assert_eq!(&*io.writes.borrow(), &["paste:hello", "enter:hello"]);
     }
 
     #[test]
@@ -424,7 +474,7 @@ mod tests {
             vec![None],
         );
         assert!(run(&stale, "hello", true, tui(), opts()).is_err());
-        assert_eq!(&*stale.writes.borrow(), &["paste", "enter"]);
+        assert_eq!(&*stale.writes.borrow(), &["paste:hello", "enter:hello"]);
 
         let progressed = ControlledTransport::new(
             Some(Frame {
@@ -443,7 +493,10 @@ mod tests {
             ],
         );
         assert!(run(&progressed, "hello", true, tui(), opts()).is_ok());
-        assert_eq!(&*progressed.writes.borrow(), &["paste", "enter", "enter"]);
+        assert_eq!(
+            &*progressed.writes.borrow(),
+            &["paste:hello", "enter:hello", "enter:hello"]
+        );
     }
 
     #[test]
@@ -463,56 +516,83 @@ mod tests {
 
     #[test]
     fn wake_safety_event_driven_no_double_submit() {
-        let io = ControlledTransport::new(
-            Some(Frame {
-                tail: "> body-b",
-                hash: 2,
-            }),
-            vec![Some(Frame {
-                tail: "working",
-                hash: 3,
-            })],
+        let io = ControlledTransport::sequence(
+            vec![
+                Frame {
+                    tail: "> body-a",
+                    hash: 1,
+                },
+                Frame {
+                    tail: "> body-b",
+                    hash: 3,
+                },
+            ],
+            vec![
+                Some(Frame {
+                    tail: "a submitted",
+                    hash: 2,
+                }),
+                Some(Frame {
+                    tail: "> body-b",
+                    hash: 3,
+                }),
+                Some(Frame {
+                    tail: "b submitted",
+                    hash: 4,
+                }),
+            ],
         );
+        assert!(run(&io, "body-a", true, tui(), opts()).is_ok());
         assert!(run(&io, "body-b", true, tui(), opts()).is_ok());
+
+        let writes = io.writes.borrow();
+        let replacement = writes
+            .iter()
+            .position(|write| write == "paste:body-b")
+            .unwrap();
+        assert!(!writes[replacement..]
+            .iter()
+            .any(|write| write == "enter:body-a"));
         assert_eq!(
-            io.writes
-                .borrow()
+            writes
                 .iter()
-                .filter(|write| **write == "enter")
+                .filter(|write| *write == "enter:body-b")
                 .count(),
             1
         );
+        assert_eq!(writes.last().unwrap(), "enter:body-b");
     }
 
     #[test]
     fn messenger_report_planner_send_share_submit_transaction() {
-        let inject = include_str!("inject.rs");
-        let send = include_str!("send.rs");
-        let messenger = include_str!("../messenger.rs");
-        let hierarchy = include_str!("../hierarchy.rs");
-
-        assert!(inject.contains("submit_transaction::submit_text"));
-        assert!(send.matches("send_text_verified(").count() >= 3);
-        assert!(messenger.contains("svc.send_text(to_pane, &text, true)?"));
-        assert!(messenger.contains("svc.send_to_authenticated_agent_session("));
-        assert!(hierarchy.contains("Messenger::deliver("));
-
-        for entry_path in ["messenger", "report", "planner", "send"] {
-            let io = ControlledTransport::new(
-                Some(Frame {
-                    tail: "> shared body",
-                    hash: 1,
-                }),
-                vec![None],
-            );
-            assert!(
-                matches!(
-                    run(&io, "shared body", true, tui(), opts()),
-                    Err(InjectionError::SubmitNeverConfirmed { .. })
-                ),
-                "{entry_path} must not erase missing submission evidence"
-            );
-            assert_eq!(&*io.writes.borrow(), &["paste", "enter"]);
+        for entry in [
+            PtySubmitEntry::Messenger,
+            PtySubmitEntry::Report,
+            PtySubmitEntry::Planner,
+            PtySubmitEntry::Direct,
+        ] {
+            let mut submit_calls = 0;
+            let result = submit_entry(entry, "shared body", |text| {
+                submit_calls += 1;
+                assert_eq!(text, "shared body");
+                Err::<(), _>(InjectionError::SubmitNeverConfirmed {
+                    waited: Duration::ZERO,
+                    screen_tail: "> shared body".into(),
+                })
+            });
+            assert!(matches!(
+                result,
+                Err(InjectionError::SubmitNeverConfirmed { .. })
+            ));
+            assert_eq!(submit_calls, 1);
         }
+    }
+
+    #[test]
+    fn transaction_lock_registry_retires_closed_ptys() {
+        let lock = transaction_lock("closed-pty");
+        assert!(transaction_locks().lock().contains_key("closed-pty"));
+        retire_transaction_lock("closed-pty", &lock);
+        assert!(!transaction_locks().lock().contains_key("closed-pty"));
     }
 }

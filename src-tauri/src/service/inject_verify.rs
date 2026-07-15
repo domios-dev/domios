@@ -37,6 +37,23 @@ pub struct InjectionResult {
     pub elapsed: Duration,
 }
 
+impl InjectionResult {
+    pub fn require_submission(
+        self,
+        required: bool,
+        waited: Duration,
+        screen_tail: String,
+    ) -> Result<Self, InjectionError> {
+        if required && !self.submit_observed {
+            return Err(InjectionError::SubmitNeverConfirmed {
+                waited,
+                screen_tail,
+            });
+        }
+        Ok(self)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum InjectionError {
     PromptNeverReady {
@@ -298,6 +315,20 @@ mod tests {
     #[test]
     fn screen_contains_echo_handles_simple_match() {
         assert!(screen_contains_echo("user@host:~$ ls -la", "ls -la"));
+    }
+
+    #[test]
+    fn verified_submit_result_cannot_succeed_unobserved() {
+        let result = InjectionResult {
+            bytes_written: 10,
+            echo_observed: true,
+            submit_observed: false,
+            elapsed: Duration::ZERO,
+        };
+        assert!(matches!(
+            result.require_submission(true, Duration::ZERO, "> parked".into()),
+            Err(InjectionError::SubmitNeverConfirmed { .. })
+        ));
     }
 
     #[test]
