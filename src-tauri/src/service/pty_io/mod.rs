@@ -4,16 +4,20 @@ use serde::Deserialize;
 pub(crate) const SHELL_BACKEND_COLS: u16 = 120;
 pub(crate) const SEND_AGENT_BACKEND_COLS: u16 = 240;
 
+mod actions;
+mod batch;
 mod inject;
 mod lifecycle;
 mod send;
-mod wake;
+pub(crate) mod submit_transaction;
 
-#[cfg(test)]
-pub(crate) use lifecycle::{active_pane_lane_base, pane_task_env};
+pub(crate) use actions::{await_action_deadline, execute_ordered_actions, OrderedPtyAction};
 pub(crate) use send::build_spawn_dispatch;
 pub(crate) use send::provider_or_generic_tui;
-pub use send::{poll_bare_shell_prompt, poll_shell_prompt};
+pub use send::{await_bare_shell_prompt, await_shell_prompt};
+pub use send::{
+    await_bare_shell_prompt as poll_bare_shell_prompt, await_shell_prompt as poll_shell_prompt,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RestoredAgentMaterialization {

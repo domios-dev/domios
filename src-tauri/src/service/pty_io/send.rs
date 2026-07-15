@@ -1,4 +1,4 @@
-//! Interactive send path: build_spawn_dispatch, poll_shell_prompt, and all
+//! Interactive send path: shell readiness and all
 //! send/write/batch ServiceContext methods.
 use crate::service::ServiceContext;
 
@@ -30,7 +30,7 @@ pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
 
 /// Wait (event-driven, via a condvar armed under `screen_state`) for a shell
 /// prompt to appear on a PTY. Returns `true` if ready, `false` on timeout.
-pub fn poll_shell_prompt(
+pub fn await_shell_prompt(
     screen_state: &crate::ScreenStateHandle,
     pty_id: &str,
     timeout: std::time::Duration,
@@ -41,13 +41,13 @@ pub fn poll_shell_prompt(
     let ready = signal.wait(timeout);
     if ready {
         log::info!(
-            "[poll_shell_prompt] shell ready for pty {} after {}ms",
+            "[await_shell_prompt] shell ready for pty {} after {}ms",
             short_id,
             t0.elapsed().as_millis()
         );
     } else {
         log::warn!(
-            "[poll_shell_prompt] timeout after {}ms for pty {}",
+            "[await_shell_prompt] timeout after {}ms for pty {}",
             timeout.as_millis(),
             short_id
         );
@@ -57,7 +57,7 @@ pub fn poll_shell_prompt(
 
 /// Wait for a real shell prompt, rejecting agent TUI composers that also use
 /// prompt glyphs. Use before writing launch/resume commands into a restored PTY.
-pub fn poll_bare_shell_prompt(
+pub fn await_bare_shell_prompt(
     screen_state: &crate::ScreenStateHandle,
     pty_id: &str,
     timeout: std::time::Duration,
@@ -68,13 +68,13 @@ pub fn poll_bare_shell_prompt(
     let ready = signal.wait(timeout);
     if ready {
         log::info!(
-            "[poll_bare_shell_prompt] shell ready for pty {} after {}ms",
+            "[await_bare_shell_prompt] shell ready for pty {} after {}ms",
             short_id,
             t0.elapsed().as_millis()
         );
     } else {
         log::warn!(
-            "[poll_bare_shell_prompt] timeout after {}ms for pty {}",
+            "[await_bare_shell_prompt] timeout after {}ms for pty {}",
             timeout.as_millis(),
             short_id
         );
@@ -192,20 +192,26 @@ impl ServiceContext {
         if target()? != (pty_id.clone(), provider_id.clone()) {
             return Err("agent_unavailable: planner transport changed".into());
         }
-        self.send_text_verified(
-            &pty_id,
+        super::submit_transaction::submit_entry(
+            super::submit_transaction::PtySubmitEntry::Planner,
             text,
-            true,
-            strategy,
-            crate::service::inject_verify::VerifyOpts {
-                require_prompt_first: false,
-                verify_echo: false,
-                verify_submit: true,
-                ..Default::default()
+            |text| {
+                self.send_text_verified(
+                    &pty_id,
+                    text,
+                    true,
+                    strategy,
+                    crate::service::inject_verify::VerifyOpts {
+                        require_prompt_first: false,
+                        verify_echo: false,
+                        verify_submit: true,
+                        ..Default::default()
+                    },
+                )
+                .map(|_| ())
+                .map_err(|error| error.to_string())
             },
         )
-        .map(|_| ())
-        .map_err(|error| error.to_string())
     }
 
     /// Send text to a pane (chatBackend or PTY). PTY link is awaited up to 15s so
@@ -274,16 +280,21 @@ impl ServiceContext {
                 std::time::Duration::from_secs(3),
             );
             let opts = crate::service::inject_verify::VerifyOpts {
-                // Don't gate on poll_shell_prompt: a live TUI's last line is its footer, not a prompt, so the poll would time out.
+                // A live TUI's last line is its footer, not a shell prompt.
                 require_prompt_first: false,
                 verify_echo: false,
                 verify_submit: true,
                 ..Default::default()
             };
-            return self
-                .send_text_verified(pty_id, &text, enter, strategy, opts)
-                .map(|_| ())
-                .map_err(|e| e.to_string());
+            return super::submit_transaction::submit_entry(
+                super::submit_transaction::PtySubmitEntry::Direct,
+                &text,
+                |text| {
+                    self.send_text_verified(pty_id, text, enter, strategy, opts)
+                        .map(|_| ())
+                        .map_err(|e| e.to_string())
+                },
+            );
         }
         self.send_text_to_pty(pty_id, text, enter)
     }
@@ -294,9 +305,9 @@ impl ServiceContext {
         #[cfg(windows)]
         {
             use std::time::Duration;
-            if !poll_shell_prompt(&self.screen_state, pty_id, Duration::from_secs(4)) {
+            if !await_shell_prompt(&self.screen_state, pty_id, Duration::from_secs(4)) {
                 let _ = self.pty.lock().write(pty_id, b"\x1b[1;1R");
-                poll_shell_prompt(&self.screen_state, pty_id, Duration::from_secs(4));
+                await_shell_prompt(&self.screen_state, pty_id, Duration::from_secs(4));
             }
         }
         let payload: Vec<u8> = if cfg!(windows) {
@@ -392,7 +403,7 @@ impl ServiceContext {
     /// mangles the command, so block until the prompt arms PSReadLine. No-op on Unix.
     pub(crate) fn await_shell_ready(&self, pty_id: &str) {
         #[cfg(windows)]
-        poll_shell_prompt(
+        await_shell_prompt(
             &self.screen_state,
             pty_id,
             std::time::Duration::from_secs(10),
@@ -421,32 +432,26 @@ impl ServiceContext {
     /// `send_text` by PTY id, skipping pane→pty resolution — use when the caller
     /// holds a verified pty_id and must not race a `link_pty` swap of `pane.pty_id`.
     pub fn send_text_to_pty(&self, pty_id: &str, text: &str, enter: bool) -> Result<(), String> {
-        // Feed parsed text before the bracket-paste ESCs so parser state stays stable.
-        self.feed_input_parser(pty_id, text, enter);
-        let paste = if cfg!(windows) {
-            format!("\x1b[200~ {}\x1b[201~", text)
-        } else {
-            format!("\x1b[200~{}\x1b[201~", text)
-        };
-        self.pty.lock().write(pty_id, paste.as_bytes())?;
-
-        if enter {
-            // \r as a separate delayed write: ink-based TUIs process bracket paste async and swallow a \r sent with it.
-            let pty = self.pty.clone();
-            let pty_id = pty_id.to_string();
-            if tokio::runtime::Handle::try_current().is_ok() {
-                tokio::spawn(async move {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                    let _ = pty.lock().write(&pty_id, b"\r");
-                });
-            } else {
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                    let _ = pty.lock().write(&pty_id, b"\r");
-                });
-            }
-        }
-        Ok(())
+        super::submit_transaction::submit_entry(
+            super::submit_transaction::PtySubmitEntry::Direct,
+            text,
+            |text| {
+                self.send_text_verified(
+                    pty_id,
+                    text,
+                    enter,
+                    crate::agent::provider::VerifySubmitStrategy::None,
+                    crate::service::inject_verify::VerifyOpts {
+                        require_prompt_first: false,
+                        verify_echo: enter,
+                        verify_submit: enter,
+                        ..Default::default()
+                    },
+                )
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+            },
+        )
     }
 
     /// Write raw bytes (no bracket paste) — for keystrokes the TUI must interpret (vim j/k, arrows).
@@ -458,8 +463,8 @@ impl ServiceContext {
             .map_err(|e| e.to_string())
     }
 
-    /// Inject ordered raw key sequences off-thread so the caller (state reactor's
-    /// poll loop) never blocks on the pty lock. PTY-only — chatBackend panes have no keys.
+    /// Inject ordered raw key sequences off-thread so the state reactor never
+    /// blocks on the pty lock. PTY-only — chatBackend panes have no keys.
     pub fn inject_raw_keys_async(&self, pane_id: &str, writes: Vec<Vec<u8>>) -> Result<(), String> {
         let pty_id = self.resolve_pty_id(pane_id)?;
         let pty = self.pty.clone();
@@ -502,37 +507,6 @@ impl ServiceContext {
             self.set_and_lock_pane_agent_type(&pane_id, provider_id);
             self.emit_state_changed();
         }
-    }
-
-    pub fn send_text_batch(
-        &self,
-        pane_id: &str,
-        batch: Vec<super::SendBatchItem>,
-    ) -> Result<(), String> {
-        if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
-            for item in batch {
-                self.chatbackend_send(&plugin_id, &session_id, &item.text)?;
-            }
-            return Ok(());
-        }
-        self.ensure_pane_pty_for_send(pane_id)?;
-        self.await_agent_boot_blocking(pane_id, std::time::Duration::from_secs(90))?;
-        let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
-        let pty = self.pty.clone();
-        tokio::spawn(async move {
-            for item in batch {
-                if let Some(delay) = item.delay_ms {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
-                }
-                let text = if item.enter && !item.text.ends_with('\r') {
-                    format!("{}\r", item.text)
-                } else {
-                    item.text
-                };
-                let _ = pty.lock().write(&pty_id, text.as_bytes());
-            }
-        });
-        Ok(())
     }
 }
 

@@ -31,8 +31,8 @@ pub(crate) struct SendTextBody {
     pub(crate) text: Option<String>,
     #[serde(default = "default_true")]
     pub(crate) enter: bool,
-    /// Terminal key/action sequence. When present, optional text is inserted
-    /// first without auto-submit, then actions are written as raw PTY bytes.
+    /// Terminal key/action sequence. Enter submits optional text through the
+    /// acknowledged transaction; navigation keys and delays remain ordered.
     pub(crate) actions: Option<Vec<SendAction>>,
     /// Batch: send multiple commands sequentially with optional delays
     pub(crate) batch: Option<Vec<BatchCommand>>,
@@ -256,48 +256,62 @@ pub async fn send_text(
         if actions.is_empty() {
             return Err((StatusCode::BAD_REQUEST, "actions cannot be empty"));
         }
-        let mut writes: Vec<(Option<u64>, Vec<u8>)> = Vec::with_capacity(actions.len());
+        let mut ordered = Vec::with_capacity(actions.len());
         for action in &actions {
             match action {
-                SendAction::Delay { ms } => writes.push((Some(*ms), Vec::new())),
+                SendAction::Delay { ms } => {
+                    ordered.push(crate::service::pty_io::OrderedPtyAction::Delay(
+                        std::time::Duration::from_millis(*ms),
+                    ))
+                }
                 SendAction::Key { key } => {
                     let Some(bytes) = send_action_bytes(key) else {
                         return Err((StatusCode::BAD_REQUEST, "unknown action key"));
                     };
-                    writes.push((None, bytes));
+                    if bytes == b"\r" {
+                        ordered.push(crate::service::pty_io::OrderedPtyAction::Submit);
+                    } else {
+                        ordered.push(crate::service::pty_io::OrderedPtyAction::Raw(bytes));
+                    }
                 }
             }
         }
 
         let raw_text = body.text.clone().unwrap_or_default();
-        let text_was_sent = !raw_text.is_empty();
-        if text_was_sent {
-            let text = prepend(&stage(raw_text.clone()));
-            state
-                .svc
-                .send_text_when_ready(&pane_id, &text, false)
-                .await
-                .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
-        }
-
-        if state.svc.pane_chat_backing(&pane_id).is_none() {
-            let pty_id = state
-                .svc
-                .resolve_pty_id(&pane_id)
-                .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
-            let pty = state.svc.pty.clone();
-            tokio::spawn(async move {
-                if text_was_sent {
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                }
-                for (delay, bytes) in writes {
-                    if let Some(ms) = delay {
-                        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
-                        continue;
-                    }
-                    let _ = pty.lock().write(&pty_id, &bytes);
-                }
-            });
+        let text = prepend(&stage(raw_text.clone()));
+        if target_is_chat {
+            if !raw_text.is_empty() {
+                state
+                    .svc
+                    .send_text_when_ready(&pane_id, &text, false)
+                    .await
+                    .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+            }
+        } else {
+            let svc = state.svc.clone();
+            let action_pane = pane_id.clone();
+            tokio::task::spawn_blocking(move || {
+                crate::service::pty_io::execute_ordered_actions(
+                    &text,
+                    &ordered,
+                    |body, enter| svc.send_text(&action_pane, body, enter),
+                    |bytes| svc.write_raw(&action_pane, bytes),
+                    crate::service::pty_io::await_action_deadline,
+                )
+            })
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "action delivery task failed",
+                )
+            })?
+            .map_err(|_| {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "PTY action delivery was not acknowledged",
+                )
+            })?;
         }
 
         let preview = if raw_text.is_empty() {
@@ -326,10 +340,22 @@ pub async fn send_text(
                 delay_ms: c.delay_ms,
             })
             .collect();
-        state
-            .svc
-            .send_text_batch(&pane_id, items)
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        let svc = state.svc.clone();
+        let batch_pane = pane_id.clone();
+        tokio::task::spawn_blocking(move || svc.send_text_batch(&batch_pane, items))
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "batch delivery task failed",
+                )
+            })?
+            .map_err(|_| {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "batch delivery was not acknowledged",
+                )
+            })?;
         record_push_activity(&state, &svc_token_match, &pane_id, &preview);
         if !preview.trim().is_empty() {
             state.svc.maybe_send_owned_plan_reminder(&pane_id);
@@ -375,4 +401,62 @@ pub async fn send_text(
         state.svc.maybe_send_owned_plan_reminder(&pane_id);
     }
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[cfg(test)]
+mod action_delivery_tests {
+    use crate::service::inject_verify::InjectionError;
+    use crate::service::pty_io::{execute_ordered_actions, OrderedPtyAction};
+
+    #[test]
+    fn api_send_actions_text_enter_uses_acknowledged_submit() {
+        let mut submits = Vec::new();
+        let mut raw_writes = Vec::new();
+        let result = execute_ordered_actions(
+            "parked body",
+            &[OrderedPtyAction::Submit],
+            |text, enter| {
+                submits.push((text.to_string(), enter));
+                Err::<(), _>(InjectionError::SubmitNeverConfirmed {
+                    waited: std::time::Duration::ZERO,
+                    screen_tail: "> parked body".into(),
+                })
+            },
+            |bytes| {
+                raw_writes.push(bytes.to_vec());
+                Ok(())
+            },
+            |_| {},
+        );
+        assert!(matches!(
+            result,
+            Err(InjectionError::SubmitNeverConfirmed { .. })
+        ));
+        assert_eq!(submits, [("parked body".into(), true)]);
+        assert!(raw_writes.is_empty());
+    }
+
+    #[test]
+    fn api_send_actions_raw_keys_ordered_bounded() {
+        let actions = [
+            OrderedPtyAction::Raw(b"up".to_vec()),
+            OrderedPtyAction::Delay(std::time::Duration::from_millis(25)),
+            OrderedPtyAction::Raw(b"esc".to_vec()),
+        ];
+        let mut raw_writes = Vec::new();
+        let mut deadlines = Vec::new();
+        execute_ordered_actions(
+            "",
+            &actions,
+            |_, _| Ok::<_, String>(()),
+            |bytes| {
+                raw_writes.push(bytes.to_vec());
+                Ok(())
+            },
+            |deadline| deadlines.push(deadline),
+        )
+        .unwrap();
+        assert_eq!(raw_writes, [b"up".to_vec(), b"esc".to_vec()]);
+        assert_eq!(deadlines, [std::time::Duration::from_millis(25)]);
+    }
 }

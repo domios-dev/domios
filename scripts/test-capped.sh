@@ -58,7 +58,7 @@ else
     CARGO_EXIT=$?
 fi
 
-kill "$WATCHDOG_PID" 2>/dev/null || true
+kill -- "-${WATCHDOG_PID}" 2>/dev/null || true
 wait "$WATCHDOG_PID" 2>/dev/null || true
 
 # If the watchdog wrote the flag, report 124 (timeout).
