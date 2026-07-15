@@ -459,6 +459,7 @@ mod tests {
             plan_id: plan_id.to_string(),
             file_path,
             owner: OrchestratorRef::default(),
+            team_id: None,
             title: "Indexed plan".into(),
             status,
             updated_at: 1,

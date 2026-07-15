@@ -74,6 +74,11 @@ pub enum PlanError {
         operation: String,
         message: String,
     },
+    TeamAlreadyHasActivePlan {
+        team_id: String,
+        existing_plan_id: String,
+        existing_title: String,
+    },
     Io(String),
 }
 
@@ -233,6 +238,14 @@ impl fmt::Display for PlanError {
             PlanError::ReadbackMismatch { operation, message } => {
                 write!(f, "{operation} readback mismatch: {message}")
             }
+            PlanError::TeamAlreadyHasActivePlan {
+                team_id,
+                existing_plan_id,
+                existing_title,
+            } => write!(
+                f,
+                "team {team_id} already owns active plan {existing_plan_id} «{existing_title}»; a team binds 1:1 to a plan. Create or use another Team for this effort (spawn a new team-bound orchestrator), or archive/complete {existing_plan_id} first."
+            ),
             PlanError::Io(e) => write!(f, "io error: {e}"),
         }
     }
@@ -364,6 +377,16 @@ impl PlanError {
                     "message": message
                 })
             }
+            PlanError::TeamAlreadyHasActivePlan {
+                team_id,
+                existing_plan_id,
+                existing_title,
+            } => serde_json::json!({
+                "type": "team_already_has_active_plan",
+                "team_id": team_id,
+                "existing_plan_id": existing_plan_id,
+                "existing_title": existing_title
+            }),
             PlanError::Io(message) => serde_json::json!({ "type": "io", "message": message }),
         }
     }
@@ -428,6 +451,8 @@ pub struct IndexEntry {
     pub plan_id: String,
     pub file_path: PathBuf,
     pub owner: OrchestratorRef,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<String>,
     pub title: String,
     pub status: PlanStatus,
     pub updated_at: u64,

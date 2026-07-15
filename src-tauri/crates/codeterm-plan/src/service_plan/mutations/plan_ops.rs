@@ -33,6 +33,32 @@ impl PlanStore {
         kinds: Vec<MilestoneKind>,
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
+        self.create_plan_for_team(title, project_path, owner, None, kinds, now_ms)
+    }
+
+    /// Create a plan optionally bound 1:1 to a team.
+    /// A second active team plan is refused; teamless creation remains allowed.
+    pub fn create_plan_for_team(
+        &self,
+        title: String,
+        project_path: String,
+        owner: OrchestratorRef,
+        team_id: Option<String>,
+        kinds: Vec<MilestoneKind>,
+        now_ms: u64,
+    ) -> Result<Plan, PlanError> {
+        let team_id = team_id
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty());
+        if let Some(team) = team_id.as_deref() {
+            if let Some((existing_plan_id, existing_title)) = self.active_plan_for_team(team) {
+                return Err(PlanError::TeamAlreadyHasActivePlan {
+                    team_id: team.to_string(),
+                    existing_plan_id,
+                    existing_title,
+                });
+            }
+        }
         // one root (not a sub-path like src-tauri/ or the daemon cwd).
         let project_path = paths::project_root(std::path::Path::new(&project_path))
             .display()
@@ -41,10 +67,27 @@ impl PlanStore {
         if self.id_taken(&plan.id) {
             plan.id = self.mint_id("pl");
         }
+        plan.team_id = team_id;
         plan.milestone_kinds = kinds;
-        self.save(&mut plan, now_ms)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
+        if let Err(error) = self.save(&mut plan, now_ms) {
+            self.plans.write().remove(&plan.id);
+            self.index.write().remove(&plan.id);
+            return Err(PlanError::Io(error.to_string()));
+        }
         Ok(plan)
+    }
+
+    /// Return the active plan bound to `team_id`, if any.
+    pub fn active_plan_for_team(&self, team_id: &str) -> Option<(String, String)> {
+        let team_id = team_id.trim();
+        if team_id.is_empty() {
+            return None;
+        }
+        self.plans.read().values().find_map(|arc| {
+            let plan = arc.lock();
+            (plan.status == PlanStatus::Active && plan.team_id.as_deref() == Some(team_id))
+                .then(|| (plan.id.clone(), plan.title.clone()))
+        })
     }
 
     pub fn update_plan(
@@ -778,5 +821,113 @@ mod planning_state_tests {
         assert_eq!(plan.planning_state, PlanningState::Drafting);
         assert!(plan.execution_tasks_unlocked());
         assert!(add(&s, &pid, "implement").is_ok());
+    }
+}
+
+#[cfg(test)]
+mod team_binding_tests {
+    use crate::plan::OrchestratorRef;
+    use crate::service_plan::{PlanError, PlanStore};
+    use tempfile::TempDir;
+
+    fn store() -> (TempDir, PlanStore) {
+        let dir = TempDir::new().unwrap();
+        let s = PlanStore::new_for_test(dir.path());
+        (dir, s)
+    }
+
+    fn create(
+        s: &PlanStore,
+        dir: &TempDir,
+        title: &str,
+        team: Option<&str>,
+        now: u64,
+    ) -> Result<crate::plan::Plan, PlanError> {
+        s.create_plan_for_team(
+            title.into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane("orch"),
+            team.map(str::to_string),
+            vec![],
+            now,
+        )
+    }
+
+    #[test]
+    fn teamless_creator_unaffected() {
+        let (dir, s) = store();
+        let a = create(&s, &dir, "A", None, 1).unwrap();
+        assert_eq!(a.team_id, None);
+        // A teamless creator may make many plans — no 1:1 constraint applies.
+        let b = create(&s, &dir, "B", None, 2).unwrap();
+        assert_eq!(b.team_id, None);
+        assert_ne!(a.id, b.id);
+        assert_eq!(s.list_index().len(), 2);
+    }
+
+    #[test]
+    fn team_bound_creation_persists_team_id() {
+        let (dir, s) = store();
+        let plan = create(&s, &dir, "Bound", Some("team_alpha"), 1).unwrap();
+        assert_eq!(plan.team_id.as_deref(), Some("team_alpha"));
+        assert_eq!(
+            s.active_plan_for_team("team_alpha"),
+            Some((plan.id.clone(), "Bound".into()))
+        );
+        // Exposed in the plan index.
+        let entry = s
+            .list_index()
+            .into_iter()
+            .find(|e| e.plan_id == plan.id)
+            .unwrap();
+        assert_eq!(entry.team_id.as_deref(), Some("team_alpha"));
+    }
+
+    #[test]
+    fn second_active_plan_hard_refused() {
+        let (dir, s) = store();
+        let first = create(&s, &dir, "First", Some("team_alpha"), 1).unwrap();
+        let before = s.list_index().len();
+        let err = create(&s, &dir, "Second", Some("team_alpha"), 2).unwrap_err();
+        match &err {
+            PlanError::TeamAlreadyHasActivePlan {
+                team_id,
+                existing_plan_id,
+                existing_title,
+            } => {
+                assert_eq!(team_id, "team_alpha");
+                assert_eq!(existing_plan_id, &first.id);
+                assert_eq!(existing_title, "First");
+            }
+            other => panic!("expected hard refuse, got {other:?}"),
+        }
+        let msg = err.to_string();
+        assert!(msg.contains(&first.id), "error must name the existing plan");
+        assert!(msg.contains("team_alpha"), "error must name the team");
+        assert!(
+            msg.to_lowercase().contains("another team"),
+            "error must instruct to use another Team: {msg}"
+        );
+        // Hard refuse leaves the store unchanged — no teamless fallback plan.
+        assert_eq!(s.list_index().len(), before);
+    }
+
+    #[test]
+    fn different_team_gets_its_own_plan() {
+        let (dir, s) = store();
+        create(&s, &dir, "Alpha", Some("team_alpha"), 1).unwrap();
+        let beta = create(&s, &dir, "Beta", Some("team_beta"), 2).unwrap();
+        assert_eq!(beta.team_id.as_deref(), Some("team_beta"));
+    }
+
+    #[test]
+    fn archiving_frees_the_team_for_a_new_plan() {
+        let (dir, s) = store();
+        let first = create(&s, &dir, "First", Some("team_alpha"), 1).unwrap();
+        s.archive(&first.id, 2).unwrap();
+        // The 1:1 rule counts only ACTIVE plans — an archived one no longer blocks.
+        let second = create(&s, &dir, "Second", Some("team_alpha"), 3).unwrap();
+        assert_eq!(second.team_id.as_deref(), Some("team_alpha"));
+        assert_ne!(first.id, second.id);
     }
 }

@@ -802,7 +802,7 @@ impl PlanStore {
         status: Option<ReportStatus>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        let Some(pane_id) = from.pane_id.as_deref() else {
+        let Some(reporter_pane) = from.pane_id.as_deref() else {
             return Ok(());
         };
         self.with_plan(plan_id, now_ms, |plan| {
@@ -811,16 +811,29 @@ impl PlanStore {
                 .iter_mut()
                 .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
-            if let Some(attempt) = task
-                .execution_attempts
-                .iter_mut()
-                .rev()
-                .find(|attempt| attempt.executor_pane_id == pane_id)
-            {
+            // Reports attach to the assigned executor's live attempt.
+            // They never create or rebind an attempt.
+            let executor_pane = task.assigned_pane_id.clone();
+            let target_idx = executor_pane
+                .as_deref()
+                .and_then(|executor| {
+                    task.execution_attempts.iter().rposition(|attempt| {
+                        attempt.executor_pane_id == executor && attempt.closed_at.is_none()
+                    })
+                })
+                .or_else(|| {
+                    task.execution_attempts
+                        .iter()
+                        .rposition(|attempt| attempt.executor_pane_id == reporter_pane)
+                });
+            if let Some(attempt) = target_idx.map(|idx| &mut task.execution_attempts[idx]) {
+                let reporter_pane_id =
+                    (attempt.executor_pane_id != reporter_pane).then(|| reporter_pane.to_string());
                 attempt.report = Some(TaskExecutionReportSnapshot {
                     id: format!("report_{now_ms}"),
                     message: Some(message.into()),
                     status: status.map(report_status_key),
+                    reporter_pane_id,
                     ..Default::default()
                 });
                 attempt.reported_at = Some(now_ms);

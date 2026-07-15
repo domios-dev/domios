@@ -223,6 +223,51 @@ impl PlanStore {
         })
     }
 
+    /// Capture report branch and peer values into empty lane fields.
+    /// Reports never change executor bindings.
+    pub fn record_report_lane_truth(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        branch: Option<&str>,
+        peer: Option<&str>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        let branch = non_empty_arg(branch);
+        let peer = non_empty_arg(peer);
+        if branch.is_none() && peer.is_none() {
+            return Ok(());
+        }
+        self.with_plan(plan_id, now_ms, |p| {
+            let task = p
+                .tasks
+                .iter_mut()
+                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            if is_terminal_task_status(&task.status) {
+                return Ok(());
+            }
+            let mut touched = false;
+            if let Some(branch) = branch {
+                if task.lane.branch.as_deref().unwrap_or("").is_empty() {
+                    task.lane.branch = Some(branch.to_string());
+                    touched = true;
+                }
+            }
+            if let Some(peer) = peer {
+                if task.peer.as_deref().unwrap_or("").is_empty() {
+                    task.peer = Some(peer.to_string());
+                    touched = true;
+                }
+            }
+            if touched {
+                task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
+                task.updated_at = now_ms;
+            }
+            Ok(())
+        })
+    }
+
     /// Recording discipline: at report / status-to-active time, capture lane
     /// truth from the caller's live context — but only into EMPTY fields, never
     /// overwriting an explicit prior value. This is the fix for tasks going
