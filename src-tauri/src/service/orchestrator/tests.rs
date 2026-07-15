@@ -108,7 +108,9 @@ fn idle_planner_does_not_receive_a_preferences_turn() {
 fn fresh_spawn_never_uses_existing_pane_promotion_delivery() {
     for source in [include_str!("spawn.rs"), include_str!("../spawn.rs")] {
         assert!(!source.contains("maybe_deliver_orchestrator_promotion_onboarding"));
-        assert!(source.contains("role_onboarding_task("));
+        assert!(
+            source.contains("spawn_onboarding_task") || source.contains("role_onboarding_task")
+        );
         assert!(source.contains("launch_agent_in_background("));
     }
 }

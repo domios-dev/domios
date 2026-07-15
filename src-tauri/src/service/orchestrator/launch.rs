@@ -2,6 +2,39 @@ use super::types::SpawnAgentParams;
 use crate::service::boot_stage::BootStage;
 use crate::service::ServiceContext;
 
+const ROLE_METADATA_KEY: &str = "CODETERM_ROLE";
+
+#[derive(Debug, PartialEq, Eq)]
+struct SpawnLaunchInput {
+    task_submission: Option<String>,
+    role_metadata: Option<(String, String)>,
+    plan_attachment: Option<String>,
+    team_attachment: Option<String>,
+}
+
+impl SpawnLaunchInput {
+    #[cfg(test)]
+    fn task_submissions(&self) -> impl Iterator<Item = &str> {
+        self.task_submission.iter().map(String::as_str)
+    }
+}
+
+fn split_spawn_launch_input(params: &SpawnAgentParams) -> SpawnLaunchInput {
+    SpawnLaunchInput {
+        task_submission: role_onboarding_task(
+            params.task.as_deref(),
+            params.role.as_deref(),
+            params.role_profile.as_deref(),
+        ),
+        role_metadata: params
+            .role
+            .as_ref()
+            .map(|role| (ROLE_METADATA_KEY.to_string(), role.clone())),
+        plan_attachment: None,
+        team_attachment: None,
+    }
+}
+
 /// A cross-mesh worker (mesh report target set, no local parent) must NOT be
 /// forced into the local Worker hierarchy — it has no local Orchestrator parent,
 /// so `set_pane_role(Worker, None)` errors. Its hierarchy is represented on the
@@ -34,15 +67,7 @@ pub(crate) fn role_onboarding_task(
 }
 
 pub(crate) fn spawn_onboarding_task(params: &SpawnAgentParams) -> Option<String> {
-    if params.skip_orchestrator_onboarding == Some(true) && params.task.is_none() {
-        None
-    } else {
-        role_onboarding_task(
-            params.task.as_deref(),
-            params.role.as_deref(),
-            params.role_profile.as_deref(),
-        )
-    }
+    split_spawn_launch_input(params).task_submission
 }
 
 pub(crate) fn should_deliver_spawn_preferences(
@@ -372,7 +397,17 @@ pub(crate) fn launch_agent_in_background(
 
 #[cfg(test)]
 mod tests {
-    use super::replacement_pty_candidate;
+    use super::{replacement_pty_candidate, split_spawn_launch_input, SpawnLaunchInput};
+    use crate::service::orchestrator::types::SpawnAgentParams;
+
+    fn orchestrator_params(task: Option<&str>) -> SpawnAgentParams {
+        SpawnAgentParams {
+            agent: Some("test-provider".into()),
+            task: task.map(str::to_string),
+            role: Some("Orchestrator".into()),
+            ..Default::default()
+        }
+    }
 
     #[test]
     fn replacement_pty_must_be_new_and_live() {
@@ -383,6 +418,72 @@ mod tests {
         assert!(replacement_pty_candidate(Some("closed"), "closed", true).is_none());
         assert!(replacement_pty_candidate(Some("new"), "closed", false).is_none());
         assert!(replacement_pty_candidate(None, "closed", true).is_none());
+    }
+
+    #[test]
+    fn plain_orchestrator_no_task_spawn_submits_nothing() {
+        let launch = split_spawn_launch_input(&orchestrator_params(None));
+
+        assert_eq!(launch.task_submissions().count(), 0);
+    }
+
+    #[test]
+    fn plain_orchestrator_no_task_attaches_nothing() {
+        let launch = split_spawn_launch_input(&orchestrator_params(None));
+
+        assert_eq!(launch.plan_attachment, None);
+        assert_eq!(launch.team_attachment, None);
+    }
+
+    #[test]
+    fn plain_orchestrator_role_metadata_uses_the_non_task_channel() {
+        let launch = split_spawn_launch_input(&orchestrator_params(None));
+
+        assert_eq!(
+            launch,
+            SpawnLaunchInput {
+                task_submission: None,
+                role_metadata: Some(("CODETERM_ROLE".into(), "Orchestrator".into())),
+                plan_attachment: None,
+                team_attachment: None,
+            }
+        );
+    }
+
+    #[test]
+    fn explicit_orchestrator_task_is_submitted_exactly_once() {
+        let launch = split_spawn_launch_input(&orchestrator_params(Some("inspect launch")));
+
+        assert_eq!(
+            launch.task_submissions().collect::<Vec<_>>(),
+            ["inspect launch"]
+        );
+    }
+
+    #[test]
+    fn planner_onboarding_remains_work_when_a_task_is_provided() {
+        let params = SpawnAgentParams {
+            task: Some("plan this".into()),
+            role: Some("Manager".into()),
+            role_profile: Some("planner".into()),
+            ..Default::default()
+        };
+
+        let launch = split_spawn_launch_input(&params);
+        assert_eq!(launch.task_submissions().count(), 1);
+        assert!(launch
+            .task_submission
+            .unwrap()
+            .contains(&crate::prompts::planner_suffix()));
+    }
+
+    #[test]
+    fn chat_backend_or_pty_no_task_orchestrator_submits_nothing() {
+        let launch = split_spawn_launch_input(&orchestrator_params(None));
+
+        for _transport in ["pty", "chat_backend"] {
+            assert_eq!(launch.task_submissions().count(), 0);
+        }
     }
 }
 
@@ -417,8 +518,14 @@ pub(crate) fn build_agent_command(
     }
     if let Some(ref effort) = params.reasoning_effort {
         if !effort.is_empty() {
-            if let Some(effort_args) =
-                registry.with_provider(agent_cmd, |p| p.reasoning_effort_launch_args(effort))
+            if let Some(effort_args) = registry
+                .with_provider(agent_cmd, |p| {
+                    p.reasoning_efforts()
+                        .iter()
+                        .any(|supported| supported.id == *effort)
+                        .then(|| p.reasoning_effort_launch_args(effort))
+                })
+                .flatten()
             {
                 args.extend(effort_args);
             }
