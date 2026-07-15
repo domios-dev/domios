@@ -133,12 +133,12 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
       body: "fixture",
       acceptance_criteria: ["Status tally fixture is observable"],
       test_plan: "npx tsx src/components/Sidebar/SidebarWorkspaceTabs.test.tsx",
+      ...(status === "in_progress" ? { lane: { pane_id: pane.id } } : {}),
       parent: null,
     });
     if (status) {
       await api.request("PATCH", `/plans/${created.plan_id}/tasks/${task.task_id}`, {
         status,
-        ...(status === "in_progress" ? { lane: { pane_id: pane.id } } : {}),
         ...(status === "blocked" ? { status_label: "fixture" } : {}),
       });
     }
