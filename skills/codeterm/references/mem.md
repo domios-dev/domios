@@ -84,10 +84,10 @@ codeterm mem save --kind fact --title "API base url" --pin --workspace "$CODETER
   "Staging API base: https://api-staging.example.com (no trailing slash)"
 
 # Workspace-aware wake-up — boosts ws-scoped rows in the score
-codeterm mem wake-up --workspace "$CODETERM_WORKSPACE_ID"
+codeterm mem wake-up
 
 # Debug what L1 selected
-codeterm mem wake-up --workspace "$CODETERM_WORKSPACE_ID" --explain | tail -30
+codeterm mem wake-up --explain | tail -30
 
 # Inspect / curate pinned set
 codeterm mem pinned --limit 50

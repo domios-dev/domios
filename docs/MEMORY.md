@@ -123,7 +123,7 @@ Final ordering: `score DESC, id ASC` (deterministic for tests / `--explain`).
 
 and a `log::warn!` fires (`[wake-up] pinned-eviction`). Action: shrink pins (`mem unpin <id>`) or raise the budget. Pins are user intent, so the system never silently drops them — it surfaces the conflict.
 
-**Workspace scoping** — `codeterm mem wake-up --workspace <ws>` (or `?workspace=<ws>` on the REST endpoint) loads global items + items pinned/scoped to that workspace, and the `ws_match` score term boosts workspace-local rows by 0.5. With no `--workspace`, only `scope = global` items participate.
+**Workspace scoping** — `codeterm mem wake-up` inherits `CODETERM_WORKSPACE_ID` from the calling tab. It loads global items + items pinned/scoped to that workspace, and the `ws_match` score term boosts workspace-local rows by 0.5. `--workspace <ws>` explicitly overrides the caller; without either context, only `scope = global` items participate.
 
 ## Graph layer
 
@@ -298,7 +298,8 @@ codeterm mem search "<query>" [--kind <k>] [--area <a>] [--scope workspace] [--l
 codeterm mem recall "<query>"                       # semantic-first
 codeterm mem get <id>                               # full item body
 codeterm mem wake-up                                # L0 identity + L1 critical
-codeterm mem wake-up --workspace <ws>               # scope L1 to a workspace (boosts ws-local rows)
+codeterm mem wake-up                                # inherit the calling tab's workspace
+codeterm mem wake-up --workspace <ws>               # explicitly override workspace scope
 codeterm mem wake-up --explain                      # append per-item score breakdown
 
 # Write
