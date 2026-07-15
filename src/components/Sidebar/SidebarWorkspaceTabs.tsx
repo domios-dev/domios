@@ -13,7 +13,7 @@ import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { Plan } from "../Canvas/types";
 import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import { resolvePaneTabActivity } from "../Canvas/paneTabActivity";
-import { openWorkspacePlanCanvas } from "../Canvas/workspacePlanEntry";
+import { openTeamPlanCanvas } from "../Canvas/workspacePlanEntry";
 import { WorkspacePlanTreeSlot } from "./WorkspacePlanEntry";
 import { RemoteWorkerRow } from "./RemoteWorkerRow";
 import { SortableContext, verticalListSortingStrategy, TAB_PREFIX } from "./sortable";
@@ -261,15 +261,15 @@ export function SidebarWorkspaceTabs({
           </>
         }
         providers={providers}
-        onRenameTeam={(id, name) => onRenameTeam?.(id, name)}
-        onOpenEffort={(plan) => {
+        onRenameTeam={onRenameTeam}
+        onOpenEffort={(target) => {
           onBeforeOpenPlan();
-          openWorkspacePlanCanvas(plan ? { planId: plan.id } : undefined);
+          openTeamPlanCanvas({ ...target, managerPaneId: parentPaneId });
         }}
-        onAddMember={(role, providerId) =>
-          onAddTeamMember?.(teamId, role, providerId, parentPaneId)
-        }
-        onArchiveTeam={(id) => onArchiveTeam?.(id)}
+        onAddMember={onAddTeamMember
+          ? (role, providerId) => onAddTeamMember(teamId, role, providerId, parentPaneId)
+          : undefined}
+        onArchiveTeam={onArchiveTeam}
       />,
     );
   }
