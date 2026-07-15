@@ -108,7 +108,7 @@ mod tests {
     }
 
     #[test]
-    fn team_manager_permission_rejects_worker_and_foreign_pane() {
+    fn mux_rename_team_rejects_worker_and_foreign_pane() {
         let (mut mux, team_id, _, _, worker) = team_members();
         assert!(authorize_team_manager(&mux, &team_id, Some(&worker)).is_err());
         let foreign = mux.create_pane();
