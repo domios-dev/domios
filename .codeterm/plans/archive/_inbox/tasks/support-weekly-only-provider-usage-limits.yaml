@@ -1,0 +1,52 @@
+id: task_thu6lb
+name: Support weekly-only provider usage limits
+type: fix
+model: null
+model_rationale: Some providers legitimately omit the session or five-hour limit and expose only a weekly allowance.
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- Weekly-only usage payload renders without an empty, error, or placeholder session metric.
+- Providers that expose both session and weekly limits remain unchanged.
+test_plan: Add a provider-neutral usage fixture with session fields absent, run the focused usage parser and component tests, then verify the dev usage portal at narrow and desktop widths.
+correctness: No provider-id branching; optional metrics are driven by field presence.
+status: pending
+review_stage: review
+qa_state: null
+status_label: null
+priority: p2
+created_at: 1784103275291
+updated_at: 1784103275291
+status_changed_at: 1784103275291
+handle: support-weekly-only-provider-usage-limits
+tags: []
+section_ids: []
+body: Render usage tracking from capability data without requiring a session limit. Hide the absent session metric while preserving weekly percentage, reset, spend, and portal bounds.
+role_guidance: null
+executor_role: null
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []
