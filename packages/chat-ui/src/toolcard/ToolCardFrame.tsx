@@ -15,11 +15,12 @@ interface ToolCardFrameProps {
   metric?: ReactNode;
   chips?: ReactNode;
   tail?: ReactNode;
+  action?: ReactNode;
   variant?: "smart" | "codeterm";
   visualOverride?: ToolKindVisual;
 }
 
-export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, command, title, summary, metric, chips, tail, variant = "smart", visualOverride }: ToolCardFrameProps) {
+export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, command, title, summary, metric, chips, tail, action, variant = "smart", visualOverride }: ToolCardFrameProps) {
   const [commandOpen, setCommandOpen] = useState(false);
   const globalShowCommands = useShowCommands();
   const visual = visualOverride ?? toolKindVisual[event.kind];
@@ -69,6 +70,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         <span data-testid="toolcard-status" aria-label={event.status} style={{ color: statusColor }}>
           {event.status === "pending" ? <LoaderCircle className="animate-spin" size={14} /> : event.status === "error" ? <CircleX size={14} /> : <Check size={14} />}
         </span>
+        {action}
         {isCommand && (
           <button
             type="button"
@@ -98,5 +100,20 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         </div>
       )}
     </div>
+  );
+}
+
+export function ToolCardActionButton({ label, onClick, testId }: { label: string; onClick: () => void; testId?: string }) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      title={label}
+      onClick={onClick}
+      className="shrink-0 rounded border px-2 py-0.5 font-mono text-[10.5px] transition-colors hover:brightness-125"
+      style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)", background: "transparent" }}
+    >
+      {label}
+    </button>
   );
 }

@@ -245,6 +245,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
           onFocusTab={onOriginClick}
           onOpenPlan={onOpenPlan}
           resolvePlanRef={resolvePlanRef}
+          fontScale={fontScale}
         />
       );
     }

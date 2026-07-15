@@ -1,4 +1,5 @@
 import type { CodetermInvocation } from "./recognize";
+import { decodeCliMessageText } from "./messageText";
 
 export interface CardStatus {
   ok: boolean;
@@ -131,7 +132,8 @@ function commandObject(command: string | undefined): string | undefined {
 }
 
 function reportFields(inv: CodetermInvocation): Array<{ label: string; value: string }> {
-  const body = flagText(inv, "text") ?? inv.positionals.find((value) => /(?:^|\n)(?:STATUS|CHANGES|TESTS RUN|GATES REQUESTED|FOLLOWUP):/i.test(value));
+  const rawBody = flagText(inv, "text") ?? inv.positionals.find((value) => /(?:^|\n|\\n)(?:STATUS|CHANGES|TESTS RUN|GATES REQUESTED|FOLLOWUP):/i.test(value));
+  const body = rawBody ? decodeCliMessageText(rawBody) : undefined;
   const fields = new Map<string, string>();
   for (const line of body?.split(/\r?\n/) ?? []) {
     const match = /^(STATUS|CHANGES|TESTS RUN|GATES REQUESTED|FOLLOWUP):\s*(.*)$/i.exec(line.trim());
@@ -321,7 +323,7 @@ export function parseSend(
   if (typeof p !== "string") recipient = "current tab";
   else recipient = resolve?.(p) ?? `tab ${p}`;
   const mesh = typeof inv.flags.mesh === "string" ? inv.flags.mesh : undefined;
-  return { recipient, mesh, body: inv.positionals[0] ?? "", status: deliveredStatus(result) };
+  return { recipient, mesh, body: decodeCliMessageText(inv.positionals[0] ?? ""), status: deliveredStatus(result) };
 }
 
 /** True when this invocation is an outgoing `codeterm send`. */
