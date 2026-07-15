@@ -106,6 +106,13 @@ const HTTP_MAP: Record<string, Mapper> = {
       model: a.model,
     }),
   get_config: () => webJson("GET", "/api/config"),
+  list_notifications: () => webJson("GET", "/api/notifications"),
+  mark_notification_read: (a) =>
+    webJson("POST", `/api/notifications/${enc(s(a, "id"))}/read`),
+  clear_notifications: (a) =>
+    a.id
+      ? webJson("DELETE", `/api/notifications/${enc(s(a, "id"))}`)
+      : webJson("POST", "/api/notifications/clear"),
   // PATCH: the route has no POST; the handler merges top-level keys, so the full config object works as a partial.
   update_config: (a) => webJson("PATCH", "/api/config", a.config),
   get_network_info: () => webJson("GET", "/api/network"),

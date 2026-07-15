@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "../../lib/bridge";
 import type { Notification, NotificationAction } from "../../lib/types";
 import { Check, X } from "lucide-react";
@@ -18,14 +19,16 @@ const MAX_VISIBLE_TOASTS = 2;
 interface ToastItemProps {
   notification: Notification;
   onDismiss: (id: string) => void;
+  onMarkRead?: (id: string) => void;
   onNavigate?: (paneId: string) => void;
   embedded?: boolean;
 }
 
-function ToastItem({ notification, onDismiss, onNavigate, embedded }: ToastItemProps) {
+function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }: ToastItemProps) {
   const [visible, setVisible] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const hasActions = (notification.actions?.length ?? 0) > 0;
-  const sticky = notification.sticky || hasActions;
+  const sticky = notification.sticky || hasActions || expanded;
 
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true));
@@ -44,13 +47,9 @@ function ToastItem({ notification, onDismiss, onNavigate, embedded }: ToastItemP
   }, [notification.id, onDismiss]);
 
   const handleClick = useCallback(() => {
-    if (hasActions) return;
-    if (notification.pane_id && onNavigate) {
-      onNavigate(notification.pane_id);
-    }
-    setVisible(false);
-    setTimeout(() => onDismiss(notification.id), DISMISS_ANIMATION_MS);
-  }, [notification.id, notification.pane_id, onDismiss, onNavigate, hasActions]);
+    if (!notification.read) onMarkRead?.(notification.id);
+    setExpanded(true);
+  }, [notification.id, notification.read, onMarkRead]);
 
   const runAction = useCallback(async (action: NotificationAction) => {
     if (action.type === "dismiss") {
@@ -120,29 +119,83 @@ function ToastItem({ notification, onDismiss, onNavigate, embedded }: ToastItemP
 
   if (embedded) {
     return (
-      <div
-        onClick={handleClick}
-        data-testid="notification-toast"
-        data-notification-id={notification.id}
-        data-notification-key={notification.key ?? ""}
-        data-notification-level={notification.level}
-        role="status"
-        style={{ ["--toast-accent" as string]: styles.accent }}
-        className={`ct-toast-inline ${visible ? "ct-toast-inline--open" : "ct-toast-inline--closed"} ${hasActions ? "" : "cursor-pointer"}`}
-      >
-        <div className="ct-toast-inline-panel ct-float">
-          {!sticky && (
-            <span
-              className="ct-toast-inline-progress"
-              style={{ animation: `ct-toast-timeout ${AUTO_DISMISS_MS}ms linear forwards` }}
-            />
-          )}
-          <div className="ct-toast-inline-content">
-            {content}
+      <>
+        <div
+          onClick={handleClick}
+          data-testid="notification-toast"
+          data-notification-id={notification.id}
+          data-notification-key={notification.key ?? ""}
+          data-notification-level={notification.level}
+          role="status"
+          style={{ ["--toast-accent" as string]: styles.accent }}
+          className={`ct-toast-inline ${visible ? "ct-toast-inline--open" : "ct-toast-inline--closed"} cursor-pointer`}
+        >
+          <div className="ct-toast-inline-panel ct-float">
+            {!sticky && (
+              <span
+                className="ct-toast-inline-progress"
+                style={{ animation: `ct-toast-timeout ${AUTO_DISMISS_MS}ms linear forwards` }}
+              />
+            )}
+            <div className="ct-toast-inline-content">
+              {content}
+            </div>
           </div>
+          <span className="ct-toast-inline-seed" aria-hidden />
         </div>
-        <span className="ct-toast-inline-seed" aria-hidden />
-      </div>
+        {expanded && createPortal(
+          <div
+            data-testid="notification-toast-expanded"
+            role="dialog"
+            aria-label={notification.title}
+            className="fixed right-2 top-[calc(2rem+var(--ct-safe-top,0px)+6px)] z-[70] w-[min(420px,calc(100vw-16px))] rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] p-3 shadow-2xl ct-float"
+            style={{ ["--toast-accent" as string]: styles.accent }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start gap-2">
+              <LevelIcon level={notification.level} className={`mt-0.5 shrink-0 ${styles.icon}`} />
+              <div className="min-w-0 flex-1">
+                <div className="font-medium text-[var(--ct-fg)]">{notification.title}</div>
+                {notification.body && (
+                  <div className="mt-2 max-h-[min(420px,60vh)] overflow-y-auto whitespace-pre-wrap break-words text-[12px] leading-5 text-[var(--ct-muted-fg)]">
+                    {notification.body}
+                  </div>
+                )}
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {notification.pane_id && onNavigate && (
+                    <button
+                      type="button"
+                      className="rounded border border-[var(--ct-border)] px-2 py-1 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+                      onClick={() => onNavigate(notification.pane_id!)}
+                    >
+                      Show Tab
+                    </button>
+                  )}
+                  {notification.actions?.map((action, index) => (
+                    <button
+                      type="button"
+                      key={`${action.label}-${index}`}
+                      className="rounded border border-[var(--ct-border)] px-2 py-1 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+                      onClick={() => runAction(action)}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Close expanded notification"
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+                onClick={() => setExpanded(false)}
+              >
+                <X size={13} />
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
+      </>
     );
   }
 
@@ -179,6 +232,7 @@ function ToastItem({ notification, onDismiss, onNavigate, embedded }: ToastItemP
 interface NotificationToastContainerProps {
   toasts: Notification[];
   onDismiss: (id: string) => void;
+  onMarkRead?: (id: string) => void;
   onNavigate?: (paneId: string) => void;
   embedded?: boolean;
 }
@@ -186,6 +240,7 @@ interface NotificationToastContainerProps {
 export function NotificationToastContainer({
   toasts,
   onDismiss,
+  onMarkRead,
   onNavigate,
   embedded = false,
 }: NotificationToastContainerProps) {
@@ -207,6 +262,7 @@ export function NotificationToastContainer({
             key={toast.id}
             notification={toast}
             onDismiss={onDismiss}
+            onMarkRead={onMarkRead}
             onNavigate={onNavigate}
             embedded
           />
@@ -226,7 +282,7 @@ export function NotificationToastContainer({
       )}
       {visibleToasts.map((toast) => (
         <div key={toast.id} className="pointer-events-auto">
-          <ToastItem notification={toast} onDismiss={onDismiss} onNavigate={onNavigate} />
+          <ToastItem notification={toast} onDismiss={onDismiss} onMarkRead={onMarkRead} onNavigate={onNavigate} />
         </div>
       ))}
     </div>

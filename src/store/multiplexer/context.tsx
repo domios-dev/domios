@@ -53,6 +53,7 @@ export interface MultiplexerActionsContextType {
   upsertToast: (toast: Omit<Notification, "timestamp" | "read">) => void;
   markRead: (id: string) => void;
   markAllRead: () => void;
+  deleteNotification: (id: string) => void;
   clearNotifications: () => void;
   dismissToast: (id: string) => void;
   setPaneTitle: (paneId: string, title: string, level?: TitleLevel) => void;

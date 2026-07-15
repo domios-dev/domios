@@ -36,9 +36,11 @@ export type Action =
   | { type: "SET_FOCUSED_PANE"; paneId: string }
   | { type: "SET_PANE_PTY"; paneId: string; ptyId: string }
   | { type: "ADD_NOTIFICATION"; notification: Notification }
+  | { type: "HYDRATE_NOTIFICATIONS"; notifications: Notification[] }
   | { type: "UPSERT_TOAST"; toast: Notification }
   | { type: "MARK_READ"; id: string }
   | { type: "MARK_ALL_READ" }
+  | { type: "DELETE_NOTIFICATION"; id: string }
   | { type: "CLEAR_NOTIFICATIONS" }
   | { type: "DISMISS_TOAST"; id: string }
   | { type: "SET_PANE_TITLE"; paneId: string; title: string; level?: TitleLevel }
@@ -453,6 +455,19 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       return {
         ...state,
         notifications: state.notifications.map((n) => ({ ...n, read: true })),
+      };
+
+    case "HYDRATE_NOTIFICATIONS": {
+      const notifications = new Map(action.notifications.map((notification) => [notification.id, notification]));
+      for (const notification of state.notifications) notifications.set(notification.id, notification);
+      return { ...state, notifications: [...notifications.values()] };
+    }
+
+    case "DELETE_NOTIFICATION":
+      return {
+        ...state,
+        notifications: state.notifications.filter((n) => n.id !== action.id),
+        toasts: state.toasts.filter((n) => n.id !== action.id),
       };
 
     case "CLEAR_NOTIFICATIONS":

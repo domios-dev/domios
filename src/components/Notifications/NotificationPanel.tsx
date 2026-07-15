@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import type { Notification } from "../../lib/types";
-import { CloseXIcon } from "../Icons";
+import { Bell, Trash2, X } from "lucide-react";
 import { timeAgo } from "../../lib/formatters";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
 
@@ -14,7 +14,7 @@ interface NotificationPanelProps {
   notifications: Notification[];
   onMarkRead: (id: string) => void;
   onMarkAllRead: () => void;
-  onClearAll: () => void;
+  onDelete: (id: string) => void;
   onJumpToPane: (paneId: string, workspaceId: string | null) => void;
   onClose: () => void;
 }
@@ -23,7 +23,7 @@ export function NotificationPanel({
   notifications,
   onMarkRead,
   onMarkAllRead,
-  onClearAll,
+  onDelete,
   onJumpToPane,
   onClose,
 }: NotificationPanelProps) {
@@ -32,20 +32,17 @@ export function NotificationPanel({
   const handleClick = useCallback(
     (notif: Notification) => {
       if (!notif.read) onMarkRead(notif.id);
-      if (notif.pane_id) onJumpToPane(notif.pane_id, notif.workspace_id);
     },
-    [onMarkRead, onJumpToPane],
+    [onMarkRead],
   );
   const headerBtnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} text-[var(--ct-accent)]`;
-  const headerActionClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact}`;
-  const rowClass = `flex items-start gap-2 px-3 py-2 cursor-pointer border-b border-[var(--ct-border)] hover:bg-[var(--ct-hover)] transition-colors`;
+  const rowClass = `group flex items-start gap-2 border-b border-[var(--ct-border)] px-3 py-2.5 transition-colors hover:bg-[var(--ct-hover)]`;
 
   return (
-    <div className="absolute left-[220px] top-0 bottom-0 w-[300px] bg-[var(--ct-sidebar-bg)] border-r border-[var(--ct-border)] z-40 flex flex-col overflow-hidden shadow-xl ct-float">
-      {/* Header */}
+    <div data-testid="notification-panel" className="flex max-h-[min(560px,calc(100vh-48px))] w-[min(380px,calc(100vw-16px))] flex-col overflow-hidden rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] shadow-2xl ct-float">
       <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--ct-border)] shrink-0">
-        <span className="text-sm font-medium text-[var(--ct-muted-fg)]">
-          Notifications
+        <span className="flex items-center gap-2 text-sm font-medium text-[var(--ct-fg)]">
+          <Bell size={14} /> Notifications
         </span>
         <div className="flex items-center gap-1">
           <button
@@ -56,18 +53,11 @@ export function NotificationPanel({
             Read all
           </button>
           <button
-            onClick={onClearAll}
-            className={headerActionClass}
-            title="Clear all"
-          >
-            Clear
-          </button>
-          <button
             onClick={onClose}
             className="ct-btn ct-btn-ghost w-7 h-7"
-            title="Close panel"
+            aria-label="Close notifications"
           >
-            <CloseXIcon size={8} />
+            <X size={13} />
           </button>
         </div>
       </div>
@@ -75,7 +65,8 @@ export function NotificationPanel({
       {/* List */}
       <div className="flex-1 overflow-y-auto">
         {sorted.length === 0 ? (
-          <div className="flex items-center justify-center h-24">
+          <div className="flex h-28 flex-col items-center justify-center gap-2">
+            <Bell size={18} className="text-[var(--ct-muted)]" />
             <span className={UI_TEXT.metaMuted}>No notifications</span>
           </div>
         ) : (
@@ -93,21 +84,41 @@ export function NotificationPanel({
                   >
                     {notif.title}
                   </span>
-                  <span className="text-sm text-[var(--ct-muted)] shrink-0">
+                  <span className="shrink-0 text-[10px] text-[var(--ct-muted)]">
                     {timeAgo(notif.timestamp)}
                   </span>
                 </div>
                 {notif.body && (
-                  <div className={`${UI_TEXT.meta} mt-0.5 line-clamp-2`}>
+                  <div className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-5 text-[var(--ct-muted-fg)]">
                     {notif.body}
                   </div>
                 )}
                 {notif.pane_id && (
-                  <div className="text-sm text-[var(--ct-muted)] mt-0.5">
-                    Pane {notif.pane_id.slice(0, 8)}
-                  </div>
+                  <button
+                    type="button"
+                    className="mt-1.5 rounded border border-[var(--ct-border)] px-2 py-1 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (!notif.read) onMarkRead(notif.id);
+                      onJumpToPane(notif.pane_id!, notif.workspace_id);
+                    }}
+                  >
+                    Show Tab
+                  </button>
                 )}
               </div>
+              <button
+                type="button"
+                aria-label={`Delete ${notif.title}`}
+                title="Delete"
+                className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--ct-muted)] opacity-0 hover:bg-[var(--ct-hover)] hover:text-[var(--ct-red)] group-hover:opacity-100 focus:opacity-100"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDelete(notif.id);
+                }}
+              >
+                <Trash2 size={12} />
+              </button>
             </div>
           ))
         )}

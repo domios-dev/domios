@@ -84,6 +84,7 @@ function muxActions(): MultiplexerActionsContextType {
     upsertToast: noop,
     markRead: noop,
     markAllRead: noop,
+    deleteNotification: noop,
     clearNotifications: noop,
     dismissToast: noop,
     setPaneTitle: noop,
