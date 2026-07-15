@@ -89,6 +89,7 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
         ref={triggerRef}
         onPointerDown={toggle}
         onPointerUp={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
         className={className}
       >
         {trigger}
