@@ -596,6 +596,7 @@ function patchEdits(patch) {
 
 // plugins/provider-codex/src/plugin.ts
 var CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
+var CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v1";
 var TITLE_RE = /codex/i;
 var OUTPUT_FINGERPRINTS = [
   "OpenAI Codex",
@@ -885,8 +886,9 @@ var plugin = {
     const arr = json.hooks && json.hooks.SessionStart;
     const installed = Array.isArray(arr) && arr.some(isCodetermCodexHook);
     const winScript = codexWindowsHookScriptPath();
-    const windowsReady = host.platform() !== "windows" || !!winScript && host.fs.fileExists(winScript) && Array.isArray(arr) && arr.some(hasCodetermCodexWindowsCommand);
-    const nonceOk = host.platform() === "windows" ? !!winScript && host.fs.fileExists(winScript) && String(host.fs.readFile(winScript) || "").indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 : Array.isArray(arr) && arr.some((entry) => {
+    const winScriptText = winScript && host.fs.fileExists(winScript) ? String(host.fs.readFile(winScript) || "") : "";
+    const windowsReady = host.platform() !== "windows" || !!winScript && winScriptText.indexOf(CODETERM_CODEX_PROFILE_CLEANUP_MARKER) !== -1 && Array.isArray(arr) && arr.some(hasCodetermCodexWindowsCommand);
+    const nonceOk = host.platform() === "windows" ? winScriptText.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 : Array.isArray(arr) && arr.some((entry) => {
       const hk = entry && entry.hooks;
       return Array.isArray(hk) && hk.some((h) => {
         return !!h && String(h.command || "").indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1;
@@ -1296,6 +1298,7 @@ function codexWindowsHookScriptPath() {
 function codexWindowsHookScript(apiPort) {
   return [
     "# " + CODETERM_CODEX_HOOK_MARKER,
+    "# " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
     '$ErrorActionPreference = "SilentlyContinue"',
     "$pane = $env:CODETERM_PANE_ID",
     "if ([string]::IsNullOrWhiteSpace($pane)) { exit 0 }",
