@@ -9,6 +9,7 @@ import { PANE_BAR_CONTROL_H } from "./paneBarConstants";
 import { WatcherStatusBadge } from "./WatcherStatusBadge";
 import { reattachPaneChat } from "./chatReattach";
 import { BusySpinner } from "../shared/BusyState";
+import { HamburgerIcon } from "../Icons";
 
 /** Single height rhythm for every control in the bar (switch + pills). */
 export { PANE_BAR_CONTROL_H };
@@ -30,6 +31,7 @@ interface PaneTopBarProps {
   watcherLastStatus?: string | null;
   isWatcherPane?: boolean;
   showChatReconnect?: boolean;
+  onOpenSidebar?: () => void;
 }
 
 /**
@@ -52,6 +54,7 @@ export function PaneTopBar({
   watcherLastStatus,
   isWatcherPane = false,
   showChatReconnect = false,
+  onOpenSidebar,
 }: PaneTopBarProps) {
   const [reconnecting, setReconnecting] = useState(false);
   const [reconnectError, setReconnectError] = useState<string | null>(null);
@@ -82,6 +85,19 @@ export function PaneTopBar({
       }}
     >
       <div className="flex min-w-0 shrink items-center gap-1.5 sm:gap-2">
+        {onOpenSidebar && (
+          <button
+            type="button"
+            data-testid="web-sidebar-open"
+            aria-label="Open sidebar"
+            title="Open sidebar"
+            onClick={onOpenSidebar}
+            className="inline-flex shrink-0 items-center justify-center rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-bg-hover)] hover:text-[var(--ct-fg)]"
+            style={{ width: PANE_BAR_CONTROL_H, height: PANE_BAR_CONTROL_H }}
+          >
+            <HamburgerIcon size={15} />
+          </button>
+        )}
         {showSwitch && (
           <PaneModeSwitch
             paneId={paneId}

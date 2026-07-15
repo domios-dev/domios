@@ -6,12 +6,11 @@ import { useTauriFileDrop, materializeDroppedPaths } from "../../hooks/terminal"
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { extractFilePathsFromClipboard } from "../../lib/clipboardPaste";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
-import { MessageBubble, ShowCommandsProvider } from "@codeterm/chat-ui";
+import { MessageBubble } from "@codeterm/chat-ui";
 import { reduceToolEvents, type NormalizedChatMessage } from "@codeterm/chat-core";
-import { AlertTriangle, File, SquareTerminal } from "lucide-react";
+import { AlertTriangle, File } from "lucide-react";
 import { SendIcon, ChevronUpIcon } from "../Icons";
 import { BusyState } from "../shared/BusyState";
-import { FloatingTooltip } from "../shared/FloatingTooltip";
 
 // ChatView is a placeholder for future direct API chat mode (pick model, call /chat directly).
 // Current UI shows only local optimistic input while PTY path remains unchanged.
@@ -77,7 +76,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
   const [inputExpanded, setInputExpanded] = useState(false);
   const [inputAtMax, setInputAtMax] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [showCommands, setShowCommands] = useState(false);
   const [pendingPrompt, setPendingPrompt] = useState<PromptPayload | null>(null);
   const pendingPromptRef = useRef(pendingPrompt);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -398,19 +396,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
     >
-      <FloatingTooltip content={showCommands ? "Hide command details" : "Show command details"} className="absolute right-3 top-2 z-10">
-        <button
-          type="button"
-          aria-label={showCommands ? "Hide command details" : "Show command details"}
-          aria-pressed={showCommands}
-          data-testid="chat-command-visibility-toggle"
-          onClick={() => setShowCommands((visible) => !visible)}
-          className="rounded p-1.5 hover:bg-[var(--ct-bg-hover)]"
-          style={{ color: showCommands ? "var(--ct-accent)" : "var(--ct-muted-fg)" }}
-        >
-          <SquareTerminal size={14} aria-hidden="true" />
-        </button>
-      </FloatingTooltip>
       {/* Messages area */}
       <div
         ref={scrollContainerRef}
@@ -418,7 +403,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         className="flex-1 overflow-y-auto py-4 px-4 select-text cursor-text"
         data-testid="direct-chat-messages"
       >
-        <ShowCommandsProvider showCommands={showCommands}>
         {isLoading ? (
           <div className="flex flex-col items-center justify-center h-full gap-3" data-testid="direct-chat-loading">
             <div className="flex gap-1">
@@ -514,7 +498,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             )}
           </>
         )}
-        </ShowCommandsProvider>
         <div ref={messagesEndRef} />
       </div>
 

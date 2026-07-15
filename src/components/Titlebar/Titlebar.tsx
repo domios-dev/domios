@@ -1,7 +1,7 @@
 import { useCallback, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ThemeConfig } from "../../lib/types";
-import { CloseXIcon } from "../Icons";
+import { CloseXIcon, HamburgerIcon } from "../Icons";
 import logoUrl from "../../assets/logo.png";
 
 import { isMac } from "../../lib/keybindings";
@@ -18,6 +18,7 @@ import type { Notification } from "../../lib/types";
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
+  showSidebarToggle?: boolean;
   onNewTab?: () => void;
   theme: ThemeConfig;
   onOpenSettingsAbout?: () => void;
@@ -30,7 +31,8 @@ interface TitlebarProps {
 }
 
 export function Titlebar({
-  onToggleSidebar: _onToggleSidebar,
+  onToggleSidebar,
+  showSidebarToggle = false,
   theme: _theme,
   onOpenSettingsAbout,
   onOpenExtensions,
@@ -41,7 +43,6 @@ export function Titlebar({
   onNavigateToast,
 }: TitlebarProps) {
   void _theme;
-  void _onToggleSidebar;
   // Window chrome controls only exist in the Tauri shell; the browser tab owns its own window in web-mirror mode.
   const isTauri = !IS_WEB;
   const appWindow = isTauri ? getCurrentWindow() : null;
@@ -74,6 +75,19 @@ export function Titlebar({
         <div className="flex min-w-0 shrink items-center h-full pl-1.5 sm:pl-2.5">
           <WebPeerPicker />
         </div>
+      )}
+
+      {showSidebarToggle && onToggleSidebar && (
+        <button
+          type="button"
+          data-testid="web-sidebar-open"
+          aria-label="Open sidebar"
+          title="Open sidebar"
+          onClick={onToggleSidebar}
+          className="inline-flex h-full w-8 shrink-0 items-center justify-center text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+        >
+          <HamburgerIcon size={15} />
+        </button>
       )}
 
       <button

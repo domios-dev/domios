@@ -1,7 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, SquareTerminal } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { invoke } from "../../lib/bridge";
-import { MessageBubble, ShowCommandsProvider } from "@codeterm/chat-ui";
+import { MessageBubble } from "@codeterm/chat-ui";
 import { extractPlanRefs } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
@@ -36,7 +36,6 @@ import { usePlanRefResolver } from "./usePlanRefResolver";
 import { reattachPaneChat } from "./chatReattach";
 import { planRefViewState } from "./planRefViewState";
 import { shouldRestoreChatViewport } from "./chatViewport";
-import { FloatingTooltip } from "../shared/FloatingTooltip";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 
 interface Props {
@@ -108,7 +107,6 @@ export function PaneSessionChat({
   const [longIdle, setLongIdle] = useState(false);
   // bottom-pinned agent indicator/composer, so it never overlaps streaming output.
   const [showScrollDown, setShowScrollDown] = useState(false);
-  const [showCommands, setShowCommands] = useState(false);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const el = scrollRef.current;
@@ -448,19 +446,6 @@ export function PaneSessionChat({
       }}
       {...webDropHandlers}
     >
-      <FloatingTooltip content={showCommands ? "Hide command details" : "Show command details"} className="absolute right-3 top-2 z-10">
-        <button
-          type="button"
-          aria-label={showCommands ? "Hide command details" : "Show command details"}
-          aria-pressed={showCommands}
-          data-testid="chat-command-visibility-toggle"
-          onClick={() => setShowCommands((visible) => !visible)}
-          className="rounded p-1.5 hover:bg-[var(--ct-bg-hover)]"
-          style={{ color: showCommands ? "var(--ct-accent)" : "var(--ct-muted-fg)" }}
-        >
-          <SquareTerminal size={14} aria-hidden="true" />
-        </button>
-      </FloatingTooltip>
       {webDragOver && (
         <div
           data-testid="web-drop-overlay"
@@ -543,7 +528,6 @@ export function PaneSessionChat({
             </div>
           )
         )}
-        <ShowCommandsProvider showCommands={showCommands}>
         {deferredEnrichedMessages.map(({ msg, item, origin }) => {
           let onOriginClick: (() => void) | undefined;
           let originProviderId: string | null | undefined;
@@ -585,7 +569,6 @@ export function PaneSessionChat({
             </div>
           );
         })}
-        </ShowCommandsProvider>
         {!inlinePrompt && (deferredEnrichedMessages.length > 0 || liveAgentState.state === "question") && (
           // with the message text instead of the far-left container edge.
           <div className="w-full max-w-4xl min-w-0 mx-auto">

@@ -333,7 +333,7 @@ body {
 }
 @media (max-width: 640px) {
   .ct-sidebar-drawer {
-    width: min(85vw, calc(100vw - 1rem));
+    width: fit-content;
     max-width: min(85vw, calc(100vw - 1rem));
     transform: translateX(-100%);
     pointer-events: none;
