@@ -76,6 +76,12 @@ pub struct MultiplexerState {
     pub(super) closed_store: ClosedPanesStore,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TeamResolution {
+    pub team_id: String,
+    pub minted: bool,
+}
+
 /// Full state snapshot for frontend hydration.
 #[derive(Debug, Clone, Serialize)]
 pub struct MultiplexerSnapshot {

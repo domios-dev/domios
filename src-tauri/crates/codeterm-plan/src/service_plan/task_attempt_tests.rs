@@ -644,3 +644,123 @@ fn reconcile_assignment_cleanup_closes_live_attempt_history() {
     assert_eq!(task.execution_attempts[0].executor_pane_id, "pane_live");
     assert_eq!(task.execution_attempts[0].closed_at, Some(4));
 }
+
+// Reproduces a proxy reporter attempting to replace the assigned executor.
+#[test]
+fn report_does_not_rebind_executor() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Masquerade".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    store.save(&mut p, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &p.id,
+            NewTask {
+                name: "owned by A".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    // Explicit assignment path binds the real executor A.
+    store
+        .assign_task(&p.id, &task_id, "pane_A", None, 3)
+        .unwrap();
+
+    // Exercise the report path: lane truth, milestone, then attempt report.
+    let reporter_b = AgentRef::from_pane("pane_B");
+    store
+        .record_report_lane_truth(&p.id, &task_id, Some("lane/b"), None, 4)
+        .unwrap();
+    store
+        .add_milestone(
+            &p.id,
+            &task_id,
+            "note",
+            "STATUS: in_review from B",
+            reporter_b.clone(),
+            true,
+            4,
+        )
+        .unwrap();
+    store
+        .record_task_attempt_report(
+            &p.id,
+            &task_id,
+            &reporter_b,
+            "STATUS: in_review\nCHANGES: done",
+            Some(ReportStatus::InReview),
+            4,
+        )
+        .unwrap();
+
+    let p = store.get(&p.id).unwrap();
+    let task = p.tasks.iter().find(|t| t.id == task_id).unwrap();
+
+    // Executor binding is untouched by the report.
+    assert_eq!(task.assigned_pane_id.as_deref(), Some("pane_A"));
+    assert_eq!(task.lane.pane_id.as_deref(), Some("pane_A"));
+
+    // No masquerade attempt is created.
+    assert_eq!(task.execution_attempts.len(), 1);
+    let attempt = &task.execution_attempts[0];
+    assert_eq!(attempt.executor_pane_id, "pane_A");
+
+    // The stride/milestone carries reporter B.
+    let stride = task
+        .milestones
+        .iter()
+        .find(|m| m.kind == "note")
+        .expect("reporter stride");
+    assert_eq!(stride.from.pane_id.as_deref(), Some("pane_B"));
+
+    // The executor's attempt retains distinct reporter attribution.
+    let report = attempt.report.as_ref().expect("attempt report recorded");
+    assert_eq!(report.reporter_pane_id.as_deref(), Some("pane_B"));
+    assert!(report.message.as_deref().unwrap().contains("CHANGES: done"));
+
+    // Lane truth (branch) from the report was captured.
+    assert_eq!(task.lane.branch.as_deref(), Some("lane/b"));
+}
+
+// A report cannot use an empty task assignment to capture executor ownership.
+#[test]
+fn report_on_unassigned_task_never_binds_reporter() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Unbound".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    store.save(&mut p, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &p.id,
+            NewTask {
+                name: "unowned".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+
+    store
+        .record_report_lane_truth(&p.id, &task_id, Some("lane/b"), None, 3)
+        .unwrap();
+
+    let p = store.get(&p.id).unwrap();
+    let task = p.tasks.iter().find(|t| t.id == task_id).unwrap();
+    assert!(
+        task.assigned_pane_id.is_none(),
+        "a report must not bind an executor onto an unassigned task"
+    );
+    assert!(task.lane.pane_id.is_none());
+    assert_eq!(task.lane.branch.as_deref(), Some("lane/b"));
+}

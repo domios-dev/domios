@@ -262,6 +262,31 @@ mod tests {
     }
 
     #[test]
+    fn plan_yaml_roundtrip_team_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut plan = sample_plan(dir.path());
+        plan.team_id = Some("team_abcd1234".into());
+        write_plan(dir.path(), &plan).unwrap();
+        let meta = std::fs::read_to_string(plan_yaml_path(dir.path())).unwrap();
+        assert!(
+            meta.contains("team_abcd1234"),
+            "plan.yaml must persist team_id"
+        );
+        let loaded = load_plan(dir.path()).unwrap();
+        assert_eq!(loaded.team_id.as_deref(), Some("team_abcd1234"));
+    }
+
+    #[test]
+    fn plan_yaml_omits_team_id_when_teamless() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan = sample_plan(dir.path());
+        assert_eq!(plan.team_id, None);
+        write_plan(dir.path(), &plan).unwrap();
+        let loaded = load_plan(dir.path()).unwrap();
+        assert_eq!(loaded.team_id, None);
+    }
+
+    #[test]
     fn plan_yaml_holds_no_task_copies() {
         let dir = tempfile::tempdir().unwrap();
         write_plan(dir.path(), &sample_plan(dir.path())).unwrap();

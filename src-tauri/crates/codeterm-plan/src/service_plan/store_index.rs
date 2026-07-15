@@ -6,6 +6,7 @@ impl PlanStore {
             plan_id: plan.id.clone(),
             file_path,
             owner: plan.owner.clone(),
+            team_id: plan.team_id.clone(),
             title: plan.title.clone(),
             status: plan.status.clone(),
             updated_at: plan.updated_at,
