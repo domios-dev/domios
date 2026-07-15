@@ -65,15 +65,8 @@ kill_dev() {
     request_dev_clean_restart 2>/dev/null || true
     return
   fi
-  kill_web_watch 2>/dev/null || true
-  kill_dev_static_server 2>/dev/null || true
   local session_prefix="codeterm-dev${CT_SUFFIX}-"
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    if command -v screen >/dev/null 2>&1; then
-      screen -ls 2>/dev/null | awk -v p="$session_prefix" 'index($1,p){print $1}' | while read -r session; do
-        screen -S "$session" -X quit 2>/dev/null || true
-      done
-    fi
     local dev_pids
     dev_pids="$(lsof -tiTCP:"$CT_PORT" -sTCP:LISTEN 2>/dev/null || true)"
     if [ -n "$dev_pids" ]; then
@@ -86,6 +79,13 @@ kill_dev() {
         echo "Clean shutdown deadline elapsed; force-killing dev instance on port $CT_PORT..."
         echo "$dev_pids" | xargs kill -9 2>/dev/null || true
       fi
+    fi
+    kill_web_watch 2>/dev/null || true
+    kill_dev_static_server 2>/dev/null || true
+    if command -v screen >/dev/null 2>&1; then
+      screen -ls 2>/dev/null | awk -v p="$session_prefix" 'index($1,p){print $1}' | while read -r session; do
+        screen -S "$session" -X quit 2>/dev/null || true
+      done
     fi
     local vite_pids
     vite_pids="$(lsof -ti:"$CT_VITE_PORT" 2>/dev/null || true)"
@@ -104,6 +104,8 @@ kill_dev() {
         taskkill //PID "$dev_pid" //T //F 2>/dev/null || true
       fi
     fi
+    kill_web_watch 2>/dev/null || true
+    kill_dev_static_server 2>/dev/null || true
     local vite_pid
     vite_pid=$(netstat -ano 2>/dev/null | grep ":$CT_VITE_PORT.*LISTEN" | awk '{print $5}' | head -1 || true)
     if [ -n "$vite_pid" ] && [ "$vite_pid" != "0" ]; then
