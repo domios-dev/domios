@@ -173,7 +173,7 @@ test(
 );
 
 test(
-  "@golden @plan-header-mobile skills-registry error routes through quiet ErrorState",
+  "@golden @plan-header-mobile plan header hides empty and failed skills states",
   async ({ api, webBrowser }) => {
     test.setTimeout(TEST_TIMEOUT);
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
@@ -183,7 +183,7 @@ test(
         test.skip(true, "canvas empty — perf fixture did not inject");
         return;
       }
-      // Force the skills endpoint to fail before rendering the expanded header.
+      // A failed skills endpoint must not add an error surface to the header.
       await page.route("**/api/plans/*/skills", (route) =>
         route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"boom"}' }),
       );
@@ -193,14 +193,9 @@ test(
       await header.locator('[data-testid="plan-context-compact-bar"]').click();
       await expect(header.locator('[data-testid="plan-context-expanded"]')).toBeVisible();
 
-      const headerText = (await header.innerText()).toLowerCase();
-      expect(headerText, "no raw exception string in header").not.toContain(
-        "the string did not match the expected pattern",
-      );
-      expect(headerText, "no raw fetch-failure string in header").not.toContain("plan skills list failed");
-      await expect(header.locator('[data-testid="plan-skills-error"]')).toBeVisible();
-      await expect(header.locator('[data-testid="plan-skills-error-retry"]')).toBeVisible();
-      await shot(page, "plan-header-skills-error-quiet");
+      await expect(header.locator('[data-testid="plan-skills-section"]')).toHaveCount(0);
+      await expect(header.locator('[data-testid="plan-skills-error"]')).toHaveCount(0);
+      await shot(page, "plan-header-skills-absent");
     } finally {
       await canvas.close();
     }
