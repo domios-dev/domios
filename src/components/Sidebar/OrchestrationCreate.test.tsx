@@ -110,9 +110,7 @@ test("renders an Orchestrator row and a Planner row with provider options", asyn
   await openDropdown(providerTrigger);
   assert(document.querySelector('[data-testid="orchestration-create-orchestrator-provider-option-claude"]'), "provider dropdown lists claude");
   assert(document.querySelector('[data-testid="orchestration-create-orchestrator-provider-option-codex"]'), "provider dropdown lists codex");
-  const titleInput = host.querySelector('input[type="text"]') as HTMLInputElement | null;
-  assert(titleInput, "renders an optional plan-title text input");
-  assert(titleInput.placeholder === "Orchestration", "title input has a sensible placeholder");
+  assert(host.textContent?.includes("wait for your first goal"), "explains that no plan is created at spawn");
   await act(async () => root.unmount());
 });
 
@@ -135,7 +133,7 @@ test("switching a role's provider resets that role's model to the new default", 
   await act(async () => root.unmount());
 });
 
-test("confirm calls onConfirm with both roles' selections and an unset title by default", async () => {
+test("confirm calls onConfirm with both role selections", async () => {
   let result: OrchestrationCreateResult | null = null;
   const { host, root } = await render(
     <OrchestrationCreate
@@ -158,7 +156,6 @@ test("confirm calls onConfirm with both roles' selections and an unset title by 
   assert(r.orchestratorModel === "sonnet", `expected orchestrator model sonnet, got ${r.orchestratorModel}`);
   assert(r.plannerAgent === "codex", `expected planner codex, got ${r.plannerAgent}`);
   assert(r.plannerModel === "gpt-5", `expected planner model gpt-5, got ${r.plannerModel}`);
-  assert(r.title === undefined, `expected unset title by default, got ${r.title}`);
   await act(async () => root.unmount());
 });
 

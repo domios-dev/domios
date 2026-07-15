@@ -6,6 +6,7 @@ import { Window } from "happy-dom";
 import {
   ChatSetupState,
   ChatSetupStatusLine,
+  chatSetupSubject,
   chatSetupStageLabel,
   chatSetupView,
 } from "./ChatSetupState";
@@ -54,10 +55,17 @@ async function render(element: React.ReactElement): Promise<HTMLElement> {
 
 async function main() {
   await test("stage label maps pty stages to terminal prep and launch stages to the provider", () => {
-    assert(chatSetupStageLabel("pty_starting", "Claude Code") === "Preparing the terminal", "pty_starting");
-    assert(chatSetupStageLabel("pty_spawned", "Claude Code") === "Preparing the terminal", "pty_spawned");
-    assert(chatSetupStageLabel("shell_ready", "Claude Code") === "Launching Claude Code", "shell_ready");
-    assert(chatSetupStageLabel("agent_launching", "Claude Code") === "Launching Claude Code", "agent_launching");
+    assert(chatSetupStageLabel("pty_starting", "Claude Code") === "Preparing Claude Code", "pty_starting");
+    assert(chatSetupStageLabel("pty_spawned", "Claude Code") === "Preparing Claude Code", "pty_spawned");
+    assert(chatSetupStageLabel("shell_ready", "Claude Code") === "Starting Claude Code", "shell_ready");
+    assert(chatSetupStageLabel("agent_launching", "Claude Code") === "Starting Claude Code", "agent_launching");
+  });
+
+  await test("role identity takes precedence over provider during launch", () => {
+    const orchestrator = { ...pane("agent_launching"), role: "Orchestrator" } as Pane;
+    const planner = { ...pane("agent_launching"), role: "Manager", role_profile: "planner" } as Pane;
+    assert(chatSetupSubject(orchestrator, "Codex") === "Orchestrator", "orchestrator label");
+    assert(chatSetupSubject(planner, "Claude Code") === "Planner", "planner label");
   });
 
   await test("view resolves ready to none and launching to starting", () => {
@@ -74,7 +82,7 @@ async function main() {
     );
     assert(host.querySelector('[data-testid="chat-setup-state"]'), "setup card rendered");
     const stage = host.querySelector('[data-testid="chat-setup-stage"]');
-    assert(stage?.textContent?.includes("Launching Claude Code"), "stage label shows the provider");
+    assert(stage?.textContent?.includes("Starting Claude Code"), "stage label shows the provider");
   });
 
   await test("history can keep rendering while the compact boot status remains visible", async () => {
@@ -83,7 +91,7 @@ async function main() {
     );
     const status = host.querySelector('[data-testid="chat-setup-status-line"]');
     assert(status, "compact status rendered");
-    assert(status.textContent?.includes("Preparing the terminal"), "real boot stage is shown");
+    assert(status.textContent?.includes("Preparing Codex"), "real boot stage is shown");
   });
 
   await test("compact boot status disappears when the provider is ready", async () => {

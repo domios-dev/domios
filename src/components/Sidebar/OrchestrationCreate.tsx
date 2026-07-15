@@ -8,7 +8,6 @@ export interface OrchestrationCreateResult {
   orchestratorModel?: string;
   plannerAgent: string;
   plannerModel?: string;
-  title?: string;
 }
 
 export function OrchestrationCreate({
@@ -27,8 +26,6 @@ export function OrchestrationCreate({
     plannerProviderId: defaultProviderId,
     plannerModelId: providers[0]?.default_model ?? "",
   });
-  const [title, setTitle] = useState("");
-
   const canConfirm = pairValues.orchestratorProviderId.length > 0 && pairValues.plannerProviderId.length > 0;
 
   const handleConfirm = () => {
@@ -38,7 +35,6 @@ export function OrchestrationCreate({
       orchestratorModel: pairValues.orchestratorModelId || undefined,
       plannerAgent: pairValues.plannerProviderId,
       plannerModel: pairValues.plannerModelId || undefined,
-      title: title.trim() || undefined,
     });
   };
 
@@ -49,7 +45,7 @@ export function OrchestrationCreate({
         <div className="px-4 pt-4 pb-2">
           <div className="text-[13px] font-medium text-[var(--ct-fg)]">New Orchestration</div>
           <div className="mt-1 text-[11px] text-[var(--ct-muted)]">
-            Spawns an Orchestrator + Planner pair, linked from birth via a shared plan.
+            Starts an Orchestrator and Planner pair. They wait for your first goal before creating a plan.
           </div>
         </div>
         <div className="px-4 py-3">
@@ -64,18 +60,6 @@ export function OrchestrationCreate({
               plannerProvider: "orchestration-create-planner-provider",
               plannerModel: "orchestration-create-planner-model",
             }}
-            titleField={(
-              <div className="flex flex-col gap-1.5">
-                <div className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Plan title (optional)</div>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Orchestration"
-                  className="px-2 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none"
-                />
-              </div>
-            )}
           />
         </div>
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--ct-border)]">

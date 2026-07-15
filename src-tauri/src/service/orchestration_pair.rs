@@ -23,7 +23,6 @@ pub struct OrchestrationPairParams {
     pub planner_agent: String,
     pub planner_model: Option<String>,
     pub workspace_id: Option<String>,
-    pub title: Option<String>,
     pub spawned_by_pane_id: Option<String>,
     /// Blank picker tab to claim for the Orchestrator in place, instead of
     /// spawning it as a brand-new tab (new-session picker confirm path).
@@ -49,66 +48,6 @@ pub struct OrchestrationPairResult {
     /// panes land — a pair adds two, so its count is the authoritative one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub budget_notice: Option<crate::service::pane_budget::PaneBudgetNotice>,
-}
-
-fn epoch_ms() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-/// Default plan title for a pair created without an explicit one. Carries the
-/// workspace name + a timestamp so many pairs stay distinguishable instead of
-/// piling up as identical bare "Orchestration" rows.
-fn default_orchestration_plan_title(workspace_name: &str, now_ms: u64) -> String {
-    let stamp = chrono::DateTime::from_timestamp_millis(now_ms as i64)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
-        .unwrap_or_default();
-    let name = workspace_name.trim();
-    match (name.is_empty(), stamp.is_empty()) {
-        (true, true) => "Orchestration".to_string(),
-        (true, false) => format!("Orchestration — {stamp}"),
-        (false, true) => format!("Orchestration — {name}"),
-        (false, false) => format!("Orchestration — {name} {stamp}"),
-    }
-}
-
-/// Orchestrator's first task. Unlike the generic promotion mandate
-/// ([`crate::prompts::peer_pairing_mandate_full`]), this flow has ALREADY
-/// spawned the Planner synchronously by the time the Orchestrator reads this
-/// — the generic "spawn it if not live" instruction previously caused a live
-/// model to race ahead and spawn a redundant, mis-parented Planner of its own
-/// (observed live: `codeterm agent spawn ... --role Planner` with no
-/// `--parent`, immediately after the real one was already bound) before the
-/// async "Planner is live" follow-up could reach it. Tell it plainly not to.
-fn orchestrator_pair_task() -> String {
-    format!(
-        "You are the Orchestrator for a fresh paired session. No plan exists yet. A Planner \
-         specialist is being spawned and parented to your pane automatically as part of this \
-         request — do NOT run `codeterm agent spawn` yourself to create it; wait for the \
-         follow-up message naming its live pane id.\n\n\
-         First set your GOAL with CodeTerm (`codeterm plan goal set` or create the plan first); \
-         that first goal/plan create lazily creates and claims the plan, then binds the paired \
-         Planner. Until the user states a goal, WAIT.\n\n\
-         ## Planner attachment\n\n\
-         The plan will have an attached Planner specialist after the first goal/plan create. \
-         The Orchestrator is the single authority for structure, execution, and acceptance. \
-         Do not treat the Planner as a co-owner.\n\n\
-         {}\n{}",
-        crate::prompts::PEER_PLANNER_CHARTER_LINE,
-        crate::prompts::PEER_ORCH_DEFERENCE_LINE,
-    )
-}
-
-/// Follow-up delivered to the Orchestrator once the Planner spawn succeeds —
-/// the first point both real pane ids are known.
-fn orchestrator_pair_followup_ready(planner_pane_id: &str) -> String {
-    format!(
-        "Your Planner specialist is live: pane {planner_pane_id}. No plan exists yet; your first goal/plan create will claim the plan and bind this Planner. {}",
-        crate::prompts::PEER_ORCH_DEFERENCE_LINE
-    )
 }
 
 /// The exact command to finish a degraded pair by hand, using the real
@@ -389,33 +328,16 @@ impl ServiceContext {
             }
         }
 
-        let now_ms = epoch_ms();
         let readiness_deadline = std::time::Instant::now() + PAIR_API_READY_TIMEOUT;
-        let (workspace_id, project_path, workspace_name) = {
+        let workspace_id = {
             let mux = self.mux.write();
-            let ws_id = params
+            params
                 .workspace_id
                 .clone()
                 .or_else(|| mux.get_active_workspace().map(|w| w.id.clone()))
                 .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-                .ok_or_else(|| "No workspace found".to_string())?;
-            let cwd = mux
-                .get_workspace(&ws_id)
-                .and_then(|ws| ws.cwd.clone())
-                .unwrap_or_default();
-            let name = mux
-                .get_workspace(&ws_id)
-                .map(|ws| ws.name.clone())
-                .unwrap_or_default();
-            (ws_id, cwd, name)
+                .ok_or_else(|| "No workspace found".to_string())?
         };
-
-        let _title = params
-            .title
-            .clone()
-            .filter(|t| !t.trim().is_empty())
-            .unwrap_or_else(|| default_orchestration_plan_title(&workspace_name, now_ms));
-        let _project_path = project_path;
 
         let orchestrator_model = params
             .orchestrator_model
@@ -442,7 +364,7 @@ impl ServiceContext {
             can_spawn: Some(true),
             workspace_id: Some(workspace_id.clone()),
             spawned_by_pane_id: params.spawned_by_pane_id.clone(),
-            task: Some(orchestrator_pair_task()),
+            task: None,
             existing_tab_id: params.existing_tab_id.clone(),
             skip_orchestrator_onboarding: Some(true),
             ..Default::default()
@@ -483,10 +405,7 @@ impl ServiceContext {
             plan_id: None,
             workspace_id: Some(workspace_id.clone()),
             spawned_by_pane_id: Some(orch_pane_id.clone()),
-            task: Some(crate::prompts::planner_onboarding_task_no_plan(
-                &self.mux.read().display_label_for_pane(&orch_pane_id),
-                &orch_pane_id,
-            )),
+            task: None,
             ..Default::default()
         };
 
@@ -531,20 +450,7 @@ impl ServiceContext {
                     )
                 );
                 let warning = match (orch_ready, planner_ready) {
-                    (Ok(()), Ok(())) => {
-                        let followup = orchestrator_pair_followup_ready(&planner_pane_id);
-                        if let Err(error) = self.deliver_pair_followup(
-                            &orch_pane_id,
-                            &params.orchestrator_agent,
-                            &followup,
-                        ) {
-                            Some(format!(
-                                "Pair launched, but follow-up delivery to Orchestrator pane {orch_pane_id} failed: {error}"
-                            ))
-                        } else {
-                            None
-                        }
-                    }
+                    (Ok(()), Ok(())) => None,
                     (orch_status, planner_status) => {
                         let orch_error = orch_status.err();
                         let planner_error = planner_status.err();
@@ -642,20 +548,6 @@ mod tests {
     }
 
     #[test]
-    fn default_plan_title_disambiguates_by_workspace_and_stamp() {
-        let t = default_orchestration_plan_title("my-ws", 1_609_459_200_000);
-        assert!(t.contains("my-ws"), "title carries the workspace name: {t}");
-        assert!(t.contains("2021-01-01"), "title carries a date stamp: {t}");
-        assert_ne!(t, "Orchestration", "never the bare piled-up default");
-        // Empty workspace still avoids the bare string when a stamp exists.
-        let no_ws = default_orchestration_plan_title("  ", 1_609_459_200_000);
-        assert!(
-            no_ws.starts_with("Orchestration — "),
-            "stamped even without a name: {no_ws}"
-        );
-    }
-
-    #[test]
     fn pair_spawn_creates_no_plan_until_first_goal() {
         let (_root, store) = store_for_test();
         assert!(
@@ -705,39 +597,6 @@ mod tests {
             store.list_index().is_empty(),
             "degraded pair spawn must not leave an unowned empty plan"
         );
-    }
-
-    #[test]
-    fn orchestrator_task_has_no_plan_yet_wording_and_reuses_peer_constants() {
-        let task = orchestrator_pair_task();
-        assert!(task.contains("No plan exists yet"));
-        assert!(task.contains("first goal/plan create"));
-        assert!(task.contains(crate::prompts::PEER_PLANNER_CHARTER_LINE));
-        assert!(task.contains(crate::prompts::PEER_ORCH_DEFERENCE_LINE));
-        assert!(task.contains("will have an attached Planner specialist"));
-    }
-
-    /// Regression for a live-dogfood finding: the pair-creation flow always
-    /// spawns the Planner synchronously before the Orchestrator's task is
-    /// even delivered, so telling it to spawn one "if not live" raced a real
-    /// model into creating a redundant, mis-parented extra Worker pane.
-    #[test]
-    fn orchestrator_task_never_tells_model_to_spawn_its_own_planner() {
-        let task = orchestrator_pair_task();
-        assert!(
-            !task.contains("--role Planner --plan"),
-            "task must never hand the model a copy-pasteable Planner spawn command: {task}"
-        );
-        assert!(task.contains("do NOT run"));
-    }
-
-    #[test]
-    fn followup_ready_names_real_planner_pane_and_no_plan_yet() {
-        let msg = orchestrator_pair_followup_ready("pane-planner-1");
-        assert!(msg.contains("pane-planner-1"));
-        assert!(msg.contains("No plan exists yet"));
-        assert!(msg.contains(crate::prompts::PEER_ORCH_DEFERENCE_LINE));
-        assert!(msg.contains("Planner specialist is live"));
     }
 
     #[test]

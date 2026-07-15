@@ -37,6 +37,18 @@ pub(crate) fn role_onboarding_task(
     }
 }
 
+pub(crate) fn spawn_onboarding_task(params: &SpawnAgentParams) -> Option<String> {
+    if params.skip_orchestrator_onboarding == Some(true) && params.task.is_none() {
+        None
+    } else {
+        role_onboarding_task(
+            params.task.as_deref(),
+            params.role.as_deref(),
+            params.role_profile.as_deref(),
+        )
+    }
+}
+
 pub(crate) use crate::agent::provider::{AgentLaunchParams, TaskDelivery};
 pub(crate) use crate::agent::registry::AgentRegistry;
 
