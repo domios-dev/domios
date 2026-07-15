@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, LogOut, UsersRound } from "lucide-react";
+import { ClipboardList, ChevronRight, LogOut, UsersRound } from "lucide-react";
 import type { Pane, ProviderDescriptor, Team } from "../../lib/types";
 import { TASK_STATUS_COLORS } from "../Canvas/settings";
 import type { Plan } from "../Canvas/types";
-import { groupTasksIntoColumns } from "../Canvas/planView/boardModel";
+import { BOARD_COLUMN_DEFS, groupTasksIntoColumns } from "../Canvas/planView/boardModel";
 import { summarizeWorkers } from "./orchestrationSections";
 
 export type TeamMemberRole = "orchestrator" | "planner" | "worker";
@@ -27,11 +27,16 @@ export interface TeamTaskBucket {
   color: string;
 }
 
+const statusColorForColumn = (key: (typeof BOARD_COLUMN_DEFS)[number]["key"]): string => {
+  const column = BOARD_COLUMN_DEFS.find((definition) => definition.key === key);
+  return TASK_STATUS_COLORS[column!.statuses[0]];
+};
+
 const EMPTY_BUCKETS: TeamTaskBucket[] = [
-  { key: "todo", label: "todo", count: 0, color: TASK_STATUS_COLORS.in_progress },
-  { key: "review", label: "review", count: 0, color: TASK_STATUS_COLORS.in_review },
-  { key: "blocked", label: "blocked", count: 0, color: TASK_STATUS_COLORS.blocked },
-  { key: "done", label: "done", count: 0, color: TASK_STATUS_COLORS.done },
+  { key: "todo", label: "todo", count: 0, color: statusColorForColumn("in_progress") },
+  { key: "review", label: "review", count: 0, color: statusColorForColumn("in_review") },
+  { key: "blocked", label: "blocked", count: 0, color: statusColorForColumn("blocked") },
+  { key: "done", label: "done", count: 0, color: statusColorForColumn("done") },
 ];
 
 export function deriveTeamTaskBuckets(
@@ -50,62 +55,14 @@ export function deriveTeamTaskBuckets(
   }));
 }
 
-export function donutBackground(buckets: readonly TeamTaskBucket[]): string {
-  const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
-  const track = "color-mix(in srgb, var(--ct-fg) 14%, transparent)";
-  if (total === 0) return track;
-
-  const active = buckets.filter((bucket) => bucket.count > 0);
-  if (active.length === 1) return active[0].color;
-
-  let consumed = 0;
-  const segments = active.map((bucket) => {
-    const start = (consumed / total) * 100;
-    consumed += bucket.count;
-    const end = (consumed / total) * 100;
-    return `${bucket.color} ${formatPercent(start)}% ${formatPercent(end)}%`;
-  });
-  return `conic-gradient(${segments.join(", ")})`;
-}
-
-function formatPercent(value: number): string {
-  return Number(value.toFixed(4)).toString();
-}
-
-export function TeamDonut({ buckets }: { buckets: readonly TeamTaskBucket[] }) {
-  const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
-  const done = buckets.find((bucket) => bucket.key === "done")?.count ?? 0;
-  return (
-    <span
-      data-testid="team-donut"
-      data-progress={`${done}/${total}`}
-      data-buckets={JSON.stringify(buckets)}
-      className="sidebar-team-donut"
-      style={{ background: donutBackground(buckets) }}
-      aria-hidden
-    >
-      <span className="sidebar-team-donut-hole" />
-    </span>
-  );
-}
-
 interface TeamMenuProps {
-  hasPlan: boolean;
   providers: ProviderDescriptor[];
   onRename?: () => void;
-  onOpenEffort?: () => void;
   onAddMember?: (role: TeamMemberRole, providerId: string) => void;
   onCloseTeam: () => void;
 }
 
-function TeamMenu({
-  hasPlan,
-  providers,
-  onRename,
-  onOpenEffort,
-  onAddMember,
-  onCloseTeam,
-}: TeamMenuProps) {
+function TeamMenu({ providers, onRename, onAddMember, onCloseTeam }: TeamMenuProps) {
   const [open, setOpen] = useState(false);
   const [providerRole, setProviderRole] = useState<TeamMemberRole | null>(null);
   const [position, setPosition] = useState({ top: 0, left: 0 });
@@ -179,9 +136,6 @@ function TeamMenu({
           ) : (
             <>
               {onRename && <button type="button" onClick={() => run(onRename)}>Rename</button>}
-              {hasPlan && onOpenEffort && (
-                <button type="button" onClick={() => run(onOpenEffort)}>Open effort</button>
-              )}
               {onAddMember && (["orchestrator", "planner", "worker"] as const).map((role) => (
                 <button type="button" key={role} onClick={() => setProviderRole(role)}>
                   Add {role} <ChevronRight size={11} className="ml-auto" />
@@ -245,8 +199,6 @@ export function TeamUnit({
     () => (plan ? deriveTeamTaskBuckets(plan, panes) : EMPTY_BUCKETS),
     [plan, panes],
   );
-  const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
-  const done = buckets.find((bucket) => bucket.key === "done")?.count ?? 0;
 
   useEffect(() => setName(team.name?.trim() || "Team"), [team.name]);
 
@@ -303,40 +255,45 @@ export function TeamUnit({
           ) : (
             <span data-testid="team-name" className="sidebar-team-name">{team.name?.trim() || "Team"}</span>
           )}
+          {plan && (
+            <span
+              data-testid="team-status-tally"
+              className="sidebar-team-readout"
+              style={{ margin: 0, textAlign: "center" }}
+            >
+              {buckets.map((bucket, index) => (
+                <span key={bucket.key} data-testid={`team-status-${bucket.key}`} style={{ color: bucket.color }}>
+                  {index > 0 && <span className="sidebar-team-readout-dot"> · </span>}
+                  {bucket.count} {bucket.label}
+                </span>
+              ))}
+            </span>
+          )}
         </span>
-        {plan && <span className="sidebar-team-count">{done}/{total}</span>}
+        {plan && (
+          <button
+            type="button"
+            data-testid="team-plan-button"
+            aria-label="Open plan"
+            title="Open plan"
+            className="sidebar-team-kebab"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan.id });
+            }}
+          >
+            <ClipboardList size={13} aria-hidden />
+          </button>
+        )}
         <TeamMenu
-          hasPlan={Boolean(plan)}
           providers={providers}
           onRename={onRenameTeam ? () => setEditing(true) : undefined}
-          onOpenEffort={plan ? () => onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan.id }) : undefined}
           onAddMember={onAddMember}
           onCloseTeam={() => onCloseTeam(team.id)}
         />
       </div>
       {expanded && (
         <div className="sidebar-team-body">
-          {plan ? <>
-            <button
-              type="button"
-              data-testid="team-open-effort"
-              className="sidebar-team-effort-row"
-              onClick={() => onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan.id })}
-            >
-              <TeamDonut buckets={buckets} />
-              <span>{plan.title}</span>
-            </button>
-            <div data-testid="team-status-readout" className="sidebar-team-readout">
-              {buckets.filter((bucket) => bucket.count > 0).map((bucket, index) => (
-                <span key={bucket.key} style={{ color: bucket.color }}>
-                  {index > 0 && <span className="sidebar-team-readout-dot"> · </span>}
-                  {bucket.count} {bucket.label}
-                </span>
-              ))}
-            </div>
-          </> : (
-            <div data-testid="team-no-effort" className="sidebar-team-no-plan">No effort yet</div>
-          )}
           {managerCount > 0 && (
             <div data-testid="managers-section" className="sidebar-team-section">
               <div className="sidebar-team-section-label">MANAGERS {managerCount}</div>
