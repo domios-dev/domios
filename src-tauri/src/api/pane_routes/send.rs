@@ -405,7 +405,6 @@ pub async fn send_text(
 
 #[cfg(test)]
 mod action_delivery_tests {
-    use super::*;
     use crate::service::inject_verify::InjectionError;
     use crate::service::pty_io::{execute_ordered_actions, OrderedPtyAction};
 
