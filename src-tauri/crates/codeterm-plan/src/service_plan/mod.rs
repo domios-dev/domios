@@ -116,6 +116,7 @@ pub struct PlanStore {
     last_writes: RwLock<HashMap<PathBuf, SystemTime>>,
     turn_counter: RwLock<Option<Arc<reminders::TurnCounter>>>,
     reseed_prepare_lock: Mutex<()>,
+    team_plan_lock: Mutex<()>,
 }
 
 impl PlanStore {

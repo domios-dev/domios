@@ -40,6 +40,7 @@ impl MultiplexerState {
         MultiplexerSnapshot {
             workspaces: self.workspaces.clone(),
             panes: self.panes.clone(),
+            teams: self.list_teams(),
             active_workspace_id: self.active_workspace_id.clone(),
             focused_pane_id: self.focused_pane_id.clone(),
             generation,

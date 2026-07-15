@@ -47,6 +47,7 @@ impl PlanStore {
         kinds: Vec<MilestoneKind>,
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
+        let _team_plan_guard = self.team_plan_lock.lock();
         let team_id = team_id
             .map(|t| t.trim().to_string())
             .filter(|t| !t.is_empty());
@@ -87,6 +88,37 @@ impl PlanStore {
             let plan = arc.lock();
             (plan.status == PlanStatus::Active && plan.team_id.as_deref() == Some(team_id))
                 .then(|| (plan.id.clone(), plan.title.clone()))
+        })
+    }
+
+    pub fn bind_plan_to_team(
+        &self,
+        plan_id: &str,
+        team_id: &str,
+        now_ms: u64,
+    ) -> Result<Plan, PlanError> {
+        let _team_plan_guard = self.team_plan_lock.lock();
+        let team_id = team_id.trim();
+        if let Some((existing_plan_id, existing_title)) = self.active_plan_for_team(team_id) {
+            if existing_plan_id != plan_id {
+                return Err(PlanError::TeamAlreadyHasActivePlan {
+                    team_id: team_id.to_string(),
+                    existing_plan_id,
+                    existing_title,
+                });
+            }
+        }
+        self.with_plan(plan_id, now_ms, |plan| {
+            if let Some(bound_team_id) = plan.team_id.as_deref() {
+                if bound_team_id != team_id {
+                    return Err(PlanError::PlanAlreadyBoundToTeam {
+                        plan_id: plan.id.clone(),
+                        team_id: bound_team_id.to_string(),
+                    });
+                }
+            }
+            plan.team_id = Some(team_id.to_string());
+            Ok(plan.clone())
         })
     }
 
@@ -826,6 +858,8 @@ mod planning_state_tests {
 
 #[cfg(test)]
 mod team_binding_tests {
+    use std::sync::{Arc, Barrier};
+
     use crate::plan::OrchestratorRef;
     use crate::service_plan::{PlanError, PlanStore};
     use tempfile::TempDir;
@@ -910,6 +944,83 @@ mod team_binding_tests {
         );
         // Hard refuse leaves the store unchanged — no teamless fallback plan.
         assert_eq!(s.list_index().len(), before);
+    }
+
+    #[test]
+    fn concurrent_team_plan_creation_allows_exactly_one() {
+        let dir = TempDir::new().unwrap();
+        let store = Arc::new(PlanStore::new_for_test(dir.path()));
+        let barrier = Arc::new(Barrier::new(3));
+        let root = dir.path().display().to_string();
+        let spawn = |title: &'static str, now| {
+            let store = store.clone();
+            let barrier = barrier.clone();
+            let root = root.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                store.create_plan_for_team(
+                    title.into(),
+                    root,
+                    OrchestratorRef::from_pane(title),
+                    Some("team_alpha".into()),
+                    vec![],
+                    now,
+                )
+            })
+        };
+        let first = spawn("First", 1);
+        let second = spawn("Second", 2);
+        barrier.wait();
+        let results = [first.join().unwrap(), second.join().unwrap()];
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| matches!(result, Err(PlanError::TeamAlreadyHasActivePlan { .. })))
+                .count(),
+            1
+        );
+        assert_eq!(store.list_index().len(), 1);
+    }
+
+    #[test]
+    fn concurrent_team_plan_create_and_bind_allow_exactly_one() {
+        let dir = TempDir::new().unwrap();
+        let store = Arc::new(PlanStore::new_for_test(dir.path()));
+        let teamless = create(&store, &dir, "Existing", None, 1).unwrap();
+        let barrier = Arc::new(Barrier::new(3));
+        let bind_store = store.clone();
+        let bind_barrier = barrier.clone();
+        let bind_plan_id = teamless.id.clone();
+        let bind = std::thread::spawn(move || {
+            bind_barrier.wait();
+            bind_store.bind_plan_to_team(&bind_plan_id, "team_alpha", 2)
+        });
+        let create_store = store.clone();
+        let create_barrier = barrier.clone();
+        let root = dir.path().display().to_string();
+        let create = std::thread::spawn(move || {
+            create_barrier.wait();
+            create_store.create_plan_for_team(
+                "New".into(),
+                root,
+                OrchestratorRef::from_pane("orch"),
+                Some("team_alpha".into()),
+                vec![],
+                3,
+            )
+        });
+        barrier.wait();
+        let results = [bind.join().unwrap(), create.join().unwrap()];
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| matches!(result, Err(PlanError::TeamAlreadyHasActivePlan { .. })))
+                .count(),
+            1
+        );
+        assert!(store.active_plan_for_team("team_alpha").is_some());
     }
 
     #[test]
