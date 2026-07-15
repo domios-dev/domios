@@ -73,7 +73,7 @@ export interface SidebarWorkspaceTabsProps {
   onCloseTab: (tabId: string) => void;
   onRenameTab: (tabId: string, title: string) => void;
   onNewSession: () => void;
-  onRenameTeam?: (teamId: string, name: string) => void;
+  onRenameTeam?: (teamId: string, name: string, managerPaneId: string) => void | Promise<void>;
   onAddTeamMember?: (
     teamId: string,
     role: TeamMemberRole,
@@ -270,7 +270,9 @@ export function SidebarWorkspaceTabs({
           </>
         }
         providers={providers}
-        onRenameTeam={onRenameTeam}
+        onRenameTeam={onRenameTeam && managerPaneId
+          ? (teamId, name) => onRenameTeam(teamId, name, managerPaneId)
+          : undefined}
         onOpenEffort={(target) => {
           onBeforeOpenPlan();
           openTeamPlanCanvas({ ...target, managerPaneId });

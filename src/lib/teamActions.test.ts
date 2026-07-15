@@ -7,13 +7,12 @@ function assert(condition: unknown, message: string): asserts condition {
 async function run() {
   const calls: Array<{ command: string; args: unknown }> = [];
   const actions = buildTeamActions({
-    callerTabId: () => "acting-pane",
     invoke: async (command, args) => {
       calls.push({ command, args });
     },
   });
 
-  await actions.onRenameTeam("team-1", "Renamed team");
+  await actions.onRenameTeam("team-1", "Renamed team", "O1");
 
   assert(calls.length === 1, "rename invokes exactly once");
   assert(calls[0]?.command === "mux_rename_team", "rename uses the bridge command");
@@ -21,10 +20,11 @@ async function run() {
     JSON.stringify(calls[0]?.args) === JSON.stringify({
       teamId: "team-1",
       name: "Renamed team",
-      callerTabId: "acting-pane",
+      callerTabId: "O1",
     }),
     "rename passes exact team id, name, and acting pane identity",
   );
+  assert(!JSON.stringify(calls[0]?.args).includes("focused_pane_id"), "rename never sends focus state");
   assert(actions.onAddTeamMember, "staffing is enabled when the bridge is available");
   const callsBeforeStaffing = calls.length;
   await actions.onAddTeamMember("team-1", "worker", "registry-provider", "manager-pane");
@@ -42,11 +42,15 @@ async function run() {
   );
 
   const rejected = buildTeamActions({
-    callerTabId: () => "acting-pane",
     invoke: async () => {
       throw new Error("Team manager permission denied (403)");
     },
   });
+  await rejected.onRenameTeam("team-1", "Rejected rename", "O1")
+    .then(
+      () => assert(false, "403 rename rejection must be surfaced"),
+      (error: Error) => assert(error.message.includes("403"), "rename 403 remains actionable"),
+    );
   await rejected.onAddTeamMember("team-1", "planner", "registry-provider", "manager-pane")
     .then(
       () => assert(false, "403 staffing rejection must be surfaced"),

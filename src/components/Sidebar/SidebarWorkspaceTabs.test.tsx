@@ -105,7 +105,7 @@ async function renderSidebar({
   activeTabId?: string | null;
   onActivateTab?: (tabId: string) => void;
   onCloseTab?: (tabId: string) => void;
-  onRenameTeam?: (teamId: string, name: string) => void;
+  onRenameTeam?: (teamId: string, name: string, managerPaneId: string) => void | Promise<void>;
   onAddTeamMember?: (teamId: string, role: "planner" | "worker", providerId: string, managerPaneId: string) => void;
   onCloseTeam?: (teamId: string) => void;
 }): Promise<{ host: HTMLDivElement; root: Root; rerender: (nextPlans: Plan[]) => Promise<void> }> {
@@ -240,6 +240,7 @@ test("managerless Team hides staffing and makes no request", async () => {
   const menu = document.querySelector('[data-testid="team-menu"]');
   assert(!menu?.textContent?.includes("Add worker"), "managerless Team hides worker staffing");
   assert(!menu?.textContent?.includes("Add planner"), "managerless Team hides planner staffing");
+  assert(!menu?.textContent?.includes("Rename"), "managerless Team hides rename");
   assert(requests.length === 0, "managerless Team does not issue a staffing request");
   await act(async () => root.unmount());
 });
@@ -247,6 +248,7 @@ test("managerless Team hides staffing and makes no request", async () => {
 test("staffing selects the first eligible manager in visible Orchestrator-first order", async () => {
   const requests: Array<[string, "planner" | "worker", string, string]> = [];
   const panes = {
+    unrelated: pane({ id: "unrelated", title: "Unrelated pane", role: "Worker" }),
     "a-O2": pane({ id: "a-O2", title: "Orchestrator Two", role: "Orchestrator", team_id: TEAM.id }),
     "p-P1": pane({ id: "p-P1", title: "Planner One", role: "Manager", role_profile: "planner", team_id: TEAM.id }),
     "z-O1": pane({ id: "z-O1", title: "Orchestrator One", role: "Orchestrator", team_id: TEAM.id }),
@@ -262,7 +264,8 @@ test("staffing selects the first eligible manager in visible Orchestrator-first 
   }] as ProviderDescriptor[];
   const { host, root } = await renderSidebar({
     panes,
-    tabs: [tab("tab-O1", "z-O1", 0), tab("tab-O2", "a-O2", 1), tab("tab-P1", "p-P1", 2)],
+    tabs: [tab("tab-unrelated", "unrelated", 0), tab("tab-O1", "z-O1", 1), tab("tab-O2", "a-O2", 2), tab("tab-P1", "p-P1", 3)],
+    activeTabId: "tab-unrelated",
     providers,
     onAddTeamMember: (teamId, role, providerId, managerPaneId) => {
       requests.push([teamId, role, providerId, managerPaneId]);
@@ -285,7 +288,7 @@ test("staffing selects the first eligible manager in visible Orchestrator-first 
   await act(async () => provider.click());
   assert(
     JSON.stringify(requests) === JSON.stringify([[TEAM.id, "worker", "registry-provider", "z-O1"]]),
-    "the first visible Orchestrator is passed as caller identity despite shuffled pane insertion",
+    "the first visible Orchestrator is passed as caller identity while an unrelated tab is active",
   );
   await act(async () => root.unmount());
 });
