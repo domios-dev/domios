@@ -1509,7 +1509,7 @@ button,
   border-radius: 8px;
   padding: 4px;
   background: var(--ct-sidebar-bg);
-  box-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 10px 28px -10px color-mix(in srgb, var(--ct-bg) 55%, transparent);
 }
 
 .sidebar-team-menu button {
