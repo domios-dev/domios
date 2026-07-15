@@ -215,11 +215,13 @@ impl ServiceContext {
             .lock()
             .get_screen_text(&pty_id)
             .unwrap_or_default();
-        let tui_visible = crate::pty::screen_state::screen_has_agent_tui(&screen)
-            || self
-                .agent_registry
-                .with_provider(provider, |p| p.screen_has_tui(&screen))
-                .unwrap_or(false);
+        let provider_ready = self
+            .agent_registry
+            .with_provider(provider, |p| p.screen_has_tui(&screen));
+        let tui_visible = crate::service::pty_io::provider_or_generic_tui(
+            provider_ready,
+            crate::pty::screen_state::screen_has_agent_tui(&screen),
+        );
         pair_agent_state_allows_followup(booting, boot_stage, false, tui_visible)
     }
 

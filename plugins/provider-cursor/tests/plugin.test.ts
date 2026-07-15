@@ -127,6 +127,7 @@ console.log("\n--- runtime detect (plugin.js, structural) ---\n");
   assert(p.detectFromOutput(cursorFixture) === true, "detectFromOutput banner positive (two-signal)");
   assert(p.detectFromOutput("OpenAI Codex\ncodex>") === false, "detectFromOutput codex negative");
   assert(p.screenHasTui("foo\n  Run Everything\nbar") === true, "screenHasTui positive");
+  assert(p.screenHasTui(cursorTrustFixture) === false, "workspace trust gate is not a ready agent TUI");
   assert(p.screenHasTui("$ ls") === false, "screenHasTui negative");
   assert(p.isOutputNoise("╭──────────╮") === true, "box-drawing line is noise");
   assert(p.isOutputNoise("hello") === false, "text line is not noise");
@@ -187,6 +188,10 @@ console.log("\n--- buildLaunchCommand (windows trust prefix, gated) ---\n");
   const cmd = p.buildLaunchCommand({ skipPermissions: true });
   assert(cmd.indexOf(".workspace-trusted") !== -1, "windows launch with skipPermissions pre-writes the trust marker");
   assert(cmd.indexOf("Get-Location") !== -1, "windows trust prefix uses PowerShell Get-Location");
+  assert(cmd.indexOf("[^a-zA-Z0-9]+") !== -1, "windows trust slug collapses adjacent drive separators");
+  assert(cmd.indexOf("ConvertTo-Json -Compress") !== -1, "windows trust marker uses JSON serialization");
+  assert(cmd.indexOf("[IO.File]::WriteAllText") !== -1, "windows trust marker is replaced atomically before launch");
+  assert(cmd.indexOf("workspacePath\\\":\\\"'+($d -replace") === -1, "windows trust path is not escaped twice");
   assert(cmd.endsWith("cursor-agent --force"), "windows launch ends with the invocation");
 }
 
