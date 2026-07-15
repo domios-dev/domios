@@ -1,3 +1,4 @@
+use crate::multiplexer::commands::MuxState;
 use crate::service::plan::{PlanError, PlanStore};
 
 use super::{ServiceState, SpawnIdentityProvenance};
@@ -19,8 +20,21 @@ pub(crate) fn persist_attempt_executor_identity(
     title: &str,
     now: u64,
 ) -> Result<(), PlanError> {
-    let session_id = svc
-        .mux
+    persist_attempt_executor_identity_for_mux(
+        store, &svc.mux, plan_id, task_id, pane_id, title, now,
+    )
+}
+
+pub(crate) fn persist_attempt_executor_identity_for_mux(
+    store: &PlanStore,
+    mux: &MuxState,
+    plan_id: &str,
+    task_id: &str,
+    pane_id: &str,
+    title: &str,
+    now: u64,
+) -> Result<(), PlanError> {
+    let session_id = mux
         .read()
         .get_pane(pane_id)
         .and_then(|pane| pane.agent_session_id.clone());
@@ -37,9 +51,12 @@ pub(crate) fn persist_attempt_executor_identity(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lock_hold::TimedRwLock;
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
     use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
     use crate::service::plan::NewTask;
-    use crate::service::test_support::test_harness;
+    use std::sync::Arc;
 
     #[test]
     fn respawn_title_provenance_preserves_explicit_user_titles() {
@@ -56,8 +73,9 @@ mod tests {
     #[test]
     fn persist_attempt_executor_identity_updates_title_and_session() {
         let dir = tempfile::tempdir().unwrap();
-        let harness = test_harness(dir.path(), "test-provider");
-        let store = harness.service.plan_store.clone();
+        let store = PlanStore::new_for_test(dir.path());
+        let (state, _) = MultiplexerState::new();
+        let mux: MuxState = Arc::new(TimedRwLock::new("mux", state));
         let mut plan = Plan::new(
             "Respawn".into(),
             dir.path().display().to_string(),
@@ -94,27 +112,17 @@ mod tests {
             task_prompt: "prompt".into(),
             report_command: "report".into(),
         };
-        let ws = harness
-            .service
-            .mux
+        let ws = mux
             .write()
             .create_workspace("Respawn".into(), Some(dir.path().display().to_string()))
             .id;
-        let (_tab_id, pane_id) = harness.service.mux.write().create_tab(&ws).unwrap();
+        let (_tab_id, pane_id) = mux.write().create_tab(&ws).unwrap();
+        mux.write().get_pane_mut(&pane_id).unwrap().agent_session_id = Some("sess-1".into());
         store
             .record_task_respawn_attempt(&plan.id, &task_id, &pane_id, &draft, Some("worker"), 3)
             .unwrap();
-        harness
-            .service
-            .set_agent_session_id(&pane_id, Some("sess-1".into()));
-        persist_attempt_executor_identity(
-            &store,
-            &harness.service,
-            &plan.id,
-            &task_id,
-            &pane_id,
-            "Ada",
-            4,
+        persist_attempt_executor_identity_for_mux(
+            &store, &mux, &plan.id, &task_id, &pane_id, "Ada", 4,
         )
         .unwrap();
         let task = store.show_task(&task_id).unwrap();
@@ -126,6 +134,5 @@ mod tests {
             .unwrap();
         assert_eq!(attempt.executor_title.as_deref(), Some("Ada"));
         assert_eq!(attempt.session_id.as_deref(), Some("sess-1"));
-        std::mem::forget(harness);
     }
 }

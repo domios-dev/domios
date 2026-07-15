@@ -38,6 +38,15 @@ interface TeamTabMember {
   index: number;
 }
 
+function isEligibleTeamStaffingManager(member: TeamTabMember): boolean {
+  return member.pane.role === "Orchestrator"
+    || (member.pane.role === "Manager" && member.pane.role_profile === "planner");
+}
+
+function selectTeamStaffingManager(members: readonly TeamTabMember[]): string | null {
+  return members.find(isEligibleTeamStaffingManager)?.pane.id ?? null;
+}
+
 export interface SidebarWorkspaceTabsProps {
   workspace: Workspace;
   activeTabId: string | null;
@@ -69,8 +78,8 @@ export interface SidebarWorkspaceTabsProps {
     teamId: string,
     role: TeamMemberRole,
     providerId: string,
-    parentPaneId: string | null,
-  ) => void;
+    managerPaneId: string,
+  ) => void | Promise<void>;
   onCloseTeam?: (teamId: string) => void;
 }
 
@@ -230,7 +239,7 @@ export function SidebarWorkspaceTabs({
       created_at: 0,
       workspace_id: ws.id,
     };
-    const parentPaneId = orchestratorIds[0] ?? null;
+    const managerPaneId = selectTeamStaffingManager(managers);
 
     rows.push(
       <TeamUnit
@@ -264,10 +273,10 @@ export function SidebarWorkspaceTabs({
         onRenameTeam={onRenameTeam}
         onOpenEffort={(target) => {
           onBeforeOpenPlan();
-          openTeamPlanCanvas({ ...target, managerPaneId: parentPaneId });
+          openTeamPlanCanvas({ ...target, managerPaneId });
         }}
-        onAddMember={onAddTeamMember
-          ? (role, providerId) => onAddTeamMember(teamId, role, providerId, parentPaneId)
+        onAddMember={onAddTeamMember && managerPaneId
+          ? (role, providerId) => onAddTeamMember(teamId, role, providerId, managerPaneId)
           : undefined}
         onCloseTeam={onCloseTeam}
       />,

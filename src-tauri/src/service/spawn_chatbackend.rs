@@ -257,7 +257,11 @@ where
 }
 
 impl ServiceContext {
-    pub(crate) fn spawn_chatbackend_impl(&self, spec: SpawnPaneSpec) -> Result<PaneHandle, String> {
+    pub(crate) fn spawn_chatbackend_impl_with_state_change(
+        &self,
+        spec: SpawnPaneSpec,
+        emit_state_change: bool,
+    ) -> Result<PaneHandle, String> {
         let (plugin_id, config, role, role_profile, can_spawn, watcher) = match &spec.command {
             PaneCommand::ChatBackend {
                 plugin_id,
@@ -325,15 +329,28 @@ impl ServiceContext {
             }
         }
         if let Some(ref role) = role {
-            if let Err(e) =
+            let role_result = if emit_state_change {
                 self.set_pane_role(&pane_id, role, spec.parent_pane_id.as_deref(), can_spawn)
-            {
+            } else {
+                let parsed = Self::parse_role(role)?;
+                let mut mux = self.mux.write();
+                mux.set_pane_role(&pane_id, parsed, spec.parent_pane_id.as_deref())?;
+                if let Some(can_spawn) = can_spawn {
+                    mux.set_can_spawn(&pane_id, can_spawn)?;
+                }
+                Ok(())
+            };
+            if let Err(e) = role_result {
                 let _ = self.mux.write().close_tab(&ws_id, &tab_id);
-                self.emit_state_changed();
+                if emit_state_change {
+                    self.emit_state_changed();
+                }
                 return Err(e);
             }
         }
-        self.emit_state_changed();
+        if role.is_none() && emit_state_change {
+            self.emit_state_changed();
+        }
 
         self.chatbackend_launch_async(
             plugin_id,

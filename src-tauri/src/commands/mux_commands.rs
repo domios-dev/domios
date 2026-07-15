@@ -105,6 +105,56 @@ pub fn mux_rename_team(
     mux_rename_team_service_core(svc.inner(), team_id, name, Some(caller_tab_id))
 }
 
+pub(crate) async fn mux_add_team_member_service_core(
+    svc: &ServiceState,
+    team_id: String,
+    provider: String,
+    role: String,
+    caller_pane_id: Option<String>,
+    title: Option<String>,
+    task: Option<String>,
+    model: Option<String>,
+) -> Result<crate::service::AddTeamMemberResult, String> {
+    let caller_pane_id =
+        caller_pane_id.ok_or_else(|| "callerTabId is required to add a Team member".to_string())?;
+    svc.add_team_member(
+        &team_id,
+        &caller_pane_id,
+        crate::service::AddTeamMemberParams {
+            provider,
+            role,
+            title,
+            task,
+            model,
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn mux_add_team_member(
+    svc: State<'_, ServiceState>,
+    team_id: String,
+    provider: String,
+    role: String,
+    caller_tab_id: String,
+    title: Option<String>,
+    task: Option<String>,
+    model: Option<String>,
+) -> Result<crate::service::AddTeamMemberResult, String> {
+    mux_add_team_member_service_core(
+        svc.inner(),
+        team_id,
+        provider,
+        role,
+        Some(caller_tab_id),
+        title,
+        task,
+        model,
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
