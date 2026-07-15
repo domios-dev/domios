@@ -28,25 +28,17 @@ pub(crate) fn role_onboarding_task(
         }
         (Some("Manager"), _) => task.map(str::to_string),
         (Some("Worker"), _) => task.map(|t| format!("{}{}", t, crate::prompts::worker_suffix())),
-        (Some("Orchestrator"), _) => Some(format!(
-            "{}{}",
-            task.unwrap_or_default(),
-            crate::prompts::orchestrator_suffix()
-        )),
+        (Some("Orchestrator"), _) => task.map(str::to_string),
         _ => task.map(str::to_string),
     }
 }
 
 pub(crate) fn spawn_onboarding_task(params: &SpawnAgentParams) -> Option<String> {
-    if params.skip_orchestrator_onboarding == Some(true) && params.task.is_none() {
-        None
-    } else {
-        role_onboarding_task(
-            params.task.as_deref(),
-            params.role.as_deref(),
-            params.role_profile.as_deref(),
-        )
-    }
+    role_onboarding_task(
+        params.task.as_deref(),
+        params.role.as_deref(),
+        params.role_profile.as_deref(),
+    )
 }
 
 pub(crate) fn should_deliver_spawn_preferences(
@@ -376,7 +368,23 @@ pub(crate) fn launch_agent_in_background(
 
 #[cfg(test)]
 mod tests {
-    use super::replacement_pty_candidate;
+    use super::{replacement_pty_candidate, spawn_onboarding_task};
+    use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::AgentRole;
+    use crate::service::orchestrator::types::SpawnAgentParams;
+    use crate::service::pty_io::pane_identity_env;
+    use crate::service::spawn::{PaneCommand, SpawnPaneSpec};
+    use std::sync::Arc;
+
+    fn orchestrator_params(task: Option<&str>) -> SpawnAgentParams {
+        SpawnAgentParams {
+            agent: Some("test-provider".into()),
+            task: task.map(str::to_string),
+            role: Some("Orchestrator".into()),
+            ..Default::default()
+        }
+    }
 
     #[test]
     fn replacement_pty_must_be_new_and_live() {
@@ -387,6 +395,125 @@ mod tests {
         assert!(replacement_pty_candidate(Some("closed"), "closed", true).is_none());
         assert!(replacement_pty_candidate(Some("new"), "closed", false).is_none());
         assert!(replacement_pty_candidate(None, "closed", true).is_none());
+    }
+
+    #[test]
+    fn plain_orchestrator_no_task_spawn_submits_nothing() {
+        assert_eq!(spawn_onboarding_task(&orchestrator_params(None)), None);
+    }
+
+    #[test]
+    fn plain_orchestrator_no_task_attaches_nothing() {
+        let spec = SpawnPaneSpec::from_agent_params(orchestrator_params(None));
+
+        assert_eq!(spec.parent_pane_id, None);
+        match spec.command {
+            PaneCommand::Agent(agent) => {
+                assert_eq!(agent.role.as_deref(), Some("Orchestrator"));
+                assert_eq!(agent.task, None);
+                assert_eq!(agent.worker_id, None);
+            }
+            other => panic!("expected agent spawn state, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn plain_orchestrator_role_metadata_uses_the_non_task_channel() {
+        let (mut mux, _) = MultiplexerState::new();
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let pane_id = mux.create_tab(&workspace_id).unwrap().1;
+        mux.set_pane_role(&pane_id, AgentRole::Orchestrator, None)
+            .unwrap();
+        let pane = mux.get_pane(&pane_id).unwrap();
+
+        assert_eq!(
+            pane_identity_env(pane).get("CODETERM_ROLE"),
+            Some(&"Orchestrator".to_string())
+        );
+    }
+
+    #[test]
+    fn explicit_orchestrator_task_is_submitted_exactly_once() {
+        assert_eq!(
+            spawn_onboarding_task(&orchestrator_params(Some("inspect launch"))),
+            Some("inspect launch".into())
+        );
+    }
+
+    #[test]
+    fn planner_onboarding_remains_work_when_a_task_is_provided() {
+        let params = SpawnAgentParams {
+            task: Some("plan this".into()),
+            role: Some("Manager".into()),
+            role_profile: Some("planner".into()),
+            ..Default::default()
+        };
+
+        assert!(spawn_onboarding_task(&params)
+            .unwrap()
+            .contains(&crate::prompts::planner_suffix()));
+    }
+
+    struct SpawnableChatBackend;
+
+    impl ChatBackendProvider for SpawnableChatBackend {
+        fn id(&self) -> &str {
+            "test-chat"
+        }
+
+        fn spawnable(&self) -> bool {
+            true
+        }
+
+        fn open_session(&self, _: serde_json::Value) -> Result<String, ChatBackendError> {
+            Ok("session".into())
+        }
+
+        fn send_message(&self, _: &str, _: &str) -> Result<(), ChatBackendError> {
+            Ok(())
+        }
+
+        fn poll(
+            &self,
+            _: &str,
+            _: Option<&str>,
+        ) -> Result<crate::agent::chat_types::StructuredChat, ChatBackendError> {
+            Ok(Default::default())
+        }
+
+        fn close_session(&self, _: &str) -> Result<(), ChatBackendError> {
+            Ok(())
+        }
+
+        fn list_models(&self) -> Result<Vec<crate::agent::provider::ModelInfo>, ChatBackendError> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[test]
+    fn transport_capability_paths_receive_no_task_for_plain_orchestrator() {
+        let params = orchestrator_params(None);
+        assert_eq!(spawn_onboarding_task(&params), None);
+
+        match SpawnPaneSpec::from_agent_params(params.clone()).command {
+            PaneCommand::Agent(agent) => assert_eq!(agent.task, None),
+            other => panic!("expected PTY agent route, got {other:?}"),
+        }
+
+        let chatbackends = ChatBackendRegistry::new();
+        chatbackends.register("test-chat", Arc::new(SpawnableChatBackend));
+        let chat_params = SpawnAgentParams {
+            agent: Some("test-chat".into()),
+            ..params
+        };
+        match SpawnPaneSpec::from_agent_params_with_chatbackends(&chatbackends, chat_params).command
+        {
+            PaneCommand::ChatBackend { config, role, .. } => {
+                assert!(config.as_object().unwrap().is_empty());
+                assert_eq!(role.as_deref(), Some("Orchestrator"));
+            }
+            other => panic!("expected chatBackend route, got {other:?}"),
+        }
     }
 }
 

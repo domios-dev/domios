@@ -69,9 +69,12 @@ fn manager_watcher_does_not_get_worker_suffix() {
 }
 
 #[test]
-fn orchestrator_onboarding_is_sent_even_without_task_body() {
-    let task = role_onboarding_task(None, Some("Orchestrator"), None).unwrap();
-    assert!(task.contains(&crate::prompts::orchestrator_suffix()));
+fn plain_orchestrator_no_task_spawn_submits_nothing() {
+    assert_eq!(role_onboarding_task(None, Some("Orchestrator"), None), None);
+
+    let mut params = make_params("codex", None);
+    params.role = Some("Orchestrator".into());
+    assert_eq!(spawn_onboarding_task(&params), None);
 }
 
 #[test]
@@ -88,7 +91,7 @@ fn explicit_orchestrator_task_still_starts_an_execution_turn() {
     params.role = Some("Orchestrator".into());
     params.skip_orchestrator_onboarding = Some(true);
     let task = spawn_onboarding_task(&params).expect("explicit task");
-    assert!(task.starts_with("inspect the launch path"));
+    assert_eq!(task, "inspect the launch path");
 }
 
 #[test]
@@ -105,7 +108,9 @@ fn idle_planner_does_not_receive_a_preferences_turn() {
 fn fresh_spawn_never_uses_existing_pane_promotion_delivery() {
     for source in [include_str!("spawn.rs"), include_str!("../spawn.rs")] {
         assert!(!source.contains("maybe_deliver_orchestrator_promotion_onboarding"));
-        assert!(source.contains("role_onboarding_task("));
+        assert!(
+            source.contains("spawn_onboarding_task") || source.contains("role_onboarding_task")
+        );
         assert!(source.contains("launch_agent_in_background("));
     }
 }
