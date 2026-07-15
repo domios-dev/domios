@@ -1,4 +1,4 @@
-import type { Pane } from "../../lib/types";
+import type { Pane, Team } from "../../lib/types";
 import type { ExtendedState } from "./tree";
 
 const TITLE_SPINNER_PREFIX = /^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u;
@@ -9,6 +9,23 @@ export function stripPaneTitleSpinner(title: string | undefined): string | undef
 
 export function selectPane(state: ExtendedState, paneId: string): Pane | undefined {
   return state.panes[paneId];
+}
+
+export function selectTeams(state: ExtendedState): Team[] {
+  return state.teams;
+}
+
+export function teamsEqual(a: Team[], b: Team[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((team, index) => {
+    const other = b[index];
+    return team.id === other.id
+      && team.name === other.name
+      && team.lifecycle === other.lifecycle
+      && team.created_at === other.created_at
+      && team.workspace_id === other.workspace_id;
+  });
 }
 
 export function paneFieldsEqual(a: Pane | undefined, b: Pane | undefined): boolean {

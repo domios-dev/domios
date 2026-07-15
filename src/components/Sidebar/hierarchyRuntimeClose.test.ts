@@ -36,6 +36,7 @@ function base(): ExtendedState {
   return {
     workspaces: [],
     panes: {},
+    teams: [],
     active_workspace_id: null,
     focused_pane_id: null,
     notifications: [],
