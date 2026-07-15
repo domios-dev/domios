@@ -4,8 +4,7 @@ import type { ApiConfig } from "../../../lib/types";
 import type { BoardPlanSummary, BoardSpecSummary } from "./boardModel";
 import type { Plan } from "../types";
 import { PairAffordance } from "../../shared/PairAffordance";
-import { PlanSkillsSection } from "./PlanSkillsSection";
-import { isPlanParked, PlanModeControls } from "./PlanModeControls";
+import { isPlanParked } from "./PlanModeControls";
 import { useTouchOptimizedUi } from "../../../hooks/useTouchOptimizedUi";
 import { useNarrowPlanHeader, usePlanHeaderCollapse } from "./usePlanHeaderCollapse";
 
@@ -63,6 +62,12 @@ export function PlanContextCompactHeader(props: PlanContextHeaderProps) {
         onClick={toggle}
         title={expanded ? "Collapse plan context" : "Expand plan context"}
       >
+        <ChevronDown
+          size={16}
+          aria-hidden={false}
+          aria-label={expanded ? "Collapse plan context" : "Expand plan context"}
+          className="plan-context-compact-chevron"
+        />
         {stateLabel && (
           <span
             data-testid="plan-state-chip"
@@ -78,12 +83,6 @@ export function PlanContextCompactHeader(props: PlanContextHeaderProps) {
         <span data-testid="plan-context-compact-progress" className="plan-context-compact-progress">
           {parked ? "parked" : `${summary.done}/${summary.total}`}
         </span>
-        <ChevronDown
-          size={16}
-          aria-hidden={false}
-          aria-label={expanded ? "Collapse plan context" : "Expand plan context"}
-          className="plan-context-compact-chevron"
-        />
       </button>
       {expanded && (
         <div
@@ -120,6 +119,12 @@ export function PlanContextWideHeader(props: PlanContextHeaderProps) {
           onClick={toggle}
           title="Expand plan context"
         >
+          <ChevronDown
+            size={16}
+            aria-hidden={false}
+            aria-label="Expand plan context"
+            className="plan-context-compact-chevron"
+          />
           {stateLabel && (
             <span
               data-testid="plan-state-chip"
@@ -135,12 +140,6 @@ export function PlanContextWideHeader(props: PlanContextHeaderProps) {
           <span data-testid="plan-context-compact-progress" className="plan-context-compact-progress">
             {parked ? "parked" : `${summary.done}/${summary.total}`}
           </span>
-          <ChevronDown
-            size={16}
-            aria-hidden={false}
-            aria-label="Expand plan context"
-            className="plan-context-compact-chevron"
-          />
         </button>
       </header>
     );
@@ -176,9 +175,7 @@ function PlanContextBody({
   onOpenPlan,
   onOpenSpec,
   onOpenPane,
-  planId,
   plan,
-  api,
 }: PlanContextHeaderProps) {
   const goal = summary.goalVector?.trim() ?? "";
   const stateLabel = planningStateLabel(summary.planningState);
@@ -227,6 +224,20 @@ function PlanContextBody({
           }
         />
       </div>
+      {(goal || (!parked && summary.focus)) && (
+        <div className="plan-context-header-secondary">
+          {goal && (
+            <p data-testid="plan-board-plan-goal" className="plan-context-header-goal">
+              <span className="plan-context-header-goal-text">{goal}</span>
+            </p>
+          )}
+          {!parked && summary.focus && (
+            <p data-testid="plan-board-plan-focus" className="plan-context-header-focus">
+              {summary.focus}
+            </p>
+          )}
+        </div>
+      )}
       <div className="plan-context-header-main" data-testid="plan-context-header-main">
         <div className="plan-context-header-primary">
           <button
@@ -259,25 +270,7 @@ function PlanContextBody({
             </button>
           )}
         </div>
-        {plan && <PlanModeControls plan={plan} api={api} />}
       </div>
-      {(goal || (!parked && summary.focus)) && (
-        <div className="plan-context-header-secondary">
-          {goal && (
-            <p data-testid="plan-board-plan-goal" className="plan-context-header-goal">
-              <span className="plan-context-header-goal-text">{goal}</span>
-            </p>
-          )}
-          {!parked && summary.focus && (
-            <p data-testid="plan-board-plan-focus" className="plan-context-header-focus">
-              {summary.focus}
-            </p>
-          )}
-        </div>
-      )}
-      {planId && plan && api && (
-        <PlanSkillsSection planId={planId} plan={plan} api={api} compact onSkillNavigate={onOpenPlan} />
-      )}
     </>
   );
 }
