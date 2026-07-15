@@ -3,6 +3,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import { MessageBubble } from "./MessageBubble";
+import { parseInboundReport } from "./codeterm/InboundReportCard";
 import { CROSS_PANE_BUBBLE_TESTID, CROSS_PANE_SHELL_TESTID, crossPaneBubbleClassName } from "./crossPaneBubble";
 import { reduceToolEvents } from "@codeterm/chat-core";
 import {
@@ -945,6 +946,35 @@ test("chatBackend structured inbound renders sender header and kind badge", asyn
     assert(bubble, "inbound cross-pane uses shared bubble");
     assert(bubble!.className === crossPaneBubbleClassName("text-base"), "inbound uses shared cross-pane bubble class");
     assert(!bubble!.className.includes("border"), "inbound cross-pane bubble has no accent border");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("structured report uses compact typed card instead of a nested message bubble", async () => {
+  const content = "task: pl_d17yp2/task_2iw42e\nstatus: In Review\nbranch: lane/tool-cards\nsha: 1e096cba6\ntests: 11/11 green\nSTATUS: in_review | CHANGES: Added provider matrix";
+  const descriptor = parseInboundReport(content);
+  assert(descriptor.task === "pl_d17yp2/task_2iw42e", "report task parse regression");
+  assert(descriptor.status === "in_review", "latest report status should win");
+  assert(descriptor.fields.some((field) => field.label === "changes" && field.value === "Added provider matrix"), "compound report fields parse regression");
+
+  const { host, root } = await renderMessages([{
+    id: "inbound-report-1",
+    provider: "lmstudio",
+    type: "user",
+    content,
+    fromLabel: "Hugo",
+    fromPane: "e7f14bec",
+    fromModel: "opus",
+    inboundKind: "report",
+  }]);
+  try {
+    assert(host.querySelector('[data-testid="chat-inbound-report"]'), "expected typed inbound report card");
+    assertIncludes(host, "report · Hugo", "report sender");
+    assertIncludes(host, "task_2iw42e", "report task summary");
+    assertIncludes(host, "1e096cba6", "report sha chip");
+    assert(!host.querySelector(`[data-testid="${CROSS_PANE_BUBBLE_TESTID}"]`), "report must not use nested cross-pane bubble");
   } finally {
     await act(async () => root.unmount());
     host.remove();

@@ -18,7 +18,7 @@ export function EditCard({ event, expanded, onToggle }: { event: ToolEvent; expa
   const added = edits.reduce((n, edit) => n + countAdded(edit), 0);
   const removed = edits.reduce((n, edit) => n + countRemoved(edit), 0);
   const groups = groupedEdits(edits);
-  return <ToolCardFrame event={event} expanded={expanded} onToggle={onToggle} title={null} metric={<span data-testid="toolcard-edit-summary" className="shrink-0 font-mono text-[10px]"><span style={{ color: "var(--ct-green)" }}>+{added}</span> <span style={{ color: "var(--ct-red)" }}>-{removed}</span></span>}>
+  return <ToolCardFrame event={event} expanded={expanded} onToggle={onToggle} metric={<span data-testid="toolcard-edit-summary" className="shrink-0 font-mono text-[10px]"><span style={{ color: "var(--ct-green)" }}>+{added}</span> <span style={{ color: "var(--ct-red)" }}>-{removed}</span></span>}>
     {expanded && Array.from(groups, ([path, fileEdits]) => <section key={path} data-testid="toolcard-edit-file" className="mt-2">
       <div className="mb-1 font-mono text-xs" style={{ color: "var(--ct-fg)" }}>{path} <span style={{ color: "var(--ct-muted-fg)" }}>+{fileEdits.reduce((n, edit) => n + countAdded(edit), 0)} -{fileEdits.reduce((n, edit) => n + countRemoved(edit), 0)}</span></div>
       <DiffView edits={fileEdits} language={languageForEdits(path, fileEdits)} />

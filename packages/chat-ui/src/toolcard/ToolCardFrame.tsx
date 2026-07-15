@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { toolKindVisual, useShowCommands, type ToolKindVisual } from "./toolKindVisual";
 
 interface ToolCardFrameProps {
+  testId?: string;
   event: ToolEvent;
   expanded: boolean;
   onToggle: () => void;
@@ -18,7 +19,7 @@ interface ToolCardFrameProps {
   visualOverride?: ToolKindVisual;
 }
 
-export function ToolCardFrame({ event, expanded, onToggle, children, command, title, summary, metric, chips, tail, variant = "smart", visualOverride }: ToolCardFrameProps) {
+export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, command, title, summary, metric, chips, tail, variant = "smart", visualOverride }: ToolCardFrameProps) {
   const [commandOpen, setCommandOpen] = useState(false);
   const globalShowCommands = useShowCommands();
   const visual = visualOverride ?? toolKindVisual[event.kind];
@@ -36,7 +37,7 @@ export function ToolCardFrame({ event, expanded, onToggle, children, command, ti
 
   return (
     <div
-      data-testid="chat-tool-call"
+      data-testid={testId}
       data-tool-status={event.status}
       className="group/toolcard mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-lg border transition-colors hover:border-[var(--ct-border)] hover:bg-[var(--ct-surface)]"
       style={{ borderStyle: event.status === "error" ? "dashed" : "solid", borderColor, background }}

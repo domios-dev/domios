@@ -45,6 +45,10 @@ const focusTab = sendHost.host.querySelector<HTMLButtonElement>('[data-testid="c
 if (!focusTab || focusTab.textContent !== "Focus Tab" || focusTab.textContent.includes("e3fa0754")) throw new Error("tab navigation label regression");
 await act(async () => focusTab.click());
 if (focusCalls[0] !== "e3fa0754") throw new Error("tab focus callback regression");
+const successfulSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), result: "OK (sent)\nOK" }} expanded onToggle={() => {}} />);
+if (successfulSendHost.host.querySelector('[data-testid="toolcard-result"]') || successfulSendHost.host.textContent?.includes("OK (sent)")) throw new Error("successful send result must stay hidden");
+const failedSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), status: "error", result: "error: tab not found" }} expanded onToggle={() => {}} />);
+if (!failedSendHost.host.querySelector('[data-testid="toolcard-result"]') || !failedSendHost.host.textContent?.includes("tab not found")) throw new Error("failed send result must remain visible");
 const unresolvedFocusHost = await render(<CodetermActionCard event={event('codeterm send --tab unknown-ref "hi"')} expanded onToggle={() => {}} onFocusPane={(ref) => focusCalls.push(ref)} />);
 if (!unresolvedFocusHost.host.querySelector('[data-testid="codeterm-focus-tab"]')) throw new Error("tab focus should not require name resolver");
 

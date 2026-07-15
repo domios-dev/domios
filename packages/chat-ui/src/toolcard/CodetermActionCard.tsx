@@ -1,7 +1,7 @@
 import type { ToolEvent } from "@codeterm/chat-core";
 import { recognize } from "../codeterm/recognize";
 import { describeAction, isSend, navigationTarget, type NavigationTarget, type PaneNameResolver } from "../codeterm/templates";
-import { SentMessageBubble } from "../codeterm/SentMessageBubble";
+import { CompactMessageContent } from "../codeterm/CompactMessageContent";
 import { ToolCardFrame } from "./ToolCardFrame";
 import type { OpenPlan, ResolvedChatPlanRef } from "../codeterm/LinkedText";
 import { ToolOutputContent } from "../ToolOutputContent";
@@ -129,6 +129,7 @@ export function CodetermActionCard({
     summary: descriptor.object ?? descriptor.lead,
     detail: undefined,
   };
+  const showResult = Boolean(event.result && (!inv || !isSend(inv) || event.status === "error"));
 
   return (
     <ToolCardFrame
@@ -143,10 +144,8 @@ export function CodetermActionCard({
       metric={collapsedChips.length ? <span className="flex flex-wrap gap-1">{collapsedChips.map((chip) => <span key={chip} className="rounded border px-1.5 py-0.5 text-[10px]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>{chip}</span>)}</span> : undefined}
     >
       {inv && isSend(inv) ? (
-        <SentMessageBubble
-          inv={inv}
-          result={event.result}
-          resolvePaneName={resolvePaneName}
+        <CompactMessageContent
+          text={descriptor.detail ?? ""}
           onOpenPlan={onOpenPlan}
           resolvePlanRef={resolvePlanRef}
           fontScale={fontScale}
@@ -164,7 +163,7 @@ export function CodetermActionCard({
         <div className="break-words text-xs" style={{ color: "var(--ct-muted-fg)" }}>{descriptor.detail}</div>
       ) : null}
       {descriptor.bullets && <ul className="mt-2 list-disc pl-4 text-xs" style={{ color: "var(--ct-muted-fg)" }}>{descriptor.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
-      {event.result && <div data-testid="toolcard-result" className="mt-2"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>}
+      {showResult && <div data-testid="toolcard-result" className="mt-2"><ToolOutputContent text={event.result!} maxHeight="12rem" /></div>}
       {canNavigate && target?.kind === "tab" && (
         <button
           type="button"
