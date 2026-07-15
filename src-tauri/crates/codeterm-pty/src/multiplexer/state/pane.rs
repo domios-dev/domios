@@ -222,16 +222,21 @@ impl MultiplexerState {
         }
     }
 
-    /// Close a pane: remove from the workspace tree and pane registry.
-    /// Cascade-closes all children. Returns pty_ids that should be killed.
+    /// Close exactly one pane and return the PTY which should be killed.
     ///
-    /// Records the closed subtree (the pane + any cascade-closed children) as
-    /// ONE group in the closed-history store, preserving parent links, so the
-    /// whole subtree can be reopened together (or any single pane on its own).
-    /// Built before the panes are removed from the tree.
+    /// Hierarchy edges express coordination, not ownership: a child keeps
+    /// running when its parent closes. Direct children are detached before the
+    /// parent is removed, preserving their role and Team membership.
     pub fn close_pane(&mut self, pane_id: &str) -> Result<Vec<String>, String> {
-        self.record_cascade_close(pane_id);
+        self.record_single_close(pane_id);
         self.close_pane_inner(pane_id)
+    }
+
+    /// Close a hierarchy subtree for the explicit Close Team action only.
+    /// Ordinary pane close must use `close_pane`.
+    pub fn close_pane_for_team_close(&mut self, pane_id: &str) -> Result<Vec<String>, String> {
+        self.record_cascade_close(pane_id);
+        self.close_pane_cascade_inner(pane_id)
     }
 
     fn close_pane_inner(&mut self, pane_id: &str) -> Result<Vec<String>, String> {
@@ -243,8 +248,6 @@ impl MultiplexerState {
 
         let mut pty_ids = Vec::new();
 
-        let child_ids = self.get_children_ids(pane_id);
-
         if let Some(pty_id) = self.panes.get(pane_id).and_then(|p| p.pty_id.clone()) {
             self.pty_to_pane.remove(&pty_id);
             pty_ids.push(pty_id);
@@ -252,6 +255,15 @@ impl MultiplexerState {
 
         self.remove_pane_from_tree(pane_id)?;
 
+        for child_id in self.get_children_ids(pane_id) {
+            if let Some(child) = self.panes.get_mut(&child_id) {
+                child.parent_pane_id = None;
+                child.depth = 0;
+                if child.report_target_pane_id.as_deref() == Some(pane_id) {
+                    child.report_target_pane_id = None;
+                }
+            }
+        }
         self.panes.remove(pane_id);
 
         if self.focused_pane_id.as_deref() == Some(pane_id) {
@@ -259,13 +271,17 @@ impl MultiplexerState {
             self.fallback_focus_to_general();
         }
 
-        // close_pane; here we only tear them down.
-        for cid in child_ids {
-            if let Ok(child_ptys) = self.close_pane_inner(&cid) {
-                pty_ids.extend(child_ptys);
+        Ok(pty_ids)
+    }
+
+    fn close_pane_cascade_inner(&mut self, pane_id: &str) -> Result<Vec<String>, String> {
+        let child_ids = self.get_children_ids(pane_id);
+        let mut pty_ids = self.close_pane_inner(pane_id)?;
+        for child_id in child_ids {
+            if self.panes.contains_key(&child_id) {
+                pty_ids.extend(self.close_pane_cascade_inner(&child_id)?);
             }
         }
-
         Ok(pty_ids)
     }
 

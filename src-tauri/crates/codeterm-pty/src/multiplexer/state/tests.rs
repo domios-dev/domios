@@ -1,5 +1,5 @@
 use super::*;
-use crate::multiplexer::types::{AgentRole, PaneType};
+use crate::multiplexer::types::{AgentRole, PaneBacking, PaneType};
 
 #[test]
 fn test_new_state_has_default_workspace() {
@@ -505,24 +505,143 @@ fn test_clear_role_orphans_children() {
 }
 
 #[test]
-fn test_close_pane_cascades_children() {
-    let (mut state, orch_id) = MultiplexerState::new();
+fn manager_close_keeps_children_alive() {
+    let (mut state, root_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     state
-        .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
+        .set_pane_role(&root_id, AgentRole::Orchestrator, None)
         .unwrap();
-    state.link_pty(&orch_id, "pty-orch".to_string());
+    let (_tab, manager_id) = state.create_tab(&ws_id).unwrap();
+    state
+        .set_pane_role(&manager_id, AgentRole::Manager, Some(&root_id))
+        .unwrap();
+    state.link_pty(&manager_id, "pty-manager".to_string());
 
     let (_tab, worker_id) = state.create_tab(&ws_id).unwrap();
     state
-        .set_pane_role(&worker_id, AgentRole::Worker, Some(&orch_id))
+        .set_pane_role(&worker_id, AgentRole::Worker, Some(&root_id))
         .unwrap();
     state.link_pty(&worker_id, "pty-worker".to_string());
+    state.repoint_parent(&worker_id, &manager_id);
 
-    let pty_ids = state.close_pane(&orch_id).unwrap();
-    assert!(pty_ids.contains(&"pty-orch".to_string()));
-    assert!(pty_ids.contains(&"pty-worker".to_string()));
-    assert!(state.get_pane(&orch_id).is_none());
+    let (_tab, planner_id) = state.create_tab(&ws_id).unwrap();
+    state
+        .set_pane_role(&planner_id, AgentRole::Worker, Some(&root_id))
+        .unwrap();
+    state.link_pty(&planner_id, "pty-planner".to_string());
+    state.repoint_parent(&planner_id, &manager_id);
+
+    let pty_ids = state.close_pane(&manager_id).unwrap();
+    assert_eq!(pty_ids, vec!["pty-manager".to_string()]);
+    assert!(state.get_pane(&manager_id).is_none());
+    for child_id in [&worker_id, &planner_id] {
+        let child = state.get_pane(child_id).expect("child remains alive");
+        assert!(child.parent_pane_id.is_none());
+        assert_eq!(child.role, Some(AgentRole::Worker));
+    }
+}
+
+#[test]
+fn manager_close_preserves_team_registry_and_chat_backend_child() {
+    let (mut state, root_id) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    state
+        .set_pane_role(&root_id, AgentRole::Orchestrator, None)
+        .unwrap();
+    let team_id = state
+        .resolve_or_mint_team_for_parent(&root_id)
+        .unwrap()
+        .team_id;
+    let team_before = state.get_team(&team_id).cloned().unwrap();
+    let (_tab, manager_id) = state.create_tab(&ws_id).unwrap();
+    state
+        .set_pane_role(&manager_id, AgentRole::Manager, Some(&root_id))
+        .unwrap();
+    let (_tab, chat_id) = state.create_tab(&ws_id).unwrap();
+    state
+        .set_pane_role(&chat_id, AgentRole::Worker, Some(&root_id))
+        .unwrap();
+    state.repoint_parent(&chat_id, &manager_id);
+    state.get_pane_mut(&chat_id).unwrap().backing = PaneBacking::ChatBackend {
+        plugin_id: "test-backend".into(),
+        session_id: "session".into(),
+    };
+
+    assert!(state.close_pane(&manager_id).unwrap().is_empty());
+    let child = state.get_pane(&chat_id).expect("chat member survives");
+    assert!(child.is_chat_backend());
+    assert!(child.parent_pane_id.is_none());
+    assert_eq!(child.team_id.as_deref(), Some(team_id.as_str()));
+    assert_eq!(state.get_team(&team_id), Some(&team_before));
+}
+
+#[test]
+fn multi_manager_close_detaches_only_the_closed_managers_children() {
+    let (mut state, root_id) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    state
+        .set_pane_role(&root_id, AgentRole::Orchestrator, None)
+        .unwrap();
+    let (_tab, first_manager) = state.create_tab(&ws_id).unwrap();
+    state
+        .set_pane_role(&first_manager, AgentRole::Manager, Some(&root_id))
+        .unwrap();
+    let (_tab, second_manager) = state.create_tab(&ws_id).unwrap();
+    state
+        .set_pane_role(&second_manager, AgentRole::Manager, Some(&root_id))
+        .unwrap();
+    let (_tab, worker_id) = state.create_tab(&ws_id).unwrap();
+    state
+        .set_pane_role(&worker_id, AgentRole::Worker, Some(&root_id))
+        .unwrap();
+    state.repoint_parent(&worker_id, &first_manager);
+
+    state.close_pane(&first_manager).unwrap();
+    assert!(state.get_pane(&second_manager).is_some());
+    assert!(state.get_pane(&worker_id).is_some());
+    assert!(state.get_pane(&worker_id).unwrap().parent_pane_id.is_none());
+}
+
+#[test]
+fn last_manager_close_keeps_team_and_members() {
+    let (mut state, root_id) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    state
+        .set_pane_role(&root_id, AgentRole::Orchestrator, None)
+        .unwrap();
+    let team_id = state
+        .resolve_or_mint_team_for_parent(&root_id)
+        .unwrap()
+        .team_id;
+    let (_tab, member_id) = state.create_tab(&ws_id).unwrap();
+    state
+        .set_pane_role(&member_id, AgentRole::Worker, Some(&root_id))
+        .unwrap();
+
+    state.close_pane(&root_id).unwrap();
+    assert!(state.get_team(&team_id).is_some());
+    let member = state.get_pane(&member_id).expect("member survives");
+    assert_eq!(member.team_id.as_deref(), Some(team_id.as_str()));
+    assert!(member.parent_pane_id.is_none());
+}
+
+#[test]
+fn explicit_close_team_still_cascades() {
+    let (mut state, root_id) = MultiplexerState::new();
+    let workspace_id = state.list_workspaces()[0].id.clone();
+    state
+        .set_pane_role(&root_id, AgentRole::Orchestrator, None)
+        .unwrap();
+    state.link_pty(&root_id, "pty-root".into());
+    let (_tab, worker_id) = state.create_tab(&workspace_id).unwrap();
+    state
+        .set_pane_role(&worker_id, AgentRole::Worker, Some(&root_id))
+        .unwrap();
+    state.link_pty(&worker_id, "pty-worker".into());
+
+    let pty_ids = state.close_pane_for_team_close(&root_id).unwrap();
+    assert_eq!(pty_ids.len(), 2);
+    assert!(state.get_pane(&root_id).is_none());
     assert!(state.get_pane(&worker_id).is_none());
 }
 
