@@ -21,7 +21,7 @@ export const PRE_WRAP_CLASS = "whitespace-pre-wrap break-words [overflow-wrap:an
 export const LONG_CODE_PREVIEW_LINES = 300;
 const CODE_PREVIEW_HEAD_LINES = 8;
 const CODE_PREVIEW_TAIL_LINES = 8;
-export const CODE_BLOCK_DEFAULT_MAX_HEIGHT = "16rem";
+export const CODE_BLOCK_DEFAULT_MAX_HEIGHT = "500px";
 export const MERMAID_BLOCK_MAX_HEIGHT = "72rem";
 const CODE_BLOCK_PLAIN_FALLBACK_THRESHOLD = 200_000;
 
@@ -174,13 +174,13 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   if (forcePlainText) {
     return (
       <pre
-        className={`${PRE_WRAP_CLASS} m-0 p-3 font-mono text-xs leading-[1.4]`}
+        className="m-0 min-w-max whitespace-pre p-3 font-mono text-xs leading-[1.4]"
         style={{
           maxHeight: fullSize ? "100%" : maxHeight,
           background: "var(--ct-bg)",
           overflow: "auto",
           color: "var(--ct-fg)",
-          whiteSpace: "pre-wrap",
+          whiteSpace: "pre",
         }}
       >
         {displayedText}
@@ -243,18 +243,21 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
               fontSize: "0.75rem",
               lineHeight: "1.4",
               background: fullSize ? "var(--ct-bg)" : "var(--ct-bg)",
-              maxWidth: "100%",
-              overflowWrap: "anywhere",
-              wordBreak: "break-word",
+              width: "max-content",
+              minWidth: "100%",
+              maxWidth: "none",
+              whiteSpace: "pre",
+              overflowWrap: "normal",
+              wordBreak: "normal",
             }}
             codeTagProps={{
               style: {
                 fontFamily: "inherit",
-                overflowWrap: "anywhere",
-                wordBreak: "break-word",
+                whiteSpace: "pre",
+                overflowWrap: "normal",
+                wordBreak: "normal",
               },
             }}
-            wrapLongLines
           >
             {displayedText}
           </SyntaxHighlighter>
