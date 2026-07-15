@@ -5,16 +5,11 @@ import { Window } from "happy-dom";
 import { createRoot, type Root } from "react-dom/client";
 import type { Pane, Tab, Team, Workspace } from "../../lib/types";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../Canvas/cards/fixtures.testdata";
-import { groupTasksIntoColumns } from "../Canvas/planView/boardModel";
 import { TASK_STATUS_COLORS } from "../Canvas/settings";
 import { TaskStatus, type Plan, type Task } from "../Canvas/types";
 import { SidebarDnd } from "./sortable";
 import { canvasFocusStore } from "../Canvas/canvasFocusStore";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
-import {
-  deriveTeamTaskBuckets,
-  donutBackground,
-} from "./TeamUnit";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -25,14 +20,6 @@ function test(name: string, fn: TestFn) {
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
-}
-
-function parseDonutSegments(background: string): Array<[string, number, number]> {
-  return Array.from(background.matchAll(/(rgba\([^)]+\))\s+([\d.]+)%\s+([\d.]+)%/g), (match) => [
-    match[1],
-    Number(match[2]),
-    Number(match[3]),
-  ]);
 }
 
 function setupDom() {
@@ -225,7 +212,9 @@ test("team menu never creates efforts and exposes explicit Team closure", async 
   assert(close, "Close Team action is available");
   await act(async () => close.click());
   assert(closed.join(",") === TEAM.id, "Close Team reports the exact Team id");
-  assert(host.querySelector('[data-testid="team-no-effort"]')?.textContent === "No effort yet", "empty effort slot remains visible");
+  assert(host.querySelector('[data-testid="team-icon"]'), "Team identity remains visible without a plan");
+  assert(!host.querySelector('[data-testid="team-plan-button"]'), "no plan button is rendered without a plan");
+  assert(!host.querySelector('[data-testid="team-status-tally"]'), "no plan tally is rendered without a plan");
   canvasFocusStore.closeWorkspace();
   await act(async () => root.unmount());
 });
@@ -243,7 +232,7 @@ test("teamless_tabs_render_plain", async () => {
   await act(async () => root.unmount());
 });
 
-test("donut_counts_match_board", async () => {
+test("team header renders the live compact status tally", async () => {
   const panes = {
     orchestrator: pane({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
   };
@@ -263,54 +252,41 @@ test("donut_counts_match_board", async () => {
     plans: [currentPlan],
   });
 
-  const board = groupTasksIntoColumns(currentPlan, panes);
-  const boardCounts = new Map(board.columns.map((column) => [column.key, column.cards.length]));
-  const expected = deriveTeamTaskBuckets(currentPlan, panes);
-  assert(expected[0].count === (boardCounts.get("pending") ?? 0) + (boardCounts.get("in_progress") ?? 0), "todo folds board pending + in-progress");
-  const donut = host.querySelector('[data-testid="team-donut"]');
-  const effortRow = host.querySelector('[data-testid="team-open-effort"]');
+  const tally = host.querySelector('[data-testid="team-status-tally"]');
   assert(host.querySelector('[data-testid="team-icon"]'), "team identity remains in the header");
-  assert(donut?.closest('[data-testid="team-open-effort"]'), "segmented progress belongs to the effort row");
-  assert(!effortRow?.textContent?.includes("Open effort"), "the effort row does not repeat its click action as text");
-  assert(donut?.getAttribute("data-buckets") === JSON.stringify(expected), "donut props deep-equal board-derived buckets");
-  assert(JSON.stringify(parseDonutSegments(donutBackground(expected))) === JSON.stringify([
-    [TASK_STATUS_COLORS.in_progress, 0, 37.5],
-    [TASK_STATUS_COLORS.in_review, 37.5, 50],
-    [TASK_STATUS_COLORS.blocked, 50, 62.5],
-    [TASK_STATUS_COLORS.done, 62.5, 100],
-  ]), "ring segments match the board bucket counts and colors");
+  assert(!host.querySelector('[data-testid="team-donut"]'), "superseded donut is absent");
+  assert(!host.querySelector('[data-testid="team-open-effort"]'), "superseded effort row is absent");
+  assert(tally?.textContent === "3 todo · 1 review · 1 blocked · 3 done", `tally=${tally?.textContent}`);
+  const items = Array.from(tally?.querySelectorAll('[data-testid^="team-status-"]') ?? []) as HTMLElement[];
+  assert(items.map((item) => item.style.color).join(",") === [
+    TASK_STATUS_COLORS.in_progress,
+    TASK_STATUS_COLORS.in_review,
+    TASK_STATUS_COLORS.blocked,
+    TASK_STATUS_COLORS.done,
+  ].join(","), "tally colors use the status tokens in board order");
+  const planButtons = host.querySelectorAll('[data-testid="team-plan-button"]');
+  assert(planButtons.length === 1, "exactly one bound-plan button is rendered");
+  assert(planButtons[0].textContent === "", "plan button is icon-only");
+  assert(!/\d+\s*\/\s*\d+/.test(host.querySelector(".sidebar-team-header")?.textContent ?? ""), "header has no progress fraction");
+  assert(!host.textContent?.includes("Open effort"), "Team unit has no Open effort chrome");
+  canvasFocusStore.closeWorkspace();
+  await act(async () => (planButtons[0] as HTMLButtonElement).click());
+  assert(
+    canvasFocusStore.getWorkspaceTarget()?.planId === currentPlan.id,
+    "plan button opens the exact bound plan through the Team canvas entry",
+  );
 
   const updatedPlan = plan(currentPlan.tasks.map((item) =>
     item.id === "blocked" ? { ...item, status: TaskStatus.Done } : item
   ));
   await rerender([updatedPlan]);
-  const updated = deriveTeamTaskBuckets(updatedPlan, panes);
   assert(
-    host.querySelector('[data-testid="team-donut"]')?.getAttribute("data-buckets") === JSON.stringify(updated),
-    "live plan updates replace the rendered segment counts",
+    host.querySelector('[data-testid="team-status-tally"]')?.textContent === "3 todo · 1 review · 0 blocked · 4 done",
+    "live plan updates replace the tally counts",
   );
   await act(async () => root.unmount());
 });
 
-test("completed effort renders a solid progress ring without an inner glyph", async () => {
-  const panes = {
-    orchestrator: pane({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
-  };
-  const currentPlan = plan([task("done-one", TaskStatus.Done), task("done-two", TaskStatus.Done)]);
-  const buckets = deriveTeamTaskBuckets(currentPlan, panes);
-  const { host, root } = await renderSidebar({
-    panes,
-    tabs: [tab("tab-orchestrator", "orchestrator", 0)],
-    plans: [currentPlan],
-  });
-
-  const donut = host.querySelector('[data-testid="team-donut"]') as HTMLElement | null;
-  assert(donut?.dataset.progress === "2/2", "ring exposes completed task progress");
-  assert(donutBackground(buckets) === TASK_STATUS_COLORS.done, "completed effort resolves to a solid status ring");
-  assert(!donut?.style.background.includes("conic-gradient"), "solid donut never uses a sparse gradient");
-  assert(!donut?.querySelector("svg"), "progress ring has no inner icon");
-  await act(async () => root.unmount());
-});
 
 test("workers_collapse_summary", async () => {
   const panes = {
