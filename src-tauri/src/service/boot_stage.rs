@@ -6,6 +6,10 @@ use super::ServiceContext;
 
 pub use codeterm_types::pty::{BootStage, BootStageSink};
 
+pub(crate) fn allows_shell_prompt_exit(stage: Option<BootStage>) -> bool {
+    matches!(stage, Some(BootStage::AgentReady))
+}
+
 impl BootStageSink for ServiceContext {
     fn record(&self, pane_id: &str, stage: BootStage, reason: Option<&str>) {
         self.emit_boot_stage(pane_id, stage, reason);
