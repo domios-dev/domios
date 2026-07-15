@@ -14,6 +14,7 @@ import type {
   FontConfig,
   TerminalConfigSettings,
 } from "../../lib/types";
+import { usageTrackingEnabled } from "./usageTracking";
 
 interface TabContentProps {
   pane: Pane | undefined;
@@ -85,7 +86,10 @@ export function TabContent({
   const isChatBackend = pane.backing?.kind === "chat_backend";
   const showSwitch = !isChatBackend && descriptor?.supports_chat_ui === true;
   const usageProvider = !isChatBackend ? (pane.agent_type ?? null) : null;
-  const usageVisible = !!usageProvider && usageEnabledByProvider?.[usageProvider] === true;
+  const usageVisible = usageTrackingEnabled(
+    descriptor?.settings_schema ?? [],
+    usageProvider ? usageEnabledByProvider?.[usageProvider] : false,
+  );
   const cwd = pane.cwd ?? workspaceCwd ?? null;
 
   const body = isChatBackend ? (

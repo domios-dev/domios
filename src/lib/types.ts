@@ -579,7 +579,7 @@ export interface ProviderConfig {
   /// When false, the provider is hidden from the per-workspace
   /// "New <Provider> Session" menu. Defaults to true (visible).
   visible_in_menu?: boolean;
-  /// Periodic /usage probing for this provider. Off by default; auto-rendered
+  /// Periodic /usage probing for this provider. On by default; auto-rendered
   /// by `<SchemaRenderer />` from the plugin's `settings_schema()` when the
   /// provider declares a `usage_parser()`.
   usage_tracking_enabled?: boolean;
