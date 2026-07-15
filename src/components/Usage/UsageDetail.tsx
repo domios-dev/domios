@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { RefreshCw, ArrowRight } from "lucide-react";
 import { classify, type UsageSnapshot } from "../../types/usage";
+import { clampPortalCenter } from "./portalPosition";
 import { getCachedConfig, setUiSettings } from "../../lib/clientSettings";
 import {
   useUsageHistory,
@@ -362,12 +363,7 @@ function Marker({ marker, variantDefault, introHint, showLabel = true }: MarkerP
     if (!el) return;
     const r = el.getBoundingClientRect();
     const rawX = r.left + r.width / 2;
-    const TIP_HALF_W = 120;
-    const MARGIN = 8;
-    const x = Math.max(
-      MARGIN + TIP_HALF_W,
-      Math.min(window.innerWidth - MARGIN - TIP_HALF_W, rawX),
-    );
+    const x = clampPortalCenter(rawX, 240, window.innerWidth);
     setTipPos({ x, y: r.top });
   };
   const hide = () => setTipPos(null);

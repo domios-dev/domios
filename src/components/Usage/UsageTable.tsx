@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { classify, type UsageSnapshot } from "../../types/usage";
+import { clampPortalCenter } from "./portalPosition";
 import { formatRelative } from "./format";
 
 interface UsageTableProps {
@@ -103,7 +104,7 @@ function ErrorPill({ row, now }: { row: UsageSnapshot; now: number }) {
     const el = ref.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setTip({ x: r.left + r.width / 2, y: r.top });
+    setTip({ x: clampPortalCenter(r.left + r.width / 2, 260, window.innerWidth), y: r.top });
   };
   const hide = () => setTip(null);
 
