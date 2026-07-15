@@ -173,23 +173,26 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   const resolvedLanguage = language !== "text" ? language : inferCodeLanguage(null, displayedText);
   if (forcePlainText) {
     return (
-      <pre
-        className="m-0 min-w-max whitespace-pre p-3 font-mono text-xs leading-[1.4]"
-        style={{
-          maxHeight: fullSize ? "100%" : maxHeight,
-          background: "var(--ct-bg)",
-          overflow: "auto",
-          color: "var(--ct-fg)",
-          whiteSpace: "pre",
-        }}
+      <div
+        className="min-w-0 w-full max-w-full overflow-auto"
+        style={{ maxHeight: fullSize ? "100%" : maxHeight }}
       >
-        {displayedText}
-      </pre>
+        <pre
+          className="m-0 w-max min-w-full whitespace-pre p-3 font-mono text-xs leading-[1.4]"
+          style={{
+            background: "var(--ct-bg)",
+            color: "var(--ct-fg)",
+            whiteSpace: "pre",
+          }}
+        >
+          {displayedText}
+        </pre>
+      </div>
     );
   }
   return (
     <div
-      className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} overflow-x-auto overflow-y-auto`}
+      className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} min-w-0 w-full max-w-full overflow-x-auto overflow-y-auto`}
       style={{ maxHeight: fullSize ? "100%" : maxHeight }}
     >
       {suppressMermaidErrorOutput ? null : shouldDisplayMermaid ? (
@@ -688,8 +691,8 @@ export function CodeBlock({
     : undefined;
 
   return (
-    <div ref={blockRef} data-testid="chat-code-block" data-code-language={language}>
-      <div className="overflow-hidden rounded-md border border-[var(--ct-border)]" style={{ background: "var(--ct-bg)" }}>
+    <div ref={blockRef} className="min-w-0 w-full max-w-full" data-testid="chat-code-block" data-code-language={language}>
+      <div className="min-w-0 w-full max-w-full overflow-hidden rounded-md border border-[var(--ct-border)]" style={{ background: "var(--ct-bg)" }}>
         <div className="flex items-center gap-1.5 px-2 py-1.5 text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
           <span className="font-medium" style={{ color: "var(--ct-fg)" }}>Code</span>
           <span className="font-mono opacity-70">{language}</span>

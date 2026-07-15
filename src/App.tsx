@@ -1,6 +1,5 @@
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "./lib/bridge";
-import { IS_WEB } from "./lib/webApi";
 import { getCurrentPaneUiMode, listenPaneUiModeDefaultChanged } from "./lib/clientPaneUiMode";
 import { isChatDefaultEnabled } from "./lib/chatUiMode";
 import { pruneOrphanComposerDrafts } from "./lib/composerDraftGc";
@@ -20,7 +19,6 @@ import { CommandPalette, buildDefaultCommands } from "./components/CommandPalett
 import { RecoveryStatusBanner } from "./components/CrashReportToast";
 import { StaleBuildBanner } from "./components/StaleBuildBanner";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
-import { HamburgerIcon } from "./components/Icons";
 import { CanvasView } from "./components/Canvas/CanvasView";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
@@ -65,6 +63,8 @@ function AppInner() {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 640,
   );
+  const openSidebar = useCallback(() => setSidebarOpen(true), []);
+  const toggleSidebar = useCallback(() => setSidebarOpen((open) => !open), []);
   // On phones the sidebar is an overlay (≤640px) — collapse it right after a selection so picking a tab/panel is one tap, not two.
   const closeSidebarOnMobile = useCallback(() => {
     if (typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches) {
@@ -474,7 +474,8 @@ function AppInner() {
       {/* Native + web mirror share one titlebar strip (parity decision A) — its
           own --ct-safe-top padding covers the web notch/status-bar inset. */}
       <Titlebar
-        onToggleSidebar={() => setSidebarOpen((v) => !v)}
+        onToggleSidebar={toggleSidebar}
+        showSidebarToggle={!sidebarOpen && (mainView !== "workspace" || workspaceCanvasVisible || !activeTab)}
         onNewTab={handleNewTab}
         theme={stableTheme}
         onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
@@ -485,31 +486,6 @@ function AppInner() {
         onDismissToast={dismissToast}
         onNavigateToast={setFocusedPane}
       />
-      {IS_WEB && !sidebarOpen && (
-        <button
-          data-testid="web-sidebar-open"
-          onClick={() => setSidebarOpen(true)}
-          className="fixed left-3 z-50 flex items-center justify-center rounded-full active:scale-95"
-          style={{
-            // Explicit size, NOT Tailwind h-11/w-11 — the phone button-shrink rule (button.h-11{height!important}) would squash it into an ellipse.
-            width: "2.75rem",
-            height: "2.75rem",
-            aspectRatio: "1 / 1",
-            top:
-              mainView === "workspace"
-                ? "calc(2rem + var(--ct-safe-top, 0px) + 3.75rem)"
-                : "calc(2rem + var(--ct-safe-top, 0px) + 3.65rem)",
-            background: "var(--ct-accent)",
-            color: "var(--ct-bg)",
-            border: "1px solid color-mix(in srgb, var(--ct-fg) 18%, transparent)",
-            transition: "top 340ms cubic-bezier(0.16, 1, 0.3, 1), transform 120ms ease",
-          }}
-          title="Open sidebar"
-        >
-          <HamburgerIcon size={17} />
-        </button>
-      )}
-
       <PlansProvider api={stableApiConfig}>
       <div className="flex flex-1 min-h-0 relative">
         {sidebarMounted && (
@@ -666,6 +642,7 @@ function AppInner() {
                   chatFirst={chatPaneDefault}
                   chatDefaultPrompted={chatDefaultPrompted}
                   agentsConfig={config.agents}
+                  onOpenSidebar={!sidebarOpen ? openSidebar : undefined}
                 />
               </div>
                 );
