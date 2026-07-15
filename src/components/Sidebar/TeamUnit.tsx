@@ -10,14 +10,14 @@ import { summarizeWorkers } from "./orchestrationSections";
 export type TeamMemberRole = "orchestrator" | "planner" | "worker";
 
 export interface SidebarTeamActions {
-  onRenameTeam: (teamId: string, name: string) => void;
-  onAddTeamMember: (
+  onRenameTeam?: (teamId: string, name: string) => void | Promise<void>;
+  onAddTeamMember?: (
     teamId: string,
     role: TeamMemberRole,
     providerId: string,
     parentPaneId: string | null,
   ) => void;
-  onArchiveTeam: (teamId: string) => void;
+  onArchiveTeam?: (teamId: string) => void | Promise<void>;
 }
 
 export interface TeamTaskBucket {
@@ -85,10 +85,10 @@ export function TeamDonut({ buckets }: { buckets: readonly TeamTaskBucket[] }) {
 interface TeamMenuProps {
   hasPlan: boolean;
   providers: ProviderDescriptor[];
-  onRename: () => void;
+  onRename?: () => void;
   onOpenEffort: () => void;
-  onAddMember: (role: TeamMemberRole, providerId: string) => void;
-  onArchive: () => void;
+  onAddMember?: (role: TeamMemberRole, providerId: string) => void;
+  onArchive?: () => void;
 }
 
 function TeamMenu({
@@ -159,7 +159,7 @@ function TeamMenu({
                 <ChevronRight size={11} className="rotate-180" /> Back
               </button>
               <div className="sidebar-team-menu-label">Choose agent</div>
-              {providers.map((provider) => (
+              {onAddMember && providers.map((provider) => (
                 <button
                   type="button"
                   key={provider.id}
@@ -171,19 +171,21 @@ function TeamMenu({
             </>
           ) : (
             <>
-              <button type="button" onClick={() => run(onRename)}>Rename</button>
+              {onRename && <button type="button" onClick={() => run(onRename)}>Rename</button>}
               <button type="button" onClick={() => run(onOpenEffort)}>
                 {hasPlan ? "Open effort" : "Create effort"}
               </button>
-              {(["orchestrator", "planner", "worker"] as const).map((role) => (
+              {onAddMember && (["orchestrator", "planner", "worker"] as const).map((role) => (
                 <button type="button" key={role} onClick={() => setProviderRole(role)}>
                   Add {role} <ChevronRight size={11} className="ml-auto" />
                 </button>
               ))}
-              <div className="sidebar-team-menu-separator" />
-              <button type="button" className="sidebar-team-menu-danger" onClick={() => run(onArchive)}>
-                <Archive size={11} /> Archive
-              </button>
+              {onArchive && <>
+                <div className="sidebar-team-menu-separator" />
+                <button type="button" className="sidebar-team-menu-danger" onClick={() => run(onArchive)}>
+                  <Archive size={11} /> Archive
+                </button>
+              </>}
             </>
           )}
         </div>,
@@ -203,10 +205,16 @@ export interface TeamUnitProps {
   workerCount: number;
   workingWorkerCount: number;
   providers: ProviderDescriptor[];
-  onRenameTeam: (teamId: string, name: string) => void;
-  onOpenEffort: (plan: Plan | null) => void;
-  onAddMember: (role: TeamMemberRole, providerId: string) => void;
-  onArchiveTeam: (teamId: string) => void;
+  onRenameTeam?: (teamId: string, name: string) => void | Promise<void>;
+  onOpenEffort: (target: TeamEffortTarget) => void;
+  onAddMember?: (role: TeamMemberRole, providerId: string) => void;
+  onArchiveTeam?: (teamId: string) => void | Promise<void>;
+}
+
+export interface TeamEffortTarget {
+  teamId: string;
+  managerPaneId: string | null;
+  planId?: string;
 }
 
 export function TeamUnit({
@@ -240,7 +248,9 @@ export function TeamUnit({
   const commitRename = () => {
     const trimmed = name.trim();
     setEditing(false);
-    if (trimmed && trimmed !== (team.name?.trim() || "Team")) onRenameTeam(team.id, trimmed);
+    if (trimmed && trimmed !== (team.name?.trim() || "Team") && onRenameTeam) {
+      void onRenameTeam(team.id, trimmed);
+    }
     else setName(team.name?.trim() || "Team");
   };
 
@@ -296,10 +306,10 @@ export function TeamUnit({
         <TeamMenu
           hasPlan={Boolean(plan)}
           providers={providers}
-          onRename={() => setEditing(true)}
-          onOpenEffort={() => onOpenEffort(plan)}
+          onRename={onRenameTeam ? () => setEditing(true) : undefined}
+          onOpenEffort={() => onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan?.id })}
           onAddMember={onAddMember}
-          onArchive={() => onArchiveTeam(team.id)}
+          onArchive={onArchiveTeam ? () => onArchiveTeam(team.id) : undefined}
         />
       </div>
       {expanded && (
@@ -314,7 +324,7 @@ export function TeamUnit({
               ))}
             </div>
           ) : (
-            <button type="button" className="sidebar-team-no-plan" onClick={() => onOpenEffort(null)}>
+            <button type="button" className="sidebar-team-no-plan" onClick={() => onOpenEffort({ teamId: team.id, managerPaneId: null })}>
               <Plus size={11} /> No plan yet — create from ⋮
             </button>
           )}
