@@ -254,8 +254,8 @@ export function describeAction(inv: CodetermInvocation, result?: string, resolve
   }
   if (path === "docs" || path === "doc") {
     const name = firstMeaningful(inv) ?? "documentation";
-    const chars = result?.length;
-    return { lead: "docs", object: name, chips: chars ? [`${chars} chars`] : [] };
+    const words = result?.trim().split(/\s+/).filter(Boolean).length;
+    return { lead: "docs", object: name, chips: words ? [`${words} words`] : [] };
   }
   if (path === "plugin list") {
     return { lead: "plugins", object: resultCount(result, "installed") ?? "installed", chips: [] };
