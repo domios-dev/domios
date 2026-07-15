@@ -1,4 +1,4 @@
-use super::MultiplexerState;
+use super::{MultiplexerState, TeamResolution};
 use crate::multiplexer::types::AgentRole;
 use codeterm_types::team::Team;
 
