@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -9,7 +9,7 @@ a global flag on every command.
 
 **Planning?** Read the EFFORT workflow first — `docs/ORCHESTRATION.md` (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides; author GOAL-first, Spec=WHAT, Plan=HOW built from the spec, M:N section links). Don't cram requirements into plan sections; the Spec holds WHAT.
 
-The Team verbs are `codeterm team list|show|rename|adopt-plan`. Agent callers may rename or adopt only for their own `team_id` when they are the Team's Orchestrator or planner Manager; direct local user calls remain allowed. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
+The Team verbs are `codeterm team list|show|rename|close|adopt-plan`. `codeterm team close <team_id>` is the only operation that removes a Team; it cascade-closes the Team's members. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; direct local user calls remain allowed. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
 
 <!-- cli:auto-start -->
 #### `codeterm agent`
@@ -2751,6 +2751,12 @@ Team registry and 1:1 plan binding
 Bind an existing plan to a Team
 
 - `<plan_id>` — Plan ID
+- `<team_id>` — Team ID
+
+#### `codeterm team close`
+
+Close every member pane and remove the Team registry entry
+
 - `<team_id>` — Team ID
 
 #### `codeterm team list`

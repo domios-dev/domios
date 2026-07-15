@@ -61,6 +61,8 @@ pub mod structured_prompt;
 pub mod sync_watcher;
 mod team;
 #[cfg(test)]
+pub(crate) use team::close_team_with_state_change;
+#[cfg(test)]
 pub(crate) use team::rename_team_core;
 #[cfg(test)]
 pub(crate) use team::rename_team_with_state_change;

@@ -79,6 +79,31 @@ pub async fn rename_team(
     Ok(Json(team))
 }
 
+fn close_team_adapter(
+    headers: &HeaderMap,
+    team_id: String,
+    close: impl FnOnce(String, String) -> Result<codeterm_types::team::Team, String>,
+) -> Result<codeterm_types::team::Team, (StatusCode, String)> {
+    let caller_pane_id = require_caller_pane_id(headers)?;
+    close(team_id, caller_pane_id).map_err(map_rename_error)
+}
+
+pub async fn close_team(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(team_id): Path<String>,
+) -> Result<Json<codeterm_types::team::Team>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
+    let team = close_team_adapter(&headers, team_id, |team_id, caller_pane_id| {
+        crate::commands::mux_commands::mux_close_team_service_core(
+            &state.svc,
+            team_id,
+            Some(caller_pane_id),
+        )
+    })?;
+    Ok(Json(team))
+}
+
 async fn add_team_member_adapter<T>(
     headers: &HeaderMap,
     team_id: String,
@@ -133,7 +158,8 @@ mod tests {
             .resolve_or_mint_team_for_parent(&orchestrator)
             .unwrap()
             .team_id;
-        let worker = mux.create_pane();
+        let workspace_id = mux.find_workspace_for_pane(&orchestrator).unwrap();
+        let worker = mux.create_tab(&workspace_id).unwrap().1;
         mux.set_pane_role(&worker, AgentRole::Worker, Some(&orchestrator))
             .unwrap();
         (mux, team_id, orchestrator, worker)
@@ -285,6 +311,67 @@ mod tests {
             StatusCode::NOT_FOUND
         );
         assert_eq!(mux.get_team(&team_id).unwrap().name, None);
+    }
+
+    #[test]
+    fn http_close_team_enforces_permission() {
+        let (mut mux, team_id, orchestrator, worker) = team_members();
+        let events = crate::api::events::EventBroadcaster::new();
+        assert_eq!(
+            close_team_adapter(&HeaderMap::new(), team_id.clone(), |_, _| unreachable!())
+                .unwrap_err()
+                .0,
+            StatusCode::BAD_REQUEST
+        );
+        let mut worker_headers = HeaderMap::new();
+        worker_headers.insert("X-CodeTerm-Pane-Id", worker.parse().unwrap());
+        assert_eq!(
+            close_team_adapter(&worker_headers, team_id.clone(), |team_id, caller| {
+                crate::service::close_team_with_state_change(
+                    &mut mux,
+                    &events,
+                    &team_id,
+                    Some(&caller),
+                )
+                .map(|result| result.0)
+            })
+            .unwrap_err()
+            .0,
+            StatusCode::FORBIDDEN
+        );
+        let foreign = mux.create_pane();
+        let mut foreign_headers = HeaderMap::new();
+        foreign_headers.insert("X-CodeTerm-Pane-Id", foreign.parse().unwrap());
+        assert_eq!(
+            close_team_adapter(&foreign_headers, team_id.clone(), |team_id, caller| {
+                crate::service::close_team_with_state_change(
+                    &mut mux,
+                    &events,
+                    &team_id,
+                    Some(&caller),
+                )
+                .map(|result| result.0)
+            })
+            .unwrap_err()
+            .0,
+            StatusCode::FORBIDDEN
+        );
+        let mut manager_headers = HeaderMap::new();
+        manager_headers.insert("X-CodeTerm-Pane-Id", orchestrator.parse().unwrap());
+        assert_eq!(
+            close_team_adapter(&manager_headers, team_id.clone(), |team_id, caller| {
+                crate::service::close_team_with_state_change(
+                    &mut mux,
+                    &events,
+                    &team_id,
+                    Some(&caller),
+                )
+                .map(|result| result.0)
+            })
+            .unwrap()
+            .id,
+            team_id
+        );
     }
 
     #[tokio::test]
