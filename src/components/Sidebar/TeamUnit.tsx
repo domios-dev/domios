@@ -325,7 +325,6 @@ export function TeamUnit({
             >
               <TeamDonut buckets={buckets} />
               <span>{plan.title}</span>
-              <span className="sidebar-team-effort-action">Open effort</span>
             </button>
             <div data-testid="team-status-readout" className="sidebar-team-readout">
               {buckets.filter((bucket) => bucket.count > 0).map((bucket, index) => (
