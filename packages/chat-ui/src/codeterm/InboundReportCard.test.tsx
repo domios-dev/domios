@@ -72,4 +72,12 @@ if (!sendHost.querySelector('[data-testid="codeterm-message-content"]') || !send
 if (!sendHost.querySelector("p")?.className.includes("whitespace-pre-wrap")) throw new Error("message prose must preserve soft line breaks");
 await act(async () => sendRoot.unmount());
 sendHost.remove();
+
+const localHost = document.createElement("div");
+document.body.append(localHost);
+const localRoot = createRoot(localHost);
+await act(async () => localRoot.render(<MessageBubble message={{ id: "local-1", type: "user", content: "local one\\nlocal two\\n\\nlocal three" }} />));
+if (!localHost.textContent?.includes("local one\nlocal two\n\nlocal three")) throw new Error("local user message newline decoding regression");
+await act(async () => localRoot.unmount());
+localHost.remove();
 console.log("inbound report card tests passed");
