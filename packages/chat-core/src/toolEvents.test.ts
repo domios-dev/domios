@@ -29,6 +29,12 @@ function result(id: string, toolId: string, detail: string, patch: Partial<Norma
 }
 
 {
+  const event = materializeToolEvent(call("completed-empty", "completed-empty", { toolError: false }));
+  assert(event?.status === "success", "explicit completion resolves without fake output");
+  assert(event.result === undefined, "explicit completion does not invent result text");
+}
+
+{
   const items = reduceToolEvents([
     call("call", "same"),
     result("result", "same", "ok"),

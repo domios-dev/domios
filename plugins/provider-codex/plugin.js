@@ -676,15 +676,19 @@ var plugin = {
       const taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
-      parts.push("-c");
       if (host.platform() === "windows") {
-        prefix = `$PSNativeCommandArgumentPassing = 'Standard'; $ctTaskInstructions = Get-Content -Raw -Encoding UTF8 ${quotedPath}; $ctDeveloperInstructions = 'developer_instructions=' + ($ctTaskInstructions | ConvertTo-Json -Compress); `;
-        parts.push("$ctDeveloperInstructions");
+        prefix = `Add-Type -AssemblyName System.Web.Extensions; $ctTaskInstructions = Get-Content -Raw -Encoding UTF8 ${quotedPath}; $ctTaskJson = (New-Object System.Web.Script.Serialization.JavaScriptSerializer).Serialize($ctTaskInstructions); $ctProfileSuffix = if ($env:CODETERM_PANE_ID) { $env:CODETERM_PANE_ID -replace '[^A-Za-z0-9_-]', '-' } else { [guid]::NewGuid().ToString('N') }; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('developer_instructions = ' + $ctTaskJson); Remove-Item -LiteralPath ${quotedPath} -Force -ErrorAction SilentlyContinue; try { `;
+        parts.push("--profile");
+        parts.push("$ctProfileName");
       } else {
+        parts.push("-c");
         parts.push(`"developer_instructions=$(cat ${quotedPath})"`);
       }
       parts.push("--");
       parts.push(host.shell.quoteFor(TASK_START_PROMPT, host.platform()));
+      if (host.platform() === "windows") {
+        return prefix + parts.join(" ") + " } finally { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue }";
+      }
     }
     return prefix + parts.join(" ");
   },
@@ -1309,6 +1313,9 @@ function codexWindowsHookScript(apiPort) {
     "}",
     "$body = [Console]::In.ReadToEnd()",
     'Invoke-RestMethod -Method Post -Uri "$base/api/panes/$pane/hook/session_start" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
+    "$profileSuffix = $pane -replace '[^A-Za-z0-9_-]', '-'",
+    '$profilePath = Join-Path $env:USERPROFILE (".codex\\codeterm-$profileSuffix.config.toml")',
+    "Remove-Item -LiteralPath $profilePath -Force -ErrorAction SilentlyContinue",
     "exit 0",
     ""
   ].join("\n");

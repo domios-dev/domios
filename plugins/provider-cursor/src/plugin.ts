@@ -533,6 +533,7 @@ function blocksFromContent(content: CursorContentBlock[], role: string): unknown
           tool_summary: canonical.summary,
           tool_detail: canonical.detail,
           tool_edits: canonical.edits,
+          tool_status: "success",
         },
       });
     }

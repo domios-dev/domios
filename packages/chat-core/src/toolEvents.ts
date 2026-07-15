@@ -46,7 +46,7 @@ export function materializeToolEvent(message: NormalizedChatMessage): ToolEvent 
       : embeddedResult,
     error: message.toolError,
     status: phase === "call"
-      ? message.toolError === true ? "error" : embeddedResult ? "success" : "pending"
+      ? message.toolError === true ? "error" : message.toolError === false || embeddedResult ? "success" : "pending"
       : message.toolError === true ? "error" : "success",
     message,
   };

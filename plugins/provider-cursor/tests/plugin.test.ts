@@ -366,6 +366,7 @@ console.log("\n--- parseSessionDelta (real JSONL transcript fixture) ---\n");
   eq(delta.messages[1].blocks[0].data.tool_summary, "echo hello123", "Shell gets clean command summary");
   eq(delta.messages[1].blocks[0].data.tool_detail, "echo hello123", "Shell gets command detail");
   eq(delta.messages[1].blocks[0].data.tool_edits, [], "Shell has no edit payload");
+  eq(delta.messages[1].blocks[0].data.tool_status, "success", "persisted Cursor tool use is complete");
   // 3) assistant final text: trailing [REDACTED] trimmed, body kept.
   eq(delta.messages[2].blocks[0].kind, "text", "final assistant block is text");
   eq(delta.messages[2].blocks[0].data.text, "The command printed:\n\n```\nhello123\n```", "trailing [REDACTED] stripped");
