@@ -268,8 +268,10 @@ test("donut_counts_match_board", async () => {
   const expected = deriveTeamTaskBuckets(currentPlan, panes);
   assert(expected[0].count === (boardCounts.get("pending") ?? 0) + (boardCounts.get("in_progress") ?? 0), "todo folds board pending + in-progress");
   const donut = host.querySelector('[data-testid="team-donut"]');
+  const effortRow = host.querySelector('[data-testid="team-open-effort"]');
   assert(host.querySelector('[data-testid="team-icon"]'), "team identity remains in the header");
   assert(donut?.closest('[data-testid="team-open-effort"]'), "segmented progress belongs to the effort row");
+  assert(!effortRow?.textContent?.includes("Open effort"), "the effort row does not repeat its click action as text");
   assert(donut?.getAttribute("data-buckets") === JSON.stringify(expected), "donut props deep-equal board-derived buckets");
   assert(JSON.stringify(parseDonutSegments(donutBackground(expected))) === JSON.stringify([
     [TASK_STATUS_COLORS.in_progress, 0, 37.5],

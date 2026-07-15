@@ -1447,7 +1447,7 @@ button,
 
 .sidebar-team-effort-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   width: calc(100% - 22px);
   align-items: center;
   gap: 7px;
@@ -1472,7 +1472,7 @@ button,
 }
 
 .sidebar-team-effort-row .sidebar-team-donut-hole {
-  inset: 4px;
+  inset: 2px;
   background: var(--ct-surface);
 }
 
@@ -1480,11 +1480,6 @@ button,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.sidebar-team-effort-action {
-  color: var(--ct-accent);
-  font-size: 10px;
 }
 
 .sidebar-team-name {
