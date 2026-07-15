@@ -4,6 +4,7 @@ use super::{
     restored_agent_materialization, RestoredAgentMaterialization, SEND_AGENT_BACKEND_COLS,
     SHELL_BACKEND_COLS,
 };
+use crate::multiplexer::types::Pane;
 use crate::service::plan::PlanStore;
 use crate::service::ServiceContext;
 use std::collections::HashMap;
@@ -42,6 +43,20 @@ pub(crate) fn pane_task_env(plan_store: &PlanStore, pane_id: &str) -> HashMap<St
     env_vars
 }
 
+pub(crate) fn pane_identity_env(pane: &Pane) -> HashMap<String, String> {
+    let mut env_vars = HashMap::new();
+    if let Some(ref role) = pane.role {
+        env_vars.insert("CODETERM_ROLE".into(), format!("{:?}", role));
+    }
+    if let Some(ref parent) = pane.parent_pane_id {
+        env_vars.insert("CODETERM_PARENT_PANE_ID".into(), parent.clone());
+    }
+    if let Some(ref worker_id) = pane.worker_id {
+        env_vars.insert("CODETERM_WORKER_ID".into(), worker_id.clone());
+    }
+    env_vars
+}
+
 impl ServiceContext {
     pub(crate) fn pane_env(&self, pane_id: &str) -> HashMap<String, String> {
         let mut env_vars = HashMap::new();
@@ -68,15 +83,7 @@ impl ServiceContext {
 
         let mux = self.mux.read();
         if let Some(pane) = mux.get_pane(pane_id) {
-            if let Some(ref role) = pane.role {
-                env_vars.insert("CODETERM_ROLE".into(), format!("{:?}", role));
-            }
-            if let Some(ref parent) = pane.parent_pane_id {
-                env_vars.insert("CODETERM_PARENT_PANE_ID".into(), parent.clone());
-            }
-            if let Some(ref worker_id) = pane.worker_id {
-                env_vars.insert("CODETERM_WORKER_ID".into(), worker_id.clone());
-            }
+            env_vars.extend(pane_identity_env(pane));
         }
         drop(mux);
         env_vars.extend(pane_task_env(&self.plan_store, pane_id));
