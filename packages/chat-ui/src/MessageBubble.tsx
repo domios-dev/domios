@@ -19,6 +19,7 @@ import {
 import { ToolCallBubble } from "./ToolCallBubble";
 import { ShellCommandItem } from "./ShellCommandItem";
 import { ReminderCard } from "./codeterm/ReminderCard";
+import { InboundReportCard } from "./codeterm/InboundReportCard";
 import { messageTimestamp } from "./codeterm/relativeTime";
 import type { PaneNameResolver } from "./codeterm/templates";
 import { ChevronIcon, PRE_WRAP_CLASS } from "./CodeBlock";
@@ -222,6 +223,20 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
           fireAt={effectiveOrigin.fireAt}
           id={effectiveOrigin.id}
           body={message.content}
+        />
+      );
+    }
+
+    if (effectiveOrigin?.kind === "pane" && effectiveOrigin.report) {
+      return (
+        <InboundReportCard
+          message={message}
+          sender={paneOriginTitle(effectiveOrigin, resolvePaneName)}
+          expanded={expanded}
+          onToggle={() => setExpandedPersistent(!expanded)}
+          onFocusTab={onOriginClick}
+          onOpenPlan={onOpenPlan}
+          resolvePlanRef={resolvePlanRef}
         />
       );
     }
