@@ -28,11 +28,7 @@ pub(crate) fn role_onboarding_task(
         }
         (Some("Manager"), _) => task.map(str::to_string),
         (Some("Worker"), _) => task.map(|t| format!("{}{}", t, crate::prompts::worker_suffix())),
-        (Some("Orchestrator"), _) => Some(format!(
-            "{}{}",
-            task.unwrap_or_default(),
-            crate::prompts::orchestrator_suffix()
-        )),
+        (Some("Orchestrator"), _) => task.map(str::to_string),
         _ => task.map(str::to_string),
     }
 }
