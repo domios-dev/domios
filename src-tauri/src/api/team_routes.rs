@@ -41,6 +41,17 @@ fn require_caller_pane_id(headers: &HeaderMap) -> Result<String, (StatusCode, St
     })
 }
 
+fn rename_team_adapter(
+    headers: &HeaderMap,
+    team_id: String,
+    body: RenameTeamBody,
+    rename: impl FnOnce(String, String, String) -> Result<codeterm_types::team::Team, String>,
+) -> Result<codeterm_types::team::Team, (StatusCode, String)> {
+    validate_name(&body.name)?;
+    let caller_pane_id = require_caller_pane_id(headers)?;
+    rename(team_id, caller_pane_id, body.name).map_err(map_rename_error)
+}
+
 pub async fn rename_team(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -48,15 +59,14 @@ pub async fn rename_team(
     Json(body): Json<RenameTeamBody>,
 ) -> Result<Json<codeterm_types::team::Team>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
-    validate_name(&body.name)?;
-    let caller_pane_id = require_caller_pane_id(&headers)?;
-    let team = crate::commands::mux_commands::mux_rename_team_service_core(
-        &state.svc,
-        team_id,
-        body.name,
-        Some(caller_pane_id),
-    )
-    .map_err(map_rename_error)?;
+    let team = rename_team_adapter(&headers, team_id, body, |team_id, caller_pane_id, name| {
+        crate::commands::mux_commands::mux_rename_team_service_core(
+            &state.svc,
+            team_id,
+            name,
+            Some(caller_pane_id),
+        )
+    })?;
     Ok(Json(team))
 }
 
@@ -102,14 +112,25 @@ mod tests {
     #[test]
     fn http_team_rename_returns_updated_team() {
         let (mut mux, team_id, orchestrator, _) = team_members();
+        let events = crate::api::events::EventBroadcaster::new();
         let mut headers = HeaderMap::new();
         headers.insert("X-CodeTerm-Pane-Id", orchestrator.parse().unwrap());
 
-        let team = crate::commands::mux_commands::mux_rename_team_core(
-            &mut mux,
+        let team = rename_team_adapter(
+            &headers,
             team_id.clone(),
-            "Renamed".into(),
-            Some(require_caller_pane_id(&headers).unwrap()),
+            RenameTeamBody {
+                name: "Renamed".into(),
+            },
+            |team_id, caller_pane_id, name| {
+                crate::service::team::rename_team_with_state_change(
+                    &mut mux,
+                    &events,
+                    &team_id,
+                    name,
+                    Some(&caller_pane_id),
+                )
+            },
         )
         .unwrap();
         assert_eq!(team.id, team_id);
@@ -120,27 +141,97 @@ mod tests {
     fn http_team_rename_enforces_caller_permission() {
         let (mut mux, team_id, _orchestrator, worker) = team_members();
         let foreign = mux.create_pane();
+        let events = crate::api::events::EventBroadcaster::new();
 
-        assert!(crate::commands::mux_commands::mux_rename_team_core(
-            &mut mux,
-            team_id.clone(),
-            "Denied worker".into(),
-            Some(worker),
-        )
-        .is_err());
-        assert!(crate::commands::mux_commands::mux_rename_team_core(
-            &mut mux,
-            team_id.clone(),
-            "Denied foreign".into(),
-            Some(foreign),
-        )
-        .is_err());
+        let mut worker_headers = HeaderMap::new();
+        worker_headers.insert("X-CodeTerm-Pane-Id", worker.parse().unwrap());
         assert_eq!(
-            require_caller_pane_id(&HeaderMap::new()).unwrap_err().0,
+            rename_team_adapter(
+                &worker_headers,
+                team_id.clone(),
+                RenameTeamBody {
+                    name: "Denied worker".into(),
+                },
+                |team_id, caller_pane_id, name| {
+                    crate::service::team::rename_team_with_state_change(
+                        &mut mux,
+                        &events,
+                        &team_id,
+                        name,
+                        Some(&caller_pane_id),
+                    )
+                },
+            )
+            .unwrap_err()
+            .0,
+            StatusCode::FORBIDDEN
+        );
+        let mut foreign_headers = HeaderMap::new();
+        foreign_headers.insert("X-CodeTerm-Pane-Id", foreign.parse().unwrap());
+        assert_eq!(
+            rename_team_adapter(
+                &foreign_headers,
+                team_id.clone(),
+                RenameTeamBody {
+                    name: "Denied foreign".into(),
+                },
+                |team_id, caller_pane_id, name| {
+                    crate::service::team::rename_team_with_state_change(
+                        &mut mux,
+                        &events,
+                        &team_id,
+                        name,
+                        Some(&caller_pane_id),
+                    )
+                },
+            )
+            .unwrap_err()
+            .0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            rename_team_adapter(
+                &worker_headers,
+                team_id.clone(),
+                RenameTeamBody { name: "   ".into() },
+                |_, _, _| unreachable!(),
+            )
+            .unwrap_err()
+            .0,
             StatusCode::BAD_REQUEST
         );
         assert_eq!(
-            map_rename_error("Team team_missing not found".into()).0,
+            rename_team_adapter(
+                &HeaderMap::new(),
+                team_id.clone(),
+                RenameTeamBody {
+                    name: "Missing caller".into(),
+                },
+                |_, _, _| unreachable!(),
+            )
+            .unwrap_err()
+            .0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            rename_team_adapter(
+                &worker_headers,
+                "team_missing".into(),
+                RenameTeamBody {
+                    name: "Missing team".into(),
+                },
+                |team_id, caller_pane_id, name| {
+                    crate::service::team::rename_team_with_state_change(
+                        &mut mux,
+                        &events,
+                        &team_id,
+                        name,
+                        Some(&caller_pane_id),
+                    )
+                },
+            )
+            .unwrap_err()
+            .0,
             StatusCode::NOT_FOUND
         );
         assert_eq!(mux.get_team(&team_id).unwrap().name, None);
