@@ -57,8 +57,11 @@ export function isRenderableMessage(message: ChatMessage): boolean {
       hasRenderableText(message.content) ||
       hasRenderableText(message.toolName) ||
       hasRenderableText(message.toolArgs) ||
+      hasRenderableText(message.toolSummary) ||
+      hasRenderableText(message.toolDetail) ||
       hasRenderableText(message.toolResult) ||
       hasRenderableValue(message.toolInput) ||
+      hasRenderableValue(message.toolEdits) ||
       Boolean(message.interactive?.length)
     );
   }

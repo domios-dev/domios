@@ -49,6 +49,21 @@ await act(async () => dispatchRoot.render(
 ));
 if (!dispatchHost.querySelector('[data-testid="chat-inbound-report"]')) throw new Error("MessageBubble report dispatch regression");
 if (dispatchHost.querySelector('[data-testid="chat-cross-pane-bubble"]')) throw new Error("MessageBubble routed report through generic bubble");
+if (!dispatchHost.textContent?.includes("Added provider matrix")) throw new Error("inbound report must be expanded by default");
 await act(async () => dispatchRoot.unmount());
 dispatchHost.remove();
-console.log("inbound report card tests: 10/10 passed");
+
+const sendMessage = { id: "send-1", type: "tool_call" as const, content: "", toolKind: "codeterm" as const, toolSummary: 'codeterm send --tab e3fa0754 "hello Hugo"', toolDetail: 'codeterm send --tab e3fa0754 "hello Hugo"' };
+const sendHost = document.createElement("div");
+document.body.append(sendHost);
+const sendRoot = createRoot(sendHost);
+await act(async () => sendRoot.render(
+  <MessageBubble
+    message={sendMessage}
+    item={{ kind: "tool", event: { id: "send-1", phase: "call", status: "success", kind: "codeterm", summary: sendMessage.toolSummary, detail: sendMessage.toolDetail, message: sendMessage } }}
+  />,
+));
+if (!sendHost.querySelector('[data-testid="codeterm-message-content"]') || !sendHost.textContent?.includes("hello Hugo")) throw new Error("send card must be expanded by default");
+await act(async () => sendRoot.unmount());
+sendHost.remove();
+console.log("inbound report card tests: 12/12 passed");

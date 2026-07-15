@@ -1,6 +1,6 @@
-import type { NormalizedChatMessage as ChatMessage, ToolEvent } from "@codeterm/chat-core";
+import type { NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
 import { MessageSquareText } from "lucide-react";
-import { ToolCardFrame } from "../toolcard/ToolCardFrame";
+import { InboundActivityCard } from "./InboundActivityCard";
 import type { OpenPlan, ResolvedChatPlanRef } from "./LinkedText";
 import { LinkedText } from "./LinkedText";
 import { hasPlanRefs } from "./planRefs";
@@ -54,27 +54,20 @@ function taskObject(task: string | undefined): string {
 export function InboundReportCard({ message, sender, expanded, onToggle, onFocusTab, onOpenPlan, resolvePlanRef }: Props) {
   const descriptor = parseInboundReport(message.content);
   const failed = /^(?:blocked|error|failed)$/i.test(descriptor.status ?? "");
-  const event: ToolEvent = {
-    id: message.id,
-    phase: "result",
-    status: failed ? "error" : "success",
-    kind: "generic",
-    summary: taskObject(descriptor.task),
-    message,
-  };
   const chips = [descriptor.status, descriptor.sha].filter((value): value is string => Boolean(value));
 
   return (
-    <ToolCardFrame
+    <InboundActivityCard
       testId="chat-inbound-report"
-      event={event}
+      message={message}
+      status={failed ? "error" : "success"}
       expanded={expanded}
       onToggle={onToggle}
       title={`report · ${sender}`}
       summary={taskObject(descriptor.task)}
-      variant="codeterm"
-      visualOverride={{ glyph: MessageSquareText, color: "var(--ct-magenta)", label: "report" }}
-      metric={chips.length ? <span className="flex min-w-0 gap-1">{chips.map((chip) => <span key={chip} className="max-w-40 truncate rounded border px-1.5 py-0.5 text-[10px]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>{chip}</span>)}</span> : undefined}
+      visual={{ glyph: MessageSquareText, color: "var(--ct-magenta)", label: "report" }}
+      chips={chips}
+      onFocusTab={onFocusTab}
     >
       <dl className="grid max-h-64 grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 overflow-y-auto text-xs">
         {descriptor.fields.map((field, index) => (
@@ -86,11 +79,6 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
           </div>
         ))}
       </dl>
-      {onFocusTab && (
-        <button type="button" onClick={onFocusTab} className="mt-2 rounded-md border px-2.5 py-1 font-mono text-[11.5px]" style={{ borderColor: "color-mix(in srgb, var(--ct-accent) 32%, transparent)", color: "var(--ct-accent)", background: "color-mix(in srgb, var(--ct-accent) 12%, transparent)" }}>
-          Focus Tab
-        </button>
-      )}
-    </ToolCardFrame>
+    </InboundActivityCard>
   );
 }
