@@ -4,6 +4,7 @@ import type {
   MultiplexerState,
   Pane,
   Tab,
+  Team,
   Notification,
   PaneStatus,
 } from "../../lib/types";
@@ -18,6 +19,7 @@ export interface VirtualPickerTab {
 }
 
 export interface ExtendedState extends MultiplexerState {
+  teams: Team[];
   notifications: Notification[];
   paneStatuses: Record<string, PaneStatus>;
   toasts: Notification[];

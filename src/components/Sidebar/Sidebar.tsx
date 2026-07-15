@@ -36,6 +36,7 @@ import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { deriveWorkspacePlanEntries, openWorkspacePlanForEntries } from "../Canvas/workspacePlanEntry";
 import { matchesBinding } from "../../lib/keybindings";
 import { SidebarCollapsedActiveTab, SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
+import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
 import { collectOrchestrationGroupMembers, type OrchestrationGroupMember } from "./orchestrationGroupClose";
 
@@ -51,6 +52,7 @@ interface SidebarProps {
   config?: AppConfig;
   uiFontScale?: number;
   workspaceCanvasActive?: boolean;
+  teamActions?: Partial<SidebarTeamActions>;
 }
 
 export function Sidebar({
@@ -63,6 +65,7 @@ export function Sidebar({
   config,
   uiFontScale,
   workspaceCanvasActive = false,
+  teamActions,
 }: SidebarProps) {
   const {
     createWorkspace,
@@ -609,10 +612,12 @@ export function Sidebar({
                           sortedTabs={sortedTabs}
                           panes={state.panes}
                           paneStatuses={state.paneStatuses}
+                          teams={state.teams}
                           planIndex={planIndex}
                           plans={fullPlans.plans}
                           activeWork={activeWork}
                           remoteWorkers={remoteWorkers}
+                          providers={visibleProviders}
                           closingTabIds={new Set(closingTabs.keys())}
                           appearingTabIds={appearingTabs}
                           isActiveVisual={isActiveVisual}
@@ -633,6 +638,9 @@ export function Sidebar({
                           onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
                           onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
                           onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
+                          onRenameTeam={teamActions?.onRenameTeam}
+                          onAddTeamMember={teamActions?.onAddTeamMember}
+                          onArchiveTeam={teamActions?.onArchiveTeam}
                         />
                       </div>
                     </div>
