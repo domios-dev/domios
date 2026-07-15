@@ -31,7 +31,7 @@ import { useChatSession, isCodeTermFrontendTestMode } from "./useChatSession";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
-import { ChatSetupState, chatSetupView } from "./ChatSetupState";
+import { ChatSetupState, ChatSetupStatusLine, chatSetupView } from "./ChatSetupState";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { reattachPaneChat } from "./chatReattach";
 import { planRefViewState } from "./planRefViewState";
@@ -603,6 +603,13 @@ export function PaneSessionChat({
           modelBubble={watcherModelBubble}
         />
       ) : (
+      <>
+      {deferredEnrichedMessages.length > 0 && (
+        <ChatSetupStatusLine
+          pane={pane}
+          providerName={provider?.displayName ?? "the agent"}
+        />
+      )}
       <ChatComposer
         paneId={paneId}
         paneProvider={paneProvider}
@@ -621,6 +628,7 @@ export function PaneSessionChat({
         onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
         modelBubble={composerModelBubble}
       />
+      </>
       )}
     </div>
   );

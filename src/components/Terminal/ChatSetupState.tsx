@@ -28,6 +28,31 @@ interface ChatSetupStateProps {
   onOpenTerminal?: () => void;
 }
 
+export function ChatSetupStatusLine({
+  pane,
+  providerName,
+}: {
+  pane: Pane | null | undefined;
+  providerName: string;
+}) {
+  if (chatSetupView(pane).kind !== "starting") return null;
+  return (
+    <div
+      className="flex shrink-0 items-center border-t px-3 py-1.5"
+      data-testid="chat-setup-status-line"
+      style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}
+    >
+      <BusyState
+        labelKey="paneBoot"
+        label={chatSetupStageLabel(pane?.boot_stage, providerName)}
+        phase="work"
+        inline
+        style={{ fontSize: 11 }}
+      />
+    </div>
+  );
+}
+
 export function ChatSetupState({ pane, view, providerId, providerName, onOpenTerminal }: ChatSetupStateProps) {
   if (view.kind === "failed") {
     return (

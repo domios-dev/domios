@@ -179,7 +179,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn materialize_restored_agent_for_send(&self, pane_id: &str) -> Result<(), String> {
-        let (provider_id, session_id, cwd, protected, restored, model) = {
+        let (provider_id, session_id, cwd, protected, restored, agent_booting, model) = {
             let mux = self.mux.read();
             let pane = mux
                 .get_pane(pane_id)
@@ -190,6 +190,7 @@ impl ServiceContext {
                 pane.cwd.clone(),
                 pane.protected,
                 pane.restored_from_snapshot,
+                pane.agent_booting,
                 pane.agent_session_model.clone(),
             )
         };
@@ -207,6 +208,7 @@ impl ServiceContext {
             .unwrap_or(false);
         let Some(mode) = restored_agent_materialization(
             restored,
+            agent_booting,
             protected,
             Some(&provider_id),
             session_id.as_deref(),
