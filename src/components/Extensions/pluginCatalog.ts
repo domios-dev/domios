@@ -33,7 +33,7 @@ export interface CatalogEntry {
   grantedPermissions?: string[] | null;
   settingsSchema?: SettingField[] | null;
   description?: string | null;
-  /** Agent-facing help for the "Configure with AI" button (Part D). */
+  /** Opt-in agent-facing instructions. Absent means AI configuration is unsupported. */
   configHelp?: string | null;
   homepage?: string | null;
   readmeMarkdown?: string | null;

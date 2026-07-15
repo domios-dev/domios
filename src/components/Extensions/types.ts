@@ -42,8 +42,7 @@ export interface InstalledPlugin {
   icon_color?: string | null;
   icon_hint?: string | null;
   description?: string | null;
-  /** Agent-facing help for the universal "Configure with AI" button (Part D);
-   * manifest `configHelp`, else `description`. */
+  /** Opt-in agent-facing instructions. Absent means AI configuration is unsupported. */
   config_help?: string | null;
   homepage?: string | null;
   readme_markdown?: string | null;
