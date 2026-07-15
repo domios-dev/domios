@@ -10,14 +10,14 @@ acceptance_criteria:
 - Providers that expose both session and weekly limits remain unchanged.
 test_plan: Add a provider-neutral usage fixture with session fields absent, run the focused usage parser and component tests, then verify the dev usage portal at narrow and desktop widths.
 correctness: No provider-id branching; optional metrics are driven by field presence.
-status: pending
+status: done
 review_stage: review
-qa_state: null
-status_label: null
+qa_state: passed
+status_label: Weekly-only bubble and popover verified in dev
 priority: p2
 created_at: 1784103275291
-updated_at: 1784103275291
-status_changed_at: 1784103275291
+updated_at: 1784105832898
+status_changed_at: 1784105832898
 handle: support-weekly-only-provider-usage-limits
 tags: []
 section_ids: []
