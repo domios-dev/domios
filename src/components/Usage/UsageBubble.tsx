@@ -5,6 +5,7 @@ import { classify } from "../../types/usage";
 import { formatSpend } from "./format";
 import { UsageDetail, UsageSpendDetail } from "./UsageDetail";
 import { UsageHistoryModal } from "./UsageHistoryModal";
+import { usageMetricsAriaLabel, visibleUsageMetrics, type VisibleUsageMetric } from "./metrics";
 
 interface UsageBubbleProps {
   /** Provider id — required, no default. The component is hosted by a
@@ -68,6 +69,7 @@ export function UsageBubble({ provider, accountId = null, trackingEnabled = fals
     : formatSpend(snapshot.spend_cents ?? 0);
   const sessionState = classify(snapshot.session_pct);
   const weeklyState = classify(snapshot.weekly_pct);
+  const metrics = visibleUsageMetrics(snapshot);
   const worst: "neutral" | "warn" | "danger" = isSpend
     ? "neutral"
     : sessionState === "danger" || weeklyState === "danger"
@@ -99,7 +101,7 @@ export function UsageBubble({ provider, accountId = null, trackingEnabled = fals
         aria-label={
           isSpend
             ? `usage ${spendLabel}`
-            : `usage session ${formatPct(snapshot.session_pct)} weekly ${formatPct(snapshot.weekly_pct)}`
+            : usageMetricsAriaLabel(metrics)
         }
         onClick={(e) => {
           e.stopPropagation();
@@ -114,22 +116,14 @@ export function UsageBubble({ provider, accountId = null, trackingEnabled = fals
             <span className="pct">{spendLabel}</span>
           </span>
         ) : (
-          <>
-            <span className={`glyph ${sessionState}`}>
-              <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <circle cx="6" cy="6" r="4.6" />
-                <path d="M6 3.4V6l1.7 1.1" />
-              </svg>
-              <span className="pct">{formatPct(snapshot.session_pct)}</span>
-            </span>
-            <span className="sep" />
-            <span className={`glyph ${weeklyState}`}>
-              <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="M1 7.2 3 5l2.2 2.2L7.4 4l3.4 3.4" />
-              </svg>
-              <span className="pct">{formatPct(snapshot.weekly_pct)}</span>
-            </span>
-          </>
+          metrics.map((metric, index) => (
+            <UsageMetricGlyph
+              key={metric.key}
+              metric={metric}
+              state={metric.key === "session" ? sessionState : weeklyState}
+              separated={index > 0}
+            />
+          ))
         )}
         {isStale && <span className="stale-age">·{formatAgeShort(ageMs)}</span>}
       </button>
@@ -172,6 +166,35 @@ export function UsageBubble({ provider, accountId = null, trackingEnabled = fals
         />
       )}
     </div>
+  );
+}
+
+function UsageMetricGlyph({
+  metric,
+  state,
+  separated,
+}: {
+  metric: VisibleUsageMetric;
+  state: "neutral" | "warn" | "danger";
+  separated: boolean;
+}) {
+  return (
+    <>
+      {separated && <span className="sep" />}
+      <span className={`glyph ${state}`}>
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          {metric.key === "session" ? (
+            <>
+              <circle cx="6" cy="6" r="4.6" />
+              <path d="M6 3.4V6l1.7 1.1" />
+            </>
+          ) : (
+            <path d="M1 7.2 3 5l2.2 2.2L7.4 4l3.4 3.4" />
+          )}
+        </svg>
+        <span className="pct">{formatPct(metric.pct)}</span>
+      </span>
+    </>
   );
 }
 

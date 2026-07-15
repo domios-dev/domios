@@ -19,6 +19,7 @@ import {
   type Bucket,
 } from "./cycle";
 import { BarTooltip, type BarHover } from "./BarTooltip";
+import { visibleUsageMetrics } from "./metrics";
 
 interface UsageDetailProps {
   snapshot: UsageSnapshot;
@@ -105,6 +106,7 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: Usag
     () => weeklyProjectionMarkers(projection?.weekly ?? null, snapshot.weekly_pct),
     [projection?.weekly, snapshot.weekly_pct],
   );
+  const metrics = visibleUsageMetrics(snapshot);
 
   return (
     <div className={`ct-usage-popover ${flipUp ? "up" : "down"}`} role="dialog" aria-label="usage details">
@@ -129,26 +131,19 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: Usag
         </div>
       )}
 
-      <Gauge
-        label="Session"
-        variant="session"
-        pct={snapshot.session_pct}
-        resetsAt={snapshot.session_resets_at}
-        state={sessionState}
-        markers={sessionMarkers}
-        now={now}
-        showIntroHint={showIntroHints}
-      />
-      <Gauge
-        label="Weekly"
-        variant="weekly"
-        pct={snapshot.weekly_pct}
-        resetsAt={snapshot.weekly_resets_at}
-        state={weeklyState}
-        markers={weeklyMarkers}
-        now={now}
-        showIntroHint={showIntroHints}
-      />
+      {metrics.map((metric) => (
+        <Gauge
+          key={metric.key}
+          label={metric.label}
+          variant={metric.key}
+          pct={metric.pct}
+          resetsAt={metric.resetsAt}
+          state={metric.key === "session" ? sessionState : weeklyState}
+          markers={metric.key === "session" ? sessionMarkers : weeklyMarkers}
+          now={now}
+          showIntroHint={showIntroHints}
+        />
+      ))}
 
       <MiniWeekBars buckets={buckets} />
 
