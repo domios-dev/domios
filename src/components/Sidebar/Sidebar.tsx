@@ -36,7 +36,7 @@ import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { deriveWorkspacePlanEntries, openWorkspacePlanForEntries } from "../Canvas/workspacePlanEntry";
 import { matchesBinding } from "../../lib/keybindings";
 import { SidebarCollapsedActiveTab, SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
-import type { SidebarTeamActions, TeamSnapshot } from "./TeamUnit";
+import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
 import { collectOrchestrationGroupMembers, type OrchestrationGroupMember } from "./orchestrationGroupClose";
 
@@ -612,7 +612,7 @@ export function Sidebar({
                           sortedTabs={sortedTabs}
                           panes={state.panes}
                           paneStatuses={state.paneStatuses}
-                          teams={(state as unknown as { teams?: TeamSnapshot[] }).teams ?? []}
+                          teams={state.teams}
                           planIndex={planIndex}
                           plans={fullPlans.plans}
                           activeWork={activeWork}
