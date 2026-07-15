@@ -187,8 +187,18 @@ mod tests {
         let events = crate::api::events::EventBroadcaster::new();
         let mut receiver = events.subscribe();
 
-        mux_rename_team_core(&mut mux, team_id, "Renamed".into(), Some(orchestrator)).unwrap();
-        crate::service::publish_mux_state_changed(&events);
+        crate::service::team::rename_team_with_state_change(
+            &mut mux,
+            &events,
+            &team_id,
+            "Renamed".into(),
+            Some(&orchestrator),
+        )
+        .unwrap();
+        assert_eq!(
+            mux.get_team(&team_id).unwrap().name.as_deref(),
+            Some("Renamed")
+        );
 
         assert!(matches!(
             receiver.try_recv().unwrap().event,
