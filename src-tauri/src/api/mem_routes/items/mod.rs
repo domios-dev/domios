@@ -341,7 +341,9 @@ pub async fn mem_wake_up(
     Query(p): Query<WakeUpParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let opts = wake_up_options_from_params(&p);
+    let caller_workspace = crate::api::pane_routes::caller_pane_header(&headers)
+        .and_then(|pane_id| state.svc.mux.read().find_workspace_for_pane(&pane_id));
+    let opts = wake_up_options_from_params(&p, caller_workspace);
     let text = state
         .svc
         .mem
@@ -350,12 +352,15 @@ pub async fn mem_wake_up(
     Ok(Json(serde_json::json!({ "text": text })))
 }
 
-fn wake_up_options_from_params(p: &WakeUpParams) -> WakeUpOptions {
+fn wake_up_options_from_params(
+    p: &WakeUpParams,
+    caller_workspace: Option<String>,
+) -> WakeUpOptions {
     let mut opts = WakeUpOptions::default();
     opts.include_l0 = !p.no_l0.unwrap_or(false);
     opts.include_l1 = !p.l0_only.unwrap_or(false);
     opts.explain = p.explain.unwrap_or(false);
-    opts.current_workspace = p.workspace.clone();
+    opts.current_workspace = p.workspace.clone().or(caller_workspace);
 
     if let Some(total) = p.budget {
         let total = total.max(1);

@@ -152,13 +152,16 @@ fn bump_on_get_is_safe_when_row_missing() {
 
 #[test]
 fn wake_up_budget_below_l0_floor_does_not_underflow() {
-    let opts = wake_up_options_from_params(&WakeUpParams {
-        budget: Some(10),
-        l0_only: None,
-        no_l0: None,
-        explain: None,
-        workspace: None,
-    });
+    let opts = wake_up_options_from_params(
+        &WakeUpParams {
+            budget: Some(10),
+            l0_only: None,
+            no_l0: None,
+            explain: None,
+            workspace: None,
+        },
+        None,
+    );
 
     assert_eq!(opts.l0_budget_tokens, 10);
     assert_eq!(opts.l1_budget_tokens, 0);
@@ -166,13 +169,16 @@ fn wake_up_budget_below_l0_floor_does_not_underflow() {
 
 #[test]
 fn wake_up_no_l0_uses_full_budget_for_l1() {
-    let opts = wake_up_options_from_params(&WakeUpParams {
-        budget: Some(10),
-        l0_only: None,
-        no_l0: Some(true),
-        explain: None,
-        workspace: None,
-    });
+    let opts = wake_up_options_from_params(
+        &WakeUpParams {
+            budget: Some(10),
+            l0_only: None,
+            no_l0: Some(true),
+            explain: None,
+            workspace: None,
+        },
+        None,
+    );
 
     assert_eq!(opts.l0_budget_tokens, 0);
     assert_eq!(opts.l1_budget_tokens, 10);
@@ -182,13 +188,16 @@ fn wake_up_no_l0_uses_full_budget_for_l1() {
 
 #[test]
 fn wake_up_large_budget_caps_l0_share() {
-    let opts = wake_up_options_from_params(&WakeUpParams {
-        budget: Some(2_000),
-        l0_only: None,
-        no_l0: None,
-        explain: None,
-        workspace: None,
-    });
+    let opts = wake_up_options_from_params(
+        &WakeUpParams {
+            budget: Some(2_000),
+            l0_only: None,
+            no_l0: None,
+            explain: None,
+            workspace: None,
+        },
+        None,
+    );
 
     assert_eq!(opts.l0_budget_tokens, 100);
     assert_eq!(opts.l1_budget_tokens, 1_900);
@@ -196,13 +205,16 @@ fn wake_up_large_budget_caps_l0_share() {
 
 #[test]
 fn wake_up_no_budget_uses_config_default() {
-    let opts = wake_up_options_from_params(&WakeUpParams {
-        budget: None,
-        l0_only: None,
-        no_l0: None,
-        explain: None,
-        workspace: None,
-    });
+    let opts = wake_up_options_from_params(
+        &WakeUpParams {
+            budget: None,
+            l0_only: None,
+            no_l0: None,
+            explain: None,
+            workspace: None,
+        },
+        None,
+    );
     assert_eq!(
         opts.l1_budget_tokens,
         crate::config::schema::MemoryConfig::default().l1_budget_tokens
@@ -211,12 +223,30 @@ fn wake_up_no_budget_uses_config_default() {
 
 #[test]
 fn wake_up_workspace_param_propagates_to_options() {
-    let opts = wake_up_options_from_params(&WakeUpParams {
-        budget: None,
-        l0_only: None,
-        no_l0: None,
-        explain: None,
-        workspace: Some("W1".into()),
-    });
+    let opts = wake_up_options_from_params(
+        &WakeUpParams {
+            budget: None,
+            l0_only: None,
+            no_l0: None,
+            explain: None,
+            workspace: Some("W1".into()),
+        },
+        Some("caller-workspace".into()),
+    );
     assert_eq!(opts.current_workspace.as_deref(), Some("W1"));
+}
+
+#[test]
+fn wake_up_inherits_calling_pane_workspace_when_not_overridden() {
+    let opts = wake_up_options_from_params(
+        &WakeUpParams {
+            budget: None,
+            l0_only: None,
+            no_l0: None,
+            explain: None,
+            workspace: None,
+        },
+        Some("caller-workspace".into()),
+    );
+    assert_eq!(opts.current_workspace.as_deref(), Some("caller-workspace"));
 }
