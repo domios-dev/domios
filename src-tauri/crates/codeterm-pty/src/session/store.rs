@@ -1,3 +1,4 @@
+use codeterm_types::team::Team;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -8,6 +9,9 @@ pub struct SessionSnapshot {
     pub timestamp: u64,
     pub workspaces: Vec<WorkspaceSnapshot>,
     pub active_workspace_id: Option<String>,
+    /// Registered teams. Legacy snapshots lack this and default to empty.
+    #[serde(default)]
+    pub teams: Vec<Team>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +73,9 @@ pub enum SplitNodeSnapshot {
         /// Behavioral role profile, e.g. planner.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         role_profile: Option<String>,
+        /// Team membership id. `None` for teamless / legacy snapshots.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        team_id: Option<String>,
         /// Parent pane ID in hierarchy.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         parent_pane_id: Option<String>,
@@ -323,6 +330,7 @@ mod tests {
             version: "test".into(),
             timestamp: 0,
             active_workspace_id: None,
+            teams: vec![],
             workspaces: (0..workspaces)
                 .map(|i| WorkspaceSnapshot {
                     id: format!("ws_{}", i),
