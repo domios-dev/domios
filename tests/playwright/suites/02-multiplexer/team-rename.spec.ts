@@ -31,7 +31,7 @@ test("@smoke Team Rename persists with an unrelated focused pane", async ({ api,
     await expect(team).toBeVisible({ timeout: 15_000 });
     const urlBeforeRename = ui.page.url();
     await team.locator('[data-testid="team-menu-trigger"]').click();
-    await ui.page.getByRole("button", { name: "Rename" }).click();
+    await ui.page.getByTestId("team-menu").getByRole("button", { name: "Rename", exact: true }).click();
     const name = `pw-team-renamed-${Date.now()}`;
     const input = team.locator('[data-testid="team-name-input"]');
     await input.fill(name);
@@ -76,7 +76,7 @@ test("@smoke Team Rename shows a forced 403 without local replacement", async ({
     });
     const originalName = await team.locator('[data-testid="team-name"]').textContent();
     await team.locator('[data-testid="team-menu-trigger"]').click();
-    await ui.page.getByRole("button", { name: "Rename" }).click();
+    await ui.page.getByTestId("team-menu").getByRole("button", { name: "Rename", exact: true }).click();
     const input = team.locator('[data-testid="team-name-input"]');
     await input.fill("Rejected Team Rename");
     await input.press("Enter");
