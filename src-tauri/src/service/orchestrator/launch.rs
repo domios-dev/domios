@@ -373,9 +373,8 @@ mod tests {
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::AgentRole;
     use crate::service::orchestrator::types::SpawnAgentParams;
-    use crate::service::plan::PlanStore;
+    use crate::service::pty_io::pane_identity_env;
     use crate::service::spawn::{PaneCommand, SpawnPaneSpec};
-    use crate::service::test_support::test_harness;
     use std::sync::Arc;
 
     fn orchestrator_params(task: Option<&str>) -> SpawnAgentParams {
@@ -405,36 +404,32 @@ mod tests {
 
     #[test]
     fn plain_orchestrator_no_task_attaches_nothing() {
-        let dir = tempfile::tempdir().unwrap();
+        let spec = SpawnPaneSpec::from_agent_params(orchestrator_params(None));
+
+        assert_eq!(spec.parent_pane_id, None);
+        match spec.command {
+            PaneCommand::Agent(agent) => {
+                assert_eq!(agent.role.as_deref(), Some("Orchestrator"));
+                assert_eq!(agent.task, None);
+                assert_eq!(agent.worker_id, None);
+            }
+            other => panic!("expected agent spawn state, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn plain_orchestrator_role_metadata_uses_the_non_task_channel() {
         let (mut mux, _) = MultiplexerState::new();
         let workspace_id = mux.list_workspaces()[0].id.clone();
         let pane_id = mux.create_tab(&workspace_id).unwrap().1;
         mux.set_pane_role(&pane_id, AgentRole::Orchestrator, None)
             .unwrap();
-        let plan_store = PlanStore::new_for_test(dir.path());
-
-        assert!(plan_store.task_binding_for_pane(&pane_id).is_none());
-        assert_eq!(mux.team_count(), 0);
-    }
-
-    #[test]
-    fn plain_orchestrator_role_metadata_uses_the_non_task_channel() {
-        let dir = tempfile::tempdir().unwrap();
-        let harness = test_harness(dir.path(), "test-provider");
-        let pane_id = {
-            let mut mux = harness.service.mux.write();
-            let workspace_id = mux.list_workspaces()[0].id.clone();
-            let pane_id = mux.create_tab(&workspace_id).unwrap().1;
-            mux.set_pane_role(&pane_id, AgentRole::Orchestrator, None)
-                .unwrap();
-            pane_id
-        };
+        let pane = mux.get_pane(&pane_id).unwrap();
 
         assert_eq!(
-            harness.service.pane_env(&pane_id).get("CODETERM_ROLE"),
+            pane_identity_env(pane).get("CODETERM_ROLE"),
             Some(&"Orchestrator".to_string())
         );
-        std::mem::forget(harness);
     }
 
     #[test]
