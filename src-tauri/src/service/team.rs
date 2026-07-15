@@ -18,10 +18,10 @@ impl ServiceContext {
         caller_pane_id: Option<&str>,
     ) -> Result<Team, String> {
         let mut mux = self.mux.write();
-        authorize_team_manager(&mux, team_id, caller_pane_id)?;
-        let team = mux.rename_team(team_id, name)?;
+        let team =
+            rename_team_with_state_change(&mut mux, &self.events, team_id, name, caller_pane_id)?;
         drop(mux);
-        self.emit_state_changed();
+        self.emit_state_changed_after_bus_publish();
         Ok(team)
     }
 
@@ -47,6 +47,28 @@ impl ServiceContext {
         self.emit_state_changed();
         Ok(plan)
     }
+}
+
+pub(crate) fn rename_team_core(
+    mux: &mut MultiplexerState,
+    team_id: &str,
+    name: String,
+    caller_pane_id: Option<&str>,
+) -> Result<Team, String> {
+    authorize_team_manager(mux, team_id, caller_pane_id)?;
+    mux.rename_team(team_id, name)
+}
+
+pub(crate) fn rename_team_with_state_change(
+    mux: &mut MultiplexerState,
+    events: &crate::api::events::EventBroadcaster,
+    team_id: &str,
+    name: String,
+    caller_pane_id: Option<&str>,
+) -> Result<Team, String> {
+    let team = rename_team_core(mux, team_id, name, caller_pane_id)?;
+    crate::service::publish_mux_state_changed(events);
+    Ok(team)
 }
 
 fn authorize_team_manager(
