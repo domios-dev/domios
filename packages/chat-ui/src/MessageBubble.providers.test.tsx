@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 import { MessageBubble } from "./MessageBubble";
 import { parseInboundReport } from "./codeterm/InboundReportCard";
-import { CROSS_PANE_BUBBLE_TESTID, CROSS_PANE_SHELL_TESTID, crossPaneBubbleClassName } from "./crossPaneBubble";
+import { CROSS_PANE_BUBBLE_TESTID } from "./crossPaneBubble";
 import { reduceToolEvents } from "@codeterm/chat-core";
 import {
   providerTranscriptFixtures,
@@ -920,7 +920,7 @@ test("chatBackend unknown tool falls back gracefully", async () => {
   }
 });
 
-test("chatBackend structured inbound renders sender header and kind badge", async () => {
+test("chatBackend structured inbound renders an expanded typed message card", async () => {
   const { host, root } = await renderMessages([
     {
       id: "inbound-pane-1",
@@ -936,16 +936,10 @@ test("chatBackend structured inbound renders sender header and kind badge", asyn
   try {
     assertIncludes(host, "from Worker A", "structured inbound sender");
     assertIncludes(host, "gpt-5", "structured inbound model");
-    const badge = host.querySelector('[data-testid="chat-inbound-kind-badge"]');
-    assert(badge, "expected inbound kind badge");
-    assert((badge.textContent ?? "").includes("pane"), "expected pane badge");
-    const shell = host.querySelector(`[data-testid="${CROSS_PANE_SHELL_TESTID}"]`) as HTMLElement | null;
-    assert(shell, "inbound cross-pane uses shared shell");
-    assert(shell!.className.includes("justify-start"), "inbound cross-pane is left aligned");
-    const bubble = host.querySelector(`[data-testid="${CROSS_PANE_BUBBLE_TESTID}"]`) as HTMLElement | null;
-    assert(bubble, "inbound cross-pane uses shared bubble");
-    assert(bubble!.className === crossPaneBubbleClassName("text-base"), "inbound uses shared cross-pane bubble class");
-    assert(!bubble!.className.includes("border"), "inbound cross-pane bubble has no accent border");
+    assertIncludes(host, "tab", "structured inbound channel");
+    assertIncludes(host, "Please inspect the last run.", "expanded inbound body");
+    assert(host.querySelector('[data-testid="chat-inbound-message"]'), "expected typed inbound message card");
+    assert(!host.querySelector(`[data-testid="${CROSS_PANE_BUBBLE_TESTID}"]`), "inbound message must not use legacy bubble");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -998,9 +992,9 @@ test("chatBackend structured mesh inbound renders peer in sender header", async 
   try {
     assertIncludes(host, "from Edison@BLACKSTAR", "structured mesh sender");
     assertIncludes(host, "sonnet", "structured mesh model");
-    const badge = host.querySelector('[data-testid="chat-inbound-kind-badge"]');
-    assert(badge, "expected mesh inbound kind badge");
-    assert((badge.textContent ?? "").includes("mesh"), "expected mesh badge");
+    assertIncludes(host, "mesh", "structured mesh channel");
+    assertIncludes(host, "Remote status is green.", "expanded mesh body");
+    assert(host.querySelector('[data-testid="chat-inbound-message"]'), "expected typed mesh message card");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -1018,7 +1012,7 @@ test("normal user message does not render inbound sender affordance", async () =
   ]);
   try {
     assertIncludes(host, "Plain local prompt", "normal user content");
-    assert(!host.querySelector('[data-testid="chat-inbound-kind-badge"]'), "normal user should not have inbound badge");
+    assert(!host.querySelector('[data-testid="chat-inbound-message"]'), "normal user should not have inbound card");
     assert(!textOf(host).includes("from Plain"), "normal user should not have from header");
     assert(host.querySelector(".justify-end"), "normal user should keep right alignment");
   } finally {
