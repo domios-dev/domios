@@ -152,7 +152,7 @@ fn submitted(
             if text.is_empty() {
                 current_generation != enter_generation
             } else {
-                !screen_contains_echo(&observation.tail, text)
+                false
             }
         }
         VerifySubmitStrategy::None => current_generation != enter_generation,
@@ -212,6 +212,8 @@ fn run<T: SubmitTransport>(
     for attempt in 0..MAX_ENTER_ATTEMPTS {
         let enter_generation = generation;
         let enter_hash = transport.observe().map_err(helper_to_closed)?.hash;
+        let mut absent_candidate = None;
+        let mut body_reappeared_after_candidate = false;
         transport.write_enter()?;
         if !opts.verify_submit {
             return Ok(InjectionResult {
@@ -224,14 +226,23 @@ fn run<T: SubmitTransport>(
         loop {
             let observation = transport.observe().map_err(helper_to_closed)?;
             let current_generation = transport.generation();
-            if submitted(
-                &strategy,
-                &observation,
-                initial.hash,
-                text,
-                enter_generation,
-                current_generation,
-            ) {
+            let body_present = screen_contains_echo(&observation.tail, text);
+            let tui_confirmed = matches!(&strategy, VerifySubmitStrategy::TuiInputDrained { .. })
+                && !text.is_empty()
+                && !body_present
+                && current_generation != enter_generation
+                && (body_reappeared_after_candidate
+                    || absent_candidate.is_some_and(|candidate| current_generation != candidate));
+            if tui_confirmed
+                || submitted(
+                    &strategy,
+                    &observation,
+                    initial.hash,
+                    text,
+                    enter_generation,
+                    current_generation,
+                )
+            {
                 return Ok(InjectionResult {
                     bytes_written,
                     echo_observed,
@@ -239,11 +250,24 @@ fn run<T: SubmitTransport>(
                     elapsed: started.elapsed(),
                 });
             }
+            if matches!(&strategy, VerifySubmitStrategy::TuiInputDrained { .. })
+                && !text.is_empty()
+                && current_generation != enter_generation
+            {
+                if body_present {
+                    if absent_candidate.take().is_some() {
+                        body_reappeared_after_candidate = true;
+                    }
+                } else if absent_candidate.is_none() {
+                    absent_candidate = Some(current_generation);
+                }
+            }
             if current_generation != generation {
                 generation = current_generation;
                 if attempt + 1 < MAX_ENTER_ATTEMPTS
                     && observation.hash != enter_hash
-                    && screen_contains_echo(&observation.tail, text)
+                    && body_present
+                    && !body_reappeared_after_candidate
                 {
                     break;
                 }
@@ -338,6 +362,7 @@ mod tests {
         frame: RefCell<Frame>,
         after_paste: RefCell<VecDeque<Frame>>,
         waits: RefCell<VecDeque<Option<Frame>>>,
+        consumed_frames: Cell<usize>,
         current_body: RefCell<String>,
         writes: RefCell<Vec<String>>,
     }
@@ -356,6 +381,7 @@ mod tests {
                 }),
                 after_paste: RefCell::new(after_paste.into()),
                 waits: RefCell::new(waits.into()),
+                consumed_frames: Cell::new(0),
                 current_body: RefCell::new(String::new()),
                 writes: RefCell::new(Vec::new()),
             }
@@ -388,6 +414,7 @@ mod tests {
             }
             match self.waits.borrow_mut().pop_front().flatten() {
                 Some(frame) => {
+                    self.consumed_frames.set(self.consumed_frames.get() + 1);
                     self.advance(frame);
                     true
                 }
@@ -454,10 +481,16 @@ mod tests {
                 tail: "> hello",
                 hash: 1,
             }),
-            vec![Some(Frame {
-                tail: "working",
-                hash: 2,
-            })],
+            vec![
+                Some(Frame {
+                    tail: "working",
+                    hash: 2,
+                }),
+                Some(Frame {
+                    tail: "working stable",
+                    hash: 3,
+                }),
+            ],
         );
         let result = run(&io, "hello", true, tui(), opts()).unwrap();
         assert!(result.echo_observed);
@@ -489,6 +522,10 @@ mod tests {
                 Some(Frame {
                     tail: "working",
                     hash: 3,
+                }),
+                Some(Frame {
+                    tail: "working stable",
+                    hash: 4,
                 }),
             ],
         );
@@ -524,7 +561,7 @@ mod tests {
                 },
                 Frame {
                     tail: "> body-b",
-                    hash: 3,
+                    hash: 4,
                 },
             ],
             vec![
@@ -533,12 +570,20 @@ mod tests {
                     hash: 2,
                 }),
                 Some(Frame {
-                    tail: "> body-b",
+                    tail: "a stable",
                     hash: 3,
                 }),
                 Some(Frame {
-                    tail: "b submitted",
+                    tail: "stale a submitted",
+                    hash: 2,
+                }),
+                Some(Frame {
+                    tail: "> body-b",
                     hash: 4,
+                }),
+                Some(Frame {
+                    tail: "b submitted",
+                    hash: 5,
                 }),
             ],
         );
@@ -561,6 +606,8 @@ mod tests {
             1
         );
         assert_eq!(writes.last().unwrap(), "enter:body-b");
+        assert_eq!(io.consumed_frames.get(), 5);
+        assert_eq!(io.generation.get(), 7);
     }
 
     #[test]
