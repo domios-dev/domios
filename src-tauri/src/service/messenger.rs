@@ -222,7 +222,7 @@ impl Messenger {
         body: &str,
     ) -> Result<Delivery, String> {
         // A real inbound message/report landing here means the reader no longer
-        // needs to poll — clear its polling-nudge streak (skip system reminders).
+        // needs a reminder — clear its reminder-nudge streak (skip system reminders).
         if matches!(envelope.kind, MessageKind::Message | MessageKind::Report) {
             let resolved = svc
                 .mux
@@ -268,8 +268,6 @@ impl Messenger {
             body.to_string()
         };
         svc.send_text(to_pane, &text, true)?;
-        // Backstop a swallowed submit Enter: idempotent, only nudges a parked pane.
-        svc.confirm_wake_async(to_pane, &text);
         Ok(Delivery::Pty { text })
     }
 
@@ -896,6 +894,20 @@ mod tests {
         .unwrap();
         assert_eq!(provider_input.len(), 1);
         assert!(provider_input[0].contains(payload));
+    }
+
+    #[test]
+    fn chat_backend_delivery_bypasses_pty_submit() {
+        let source = include_str!("messenger.rs");
+        let chat_branch = source
+            .find("if svc.pane_chat_backing(to_pane).is_some()")
+            .unwrap();
+        let pty_submit = source.find("svc.send_text(to_pane, &text, true)?").unwrap();
+        let branch = &source[chat_branch..pty_submit];
+
+        assert!(branch.contains("return Self::deliver_chatbackend("));
+        assert!(!branch.contains("send_text_verified"));
+        assert!(!branch.contains("submit_transaction"));
     }
 
     #[test]

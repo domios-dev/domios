@@ -98,8 +98,6 @@ impl std::fmt::Display for InjectionError {
 
 impl std::error::Error for InjectionError {}
 
-const POLL_INTERVAL: Duration = Duration::from_millis(40);
-
 #[derive(Debug, Clone)]
 pub enum HelperErr {
     Timeout(String),    // screen tail captured at timeout
@@ -179,7 +177,9 @@ pub fn wait_for_echo(
     timeout: Duration,
     tail_rows: usize,
 ) -> Result<String, HelperErr> {
+    let signal = screen_state.lock().arm_screen_change_signal(pty_id);
     let deadline = std::time::Instant::now() + timeout;
+    let mut generation = signal.generation();
     loop {
         let tail = match screen_state.lock().tail_text(pty_id, tail_rows) {
             Some(t) => t,
@@ -188,10 +188,13 @@ pub fn wait_for_echo(
         if screen_contains_echo(&tail, expected) {
             return Ok(tail);
         }
-        if std::time::Instant::now() >= deadline {
+        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+            return Err(HelperErr::Timeout(tail));
+        };
+        if !signal.wait_after(generation, remaining) {
             return Err(HelperErr::Timeout(tail));
         }
-        std::thread::sleep(POLL_INTERVAL);
+        generation = signal.generation();
     }
 }
 
@@ -218,15 +221,10 @@ pub fn wait_for_submit_shell(
     timeout: Duration,
     tail_rows: usize,
 ) -> Result<String, HelperErr> {
+    let signal = screen_state.lock().arm_screen_change_signal(pty_id);
     let deadline = std::time::Instant::now() + timeout;
+    let mut generation = signal.generation();
     loop {
-        if std::time::Instant::now() >= deadline {
-            let tail = screen_state
-                .lock()
-                .tail_text(pty_id, tail_rows)
-                .unwrap_or_default();
-            return Err(HelperErr::Timeout(tail));
-        }
         let (tail_opt, hash_now) = {
             let s = screen_state.lock();
             (
@@ -243,7 +241,13 @@ pub fn wait_for_submit_shell(
                 return Ok(tail);
             }
         }
-        std::thread::sleep(POLL_INTERVAL);
+        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+            return Err(HelperErr::Timeout(tail));
+        };
+        if !signal.wait_after(generation, remaining) {
+            return Err(HelperErr::Timeout(tail));
+        }
+        generation = signal.generation();
     }
 }
 
@@ -252,52 +256,27 @@ pub fn wait_for_submit_tui_drained(
     pty_id: &str,
     submitted_text: &str,
     timeout: Duration,
-    idle_after_drain: Duration,
+    _idle_after_drain: Duration,
     tail_rows: usize,
 ) -> Result<String, HelperErr> {
+    let signal = screen_state.lock().arm_screen_change_signal(pty_id);
     let deadline = std::time::Instant::now() + timeout;
-
-    let drained_tail = loop {
-        if std::time::Instant::now() >= deadline {
-            // Capture last-known tail (may be empty if pty vanished).
-            let last = screen_state
-                .lock()
-                .tail_text(pty_id, tail_rows)
-                .unwrap_or_default();
-            return Err(HelperErr::Timeout(last));
-        }
+    let mut generation = signal.generation();
+    loop {
         let t = match screen_state.lock().tail_text(pty_id, tail_rows) {
             Some(t) => t,
             None => return Err(HelperErr::PtyUnknown(pty_id.to_string())),
         };
         if submitted_text.is_empty() || !screen_contains_echo(&t, submitted_text) {
-            break t;
+            return Ok(t);
         }
-        std::thread::sleep(POLL_INTERVAL);
-    };
-
-    let mut last_hash = match screen_state.lock().get_content_hash(pty_id, 0) {
-        Some(h) => h,
-        None => return Err(HelperErr::PtyUnknown(pty_id.to_string())),
-    };
-    let mut stable_since = std::time::Instant::now();
-    loop {
-        if std::time::Instant::now() >= deadline {
-            return Err(HelperErr::Timeout(drained_tail));
-        }
-        std::thread::sleep(POLL_INTERVAL);
-        let h = match screen_state.lock().get_content_hash(pty_id, 0) {
-            Some(h) => h,
-            None => return Err(HelperErr::PtyUnknown(pty_id.to_string())),
+        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+            return Err(HelperErr::Timeout(t));
         };
-        if h == last_hash {
-            if stable_since.elapsed() >= idle_after_drain {
-                return Ok(drained_tail);
-            }
-        } else {
-            last_hash = h;
-            stable_since = std::time::Instant::now();
+        if !signal.wait_after(generation, remaining) {
+            return Err(HelperErr::Timeout(t));
         }
+        generation = signal.generation();
     }
 }
 
@@ -503,11 +482,7 @@ mod tests {
         let h = handle();
         feed(&h, "p1", b"user@host:~$ ls -la");
         let hash_before = snapshot_screen_hash(&h, "p1").unwrap();
-        let h2 = h.clone();
-        let join = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(40));
-            feed(&h2, "p1", b"\nfile_a\nfile_b\nuser@host:/tmp$ ");
-        });
+        feed(&h, "p1", b"\nfile_a\nfile_b\nuser@host:/tmp$ ");
         let res = wait_for_submit_shell(
             &h,
             "p1",
@@ -515,7 +490,6 @@ mod tests {
             Duration::from_secs(1),
             TEST_TAIL_ROWS,
         );
-        join.join().unwrap();
         assert!(res.is_ok(), "expected new prompt to be observed");
     }
 
@@ -550,12 +524,7 @@ mod tests {
     fn wait_for_submit_tui_drained_succeeds_when_needle_disappears() {
         let h = handle();
         feed(&h, "p1", b"prompt> hello world");
-        let h2 = h.clone();
-        let join = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(40));
-            // Wipe the screen so the needle is no longer present.
-            feed(&h2, "p1", b"\x1b[2J\x1b[Hresult line\nprompt> ");
-        });
+        feed(&h, "p1", b"\x1b[2J\x1b[Hresult line\nprompt> ");
         let res = wait_for_submit_tui_drained(
             &h,
             "p1",
@@ -564,7 +533,6 @@ mod tests {
             Duration::from_millis(100),
             TEST_TAIL_ROWS,
         );
-        join.join().unwrap();
         assert!(res.is_ok(), "expected drained needle to settle");
     }
 
@@ -618,7 +586,7 @@ mod tests {
         );
         assert!(
             start.elapsed() >= Duration::from_millis(190),
-            "must have actually polled to the deadline, elapsed {:?}",
+            "must have reached the deadline, elapsed {:?}",
             start.elapsed()
         );
     }
@@ -629,12 +597,7 @@ mod tests {
         let long = "B".repeat(2000);
         let visible_tail = format!("prompt> {}", &long[long.len() - 200..]);
         feed(&h, "p1", visible_tail.as_bytes());
-        let h2 = h.clone();
-        let join = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(40));
-            // Submit clears the composer — paste suffix is gone from the tail.
-            feed(&h2, "p1", b"\x1b[2J\x1b[Hassistant reply\nprompt> ");
-        });
+        feed(&h, "p1", b"\x1b[2J\x1b[Hassistant reply\nprompt> ");
         let res = wait_for_submit_tui_drained(
             &h,
             "p1",
@@ -643,7 +606,6 @@ mod tests {
             Duration::from_millis(80),
             TEST_TAIL_ROWS,
         );
-        join.join().unwrap();
         assert!(
             res.is_ok(),
             "long paste cleared from composer must be reported as drained; got {:?}",
