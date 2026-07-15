@@ -26,7 +26,7 @@ interface TabContentProps {
   theme: ThemeConfig;
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
-  usageEnabledByProvider?: Record<string, boolean>;
+  usageEnabledByProvider?: Record<string, boolean | undefined>;
   api?: ApiConfig;
   workspaceCwd?: string | null;
   uiFontScale?: number;

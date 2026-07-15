@@ -1,4 +1,4 @@
-import { usageTrackingEnabled } from "./usageTracking";
+import { usageTrackingEnabled, usageTrackingOverrides } from "./usageTracking";
 import type { SettingField } from "../../lib/types";
 
 const usageSection: SettingField[] = [{
@@ -22,4 +22,13 @@ if (usageTrackingEnabled([], true)) {
   throw new Error("providers without the usage capability should not render usage UI");
 }
 
-console.log("usageTracking tests: 3/3 passed");
+const overrides = usageTrackingOverrides({
+  defaultOn: {},
+  enabled: { usage_tracking_enabled: true },
+  disabled: { usage_tracking_enabled: false },
+});
+if (overrides.defaultOn !== undefined || overrides.enabled !== true || overrides.disabled !== false) {
+  throw new Error("usage config mapping must preserve unset, enabled, and disabled states");
+}
+
+console.log("usageTracking tests: 4/4 passed");
