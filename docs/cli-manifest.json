@@ -512,6 +512,14 @@
               "aliases": []
             },
             {
+              "name": "reasoning-effort",
+              "positional": false,
+              "value_name": "REASONING_EFFORT",
+              "default": null,
+              "help": "Reasoning-effort level (provider-specific, e.g. codex low/medium/high). Capability-validated: an unsupported value is rejected, never silently downgraded. Run `codeterm agent models <provider>` to see supported levels",
+              "aliases": []
+            },
+            {
               "name": "report-to",
               "positional": false,
               "value_name": "REPORT_TO",
@@ -3804,7 +3812,7 @@
               "positional": false,
               "value_name": "WORKSPACE",
               "default": null,
-              "help": "Current workspace id — boosts pinned-in-workspace items in L1",
+              "help": "Workspace override; defaults to the calling tab's workspace",
               "aliases": []
             }
           ],
@@ -6822,7 +6830,7 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "changed_executable_surfaces",
+                  "name": "changed-executable-surfaces",
                   "positional": false,
                   "value_name": "CHANGED_EXECUTABLE_SURFACES",
                   "default": null,
@@ -6830,7 +6838,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "distinct_oracle",
+                  "name": "distinct-oracle",
                   "positional": false,
                   "value_name": "DISTINCT_ORACLE",
                   "default": null,
@@ -6854,7 +6862,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "residual_risk",
+                  "name": "residual-risk",
                   "positional": false,
                   "value_name": "RESIDUAL_RISK",
                   "default": null,
@@ -6878,7 +6886,7 @@
               "aliases": [],
               "args": [
                 {
-                  "name": "changed_executable_surfaces",
+                  "name": "changed-executable-surfaces",
                   "positional": false,
                   "value_name": "CHANGED_EXECUTABLE_SURFACES",
                   "default": null,
@@ -6886,7 +6894,7 @@
                   "aliases": []
                 },
                 {
-                  "name": "distinct_oracle",
+                  "name": "distinct-oracle",
                   "positional": false,
                   "value_name": "DISTINCT_ORACLE",
                   "default": null,
@@ -8019,6 +8027,14 @@
                   "value_name": "PLAN_ID",
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reasoning-effort",
+                  "positional": false,
+                  "value_name": "REASONING_EFFORT",
+                  "default": null,
+                  "help": "Provider-supported reasoning effort (rejected if unsupported)",
                   "aliases": []
                 },
                 {
@@ -10778,6 +10794,85 @@
               "value_name": "TASK_ID",
               "default": null,
               "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "team",
+      "about": "Team registry and 1:1 plan binding",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "adopt-plan",
+          "about": "Bind an existing plan to a Team",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": "Plan ID",
+              "aliases": []
+            },
+            {
+              "name": "team_id",
+              "positional": true,
+              "value_name": "TEAM_ID",
+              "default": null,
+              "help": "Team ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List registered Teams",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "rename",
+          "about": "Give a Team a human-readable name",
+          "aliases": [],
+          "args": [
+            {
+              "name": "name",
+              "positional": true,
+              "value_name": "NAME",
+              "default": null,
+              "help": "New Team name",
+              "aliases": []
+            },
+            {
+              "name": "team_id",
+              "positional": true,
+              "value_name": "TEAM_ID",
+              "default": null,
+              "help": "Team ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "show",
+          "about": "Show one Team",
+          "aliases": [],
+          "args": [
+            {
+              "name": "team_id",
+              "positional": true,
+              "value_name": "TEAM_ID",
+              "default": null,
+              "help": "Team ID",
               "aliases": []
             }
           ],

@@ -6,7 +6,7 @@ use crate::plan::{OrchestratorRef, PlanStatus, PlannerRef};
 use crate::service::plan::adopt::AdoptPlanExt;
 use crate::service::plan::batch::BatchRequest;
 use crate::service::plan::{hints, PlanError};
-use crate::service::ServiceState;
+use crate::service::{FirstPlanTeamError, ServiceState};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 pub(super) fn plan_rpc_err(e: PlanError) -> JsonRpcError {
@@ -128,15 +128,25 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.trim().is_empty())
                 .map(str::to_string);
-            let plan = if let Some(spec_id) = from_spec.clone() {
-                store
-                    .create_plan_from_spec(&spec_id, title, owner_from_params(body), kinds, now)
-                    .map_err(plan_rpc_err)?
-            } else {
-                store
-                    .create_plan(title, project, owner_from_params(body), kinds, now)
-                    .map_err(plan_rpc_err)?
-            };
+            let owner = owner_from_params(body);
+            let outcome = svc
+                .create_first_plan_for_orchestrator(
+                    title,
+                    project,
+                    owner,
+                    kinds,
+                    from_spec.clone(),
+                    now,
+                )
+                .map_err(|error| match error {
+                    FirstPlanTeamError::Plan(error) => plan_rpc_err(error),
+                    FirstPlanTeamError::Team(message) => JsonRpcError {
+                        code: -32602,
+                        message,
+                        data: None,
+                    },
+                })?;
+            let plan = outcome.plan.clone();
             let plan_id = plan.id.clone();
             let _ = svc.bind_pending_paired_planner(&plan_id, &plan.owner, now);
             let empty_sections = plan.sections.is_empty();
@@ -148,6 +158,7 @@ pub(super) fn dispatch(
             if empty_sections {
                 response["_hints"] = json!([hints::plan_sections_hint(&plan_id)]);
             }
+            outcome.apply_to_response(&mut response);
             emit_plan_changed(app, &plan_id);
             Ok(response)
         }

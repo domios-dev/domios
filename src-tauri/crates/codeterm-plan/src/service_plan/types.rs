@@ -79,6 +79,10 @@ pub enum PlanError {
         existing_plan_id: String,
         existing_title: String,
     },
+    PlanAlreadyBoundToTeam {
+        plan_id: String,
+        team_id: String,
+    },
     Io(String),
 }
 
@@ -246,6 +250,10 @@ impl fmt::Display for PlanError {
                 f,
                 "team {team_id} already owns active plan {existing_plan_id} «{existing_title}»; a team binds 1:1 to a plan. Create or use another Team for this effort (spawn a new team-bound orchestrator), or archive/complete {existing_plan_id} first."
             ),
+            PlanError::PlanAlreadyBoundToTeam { plan_id, team_id } => write!(
+                f,
+                "plan {plan_id} is already bound to team {team_id}; a plan binds 1:1 to a team"
+            ),
             PlanError::Io(e) => write!(f, "io error: {e}"),
         }
     }
@@ -386,6 +394,11 @@ impl PlanError {
                 "team_id": team_id,
                 "existing_plan_id": existing_plan_id,
                 "existing_title": existing_title
+            }),
+            PlanError::PlanAlreadyBoundToTeam { plan_id, team_id } => serde_json::json!({
+                "type": "plan_already_bound_to_team",
+                "plan_id": plan_id,
+                "team_id": team_id
             }),
             PlanError::Io(message) => serde_json::json!({ "type": "io", "message": message }),
         }

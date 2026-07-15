@@ -13,6 +13,7 @@ use crate::plan::{
 };
 use crate::service::plan::IndexEntry;
 use crate::service::plan::PlanError;
+use crate::service::FirstPlanTeamError;
 
 use super::{
     emit_plan_changed, epoch_ms, kinds_from_csv, plan_err, tag_facets_from_body, text_err,
@@ -20,14 +21,13 @@ use super::{
 };
 
 fn push_hints(value: &mut Value, hints: Vec<String>) {
-    let hints: Vec<String> = hints
+    let hints: Vec<_> = hints
         .into_iter()
         .filter(|hint| !hint.trim().is_empty())
         .collect();
-    if hints.is_empty() {
-        return;
+    if !hints.is_empty() {
+        value["_hints"] = serde_json::json!(hints);
     }
-    value["_hints"] = serde_json::json!(hints);
 }
 
 #[derive(Deserialize, Default)]
@@ -83,28 +83,32 @@ pub async fn create(
         .unwrap_or_default();
     let now = epoch_ms();
     let from_spec = body.from_spec.filter(|s| !s.trim().is_empty());
-    let plan = if let Some(spec_id) = from_spec.as_deref() {
-        state
-            .svc
-            .plan_store
-            .create_plan_from_spec(spec_id, body.title, owner, kinds, now)
-            .map_err(plan_err)?
-    } else {
-        state
-            .svc
-            .plan_store
-            .create_plan(body.title, project, owner, kinds, now)
-            .map_err(plan_err)?
-    };
+    let outcome = state
+        .svc
+        .create_first_plan_for_orchestrator(
+            body.title,
+            project,
+            owner,
+            kinds,
+            from_spec.clone(),
+            now,
+        )
+        .map_err(|error| match error {
+            FirstPlanTeamError::Plan(error) => plan_err(error),
+            FirstPlanTeamError::Team(message) => text_err(StatusCode::BAD_REQUEST, message),
+        })?;
+    let plan = outcome.plan.clone();
     let _ = state
         .svc
         .bind_pending_paired_planner(&plan.id, &plan.owner, now);
     emit_plan_changed(&state, &plan.id);
-    Ok(Json(serde_json::json!({
+    let mut response = serde_json::json!({
         "plan_id": plan.id,
         "plan": plan,
         "from_spec": from_spec.unwrap_or_default()
-    })))
+    });
+    outcome.apply_to_response(&mut response);
+    Ok(Json(response))
 }
 
 pub async fn list(

@@ -28,6 +28,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Plan { .. } => {
             unsupported("plan management is local-only — run it on the target machine")
         }
+        Commands::Team { .. } => {
+            unsupported("team management is local-only — run it on the target machine")
+        }
         Commands::Spec { .. } => {
             unsupported("spec management is local-only — run it on the target machine")
         }
