@@ -40,6 +40,15 @@ async function run() {
     }),
     "staffing uses the selected manager as caller identity and keeps UI-only ids off the wire",
   );
+  const callsBeforeClose = calls.length;
+  await actions.onCloseTeam("team-1", "O1");
+  assert(calls.length === callsBeforeClose + 1, "close invokes exactly once");
+  const closeCall = calls[calls.length - 1];
+  assert(closeCall?.command === "mux_close_team", "close uses the bridge command");
+  assert(
+    JSON.stringify(closeCall?.args) === JSON.stringify({ teamId: "team-1", callerTabId: "O1" }),
+    "close sends the selected manager as caller identity",
+  );
 
   const rejected = buildTeamActions({
     invoke: async () => {

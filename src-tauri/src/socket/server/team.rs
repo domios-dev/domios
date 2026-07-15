@@ -36,6 +36,18 @@ pub(super) fn dispatch(
                 })?;
             Ok(serde_json::json!({ "team": team }))
         }
+        "team.close" => {
+            let team_id = get_string_param(params, "team_id")?;
+            let caller_pane_id = opt_string_param(params, "caller_pane_id");
+            let team = svc
+                .close_team(&team_id, caller_pane_id.as_deref())
+                .map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
+                })?;
+            Ok(serde_json::json!({ "team": team }))
+        }
         "team.adopt_plan" => {
             let team_id = get_string_param(params, "team_id")?;
             let plan_id = get_string_param(params, "plan_id")?;

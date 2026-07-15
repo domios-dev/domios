@@ -51,6 +51,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/teams/{team_id}/rename",
             post(team_routes::rename_team),
         )
+        .route("/api/teams/{team_id}/close", post(team_routes::close_team))
         .route(
             "/api/teams/{team_id}/members",
             post(team_routes::add_team_member),

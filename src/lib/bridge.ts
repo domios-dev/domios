@@ -161,6 +161,13 @@ const HTTP_MAP: Record<string, Mapper> = {
       { name: a.name },
       a.callerTabId,
     ),
+  mux_close_team: (a) =>
+    webJsonWithCallerPane(
+      "POST",
+      `/api/teams/${enc(s(a, "teamId"))}/close`,
+      {},
+      a.callerTabId,
+    ),
   mux_add_team_member: (a) =>
     webJsonWithCallerPane(
       "POST",

@@ -18,6 +18,13 @@ pub fn handle(client: &mut SocketClient, json_output: bool, action: TeamAction) 
                 "caller_pane_id": caller_pane_id,
             })),
         ),
+        TeamAction::Close { team_id } => client.call(
+            "team.close",
+            Some(json!({
+                "team_id": team_id,
+                "caller_pane_id": caller_pane_id,
+            })),
+        ),
         TeamAction::AdoptPlan { team_id, plan_id } => client.call(
             "team.adopt_plan",
             Some(json!({

@@ -16,6 +16,11 @@ pub enum TeamAction {
         /// New Team name
         name: String,
     },
+    /// Close every member pane and remove the Team registry entry
+    Close {
+        /// Team ID
+        team_id: String,
+    },
     /// Bind an existing plan to a Team
     AdoptPlan {
         /// Team ID
