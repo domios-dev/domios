@@ -1,0 +1,53 @@
+id: task_ws_wakeup_audit
+name: Audit workspace-scoped wake-up recall quality
+type: research
+model: null
+model_rationale: null
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- Wake-up fixtures prove global memories remain available while workspace-scoped memories are boosted only in their owning workspace.
+- Cross-workspace memories do not displace more relevant local context under a constrained L1 budget.
+- The wake-up explanation names scope and score contributions without exposing unrelated workspace content.
+test_plan: Add deterministic memories for two workspaces plus global context, query both workspace wake-ups with a small budget and explain mode, and compare ranked ids and scores.
+correctness: Keep the existing provider-neutral memory API; workspace is caller context, explicit override remains available, and absence of workspace preserves global wake-up.
+status: pending
+review_stage: null
+qa_state: pending
+status_label: Audit workspace wake-up isolation and ranking
+priority: p2
+created_at: 1784106411393
+updated_at: 1784106411393
+status_changed_at: 1784106411393
+handle: audit-workspace-scoped-wake-up-recall
+tags: []
+section_ids: []
+body: Validate and tune the existing workspace-aware wake-up ranking so agents receive useful project context automatically without contaminating recall across workspaces.
+role_guidance: null
+executor_role: null
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

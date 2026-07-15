@@ -344,9 +344,10 @@ For branch/worktree lifecycle, cleanup, and QA ownership, read `codeterm docs LA
   It is valid to commit and push these files when a plan update intentionally changes them.
 - Do not use `docs/superpowers/plans/*` as the primary plan in this repo. Markdown
   plans are exports/secondary artifacts only unless the user explicitly asks for one.
-- At orchestration start, check `codeterm mem wake-up --workspace $CODETERM_WORKSPACE_ID`
+- At orchestration start, check `codeterm mem wake-up`
   or `codeterm mem search "CodeTerm planner orchestration preferences"` for local
-  machine/user planning preferences. If the user gives a durable preference, save it
+  machine/user planning preferences. Wake-up inherits the calling tab's workspace;
+  pass `--workspace` only to override it. If the user gives a durable preference, save it
   to mem instead of relying on chat context.
 
 Prod build lives in `./build.sh build`; Windows local NSIS self-install in `scripts/self-install-local.ps1`.

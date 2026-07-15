@@ -233,6 +233,21 @@ fn wakeup_no_explain_default_false() {
 }
 
 #[test]
+fn wakeup_workspace_prefers_explicit_then_inherits_calling_workspace() {
+    use super::item::resolve_wakeup_workspace;
+
+    assert_eq!(
+        resolve_wakeup_workspace(Some("explicit".into()), Some("inherited".into())),
+        Some("explicit".into())
+    );
+    assert_eq!(
+        resolve_wakeup_workspace(None, Some(" workspace-a ".into())),
+        Some("workspace-a".into())
+    );
+    assert_eq!(resolve_wakeup_workspace(None, Some("  ".into())), None);
+}
+
+#[test]
 fn update_accepts_changed_by_flag() {
     let cli = Cli::try_parse_from([
         "codeterm",

@@ -323,11 +323,13 @@ impl ServiceContext {
                 .lock()
                 .get_screen_text(pty_id)
                 .unwrap_or_default();
-            let ready = codeterm_pty::pty::screen_state::screen_has_agent_tui(&screen)
-                || self
-                    .agent_registry
-                    .with_provider(agent_id, |provider| provider.screen_has_tui(&screen))
-                    .unwrap_or(false);
+            let provider_ready = self
+                .agent_registry
+                .with_provider(agent_id, |provider| provider.screen_has_tui(&screen));
+            let ready = provider_or_generic_tui(
+                provider_ready,
+                codeterm_pty::pty::screen_state::screen_has_agent_tui(&screen),
+            );
             if ready {
                 return true;
             }
@@ -534,9 +536,13 @@ impl ServiceContext {
     }
 }
 
+pub(crate) fn provider_or_generic_tui(provider_ready: Option<bool>, generic_ready: bool) -> bool {
+    provider_ready.unwrap_or(generic_ready)
+}
+
 #[cfg(test)]
 mod planner_delivery_tests {
-    use super::submit_authenticated_pty_input;
+    use super::{provider_or_generic_tui, submit_authenticated_pty_input};
     use crate::multiplexer::state::MultiplexerState;
 
     #[test]
@@ -579,5 +585,12 @@ mod planner_delivery_tests {
             assert!(result.is_err());
             assert!(shell_write_spy.is_empty(), "{shell} received planner bytes");
         }
+    }
+
+    #[test]
+    fn provider_readiness_overrides_generic_tui_glyphs() {
+        assert!(!provider_or_generic_tui(Some(false), true));
+        assert!(provider_or_generic_tui(Some(true), false));
+        assert!(provider_or_generic_tui(None, true));
     }
 }

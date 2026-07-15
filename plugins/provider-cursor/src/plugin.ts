@@ -32,6 +32,7 @@ const plugin: PluginModule = {
 
   screenHasTui(screen: string): boolean {
     const lower = String(screen || "").toLowerCase();
+    if (lower.indexOf("workspace trust required") !== -1) return false;
     for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
     }
@@ -398,11 +399,12 @@ function trustPrefix(): string {
   if (host.platform() === "windows") {
     return [
       "$d=(Get-Location).Path;",
-      "$s=($d -replace '[^a-zA-Z0-9]','-');",
+      "$s=($d -replace '[^a-zA-Z0-9]+','-');",
       "$p=Join-Path $HOME (Join-Path '.cursor\\projects' $s);",
       "New-Item -ItemType Directory -Force -Path $p | Out-Null;",
       "$tf=Join-Path $p '.workspace-trusted';",
-      "if(-not (Test-Path $tf)){('{\"trustedAt\":\"'+(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.000Z')+'\",\"workspacePath\":\"'+($d -replace '\\\\','\\\\\\\\')+'\"}') | Set-Content -NoNewline $tf};",
+      "$j=@{trustedAt=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.000Z');workspacePath=$d}|ConvertTo-Json -Compress;",
+      "[IO.File]::WriteAllText($tf,$j);",
       "",
     ].join(" ");
   }

@@ -375,6 +375,8 @@ pub(crate) fn handle_mem_items(
             explain,
             workspace,
         } => {
+            let workspace =
+                resolve_wakeup_workspace(workspace, std::env::var("CODETERM_WORKSPACE_ID").ok());
             let mut url = format!("{}/api/mem/wake-up", base);
             let mut sep = '?';
             if let Some(b) = budget {
@@ -508,6 +510,16 @@ pub(crate) fn handle_mem_items(
         }
         _ => unreachable!("invalid item action passed to handle_mem_items"),
     }
+}
+
+pub(super) fn resolve_wakeup_workspace(
+    explicit: Option<String>,
+    inherited: Option<String>,
+) -> Option<String> {
+    explicit
+        .or(inherited)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 pub(crate) fn handle_mem_history(
