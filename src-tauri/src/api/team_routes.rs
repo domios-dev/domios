@@ -12,6 +12,15 @@ pub(crate) struct RenameTeamBody {
     name: String,
 }
 
+#[derive(Deserialize)]
+pub(crate) struct AddTeamMemberBody {
+    provider: String,
+    role: String,
+    title: Option<String>,
+    task: Option<String>,
+    model: Option<String>,
+}
+
 fn validate_name(name: &str) -> Result<(), (StatusCode, String)> {
     if name.trim().is_empty() {
         return Err((
@@ -68,6 +77,47 @@ pub async fn rename_team(
         )
     })?;
     Ok(Json(team))
+}
+
+async fn add_team_member_adapter<T>(
+    headers: &HeaderMap,
+    team_id: String,
+    body: AddTeamMemberBody,
+    add_member: impl AsyncFnOnce(String, String, AddTeamMemberBody) -> Result<T, String>,
+) -> Result<T, (StatusCode, String)> {
+    let caller_pane_id = require_caller_pane_id(headers)?;
+    add_member(team_id, caller_pane_id, body)
+        .await
+        .map_err(map_rename_error)
+}
+
+pub async fn add_team_member(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(team_id): Path<String>,
+    Json(body): Json<AddTeamMemberBody>,
+) -> Result<Json<crate::service::AddTeamMemberResult>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
+    let result = add_team_member_adapter(
+        &headers,
+        team_id,
+        body,
+        |team_id, caller_pane_id, body: AddTeamMemberBody| async {
+            crate::commands::mux_commands::mux_add_team_member_service_core(
+                &state.svc,
+                team_id,
+                body.provider,
+                body.role,
+                Some(caller_pane_id),
+                body.title,
+                body.task,
+                body.model,
+            )
+            .await
+        },
+    )
+    .await?;
+    Ok(Json(result))
 }
 
 #[cfg(test)]
@@ -235,5 +285,59 @@ mod tests {
             StatusCode::NOT_FOUND
         );
         assert_eq!(mux.get_team(&team_id).unwrap().name, None);
+    }
+
+    #[tokio::test]
+    async fn http_add_team_member_requires_caller_pane_header() {
+        let error = add_team_member_adapter(
+            &HeaderMap::new(),
+            "team_x".into(),
+            AddTeamMemberBody {
+                provider: "provider".into(),
+                role: "worker".into(),
+                title: None,
+                task: None,
+                model: None,
+            },
+            |_, _, _| async { Ok(()) },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.0, StatusCode::BAD_REQUEST);
+        assert_eq!(error.1, "X-CodeTerm-Pane-Id is required");
+    }
+
+    #[tokio::test]
+    async fn http_add_team_member_delegates_acting_pane_and_body() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-CodeTerm-Pane-Id", "manager".parse().unwrap());
+        let result = add_team_member_adapter(
+            &headers,
+            "team_x".into(),
+            AddTeamMemberBody {
+                provider: "provider".into(),
+                role: "planner".into(),
+                title: Some("Planner".into()),
+                task: Some("Plan it".into()),
+                model: Some("model".into()),
+            },
+            |team_id, caller_pane_id, body: AddTeamMemberBody| async move {
+                assert_eq!(team_id, "team_x");
+                assert_eq!(caller_pane_id, "manager");
+                assert_eq!(body.role, "planner");
+                Ok((body.provider, body.title, body.task, body.model))
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            result,
+            (
+                "provider".into(),
+                Some("Planner".into()),
+                Some("Plan it".into()),
+                Some("model".into()),
+            )
+        );
     }
 }

@@ -161,6 +161,19 @@ const HTTP_MAP: Record<string, Mapper> = {
       { name: a.name },
       a.callerTabId,
     ),
+  mux_add_team_member: (a) =>
+    webJsonWithCallerPane(
+      "POST",
+      `/api/teams/${enc(s(a, "teamId"))}/members`,
+      {
+        provider: a.provider,
+        role: a.role,
+        title: a.title,
+        task: a.task,
+        model: a.model,
+      },
+      a.callerTabId,
+    ),
   mux_create_tab: (a) =>
     webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs`, {
       eager: a.eager === true,
