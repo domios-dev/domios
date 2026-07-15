@@ -58,6 +58,7 @@ function buildInitialState(): ExtendedState {
   const empty: ExtendedState = {
     workspaces: [],
     panes: {},
+    teams: [],
     active_workspace_id: null,
     focused_pane_id: null,
     notifications: [],
@@ -74,6 +75,7 @@ function buildInitialState(): ExtendedState {
     ...empty,
     workspaces: cached.workspaces,
     panes: cached.panes,
+    teams: cached.teams ?? [],
     active_workspace_id: cached.active_workspace_id,
     focused_pane_id: cached.focused_pane_id,
     recently_closed: cached.recently_closed,
