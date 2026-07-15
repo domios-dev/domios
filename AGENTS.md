@@ -104,13 +104,8 @@ On Windows invoke repo commands through `.\build.ps1`; run capped Rust tests fro
 
 ## Bench safety: NEVER call raw `codeterm` against dev — use the lib
 
-When iterating on behaviour benches under `evals/<name>/`, the
-orchestrator usually runs in a Claude pane **inside prod codeterm**.
-That parent pane exports `CODETERM_API_PORT=7685` and a prod socket
-path. A bare `codeterm <subcommand>` in any bench shell inherits
-that env and silently dispatches to **prod**, not dev. If the dev
-daemon also happens to be down at that moment, the CLI's
-socket-discovery falls back to the prod pipe — same outcome.
+Benches may inherit prod connection variables from their parent CodeTerm tab.
+A bare `codeterm` call can therefore mutate prod instead of dev.
 
 **Always** source the bench lib first and use its `dc` wrapper:
 
@@ -133,23 +128,9 @@ do it explicitly outside the bench machinery, after a clear
 
 ## Behaviour benches — `evals/`
 
-Behavioural changes (system prompts, session restore semantics, mem
-recall quality, agent routing) are verified with bench scripts under
-`evals/<name>/`. Existing sets:
-
-- `evals/cli-agent/` — real-daemon LLM benchmark: drives Claude/Codex/Opencode through every CLI command (model-judged, replaces old headless general-agent/mem-protocol evals)
-- `evals/mem-recall/` — mem search engine quality (Recall@K / MRR / latency)
-- `evals/dreaming/` — REM-phase prompt (Stage A.1 hub decomposition, Stage A.2 island bridging)
-- `evals/session-restore/` — kill+restart preserves workspace/pane/agent_type metadata; UI-mount step manual
-- `evals/restore-matrix/` — one-workspace provider restore matrix: N panes per provider (claude/codex/opencode), pre-kill marker materialization gate in the provider store, hard restart, API sid identity + Playwright UI-visible marker oracle (`RM_PROVIDERS`/`RM_PER_PROVIDER`/`RM_MATERIALIZE_TIMEOUT` tunable)
-
-Also present, experimental/historical: `evals/dreamer-repair/` (mem graph repair smoke test), `evals/seeds/`, `evals/v1_1_23_e2e/`, `evals/binding-matrix/`, `evals/plugins/`.
-
-**Before changing behaviour, find the matching eval set and run it
-first to capture the baseline. Extend the eval set if a new scenario
-isn't covered. Don't ship behavioural changes without a bench unless
-the change is a hardcoded constant tweak.** Each `evals/<name>/`
-folder has a README explaining how to run.
+Before changing prompts, session restore, recall, or agent routing, run the
+matching bench under `evals/` and extend its fixture when the scenario is new.
+Each eval directory documents its own procedure.
 
 ## Lock ordering (deadlock prevention)
 
@@ -254,7 +235,7 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/SKILLS.md` — Claude Code skill for CodeTerm control
 - `docs/BUILD.md` — build instructions
 - `docs/MESH.md` — mesh networking (flat peer model) + bridge migration + Mesh tab (service registry, health probes, activity log, push tokens)
-- `docs/MEMORY.md` — memory subsystem (storage, search, workers, dreaming)
+- `docs/MEMORY.md` — memory subsystem
 - `docs/PROMPTS.md` — prompt templates: where they live, how they compile
 - `docs/TESTING.md` — full test guide
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
