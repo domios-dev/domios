@@ -3,7 +3,12 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
-import { ChatSetupState, chatSetupStageLabel, chatSetupView } from "./ChatSetupState";
+import {
+  ChatSetupState,
+  ChatSetupStatusLine,
+  chatSetupStageLabel,
+  chatSetupView,
+} from "./ChatSetupState";
 import type { Pane } from "../../lib/types";
 
 const win = new Window({ url: "http://localhost/chat-setup" });
@@ -70,6 +75,22 @@ async function main() {
     assert(host.querySelector('[data-testid="chat-setup-state"]'), "setup card rendered");
     const stage = host.querySelector('[data-testid="chat-setup-stage"]');
     assert(stage?.textContent?.includes("Launching Claude Code"), "stage label shows the provider");
+  });
+
+  await test("history can keep rendering while the compact boot status remains visible", async () => {
+    const host = await render(
+      <ChatSetupStatusLine pane={pane("pty_spawned")} providerName="Codex" />,
+    );
+    const status = host.querySelector('[data-testid="chat-setup-status-line"]');
+    assert(status, "compact status rendered");
+    assert(status.textContent?.includes("Preparing the terminal"), "real boot stage is shown");
+  });
+
+  await test("compact boot status disappears when the provider is ready", async () => {
+    const host = await render(
+      <ChatSetupStatusLine pane={pane("agent_ready")} providerName="Codex" />,
+    );
+    assert(!host.querySelector('[data-testid="chat-setup-status-line"]'), "ready status hidden");
   });
 
   await test("failed renders the reason and an Inspect-in-Terminal action", async () => {

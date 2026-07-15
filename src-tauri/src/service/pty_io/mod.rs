@@ -23,12 +23,13 @@ pub(crate) enum RestoredAgentMaterialization {
 
 pub(crate) fn restored_agent_materialization(
     restored_from_snapshot: bool,
+    agent_booting: bool,
     protected: bool,
     agent_type: Option<&str>,
     session_id: Option<&str>,
     session_valid: bool,
 ) -> Option<RestoredAgentMaterialization> {
-    if !restored_from_snapshot || protected || agent_type.is_none() {
+    if !restored_from_snapshot || agent_booting || protected || agent_type.is_none() {
         return None;
     }
     match session_id {

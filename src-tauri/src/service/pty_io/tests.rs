@@ -21,7 +21,7 @@ fn send_created_agent_pty_uses_bounded_width() {
 #[test]
 fn restored_agent_with_valid_session_needs_resume_materialization() {
     assert_eq!(
-        restored_agent_materialization(true, false, Some("codex"), Some("session-1"), true),
+        restored_agent_materialization(true, false, false, Some("codex"), Some("session-1"), true),
         Some(RestoredAgentMaterialization::Resume)
     );
 }
@@ -29,11 +29,11 @@ fn restored_agent_with_valid_session_needs_resume_materialization() {
 #[test]
 fn restored_agent_without_valid_session_needs_fresh_materialization() {
     assert_eq!(
-        restored_agent_materialization(true, false, Some("codex"), Some("missing"), false),
+        restored_agent_materialization(true, false, false, Some("codex"), Some("missing"), false),
         Some(RestoredAgentMaterialization::Fresh)
     );
     assert_eq!(
-        restored_agent_materialization(true, false, Some("codex"), None, false),
+        restored_agent_materialization(true, false, false, Some("codex"), None, false),
         Some(RestoredAgentMaterialization::Fresh)
     );
 }
@@ -41,7 +41,15 @@ fn restored_agent_without_valid_session_needs_fresh_materialization() {
 #[test]
 fn live_agent_send_skips_materialization() {
     assert_eq!(
-        restored_agent_materialization(false, false, Some("codex"), Some("session-1"), true),
+        restored_agent_materialization(false, false, false, Some("codex"), Some("session-1"), true),
+        None
+    );
+}
+
+#[test]
+fn send_during_snapshot_resume_joins_existing_boot() {
+    assert_eq!(
+        restored_agent_materialization(true, true, false, Some("codex"), Some("session-1"), true),
         None
     );
 }
@@ -49,7 +57,7 @@ fn live_agent_send_skips_materialization() {
 #[test]
 fn plain_shell_send_skips_materialization() {
     assert_eq!(
-        restored_agent_materialization(true, false, None, None, false),
+        restored_agent_materialization(true, false, false, None, None, false),
         None
     );
 }
@@ -57,7 +65,7 @@ fn plain_shell_send_skips_materialization() {
 #[test]
 fn protected_agent_send_skips_materialization() {
     assert_eq!(
-        restored_agent_materialization(true, true, Some("codex"), Some("session-1"), true),
+        restored_agent_materialization(true, false, true, Some("codex"), Some("session-1"), true),
         None
     );
 }
