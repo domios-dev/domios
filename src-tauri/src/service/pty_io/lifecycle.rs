@@ -4,10 +4,88 @@ use super::{
     restored_agent_materialization, RestoredAgentMaterialization, SEND_AGENT_BACKEND_COLS,
     SHELL_BACKEND_COLS,
 };
+use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::Pane;
 use crate::service::plan::PlanStore;
 use crate::service::ServiceContext;
 use std::collections::HashMap;
+
+#[derive(Clone)]
+pub(crate) struct RestoredLaunch {
+    pub provider_id: String,
+    pub session_id: Option<String>,
+    pub cwd: Option<String>,
+    pub model: Option<String>,
+}
+
+pub(crate) fn claim_restored_launch(
+    mux: &MuxState,
+    pane_id: &str,
+    observed_provider_id: &str,
+    observed_session_id: Option<&str>,
+    observed_cwd: Option<&str>,
+    session_valid: bool,
+) -> Result<Option<RestoredLaunch>, String> {
+    let mut mux = mux.write();
+    let pane = mux
+        .get_pane_mut(pane_id)
+        .ok_or_else(|| format!("Pane {pane_id} not found or has no PTY"))?;
+    let Some(provider_id) = pane.agent_type.clone() else {
+        return Ok(None);
+    };
+    if provider_id != observed_provider_id
+        || pane.agent_session_id.as_deref() != observed_session_id
+        || pane.cwd.as_deref() != observed_cwd
+    {
+        return Ok(None);
+    }
+    let Some(mode) = restored_agent_materialization(
+        pane.restored_from_snapshot,
+        pane.agent_booting,
+        pane.protected,
+        Some(&provider_id),
+        pane.agent_session_id.as_deref(),
+        session_valid,
+    ) else {
+        return Ok(None);
+    };
+    let session_id = match mode {
+        RestoredAgentMaterialization::Resume => pane.agent_session_id.clone(),
+        RestoredAgentMaterialization::Fresh => None,
+    };
+    if matches!(mode, RestoredAgentMaterialization::Fresh) {
+        pane.agent_session_id = None;
+    }
+    pane.restored_from_snapshot = false;
+    pane.agent_booting = true;
+    Ok(Some(RestoredLaunch {
+        provider_id,
+        session_id,
+        cwd: pane.cwd.clone(),
+        model: pane.agent_session_model.clone(),
+    }))
+}
+
+pub(crate) fn restore_and_schedule_launch<F>(
+    mux: &MuxState,
+    pane_id: &str,
+    provider_id: &str,
+    session_id: Option<&str>,
+    cwd: Option<&str>,
+    session_valid: bool,
+    schedule: F,
+) -> Result<Option<RestoredLaunch>, String>
+where
+    F: FnOnce(RestoredLaunch),
+{
+    let Some(launch) =
+        claim_restored_launch(mux, pane_id, provider_id, session_id, cwd, session_valid)?
+    else {
+        return Ok(None);
+    };
+    schedule(launch.clone());
+    Ok(Some(launch))
+}
 
 pub(crate) fn active_pane_lane_base(plan_store: &PlanStore, pane_id: &str) -> Option<String> {
     let (plan_id, task_id) = plan_store.task_binding_for_pane(pane_id)?;
@@ -186,7 +264,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn materialize_restored_agent_for_send(&self, pane_id: &str) -> Result<(), String> {
-        let (provider_id, session_id, cwd, protected, restored, agent_booting, model) = {
+        let (provider_id, session_id, cwd) = {
             let mux = self.mux.read();
             let pane = mux
                 .get_pane(pane_id)
@@ -195,10 +273,6 @@ impl ServiceContext {
                 pane.agent_type.clone(),
                 pane.agent_session_id.clone(),
                 pane.cwd.clone(),
-                pane.protected,
-                pane.restored_from_snapshot,
-                pane.agent_booting,
-                pane.agent_session_model.clone(),
             )
         };
         let Some(provider_id) = provider_id else {
@@ -213,60 +287,51 @@ impl ServiceContext {
                     .unwrap_or(false)
             })
             .unwrap_or(false);
-        let Some(mode) = restored_agent_materialization(
-            restored,
-            agent_booting,
-            protected,
-            Some(&provider_id),
-            session_id.as_deref(),
-            session_valid,
-        ) else {
-            return Ok(());
-        };
         let (ws_id, tab_id) = self.restored_tab_context(pane_id).ok_or_else(|| {
             format!(
                 "Pane {} is a restored agent pane but has no tab context for materialization",
                 pane_id
             )
         })?;
-
-        let pc = crate::config::provider_config(&provider_id);
-        let skip_permissions = pc.resume_skip_permissions.unwrap_or(true);
-        let launch_session_id = match mode {
-            RestoredAgentMaterialization::Resume => session_id.clone(),
-            RestoredAgentMaterialization::Fresh => {
-                if session_id.is_some() {
-                    self.set_agent_session_id(pane_id, None);
-                }
-                None
-            }
-        };
-        let params = crate::service::SpawnAgentParams {
-            agent: Some(provider_id.clone()),
-            cwd,
-            skip_permissions: Some(skip_permissions),
-            model,
-            resume_session_id: launch_session_id,
-            ..Default::default()
-        };
-        let launch_cmd = crate::service::orchestrator::build_agent_command(
+        let scheduled = restore_and_schedule_launch(
+            &self.mux,
+            pane_id,
             &provider_id,
-            &params,
-            None,
-            None,
-            &self.agent_registry,
+            session_id.as_deref(),
+            cwd.as_deref(),
+            session_valid,
+            |launch| {
+                let pc = crate::config::provider_config(&launch.provider_id);
+                let params = crate::service::SpawnAgentParams {
+                    agent: Some(launch.provider_id.clone()),
+                    cwd: launch.cwd,
+                    skip_permissions: Some(pc.resume_skip_permissions.unwrap_or(true)),
+                    model: launch.model,
+                    resume_session_id: launch.session_id,
+                    ..Default::default()
+                };
+                let launch_cmd = crate::service::orchestrator::build_agent_command(
+                    &launch.provider_id,
+                    &params,
+                    None,
+                    None,
+                    &self.agent_registry,
+                );
+                crate::service::orchestrator::launch_agent_in_background(
+                    self.clone(),
+                    pane_id.to_string(),
+                    tab_id,
+                    ws_id,
+                    launch_cmd,
+                    launch.provider_id,
+                    None,
+                    None,
+                );
+            },
         );
-        crate::service::orchestrator::launch_agent_in_background(
-            self.clone(),
-            pane_id.to_string(),
-            tab_id,
-            ws_id,
-            launch_cmd,
-            provider_id,
-            None,
-            None,
-        );
-        self.clear_pane_restored_flag(pane_id);
+        if scheduled?.is_none() {
+            return Ok(());
+        }
         self.emit_state_changed();
         Ok(())
     }
