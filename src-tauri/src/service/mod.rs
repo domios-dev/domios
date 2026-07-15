@@ -269,8 +269,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn emit_state_changed(&self) {
-        self.events
-            .publish(crate::api::events::SystemEvent::MuxStateChanged);
+        publish_mux_state_changed(&self.events);
         self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
         #[cfg(debug_assertions)]
         if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
@@ -458,6 +457,10 @@ impl ServiceContext {
             )),
         }
     }
+}
+
+pub(crate) fn publish_mux_state_changed(events: &crate::api::events::EventBroadcaster) {
+    events.publish(crate::api::events::SystemEvent::MuxStateChanged);
 }
 
 // ── Shared data types ───────────────────────────────────────────────
