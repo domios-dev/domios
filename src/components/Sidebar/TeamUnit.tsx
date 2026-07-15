@@ -287,10 +287,16 @@ export function TeamUnit({
               className="sidebar-team-readout"
               style={{ margin: 0, textAlign: "center" }}
             >
-              {buckets.map((bucket, index) => (
-                <span key={bucket.key} data-testid={`team-status-${bucket.key}`} style={{ color: bucket.color }}>
-                  {index > 0 && <span className="sidebar-team-readout-dot"> · </span>}
-                  {bucket.count} {bucket.label}
+              {buckets.map((bucket) => (
+                <span
+                  key={bucket.key}
+                  data-testid={`team-status-${bucket.key}`}
+                  className="sidebar-team-readout-item"
+                  style={{ color: bucket.color }}
+                >
+                  <span className="sidebar-team-readout-compact-dot" aria-hidden />
+                  <span>{bucket.count}</span>
+                  <span className="sidebar-team-readout-label"> {bucket.label}</span>
                 </span>
               ))}
             </span>
