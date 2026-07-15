@@ -53,7 +53,9 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::BudgetExhausted { .. } => StatusCode::BAD_REQUEST,
         PlanError::OverrideNotAuthorized => StatusCode::FORBIDDEN,
         PlanError::WritePending { .. } => StatusCode::SERVICE_UNAVAILABLE,
-        PlanError::ReadbackMismatch { .. } => StatusCode::CONFLICT,
+        PlanError::ReadbackMismatch { .. } | PlanError::TeamAlreadyHasActivePlan { .. } => {
+            StatusCode::CONFLICT
+        }
         PlanError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     (status, Json(json!({ "plan_error": e.to_json() })))
@@ -305,4 +307,20 @@ pub async fn canvas_focus(
     Ok(Json(
         json!({ "ok": true, "event": "canvas-focus", "payload": payload }),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn team_active_plan_conflict_is_409_with_plan_error_json() {
+        let (status, Json(body)) = plan_err(PlanError::TeamAlreadyHasActivePlan {
+            team_id: "team_alpha".into(),
+            existing_plan_id: "pl_existing".into(),
+            existing_title: "Existing".into(),
+        });
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["plan_error"]["type"], "team_already_has_active_plan");
+    }
 }
