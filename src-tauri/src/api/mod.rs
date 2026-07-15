@@ -30,6 +30,7 @@ pub mod pty_routes;
 pub mod services_routes;
 pub mod session_routes;
 pub mod task_routes;
+pub mod team_routes;
 pub mod theme_routes;
 pub mod updater_routes;
 pub mod usage_routes;
