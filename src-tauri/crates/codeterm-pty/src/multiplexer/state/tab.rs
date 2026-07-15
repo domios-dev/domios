@@ -74,12 +74,21 @@ impl MultiplexerState {
     /// Close a tab and return PTY IDs that need to be killed.
     pub fn close_tab(&mut self, workspace_id: &str, tab_id: &str) -> Result<Vec<String>, String> {
         // Record into the closed-history store while the pane still exists.
-        if let Some(pane_id) = self
+        let closing_pane_id = self
             .get_workspace(workspace_id)
             .and_then(|ws| ws.tabs.iter().find(|t| t.id == tab_id))
-            .map(|t| t.pane_id.clone())
-        {
+            .map(|t| t.pane_id.clone());
+        if let Some(pane_id) = closing_pane_id.as_ref() {
             self.record_single_close(&pane_id);
+            for pane in self.panes.values_mut() {
+                if pane.parent_pane_id.as_deref() == Some(pane_id.as_str()) {
+                    pane.parent_pane_id = None;
+                    pane.depth = 0;
+                    if pane.report_target_pane_id.as_deref() == Some(pane_id.as_str()) {
+                        pane.report_target_pane_id = None;
+                    }
+                }
+            }
         }
 
         let workspace = self

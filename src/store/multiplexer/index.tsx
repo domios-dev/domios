@@ -617,7 +617,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const closeTab = useCallback(
     (workspaceId: string, tabId: string) => {
-      const { workspaces, panes } = stateRef.current;
+      const { workspaces } = stateRef.current;
       const ws = workspaces.find((w) => w.id === workspaceId);
       const tab = ws?.tabs.find((t) => t.id === tabId);
       if (!tab) return;
@@ -626,18 +626,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "CLOSE_SESSION_PICKER", workspaceId, tabId });
         return;
       }
-      const allRemoved = new Set([tab.pane_id]);
-      const collectChildren = (parentId: string) => {
-        for (const [id, p] of Object.entries(panes)) {
-          if (p.parent_pane_id === parentId && !allRemoved.has(id)) {
-            allRemoved.add(id);
-            collectChildren(id);
-          }
-        }
-      };
-      collectChildren(tab.pane_id);
-      guardedInvoke("mux_close_pane", { paneId: tab.pane_id }).catch(() => {});
-      dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedPaneIds: [...allRemoved] });
+      guardedInvoke("mux_close_tab", { workspaceId, tabId }).catch(() => {});
+      dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedPaneIds: [tab.pane_id] });
       refreshFromBackend();
     },
     [refreshFromBackend, guardedInvoke],

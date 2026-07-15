@@ -38,7 +38,7 @@ import { matchesBinding } from "../../lib/keybindings";
 import { SidebarCollapsedActiveTab, SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
-import { collectOrchestrationGroupMembers, type OrchestrationGroupMember } from "./orchestrationGroupClose";
+import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -378,10 +378,10 @@ export function Sidebar({
     const timer = setTimeout(() => setAppearingTabs(new Set()), 250);
     return () => clearTimeout(timer);
   }, [appearingTabs]);
-  const [pendingGroupClose, setPendingGroupClose] = useState<{
+  const [pendingTeamClose, setPendingTeamClose] = useState<{
     wsId: string;
-    tabId: string;
-    orchestratorTitle: string;
+    teamName: string;
+    tabIds: string[];
     members: OrchestrationGroupMember[];
   } | null>(null);
 
@@ -402,19 +402,31 @@ export function Sidebar({
   }, [closeTab]);
 
   const animatedCloseTab = useCallback((wsId: string, tabId: string) => {
-    const ws = state.workspaces.find((w) => w.id === wsId);
-    const tab = ws?.tabs.find((t) => t.id === tabId);
-    const pane = tab ? state.panes[tab.pane_id] : undefined;
-    if (pane?.role === "Orchestrator") {
-      const members = collectOrchestrationGroupMembers(pane.id, state.panes);
-      if (members.length > 0) {
-        // taking out the Orchestrator + every Planner/Worker beneath it.
-        setPendingGroupClose({ wsId, tabId, orchestratorTitle: pane.title, members });
-        return;
-      }
-    }
     performCloseTab(wsId, tabId);
-  }, [performCloseTab, state.workspaces, state.panes]);
+  }, [performCloseTab]);
+
+  const requestTeamClose = useCallback((wsId: string, teamId: string) => {
+    const ws = state.workspaces.find((workspace) => workspace.id === wsId);
+    if (!ws) return;
+    const teamTabs = ws.tabs.filter(
+      (tab) => (state.panes[tab.pane_id] as (typeof state.panes)[string] & { team_id?: string | null })?.team_id === teamId,
+    );
+    const team = state.teams.find((candidate) => candidate.id === teamId);
+    setPendingTeamClose({
+      wsId,
+      teamName: team?.name?.trim() || "Team",
+      tabIds: teamTabs.map((tab) => tab.id),
+      members: teamTabs.map((tab) => {
+        const pane = state.panes[tab.pane_id];
+        return {
+          paneId: tab.pane_id,
+          title: pane?.title || "Tab",
+          role: pane?.role ?? null,
+          roleProfile: pane?.role_profile ?? null,
+        };
+      }),
+    });
+  }, [state.panes, state.teams, state.workspaces]);
   useEffect(() => {
     const kb = config?.keybindings ?? {};
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -640,7 +652,7 @@ export function Sidebar({
                           onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
                           onRenameTeam={teamActions?.onRenameTeam}
                           onAddTeamMember={teamActions?.onAddTeamMember}
-                          onArchiveTeam={teamActions?.onArchiveTeam}
+                          onCloseTeam={(teamId) => requestTeamClose(ws.id, teamId)}
                         />
                       </div>
                     </div>
@@ -867,14 +879,17 @@ export function Sidebar({
         />
       )}
 
-      {pendingGroupClose && (
+      {pendingTeamClose && (
         <GroupCloseConfirmDialog
-          orchestratorTitle={pendingGroupClose.orchestratorTitle}
-          members={pendingGroupClose.members}
-          onCancel={() => setPendingGroupClose(null)}
+          mode="team"
+          orchestratorTitle={pendingTeamClose.teamName}
+          members={pendingTeamClose.members}
+          onCancel={() => setPendingTeamClose(null)}
           onConfirm={() => {
-            performCloseTab(pendingGroupClose.wsId, pendingGroupClose.tabId);
-            setPendingGroupClose(null);
+            for (const tabId of pendingTeamClose.tabIds) {
+              performCloseTab(pendingTeamClose.wsId, tabId);
+            }
+            setPendingTeamClose(null);
           }}
         />
       )}

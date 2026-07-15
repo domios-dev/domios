@@ -98,7 +98,7 @@ async function renderSidebar({
   onCloseTab = () => {},
   onRenameTeam,
   onAddTeamMember,
-  onArchiveTeam,
+  onCloseTeam = () => {},
 }: {
   panes: Record<string, Pane>;
   tabs: Tab[];
@@ -109,7 +109,7 @@ async function renderSidebar({
   onCloseTab?: (tabId: string) => void;
   onRenameTeam?: (teamId: string, name: string) => void;
   onAddTeamMember?: (teamId: string, role: "orchestrator" | "planner" | "worker", providerId: string, parentPaneId: string | null) => void;
-  onArchiveTeam?: (teamId: string) => void;
+  onCloseTeam?: (teamId: string) => void;
 }): Promise<{ host: HTMLDivElement; root: Root }> {
   const workspace: Workspace = {
     id: "workspace",
@@ -151,7 +151,7 @@ async function renderSidebar({
           onNewSession={() => {}}
           onRenameTeam={onRenameTeam}
           onAddTeamMember={onAddTeamMember}
-          onArchiveTeam={onArchiveTeam}
+          onCloseTeam={onCloseTeam}
         />
       </SidebarDnd>,
     );
@@ -191,7 +191,8 @@ test("team_renders_flat_sections", async () => {
   await act(async () => root.unmount());
 });
 
-test("team menu hides unsupported actions and creates effort with a team-bound manager target", async () => {
+test("team menu never creates efforts and exposes explicit Team closure", async () => {
+  const closed: string[] = [];
   const panes = {
     manager: pane({ id: "manager", title: "Manager", role: "Orchestrator", team_id: TEAM.id }),
   };
@@ -200,6 +201,7 @@ test("team menu hides unsupported actions and creates effort with a team-bound m
     panes,
     tabs: [tab("tab-manager", "manager", 0)],
     onRenameTeam: () => {},
+    onCloseTeam: (teamId) => closed.push(teamId),
   });
   const trigger = host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement | null;
   assert(trigger, "team menu trigger exists");
@@ -207,13 +209,13 @@ test("team menu hides unsupported actions and creates effort with a team-bound m
   const menu = document.querySelector('[data-testid="team-menu"]');
   assert(menu?.textContent?.includes("Rename"), "supported rename remains available");
   assert(!menu?.textContent?.includes("Add orchestrator"), "unsupported staffing is hidden");
-  assert(!menu?.textContent?.includes("Archive"), "unsupported archive is hidden");
-  const create = Array.from(menu?.querySelectorAll("button") ?? []).find((button) => button.textContent?.includes("Create effort")) as HTMLButtonElement | undefined;
-  assert(create, "create effort is available");
-  await act(async () => create.click());
-  const target = canvasFocusStore.getWorkspaceTarget();
-  assert(target?.focusPaneId === "manager", "create effort targets the team manager pane");
-  assert(target?.planId === undefined, "create effort never opens an undefined generic target");
+  assert(!menu?.textContent?.includes("Create effort"), "humans cannot create efforts from Team UI");
+  assert(!menu?.textContent?.includes("Open effort"), "no effort action is shown without a plan");
+  const close = Array.from(menu?.querySelectorAll("button") ?? []).find((button) => button.textContent?.includes("Close Team")) as HTMLButtonElement | undefined;
+  assert(close, "Close Team action is available");
+  await act(async () => close.click());
+  assert(closed.join(",") === TEAM.id, "Close Team reports the exact Team id");
+  assert(host.querySelector('[data-testid="team-no-effort"]')?.textContent === "No effort yet", "empty effort slot remains visible");
   canvasFocusStore.closeWorkspace();
   await act(async () => root.unmount());
 });
@@ -258,7 +260,7 @@ test("donut_counts_match_board", async () => {
   await act(async () => root.unmount());
 });
 
-test("single_status_solid_donut", async () => {
+test("completed effort renders a solid progress ring without an inner glyph", async () => {
   const panes = {
     orchestrator: pane({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
   };
@@ -271,9 +273,10 @@ test("single_status_solid_donut", async () => {
   });
 
   const donut = host.querySelector('[data-testid="team-donut"]') as HTMLElement | null;
-  assert(donut?.dataset.segmentCount === "1", "one full-circle segment rendered");
-  assert(donutBackground(buckets) === buckets.find((bucket) => bucket.count > 0)?.color, "single status resolves to a solid color");
+  assert(donut?.dataset.progress === "2/2", "ring exposes completed task progress");
+  assert(donutBackground(buckets) === "var(--ct-green)", "completed effort resolves to a solid progress ring");
   assert(!donut?.style.background.includes("conic-gradient"), "solid donut never uses a sparse gradient");
+  assert(!donut?.querySelector("svg"), "progress ring has no inner icon");
   await act(async () => root.unmount());
 });
 

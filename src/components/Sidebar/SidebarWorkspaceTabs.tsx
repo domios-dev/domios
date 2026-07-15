@@ -71,7 +71,7 @@ export interface SidebarWorkspaceTabsProps {
     providerId: string,
     parentPaneId: string | null,
   ) => void;
-  onArchiveTeam?: (teamId: string) => void;
+  onCloseTeam?: (teamId: string) => void;
 }
 
 export function SidebarWorkspaceTabs({
@@ -102,7 +102,7 @@ export function SidebarWorkspaceTabs({
   onNewSession,
   onRenameTeam,
   onAddTeamMember,
-  onArchiveTeam,
+  onCloseTeam = () => {},
 }: SidebarWorkspaceTabsProps) {
   const membersByTeam = useMemo(() => {
     const grouped = new Map<string, TeamTabMember[]>();
@@ -269,7 +269,7 @@ export function SidebarWorkspaceTabs({
         onAddMember={onAddTeamMember
           ? (role, providerId) => onAddTeamMember(teamId, role, providerId, parentPaneId)
           : undefined}
-        onArchiveTeam={onArchiveTeam}
+        onCloseTeam={onCloseTeam}
       />,
     );
   }
