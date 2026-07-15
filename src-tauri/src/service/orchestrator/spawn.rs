@@ -144,8 +144,18 @@ impl ServiceContext {
 
     pub async fn spawn_agent(
         &self,
+        params: SpawnAgentParams,
+        ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ) -> Result<SpawnResult, String> {
+        self.spawn_agent_with_state_change(params, ready_tx, true)
+            .await
+    }
+
+    pub(crate) async fn spawn_agent_with_state_change(
+        &self,
         mut params: SpawnAgentParams,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+        emit_state_change: bool,
     ) -> Result<SpawnResult, String> {
         params.title = spawn_title::normalize_agent_title(params.title.take());
         params.normalize_role_profile()?;
@@ -192,7 +202,8 @@ impl ServiceContext {
                 self.chatbackend_registry.as_ref(),
                 params,
             );
-            let handle = self.spawn_pane_with_ready(spec, ready_tx)?;
+            let handle =
+                self.spawn_pane_with_ready_and_state_change(spec, ready_tx, emit_state_change)?;
             self.persist_unresolved_plugin_model_request(&handle.pane_id, &bind_params);
             let requested_model = model
                 .as_deref()
@@ -341,7 +352,9 @@ impl ServiceContext {
             }
             result
         };
-        self.emit_state_changed();
+        if emit_state_change {
+            self.emit_state_changed();
+        }
 
         // (its hierarchy lives on the origin) — skip_local_worker_role avoids a 500.
         if let Some(ref role_str) = params.role {
@@ -358,12 +371,21 @@ impl ServiceContext {
                     params.report_target_mesh_peer.as_deref().unwrap_or("?"),
                 );
             } else {
-                self.set_pane_role(
-                    &pane_id,
-                    role_str,
-                    params.parent_pane_id.as_deref(),
-                    params.can_spawn,
-                )?;
+                if emit_state_change {
+                    self.set_pane_role(
+                        &pane_id,
+                        role_str,
+                        params.parent_pane_id.as_deref(),
+                        params.can_spawn,
+                    )?;
+                } else {
+                    let role = Self::parse_role(role_str)?;
+                    let mut mux = self.mux.write();
+                    mux.set_pane_role(&pane_id, role, params.parent_pane_id.as_deref())?;
+                    if let Some(can_spawn) = params.can_spawn {
+                        mux.set_can_spawn(&pane_id, can_spawn)?;
+                    }
+                }
                 if role_str == "Worker" || role_str == "Manager" {
                     if let Some(ref parent) = params.parent_pane_id {
                         self.expect_spawn_parent_link(&pane_id, parent)?;
