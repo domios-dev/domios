@@ -1,17 +1,26 @@
 // Run: npx tsx src/components/Sidebar/SidebarWorkspaceTabs.test.tsx
 
-import React, { act, useState } from "react";
+import { act, useState } from "react";
 import { Window } from "happy-dom";
 import { createRoot, type Root } from "react-dom/client";
+import type { Pane, Tab, Team, Workspace } from "../../lib/types";
+import { FIXTURE_PLAN, FIXTURE_TASK } from "../Canvas/cards/fixtures.testdata";
+import { groupTasksIntoColumns } from "../Canvas/planView/boardModel";
+import { TaskStatus, type Plan, type Task } from "../Canvas/types";
 import { SidebarDnd } from "./sortable";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
-import type { Pane, Tab, Workspace } from "../../lib/types";
+import {
+  deriveTeamTaskBuckets,
+  donutBackground,
+} from "./TeamUnit";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
+
 function test(name: string, fn: TestFn) {
   tests.push([name, fn]);
 }
+
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
@@ -27,15 +36,13 @@ function setupDom() {
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
   Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
   Object.defineProperty(globalThis, "MouseEvent", { value: window.MouseEvent, configurable: true });
-  if (typeof (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame !== "function") {
-    (globalThis as { requestAnimationFrame: (cb: FrameRequestCallback) => number }).requestAnimationFrame = (
-      cb: FrameRequestCallback,
-    ) => {
-      cb(0);
+  Object.defineProperty(globalThis, "KeyboardEvent", { value: window.KeyboardEvent, configurable: true });
+  (globalThis as { requestAnimationFrame: (cb: FrameRequestCallback) => number }).requestAnimationFrame =
+    (callback) => {
+      callback(0);
       return 0;
     };
-    (globalThis as { cancelAnimationFrame: (id: number) => void }).cancelAnimationFrame = () => {};
-  }
+  (globalThis as { cancelAnimationFrame: (id: number) => void }).cancelAnimationFrame = () => {};
 }
 
 async function openTabActionsMenu(tabRow: Element): Promise<void> {
@@ -46,22 +53,12 @@ async function openTabActionsMenu(tabRow: Element): Promise<void> {
   });
 }
 
-async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const root = createRoot(host);
-  await act(async () => {
-    root.render(ui);
-  });
-  return { host, root };
-}
-
-function pane(overrides: Partial<Pane>): Pane {
+function pane(overrides: Partial<Pane> & { team_id?: string | null }): Pane {
   return {
-    id: "p",
+    id: "pane",
     pty_id: null,
     pane_type: "Terminal",
-    title: "p",
+    title: "Pane",
     cwd: null,
     role: null,
     role_profile: null,
@@ -74,174 +71,64 @@ function tab(id: string, paneId: string, sortOrder: number): Tab {
   return { id, pane_id: paneId, sort_order: sortOrder };
 }
 
-setupDom();
+function task(id: string, status: Task["status"]): Task {
+  return { ...FIXTURE_TASK, id, name: id, status };
+}
 
-test("manager child without plan binding renders in Managers and workers remain in Workers", async () => {
-  const panes: Record<string, Pane> = {
-    orch: pane({ id: "orch", title: "Orchestrator", role: "Orchestrator", agent_type: "claude" }),
-    manager: pane({
-      id: "manager",
-      title: "Watcher",
-      role: "Manager",
-      role_profile: "watcher",
-      parent_pane_id: "orch",
-      agent_type: "codex",
-    }),
-    w1: pane({ id: "w1", title: "Worker A", role: "Worker", parent_pane_id: "orch", agent_type: "claude" }),
-    w2: pane({ id: "w2", title: "Worker B", role: "Worker", parent_pane_id: "orch", agent_type: "opencode" }),
-  };
-  const tabs = [
-    tab("tab-orch", "orch", 0),
-    tab("tab-manager", "manager", 1),
-    tab("tab-w1", "w1", 2),
-    tab("tab-w2", "w2", 3),
-  ];
+function plan(tasks: Task[]): Plan {
+  return { ...FIXTURE_PLAN, id: "plan-team", title: "Sidebar team effort", team_id: "team-one", tasks } as Plan;
+}
+
+const TEAM: Team = {
+  id: "team-one",
+  name: "Sidebar team",
+  lifecycle: "active",
+  created_at: 1,
+  workspace_id: "workspace",
+};
+
+async function renderSidebar({
+  panes,
+  tabs,
+  plans = [],
+  statuses = {},
+  activeTabId,
+  onActivateTab = () => {},
+  onCloseTab = () => {},
+}: {
+  panes: Record<string, Pane>;
+  tabs: Tab[];
+  plans?: Plan[];
+  statuses?: Record<string, "Working" | "Waiting" | "Idle" | "Dead">;
+  activeTabId?: string | null;
+  onActivateTab?: (tabId: string) => void;
+  onCloseTab?: (tabId: string) => void;
+}): Promise<{ host: HTMLDivElement; root: Root }> {
   const workspace: Workspace = {
-    id: "ws",
+    id: "workspace",
     name: "Workspace",
     tabs,
-    active_tab_id: "tab-orch",
+    active_tab_id: activeTabId ?? tabs[0]?.id ?? null,
     cwd: null,
   };
-  const { host, root } = await render(
-    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
-      <SidebarWorkspaceTabs
-        workspace={workspace}
-        activeTabId="tab-orch"
-        sortedTabs={tabs}
-        panes={panes}
-        paneStatuses={{}}
-        planIndex={[]}
-        plans={[]}
-        activeWork={null}
-        remoteWorkers={{}}
-        closingTabIds={new Set()}
-        appearingTabIds={new Set()}
-        isActiveVisual={false}
-        workspaceCanvasActive={false}
-        touchMode={false}
-        compact={false}
-        sidebarActionText="text-xs"
-        orchestrators={[panes.orch]}
-        onBeforeOpenPlan={() => {}}
-        onActivateTab={() => {}}
-        onCloseTab={() => {}}
-        onRenameTab={() => {}}
-        onNewSession={() => {}}
-      />
-    </SidebarDnd>,
-  );
-
-  assert(host.querySelector('[data-testid="group-section-managers"]'), "Managers header present");
-  assert(host.querySelector('[data-testid="group-section-workers"]'), "Workers header present");
-  const managerWrap = host.querySelector('[data-group-section-wrap="manager"]');
-  const workerWrap = host.querySelector('[data-group-section-wrap="worker"]');
-  assert(managerWrap?.textContent?.includes("Watcher"), "Manager row rendered without plan binding");
-  assert(host.querySelector('[data-testid="role-badge-watcher"]'), "WATCHER shield on manager subline");
-  assert(workerWrap?.textContent?.includes("Worker A"), "first worker rendered");
-  assert(workerWrap?.textContent?.includes("Worker B"), "second worker rendered");
-  assert(!workerWrap?.textContent?.includes("Watcher"), "Manager excluded from worker subtree");
-  assert(host.textContent?.includes("Managers 1"), "Managers count is 1");
-  assert(host.textContent?.includes("Workers 2"), "Workers count is 2");
-  const managerIcon = managerWrap?.querySelector('[data-testid="tab-pane-icon"] .agent-icon');
-  assert(managerIcon, "manager child row renders left provider icon");
-  const workerRows = workerWrap?.querySelectorAll('[data-testid="tab-item"]');
-  assert(workerRows && workerRows.length === 2, "each worker renders the shared tab row");
-  const workerIcons = workerWrap?.querySelectorAll('[data-testid="tab-pane-icon"] .agent-icon');
-  assert(workerIcons && workerIcons.length === 2, "each worker tab row renders left provider icon");
-  const workerLevels = workerWrap?.querySelectorAll(".sidebar-hierarchy-level");
-  assert(workerLevels && workerLevels.length > 0, "worker hierarchy levels present");
-  for (const level of workerLevels) {
-    assert(
-      !level.className.includes("border-l"),
-      "worker rows align flat with managers — no nested left stripe",
-    );
-  }
-  await act(async () => root.unmount());
-});
-
-test("worker rows render in tab sort order when pane insertion order differs", async () => {
-  const panes: Record<string, Pane> = {
-    orch: pane({ id: "orch", title: "Orchestrator", role: "Orchestrator", agent_type: "claude" }),
-    w2: pane({ id: "w2", title: "Worker B", role: "Worker", parent_pane_id: "orch", agent_type: "claude" }),
-    w1: pane({ id: "w1", title: "Worker A", role: "Worker", parent_pane_id: "orch", agent_type: "claude" }),
-  };
-  const tabs = [
-    tab("tab-orch", "orch", 0),
-    tab("tab-w1", "w1", 1),
-    tab("tab-w2", "w2", 2),
-  ];
-  const workspace: Workspace = {
-    id: "ws",
-    name: "Workspace",
-    tabs,
-    active_tab_id: "tab-orch",
-    cwd: null,
-  };
-  const { host, root } = await render(
-    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
-      <SidebarWorkspaceTabs
-        workspace={workspace}
-        activeTabId="tab-orch"
-        sortedTabs={tabs}
-        panes={panes}
-        paneStatuses={{}}
-        planIndex={[]}
-        plans={[]}
-        activeWork={null}
-        remoteWorkers={{}}
-        closingTabIds={new Set()}
-        appearingTabIds={new Set()}
-        isActiveVisual={false}
-        workspaceCanvasActive={false}
-        touchMode={false}
-        compact={false}
-        sidebarActionText="text-xs"
-        orchestrators={[panes.orch]}
-        onBeforeOpenPlan={() => {}}
-        onActivateTab={() => {}}
-        onCloseTab={() => {}}
-        onRenameTab={() => {}}
-        onNewSession={() => {}}
-      />
-    </SidebarDnd>,
-  );
-
-  const workerWrap = host.querySelector('[data-group-section-wrap="worker"]');
-  const renderedIds = Array.from(workerWrap?.querySelectorAll("[data-tab-id]") ?? []).map((el) =>
-    el.getAttribute("data-tab-id"),
-  );
-  assert(renderedIds.join(",") === "tab-w1,tab-w2", "worker DOM order follows tab sort_order");
-  await act(async () => root.unmount());
-});
-
-test("clicking a worker tab row activates it with the shared active chrome", async () => {
-  function Harness() {
-    const [activeId, setActiveId] = useState("tab-orch");
-    const panes: Record<string, Pane> = {
-      orch: pane({ id: "orch", title: "Orchestrator", role: "Orchestrator", agent_type: "claude" }),
-      w1: pane({ id: "w1", title: "Worker A", role: "Worker", parent_pane_id: "orch", agent_type: "claude" }),
-    };
-    const tabs = [tab("tab-orch", "orch", 0), tab("tab-w1", "w1", 1)];
-    const workspace: Workspace = {
-      id: "ws",
-      name: "Workspace",
-      tabs,
-      active_tab_id: activeId,
-      cwd: null,
-    };
-    return (
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
       <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
         <SidebarWorkspaceTabs
           workspace={workspace}
-          activeTabId={activeId}
+          activeTabId={workspace.active_tab_id}
           sortedTabs={tabs}
           panes={panes}
-          paneStatuses={{}}
+          paneStatuses={statuses}
+          teams={[TEAM]}
           planIndex={[]}
-          plans={[]}
+          plans={plans}
           activeWork={null}
           remoteWorkers={{}}
+          providers={[]}
           closingTabIds={new Set()}
           appearingTabIds={new Set()}
           isActiveVisual={true}
@@ -249,9 +136,201 @@ test("clicking a worker tab row activates it with the shared active chrome", asy
           touchMode={false}
           compact={false}
           sidebarActionText="text-xs"
-          orchestrators={[panes.orch]}
+          orchestrators={Object.values(panes).filter((member) => member.role === "Orchestrator")}
           onBeforeOpenPlan={() => {}}
-          onActivateTab={setActiveId}
+          onActivateTab={onActivateTab}
+          onCloseTab={onCloseTab}
+          onRenameTab={() => {}}
+          onNewSession={() => {}}
+        />
+      </SidebarDnd>,
+    );
+  });
+  return { host, root };
+}
+
+setupDom();
+
+test("team_renders_flat_sections", async () => {
+  const panes: Record<string, Pane> = {
+    plannerTwo: pane({ id: "plannerTwo", title: "Planner Two", role: "Manager", role_profile: "planner", team_id: TEAM.id }),
+    workerOne: pane({ id: "workerOne", title: "Worker One", role: "Worker", team_id: TEAM.id, parent_pane_id: "orchOne" }),
+    orchTwo: pane({ id: "orchTwo", title: "Orchestrator Two", role: "Orchestrator", team_id: TEAM.id }),
+    plannerOne: pane({ id: "plannerOne", title: "Planner One", role: "Manager", role_profile: "planner", team_id: TEAM.id }),
+    workerTwo: pane({ id: "workerTwo", title: "Worker Two", role: "Worker", team_id: TEAM.id, parent_pane_id: "workerOne" }),
+    orchOne: pane({ id: "orchOne", title: "Orchestrator One", role: "Orchestrator", team_id: TEAM.id }),
+    workerThree: pane({ id: "workerThree", title: "Worker Three", role: "Worker", team_id: TEAM.id, parent_pane_id: "orchTwo" }),
+  };
+  const ids = Object.keys(panes);
+  const tabs = ids.map((id, index) => tab(`tab-${id}`, id, index));
+  const { host, root } = await renderSidebar({ panes, tabs });
+
+  const team = host.querySelector('[data-testid="team-unit"]');
+  const managers = team?.querySelector('[data-testid="managers-section"]');
+  const workers = team?.querySelector('[data-testid="workers-section"]');
+  assert(team && managers && workers, "team unit renders MANAGERS and collapsible WORKERS");
+  const managerTitles = Array.from(managers.querySelectorAll('[data-testid="tab-title"]')).map(
+    (element) => element.textContent,
+  );
+  assert(
+    managerTitles.join(",") === "Orchestrator Two,Orchestrator One,Planner Two,Planner One",
+    `orchestrators sort before planners: ${managerTitles.join(",")}`,
+  );
+  assert(workers.querySelectorAll('[data-testid="tab-item"]').length === 3, "three workers render once");
+  assert(!team.querySelector(".sidebar-hierarchy-level"), "no nested member tree nodes");
+  await act(async () => root.unmount());
+});
+
+test("teamless_tabs_render_plain", async () => {
+  const panes = {
+    looseOne: pane({ id: "looseOne", title: "Loose terminal" }),
+    looseTwo: pane({ id: "looseTwo", title: "Quick fix", role: "Worker" }),
+  };
+  const tabs = [tab("tab-loose-one", "looseOne", 0), tab("tab-loose-two", "looseTwo", 1)];
+  const { host, root } = await renderSidebar({ panes, tabs });
+
+  assert(!host.querySelector('[data-testid="team-unit"]'), "teamless tabs have no team wrapper");
+  assert(host.querySelectorAll('[data-testid="tab-item"]').length === 2, "both loose tabs render plainly");
+  await act(async () => root.unmount());
+});
+
+test("donut_counts_match_board", async () => {
+  const panes = {
+    orchestrator: pane({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+  };
+  const currentPlan = plan([
+    task("pending", TaskStatus.Pending),
+    task("progress", TaskStatus.InProgress),
+    task("review", TaskStatus.InReview),
+    task("blocked", TaskStatus.Blocked),
+    task("done-one", TaskStatus.Done),
+    task("done-two", TaskStatus.Done),
+  ]);
+  const { host, root } = await renderSidebar({
+    panes,
+    tabs: [tab("tab-orchestrator", "orchestrator", 0)],
+    plans: [currentPlan],
+  });
+
+  const board = groupTasksIntoColumns(currentPlan, panes);
+  const boardCounts = new Map(board.columns.map((column) => [column.key, column.cards.length]));
+  const expected = deriveTeamTaskBuckets(currentPlan, panes);
+  assert(expected[0].count === (boardCounts.get("pending") ?? 0) + (boardCounts.get("in_progress") ?? 0), "todo folds board pending + in-progress");
+  const donut = host.querySelector('[data-testid="team-donut"]');
+  assert(donut?.getAttribute("data-buckets") === JSON.stringify(expected), "donut props deep-equal board-derived buckets");
+  await act(async () => root.unmount());
+});
+
+test("single_status_solid_donut", async () => {
+  const panes = {
+    orchestrator: pane({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+  };
+  const currentPlan = plan([task("done-one", TaskStatus.Done), task("done-two", TaskStatus.Done)]);
+  const buckets = deriveTeamTaskBuckets(currentPlan, panes);
+  const { host, root } = await renderSidebar({
+    panes,
+    tabs: [tab("tab-orchestrator", "orchestrator", 0)],
+    plans: [currentPlan],
+  });
+
+  const donut = host.querySelector('[data-testid="team-donut"]') as HTMLElement | null;
+  assert(donut?.dataset.segmentCount === "1", "one full-circle segment rendered");
+  assert(donutBackground(buckets) === buckets.find((bucket) => bucket.count > 0)?.color, "single status resolves to a solid color");
+  assert(!donut?.style.background.includes("conic-gradient"), "solid donut never uses a sparse gradient");
+  await act(async () => root.unmount());
+});
+
+test("workers_collapse_summary", async () => {
+  const panes = {
+    orchestrator: pane({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+    workerOne: pane({ id: "workerOne", title: "Worker One", role: "Worker", team_id: TEAM.id }),
+    workerTwo: pane({ id: "workerTwo", title: "Worker Two", role: "Worker", team_id: TEAM.id }),
+    workerThree: pane({ id: "workerThree", title: "Worker Three", role: "Worker", team_id: TEAM.id }),
+  };
+  const tabs = Object.keys(panes).map((id, index) => tab(`tab-${id}`, id, index));
+  const { host, root } = await renderSidebar({
+    panes,
+    tabs,
+    statuses: { workerOne: "Working", workerTwo: "Working", workerThree: "Idle" },
+  });
+  const toggle = host.querySelector('[data-testid="workers-collapse-toggle"]') as HTMLElement | null;
+  assert(toggle, "workers collapse toggle present");
+  await act(async () => toggle.click());
+  const summary = host.querySelector('[data-testid="workers-collapse-summary"]');
+  assert(summary?.textContent?.includes("3 workers · 2 working"), `summary=${summary?.textContent}`);
+  await act(async () => root.unmount());
+});
+
+test("team worker rows follow tab sort order", async () => {
+  const panes: Record<string, Pane> = {
+    orchestrator: pane({
+      id: "orchestrator",
+      title: "Orchestrator",
+      role: "Orchestrator",
+      team_id: TEAM.id,
+    }),
+    workerTwo: pane({ id: "workerTwo", title: "Worker Two", role: "Worker", team_id: TEAM.id }),
+    workerOne: pane({ id: "workerOne", title: "Worker One", role: "Worker", team_id: TEAM.id }),
+  };
+  const tabs = [
+    tab("tab-orchestrator", "orchestrator", 0),
+    tab("tab-worker-one", "workerOne", 1),
+    tab("tab-worker-two", "workerTwo", 2),
+  ];
+  const { host, root } = await renderSidebar({ panes, tabs });
+  const workerSection = host.querySelector('[data-testid="workers-section"]');
+  const rendered = Array.from(workerSection?.querySelectorAll("[data-tab-id]") ?? []).map(
+    (element) => element.getAttribute("data-tab-id"),
+  );
+  assert(rendered.join(",") === "tab-worker-one,tab-worker-two", "worker DOM order follows tab order");
+  await act(async () => root.unmount());
+});
+
+test("clicking a team worker activates it", async () => {
+  const panes: Record<string, Pane> = {
+    orchestrator: pane({
+      id: "orchestrator",
+      title: "Orchestrator",
+      role: "Orchestrator",
+      team_id: TEAM.id,
+    }),
+    worker: pane({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id }),
+  };
+  const tabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)];
+  const workspace: Workspace = {
+    id: "workspace",
+    name: "Workspace",
+    tabs,
+    active_tab_id: "tab-orchestrator",
+    cwd: null,
+  };
+
+  function Harness() {
+    const [activeTabId, setActiveTabId] = useState("tab-orchestrator");
+    return (
+      <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
+        <SidebarWorkspaceTabs
+          workspace={workspace}
+          activeTabId={activeTabId}
+          sortedTabs={tabs}
+          panes={panes}
+          paneStatuses={{}}
+          teams={[TEAM]}
+          planIndex={[]}
+          plans={[]}
+          activeWork={null}
+          remoteWorkers={{}}
+          providers={[]}
+          closingTabIds={new Set()}
+          appearingTabIds={new Set()}
+          isActiveVisual={true}
+          workspaceCanvasActive={false}
+          touchMode={false}
+          compact={false}
+          sidebarActionText="text-xs"
+          orchestrators={[panes.orchestrator]}
+          onBeforeOpenPlan={() => {}}
+          onActivateTab={setActiveTabId}
           onCloseTab={() => {}}
           onRenameTab={() => {}}
           onNewSession={() => {}}
@@ -260,401 +339,177 @@ test("clicking a worker tab row activates it with the shared active chrome", asy
     );
   }
 
-  const { host, root } = await render(<Harness />);
-  const workerRow = host.querySelector('[data-tab-id="tab-w1"]') as HTMLElement;
-  assert(workerRow, "worker tab row present");
-  assert(workerRow.className.includes("sidebar-tab-dimmed"), "worker starts inactive");
-  await act(async () => {
-    workerRow.click();
-  });
-  const activeWorker = host.querySelector('[data-tab-id="tab-w1"]') as HTMLElement;
-  assert(activeWorker, "worker tab row still present after click");
-  assert(!activeWorker.className.includes("sidebar-tab-dimmed"), "active worker row drops dimmed class");
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => root.render(<Harness />));
+  const workerRow = host.querySelector('[data-tab-id="tab-worker"]') as HTMLElement | null;
+  assert(workerRow?.className.includes("sidebar-tab-dimmed"), "worker starts inactive");
+  await act(async () => workerRow?.click());
+  assert(
+    !host.querySelector('[data-tab-id="tab-worker"]')?.className.includes("sidebar-tab-dimmed"),
+    "worker receives active chrome after click",
+  );
   await act(async () => root.unmount());
 });
 
-test("waiting prompt tab renders the prompt pill without a status rail", async () => {
+test("waiting team worker keeps prompt pill without status rail", async () => {
   const panes: Record<string, Pane> = {
+    orchestrator: pane({
+      id: "orchestrator",
+      title: "Orchestrator",
+      role: "Orchestrator",
+      team_id: TEAM.id,
+    }),
     attention: pane({
       id: "attention",
-      title: "pw-attention",
+      title: "Attention",
+      role: "Worker",
+      team_id: TEAM.id,
       agent_type: "claude",
       pending_prompt: {
-        question: "Allow pw attention?",
+        question: "Allow team action?",
         options: [{ label: "Yes", value: "yes" }],
       },
     }),
   };
-  const tabs = [tab("tab-attention", "attention", 0)];
-  const workspace: Workspace = {
-    id: "ws",
-    name: "Workspace",
+  const tabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-attention", "attention", 1)];
+  const { host, root } = await renderSidebar({
+    panes,
     tabs,
-    active_tab_id: "tab-attention",
-    cwd: null,
-  };
-  const { host, root } = await render(
-    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
-      <SidebarWorkspaceTabs
-        workspace={workspace}
-        activeTabId="tab-attention"
-        sortedTabs={tabs}
-        panes={panes}
-        paneStatuses={{ attention: "Waiting" }}
-        planIndex={[]}
-        plans={[]}
-        activeWork={null}
-        remoteWorkers={{}}
-        closingTabIds={new Set()}
-        appearingTabIds={new Set()}
-        isActiveVisual={true}
-        workspaceCanvasActive={false}
-        touchMode={false}
-        compact={false}
-        sidebarActionText="text-xs"
-        orchestrators={[]}
-        onBeforeOpenPlan={() => {}}
-        onActivateTab={() => {}}
-        onCloseTab={() => {}}
-        onRenameTab={() => {}}
-        onNewSession={() => {}}
-      />
-    </SidebarDnd>,
-  );
-
+    statuses: { attention: "Waiting" },
+    activeTabId: "tab-attention",
+  });
   const row = host.querySelector('[data-tab-id="tab-attention"]');
-  assert(row, "attention row rendered");
-  assert(
-    !row.querySelector('[data-testid="tab-status-rail"]'),
-    "waiting prompt row never renders a left status rail (owner veto)",
-  );
-  assert(row.querySelector('span[title="Allow pw attention?"]'), "prompt pill remains visible");
+  assert(row?.querySelector('span[title="Allow team action?"]'), "prompt pill remains visible");
+  assert(!row?.querySelector('[data-testid="tab-status-rail"]'), "waiting worker has no left status rail");
   await act(async () => root.unmount());
 });
 
-test("working tab shows activity dots without a left status rail", async () => {
+test("working team worker keeps activity dots without status rail", async () => {
   const panes: Record<string, Pane> = {
+    orchestrator: pane({
+      id: "orchestrator",
+      title: "Orchestrator",
+      role: "Orchestrator",
+      team_id: TEAM.id,
+    }),
     worker: pane({
       id: "worker",
       title: "Worker",
-      agent_type: "claude",
-    }),
-  };
-  const tabs = [tab("tab-worker", "worker", 0)];
-  const workspace: Workspace = {
-    id: "ws",
-    name: "Workspace",
-    tabs,
-    active_tab_id: "tab-worker",
-    cwd: null,
-  };
-  const { host, root } = await render(
-    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
-      <SidebarWorkspaceTabs
-        workspace={workspace}
-        activeTabId="tab-worker"
-        sortedTabs={tabs}
-        panes={panes}
-        paneStatuses={{ worker: "Working" }}
-        planIndex={[]}
-        plans={[]}
-        activeWork={null}
-        remoteWorkers={{}}
-        closingTabIds={new Set()}
-        appearingTabIds={new Set()}
-        isActiveVisual={true}
-        workspaceCanvasActive={false}
-        touchMode={false}
-        compact={false}
-        sidebarActionText="text-xs"
-        orchestrators={[]}
-        onBeforeOpenPlan={() => {}}
-        onActivateTab={() => {}}
-        onCloseTab={() => {}}
-        onRenameTab={() => {}}
-        onNewSession={() => {}}
-      />
-    </SidebarDnd>,
-  );
-
-  const row = host.querySelector('[data-tab-id="tab-worker"]');
-  assert(row, "working row rendered");
-  assert(row.querySelector('[data-testid="tab-working-activity"]'), "working dots remain visible");
-  assert(!row.querySelector('[data-testid="tab-status-rail"]'), "working row does not render a left rail");
-  await act(async () => root.unmount());
-});
-
-test("worker rows are single-line even with a description; plain tab single-line too", async () => {
-  const panes: Record<string, Pane> = {
-    orch: pane({ id: "orch", title: "Orchestrator", role: "Orchestrator", agent_type: "claude" }),
-    w1: pane({
-      id: "w1",
-      title: "Worker A",
       role: "Worker",
-      parent_pane_id: "orch",
-      description: "fix sidebar rows",
-      agent_type: "claude",
-    }),
-    plain: pane({ id: "plain", title: "Shell", role: null, agent_type: null }),
-  };
-  const tabs = [
-    tab("tab-orch", "orch", 0),
-    tab("tab-w1", "w1", 1),
-    tab("tab-plain", "plain", 2),
-  ];
-  const workspace: Workspace = {
-    id: "ws",
-    name: "Workspace",
-    tabs,
-    active_tab_id: "tab-orch",
-    cwd: null,
-  };
-  const { host, root } = await render(
-    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
-      <SidebarWorkspaceTabs
-        workspace={workspace}
-        activeTabId="tab-orch"
-        sortedTabs={tabs}
-        panes={panes}
-        paneStatuses={{}}
-        planIndex={[]}
-        plans={[]}
-        activeWork={null}
-        remoteWorkers={{}}
-        closingTabIds={new Set()}
-        appearingTabIds={new Set()}
-        isActiveVisual={false}
-        workspaceCanvasActive={false}
-        touchMode={false}
-        compact={false}
-        sidebarActionText="text-xs"
-        orchestrators={[panes.orch]}
-        onBeforeOpenPlan={() => {}}
-        onActivateTab={() => {}}
-        onCloseTab={() => {}}
-        onRenameTab={() => {}}
-        onNewSession={() => {}}
-      />
-    </SidebarDnd>,
-  );
-
-  const workerSubline = host.querySelector('[data-tab-id="tab-w1"] [data-testid="tab-subline"]');
-  assert(!workerSubline, "worker rows are single-line: no subline, no description");
-  const plainSubline = host.querySelector('[data-tab-id="tab-plain"] [data-testid="tab-subline"]');
-  assert(!plainSubline, "plain pane keeps a single line");
-  await act(async () => root.unmount());
-});
-
-function tabIconScreenLeft(host: HTMLElement, tabId: string): number {
-  const icon = host.querySelector(`[data-tab-id="${tabId}"] [data-testid="tab-pane-icon"]`) as HTMLElement;
-  assert(icon, `icon for ${tabId}`);
-  return icon.getBoundingClientRect().left;
-}
-
-test("childless and childful orchestrator heads keep the same icon x-position (overlay chevron, zero width)", async () => {
-  const panes: Record<string, Pane> = {
-    "orch-empty": pane({ id: "orch-empty", title: "Empty Orch", role: "Orchestrator", agent_type: "claude" }),
-    "orch-full": pane({ id: "orch-full", title: "Full Orch", role: "Orchestrator", agent_type: "claude" }),
-    worker: pane({ id: "worker", title: "Worker", role: "Worker", parent_pane_id: "orch-full", agent_type: "claude" }),
-    plain: pane({ id: "plain", title: "Plain Tab", role: null, agent_type: "claude" }),
-  };
-  const tabs = [
-    tab("tab-empty", "orch-empty", 0),
-    tab("tab-full", "orch-full", 1),
-    tab("tab-worker", "worker", 2),
-    tab("tab-plain", "plain", 3),
-  ];
-  const workspace: Workspace = {
-    id: "ws",
-    name: "Workspace",
-    tabs,
-    active_tab_id: "tab-empty",
-    cwd: null,
-  };
-  const { host, root } = await render(
-    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
-      <SidebarWorkspaceTabs
-        workspace={workspace}
-        activeTabId="tab-empty"
-        sortedTabs={tabs}
-        panes={panes}
-        paneStatuses={{}}
-        planIndex={[]}
-        plans={[]}
-        activeWork={null}
-        remoteWorkers={{}}
-        closingTabIds={new Set()}
-        appearingTabIds={new Set()}
-        isActiveVisual={false}
-        workspaceCanvasActive={false}
-        touchMode={false}
-        compact={false}
-        sidebarActionText="text-xs"
-        orchestrators={[panes["orch-empty"], panes["orch-full"]]}
-        onBeforeOpenPlan={() => {}}
-        onActivateTab={() => {}}
-        onCloseTab={() => {}}
-        onRenameTab={() => {}}
-        onNewSession={() => {}}
-      />
-    </SidebarDnd>,
-  );
-
-  const emptyRow = host.querySelector('[data-tab-id="tab-empty"]')!;
-  const fullRow = host.querySelector('[data-tab-id="tab-full"]')!;
-  assert(!emptyRow.querySelector('[data-testid="group-collapse-toggle"]'), "childless head has no chevron");
-  assert(fullRow.querySelector('[data-testid="group-collapse-toggle"]'), "childful head has overlay chevron");
-
-  const emptyIconLeft = tabIconScreenLeft(host, "tab-empty");
-  const fullIconLeft = tabIconScreenLeft(host, "tab-full");
-  const plainIconLeft = tabIconScreenLeft(host, "tab-plain");
-  assert(Math.abs(emptyIconLeft - fullIconLeft) < 0.5, "empty vs childful orchestrator icons share x-position");
-  assert(Math.abs(emptyIconLeft - plainIconLeft) < 0.5, "orchestrator icon x matches a normal tab (no extra indent)");
-  const inactiveTitle = host.querySelector('[data-tab-id="tab-empty"] [data-testid="tab-title"]') as HTMLElement;
-  assert(inactiveTitle?.className.includes("text-[var(--ct-fg)]"), "inactive tab title uses full foreground");
-  await act(async () => root.unmount());
-});
-
-test("worker rows expose close control and fire onCloseTab", async () => {
-  const closedTabIds: string[] = [];
-  const panes: Record<string, Pane> = {
-    orch: pane({ id: "orch", title: "Orchestrator", role: "Orchestrator", agent_type: "claude" }),
-    worker: pane({
-      id: "worker",
-      title: "Worker A",
-      role: "Worker",
-      parent_pane_id: "orch",
+      team_id: TEAM.id,
       agent_type: "claude",
     }),
   };
-  const tabs = [tab("tab-orch", "orch", 0), tab("tab-worker", "worker", 1)];
-  const workspace: Workspace = {
-    id: "ws",
-    name: "Workspace",
+  const tabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)];
+  const { host, root } = await renderSidebar({
+    panes,
     tabs,
-    active_tab_id: "tab-orch",
-    cwd: null,
-  };
-  const { host, root } = await render(
-    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
-      <SidebarWorkspaceTabs
-        workspace={workspace}
-        activeTabId="tab-orch"
-        sortedTabs={tabs}
-        panes={panes}
-        paneStatuses={{}}
-        planIndex={[]}
-        plans={[]}
-        activeWork={null}
-        remoteWorkers={{}}
-        closingTabIds={new Set()}
-        appearingTabIds={new Set()}
-        isActiveVisual={false}
-        workspaceCanvasActive={false}
-        touchMode={false}
-        compact={false}
-        sidebarActionText="text-xs"
-        orchestrators={[panes.orch]}
-        onBeforeOpenPlan={() => {}}
-        onActivateTab={() => {}}
-        onCloseTab={(tabId) => {
-          closedTabIds.push(tabId);
-        }}
-        onRenameTab={() => {}}
-        onNewSession={() => {}}
-      />
-    </SidebarDnd>,
-  );
-
-  const row = host.querySelector('[data-tab-id="tab-worker"]');
-  assert(row, "worker row rendered");
-  await openTabActionsMenu(row);
-  const closeItem = document.querySelector('[data-testid="tab-menu-close"]');
-  assert(closeItem && !(closeItem as HTMLButtonElement).disabled, "close enabled for worker");
-  await act(async () => {
-    (closeItem as HTMLButtonElement).click();
+    statuses: { worker: "Working" },
+    activeTabId: "tab-worker",
   });
-  assert(closedTabIds.includes("tab-worker"), "onCloseTab fired for worker");
+  const row = host.querySelector('[data-tab-id="tab-worker"]');
+  assert(row?.querySelector('[data-testid="tab-working-activity"]'), "working dots remain visible");
+  assert(!row?.querySelector('[data-testid="tab-status-rail"]'), "working worker has no left status rail");
   await act(async () => root.unmount());
 });
 
-test("manager rows expose close control and fire onCloseTab", async () => {
-  const closedTabIds: string[] = [];
+test("team worker and manager descriptions do not add row lines", async () => {
   const panes: Record<string, Pane> = {
-    orch: pane({ id: "orch", title: "Orchestrator", role: "Orchestrator", agent_type: "claude" }),
-    planner: pane({
-      id: "planner",
-      title: "Planner",
-      role: "Manager",
-      role_profile: "planner",
-      parent_pane_id: "orch",
-      agent_type: "claude",
+    orchestrator: pane({
+      id: "orchestrator",
+      title: "Orchestrator",
+      role: "Orchestrator",
+      team_id: TEAM.id,
     }),
     manager: pane({
       id: "manager",
-      title: "Watcher",
+      title: "Planner",
+      description: "manager description must stay tooltip-only",
       role: "Manager",
-      role_profile: "watcher",
-      parent_pane_id: "orch",
-      agent_type: "codex",
+      role_profile: "planner",
+      team_id: TEAM.id,
+    }),
+    worker: pane({
+      id: "worker",
+      title: "Worker",
+      description: "worker description must stay tooltip-only",
+      role: "Worker",
+      team_id: TEAM.id,
     }),
   };
   const tabs = [
-    tab("tab-orch", "orch", 0),
-    tab("tab-planner", "planner", 1),
-    tab("tab-manager", "manager", 2),
+    tab("tab-orchestrator", "orchestrator", 0),
+    tab("tab-manager", "manager", 1),
+    tab("tab-worker", "worker", 2),
   ];
-  const workspace: Workspace = {
-    id: "ws",
-    name: "Workspace",
-    tabs,
-    active_tab_id: "tab-orch",
-    cwd: null,
+  const { host, root } = await renderSidebar({ panes, tabs });
+  const managerRow = host.querySelector('[data-tab-id="tab-manager"]');
+  const workerRow = host.querySelector('[data-tab-id="tab-worker"]');
+  assert(!managerRow?.textContent?.includes("manager description"), "manager description is not a row line");
+  assert(!workerRow?.textContent?.includes("worker description"), "worker description is not a row line");
+  assert(!workerRow?.querySelector('[data-testid="tab-subline"]'), "worker remains a single-line row");
+  assert(managerRow?.querySelectorAll('[data-testid="tab-subline"]').length === 1, "manager has only its role subline");
+  await act(async () => root.unmount());
+});
+
+test("team worker close control calls onCloseTab", async () => {
+  const closed: string[] = [];
+  const panes: Record<string, Pane> = {
+    orchestrator: pane({
+      id: "orchestrator",
+      title: "Orchestrator",
+      role: "Orchestrator",
+      team_id: TEAM.id,
+    }),
+    worker: pane({
+      id: "worker",
+      title: "Worker",
+      role: "Worker",
+      team_id: TEAM.id,
+      agent_type: "claude",
+    }),
   };
-  const { host, root } = await render(
-    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
-      <SidebarWorkspaceTabs
-        workspace={workspace}
-        activeTabId="tab-orch"
-        sortedTabs={tabs}
-        panes={panes}
-        paneStatuses={{}}
-        planIndex={[]}
-        plans={[]}
-        activeWork={null}
-        remoteWorkers={{}}
-        closingTabIds={new Set()}
-        appearingTabIds={new Set()}
-        isActiveVisual={false}
-        workspaceCanvasActive={false}
-        touchMode={false}
-        compact={false}
-        sidebarActionText="text-xs"
-        orchestrators={[panes.orch]}
-        onBeforeOpenPlan={() => {}}
-        onActivateTab={() => {}}
-        onCloseTab={(tabId) => {
-          closedTabIds.push(tabId);
-        }}
-        onRenameTab={() => {}}
-        onNewSession={() => {}}
-      />
-    </SidebarDnd>,
-  );
+  const tabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)];
+  const { host, root } = await renderSidebar({ panes, tabs, onCloseTab: (id) => closed.push(id) });
+  const row = host.querySelector('[data-tab-id="tab-worker"]');
+  assert(row, "worker row rendered");
+  await openTabActionsMenu(row);
+  const close = document.querySelector('[data-testid="tab-menu-close"]') as HTMLButtonElement | null;
+  assert(close && !close.disabled, "worker close control enabled");
+  await act(async () => close.click());
+  assert(closed.includes("tab-worker"), "worker close calls onCloseTab");
+  await act(async () => root.unmount());
+});
 
-  for (const tabId of ["tab-planner", "tab-manager"] as const) {
-    const row = host.querySelector(`[data-tab-id="${tabId}"]`);
-    assert(row, `manager row rendered for ${tabId}`);
-    await openTabActionsMenu(row);
-    const closeItem = document.querySelector('[data-testid="tab-menu-close"]');
-    assert(closeItem && !(closeItem as HTMLButtonElement).disabled, `close enabled for ${tabId}`);
-    await act(async () => {
-      (closeItem as HTMLButtonElement).click();
-    });
-    assert(closedTabIds.includes(tabId), `onCloseTab fired for ${tabId}`);
-    document.body.querySelectorAll("[data-testid='tab-menu-close']").forEach((el) => el.remove());
-  }
-
+test("team manager close control calls onCloseTab", async () => {
+  const closed: string[] = [];
+  const panes: Record<string, Pane> = {
+    orchestrator: pane({
+      id: "orchestrator",
+      title: "Orchestrator",
+      role: "Orchestrator",
+      team_id: TEAM.id,
+    }),
+    manager: pane({
+      id: "manager",
+      title: "Planner",
+      role: "Manager",
+      role_profile: "planner",
+      team_id: TEAM.id,
+      agent_type: "claude",
+    }),
+  };
+  const tabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-manager", "manager", 1)];
+  const { host, root } = await renderSidebar({ panes, tabs, onCloseTab: (id) => closed.push(id) });
+  const row = host.querySelector('[data-tab-id="tab-manager"]');
+  assert(row, "manager row rendered");
+  await openTabActionsMenu(row);
+  const close = document.querySelector('[data-testid="tab-menu-close"]') as HTMLButtonElement | null;
+  assert(close && !close.disabled, "manager close control enabled");
+  await act(async () => close.click());
+  assert(closed.includes("tab-manager"), "manager close calls onCloseTab");
   await act(async () => root.unmount());
 });
 
@@ -663,15 +518,15 @@ async function main() {
   for (const [name, fn] of tests) {
     try {
       await fn();
-      console.log(`PASS ${name}`);
+      console.log(`✓ ${name}`);
     } catch (error) {
       failed += 1;
       console.error(`✗ ${name}`);
       console.error(error);
     }
   }
-  console.log(`SidebarWorkspaceTabs tests: ${tests.length - failed}/${tests.length} passed`);
-  if (failed > 0) throw new Error(`${failed} test(s) failed`);
+  if (failed > 0) process.exit(1);
+  console.log(`\n✓ ${tests.length}/${tests.length} SidebarWorkspaceTabs tests passed`);
 }
 
 void main();
