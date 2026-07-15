@@ -60,6 +60,7 @@ pub mod store;
 pub mod structured_prompt;
 pub mod sync_watcher;
 mod team;
+pub(crate) use team::{rename_team_core, rename_team_with_state_change};
 #[cfg(test)]
 pub(crate) mod test_support;
 #[cfg(test)]
@@ -269,8 +270,11 @@ impl ServiceContext {
     }
 
     pub(crate) fn emit_state_changed(&self) {
-        self.events
-            .publish(crate::api::events::SystemEvent::MuxStateChanged);
+        publish_mux_state_changed(&self.events);
+        self.emit_state_changed_after_bus_publish();
+    }
+
+    pub(crate) fn emit_state_changed_after_bus_publish(&self) {
         self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
         #[cfg(debug_assertions)]
         if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
@@ -458,6 +462,10 @@ impl ServiceContext {
             )),
         }
     }
+}
+
+pub(crate) fn publish_mux_state_changed(events: &crate::api::events::EventBroadcaster) {
+    events.publish(crate::api::events::SystemEvent::MuxStateChanged);
 }
 
 // ── Shared data types ───────────────────────────────────────────────
