@@ -1,21 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Archive, ChevronRight, Plus, Users } from "lucide-react";
-import type { Pane, ProviderDescriptor } from "../../lib/types";
+import type { Pane, ProviderDescriptor, Team } from "../../lib/types";
 import { TASK_STATUS_COLORS } from "../Canvas/settings";
 import type { Plan } from "../Canvas/types";
 import { groupTasksIntoColumns } from "../Canvas/planView/boardModel";
 import { summarizeWorkers } from "./orchestrationSections";
-
-export type TeamLifecycle = "forming" | "active" | "paused" | "complete" | "archived";
-
-export interface TeamSnapshot {
-  id: string;
-  name?: string | null;
-  lifecycle: TeamLifecycle;
-  created_at: number;
-  workspace_id: string;
-}
 
 export type TeamMemberRole = "orchestrator" | "planner" | "worker";
 
@@ -204,7 +194,7 @@ function TeamMenu({
 }
 
 export interface TeamUnitProps {
-  team: TeamSnapshot;
+  team: Team;
   plan: Plan | null;
   panes: Record<string, Pane>;
   managers: ReactNode;

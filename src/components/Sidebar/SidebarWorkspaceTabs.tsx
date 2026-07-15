@@ -6,6 +6,7 @@ import type {
   ProviderDescriptor,
   RemoteWorkersByOrchestrator,
   Tab,
+  Team,
   Workspace,
 } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
@@ -25,7 +26,6 @@ import { aggregateTabStatus } from "./sidebarTabStatus";
 import {
   TeamUnit,
   type TeamMemberRole,
-  type TeamSnapshot,
 } from "./TeamUnit";
 
 type TeamPane = Pane & { team_id?: string | null };
@@ -44,7 +44,7 @@ export interface SidebarWorkspaceTabsProps {
   sortedTabs: Tab[];
   panes: Record<string, Pane>;
   paneStatuses: Record<string, PaneStatus>;
-  teams: TeamSnapshot[];
+  teams: Team[];
   planIndex: PlanIndexEntry[];
   plans: Plan[];
   activeWork: ActiveWorkSnapshot | null;
