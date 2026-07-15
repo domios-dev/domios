@@ -181,6 +181,9 @@ function AppInner() {
     setActiveTab,
     setFocusedPane,
     setPanePty,
+    markRead,
+    markAllRead,
+    deleteNotification,
     dismissToast,
     spawnClaudeTab,
   } = useMultiplexer();
@@ -481,8 +484,11 @@ function AppInner() {
         onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
         onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
         onOpenExtensions={() => { setExtensionsOpen(true); }}
-        workspaceCanvasActive={workspaceCanvasVisible}
+        notifications={state.notifications}
         toasts={state.toasts}
+        onMarkNotificationRead={markRead}
+        onMarkAllNotificationsRead={markAllRead}
+        onDeleteNotification={deleteNotification}
         onDismissToast={dismissToast}
         onNavigateToast={setFocusedPane}
       />

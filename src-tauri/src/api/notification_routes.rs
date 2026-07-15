@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Query, State as AxumState},
+    extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
     Json,
 };
@@ -54,6 +54,28 @@ pub async fn clear_notifications(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     state.svc.notif.lock().clear(None);
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub async fn mark_notification_read(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    if !state.svc.notif.lock().mark_read(&id) {
+        return Err((StatusCode::NOT_FOUND, "Notification not found"));
+    }
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub async fn delete_notification(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    state.svc.notif.lock().clear(Some(&id));
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

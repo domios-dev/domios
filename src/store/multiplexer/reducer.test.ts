@@ -3,7 +3,7 @@
 
 import { reducer } from "./reducer";
 import { makeVirtualPickerTab, type ExtendedState } from "./tree";
-import type { MultiplexerState, Workspace, Pane, Tab } from "../../lib/types";
+import type { MultiplexerState, Notification, Workspace, Pane, Tab } from "../../lib/types";
 import { TitleLevel } from "../../lib/types";
 
 let failures = 0;
@@ -51,6 +51,44 @@ function snap(generation: number, wsId: string): MultiplexerState {
     generation,
   };
 }
+
+test("deleting a notification removes its history entry and active toast", () => {
+  const item: Notification = {
+    id: "notice-1",
+    pane_id: "tab-pane-1",
+    workspace_id: "workspace-1",
+    title: "Needs attention",
+    body: "Read the full message",
+    level: "Warning",
+    timestamp: 1,
+    read: false,
+  };
+  const state = { ...base(), notifications: [item], toasts: [item] };
+  const next = reducer(state, { type: "DELETE_NOTIFICATION", id: item.id });
+  assert(next.notifications.length === 0, "history entry removed");
+  assert(next.toasts.length === 0, "active toast removed");
+});
+
+test("notification hydration keeps newer live entries and restores backend history", () => {
+  const historical: Notification = {
+    id: "history-1",
+    pane_id: null,
+    workspace_id: null,
+    title: "Historical",
+    body: null,
+    level: "Info",
+    timestamp: 1,
+    read: false,
+  };
+  const live = { ...historical, id: "live-1", title: "Live" };
+  const state = { ...base(), notifications: [live] };
+  const next = reducer(state, {
+    type: "HYDRATE_NOTIFICATIONS",
+    notifications: [historical, { ...live, title: "Stale backend copy" }],
+  });
+  assert(next.notifications.length === 2, "history and live entries should be deduplicated by id");
+  assert(next.notifications.find((item) => item.id === live.id)?.title === live.title, "live event wins a hydration race");
+});
 
 test("a newer snapshot is applied", () => {
   const next = reducer(base(), { type: "SET_STATE", state: snap(5, "w-new") });

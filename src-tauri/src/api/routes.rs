@@ -272,6 +272,14 @@ pub fn create_router(state: AppState) -> Router {
             post(notification_routes::clear_notifications),
         )
         .route(
+            "/api/notifications/{id}/read",
+            post(notification_routes::mark_notification_read),
+        )
+        .route(
+            "/api/notifications/{id}",
+            axum::routing::delete(notification_routes::delete_notification),
+        )
+        .route(
             "/api/webhooks",
             get(webhook_routes::list_webhooks).post(webhook_routes::register_webhook),
         )

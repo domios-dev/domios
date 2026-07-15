@@ -10,11 +10,11 @@ import { UI_BUTTON, UI_TRAY_DIVIDER } from "../shared/design";
 import { KeepAwakeTray } from "./KeepAwakeTray";
 import { ExtensionsTray } from "./ExtensionsTray";
 import { SettingsMenu } from "./SettingsMenu";
-import { CanvasButton } from "../Canvas/CanvasButton";
 import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 import type { SectionId } from "../Settings/sections";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 import type { Notification } from "../../lib/types";
+import { NotificationBell } from "../Notifications/NotificationBell";
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
@@ -24,8 +24,11 @@ interface TitlebarProps {
   onOpenSettingsAbout?: () => void;
   onOpenExtensions?: () => void;
   onOpenSettings?: (section?: SectionId) => void;
-  workspaceCanvasActive?: boolean;
+  notifications?: Notification[];
   toasts?: Notification[];
+  onMarkNotificationRead?: (id: string) => void;
+  onMarkAllNotificationsRead?: () => void;
+  onDeleteNotification?: (id: string) => void;
   onDismissToast?: (id: string) => void;
   onNavigateToast?: (paneId: string) => void;
 }
@@ -37,8 +40,11 @@ export function Titlebar({
   onOpenSettingsAbout,
   onOpenExtensions,
   onOpenSettings,
-  workspaceCanvasActive = false,
+  notifications = [],
   toasts = [],
+  onMarkNotificationRead,
+  onMarkAllNotificationsRead,
+  onDeleteNotification,
   onDismissToast,
   onNavigateToast,
 }: TitlebarProps) {
@@ -111,11 +117,20 @@ export function Titlebar({
       <div className="min-w-0 flex-1" data-tauri-drag-region />
 
       <div className="flex shrink-0 items-center h-full gap-0.5 pr-1 sm:gap-1 sm:pr-1.5">
-        <CanvasButton active={workspaceCanvasActive} />
+        {onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onNavigateToast && (
+          <NotificationBell
+            notifications={notifications}
+            onMarkRead={onMarkNotificationRead}
+            onMarkAllRead={onMarkAllNotificationsRead}
+            onDelete={onDeleteNotification}
+            onNavigate={onNavigateToast}
+          />
+        )}
         {onDismissToast && (
           <NotificationToastContainer
             toasts={toasts}
             onDismiss={onDismissToast}
+            onMarkRead={onMarkNotificationRead}
             onNavigate={onNavigateToast}
             embedded
           />

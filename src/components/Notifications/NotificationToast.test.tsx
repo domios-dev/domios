@@ -75,6 +75,29 @@ test("embedded titlebar toast shows the newest notification", async () => {
   await act(async () => root.unmount());
 });
 
+test("clicking an embedded toast marks it read and opens the full body", async () => {
+  setupDom();
+  const item = { ...notification("expand", "Detailed status", 3), body: "Line one\nLine two" };
+  const marked: string[] = [];
+  const { host, root } = await render(
+    <NotificationToastContainer
+      toasts={[item]}
+      onDismiss={() => undefined}
+      onMarkRead={(id) => marked.push(id)}
+      embedded
+    />,
+  );
+
+  await act(async () => {
+    (host.querySelector('[data-testid="notification-toast"]') as HTMLElement).click();
+  });
+  assert(marked.join() === item.id, "click should mark the notification read");
+  const expanded = document.querySelector('[data-testid="notification-toast-expanded"]');
+  assert(expanded?.textContent?.includes("Line one\nLine two"), "expanded portal should preserve the full body");
+  assert(host.querySelector('[data-testid="notification-toast"]'), "toast should remain visible after expansion");
+  await act(async () => root.unmount());
+});
+
 async function run() {
   let failed = 0;
   for (const [name, fn] of tests) {

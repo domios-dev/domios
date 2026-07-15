@@ -169,6 +169,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       .catch((err) => {
         console.warn("Failed to load backend state, using local state:", err);
       });
+    invoke<Notification[]>("list_notifications", { unreadOnly: false })
+      .then((notifications) => dispatch({ type: "HYDRATE_NOTIFICATIONS", notifications }))
+      .catch((err) => console.warn("Failed to load notification history:", err));
   }, [applyBackendState]);
 
   useEffect(() => mountWebLifecycle(), []);
@@ -178,6 +181,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     const unlisteners: (() => void)[] = [];
 
     listen<{
+      id: string;
       pane_id: string | null;
       workspace_id: string | null;
       title: string;
@@ -189,7 +193,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       dispatch({
         type: "ADD_NOTIFICATION",
         notification: {
-          id: uid(),
+          id: event.payload.id,
           pane_id: event.payload.pane_id,
           workspace_id: event.payload.workspace_id,
           title: event.payload.title,
@@ -746,14 +750,33 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const markRead = useCallback((id: string) => {
     dispatch({ type: "MARK_READ", id });
+    void invoke("mark_notification_read", { id }).catch((err) => {
+      console.warn("Failed to mark notification read:", err);
+    });
   }, []);
 
   const markAllRead = useCallback(() => {
+    const unreadIds = stateRef.current.notifications
+      .filter((notification) => !notification.read)
+      .map((notification) => notification.id);
     dispatch({ type: "MARK_ALL_READ" });
+    void Promise.all(unreadIds.map((id) => invoke("mark_notification_read", { id }))).catch((err) => {
+      console.warn("Failed to mark all notifications read:", err);
+    });
+  }, []);
+
+  const deleteNotification = useCallback((id: string) => {
+    dispatch({ type: "DELETE_NOTIFICATION", id });
+    void invoke("clear_notifications", { id }).catch((err) => {
+      console.warn("Failed to delete notification:", err);
+    });
   }, []);
 
   const clearNotifications = useCallback(() => {
     dispatch({ type: "CLEAR_NOTIFICATIONS" });
+    void invoke("clear_notifications").catch((err) => {
+      console.warn("Failed to clear notifications:", err);
+    });
   }, []);
 
   const dismissToast = useCallback((id: string) => {
@@ -814,6 +837,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       upsertToast,
       markRead,
       markAllRead,
+      deleteNotification,
       clearNotifications,
       dismissToast,
       setPaneTitle,
@@ -848,6 +872,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       upsertToast,
       markRead,
       markAllRead,
+      deleteNotification,
       clearNotifications,
       dismissToast,
       setPaneTitle,
