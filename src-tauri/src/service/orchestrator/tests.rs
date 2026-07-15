@@ -231,10 +231,20 @@ fn build_agent_command_injects_supported_reasoning_effort() {
 }
 
 #[test]
+fn build_agent_command_omits_undeclared_reasoning_effort() {
+    let reg = effort_registry();
+    let mut params = make_params("tiered", None);
+    params.reasoning_effort = Some("ultra".into());
+    let cmd = build_agent_command("tiered", &params, None, None, &reg);
+    assert!(
+        !cmd.contains("--effort"),
+        "undeclared effort adds no launch flag"
+    );
+}
+
+#[test]
 fn build_agent_command_omits_effort_for_flat_provider() {
-    // A provider with no effort capability adds no flag even if one is passed —
-    // the launch builder never fabricates a flag the CLI would reject. (The
-    // dispatch path rejects this upstream via validate_agent_reasoning_effort.)
+    // Defend direct callers that bypass upstream dispatch validation.
     let reg = effort_registry();
     let mut params = make_params("flat", None);
     params.reasoning_effort = Some("high".into());
