@@ -133,7 +133,13 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
       body: "fixture",
       parent: null,
     });
-    if (status) await api.request("PATCH", `/plans/${created.plan_id}/tasks/${task.task_id}`, { status, ...(status === "blocked" ? { status_label: "fixture" } : {}) });
+    if (status) {
+      await api.request("PATCH", `/plans/${created.plan_id}/tasks/${task.task_id}`, {
+        status,
+        ...(status === "in_progress" ? { lane: { pane_id: pane.id } } : {}),
+        ...(status === "blocked" ? { status_label: "fixture" } : {}),
+      });
+    }
   };
   await Promise.all([
     addTask("todo pending"),
