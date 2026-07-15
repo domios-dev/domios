@@ -1,5 +1,6 @@
 //! Agent hierarchy: roles, reports, status queries.
 
+mod first_plan;
 mod plan_reminder_nudge;
 mod planner_delivery;
 

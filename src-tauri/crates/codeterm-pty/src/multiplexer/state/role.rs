@@ -10,19 +10,52 @@ fn now_millis() -> u64 {
 }
 
 impl MultiplexerState {
-    /// Sole team-minting site: parent `team_id` presence is the idempotency
-    /// guard, and the caller's mux write lock makes this check-and-mint atomic.
-    fn resolve_or_mint_team_for_parent(&mut self, parent_id: &str) -> Option<String> {
-        let existing = self.panes.get(parent_id)?.team_id.clone();
+    /// Resolve or mint a parent's Team while holding the mux write lock.
+    pub fn resolve_or_mint_team_for_parent(
+        &mut self,
+        parent_id: &str,
+    ) -> Result<TeamResolution, String> {
+        let existing = self
+            .panes
+            .get(parent_id)
+            .ok_or_else(|| format!("Pane {parent_id} not found"))?
+            .team_id
+            .clone();
         if let Some(id) = existing {
-            return Some(id);
+            return Ok(TeamResolution {
+                team_id: id,
+                minted: false,
+            });
         }
-        let workspace_id = self.find_workspace_for_pane(parent_id).unwrap_or_default();
+        let workspace_id = self
+            .find_workspace_for_pane(parent_id)
+            .unwrap_or_default();
         let team = Team::new(workspace_id, now_millis());
         let team_id = team.id.clone();
         self.upsert_team(team);
-        self.panes.get_mut(parent_id)?.team_id = Some(team_id.clone());
-        Some(team_id)
+        self.panes
+            .get_mut(parent_id)
+            .expect("pane checked before team mint")
+            .team_id = Some(team_id.clone());
+        Ok(TeamResolution {
+            team_id,
+            minted: true,
+        })
+    }
+
+    pub fn rollback_minted_team_for_parent(&mut self, parent_id: &str, team_id: &str) {
+        let is_current = self
+            .panes
+            .get(parent_id)
+            .and_then(|pane| pane.team_id.as_deref())
+            == Some(team_id);
+        if is_current {
+            self.panes
+                .get_mut(parent_id)
+                .expect("pane checked before team rollback")
+                .team_id = None;
+            self.remove_team(team_id);
+        }
     }
 
     /// Set a pane's orchestration role with validation.
@@ -71,7 +104,7 @@ impl MultiplexerState {
                     return Err("Parent does not allow spawning".to_string());
                 }
                 let final_parent_depth = parent.depth;
-                let team_id = self.resolve_or_mint_team_for_parent(parent_id);
+                let team_id = self.resolve_or_mint_team_for_parent(parent_id)?.team_id;
                 let pane = self
                     .panes
                     .get_mut(pane_id)
@@ -80,7 +113,7 @@ impl MultiplexerState {
                 pane.parent_pane_id = Some(parent_id.to_string());
                 pane.can_spawn = false;
                 pane.depth = final_parent_depth + 1;
-                pane.team_id = team_id;
+                pane.team_id = Some(team_id);
             }
             AgentRole::Worker => {
                 let parent_id = parent_pane_id.ok_or("Worker requires a parent_pane_id")?;
@@ -121,7 +154,7 @@ impl MultiplexerState {
                     }
                     parent.depth
                 };
-                let team_id = self.resolve_or_mint_team_for_parent(parent_id);
+                let team_id = self.resolve_or_mint_team_for_parent(parent_id)?.team_id;
                 let pane = self
                     .panes
                     .get_mut(pane_id)
@@ -130,7 +163,7 @@ impl MultiplexerState {
                 pane.parent_pane_id = Some(parent_id.to_string());
                 pane.can_spawn = false;
                 pane.depth = final_parent_depth + 1;
-                pane.team_id = team_id;
+                pane.team_id = Some(team_id);
             }
         }
 

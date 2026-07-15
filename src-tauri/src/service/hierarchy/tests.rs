@@ -11,6 +11,9 @@ use crate::plan::{
     Goal, Milestone, OrchestratorRef, Plan, PlannerRequest, PlannerRequestState, Spec,
 };
 use crate::service::plan::{NewTask, PlanStore};
+use crate::service::test_support::test_harness;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Barrier};
 
 // Enforce report key symmetry: reporter writes and parent query must use the same key.
 // This avoids "report succeeded" with empty parent results.
@@ -880,4 +883,138 @@ fn resolve_plan_ctx_explicit_plan_overridden_by_binding_triggers_foreign() {
         is_explicit_plan_foreign(Some("pl_foreign_x"), eff.as_deref()),
         "explicit plan overridden by local binding must be detected as foreign"
     );
+}
+
+fn teamless_orchestrator(service: &crate::service::ServiceState) -> (String, String) {
+    let mut mux = service.mux.write();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let (_tab_id, owner_pane_id) = mux.create_tab(&workspace_id).unwrap();
+    mux.set_pane_role(&owner_pane_id, AgentRole::Orchestrator, None)
+        .unwrap();
+    (workspace_id, owner_pane_id)
+}
+
+#[test]
+fn first_plan_mints_team_enrolls_manager_and_binds() {
+    let dir = tempfile::tempdir().unwrap();
+    let harness = test_harness(dir.path(), "test-provider");
+    harness
+        .service
+        .mux_emit_stats
+        .frozen
+        .store(true, Ordering::Release);
+    let (_workspace_id, owner_pane_id) = teamless_orchestrator(&harness.service);
+
+    let outcome = harness
+        .service
+        .create_first_plan_for_orchestrator(
+            "First effort".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane(&owner_pane_id),
+            vec![],
+            1,
+        )
+        .unwrap();
+
+    assert!(outcome.team_minted);
+    assert_eq!(harness.service.plan_store.list_index().len(), 1);
+    assert_eq!(
+        outcome.plan.team_id.as_deref(),
+        Some(outcome.team_id.as_str())
+    );
+    let mux = harness.service.mux.read();
+    assert_eq!(mux.team_count(), 1);
+    let owner = mux.get_pane(&owner_pane_id).unwrap();
+    assert_eq!(owner.role, Some(AgentRole::Orchestrator));
+    assert_eq!(owner.team_id.as_deref(), Some(outcome.team_id.as_str()));
+}
+
+#[test]
+fn concurrent_first_plan_and_first_child_converge() {
+    let dir = tempfile::tempdir().unwrap();
+    let harness = test_harness(dir.path(), "test-provider");
+    harness
+        .service
+        .mux_emit_stats
+        .frozen
+        .store(true, Ordering::Release);
+    let (workspace_id, owner_pane_id) = teamless_orchestrator(&harness.service);
+    let child_pane_id = harness
+        .service
+        .mux
+        .write()
+        .create_tab(&workspace_id)
+        .unwrap()
+        .1;
+    let barrier = Arc::new(Barrier::new(3));
+    let plan_service = harness.service.clone();
+    let plan_owner = owner_pane_id.clone();
+    let plan_root = dir.path().display().to_string();
+    let plan_barrier = barrier.clone();
+    let plan_thread = std::thread::spawn(move || {
+        plan_barrier.wait();
+        plan_service.create_first_plan_for_orchestrator(
+            "Concurrent effort".into(),
+            plan_root,
+            OrchestratorRef::from_pane(&plan_owner),
+            vec![],
+            1,
+        )
+    });
+    let child_service = harness.service.clone();
+    let child_owner = owner_pane_id.clone();
+    let child_pane = child_pane_id.clone();
+    let child_barrier = barrier.clone();
+    let child_thread = std::thread::spawn(move || {
+        child_barrier.wait();
+        child_service
+            .mux
+            .write()
+            .set_pane_role(&child_pane, AgentRole::Worker, Some(&child_owner))
+    });
+    barrier.wait();
+    let outcome = plan_thread.join().unwrap().unwrap();
+    child_thread.join().unwrap().unwrap();
+
+    let mux = harness.service.mux.read();
+    assert_eq!(mux.team_count(), 1);
+    assert_eq!(harness.service.plan_store.list_index().len(), 1);
+    assert_eq!(
+        mux.get_pane(&owner_pane_id).unwrap().team_id.as_deref(),
+        Some(outcome.team_id.as_str())
+    );
+    assert_eq!(
+        mux.get_pane(&child_pane_id).unwrap().team_id.as_deref(),
+        Some(outcome.team_id.as_str())
+    );
+    assert_eq!(
+        outcome.plan.team_id.as_deref(),
+        Some(outcome.team_id.as_str())
+    );
+}
+
+#[test]
+fn first_plan_failure_is_atomic() {
+    let dir = tempfile::tempdir().unwrap();
+    let harness = test_harness(dir.path(), "test-provider");
+    let (_workspace_id, owner_pane_id) = teamless_orchestrator(&harness.service);
+    let invalid_project = dir.path().join("not-a-directory");
+    std::fs::write(&invalid_project, "file").unwrap();
+
+    let error = harness
+        .service
+        .create_first_plan_for_orchestrator(
+            "Failure".into(),
+            invalid_project.display().to_string(),
+            OrchestratorRef::from_pane(&owner_pane_id),
+            vec![],
+            1,
+        )
+        .unwrap_err();
+
+    assert!(error.contains("io error"));
+    assert!(harness.service.plan_store.list_index().is_empty());
+    let mux = harness.service.mux.read();
+    assert_eq!(mux.team_count(), 0);
+    assert!(mux.get_pane(&owner_pane_id).unwrap().team_id.is_none());
 }

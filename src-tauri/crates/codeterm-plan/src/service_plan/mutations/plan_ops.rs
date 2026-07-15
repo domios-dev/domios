@@ -69,8 +69,11 @@ impl PlanStore {
         }
         plan.team_id = team_id;
         plan.milestone_kinds = kinds;
-        self.save(&mut plan, now_ms)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
+        if let Err(error) = self.save(&mut plan, now_ms) {
+            self.plans.write().remove(&plan.id);
+            self.index.write().remove(&plan.id);
+            return Err(PlanError::Io(error.to_string()));
+        }
         Ok(plan)
     }
 
