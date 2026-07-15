@@ -2,39 +2,6 @@ use super::types::SpawnAgentParams;
 use crate::service::boot_stage::BootStage;
 use crate::service::ServiceContext;
 
-const ROLE_METADATA_KEY: &str = "CODETERM_ROLE";
-
-#[derive(Debug, PartialEq, Eq)]
-struct SpawnLaunchInput {
-    task_submission: Option<String>,
-    role_metadata: Option<(String, String)>,
-    plan_attachment: Option<String>,
-    team_attachment: Option<String>,
-}
-
-impl SpawnLaunchInput {
-    #[cfg(test)]
-    fn task_submissions(&self) -> impl Iterator<Item = &str> {
-        self.task_submission.iter().map(String::as_str)
-    }
-}
-
-fn split_spawn_launch_input(params: &SpawnAgentParams) -> SpawnLaunchInput {
-    SpawnLaunchInput {
-        task_submission: role_onboarding_task(
-            params.task.as_deref(),
-            params.role.as_deref(),
-            params.role_profile.as_deref(),
-        ),
-        role_metadata: params
-            .role
-            .as_ref()
-            .map(|role| (ROLE_METADATA_KEY.to_string(), role.clone())),
-        plan_attachment: None,
-        team_attachment: None,
-    }
-}
-
 /// A cross-mesh worker (mesh report target set, no local parent) must NOT be
 /// forced into the local Worker hierarchy — it has no local Orchestrator parent,
 /// so `set_pane_role(Worker, None)` errors. Its hierarchy is represented on the
@@ -67,7 +34,11 @@ pub(crate) fn role_onboarding_task(
 }
 
 pub(crate) fn spawn_onboarding_task(params: &SpawnAgentParams) -> Option<String> {
-    split_spawn_launch_input(params).task_submission
+    role_onboarding_task(
+        params.task.as_deref(),
+        params.role.as_deref(),
+        params.role_profile.as_deref(),
+    )
 }
 
 pub(crate) fn should_deliver_spawn_preferences(
@@ -397,8 +368,15 @@ pub(crate) fn launch_agent_in_background(
 
 #[cfg(test)]
 mod tests {
-    use super::{replacement_pty_candidate, split_spawn_launch_input, SpawnLaunchInput};
+    use super::{replacement_pty_candidate, spawn_onboarding_task};
+    use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::AgentRole;
     use crate::service::orchestrator::types::SpawnAgentParams;
+    use crate::service::plan::PlanStore;
+    use crate::service::spawn::{PaneCommand, SpawnPaneSpec};
+    use crate::service::test_support::test_harness;
+    use std::sync::Arc;
 
     fn orchestrator_params(task: Option<&str>) -> SpawnAgentParams {
         SpawnAgentParams {
@@ -422,41 +400,48 @@ mod tests {
 
     #[test]
     fn plain_orchestrator_no_task_spawn_submits_nothing() {
-        let launch = split_spawn_launch_input(&orchestrator_params(None));
-
-        assert_eq!(launch.task_submissions().count(), 0);
+        assert_eq!(spawn_onboarding_task(&orchestrator_params(None)), None);
     }
 
     #[test]
     fn plain_orchestrator_no_task_attaches_nothing() {
-        let launch = split_spawn_launch_input(&orchestrator_params(None));
+        let dir = tempfile::tempdir().unwrap();
+        let (mut mux, _) = MultiplexerState::new();
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let pane_id = mux.create_tab(&workspace_id).unwrap().1;
+        mux.set_pane_role(&pane_id, AgentRole::Orchestrator, None)
+            .unwrap();
+        let plan_store = PlanStore::new_for_test(dir.path());
 
-        assert_eq!(launch.plan_attachment, None);
-        assert_eq!(launch.team_attachment, None);
+        assert!(plan_store.task_binding_for_pane(&pane_id).is_none());
+        assert_eq!(mux.team_count(), 0);
     }
 
     #[test]
     fn plain_orchestrator_role_metadata_uses_the_non_task_channel() {
-        let launch = split_spawn_launch_input(&orchestrator_params(None));
+        let dir = tempfile::tempdir().unwrap();
+        let harness = test_harness(dir.path(), "test-provider");
+        let pane_id = {
+            let mut mux = harness.service.mux.write();
+            let workspace_id = mux.list_workspaces()[0].id.clone();
+            let pane_id = mux.create_tab(&workspace_id).unwrap().1;
+            mux.set_pane_role(&pane_id, AgentRole::Orchestrator, None)
+                .unwrap();
+            pane_id
+        };
 
         assert_eq!(
-            launch,
-            SpawnLaunchInput {
-                task_submission: None,
-                role_metadata: Some(("CODETERM_ROLE".into(), "Orchestrator".into())),
-                plan_attachment: None,
-                team_attachment: None,
-            }
+            harness.service.pane_env(&pane_id).get("CODETERM_ROLE"),
+            Some(&"Orchestrator".to_string())
         );
+        std::mem::forget(harness);
     }
 
     #[test]
     fn explicit_orchestrator_task_is_submitted_exactly_once() {
-        let launch = split_spawn_launch_input(&orchestrator_params(Some("inspect launch")));
-
         assert_eq!(
-            launch.task_submissions().collect::<Vec<_>>(),
-            ["inspect launch"]
+            spawn_onboarding_task(&orchestrator_params(Some("inspect launch"))),
+            Some("inspect launch".into())
         );
     }
 
@@ -469,20 +454,70 @@ mod tests {
             ..Default::default()
         };
 
-        let launch = split_spawn_launch_input(&params);
-        assert_eq!(launch.task_submissions().count(), 1);
-        assert!(launch
-            .task_submission
+        assert!(spawn_onboarding_task(&params)
             .unwrap()
             .contains(&crate::prompts::planner_suffix()));
     }
 
-    #[test]
-    fn chat_backend_or_pty_no_task_orchestrator_submits_nothing() {
-        let launch = split_spawn_launch_input(&orchestrator_params(None));
+    struct SpawnableChatBackend;
 
-        for _transport in ["pty", "chat_backend"] {
-            assert_eq!(launch.task_submissions().count(), 0);
+    impl ChatBackendProvider for SpawnableChatBackend {
+        fn id(&self) -> &str {
+            "test-chat"
+        }
+
+        fn spawnable(&self) -> bool {
+            true
+        }
+
+        fn open_session(&self, _: serde_json::Value) -> Result<String, ChatBackendError> {
+            Ok("session".into())
+        }
+
+        fn send_message(&self, _: &str, _: &str) -> Result<(), ChatBackendError> {
+            Ok(())
+        }
+
+        fn poll(
+            &self,
+            _: &str,
+            _: Option<&str>,
+        ) -> Result<crate::agent::chat_types::StructuredChat, ChatBackendError> {
+            Ok(Default::default())
+        }
+
+        fn close_session(&self, _: &str) -> Result<(), ChatBackendError> {
+            Ok(())
+        }
+
+        fn list_models(&self) -> Result<Vec<crate::agent::provider::ModelInfo>, ChatBackendError> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[test]
+    fn transport_capability_paths_receive_no_task_for_plain_orchestrator() {
+        let params = orchestrator_params(None);
+        assert_eq!(spawn_onboarding_task(&params), None);
+
+        match SpawnPaneSpec::from_agent_params(params.clone()).command {
+            PaneCommand::Agent(agent) => assert_eq!(agent.task, None),
+            other => panic!("expected PTY agent route, got {other:?}"),
+        }
+
+        let chatbackends = ChatBackendRegistry::new();
+        chatbackends.register("test-chat", Arc::new(SpawnableChatBackend));
+        let chat_params = SpawnAgentParams {
+            agent: Some("test-chat".into()),
+            ..params
+        };
+        match SpawnPaneSpec::from_agent_params_with_chatbackends(&chatbackends, chat_params).command
+        {
+            PaneCommand::ChatBackend { config, role, .. } => {
+                assert!(config.as_object().unwrap().is_empty());
+                assert_eq!(role.as_deref(), Some("Orchestrator"));
+            }
+            other => panic!("expected chatBackend route, got {other:?}"),
         }
     }
 }
@@ -518,14 +553,8 @@ pub(crate) fn build_agent_command(
     }
     if let Some(ref effort) = params.reasoning_effort {
         if !effort.is_empty() {
-            if let Some(effort_args) = registry
-                .with_provider(agent_cmd, |p| {
-                    p.reasoning_efforts()
-                        .iter()
-                        .any(|supported| supported.id == *effort)
-                        .then(|| p.reasoning_effort_launch_args(effort))
-                })
-                .flatten()
+            if let Some(effort_args) =
+                registry.with_provider(agent_cmd, |p| p.reasoning_effort_launch_args(effort))
             {
                 args.extend(effort_args);
             }
