@@ -488,15 +488,17 @@ pub fn run() {
             {
                 use crate::agent::provider::AgentProvider;
                 use std::collections::HashSet;
+                #[cfg(debug_assertions)]
                 use std::path::PathBuf;
                 agent_registry.begin_startup_provider_loading(
                     crate::plugin::system_plugins::SYSTEM_PLUGIN_HASHES
                         .iter()
                         .map(|(id, _)| *id),
                 );
-                let workspace_root: Option<PathBuf> = Some(PathBuf::from(
-                    concat!(env!("CARGO_MANIFEST_DIR"), "/..")
-                ));
+                #[cfg(debug_assertions)]
+                let workspace_root = Some(PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/..")));
+                #[cfg(not(debug_assertions))]
+                let workspace_root = None;
                 let roots = plugin::js_runtime::default_roots(workspace_root.as_deref());
                 let (providers, report) = plugin::js_runtime::scan_roots(&roots);
                 for outcome in &report {
