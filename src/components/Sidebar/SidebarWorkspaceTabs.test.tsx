@@ -105,7 +105,7 @@ async function renderSidebar({
   activeTabId?: string | null;
   onActivateTab?: (tabId: string) => void;
   onCloseTab?: (tabId: string) => void;
-  onRenameTeam?: (teamId: string, name: string) => void;
+  onRenameTeam?: (teamId: string, name: string, managerPaneId: string) => void | Promise<void>;
   onAddTeamMember?: (teamId: string, role: "planner" | "worker", providerId: string, managerPaneId: string) => void;
   onCloseTeam?: (teamId: string) => void;
 }): Promise<{ host: HTMLDivElement; root: Root; rerender: (nextPlans: Plan[]) => Promise<void> }> {
@@ -240,6 +240,7 @@ test("managerless Team hides staffing and makes no request", async () => {
   const menu = document.querySelector('[data-testid="team-menu"]');
   assert(!menu?.textContent?.includes("Add worker"), "managerless Team hides worker staffing");
   assert(!menu?.textContent?.includes("Add planner"), "managerless Team hides planner staffing");
+  assert(!menu?.textContent?.includes("Rename"), "managerless Team hides rename");
   assert(requests.length === 0, "managerless Team does not issue a staffing request");
   await act(async () => root.unmount());
 });

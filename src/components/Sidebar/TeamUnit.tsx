@@ -10,7 +10,7 @@ import { summarizeWorkers } from "./orchestrationSections";
 export type TeamMemberRole = "planner" | "worker";
 
 export interface SidebarTeamActions {
-  onRenameTeam?: (teamId: string, name: string) => void | Promise<void>;
+  onRenameTeam?: (teamId: string, name: string, managerPaneId: string) => void | Promise<void>;
   onAddTeamMember?: (
     teamId: string,
     role: TeamMemberRole,
@@ -221,6 +221,8 @@ export function TeamUnit({
   const [workersExpanded, setWorkersExpanded] = useState(true);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(team.name?.trim() || "Team");
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
   const buckets = useMemo(
     () => (plan ? deriveTeamTaskBuckets(plan, panes) : EMPTY_BUCKETS),
     [plan, panes],
@@ -228,13 +230,23 @@ export function TeamUnit({
 
   useEffect(() => setName(team.name?.trim() || "Team"), [team.name]);
 
-  const commitRename = () => {
+  const commitRename = async () => {
     const trimmed = name.trim();
-    setEditing(false);
-    if (trimmed && trimmed !== (team.name?.trim() || "Team") && onRenameTeam) {
-      void onRenameTeam(team.id, trimmed);
+    if (!trimmed || trimmed === (team.name?.trim() || "Team") || !onRenameTeam) {
+      setName(team.name?.trim() || "Team");
+      setEditing(false);
+      return;
     }
-    else setName(team.name?.trim() || "Team");
+    setRenaming(true);
+    setRenameError(null);
+    try {
+      await onRenameTeam(team.id, trimmed);
+      setEditing(false);
+    } catch (error) {
+      setRenameError(error instanceof Error ? error.message : "Could not rename team. Try again.");
+    } finally {
+      setRenaming(false);
+    }
   };
 
   return (
@@ -269,9 +281,13 @@ export function TeamUnit({
               value={name}
               onChange={(event) => setName(event.target.value)}
               onClick={(event) => event.stopPropagation()}
-              onBlur={commitRename}
+              disabled={renaming}
+              onBlur={() => { void commitRename(); }}
               onKeyDown={(event) => {
-                if (event.key === "Enter") event.currentTarget.blur();
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void commitRename();
+                }
                 if (event.key === "Escape") {
                   setName(team.name?.trim() || "Team");
                   setEditing(false);
@@ -281,6 +297,7 @@ export function TeamUnit({
           ) : (
             <span data-testid="team-name" className="sidebar-team-name">{team.name?.trim() || "Team"}</span>
           )}
+          {renameError && <div data-testid="team-rename-error" role="alert">{renameError}</div>}
           {plan && (
             <span
               data-testid="team-status-tally"
@@ -319,7 +336,10 @@ export function TeamUnit({
         )}
         <TeamMenu
           providers={providers}
-          onRename={onRenameTeam ? () => setEditing(true) : undefined}
+          onRename={onRenameTeam ? () => {
+            setRenameError(null);
+            setEditing(true);
+          } : undefined}
           onAddMember={onAddMember}
           onCloseTeam={() => onCloseTeam(team.id)}
         />
