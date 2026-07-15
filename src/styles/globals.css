@@ -1364,7 +1364,8 @@ button,
 }
 
 .sidebar-team-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
   min-width: 0;
   align-items: center;
   gap: 8px;
@@ -1432,10 +1433,12 @@ button,
 
 .sidebar-team-title-block {
   display: flex;
+  grid-column: 1 / -1;
+  grid-row: 2;
   min-width: 0;
-  flex: 1;
   flex-direction: column;
   line-height: 1.2;
+  container-type: inline-size;
 }
 
 .sidebar-team-name,
@@ -1586,18 +1589,46 @@ button,
 }
 
 .sidebar-team-readout {
+  display: flex;
   min-width: 0;
   margin: 2px 12px 7px;
-  overflow: hidden;
+  justify-content: center;
+  gap: 5px;
   font-size: 10.5px;
   font-weight: 600;
   line-height: 1.4;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sidebar-team-readout-dot {
-  color: color-mix(in srgb, var(--ct-muted-fg) 62%, var(--ct-bg));
+.sidebar-team-readout-item {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.sidebar-team-readout-compact-dot {
+  display: none;
+}
+
+/* 150px is the title-row fit boundary for the measured full four-bucket tally. */
+@container (max-width: 150px) {
+  .sidebar-team-readout {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .sidebar-team-readout-label {
+    display: none;
+  }
+
+  .sidebar-team-readout-compact-dot {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    margin-right: 2px;
+    border-radius: 50%;
+    background: currentColor;
+  }
 }
 
 .sidebar-team-no-plan {
