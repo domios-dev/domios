@@ -1,4 +1,4 @@
-import type { SettingField } from "../../lib/types";
+import type { ProviderConfig, SettingField } from "../../lib/types";
 
 function settingsContainKey(fields: SettingField[], key: string): boolean {
   return fields.some((field) => {
@@ -14,4 +14,14 @@ export function usageTrackingEnabled(
   configured: boolean | undefined,
 ): boolean {
   return settingsContainKey(settings, "usage_tracking_enabled") && configured !== false;
+}
+
+export function usageTrackingOverrides(
+  agents: Record<string, ProviderConfig | undefined>,
+): Record<string, boolean | undefined> {
+  const out: Record<string, boolean | undefined> = {};
+  for (const [providerId, config] of Object.entries(agents)) {
+    out[providerId] = config?.usage_tracking_enabled;
+  }
+  return out;
 }

@@ -26,6 +26,7 @@ import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWo
 import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
+import { usageTrackingOverrides } from "./components/Terminal/usageTracking";
 import { useAgentProviders } from "./hooks/useAgentProviders";
 import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
 import { UpdateProvider } from "./hooks/useUpdate";
@@ -156,11 +157,7 @@ function AppInner() {
 
   // events on its own (the per-bubble `useConfig` was multiplying invokes by pane count and made the webview unresponsive after many resumes).
   const computedUsageEnabledByProvider = useMemo(() => {
-    const out: Record<string, boolean> = {};
-    for (const [pid, pc] of Object.entries(config.agents ?? {})) {
-      out[pid] = pc?.usage_tracking_enabled === true;
-    }
-    return out;
+    return usageTrackingOverrides(config.agents ?? {});
   }, [config.agents]);
   const usageEnabledByProvider = useStableJsonValue(computedUsageEnabledByProvider);
 
