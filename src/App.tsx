@@ -203,7 +203,6 @@ function AppInner() {
   stateRef.current = state;
   const teamActions = useMemo(
     () => buildTeamActions({
-      callerTabId: () => stateRef.current.focused_pane_id,
       invoke,
     }),
     [],
