@@ -232,7 +232,7 @@ pub(crate) fn launch_agent_in_background(
         let delivery = registry
             .with_provider(&agent_cmd, |provider| provider.task_delivery())
             .unwrap_or(TaskDelivery::PtyInput);
-        if !crate::service::pty_io::poll_bare_shell_prompt(
+        if !crate::service::pty_io::await_bare_shell_prompt(
             &svc.screen_state,
             &pty_id,
             std::time::Duration::from_secs(30),
@@ -252,7 +252,7 @@ pub(crate) fn launch_agent_in_background(
             launch_started.elapsed().as_millis()
         );
 
-        // 3. Send launch command (verified). Shell prompt was already polled in step 2, so require_prompt_first=false avoids a redundant wait.
+        // 3. Send launch command after the shell readiness event from step 2.
         let launch_opts = crate::service::inject_verify::VerifyOpts {
             require_prompt_first: false,
             verify_echo: true,
@@ -358,7 +358,6 @@ pub(crate) fn launch_agent_in_background(
                     }
                     return;
                 }
-                svc.confirm_wake_async(&pane_id, task_text);
             }
         }
 
