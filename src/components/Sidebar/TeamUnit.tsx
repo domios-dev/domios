@@ -285,8 +285,7 @@ export function TeamUnit({
               onBlur={() => { void commitRename(); }}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
-                  event.preventDefault();
-                  void commitRename();
+                  event.currentTarget.blur();
                 }
                 if (event.key === "Escape") {
                   setName(team.name?.trim() || "Team");
