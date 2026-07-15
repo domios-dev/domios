@@ -52,6 +52,10 @@ pub fn create_router(state: AppState) -> Router {
             post(team_routes::rename_team),
         )
         .route(
+            "/api/teams/{team_id}/members",
+            post(team_routes::add_team_member),
+        )
+        .route(
             "/api/workspaces",
             get(workspace_routes::list_workspaces).post(workspace_routes::create_workspace),
         )
