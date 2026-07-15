@@ -703,6 +703,7 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
             version: "test".to_string(),
             timestamp: 0,
             active_workspace_id: Some("ws-1".to_string()),
+            teams: vec![],
             workspaces: vec![WorkspaceSnapshot {
                 id: "ws-1".to_string(),
                 name: "W".to_string(),
@@ -726,6 +727,7 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
                         claude_session_id: None,
                         role: None,
                         role_profile: None,
+                        team_id: None,
                         parent_pane_id: None,
                         spawned_by_pane_id: None,
                         report_target_pane_id: None,
@@ -770,6 +772,7 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
         version: "test".to_string(),
         timestamp: 0,
         active_workspace_id: Some("ws-1".to_string()),
+        teams: vec![],
         workspaces: vec![WorkspaceSnapshot {
             id: "ws-1".to_string(),
             name: "W".to_string(),
@@ -793,6 +796,7 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
                     claude_session_id: None,
                     role: None,
                     role_profile: None,
+                    team_id: None,
                     parent_pane_id: None,
                     spawned_by_pane_id: None,
                     report_target_pane_id: None,
@@ -842,6 +846,7 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
         version: "test".to_string(),
         timestamp: 0,
         active_workspace_id: Some("ws-1".to_string()),
+        teams: vec![],
         workspaces: vec![WorkspaceSnapshot {
             id: "ws-1".to_string(),
             name: "W".to_string(),
@@ -865,6 +870,7 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
                     claude_session_id: None,
                     role: None,
                     role_profile: None,
+                    team_id: None,
                     parent_pane_id: None,
                     spawned_by_pane_id: None,
                     report_target_pane_id: None,

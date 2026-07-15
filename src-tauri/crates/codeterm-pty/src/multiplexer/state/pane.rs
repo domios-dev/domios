@@ -29,6 +29,7 @@ impl MultiplexerState {
             shell_integration_nonce: None,
             role: None,
             role_profile: None,
+            team_id: None,
             watcher: None,
             parent_pane_id: None,
             pending_paired_planner_pane_id: None,
