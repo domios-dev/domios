@@ -16,7 +16,7 @@ import {
   listen as tauriListen,
   type UnlistenFn as TauriUnlistenFn,
 } from "@tauri-apps/api/event";
-import { IS_WEB, WebApiError, webJson } from "./webApi";
+import { IS_WEB, WebApiError, webFetch, webJson } from "./webApi";
 import { webListen } from "./webEvents";
 import { WEB_SPECIAL, WEB_UNSUPPORTED } from "./bridgeWebUnsupported";
 import { setClientPaneUiMode } from "./clientPaneUiMode";
@@ -71,6 +71,24 @@ export function isPtyDeadError(err: unknown): boolean {
 
 const enc = encodeURIComponent;
 const s = (args: Args, key: string): string => String(args[key] ?? "");
+
+async function webJsonWithCallerPane<T>(
+  method: string,
+  path: string,
+  body: unknown,
+  callerTabId: unknown,
+): Promise<T> {
+  const headers = new Headers();
+  if (callerTabId) headers.set("X-CodeTerm-Pane-Id", String(callerTabId));
+  const response = await webFetch(path, {
+    method,
+    headers,
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  if (!response.ok) throw new WebApiError(response.status, path, text);
+  return JSON.parse(text) as T;
+}
 
 /** Commands with a meaningful HTTP equivalent. */
 const HTTP_MAP: Record<string, Mapper> = {
@@ -136,6 +154,13 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/rename`, {
       name: a.name,
     }),
+  mux_rename_team: (a) =>
+    webJsonWithCallerPane(
+      "POST",
+      `/api/teams/${enc(s(a, "teamId"))}/rename`,
+      { name: a.name },
+      a.callerTabId,
+    ),
   mux_create_tab: (a) =>
     webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs`, {
       eager: a.eager === true,

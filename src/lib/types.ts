@@ -196,6 +196,7 @@ export interface Pane {
 export interface MultiplexerState {
   workspaces: Workspace[];
   panes: Record<string, Pane>;
+  teams?: Team[];
   active_workspace_id: string | null;
   focused_pane_id: string | null;
   /** Monotonic snapshot generation stamped by the backend. The reducer ignores
@@ -210,6 +211,16 @@ export interface MultiplexerState {
    *  backend's live status tracker so the tab rail hydrates correctly on
    *  reload instead of staying blank until the next status event. */
   pane_statuses?: Record<string, PaneStatus>;
+}
+
+export type TeamLifecycle = "forming" | "active" | "paused" | "complete" | "archived";
+
+export interface Team {
+  id: string;
+  name?: string | null;
+  lifecycle: TeamLifecycle;
+  created_at: number;
+  workspace_id: string;
 }
 
 /** Result of the one atomic spawn command (`mux_spawn_pane`). */

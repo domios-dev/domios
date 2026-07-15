@@ -4,6 +4,7 @@ use tauri::State;
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::state::{MultiplexerSnapshot, WorkspaceInfo};
 use crate::service::{BatchOp, ServiceState};
+use codeterm_types::team::Team;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TabInfo {
@@ -65,6 +66,166 @@ pub fn mux_rename_workspace(
     name: String,
 ) -> Result<(), String> {
     svc.rename_workspace(&workspace_id, &name)
+}
+
+pub fn mux_rename_team_core(
+    svc: &ServiceState,
+    team_id: String,
+    name: String,
+    caller_pane_id: Option<String>,
+) -> Result<Team, String> {
+    let caller_pane_id = require_team_rename_caller(caller_pane_id)?;
+    svc.rename_team(&team_id, name, Some(&caller_pane_id))
+}
+
+fn require_team_rename_caller(caller_pane_id: Option<String>) -> Result<String, String> {
+    caller_pane_id.ok_or_else(|| "callerTabId is required to rename a Team".into())
+}
+
+/// Rename a Team through the service boundary so authorization and the state
+/// change event remain identical for desktop and web callers.
+#[tauri::command]
+pub fn mux_rename_team(
+    svc: State<'_, ServiceState>,
+    team_id: String,
+    name: String,
+    caller_tab_id: String,
+) -> Result<Team, String> {
+    mux_rename_team_core(svc.inner(), team_id, name, Some(caller_tab_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    use crate::api::events::SystemEvent;
+    use crate::multiplexer::types::AgentRole;
+    use crate::service::test_support::{test_harness, TestHarness};
+
+    fn team_members(harness: &TestHarness) -> (String, String, String, String) {
+        let mut mux = harness.service.mux.write();
+        let orchestrator = mux.get_focused_pane_id().unwrap().to_string();
+        let team_id = mux
+            .resolve_or_mint_team_for_parent(&orchestrator)
+            .unwrap()
+            .team_id;
+        let planner = mux.create_pane();
+        mux.set_pane_role(&planner, AgentRole::Manager, Some(&orchestrator))
+            .unwrap();
+        mux.get_pane_mut(&planner).unwrap().role_profile = Some("planner".into());
+        let worker = mux.create_pane();
+        mux.set_pane_role(&worker, AgentRole::Worker, Some(&orchestrator))
+            .unwrap();
+        (team_id, orchestrator, planner, worker)
+    }
+
+    fn harness() -> (tempfile::TempDir, TestHarness) {
+        let dir = tempfile::tempdir().unwrap();
+        let harness = test_harness(dir.path(), "test-provider");
+        harness
+            .service
+            .mux_emit_stats
+            .frozen
+            .store(true, Ordering::Release);
+        (dir, harness)
+    }
+
+    #[test]
+    fn mux_rename_team_rejects_missing_caller() {
+        assert_eq!(
+            require_team_rename_caller(None).unwrap_err(),
+            "callerTabId is required to rename a Team"
+        );
+    }
+
+    #[test]
+    fn mux_rename_team_core_allows_orchestrator_and_planner() {
+        let (_dir, harness) = harness();
+        let (team_id, orchestrator, planner, _) = team_members(&harness);
+
+        let by_orchestrator = mux_rename_team_core(
+            &harness.service,
+            team_id.clone(),
+            "Orchestrated".into(),
+            Some(orchestrator),
+        )
+        .unwrap();
+        assert_eq!(by_orchestrator.name.as_deref(), Some("Orchestrated"));
+
+        let by_planner = mux_rename_team_core(
+            &harness.service,
+            team_id.clone(),
+            "Planned".into(),
+            Some(planner),
+        )
+        .unwrap();
+        assert_eq!(by_planner.name.as_deref(), Some("Planned"));
+        assert_eq!(
+            harness
+                .service
+                .mux
+                .read()
+                .get_team(&team_id)
+                .unwrap()
+                .name
+                .as_deref(),
+            Some("Planned")
+        );
+        std::mem::forget(harness);
+    }
+
+    #[test]
+    fn mux_rename_team_core_rejects_worker_and_foreign_pane() {
+        let (_dir, harness) = harness();
+        let (team_id, _, _, worker) = team_members(&harness);
+        let foreign = harness.service.mux.write().create_pane();
+
+        assert!(mux_rename_team_core(
+            &harness.service,
+            team_id.clone(),
+            "Denied worker".into(),
+            Some(worker),
+        )
+        .is_err());
+        assert!(mux_rename_team_core(
+            &harness.service,
+            team_id.clone(),
+            "Denied foreign".into(),
+            Some(foreign),
+        )
+        .is_err());
+        assert_eq!(
+            harness.service.mux.read().get_team(&team_id).unwrap().name,
+            None
+        );
+        std::mem::forget(harness);
+    }
+
+    #[test]
+    fn team_rename_emits_exactly_one_mux_state_changed() {
+        let (_dir, harness) = harness();
+        let (team_id, orchestrator, _, _) = team_members(&harness);
+        let mut events = harness.events.subscribe();
+
+        mux_rename_team_core(
+            &harness.service,
+            team_id,
+            "Renamed".into(),
+            Some(orchestrator),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            events.try_recv().unwrap().event,
+            SystemEvent::MuxStateChanged
+        ));
+        assert!(matches!(
+            events.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        ));
+        std::mem::forget(harness);
+    }
 }
 
 /// Move a tab from one workspace to another.

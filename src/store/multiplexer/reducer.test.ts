@@ -3,7 +3,7 @@
 
 import { reducer } from "./reducer";
 import { makeVirtualPickerTab, type ExtendedState } from "./tree";
-import type { MultiplexerState, Notification, Workspace, Pane, Tab } from "../../lib/types";
+import type { MultiplexerState, Notification, Workspace, Pane, Tab, Team } from "../../lib/types";
 import { TitleLevel } from "../../lib/types";
 
 let failures = 0;
@@ -24,6 +24,7 @@ function base(): ExtendedState {
   return {
     workspaces: [],
     panes: {},
+    teams: [],
     active_workspace_id: null,
     focused_pane_id: null,
     notifications: [],
@@ -46,11 +47,67 @@ function snap(generation: number, wsId: string): MultiplexerState {
   return {
     workspaces: [ws],
     panes: {},
+    teams: [],
     active_workspace_id: wsId,
     focused_pane_id: null,
     generation,
   };
 }
+
+function snapWithTeams(generation: number, teams: Team[]): MultiplexerState {
+  return {
+    ...snap(generation, "w-team"),
+    teams,
+  };
+}
+
+test("SET_STATE copies the exact incoming teams array", () => {
+  const teams: Team[] = [{
+    id: "team-1",
+    name: "Launch",
+    lifecycle: "forming",
+    created_at: 1,
+    workspace_id: "w-team",
+  }];
+  const next = reducer(base(), { type: "SET_STATE", state: snapWithTeams(1, teams) });
+  assert(next.teams === teams, "incoming teams array is retained exactly");
+});
+
+test("SET_STATE replaces teams on a higher generation without retaining removed entries", () => {
+  const initial = reducer(base(), {
+    type: "SET_STATE",
+    state: snapWithTeams(1, [
+      { id: "team-1", name: "Before rename", lifecycle: "forming", created_at: 1, workspace_id: "w-team" },
+      { id: "team-removed", name: "Removed", lifecycle: "active", created_at: 2, workspace_id: "w-team" },
+    ]),
+  });
+  const incoming: Team[] = [
+    { id: "team-1", name: "Renamed", lifecycle: "active", created_at: 1, workspace_id: "w-team" },
+  ];
+  const next = reducer(initial, { type: "SET_STATE", state: snapWithTeams(2, incoming) });
+  const teams = next.teams;
+  assert(teams === incoming, "higher generation replaces the complete teams registry");
+  assert(teams?.length === 1 && teams[0].name === "Renamed", "rename becomes observable and removed team stays absent");
+});
+
+test("SET_STATE rejects stale generations without resurrecting teams", () => {
+  const applied = reducer(base(), {
+    type: "SET_STATE",
+    state: snapWithTeams(2, [{ id: "team-1", name: "Current", lifecycle: "active", created_at: 1, workspace_id: "w-team" }]),
+  });
+  const after = reducer(applied, {
+    type: "SET_STATE",
+    state: snapWithTeams(1, [{ id: "team-stale", name: "Stale", lifecycle: "forming", created_at: 2, workspace_id: "w-team" }]),
+  });
+  assert(after === applied, "stale snapshot returns the applied state reference");
+  assert(after.teams[0].id === "team-1", "stale teams cannot resurrect");
+  const duplicate = reducer(after, {
+    type: "SET_STATE",
+    state: snapWithTeams(2, [{ id: "team-duplicate", name: "Duplicate", lifecycle: "forming", created_at: 3, workspace_id: "w-team" }]),
+  });
+  assert(duplicate === after, "duplicate snapshot returns the applied state reference");
+  assert(duplicate.teams[0].id === "team-1", "duplicate teams cannot overwrite the registry");
+});
 
 test("deleting a notification removes its history entry and active toast", () => {
   const item: Notification = {
