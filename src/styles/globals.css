@@ -1365,7 +1365,8 @@ button,
 }
 
 .sidebar-team-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
   min-width: 0;
   align-items: center;
   gap: 8px;
@@ -1433,10 +1434,12 @@ button,
 
 .sidebar-team-title-block {
   display: flex;
+  grid-column: 1 / -1;
+  grid-row: 2;
   min-width: 0;
-  flex: 1;
   flex-direction: column;
   line-height: 1.2;
+  container-type: inline-size;
 }
 
 .sidebar-team-name,
@@ -1608,20 +1611,8 @@ button,
   display: none;
 }
 
-/* 280px gives the full labels the header width otherwise occupied by fixed controls. */
-@container (max-width: 280px) {
-  .sidebar-team-header {
-    flex-wrap: wrap;
-  }
-
-  .sidebar-team-title-block {
-    flex-basis: 100%;
-    order: 2;
-  }
-}
-
-/* 240px is where the full labels no longer fit even in the dedicated tally row. */
-@container (max-width: 240px) {
+/* 150px is the title-row fit boundary for the measured full four-bucket tally. */
+@container (max-width: 150px) {
   .sidebar-team-readout {
     flex-wrap: wrap;
     gap: 4px;

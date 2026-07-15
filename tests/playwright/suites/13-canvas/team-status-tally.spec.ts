@@ -156,7 +156,7 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
 
     await setSidebarWidth(session, 220);
     const teamUnit = page.locator(`[data-testid="team-unit"][data-team-id="${created.team_id}"]`);
-    await assertTally(teamUnit, true);
+    await assertTally(teamUnit, false);
     await setSidebarWidth(session, 272);
     await assertTally(teamUnit, false);
     await setSidebarWidth(session, 160);
