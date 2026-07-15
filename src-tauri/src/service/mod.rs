@@ -65,8 +65,6 @@ pub(crate) use team::rename_team_core;
 #[cfg(test)]
 pub(crate) use team::rename_team_with_state_change;
 #[cfg(test)]
-pub(crate) mod test_support;
-#[cfg(test)]
 mod tests;
 pub mod tokens;
 pub mod transport;
@@ -106,7 +104,10 @@ pub use pane::{normalize_pane_description, MAX_PANE_DESCRIPTION_CHARS};
 pub use pane_budget::{evaluate_pane_budget, PaneBudgetLevel, PaneBudgetNotice};
 pub(crate) use team::TeamPlanError;
 pub(crate) use team::{AddTeamMemberParams, AddTeamMemberResult};
-pub(crate) use worker_identity::{persist_attempt_executor_identity, respawn_title_provenance};
+pub(crate) use worker_identity::{
+    persist_attempt_executor_identity, persist_attempt_executor_identity_for_mux,
+    respawn_title_provenance,
+};
 pub(crate) use worker_persona::WorkerPersonaReservations;
 
 /// Shared service context — all state needed for multiplexer operations.

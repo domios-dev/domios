@@ -7,12 +7,13 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::api::routes::{check_auth, AppState};
+use crate::multiplexer::commands::MuxState;
 use crate::plan::{
     AgentRef, IdentityProvenance, OrchestratorRef, TaskCompetitionMetadata, TaskLaneMetadata,
 };
 use crate::service::plan::task_attempts::TaskRespawnRequest;
 use crate::service::plan::{NewTask, TaskLaneUpdate};
-use crate::service::{persist_attempt_executor_identity, respawn_title_provenance};
+use crate::service::{persist_attempt_executor_identity_for_mux, respawn_title_provenance};
 
 use super::{
     emit_plan_changed, epoch_ms, optional_string_field, plan_err, text_err, PlanRouteResult,
@@ -36,22 +37,41 @@ fn record_respawn_attempt_and_persist_identity(
     now_ms: u64,
 ) -> Result<crate::service::plan::task_attempts::TaskAttemptCreated, crate::service::plan::PlanError>
 {
-    let created = state.svc.plan_store.record_task_respawn_attempt(
+    record_respawn_attempt_and_persist_identity_for(
+        &state.svc.plan_store,
+        &state.svc.mux,
+        planner_role_for_pane(state, pane_id).or(Some("worker")),
         plan_id,
         task_id,
         pane_id,
         draft,
-        planner_role_for_pane(state, pane_id).or(Some("worker")),
+        title,
         now_ms,
-    )?;
-    persist_attempt_executor_identity(
-        &state.svc.plan_store,
-        &state.svc,
+    )
+}
+
+fn record_respawn_attempt_and_persist_identity_for(
+    store: &crate::service::plan::PlanStore,
+    mux: &MuxState,
+    executor_role: Option<&str>,
+    plan_id: &str,
+    task_id: &str,
+    pane_id: &str,
+    draft: &crate::service::plan::task_attempts::TaskRespawnDraft,
+    title: &str,
+    now_ms: u64,
+) -> Result<crate::service::plan::task_attempts::TaskAttemptCreated, crate::service::plan::PlanError>
+{
+    let created = store.record_task_respawn_attempt(
         plan_id,
         task_id,
         pane_id,
-        title,
+        draft,
+        executor_role,
         now_ms,
+    )?;
+    persist_attempt_executor_identity_for_mux(
+        store, mux, plan_id, task_id, pane_id, title, now_ms,
     )?;
     Ok(created)
 }
@@ -613,14 +633,17 @@ pub async fn task_rm(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lock_hold::TimedRwLock;
+    use crate::multiplexer::state::MultiplexerState;
     use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
     use crate::service::plan::NewTask;
-    use crate::service::test_support::test_harness;
+    use std::sync::Arc;
     #[test]
     fn rest_respawn_persists_spawned_attempt_title_and_session() {
         let dir = tempfile::tempdir().unwrap();
-        let harness = test_harness(dir.path(), "test-provider");
-        let store = harness.service.plan_store.clone();
+        let store = crate::service::plan::PlanStore::new_for_test(dir.path());
+        let (mux_state, _) = MultiplexerState::new();
+        let mux = Arc::new(TimedRwLock::new("mux", mux_state));
         let mut plan = Plan::new(
             "Respawn".into(),
             dir.path().display().to_string(),
@@ -667,31 +690,12 @@ mod tests {
                 3,
             )
             .unwrap();
-        let ws = harness
-            .service
-            .mux
+        let ws = mux
             .write()
             .create_workspace("REST".into(), Some(dir.path().display().to_string()))
             .id;
-        let (_tab_id, pane_id) = harness.service.mux.write().create_tab(&ws).unwrap();
-        harness
-            .service
-            .set_agent_session_id(&pane_id, Some("rest-session".into()));
-
-        let state = AppState {
-            svc: harness.service.clone(),
-            cron: harness.cron.clone(),
-            cron_wake: harness.cron_wake.clone(),
-            api_port: 0,
-            update_state: harness.update.clone(),
-            config: harness.config.clone(),
-            mesh: harness.mesh.clone(),
-            keepawake: harness.keepawake.clone(),
-            resize_owner: harness.resize_owner.clone(),
-            test_clock: None,
-            events: harness.events.clone(),
-            web_dist: None,
-        };
+        let (_tab_id, pane_id) = mux.write().create_tab(&ws).unwrap();
+        mux.write().get_pane_mut(&pane_id).unwrap().agent_session_id = Some("rest-session".into());
         let draft = store
             .build_task_respawn_draft(
                 &plan.id,
@@ -706,8 +710,10 @@ mod tests {
                 },
             )
             .unwrap();
-        let persisted = record_respawn_attempt_and_persist_identity(
-            &state,
+        let persisted = record_respawn_attempt_and_persist_identity_for(
+            &store,
+            &mux,
+            Some("worker"),
             &plan.id,
             &task_id,
             &pane_id,
@@ -725,6 +731,5 @@ mod tests {
             .unwrap();
         assert_eq!(attempt.executor_title.as_deref(), Some("Exact User Title"));
         assert_eq!(attempt.session_id.as_deref(), Some("rest-session"));
-        std::mem::forget(harness);
     }
 }
