@@ -26,7 +26,6 @@ async function run() {
     "rename passes exact team id, name, and acting pane identity",
   );
   assert(actions.onAddTeamMember === undefined, "staffing is unsupported without a callable bridge");
-  assert(actions.onArchiveTeam === undefined, "archive is unsupported without a callable bridge");
 
   console.log("team actions tests passed");
 }

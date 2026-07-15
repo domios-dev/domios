@@ -6,7 +6,7 @@ use std::collections::HashSet;
 
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
-use crate::multiplexer::types::PaneBacking;
+use crate::multiplexer::types::{AgentRole, PaneBacking};
 
 fn ws_id(state: &MultiplexerState) -> String {
     state.list_workspaces()[0].id.clone()
@@ -37,6 +37,31 @@ fn close_tab_records_pane_into_history_with_backing() {
             session_id: "s1".into(),
         }
     );
+}
+
+#[test]
+fn close_tab_detaches_children_without_closing_them() {
+    let (mut state, orchestrator_id) = MultiplexerState::new();
+    let workspace_id = state.list_workspaces()[0].id.clone();
+    let orchestrator_tab = state.find_tab_for_pane(&orchestrator_id).unwrap();
+    state
+        .set_pane_role(&orchestrator_id, AgentRole::Orchestrator, None)
+        .unwrap();
+    let (_worker_tab, worker_id) = state.create_tab(&workspace_id).unwrap();
+    state
+        .set_pane_role(&worker_id, AgentRole::Worker, Some(&orchestrator_id))
+        .unwrap();
+    state
+        .get_pane_mut(&worker_id)
+        .unwrap()
+        .report_target_pane_id = Some(orchestrator_id.clone());
+
+    state.close_tab(&workspace_id, &orchestrator_tab).unwrap();
+
+    let worker = state.get_pane(&worker_id).expect("worker remains open");
+    assert_eq!(worker.parent_pane_id, None);
+    assert_eq!(worker.report_target_pane_id, None);
+    assert_eq!(worker.depth, 0);
 }
 
 #[test]

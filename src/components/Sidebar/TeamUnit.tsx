@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Archive, ChevronRight, Plus, Users } from "lucide-react";
+import { ChevronRight, ListTodo, LogOut } from "lucide-react";
 import type { Pane, ProviderDescriptor, Team } from "../../lib/types";
 import { TASK_STATUS_COLORS } from "../Canvas/settings";
 import type { Plan } from "../Canvas/types";
@@ -17,7 +17,7 @@ export interface SidebarTeamActions {
     providerId: string,
     parentPaneId: string | null,
   ) => void;
-  onArchiveTeam?: (teamId: string) => void | Promise<void>;
+  onCloseTeam?: (teamId: string) => void;
 }
 
 export interface TeamTaskBucket {
@@ -51,33 +51,28 @@ export function deriveTeamTaskBuckets(
 }
 
 export function donutBackground(buckets: readonly TeamTaskBucket[]): string {
-  const active = buckets.filter((bucket) => bucket.count > 0);
-  if (active.length === 0) return "color-mix(in srgb, var(--ct-fg) 14%, transparent)";
-  if (active.length === 1) return active[0].color;
-  const total = active.reduce((sum, bucket) => sum + bucket.count, 0);
-  let cursor = 0;
-  const stops = active.flatMap((bucket) => {
-    const start = (cursor / total) * 100;
-    cursor += bucket.count;
-    const end = (cursor / total) * 100;
-    return [`${bucket.color} ${start}%`, `${bucket.color} ${end}%`];
-  });
-  return `conic-gradient(${stops.join(", ")})`;
+  const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
+  const done = buckets.find((bucket) => bucket.key === "done")?.count ?? 0;
+  const progress = total === 0 ? 0 : (done / total) * 100;
+  const track = "color-mix(in srgb, var(--ct-fg) 14%, transparent)";
+  if (progress === 0) return track;
+  if (progress === 100) return "var(--ct-green)";
+  return `conic-gradient(var(--ct-green) 0% ${progress}%, ${track} ${progress}% 100%)`;
 }
 
 export function TeamDonut({ buckets }: { buckets: readonly TeamTaskBucket[] }) {
-  const activeSegments = buckets.filter((bucket) => bucket.count > 0).length;
+  const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
+  const done = buckets.find((bucket) => bucket.key === "done")?.count ?? 0;
   return (
     <span
       data-testid="team-donut"
-      data-segment-count={activeSegments}
+      data-progress={`${done}/${total}`}
       data-buckets={JSON.stringify(buckets)}
       className="sidebar-team-donut"
       style={{ background: donutBackground(buckets) }}
       aria-hidden
     >
       <span className="sidebar-team-donut-hole" />
-      <Users size={10} strokeWidth={1.7} className="sidebar-team-donut-icon" />
     </span>
   );
 }
@@ -86,9 +81,9 @@ interface TeamMenuProps {
   hasPlan: boolean;
   providers: ProviderDescriptor[];
   onRename?: () => void;
-  onOpenEffort: () => void;
+  onOpenEffort?: () => void;
   onAddMember?: (role: TeamMemberRole, providerId: string) => void;
-  onArchive?: () => void;
+  onCloseTeam: () => void;
 }
 
 function TeamMenu({
@@ -97,7 +92,7 @@ function TeamMenu({
   onRename,
   onOpenEffort,
   onAddMember,
-  onArchive,
+  onCloseTeam,
 }: TeamMenuProps) {
   const [open, setOpen] = useState(false);
   const [providerRole, setProviderRole] = useState<TeamMemberRole | null>(null);
@@ -172,20 +167,18 @@ function TeamMenu({
           ) : (
             <>
               {onRename && <button type="button" onClick={() => run(onRename)}>Rename</button>}
-              <button type="button" onClick={() => run(onOpenEffort)}>
-                {hasPlan ? "Open effort" : "Create effort"}
-              </button>
+              {hasPlan && onOpenEffort && (
+                <button type="button" onClick={() => run(onOpenEffort)}>Open effort</button>
+              )}
               {onAddMember && (["orchestrator", "planner", "worker"] as const).map((role) => (
                 <button type="button" key={role} onClick={() => setProviderRole(role)}>
                   Add {role} <ChevronRight size={11} className="ml-auto" />
                 </button>
               ))}
-              {onArchive && <>
-                <div className="sidebar-team-menu-separator" />
-                <button type="button" className="sidebar-team-menu-danger" onClick={() => run(onArchive)}>
-                  <Archive size={11} /> Archive
-                </button>
-              </>}
+              <div className="sidebar-team-menu-separator" />
+              <button type="button" className="sidebar-team-menu-danger" onClick={() => run(onCloseTeam)}>
+                <LogOut size={11} /> Close Team
+              </button>
             </>
           )}
         </div>,
@@ -208,7 +201,7 @@ export interface TeamUnitProps {
   onRenameTeam?: (teamId: string, name: string) => void | Promise<void>;
   onOpenEffort: (target: TeamEffortTarget) => void;
   onAddMember?: (role: TeamMemberRole, providerId: string) => void;
-  onArchiveTeam?: (teamId: string) => void | Promise<void>;
+  onCloseTeam: (teamId: string) => void;
 }
 
 export interface TeamEffortTarget {
@@ -230,7 +223,7 @@ export function TeamUnit({
   onRenameTeam,
   onOpenEffort,
   onAddMember,
-  onArchiveTeam,
+  onCloseTeam,
 }: TeamUnitProps) {
   const [expanded, setExpanded] = useState(true);
   const [workersExpanded, setWorkersExpanded] = useState(true);
@@ -275,11 +268,7 @@ export function TeamUnit({
         >
           <ChevronRight size={11} />
         </button>
-        {plan ? (
-          <TeamDonut buckets={buckets} />
-        ) : (
-          <Users data-testid="team-plain-glyph" size={18} className="sidebar-team-plain-glyph" />
-        )}
+        <TeamDonut buckets={buckets} />
         <span className="sidebar-team-title-block">
           {editing ? (
             <input
@@ -300,21 +289,30 @@ export function TeamUnit({
           ) : (
             <span data-testid="team-name" className="sidebar-team-name">{team.name?.trim() || "Team"}</span>
           )}
-          {expanded && plan && <span className="sidebar-team-effort">{plan.title}</span>}
         </span>
         {plan && <span className="sidebar-team-count">{done}/{total}</span>}
         <TeamMenu
           hasPlan={Boolean(plan)}
           providers={providers}
           onRename={onRenameTeam ? () => setEditing(true) : undefined}
-          onOpenEffort={() => onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan?.id })}
+          onOpenEffort={plan ? () => onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan.id }) : undefined}
           onAddMember={onAddMember}
-          onArchive={onArchiveTeam ? () => onArchiveTeam(team.id) : undefined}
+          onCloseTeam={() => onCloseTeam(team.id)}
         />
       </div>
       {expanded && (
         <div className="sidebar-team-body">
-          {plan ? (
+          {plan ? <>
+            <button
+              type="button"
+              data-testid="team-open-effort"
+              className="sidebar-team-effort-row"
+              onClick={() => onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan.id })}
+            >
+              <ListTodo size={13} />
+              <span>{plan.title}</span>
+              <span className="sidebar-team-effort-action">Open effort</span>
+            </button>
             <div data-testid="team-status-readout" className="sidebar-team-readout">
               {buckets.filter((bucket) => bucket.count > 0).map((bucket, index) => (
                 <span key={bucket.key} style={{ color: bucket.color }}>
@@ -323,10 +321,8 @@ export function TeamUnit({
                 </span>
               ))}
             </div>
-          ) : (
-            <button type="button" className="sidebar-team-no-plan" onClick={() => onOpenEffort({ teamId: team.id, managerPaneId: null })}>
-              <Plus size={11} /> No plan yet — create from ⋮
-            </button>
+          </> : (
+            <div data-testid="team-no-effort" className="sidebar-team-no-plan">No effort yet</div>
           )}
           {managerCount > 0 && (
             <div data-testid="managers-section" className="sidebar-team-section">

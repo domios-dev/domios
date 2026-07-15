@@ -1,7 +1,6 @@
 export interface TeamActions {
   onRenameTeam: (teamId: string, name: string) => Promise<void>;
   onAddTeamMember?: undefined;
-  onArchiveTeam?: undefined;
 }
 
 type Invoke = (command: string, args: Record<string, unknown>) => Promise<unknown>;

@@ -52,6 +52,7 @@ import { useStableSet } from "./canvasView/useStableSet";
 import { useCanvasFrameProbe } from "./canvasView/useCanvasFrameProbe";
 import { bumpCanvasChurn } from "./canvasChurn";
 import { PlanViewShell } from "./PlanViewShell";
+import { selectCanvasPlans } from "./canvasPlanSelection";
 import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "./planView/PlanFetchErrorState";
 import { planFetchShowsData } from "./planView/planViewFetchGate";
 import { revealAssignedAgentPane } from "./planRevealAgentPane";
@@ -878,6 +879,7 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
   const activeWs = state.workspaces.find((ws) => ws.id === state.active_workspace_id);
   const projectPath = activeWs?.cwd ?? null;
   const workspaceTarget = useCanvasWorkspaceTarget();
+  const requestedPlanId = planId ?? (mode === "workspace" ? workspaceTarget?.planId : undefined);
   const [allPlans, setAllPlans] = useState(false);
   // All-plans mode lifts the workspace filter: fetch with no project scope.
   const { plans: livePlans, loading, reconnecting, error, refetch } = useCanvasPlans(
@@ -888,9 +890,8 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
   const perfN = perfFixtureCount();
   const perfProfile = perfFixtureProfile();
   const useReal = realFixtureEnabled();
-  const plans = useMemo(
-    () =>
-      useReal
+  const plans = useMemo(() => {
+    const fixturePlans = useReal
         ? realFixturePlans()
         : perfProfile === "card-metadata"
           ? buildCardMetadataFixturePlans()
@@ -904,9 +905,9 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
             ? buildDoneHeavyPerfFixturePlans()
             : perfN > 0
               ? buildPerfFixturePlans(perfN)
-              : livePlans,
-    [useReal, perfProfile, perfN, livePlans],
-  );
+              : livePlans;
+    return selectCanvasPlans(livePlans, fixturePlans, requestedPlanId);
+  }, [useReal, perfProfile, perfN, livePlans, requestedPlanId]);
   // (the live-pane gate filters real plans correctly; this only feeds the demo plan).
   const panes = useMemo(() => {
     if (perfN <= 0 || useReal) return state.panes;
@@ -928,7 +929,7 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
       reconnecting={reconnecting}
       error={error}
       onRetry={refetch}
-      planId={planId}
+      planId={requestedPlanId}
       orchestratorPaneId={orchestratorPaneId}
       focusPaneId={focusPaneId}
       panes={panes}
