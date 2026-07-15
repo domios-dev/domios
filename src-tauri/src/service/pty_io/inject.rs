@@ -141,24 +141,35 @@ impl ServiceContext {
                         Err(HelperErr::Timeout(String::new()))
                     }
                 }
-                VerifySubmitStrategy::None => Ok(()),
+                VerifySubmitStrategy::None => Err(HelperErr::Timeout(
+                    self.screen_state
+                        .lock()
+                        .tail_text(pty_id, 8)
+                        .unwrap_or_default(),
+                )),
             };
             match res {
                 Ok(()) => true,
                 Err(HelperErr::PtyUnknown(id)) => {
                     return Err(InjectionError::PtyClosed { pty_id: id });
                 }
-                Err(HelperErr::Timeout(_)) => false,
+                Err(HelperErr::Timeout(screen_tail)) => {
+                    return Err(InjectionError::SubmitNeverConfirmed {
+                        waited: started.elapsed(),
+                        screen_tail,
+                    });
+                }
             }
         } else {
             false
         };
 
-        Ok(InjectionResult {
+        InjectionResult {
             bytes_written,
             echo_observed: false,
             submit_observed,
             elapsed: started.elapsed(),
-        })
+        }
+        .require_submission(opts.verify_submit, started.elapsed(), String::new())
     }
 }

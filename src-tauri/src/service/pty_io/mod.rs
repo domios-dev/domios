@@ -4,12 +4,14 @@ use serde::Deserialize;
 pub(crate) const SHELL_BACKEND_COLS: u16 = 120;
 pub(crate) const SEND_AGENT_BACKEND_COLS: u16 = 240;
 
+mod actions;
 mod batch;
 mod inject;
 mod lifecycle;
 mod send;
-mod submit_transaction;
+pub(crate) mod submit_transaction;
 
+pub(crate) use actions::{await_action_deadline, execute_ordered_actions, OrderedPtyAction};
 #[cfg(test)]
 pub(crate) use lifecycle::{active_pane_lane_base, pane_task_env};
 pub(crate) use send::build_spawn_dispatch;
