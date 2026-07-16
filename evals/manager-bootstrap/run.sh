@@ -5,6 +5,8 @@ source "$ROOT/evals/_lib/lib.sh"
 CREATED=()
 TEAM_ID=""
 WORKER=""
+first_assistant() { python -c 'import json,sys;d=json.load(sys.stdin);ms=d.get("messages",d if isinstance(d,list) else []);print(next((str(m.get("content",m.get("text",""))) for m in ms if str(m.get("role",m.get("author",""))).lower()=="assistant"),""))'; }
+await_first() { local pane="$1" end=$((SECONDS+45)) out; while [ "$SECONDS" -lt "$end" ]; do out="$(dc pane chat --pane "$pane" --json | first_assistant)"; [ -n "$out" ] && { printf '%s' "$out"; return; }; sleep 1; done; echo "timeout first assistant $pane" >&2; return 1; }
 cleanup() {
   [ -z "$TEAM_ID" ] || dc team close "$TEAM_ID" --json >/dev/null 2>&1 || true
   for pane in "${CREATED[@]:-}"; do dc pane close "$pane" >/dev/null 2>&1 || true; done
@@ -27,20 +29,20 @@ STAFF=$(python -c 'import json,sys;print(json.dumps({"provider":sys.argv[1],"rol
 STAFFED=$(dev_post_as_pane "$ORCH" "/api/teams/$TEAM_ID/members" "$STAFF" | python -c 'import json,sys;d=json.load(sys.stdin);print(d.get("pane_id", d.get("member",{}).get("pane_id","")))')
 CREATED+=("$STAFFED")
 dc pane send --pane "$STAFFED" "Who are you? What team and project are you in?" >/dev/null
-dc pane chat --pane "$STAFFED" --json | python -c 'import json,sys;assert "manager-bootstrap-eval" in str(json.load(sys.stdin))'
+STAFF_REPLY="$(await_first "$STAFFED")"; [[ "$STAFF_REPLY" == *Planner* && "$STAFF_REPLY" == *manager-bootstrap-eval* && "$STAFF_REPLY" == *"$TEAM_ID"* ]]
 for pane in "$ORCH" "$PLANNER"; do
   dc pane send --pane "$pane" "Who are you? What team and project are you in?" >/dev/null
-  dc pane chat --pane "$pane" --json | python -c 'import json,sys;d=json.load(sys.stdin);s=str(d);assert ("Orchestrator" in s or "Planner" in s) and "manager-bootstrap-eval" in s and "not yet established" in s'
+  REPLY="$(await_first "$pane")"; [[ "$REPLY" == *manager-bootstrap-eval* && "$REPLY" == *"not yet established"* ]]; case "$pane" in "$ORCH") [[ "$REPLY" == *Orchestrator* ]];; *) [[ "$REPLY" == *Planner* ]];; esac
 done
 WORKER=$(dc agent spawn "$SYSTEM" --role Worker --parent "$ORCH" --workspace "$WS" --cwd "$ROOT" --title "manager-bootstrap-worker" --json | python -c 'import json,sys;print(json.load(sys.stdin).get("pane_id", ""))')
 CREATED+=("$WORKER")
 dc pane send --pane "$WORKER" "Who are you?" >/dev/null
-dc pane chat --pane "$WORKER" --json | python -c 'import json,sys; assert "Worker" in str(json.load(sys.stdin))'
+[[ "$(await_first "$WORKER")" == *Worker* ]]
 if [ -n "$FALLBACK" ]; then
   FALLBACK_PANE=$(dc agent spawn "$FALLBACK" --role Orchestrator --workspace "$WS" --cwd "$ROOT" --title "manager-bootstrap-fallback" --json | python -c 'import json,sys;print(json.load(sys.stdin).get("pane_id", ""))')
   CREATED+=("$FALLBACK_PANE")
   dc pane send --pane "$FALLBACK_PANE" "Who are you?" >/dev/null
-  dc pane chat --pane "$FALLBACK_PANE" --json | python -c 'import json,sys;assert "Orchestrator" in str(json.load(sys.stdin))'
+  [[ "$(await_first "$FALLBACK_PANE")" == *Orchestrator* ]]
 else
   echo "SKIP: no fallback-capable provider"
 fi
