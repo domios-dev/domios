@@ -2,9 +2,9 @@
  * WHAT: real-provider template routes launch their declared agent surfaces:
  *       orchestration pair and a single agent.
  * WHY: golden uses the replay transport, so it cannot catch a provider launch
- *      that falls back to a bare shell or loses startup messages/follow-ups.
+ *      that falls back to a bare shell or starts work without instructions.
  * ORACLE: every returned pane gains a live PTY/session and its first chat
- *         message; the pair also receives its exact Planner follow-up.
+ *         message; a taskless pair becomes idle without an automatic follow-up.
  */
 import { expect, test } from "../../helpers/fixtures";
 import { pollUntil } from "../../helpers/poll";
@@ -37,7 +37,7 @@ async function paneText(api: ApiClient, paneId: string): Promise<string> {
   return typeof text === "string" ? text : (text.text ?? JSON.stringify(text));
 }
 
-test("@live real orchestration-pair template spawn materializes both providers and delivers its follow-up", async ({
+test("@live real orchestration-pair template spawn materializes both providers and waits idle", async ({
   api,
   ui,
   paneCleanup,
@@ -73,23 +73,34 @@ test("@live real orchestration-pair template spawn materializes both providers a
     { paneId: pair.planner_pane_id, provider: "claude", label: "Planner" },
   ]);
 
-  const followup = `Your Planner specialist is live: pane ${pair.planner_pane_id}`;
-  const orchestratorText = await pollUntil(
-    async () => {
-      const text = await paneText(api, pair.orchestrator_pane_id);
-      return text.includes(followup) ? text : undefined;
-    },
-    60_000,
-    500,
-    "pair follow-up reaches the launched Orchestrator PTY",
-  );
-  expect(orchestratorText).toContain(followup);
-
   const plannerStatus = await api.get<Record<string, unknown>>(
     `/panes/${pair.planner_pane_id}/status`,
   );
   expect(plannerStatus.parent_pane_id).toBe(pair.orchestrator_pane_id);
   expect(plannerStatus.role).toBe("Manager");
+
+  for (const paneId of [pair.orchestrator_pane_id, pair.planner_pane_id]) {
+    await expect
+      .poll(
+        async () => {
+          const status = await api.get<Record<string, unknown>>(
+            `/panes/${paneId}/status`,
+          );
+          return status.status;
+        },
+        {
+          timeout: 30_000,
+          intervals: [250, 500, 1_000],
+          message: `taskless manager ${paneId} becomes idle`,
+        },
+      )
+      .toBe("Idle");
+  }
+
+  const orchestratorText = await paneText(api, pair.orchestrator_pane_id);
+  expect(orchestratorText).not.toContain(
+    `Your Planner specialist is live: pane ${pair.planner_pane_id}`,
+  );
 });
 
 test("@live real single-agent template spawn materializes a provider and its first chat message", async ({
