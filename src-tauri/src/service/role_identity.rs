@@ -54,6 +54,10 @@ pub(crate) fn compose_role_identity(context: RoleIdentityContext<'_>) -> String 
 mod tests {
     use super::*;
 
+    fn golden(text: &str) -> String {
+        text.replace("\r\n", "\n")
+    }
+
     #[test]
     fn shared_builder_reminder_output_byte_identical() {
         let fixtures = [
@@ -145,7 +149,9 @@ mod tests {
         });
         assert_eq!(
             rendered,
-            include_str!("fixtures/role_identity/orchestrator.golden.md")
+            golden(include_str!(
+                "fixtures/role_identity/orchestrator.golden.md"
+            ))
         );
     }
 
@@ -161,7 +167,7 @@ mod tests {
         });
         assert_eq!(
             rendered,
-            include_str!("fixtures/role_identity/planner.golden.md")
+            golden(include_str!("fixtures/role_identity/planner.golden.md"))
         );
     }
 
@@ -177,7 +183,9 @@ mod tests {
         });
         assert_eq!(
             rendered,
-            include_str!("fixtures/role_identity/worker_baseline.golden.md")
+            golden(include_str!(
+                "fixtures/role_identity/worker_baseline.golden.md"
+            ))
         );
     }
 }
