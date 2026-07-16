@@ -29,10 +29,25 @@ export const CDP_BASE = DEFAULT_INSTANCE.cdpBase;
 export const WEB_URL = DEFAULT_INSTANCE.webUrl;
 const WEB_MODE = process.env.CT_E2E_WEB_MODE === "1";
 const WEB_UI_READY_TIMEOUT_MS = 90_000;
+const STOP_VERIFY_TIMEOUT_MS = process.platform === "win32" ? 30_000 : 15_000;
 
 export const REPO_ROOT = process.env.CT_E2E_DEV_ROOT
   ? path.resolve(process.env.CT_E2E_DEV_ROOT)
   : path.resolve(__dirname, "..", "..", "..");
+
+export function emitDevConsoleProgress(phase: string, detail: string): void {
+  console.log(`[dev-console] ${phase}: ${detail}`);
+}
+
+function progress(phase: string, detail: string): void {
+  emitDevConsoleProgress(phase, detail);
+}
+
+export function nonAdoptableCdpError(instance: DevInstance): Error {
+  return new Error(
+    `healthy Playwright dev instance lacks the CDP endpoint at ${instance.cdpBase}; do not run Playwright against this manually started dev. Stop it and rerun via the Playwright harness, or expose WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=${instance.cdpPort}.`,
+  );
+}
 
 export async function isHealthy(instance = currentDevInstance()): Promise<boolean> {
   try {
@@ -78,6 +93,7 @@ export async function isWebUiReady(instance = currentDevInstance()): Promise<boo
 }
 
 async function waitForWebUi(instance: DevInstance): Promise<boolean> {
+  progress("web-ui readiness", `waiting for ${instance.webUrl} (deadline ${WEB_UI_READY_TIMEOUT_MS}ms)`);
   const deadline = Date.now() + WEB_UI_READY_TIMEOUT_MS;
   do {
     if (await isWebUiReady(instance)) return true;
@@ -135,13 +151,11 @@ function bash(instance: DevInstance, args: string[], timeoutMs: number): void {
 }
 
 export function killDevConsole(instance = currentDevInstance()): void {
-  // A failing kill must not abort setup: on a fresh/CI runner there is nothing
-  // to kill, and Windows process enumeration can EPERM on the protected
-  // %USERPROFILE%\AppData junction. killDevLeftovers + `dev --wait` recover.
+  progress("kill", `stopping Playwright instance ${instance.name || "default"}`);
   try {
     bash(instance, ["build.sh", "kill"], 60_000);
   } catch (e) {
-    console.warn(`[dev-console] build.sh kill failed (continuing): ${e}`);
+    throw new Error(`build.sh kill failed for Playwright instance ${instance.name || "default"}: ${e}`);
   }
   killDevLeftovers(instance);
 }
@@ -164,8 +178,8 @@ function killDevLeftovers(instance: DevInstance): void {
         stdio: "inherit",
       },
     );
-  } catch {
-    /* best effort — the dev --wait retry decides success */
+  } catch (error) {
+    throw new Error(`Windows cleanup failed for Playwright instance ${instance.name}: ${error}`);
   }
 }
 
@@ -239,12 +253,38 @@ function dumpBuildGatewayLogs(reason: string): void {
  */
 export async function ensureDevConsole(instance = currentDevInstance()): Promise<void> {
   const usesWebUi = WEB_MODE || process.platform !== "win32";
+  progress("health probe", `checking ${instance.apiBase}/api/health`);
   if (await isHealthy(instance)) {
-    if (usesWebUi && (await waitForWebUi(instance))) return;
-    if (!usesWebUi && (await isCdpUp(instance)) && (await isCdpAppReady(instance))) return;
+    progress("health probe", "matching Playwright dev instance is healthy");
+    if (usesWebUi) {
+      progress("web-ui probe", `checking ${instance.webUrl}`);
+      if (await waitForWebUi(instance)) {
+        progress("adopt", "reusing healthy dev instance via web UI");
+        return;
+      }
+      throw new Error(
+        `healthy Playwright dev instance has no ready web UI at ${instance.webUrl}; restart it through the Playwright harness`,
+      );
+    }
+    progress("CDP probe", `checking ${instance.cdpBase}/json/version`);
+    if (await isCdpUp(instance)) {
+      progress("CDP app readiness", "checking the WebView2 document");
+      if (await isCdpAppReady(instance)) {
+        progress("adopt", "reusing healthy dev instance via CDP");
+        return;
+      }
+      throw new Error(
+        `healthy Playwright dev instance exposes CDP at ${instance.cdpBase}, but its app is not ready; restart it through the Playwright harness`,
+      );
+    }
+    throw nonAdoptableCdpError(instance);
   }
+  progress("health probe", "no adoptable healthy instance found; preparing a fresh start");
   killDevConsole(instance);
+  await assertDevConsoleStopped(instance);
+  progress("spawn guard", "all Playwright instance listeners are verified free");
   try {
+    progress("dev --wait", "starting build.sh dev --wait (deadline 600000ms)");
     bash(instance, devStartArgs(), 600_000);
   } catch (first) {
     dumpBuildGatewayLogs(`first ./build.sh dev --wait failed: ${first}`);
@@ -252,12 +292,15 @@ export async function ensureDevConsole(instance = currentDevInstance()): Promise
     // locking the binary, vite squatting 1420) — sweep and retry once.
     killDevLeftovers(instance);
     try {
+      await assertDevConsoleStopped(instance);
+      progress("dev --wait", "retrying build.sh dev --wait after verified cleanup (deadline 600000ms)");
       bash(instance, devStartArgs(), 600_000);
     } catch (second) {
       dumpBuildGatewayLogs(`second ./build.sh dev --wait failed: ${second}`);
       throw second;
     }
   }
+  progress("post-start health probe", `checking ${instance.apiBase}/api/health`);
   if (!(await isHealthy(instance))) {
     throw new Error("dev console did not become healthy after ./build.sh dev --wait");
   }
@@ -267,6 +310,7 @@ export async function ensureDevConsole(instance = currentDevInstance()): Promise
       `dev console is healthy but web UI (${instance.webUrl}) did not become ready`,
     );
   }
+  progress("post-start CDP readiness", `waiting for ${instance.cdpBase}`);
   for (let i = 0; i < 20; i++) {
     if ((await isCdpUp(instance)) && (await isCdpAppReady(instance))) return;
     await new Promise((r) => setTimeout(r, 500));
@@ -473,14 +517,23 @@ function residualOwnedProcessIds(instance: DevInstance): number[] {
   return plan.selected_processes ?? [];
 }
 
-export async function assertDevConsoleStopped(instance: DevInstance): Promise<void> {
+export async function assertDevConsoleStopped(
+  instance: DevInstance,
+  timeoutMs = STOP_VERIFY_TIMEOUT_MS,
+): Promise<void> {
   const ports = devInstanceTeardownPorts(instance);
-  const deadline = Date.now() + (process.platform === "win32" ? 30_000 : 15_000);
+  const deadline = Date.now() + timeoutMs;
+  progress("kill verification", `checking listeners [${ports.join(", ")}] (deadline ${timeoutMs}ms)`);
+  let nextProgressAt = Date.now() + 3_000;
   while (Date.now() <= deadline) {
     if (
       (await Promise.all(ports.map(portIsFree))).every(Boolean) &&
       residualOwnedProcessIds(instance).length === 0
     ) return;
+    if (Date.now() >= nextProgressAt) {
+      progress("kill verification", "listeners or owned processes remain; awaiting release");
+      nextProgressAt = Date.now() + 3_000;
+    }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   const occupied = [];
@@ -488,6 +541,7 @@ export async function assertDevConsoleStopped(instance: DevInstance): Promise<vo
     if (!(await portIsFree(port))) occupied.push(port);
   }
   const processes = residualOwnedProcessIds(instance);
+  progress("kill verification", `failed: listeners [${occupied.join(", ")}], processes [${processes.join(", ")}]`);
   throw new Error(
     `Playwright instance ${instance.name || "default"} leaked listeners [${occupied.join(", ")}] or processes [${processes.join(", ")}]`,
   );
