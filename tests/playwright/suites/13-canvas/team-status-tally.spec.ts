@@ -284,7 +284,7 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     await page.mouse.move(500, 500);
     await expect(menuTrigger).toHaveCSS("opacity", "1");
     await expect(menuTrigger).toHaveCSS("pointer-events", "auto");
-    await page.getByTestId("terminal-pane").click({ position: { x: 10, y: 10 } });
+    await page.locator(`[data-testid="terminal-pane"][data-pane-id="${pane.id}"]:visible`).click({ position: { x: 10, y: 10 } });
     await expect(header).toHaveAttribute("data-menu-dismissed", "true");
     await expect(menuTrigger).toHaveCSS("opacity", "0");
     await expect(teamUnit.getByTestId("team-done-count")).toHaveCSS("opacity", "1");
