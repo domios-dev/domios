@@ -221,6 +221,7 @@ pub async fn resume_session_api(
         plan_id: None,
         can_spawn: None,
         task: None,
+        starter_prompt: Default::default(),
         task_id: None,
         plan_task: None,
         allow_shared_checkout: None,

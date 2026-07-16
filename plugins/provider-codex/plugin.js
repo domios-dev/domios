@@ -609,7 +609,11 @@ var OUTPUT_FINGERPRINTS = [
   "codex>"
 ];
 var TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
-var TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
+var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
+var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+function starterPrompt(params) {
+  return params.starterPrompt === "idle_wakeup" ? IDLE_WAKEUP_START_PROMPT : ASSIGNED_TASK_START_PROMPT;
+}
 var plugin = {
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));
@@ -695,7 +699,7 @@ var plugin = {
         parts.push(`"developer_instructions=$(cat ${quotedPath})"`);
       }
       parts.push("--");
-      parts.push(host.shell.quoteFor(TASK_START_PROMPT, host.platform()));
+      parts.push(host.shell.quoteFor(starterPrompt(p), host.platform()));
       if (host.platform() === "windows") {
         return prefix + parts.join(" ") + " } finally { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue }";
       }

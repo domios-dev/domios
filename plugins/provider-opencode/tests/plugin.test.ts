@@ -115,6 +115,9 @@ console.log("\n--- discoverModels ---\n");
   assert(launch.includes("C:\\\\Temp\\\\opencode task.md"), "OpenCode config references the task file");
   assert(launch.includes("--prompt 'Execute the assigned task."), "OpenCode starts the assigned turn inline");
   assert(!launch.includes("<location>") && !launch.includes("whoami") && !launch.includes("юникод"), "OpenCode task body is absent from the launch command");
+  const idle = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "idle_wakeup" });
+  assert(idle.includes("You are a newly started agent. Wait for instructions from the user or your orchestration parent."), "OpenCode uses the non-actionable idle wake-up starter");
+  assert(!idle.includes("Execute the assigned task."), "OpenCode idle launch never uses the task starter");
 }
 
 {

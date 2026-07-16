@@ -108,6 +108,8 @@ pub struct SpawnAgentParams {
     pub plan_id: Option<String>,
     pub can_spawn: Option<bool>,
     pub task: Option<String>,
+    #[serde(default, skip)]
+    pub(crate) starter_prompt: crate::agent::provider::StarterPrompt,
     /// Bound task id (CODETERM_TASK_ID) — the shared-checkout exception stride
     /// lands here when `--allow-shared-checkout` is used.
     pub task_id: Option<String>,

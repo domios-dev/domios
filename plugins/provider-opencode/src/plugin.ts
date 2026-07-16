@@ -17,7 +17,12 @@ const OUTPUT_SIGNALS = [
   "╹",
 ];
 const TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
-const TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
+const ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
+const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+
+function starterPrompt(params: LaunchParams): string {
+  return params.starterPrompt === "idle_wakeup" ? IDLE_WAKEUP_START_PROMPT : ASSIGNED_TASK_START_PROMPT;
+}
 const QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 const QUESTION_MENU_SELECTORS = [">", "❯", "▶", "➤", "→", "●"];
 const PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
@@ -151,7 +156,7 @@ const plugin: PluginModule = {
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
     if (p.task) {
-      parts.push("--prompt", host.shell.quoteFor(TASK_START_PROMPT, host.platform()));
+      parts.push("--prompt", host.shell.quoteFor(starterPrompt(p), host.platform()));
     }
     return parts.join(" ");
   },

@@ -14,6 +14,16 @@ pub(crate) enum LaunchDeliveryMode {
     ConfirmedFallback,
 }
 
+pub(crate) fn starter_prompt_for_assignment(
+    has_concrete_assignment: bool,
+) -> crate::agent::provider::StarterPrompt {
+    if has_concrete_assignment {
+        crate::agent::provider::StarterPrompt::AssignedTask
+    } else {
+        crate::agent::provider::StarterPrompt::IdleWakeup
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LaunchContent {
     pub system_prompt: Option<String>,
@@ -300,6 +310,34 @@ mod tests {
         assert_eq!(
             mode_for_descriptor(&SystemPromptDelivery::CliFlag("--system".into())),
             LaunchDeliveryMode::SystemPrompt
+        );
+    }
+
+    #[test]
+    fn no_task_manager_starter_is_idle_only() {
+        let starter = starter_prompt_for_assignment(false);
+        assert_eq!(starter.text(), "You are a newly started agent. Wait for instructions from the user or your orchestration parent.");
+        for forbidden in ["execute", "scan", "plan", "tool"] {
+            assert!(!starter.text().to_ascii_lowercase().contains(forbidden));
+        }
+        let identity = crate::service::role_identity::ManagerBootstrapInputs {
+            role: "Orchestrator".into(),
+            team_id: "not yet established".into(),
+            team_name: "not yet established".into(),
+            plan_id: "no plan bound yet".into(),
+            project: "Idle Starter Fixture".into(),
+        }
+        .compose();
+        assert!(identity.contains("Orchestrator"));
+        assert!(identity.contains("Idle Starter Fixture"));
+        assert!(identity.contains("no plan bound yet"));
+    }
+
+    #[test]
+    fn task_bound_worker_starter_unchanged() {
+        assert_eq!(
+            starter_prompt_for_assignment(true).text(),
+            "Execute the assigned task. Follow the provided developer instructions."
         );
     }
 

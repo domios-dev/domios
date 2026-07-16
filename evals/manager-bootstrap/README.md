@@ -13,6 +13,11 @@ honest unbound or Team context, verifies the worker control probe is unchanged,
 then removes every created pane and Team. System-prompt and fallback fixtures
 are recorded separately when the configured providers expose both capabilities.
 
+The offline shape suite records the distinction matrix: no-task managers use
+the idle wake-up starter, task-bound workers retain their provider starter, and
+equal inbound messages with distinct ids remain distinct (rendering identity is
+owned by task_ossj98).
+
 Do not run while dev 7686 is stopped or its health build differs from `HEAD`.
 
 ## JSON contracts and fixtures

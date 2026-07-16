@@ -116,6 +116,9 @@ console.log("\n--- task instructions launch ---\n");
   assert(cmd.includes("finally { Remove-Item -LiteralPath $ctProfilePath"), "Windows removes the temporary profile on exit");
   assert(!cmd.includes('-c ("developer_instructions=" +'), "Windows never expands multiline task text inline in the native call");
   assert(!cmd.includes("<location>") && !cmd.includes("whoami") && !cmd.includes("юникод"), "task body is absent from the launch command");
+  const idle = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "idle_wakeup" });
+  assert(idle.includes("You are a newly started agent. Wait for instructions from the user or your orchestration parent."), "idle launch uses the non-actionable wake-up starter");
+  assert(!idle.includes("Execute the assigned task."), "idle launch never uses the task starter");
 }
 
 console.log("\n--- meta ---\n");
