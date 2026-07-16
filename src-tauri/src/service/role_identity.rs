@@ -36,13 +36,17 @@ impl ManagerBootstrapInputs {
 }
 
 pub(crate) fn compose_role_identity(context: RoleIdentityContext<'_>) -> String {
-    crate::prompts::MANAGER_BOOTSTRAP_TEMPLATE
-        .replace("{role}", context.role)
-        .replace("{team_id}", context.team_id)
-        .replace("{team_name}", context.team_name)
-        .replace("{plan_id}", context.plan_id)
-        .replace("{project}", context.project)
-        .replace("{role_guidance}", context.role_guidance)
+    codeterm_types::agent::role_identity::render_template(
+        crate::prompts::MANAGER_BOOTSTRAP_TEMPLATE,
+        &[
+            ("{role}", context.role),
+            ("{team_id}", context.team_id),
+            ("{team_name}", context.team_name),
+            ("{plan_id}", context.plan_id),
+            ("{project}", context.project),
+            ("{role_guidance}", context.role_guidance),
+        ],
+    )
 }
 
 #[cfg(test)]
