@@ -122,6 +122,65 @@ impl PlanStore {
         })
     }
 
+    /// Detach every plan bound to a closed team. Active work is parked in the
+    /// same plan write; paused, complete, and archived plans only lose the stale binding.
+    pub fn detach_and_park_team_plans(
+        &self,
+        team_id: &str,
+        now_ms: u64,
+    ) -> Result<Vec<String>, PlanError> {
+        let _team_plan_guard = self.team_plan_lock.lock();
+        self.detach_and_park_matching_team_plans(|bound_team_id| bound_team_id == team_id, now_ms)
+    }
+
+    /// Repair bindings whose team no longer exists. The caller supplies the
+    /// authoritative mux team ids so this crate stays independent of mux state.
+    pub fn detach_and_park_dangling_team_plans(
+        &self,
+        live_team_ids: &std::collections::BTreeSet<String>,
+        now_ms: u64,
+    ) -> Result<Vec<String>, PlanError> {
+        let _team_plan_guard = self.team_plan_lock.lock();
+        self.detach_and_park_matching_team_plans(
+            |bound_team_id| !live_team_ids.contains(bound_team_id),
+            now_ms,
+        )
+    }
+
+    fn detach_and_park_matching_team_plans<F>(
+        &self,
+        matches_team: F,
+        now_ms: u64,
+    ) -> Result<Vec<String>, PlanError>
+    where
+        F: Fn(&str) -> bool,
+    {
+        let mut plan_ids: Vec<_> = self
+            .list_full()
+            .into_iter()
+            .filter_map(|plan| {
+                plan.team_id
+                    .as_deref()
+                    .filter(|team_id| matches_team(team_id))
+                    .map(|_| plan.id)
+            })
+            .collect();
+        plan_ids.sort();
+        for plan_id in &plan_ids {
+            self.with_plan(plan_id, now_ms, |plan| {
+                plan.team_id = None;
+                if plan.status == PlanStatus::Active
+                    && !matches!(plan.mode, PlanMode::Paused | PlanMode::Complete)
+                {
+                    plan.paused_from_mode = Some(plan.mode.clone());
+                    plan.mode = PlanMode::Paused;
+                }
+                Ok(())
+            })?;
+        }
+        Ok(plan_ids)
+    }
+
     pub fn update_plan(
         &self,
         plan_id: &str,
@@ -860,7 +919,7 @@ mod planning_state_tests {
 mod team_binding_tests {
     use std::sync::{Arc, Barrier};
 
-    use crate::plan::OrchestratorRef;
+    use crate::plan::{OrchestratorRef, PlanMode, PlanStatus};
     use crate::service_plan::{PlanError, PlanStore};
     use tempfile::TempDir;
 
@@ -915,6 +974,57 @@ mod team_binding_tests {
             .find(|e| e.plan_id == plan.id)
             .unwrap();
         assert_eq!(entry.team_id.as_deref(), Some("team_alpha"));
+    }
+
+    #[test]
+    fn detach_and_park_bound_plan_is_resumable_and_rebindable() {
+        let (dir, s) = store();
+        let plan = create(&s, &dir, "Bound", Some("team_closed"), 1).unwrap();
+
+        assert_eq!(
+            s.detach_and_park_team_plans("team_closed", 2).unwrap(),
+            vec![plan.id.clone()]
+        );
+        let parked = s.get(&plan.id).unwrap();
+        assert_eq!(parked.team_id, None);
+        assert_eq!(parked.mode, PlanMode::Paused);
+
+        assert_eq!(s.resume_plan(&plan.id, 3).unwrap(), PlanMode::Planning);
+        let rebound = s.bind_plan_to_team(&plan.id, "team_new", 4).unwrap();
+        assert_eq!(rebound.team_id.as_deref(), Some("team_new"));
+        assert_eq!(rebound.mode, PlanMode::Planning);
+    }
+
+    #[test]
+    fn dangling_team_reconciliation_only_detaches_parked_done_and_archived_plans() {
+        let (dir, s) = store();
+        let parked = create(&s, &dir, "Parked", Some("team_missing"), 1).unwrap();
+        s.set_mode(&parked.id, PlanMode::Paused, 2).unwrap();
+        let done = create(&s, &dir, "Done", Some("team_done"), 3).unwrap();
+        s.set_mode(&done.id, PlanMode::Complete, 4).unwrap();
+        let archived = create(&s, &dir, "Archived", Some("team_archived"), 5).unwrap();
+        s.update_plan(&archived.id, None, Some(PlanStatus::Archived), None, 6)
+            .unwrap();
+        let healthy = create(&s, &dir, "Healthy", Some("team_live"), 7).unwrap();
+        let live = std::collections::BTreeSet::from(["team_live".to_string()]);
+
+        let mut expected = vec![archived.id.clone(), done.id.clone(), parked.id.clone()];
+        expected.sort();
+        assert_eq!(
+            s.detach_and_park_dangling_team_plans(&live, 8).unwrap(),
+            expected
+        );
+        assert_eq!(s.get(&parked.id).unwrap().mode, PlanMode::Paused);
+        assert_eq!(s.get(&done.id).unwrap().mode, PlanMode::Complete);
+        assert_eq!(s.get(&archived.id).unwrap().status, PlanStatus::Archived);
+        assert_eq!(
+            s.get(&healthy.id).unwrap().team_id.as_deref(),
+            Some("team_live")
+        );
+        assert!(s
+            .detach_and_park_dangling_team_plans(&live, 9)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
