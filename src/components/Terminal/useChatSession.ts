@@ -169,13 +169,14 @@ function applyChatMsgEvent(
   paneId: string,
   setStructured: Dispatch<SetStateAction<ChatMessage[] | null>>,
   nextOrder: () => number,
+  sourceSessionId: string | null = null,
 ): void {
   if (payload.pane_id !== paneId) return;
   if (!payload.messages.length) return;
   startTransition(() => {
     setStructured((prev) => {
       const existing = prev ?? [];
-      return mergeById(existing, withPreservedClientOrder(payload.messages, existing, nextOrder));
+      return mergeById(existing, withPreservedClientOrder(payload.messages, existing, nextOrder, sourceSessionId));
     });
   });
 }
@@ -211,11 +212,14 @@ function withPreservedClientOrder(
   messages: ChatMessage[],
   previous: ChatMessage[],
   nextOrder: () => number,
+  sourceSessionId: string | null = null,
 ): ChatMessage[] {
   const orders = new Map(previous.map((message) => [message.id, message.clientOrder]));
   return messages.map((message) => {
     const clientOrder = message.clientOrder ?? orders.get(message.id) ?? nextOrder();
-    return message.clientOrder === clientOrder ? message : { ...message, clientOrder };
+    const sessionId = message.sourceSessionId ?? sourceSessionId ?? undefined;
+    if (message.clientOrder === clientOrder && message.sourceSessionId === sessionId) return message;
+    return { ...message, clientOrder, sourceSessionId: sessionId };
   });
 }
 
@@ -256,6 +260,7 @@ export function useChatSession({
   const nextClientOrderRef = useRef(0);
   const activeRef = useRef(active);
   const agentSessionIdRef = useRef(agentSessionId);
+  const attachmentSourceSessionIdRef = useRef(agentSessionId);
   const previousSessionIdRef = useRef(agentSessionId);
   const rotationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lifecycleRef = useRef(0);
@@ -287,6 +292,11 @@ export function useChatSession({
   }, []);
 
   const requestAttach = useCallback(() => {
+    const nextSessionId = agentSessionIdRef.current;
+    const lineageSessionId = attachmentSourceSessionIdRef.current;
+    if (lineageSessionId != null && nextSessionId != null && lineageSessionId !== nextSessionId) {
+      attachmentSourceSessionIdRef.current = nextSessionId;
+    }
     setError(null);
     setAttachmentState("attaching");
     setAttachGeneration((generation) => {
@@ -312,6 +322,7 @@ export function useChatSession({
     }
     const lifecycle = lifecycleRef.current + 1;
     lifecycleRef.current = lifecycle;
+    attachmentSourceSessionIdRef.current = agentSessionIdRef.current;
     let unlisten: UnlistenFn | null = null;
     let unlistenTest: (() => void) | null = null;
     if (knownPaneIdRef.current !== paneId) {
@@ -327,7 +338,7 @@ export function useChatSession({
           `pane-chat-msg-${paneId}`,
           (ev) => {
             if (lifecycleRef.current !== lifecycle) return;
-            applyChatMsgEvent(ev.payload, paneId, setStructured, nextClientOrder);
+            applyChatMsgEvent(ev.payload, paneId, setStructured, nextClientOrder, attachmentSourceSessionIdRef.current);
             if (attachmentStateRef.current !== "attached") markAttached();
           },
         );
@@ -361,6 +372,7 @@ export function useChatSession({
     if (!active || !listenerReady) return;
     const lifecycle = lifecycleRef.current;
     const generation = attachGeneration;
+    const sourceSessionId = attachmentSourceSessionIdRef.current;
     let cancelled = false;
     (async () => {
       try {
@@ -379,7 +391,7 @@ export function useChatSession({
         markAttached();
         setStructured((prev) => mergeById(
           prev ?? [],
-          withPreservedClientOrder(res.messages ?? [], prev ?? [], nextClientOrder),
+          withPreservedClientOrder(res.messages ?? [], prev ?? [], nextClientOrder, sourceSessionId),
         ));
       } catch (e) {
         if (cancelled || lifecycleRef.current !== lifecycle || attachGenerationRef.current !== generation) return;
