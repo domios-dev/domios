@@ -35,9 +35,12 @@ expect_failure new_team_id '[]' < "$FIXTURES/teams-after.json"
 [ "$(pair_pane_id planner < "$FIXTURES/pair.json")" = pane_planner ]
 [ "$(spawned_pane_id < "$FIXTURES/spawn.json")" = pane_worker ]
 [ "$(staffed_pane_id < "$FIXTURES/member.json")" = pane_staffed ]
+mux_absent pane_missing < "$FIXTURES/mux.json"
+expect_failure mux_absent pane_existing < "$FIXTURES/mux.json"
 
 IDLE_STARTER='You are a newly started agent. Wait for instructions from the user or your orchestration parent.'
-rg -Fq "$IDLE_STARTER" "$ROOT/src-tauri/crates/codeterm-plugin/src/provider.rs"
+rg -Fq 'IdleWakeup' "$ROOT/src-tauri/crates/codeterm-plugin/src/provider.rs"
+rg -Fq "$IDLE_STARTER" "$ROOT"/plugins/provider-*/src/plugin.ts
 rg -Fq 'starter_prompt_for_assignment' "$ROOT/src-tauri/src/service/orchestrator/spawn.rs"
 rg -Fq 'starterPrompt === "idle_wakeup"' "$ROOT/plugins/provider-codex/src/plugin.ts"
 rg -Fq 'starterPrompt === "idle_wakeup"' "$ROOT/plugins/provider-opencode/src/plugin.ts"
