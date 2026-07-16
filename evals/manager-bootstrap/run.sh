@@ -2,10 +2,10 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT/evals/_lib/lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
 CREATED=()
 TEAM_ID=""
 WORKER=""
-first_assistant() { python -c 'import json,sys;d=json.load(sys.stdin);ms=d.get("messages",d if isinstance(d,list) else []);print(next((str(m.get("content",m.get("text",""))) for m in ms if str(m.get("role",m.get("author",""))).lower()=="assistant"),""))'; }
 await_first() { local pane="$1" end=$((SECONDS+45)) out; while [ "$SECONDS" -lt "$end" ]; do out="$(dc pane chat --pane "$pane" --json | first_assistant)"; [ -n "$out" ] && { printf '%s' "$out"; return; }; sleep 1; done; echo "timeout first assistant $pane" >&2; return 1; }
 cleanup() {
   [ -z "$TEAM_ID" ] || dc team close "$TEAM_ID" --json >/dev/null 2>&1 || true
@@ -17,8 +17,8 @@ dev_get /api/health >/dev/null || { echo "dev 7686 unavailable" >&2; exit 7; }
 WS=$(new_workspace "manager-bootstrap-eval" "$ROOT")
 TEAMS_BEFORE=$(dc team list --json)
 PROVIDERS=$(dc agent providers --json)
-SYSTEM=$(python -c 'import json,sys;d=json.load(sys.stdin);print(next((x["id"] for x in d if x.get("system_prompt_delivery")!="external"),""))' <<<"$PROVIDERS")
-FALLBACK=$(python -c 'import json,sys;d=json.load(sys.stdin);print(next((x["id"] for x in d if x.get("system_prompt_delivery")=="external"),""))' <<<"$PROVIDERS")
+SYSTEM=$(provider_id system <<<"$PROVIDERS")
+FALLBACK=$(provider_id external <<<"$PROVIDERS")
 [ -n "$SYSTEM" ] || { echo "SKIP: no system-prompt provider"; exit 0; }
 PAIR=$(dc orchestration new --orchestrator "$SYSTEM" --planner "$SYSTEM" --workspace "$WS" --json)
 ORCH=$(python -c 'import json,sys;print(json.load(sys.stdin).get("orchestrator_pane_id", ""))' <<<"$PAIR")
@@ -27,7 +27,7 @@ PLANNER=$(python -c 'import json,sys;print(json.load(sys.stdin).get("planner_pan
 CREATED+=("$ORCH" "$PLANNER")
 TEAM_ID=$(dc team list --json | python -c 'import json,sys;before={x.get("id") for x in json.loads(sys.argv[1])}; now=json.load(sys.stdin); fresh=[x for x in now if x.get("id") not in before]; assert len(fresh)==1; print(fresh[0]["id"])' "$TEAMS_BEFORE")
 [ -n "$TEAM_ID" ] || { echo "pair returned no Team" >&2; exit 1; }
-STAFF=$(python -c 'import json,sys;print(json.dumps({"provider":sys.argv[1],"role":"planner","title":"manager-bootstrap-staffed","task":None,"model":None}))' "$SYSTEM")
+STAFF=$(staff_request "$SYSTEM")
 STAFFED=$(dev_post_as_pane "$ORCH" "/api/teams/$TEAM_ID/members" "$STAFF" | python -c 'import json,sys;d=json.load(sys.stdin);print(d.get("pane_id", d.get("member",{}).get("pane_id","")))')
 [ -n "$STAFFED" ] || { echo "staffed manager returned empty pane id" >&2; exit 1; }
 CREATED+=("$STAFFED")
