@@ -542,7 +542,7 @@ impl ServiceContext {
                 )
             })
             .unwrap_or(true);
-        if let Some(spec) = fallback_delivery
+        let fallback_spec = fallback_delivery
             .then(|| {
                 crate::service::launch_delivery::fallback_delivery_spec(
                     fallback_bootstrap.as_deref(),
@@ -555,9 +555,10 @@ impl ServiceContext {
                         .as_deref(),
                 )
             })
-            .flatten()
-        {
-            if let Err(error) = self.create_pending_delivery(&pane_id, spec.channel, &spec.payload)
+            .flatten();
+        if let Some(spec) = fallback_spec.as_ref() {
+            if let Err(error) =
+                self.create_pending_delivery(&pane_id, spec.channel.clone(), &spec.payload)
             {
                 let _ = self.close_pane(&pane_id);
                 return Err(error.to_string());
@@ -578,7 +579,7 @@ impl ServiceContext {
             launch_cmd,
             agent_cmd.clone(),
             bg_task,
-            fallback_bootstrap,
+            fallback_spec,
             ready_tx,
         );
 

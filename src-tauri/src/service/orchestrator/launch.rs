@@ -175,7 +175,7 @@ pub(crate) fn launch_agent_in_background(
     launch_cmd: String,
     agent_cmd: String,
     task: Option<String>,
-    fallback_bootstrap: Option<String>,
+    fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
     let registry = svc.agent_registry.clone();
@@ -337,24 +337,14 @@ pub(crate) fn launch_agent_in_background(
             delivery,
             crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
         ) {
-            if let Some(spec) = crate::service::launch_delivery::fallback_delivery_spec(
-                fallback_bootstrap.as_deref(),
-                task.as_deref(),
-                registry
-                    .with_provider(&agent_cmd, |provider| {
-                        provider
-                            .starter_prompt_text(crate::agent::provider::StarterPrompt::IdleWakeup)
-                    })
-                    .flatten()
-                    .as_deref(),
-            ) {
+            if let Some(spec) = fallback_spec {
                 let task_text = spec.payload.clone();
                 set_booting(false);
                 {
                     let mut mux = svc.mux.write();
                     let pane = mux.get_pane_mut(&pane_id).expect("launch pane exists");
                     pane.pending_delivery.get_or_insert_with(|| {
-                        crate::service::launch_delivery::pending_record_for_spec(spec)
+                        crate::service::launch_delivery::pending_record_for_spec(spec.clone())
                     });
                 }
                 let strategy = registry
