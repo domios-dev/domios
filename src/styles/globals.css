@@ -1683,13 +1683,13 @@ button,
   transition: opacity 160ms ease;
 }
 
-.sidebar-team-header:hover .sidebar-team-menu-root .sidebar-team-kebab,
+.sidebar-team-header[data-menu-revealed="true"] .sidebar-team-menu-root .sidebar-team-kebab,
 .sidebar-team-header:focus-within .sidebar-team-menu-root .sidebar-team-kebab {
   opacity: 1;
   pointer-events: auto;
 }
 
-.sidebar-team-header:hover .sidebar-team-count,
+.sidebar-team-header[data-menu-revealed="true"] .sidebar-team-count,
 .sidebar-team-header:focus-within .sidebar-team-count {
   opacity: 0;
 }
