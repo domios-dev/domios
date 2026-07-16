@@ -54,7 +54,7 @@ impl PendingDeliveryPayloadStore {
         let path = self.path(digest)?;
         match OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(mut file) => {
-                self.restrict_file_permissions(&file)?;
+                self.restrict_file_permissions(&path)?;
                 file.write_all(payload.as_bytes())
                     .map_err(|error| self.io(digest, error))?;
                 file.sync_all().map_err(|error| self.io(digest, error))?;
@@ -97,6 +97,19 @@ impl PendingDeliveryPayloadStore {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(self.io(digest, error)),
         }
+    }
+
+    pub(crate) fn replace(
+        &self,
+        previous_digest: Option<&str>,
+        digest: &str,
+        payload: &str,
+    ) -> Result<(), PayloadStoreError> {
+        self.write(digest, payload)?;
+        if previous_digest.is_some_and(|previous| previous != digest) {
+            self.delete(previous_digest.unwrap())?;
+        }
+        Ok(())
     }
 
     pub(crate) fn sweep_orphans(
@@ -152,21 +165,53 @@ impl PendingDeliveryPayloadStore {
             .map_err(|error| self.io("store", error))
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    fn restrict_dir_permissions(&self) -> Result<(), PayloadStoreError> {
+        restrict_windows_acl(&self.dir).map_err(|error| self.io("store", error))
+    }
+
+    #[cfg(unix)]
+    fn restrict_file_permissions(&self, path: &Path) -> Result<(), PayloadStoreError> {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+            .map_err(|error| self.io("payload", error))
+    }
+
+    #[cfg(windows)]
+    fn restrict_file_permissions(&self, path: &Path) -> Result<(), PayloadStoreError> {
+        restrict_windows_acl(path).map_err(|error| self.io("payload", error))
+    }
+
+    #[cfg(not(any(unix, windows)))]
     fn restrict_dir_permissions(&self) -> Result<(), PayloadStoreError> {
         Ok(())
     }
 
-    #[cfg(unix)]
-    fn restrict_file_permissions(&self, file: &std::fs::File) -> Result<(), PayloadStoreError> {
-        use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(fs::Permissions::from_mode(0o600))
-            .map_err(|error| self.io("payload", error))
-    }
-
-    #[cfg(not(unix))]
-    fn restrict_file_permissions(&self, _: &std::fs::File) -> Result<(), PayloadStoreError> {
+    #[cfg(not(any(unix, windows)))]
+    fn restrict_file_permissions(&self, _: &Path) -> Result<(), PayloadStoreError> {
         Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn restrict_windows_acl(path: &Path) -> std::io::Result<()> {
+    let username = std::env::var("USERNAME")
+        .ok()
+        .filter(|username| !username.is_empty())
+        .ok_or_else(|| std::io::Error::other("USERNAME is unavailable for payload ACL"))?;
+    let mut command = std::process::Command::new("icacls");
+    command.args([
+        path.as_os_str(),
+        std::ffi::OsStr::new("/inheritance:r"),
+        std::ffi::OsStr::new("/grant:r"),
+        std::ffi::OsStr::new(&format!("{username}:(F)")),
+    ]);
+    crate::process_util::no_window_std(&mut command);
+    let output = command.output()?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other("icacls rejected payload ACL"))
     }
 }
 
@@ -252,5 +297,112 @@ mod tests {
             store.resolve(&digest),
             Err(PayloadStoreError::Missing { digest })
         );
+    }
+
+    #[test]
+    fn superseding_payload_removes_prior_digest() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = "first brief";
+        let replacement = "replacement brief";
+        let first_digest = digest(first);
+        let replacement_digest = digest(replacement);
+        let store = PendingDeliveryPayloadStore::open(temp.path(), &HashSet::new()).unwrap();
+        store.write(&first_digest, first).unwrap();
+        store
+            .replace(Some(&first_digest), &replacement_digest, replacement)
+            .unwrap();
+
+        assert_eq!(store.resolve(&replacement_digest).unwrap(), replacement);
+        assert_eq!(
+            store.resolve(&first_digest),
+            Err(PayloadStoreError::Missing {
+                digest: first_digest
+            })
+        );
+    }
+
+    #[test]
+    fn payload_permissions_are_restricted() {
+        let temp = tempfile::tempdir().unwrap();
+        let payload = "permission fixture";
+        let digest = digest(payload);
+        let store = PendingDeliveryPayloadStore::open(temp.path(), &HashSet::new()).unwrap();
+        store.write(&digest, payload).unwrap();
+        let path = store.path_for_test(&digest);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        #[cfg(windows)]
+        {
+            let output = std::process::Command::new("icacls")
+                .arg(path)
+                .output()
+                .unwrap();
+            let acl = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
+            assert!(acl.contains(&std::env::var("USERNAME").unwrap().to_ascii_lowercase()));
+        }
+    }
+
+    #[test]
+    fn restore_resolves_payload_into_launch_option() {
+        let temp = tempfile::tempdir().unwrap();
+        let payload = "restored exact fallback brief";
+        let digest = digest(payload);
+        let store = PendingDeliveryPayloadStore::open(temp.path(), &HashSet::new()).unwrap();
+        store.write(&digest, payload).unwrap();
+        let record =
+            PendingDeliveryRecord::new(digest.clone(), PendingDeliveryChannel::InteractiveInput);
+
+        let launch_option = (record.state() == PendingDeliveryState::Pending)
+            .then(|| store.resolve(&record.content_digest))
+            .transpose()
+            .unwrap();
+
+        assert_eq!(launch_option.as_deref(), Some(payload));
+    }
+
+    #[test]
+    fn restore_missing_payload_structured_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let payload = "unavailable fallback brief";
+        let digest = digest(payload);
+        let store = PendingDeliveryPayloadStore::open(temp.path(), &HashSet::new()).unwrap();
+        let record =
+            PendingDeliveryRecord::new(digest.clone(), PendingDeliveryChannel::InteractiveInput);
+        let delivery_writes = std::sync::atomic::AtomicUsize::new(0);
+
+        let error = store.resolve(&record.content_digest).unwrap_err();
+
+        assert_eq!(error, PayloadStoreError::Missing { digest });
+        assert_eq!(record.state(), PendingDeliveryState::Pending);
+        assert_eq!(
+            delivery_writes.load(std::sync::atomic::Ordering::Relaxed),
+            0
+        );
+    }
+
+    #[test]
+    fn leakage_serialization_and_log_capture() {
+        let payload = "payload-must-never-enter-snapshots-or-logs";
+        let digest = digest(payload);
+        let (mut state, pane_id) = crate::multiplexer::state::MultiplexerState::new();
+        state.get_pane_mut(&pane_id).unwrap().pending_delivery = Some(PendingDeliveryRecord::new(
+            digest.clone(),
+            PendingDeliveryChannel::InteractiveInput,
+        ));
+        let snapshot = state.to_session_snapshot();
+        let serialized = serde_json::to_string(&snapshot).unwrap();
+        let log_capture = format!("[pending-delivery] digest={digest}");
+
+        assert!(serialized.contains(&digest));
+        assert!(!serialized.contains(payload));
+        assert!(log_capture.contains(&digest));
+        assert!(!log_capture.contains(payload));
     }
 }

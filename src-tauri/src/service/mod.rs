@@ -275,7 +275,14 @@ impl ServiceContext {
     ) -> Result<String, pending_delivery_payloads::PayloadStoreError> {
         use sha2::Digest;
         let digest = format!("{:x}", sha2::Sha256::digest(payload.as_bytes()));
-        self.pending_delivery_payloads.write(&digest, payload)?;
+        let previous_digest = self
+            .mux
+            .read()
+            .get_pane(pane_id)
+            .and_then(|pane| pane.pending_delivery.as_ref())
+            .map(|record| record.content_digest.clone());
+        self.pending_delivery_payloads
+            .replace(previous_digest.as_deref(), &digest, payload)?;
         let mut mux = self.mux.write();
         let pane = mux.get_pane_mut(pane_id).ok_or_else(|| {
             pending_delivery_payloads::PayloadStoreError::Io {
