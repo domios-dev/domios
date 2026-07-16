@@ -75,7 +75,7 @@ export function PaneTopBar({
       className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-1.5 px-2 sm:flex-nowrap sm:gap-2"
       style={{
         ["--ct-pane-pill-h" as string]: `${PANE_BAR_CONTROL_H}px`,
-        paddingTop: "calc(6px + var(--ct-safe-top, 0px))",
+        paddingTop: 6,
         paddingBottom: 6,
         background: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 3%, transparent)",
         borderBottom: "1px solid var(--ct-border, #30363d)",
