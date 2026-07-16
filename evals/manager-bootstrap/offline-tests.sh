@@ -6,6 +6,23 @@ RUN="$ROOT/evals/manager-bootstrap/run.sh"
 source "$ROOT/evals/manager-bootstrap/helpers.sh"
 
 expect_failure() { "$@" >/dev/null 2>&1 && return 1 || return 0; }
+assert_tracked_fixtures() {
+  local fixture
+  [ "${MANAGER_BOOTSTRAP_EXPORTED:-}" = 1 ] && return 0
+  while read -r fixture; do
+    git -C "$ROOT" ls-files --error-unmatch "evals/manager-bootstrap/fixtures/${fixture#\$FIXTURES/}" >/dev/null
+  done < <(rg -o '\$FIXTURES/[[:alnum:]_.-]+\.json' "$BASH_SOURCE" | sort -u)
+}
+assert_exported_tree() {
+  [ "${MANAGER_BOOTSTRAP_EXPORTED:-}" = 1 ] && return 0
+  local exported
+  exported="$(mktemp -d)"
+  git -C "$ROOT" archive HEAD | tar -x -C "$exported"
+  MANAGER_BOOTSTRAP_EXPORTED=1 bash "$exported/evals/manager-bootstrap/offline-tests.sh"
+  rm -rf "$exported"
+}
+
+assert_tracked_fixtures
 
 [ "$(first_assistant < "$FIXTURES/chat.json")" = 'Planner manager-bootstrap-eval not yet established' ]
 [ "$(first_assistant <<< '[{"role":"assistant","content":"array envelope"}]')" = 'array envelope' ]
@@ -33,4 +50,5 @@ set +e; out="$(PATH="$FAKE:$PATH" bash "$RUN" 2>&1)"; rc=$?; set -e
 ! rg -q '[s]leep' "$ROOT/evals/manager-bootstrap"
 ! rg -q 'claude|opus|fable|runner\\.py' "$ROOT/evals/manager-bootstrap"
 grep -q 'dev_post_as_pane' "$RUN"
+assert_exported_tree
 echo "manager-bootstrap offline parser harness: PASS"
