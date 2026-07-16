@@ -117,9 +117,10 @@ async function assertTeamHeaderGeometry(teamUnit: Locator): Promise<void> {
     const title = unit.querySelector(".sidebar-team-title-block")?.getBoundingClientRect();
     const plan = unit.querySelector('[data-testid="team-plan-button"]')?.getBoundingClientRect();
     const kebab = unit.querySelector('[data-testid="team-menu-trigger"]')?.getBoundingClientRect();
+    const slot = unit.querySelector('[data-testid="team-progress-slot"]')?.getBoundingClientRect();
     const hole = unit.querySelector('[data-testid="team-donut-hole"]')?.getBoundingClientRect();
     const donutCenter = donut && hole ? document.elementFromPoint(donut.left + donut.width / 2, donut.top + donut.height / 2) : null;
-    return { header, donut, title, plan, kebab, hole, centerIsHole: donutCenter?.getAttribute("data-testid") === "team-donut-hole", hasInnerIcon: Boolean(unit.querySelector('[data-testid="team-donut"] svg')) };
+    return { header, donut, title, plan, kebab, slot, hole, centerIsHole: donutCenter?.getAttribute("data-testid") === "team-donut-hole", hasInnerIcon: Boolean(unit.querySelector('[data-testid="team-donut"] svg')) };
   });
   expect(geometry.donut?.width, "donut is 22px").toBe(22);
   expect(geometry.donut?.height, "donut is 22px").toBe(22);
@@ -127,7 +128,8 @@ async function assertTeamHeaderGeometry(teamUnit: Locator): Promise<void> {
   expect(geometry.hole?.width, "donut center is visibly punctured").toBe(12);
   expect(geometry.centerIsHole, "center pixel belongs to the empty hole, not a color segment").toBe(true);
   expect(geometry.title && geometry.donut && Math.abs(geometry.title.y - geometry.donut.y) < geometry.donut.height, "title shares header row with identity").toBe(true);
-  expect(geometry.plan && geometry.kebab && geometry.header && geometry.kebab.right <= geometry.plan.left + 2 && geometry.plan.right <= geometry.header.right + 1, "overlay kebab sits left of the right-edge Plan without overlap").toBe(true);
+  expect(geometry.header && geometry.donut && geometry.donut.x - geometry.header.x, "donut keeps the deliberate 7px left inset").toBe(7);
+  expect(geometry.plan && geometry.kebab && geometry.slot && geometry.kebab.x === geometry.slot.x && geometry.kebab.width === geometry.slot.width && geometry.plan.right <= geometry.header!.right + 1, "kebab occupies the fixed progress slot beside right-anchored Plan").toBe(true);
   expect(geometry.plan && geometry.donut && geometry.plan.left - geometry.donut.right > 16, "Plan is separated from the identity by flexible title space").toBe(true);
 }
 
@@ -177,19 +179,25 @@ async function assertOverlayControlsDoNotShiftPlan(teamUnit: Locator): Promise<v
 
   const restSlots = await teamUnit.evaluate((unit) => {
     const header = unit.querySelector('.sidebar-team-header') as HTMLElement;
-    const chevron = unit.querySelector('[data-testid="team-collapse-toggle"]') as HTMLElement;
     const kebab = unit.querySelector('[data-testid="team-menu-trigger"]') as HTMLElement;
+    const count = unit.querySelector('[data-testid="team-done-count"]') as HTMLElement;
+    const slot = unit.querySelector('[data-testid="team-progress-slot"]') as HTMLElement;
     const title = unit.querySelector('.sidebar-team-title-block') as HTMLElement;
     return {
       columns: getComputedStyle(header).gridTemplateColumns,
-      chevronPosition: getComputedStyle(chevron).position,
-      kebabPosition: getComputedStyle(kebab.parentElement as HTMLElement).position,
+      hasChevron: Boolean(unit.querySelector('[data-testid="team-collapse-toggle"], .sidebar-team-chevron')),
+      kebabBox: kebab.getBoundingClientRect().toJSON(),
+      countBox: count.getBoundingClientRect().toJSON(),
+      slotBox: slot.getBoundingClientRect().toJSON(),
+      countOpacity: getComputedStyle(count).opacity,
       titleWidth: title.getBoundingClientRect().width,
     };
   });
-  expect(restSlots.columns.split(" "), "rest grid has no chevron or kebab columns").toHaveLength(4);
-  expect(restSlots.chevronPosition, "chevron is outside row layout").toBe("absolute");
-  expect(restSlots.kebabPosition, "kebab is outside row layout").toBe("absolute");
+  expect(restSlots.columns.split(" "), "rest grid reserves only identity, title, same-slot progress, and Plan").toHaveLength(4);
+  expect(restSlots.hasChevron, "Team header never renders a collapse chevron").toBe(false);
+  expect(restSlots.kebabBox, "kebab and done/total have identical fixed-slot bounds").toEqual(restSlots.slotBox);
+  expect(restSlots.countBox, "done/total and kebab have identical fixed-slot bounds").toEqual(restSlots.slotBox);
+  expect(restSlots.countOpacity, "done/total is visible at rest").toBe("1");
   expect(restSlots.titleWidth, "220px title receives reclaimed control width").toBeGreaterThan(130);
 }
 
@@ -272,19 +280,20 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
 
     await page.mouse.click(500, 500);
     await expect(menuTrigger).toHaveCSS("opacity", "0");
-    await expect(teamUnit.getByTestId("team-collapse-toggle")).toHaveCSS("opacity", "0");
+    await expect(teamUnit.getByTestId("team-done-count")).toHaveCSS("opacity", "1");
+    await expect(teamUnit.locator('[data-testid="team-collapse-toggle"], .sidebar-team-chevron')).toHaveCount(0);
     await setSidebarWidth(session, 220);
     await assertTeamTitleFits(teamUnit);
     await assertTally(teamUnit, false);
     await assertTeamHeaderGeometry(teamUnit);
     await assertOverlayControlsDoNotShiftPlan(teamUnit);
-    await page.screenshot({ path: testInfo.outputPath("wave2b-team-220.png"), fullPage: false });
+    await page.screenshot({ path: testInfo.outputPath("wave2d-team-220.png"), fullPage: false });
     await setSidebarWidth(session, 272);
     await assertTally(teamUnit, false);
-    await page.screenshot({ path: testInfo.outputPath("wave2b-team-272.png"), fullPage: false });
+    await page.screenshot({ path: testInfo.outputPath("wave2d-team-272.png"), fullPage: false });
     await setSidebarWidth(session, 160);
     await assertTally(teamUnit, true);
-    await page.screenshot({ path: testInfo.outputPath("wave2b-team-160.png"), fullPage: false });
+    await page.screenshot({ path: testInfo.outputPath("wave2d-team-160.png"), fullPage: false });
   } finally {
     await closeTallyPage(session);
   }
@@ -297,9 +306,9 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     await expect(page.locator('[data-testid="sidebar"]')).toHaveAttribute("data-touch-mode", "true");
     const teamUnit = page.locator(`[data-testid="team-unit"][data-team-id="${created.team_id}"]`);
     await assertTally(teamUnit, "content-fit");
-    await expect(teamUnit.getByTestId("team-collapse-toggle")).toHaveCSS("opacity", "1");
     await expect(teamUnit.getByTestId("team-menu-trigger")).toHaveCSS("opacity", "1");
-    await page.screenshot({ path: testInfo.outputPath("wave2b-team-touch.png"), fullPage: false });
+    await expect(teamUnit.getByTestId("team-done-count")).toHaveCSS("opacity", "0");
+    await page.screenshot({ path: testInfo.outputPath("wave2d-team-touch.png"), fullPage: false });
   } finally {
     await closeTallyPage(touchSession);
     await api.deletePlan(created.plan_id).catch(() => {});
