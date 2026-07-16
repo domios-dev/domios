@@ -343,6 +343,83 @@ test("staffing selects a planner when no Orchestrator is eligible", async () => 
   await act(async () => root.unmount());
 });
 
+test("staffing picker uses descriptor icons and requires a descriptor model choice", async () => {
+  const requests: Array<[string, "planner" | "worker", string, string, string?]> = [];
+  const panes = {
+    manager: pane({ id: "manager", title: "Manager", role: "Orchestrator", team_id: TEAM.id }),
+  };
+  const providers = [{
+    id: "provider-a",
+    display_name: "Provider A",
+    transport: "pty",
+    icon_svg: '<svg id="provider-a-icon"/>',
+    icon_color: "#d97757",
+    available_models: [{ id: "model-one", display_name: "Model one" }, { id: "model-two", display_name: "Model two" }],
+    default_model: "model-one",
+    behavior_config: { model: "own_prompt_set" },
+  }, {
+    id: "provider-b",
+    display_name: "Provider B",
+    transport: "chat_backend",
+    icon_hint: "B",
+    behavior_config: { model: "none" },
+  }, {
+    id: "not-spawn-capable",
+    display_name: "Unsupported provider",
+    transport: "unsupported",
+  }] as ProviderDescriptor[];
+  const { host, root } = await renderSidebar({
+    panes,
+    tabs: [tab("tab-manager", "manager", 0)],
+    providers,
+    onAddTeamMember: (teamId, role, providerId, managerPaneId, model) => requests.push([teamId, role, providerId, managerPaneId, model]),
+  });
+  await act(async () => (host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement).click());
+  const worker = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+    .find((button) => button.textContent?.includes("Add worker")) as HTMLButtonElement;
+  await act(async () => worker.click());
+  const providerA = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+    .find((button) => button.textContent?.includes("Provider A")) as HTMLButtonElement;
+  assert(providerA.querySelector("svg#provider-a-icon"), "provider SVG comes from its descriptor");
+  const providerB = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+    .find((button) => button.textContent?.includes("Provider B")) as HTMLButtonElement;
+  assert(providerB.querySelector(".agent-icon")?.textContent === "B", "provider hint is the descriptor icon fallback");
+  assert(!document.querySelector('[data-testid="team-menu"]')?.textContent?.includes("Unsupported provider"), "non-spawn-capable providers are absent");
+  await act(async () => providerA.click());
+  const defaultModel = document.querySelector('[data-testid="team-picker-model-model-one"]') as HTMLButtonElement;
+  assert(defaultModel.getAttribute("aria-checked") === "true", "descriptor default model is preselected");
+  const modelTwo = document.querySelector('[data-testid="team-picker-model-model-two"]') as HTMLButtonElement;
+  await act(async () => modelTwo.click());
+  assert(JSON.stringify(requests) === JSON.stringify([[TEAM.id, "worker", "provider-a", "manager", "model-two"]]), "model selection preserves manager caller identity");
+  await act(async () => (host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement).click());
+  const workerAgain = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+    .find((button) => button.textContent?.includes("Add worker")) as HTMLButtonElement;
+  await act(async () => workerAgain.click());
+  const providerAgain = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+    .find((button) => button.textContent?.includes("Provider A")) as HTMLButtonElement;
+  await act(async () => providerAgain.click());
+  const back = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+    .find((button) => button.textContent?.includes("Back")) as HTMLButtonElement;
+  await act(async () => back.click());
+  const restoredProvider = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+    .find((button) => button.textContent?.includes("Provider A")) as HTMLButtonElement;
+  assert(document.activeElement === restoredProvider, "Back restores focus to the selected provider");
+  await act(async () => restoredProvider.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+  const restoredProviderB = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+    .find((button) => button.textContent?.includes("Provider B")) as HTMLButtonElement;
+  assert(document.activeElement === restoredProviderB, "arrow navigation reaches every provider row");
+  await act(async () => restoredProviderB.click());
+  assert(JSON.stringify(requests) === JSON.stringify([
+    [TEAM.id, "worker", "provider-a", "manager", "model-two"],
+    [TEAM.id, "worker", "provider-b", "manager", undefined],
+  ]), "model:none provider skips model selection and omits model from the request");
+  await act(async () => (host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement).click());
+  const menu = document.querySelector('[data-testid="team-menu"]') as HTMLDivElement;
+  await act(async () => menu.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  assert(!document.querySelector('[data-testid="team-menu"]'), "Escape closes the picker without another request");
+  await act(async () => root.unmount());
+});
+
 test("staffing failure stays visible without local mutation or refetch", async () => {
   const panes = {
     manager: pane({ id: "manager", title: "Manager", role: "Orchestrator", team_id: TEAM.id }),
