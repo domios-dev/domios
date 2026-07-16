@@ -304,6 +304,7 @@ export function TeamUnit({
 }: TeamUnitProps) {
   const [expanded, setExpanded] = useState(true);
   const [workersExpanded, setWorkersExpanded] = useState(true);
+  const [headerHovered, setHeaderHovered] = useState(false);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(team.name?.trim() || "Team");
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -379,9 +380,12 @@ export function TeamUnit({
       data-expanded={expanded ? "true" : "false"}
       className="sidebar-team-unit"
     >
-      <div
-        className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}`}
-      >
+			<div
+				className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}`}
+				data-menu-revealed={headerHovered ? "true" : undefined}
+				onMouseEnter={() => setHeaderHovered(true)}
+				onMouseLeave={() => setHeaderHovered(false)}
+			>
         <button
           type="button"
           data-testid="team-collapse-toggle"
