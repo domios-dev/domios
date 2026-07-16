@@ -67,10 +67,8 @@ export function chatSetupView(pane: Pane | null | undefined): PaneBootOverlayVie
     case "agent_launching":
     case "delivering_instructions":
       return { kind: "starting", label: "Starting" };
-    case "agent_ready":
-    case "spawn_failed":
-      return unreachableBootStage(stage);
   }
+  return unreachableBootStage(stage);
 }
 
 interface ChatSetupStateProps {
