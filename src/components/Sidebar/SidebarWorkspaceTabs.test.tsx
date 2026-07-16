@@ -228,10 +228,10 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(sidebarStyles.includes('.sidebar-team-header[data-menu-revealed="true"] .sidebar-team-menu-root .sidebar-team-kebab'), "hover state swaps the kebab into the fixed slot");
   assert(sidebarStyles.includes('.sidebar-team-header:not([data-menu-dismissed="true"]):focus-within .sidebar-team-menu-root .sidebar-team-kebab'), "keyboard focus swaps the kebab into the fixed slot unless an outside pointer dismisses it");
   assert(sidebarStyles.includes("[data-touch-mode=\"true\"] .sidebar-team-menu-root .sidebar-team-kebab"), "touch mode persistently exposes the same-slot kebab");
-  await act(async () => header?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
-  assert(header?.getAttribute("data-menu-revealed") === "true", "hover records the menu reveal state before pointer interaction");
-  await act(async () => header?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true })));
-  assert(!header?.hasAttribute("data-menu-revealed"), "leaving the header clears the menu reveal state");
+  await act(async () => header?.dispatchEvent(new Event("pointerover", { bubbles: true })));
+  assert(header?.getAttribute("data-menu-revealed") === "true", "pointer enter records the menu reveal state before pointer interaction");
+  await act(async () => header?.dispatchEvent(new Event("pointerout", { bubbles: true })));
+  assert(!header?.hasAttribute("data-menu-revealed"), "pointer leave clears the menu reveal state");
   const outsideFocus = document.createElement("button");
   host.appendChild(outsideFocus);
   await act(async () => {
