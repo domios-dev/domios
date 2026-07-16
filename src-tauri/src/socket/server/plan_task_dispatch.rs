@@ -7,7 +7,9 @@ use crate::service::plan::milestone_gates::{
 };
 use crate::service::plan::task_queries::TaskSection;
 use crate::service::plan::{PlanError, PlanStore};
-use crate::service::{ServiceState, SpawnAgentParams, SpawnIdentityProvenance};
+use crate::service::{
+    ProvisionedWorkerLane, ServiceState, SpawnAgentParams, SpawnIdentityProvenance,
+};
 
 use super::plan::{emit_plan_changed, plan_rpc_err};
 use super::plan_refs;
@@ -176,7 +178,7 @@ pub(super) fn dispatch(
     // A personality is the executor persona: it names the pane and opens the brief.
     let (explicit_persona, title_provenance) = dispatch_worker_identity(&detail.task);
 
-    let spawn_params = SpawnAgentParams {
+    let mut spawn_params = SpawnAgentParams {
         agent: routing.agent.clone(),
         cwd: owned_str(p, "cwd"),
         title: explicit_persona,
@@ -193,8 +195,20 @@ pub(super) fn dispatch(
         ..Default::default()
     };
 
+    let lane_label = format!("{plan_id}-{task_id}");
+    let lane = svc
+        .provision_worker_lane_for_spawn(&mut spawn_params, &lane_label)
+        .map_err(spawn_failed)?;
     // Spawn first: a spawn failure leaves the task untouched — nothing to undo.
-    let spawn = svc.spawn_agent_sync(spawn_params).map_err(spawn_failed)?;
+    let spawn = match svc.spawn_agent_sync(spawn_params) {
+        Ok(spawn) => spawn,
+        Err(error) => {
+            if let Some(lane) = lane {
+                lane.cleanup();
+            }
+            return Err(spawn_failed(error));
+        }
+    };
     let pane_id = spawn.pane_id.clone();
 
     let outcome = (|| -> Result<(), JsonRpcError> {
@@ -231,8 +245,15 @@ pub(super) fn dispatch(
     })();
 
     if let Err(e) = outcome {
-        let _ = store.revert_task_dispatch(&plan_id, &task_id, now);
-        let _ = svc.close_pane(&pane_id);
+        rollback_failed_dispatch(
+            lane,
+            || {
+                let _ = store.revert_task_dispatch(&plan_id, &task_id, now);
+            },
+            || {
+                let _ = svc.close_pane(&pane_id);
+            },
+        );
         emit_plan_changed(app, &plan_id);
         return Err(e);
     }
@@ -260,6 +281,21 @@ pub(super) fn dispatch(
         result["model_fallback"] = json!(model_fallback);
     }
     Ok(result)
+}
+
+fn rollback_failed_dispatch<R, C>(
+    lane: Option<ProvisionedWorkerLane>,
+    revert_task: R,
+    close_pane: C,
+) where
+    R: FnOnce(),
+    C: FnOnce(),
+{
+    revert_task();
+    close_pane();
+    if let Some(lane) = lane {
+        lane.cleanup();
+    }
 }
 
 fn build_brief_with_claimed_persona(
