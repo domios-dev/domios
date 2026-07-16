@@ -127,7 +127,7 @@ async function assertTeamHeaderGeometry(teamUnit: Locator): Promise<void> {
   expect(geometry.hole?.width, "donut center is visibly punctured").toBe(12);
   expect(geometry.centerIsHole, "center pixel belongs to the empty hole, not a color segment").toBe(true);
   expect(geometry.title && geometry.donut && Math.abs(geometry.title.y - geometry.donut.y) < geometry.donut.height, "title shares header row with identity").toBe(true);
-  expect(geometry.plan && geometry.kebab && geometry.header && geometry.plan.right <= geometry.kebab.left + 2 && geometry.kebab.right <= geometry.header.right + 1, "Plan and kebab anchor at the right edge in DOM order").toBe(true);
+  expect(geometry.plan && geometry.kebab && geometry.header && geometry.kebab.right <= geometry.plan.left + 2 && geometry.plan.right <= geometry.header.right + 1, "overlay kebab sits left of the right-edge Plan without overlap").toBe(true);
   expect(geometry.plan && geometry.donut && geometry.plan.left - geometry.donut.right > 16, "Plan is separated from the identity by flexible title space").toBe(true);
 }
 
