@@ -2,6 +2,32 @@ export type FallbackKeyEvent = Pick<KeyboardEvent, "altKey" | "ctrlKey" | "isCom
   keyCode?: number;
 };
 
+type FallbackDispatchEvent = FallbackKeyEvent & Pick<KeyboardEvent, "preventDefault">;
+
+const interactiveRoles = new Set([
+  "button", "checkbox", "combobox", "link", "listbox", "menuitem", "menuitemcheckbox", "menuitemradio",
+  "option", "radio", "searchbox", "slider", "spinbutton", "switch", "tab", "textbox", "treeitem",
+]);
+
+const interactiveSelector = "a[href], button, input, option, select, summary, textarea";
+
+export function blocksTerminalFallback(active: Element | null): boolean {
+  if (!active || active.classList.contains("xterm-helper-textarea")) return true;
+  if (active.matches(interactiveSelector) || active.closest(interactiveSelector)) return true;
+  if (active instanceof HTMLElement && active.isContentEditable) return true;
+  const role = active.closest("[role]")?.getAttribute("role");
+  return role !== null && role !== undefined && interactiveRoles.has(role);
+}
+
+export function forwardTerminalFallback(event: FallbackDispatchEvent, active: Element | null, write: (data: string) => void): boolean {
+  if (blocksTerminalFallback(active)) return false;
+  const data = terminalFallbackData(event);
+  if (!data) return false;
+  event.preventDefault();
+  write(data);
+  return true;
+}
+
 export function terminalFallbackData(e: FallbackKeyEvent): string {
   if (e.isComposing || e.keyCode === 229 || e.key === "Process" || e.key === "Dead") return "";
 

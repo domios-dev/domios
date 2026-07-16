@@ -38,7 +38,7 @@ import {
   useMuxState,
 } from "./store/multiplexer";
 import { matchesBinding } from "./lib/keybindings";
-import { terminalFallbackData } from "./lib/terminalFallbackInput";
+import { forwardTerminalFallback } from "./lib/terminalFallbackInput";
 import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
@@ -432,20 +432,14 @@ function AppInner() {
       // FALLBACK: If xterm.js textarea doesn't have focus, send keys directly to PTY.
       // Skip when the focused pane is in Chat UI mode — keys shouldn't leak into the PTY.
       const active = document.activeElement;
-      const isXtermFocused = active?.classList.contains("xterm-helper-textarea");
-      const isInputFocused = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" || active?.getAttribute("contenteditable") === "true";
-      if (!isXtermFocused && !isInputFocused && stateRef.current.focused_pane_id) {
+      if (stateRef.current.focused_pane_id) {
         const focusedPaneId = stateRef.current.focused_pane_id;
         const paneUiMode = getCurrentPaneUiMode(focusedPaneId)
           ?? (stateRef.current.panes[focusedPaneId]?.chat_view ? "chat" : "terminal");
         if (paneUiMode === "chat") return;
         const pane = stateRef.current.panes[focusedPaneId];
         if (pane?.pty_id) {
-          const data = terminalFallbackData(e);
-          if (data) {
-            e.preventDefault();
-            invoke("write_pty_string", { ptyId: pane.pty_id, data });
-          }
+          forwardTerminalFallback(e, active, (data) => invoke("write_pty_string", { ptyId: pane.pty_id, data }));
         }
       }
     };
