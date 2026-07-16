@@ -18,6 +18,33 @@ set -euo pipefail
 
 TEST_CAP_SECS="${TEST_CAP_SECS:-90}"
 CARGO_TEST_CMD="${CARGO_TEST_CMD:-cargo test}"
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+
+ensure_embed_sidecar() {
+    local triple
+    local extension=""
+    local sidecar
+
+    triple=$(rustc -vV | awk -F': ' '/^host:/{print $2; exit}')
+    [[ -n "$triple" ]] || {
+        printf 'error: unable to determine Rust host triple for bundled embed sidecar.\n' >&2
+        exit 2
+    }
+    [[ "$triple" == *-windows-* ]] && extension=".exe"
+    sidecar="$ROOT/src-tauri/bundled-embed/codeterm-embed-${triple}${extension}"
+
+    [ -e "$sidecar" ] && return
+
+    printf '[test-capped] missing bundled embed sidecar; creating test-only stub.\n'
+    (
+        cd "$ROOT"
+        node scripts/prepare-embed-stub.js >/dev/null
+    )
+    [ -e "$sidecar" ] || {
+        printf 'error: bundled embed stub was not created: %s\n' "$sidecar" >&2
+        exit 2
+    }
+}
 
 ARGS_JOINED=" $* "
 if [[ "$ARGS_JOINED" == *" --manifest-path cli/Cargo.toml "* && "$ARGS_JOINED" == *" --lib "* ]]; then
@@ -25,6 +52,8 @@ if [[ "$ARGS_JOINED" == *" --manifest-path cli/Cargo.toml "* && "$ARGS_JOINED" =
     printf 'hint: use scripts/test-capped.sh --manifest-path cli/Cargo.toml <test-filter>\n' >&2
     exit 2
 fi
+
+ensure_embed_sidecar
 
 # Job control: gives each background job its own process group.
 # cargo becomes the PGID leader; all test binaries it spawns inherit that PGID.
