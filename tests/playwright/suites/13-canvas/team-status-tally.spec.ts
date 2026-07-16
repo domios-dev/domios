@@ -277,7 +277,13 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     await teamUnit.getByTestId("team-name-input").press("Enter");
     await expect(teamUnit.getByTestId("team-name")).toHaveText("Team UI QA");
 
-    await page.mouse.click(500, 500);
+    await menuTrigger.focus();
+    await page.mouse.move(500, 500);
+    await expect(header).not.toHaveAttribute("data-menu-revealed", "true");
+    await expect(menuTrigger).toHaveCSS("opacity", "1");
+    await expect(menuTrigger).toHaveCSS("pointer-events", "auto");
+    await page.getByTestId("nav-extensions").focus();
+    await expect(header).not.toHaveAttribute("data-menu-revealed");
     await expect(menuTrigger).toHaveCSS("opacity", "0");
     await expect(teamUnit.getByTestId("team-done-count")).toHaveCSS("opacity", "1");
     await expect(teamUnit.getByTestId("team-collapse-toggle")).toHaveAttribute("aria-expanded", "true");
