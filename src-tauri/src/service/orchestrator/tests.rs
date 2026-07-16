@@ -115,6 +115,20 @@ fn fresh_spawn_never_uses_existing_pane_promotion_delivery() {
     }
 }
 
+#[test]
+fn launch_paths_route_through_seam() {
+    let call_count = [
+        include_str!("spawn.rs"),
+        include_str!("../spawn.rs"),
+        include_str!("../pty_io/lifecycle.rs"),
+    ]
+    .into_iter()
+    .map(|source| source.matches("launch_agent_in_background(").count())
+    .sum::<usize>();
+
+    assert_eq!(call_count, 3);
+}
+
 fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
     SpawnAgentParams {
         agent: Some(agent.to_string()),

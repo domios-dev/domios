@@ -335,7 +335,31 @@ pub(crate) fn launch_agent_in_background(
         ) {
             if let Some(ref task_text) = task {
                 set_booting(false);
-                let mut pending = crate::service::launch_delivery::pending_delivery(task_text);
+                let should_submit = {
+                    let mut mux = svc.mux.write();
+                    let pane = mux.get_pane_mut(&pane_id).expect("launch pane exists");
+                    let pending = pane.pending_delivery.get_or_insert_with(|| {
+                        crate::service::launch_delivery::pending_record_for(task_text)
+                    });
+                    if pending.state() == crate::multiplexer::types::PendingDeliveryState::Confirmed
+                    {
+                        false
+                    } else {
+                        crate::service::launch_delivery::begin_fallback_attempt(
+                            pending,
+                            crate::service::launch_delivery::next_attempt(),
+                        )
+                        .is_ok()
+                    }
+                };
+                if !should_submit {
+                    set_booting(false);
+                    svc.emit_boot_stage(&pane_id, BootStage::AgentReady, None);
+                    if let Some(tx) = ready_tx {
+                        let _ = tx.send(Ok(()));
+                    }
+                    return;
+                }
                 let strategy = registry
                     .with_provider(&agent_cmd, |provider| provider.verify_submit_strategy())
                     .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
@@ -358,15 +382,23 @@ pub(crate) fn launch_agent_in_background(
                         .map_err(|error| error.to_string())
                     },
                 );
-                let confirmed = result
+                let submission_observed = result
                     .as_ref()
                     .map(|evidence| evidence.submit_observed)
                     .unwrap_or(false);
-                let delivery_result =
-                    crate::service::launch_delivery::confirm_fallback(&mut pending, confirmed);
-                if let Err(e) =
-                    result.and_then(|_| delivery_result.map_err(|error| error.to_string()))
-                {
+                let delivery_result = {
+                    let mut mux = svc.mux.write();
+                    let pending = mux
+                        .get_pane_mut(&pane_id)
+                        .and_then(|pane| pane.pending_delivery.as_mut())
+                        .expect("fallback launch owns a pending delivery record");
+                    crate::service::launch_delivery::confirm_fallback(pending, submission_observed)
+                };
+                let delivery_error = delivery_result
+                    .err()
+                    .map(|error| error.to_string())
+                    .or_else(|| result.err().map(|error| error.to_string()));
+                if let Some(e) = delivery_error {
                     log::error!(
                         "launch_agent: task delivery failed for pane {} (pty {}): {}",
                         pane_id,

@@ -198,6 +198,7 @@ mod tests {
             pty_id: None,
             backing: PaneBacking::default(),
             pane_type: PaneType::Terminal,
+            pending_delivery: None,
             title: "Terminal".to_string(),
             description: None,
             cwd: None,
