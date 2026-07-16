@@ -1,6 +1,7 @@
 use sha2::{Digest, Sha256};
 
 use crate::agent::provider::SystemPromptDelivery;
+use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::{
     DeliveryAttemptProvenance, PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
     PendingDeliveryTransitionError,
@@ -35,6 +36,113 @@ pub(crate) struct FallbackDeliverySpec<'a> {
 pub(crate) enum DeliveryError {
     DeliveryUnconfirmed,
     RecordTransition(PendingDeliveryTransitionError),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LaunchConsumptionStage {
+    PtyStarting,
+    ShellReady,
+    ProviderReady,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LaunchConsumptionOutcome {
+    NotReady,
+    AlreadyConfirmed,
+    Confirmed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LaunchConsumptionError {
+    pub delivery: DeliveryError,
+    pub transaction: Option<String>,
+}
+
+impl std::fmt::Display for LaunchConsumptionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.delivery)
+    }
+}
+
+impl std::error::Error for LaunchConsumptionError {}
+
+pub(crate) struct LaunchDeliveryGate {
+    stage: LaunchConsumptionStage,
+}
+
+impl LaunchDeliveryGate {
+    pub(crate) fn new() -> Self {
+        Self {
+            stage: LaunchConsumptionStage::PtyStarting,
+        }
+    }
+
+    pub(crate) fn mark_shell_ready(&mut self) {
+        self.stage = LaunchConsumptionStage::ShellReady;
+    }
+
+    pub(crate) fn mark_provider_ready(&mut self) {
+        self.stage = LaunchConsumptionStage::ProviderReady;
+    }
+
+    pub(crate) fn consume<F>(
+        &self,
+        mux: &MuxState,
+        pane_id: &str,
+        sink: &impl BootStageSink,
+        transaction: F,
+    ) -> Result<LaunchConsumptionOutcome, LaunchConsumptionError>
+    where
+        F: FnOnce() -> Result<bool, String>,
+    {
+        if self.stage != LaunchConsumptionStage::ProviderReady {
+            return Ok(LaunchConsumptionOutcome::NotReady);
+        }
+        let should_submit = {
+            let mut mux = mux.write();
+            let pending = mux
+                .get_pane_mut(pane_id)
+                .and_then(|pane| pane.pending_delivery.as_mut())
+                .expect("fallback launch owns a pending delivery record");
+            if pending.state() == PendingDeliveryState::Confirmed {
+                false
+            } else {
+                begin_fallback_attempt(pending, next_attempt()).is_ok()
+            }
+        };
+        if !should_submit {
+            return Ok(LaunchConsumptionOutcome::AlreadyConfirmed);
+        }
+
+        let result = dispatch_initial_delivery(
+            LaunchDeliveryMode::ConfirmedFallback,
+            sink,
+            pane_id,
+            Some(transaction),
+        )
+        .expect("fallback delivery dispatch executes the transaction");
+        let submission_observed = result.as_ref().copied().unwrap_or(false);
+        let delivery = {
+            let mut mux = mux.write();
+            let pending = mux
+                .get_pane_mut(pane_id)
+                .and_then(|pane| pane.pending_delivery.as_mut())
+                .expect("fallback launch retains its pending delivery record");
+            confirm_fallback(pending, submission_observed)
+        };
+        match delivery {
+            Ok(()) => result
+                .map(|_| LaunchConsumptionOutcome::Confirmed)
+                .map_err(|transaction| LaunchConsumptionError {
+                    delivery: DeliveryError::DeliveryUnconfirmed,
+                    transaction: Some(transaction),
+                }),
+            Err(delivery) => Err(LaunchConsumptionError {
+                delivery,
+                transaction: result.err(),
+            }),
+        }
+    }
 }
 
 impl std::fmt::Display for DeliveryError {

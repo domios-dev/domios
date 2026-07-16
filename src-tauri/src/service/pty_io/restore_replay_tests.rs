@@ -6,8 +6,7 @@ use crate::multiplexer::types::{
 };
 use crate::service::boot_stage::{BootStage, BootStageSink};
 use crate::service::launch_delivery::{
-    begin_fallback_attempt, confirm_fallback, dispatch_initial_delivery, next_attempt,
-    DeliveryError, LaunchDeliveryMode,
+    DeliveryError, LaunchConsumptionError, LaunchConsumptionOutcome, LaunchDeliveryGate,
 };
 use crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore;
 use codeterm_util::lock_hold::TimedRwLock;
@@ -37,6 +36,7 @@ struct RestoreReplayFixture {
     store: Arc<PendingDeliveryPayloadStore>,
     scheduled_payload: Arc<Mutex<Option<Option<String>>>>,
     recording: Arc<ReplayRecording>,
+    delivery_gate: Mutex<LaunchDeliveryGate>,
 }
 
 impl RestoreReplayFixture {
@@ -69,6 +69,7 @@ impl RestoreReplayFixture {
             store,
             scheduled_payload: Arc::new(Mutex::new(None)),
             recording: Arc::new(ReplayRecording::default()),
+            delivery_gate: Mutex::new(LaunchDeliveryGate::new()),
         }
     }
 
@@ -106,53 +107,47 @@ impl RestoreReplayFixture {
         Ok(result.is_some())
     }
 
-    fn record_stage(&self, stage: BootStage) {
-        self.recording.record(&self.pane_id, stage, None);
+    fn mark_shell_ready(&self) {
+        self.delivery_gate.lock().mark_shell_ready();
     }
 
-    fn consume_replay(&self, submission_observed: bool) -> Result<(), DeliveryError> {
+    fn mark_provider_ready(&self) {
+        self.delivery_gate.lock().mark_provider_ready();
+    }
+
+    fn consume_replay(
+        &self,
+        submission_observed: bool,
+    ) -> Result<LaunchConsumptionOutcome, LaunchConsumptionError> {
         self.consume_replay_with(|| submission_observed)
     }
 
-    fn consume_replay_with(&self, submission: impl FnOnce() -> bool) -> Result<(), DeliveryError> {
-        let Some(payload) = self.scheduled_payload.lock().take().flatten() else {
-            return Ok(());
-        };
-        let should_submit = {
-            let mut mux = self.mux.write();
-            let pending = mux
-                .get_pane_mut(&self.pane_id)
-                .and_then(|pane| pane.pending_delivery.as_mut())
-                .expect("restored replay owns its pending record");
-            if pending.state() == PendingDeliveryState::Confirmed {
-                false
-            } else {
-                begin_fallback_attempt(pending, next_attempt()).is_ok()
-            }
-        };
-        if !should_submit {
-            return Ok(());
-        }
-
-        let observed = dispatch_initial_delivery(
-            LaunchDeliveryMode::ConfirmedFallback,
-            self.recording.as_ref(),
+    fn consume_replay_with(
+        &self,
+        submission: impl FnOnce() -> bool,
+    ) -> Result<LaunchConsumptionOutcome, LaunchConsumptionError> {
+        let payload = self.scheduled_payload.lock().clone().flatten();
+        let outcome = self.delivery_gate.lock().consume(
+            &self.mux,
             &self.pane_id,
-            Some(|| {
+            self.recording.as_ref(),
+            || {
+                let payload = payload.expect("a delivery transaction requires restored payload");
                 self.recording.delivered_payloads.lock().push(payload);
                 self.recording
                     .delivery_writes
                     .fetch_add(1, Ordering::SeqCst);
-                submission()
-            }),
-        )
-        .expect("fallback delivery dispatches its transaction");
-        let mut mux = self.mux.write();
-        let pending = mux
-            .get_pane_mut(&self.pane_id)
-            .and_then(|pane| pane.pending_delivery.as_mut())
-            .expect("restored replay retains its pending record");
-        confirm_fallback(pending, observed)
+                Ok(submission())
+            },
+        );
+        if matches!(
+            &outcome,
+            Ok(LaunchConsumptionOutcome::AlreadyConfirmed)
+                | Ok(LaunchConsumptionOutcome::Confirmed)
+        ) {
+            self.scheduled_payload.lock().take();
+        }
+        outcome
     }
 
     fn delivery_writes(&self) -> usize {
@@ -178,10 +173,12 @@ fn restore_replays_pending_exactly_once() {
     let fixture = RestoreReplayFixture::restored(false);
 
     assert!(fixture.restore().unwrap());
-    fixture.record_stage(BootStage::PtyStarting);
-    fixture.record_stage(BootStage::ShellReady);
-    fixture.record_stage(BootStage::AgentLaunching);
-    fixture.consume_replay(true).unwrap();
+    fixture.mark_shell_ready();
+    fixture.mark_provider_ready();
+    assert_eq!(
+        fixture.consume_replay(true).unwrap(),
+        LaunchConsumptionOutcome::Confirmed
+    );
     assert!(!fixture.restore().unwrap());
 
     assert_eq!(fixture.delivery_writes(), 1);
@@ -197,10 +194,12 @@ fn restore_confirmed_never_redelivers() {
     let fixture = RestoreReplayFixture::restored(true);
 
     assert!(fixture.restore().unwrap());
-    fixture.record_stage(BootStage::PtyStarting);
-    fixture.record_stage(BootStage::ShellReady);
-    fixture.record_stage(BootStage::AgentLaunching);
-    fixture.consume_replay(true).unwrap();
+    fixture.mark_shell_ready();
+    fixture.mark_provider_ready();
+    assert_eq!(
+        fixture.consume_replay(true).unwrap(),
+        LaunchConsumptionOutcome::AlreadyConfirmed
+    );
     assert!(!fixture.restore().unwrap());
 
     assert_eq!(fixture.delivery_writes(), 0);
@@ -229,7 +228,12 @@ fn duplicate_restore_single_replay() {
         .map(|attempt| attempt.join().unwrap())
         .filter(|won| *won)
         .count();
-    fixture.consume_replay(true).unwrap();
+    fixture.mark_shell_ready();
+    fixture.mark_provider_ready();
+    assert_eq!(
+        fixture.consume_replay(true).unwrap(),
+        LaunchConsumptionOutcome::Confirmed
+    );
 
     assert_eq!(winners, 1);
     assert_eq!(fixture.delivery_writes(), 1);
@@ -240,6 +244,8 @@ fn duplicate_restore_single_replay() {
 fn relink_racing_consumption_no_double_delivery() {
     let fixture = Arc::new(RestoreReplayFixture::restored(false));
     assert!(fixture.restore().unwrap());
+    fixture.mark_shell_ready();
+    fixture.mark_provider_ready();
     let barrier = Arc::new(Barrier::new(2));
     let consumer = {
         let fixture = fixture.clone();
@@ -256,7 +262,10 @@ fn relink_racing_consumption_no_double_delivery() {
     barrier.wait();
     assert!(!fixture.restore().unwrap());
     barrier.wait();
-    consumer.join().unwrap().unwrap();
+    assert_eq!(
+        consumer.join().unwrap().unwrap(),
+        LaunchConsumptionOutcome::Confirmed
+    );
     assert!(!fixture.restore().unwrap());
 
     assert_eq!(fixture.delivery_writes(), 1);
@@ -268,23 +277,27 @@ fn replay_respects_readiness_gates() {
     let fixture = RestoreReplayFixture::restored(false);
     assert!(fixture.restore().unwrap());
 
-    fixture.record_stage(BootStage::PtyStarting);
+    assert_eq!(
+        fixture.consume_replay(true).unwrap(),
+        LaunchConsumptionOutcome::NotReady
+    );
     assert_eq!(fixture.delivery_writes(), 0);
-    fixture.record_stage(BootStage::ShellReady);
+    fixture.mark_shell_ready();
+    assert_eq!(
+        fixture.consume_replay(true).unwrap(),
+        LaunchConsumptionOutcome::NotReady
+    );
     assert_eq!(fixture.delivery_writes(), 0);
-    fixture.record_stage(BootStage::AgentLaunching);
-    assert_eq!(fixture.delivery_writes(), 0);
-    fixture.consume_replay(true).unwrap();
+    fixture.mark_provider_ready();
+    assert_eq!(
+        fixture.consume_replay(true).unwrap(),
+        LaunchConsumptionOutcome::Confirmed
+    );
 
     assert_eq!(fixture.delivery_writes(), 1);
     assert_eq!(
         fixture.recording.stages.lock().as_slice(),
-        [
-            BootStage::PtyStarting,
-            BootStage::ShellReady,
-            BootStage::AgentLaunching,
-            BootStage::DeliveringInstructions,
-        ]
+        [BootStage::DeliveringInstructions]
     );
 }
 
@@ -292,11 +305,12 @@ fn replay_respects_readiness_gates() {
 fn replay_deadline_leaves_pending() {
     let fixture = RestoreReplayFixture::restored(false);
     assert!(fixture.restore().unwrap());
-    fixture.record_stage(BootStage::AgentLaunching);
+    fixture.mark_shell_ready();
+    fixture.mark_provider_ready();
 
     let error = fixture.consume_replay(false).unwrap_err();
 
-    assert_eq!(error, DeliveryError::DeliveryUnconfirmed);
+    assert_eq!(error.delivery, DeliveryError::DeliveryUnconfirmed);
     assert_eq!(fixture.delivery_writes(), 1);
     assert_eq!(fixture.pending_state(), PendingDeliveryState::Pending);
 }

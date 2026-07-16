@@ -186,6 +186,7 @@ pub(crate) fn launch_agent_in_background(
     }
     svc.emit_boot_stage(&pane_id, BootStage::PtyStarting, None);
     std::thread::spawn(move || {
+        let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
         let set_booting = |value: bool| {
             if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
                 p.agent_booting = value;
@@ -243,6 +244,7 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
         svc.emit_boot_stage(&pane_id, BootStage::ShellReady, None);
+        delivery_gate.mark_shell_ready();
         log::info!(
             "launch_agent: shell ready for pane {} after {}ms",
             pane_id,
@@ -328,6 +330,7 @@ pub(crate) fn launch_agent_in_background(
             }
             return;
         }
+        delivery_gate.mark_provider_ready();
 
         // The fallback is allowed only after launch and a provider-ready TUI.
         if matches!(
@@ -340,83 +343,50 @@ pub(crate) fn launch_agent_in_background(
             ) {
                 let task_text = spec.payload;
                 set_booting(false);
-                let should_submit = {
+                {
                     let mut mux = svc.mux.write();
                     let pane = mux.get_pane_mut(&pane_id).expect("launch pane exists");
-                    let pending = pane.pending_delivery.get_or_insert_with(|| {
+                    pane.pending_delivery.get_or_insert_with(|| {
                         crate::service::launch_delivery::pending_record_for_spec(spec)
                     });
-                    if pending.state() == crate::multiplexer::types::PendingDeliveryState::Confirmed
-                    {
-                        false
-                    } else {
-                        crate::service::launch_delivery::begin_fallback_attempt(
-                            pending,
-                            crate::service::launch_delivery::next_attempt(),
-                        )
-                        .is_ok()
-                    }
-                };
-                if !should_submit {
-                    set_booting(false);
-                    svc.emit_boot_stage(&pane_id, BootStage::AgentReady, None);
-                    if let Some(tx) = ready_tx {
-                        let _ = tx.send(Ok(()));
-                    }
-                    return;
                 }
                 let strategy = registry
                     .with_provider(&agent_cmd, |provider| provider.verify_submit_strategy())
                     .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
-                let result = crate::service::launch_delivery::dispatch_initial_delivery(
-                    delivery,
-                    &svc,
-                    &pane_id,
-                    Some(|| {
-                        crate::service::pty_io::submit_transaction::submit_entry(
-                            crate::service::pty_io::submit_transaction::PtySubmitEntry::Direct,
-                            task_text,
-                            |text| {
-                                svc.send_text_verified(
-                                    &pty_id,
-                                    text,
-                                    true,
-                                    strategy,
-                                    crate::service::inject_verify::VerifyOpts {
-                                        require_prompt_first: false,
-                                        verify_echo: false,
-                                        verify_submit: true,
-                                        ..Default::default()
-                                    },
-                                )
-                                .map_err(|error| error.to_string())
-                            },
-                        )
-                    }),
-                )
-                .expect("confirmed fallback dispatch executes the transaction");
-                let submission_observed = result
-                    .as_ref()
-                    .map(|evidence| evidence.submit_observed)
-                    .unwrap_or(false);
-                let delivery_result = {
-                    let mut mux = svc.mux.write();
-                    let pending = mux
-                        .get_pane_mut(&pane_id)
-                        .and_then(|pane| pane.pending_delivery.as_mut())
-                        .expect("fallback launch owns a pending delivery record");
-                    crate::service::launch_delivery::confirm_fallback(pending, submission_observed)
-                };
-                let cleanup_error = if delivery_result.is_ok() && result.is_ok() {
+                let consumption = delivery_gate.consume(&svc.mux, &pane_id, &svc, || {
+                    let result = crate::service::pty_io::submit_transaction::submit_entry(
+                        crate::service::pty_io::submit_transaction::PtySubmitEntry::Direct,
+                        task_text,
+                        |text| {
+                            svc.send_text_verified(
+                                &pty_id,
+                                text,
+                                true,
+                                strategy,
+                                crate::service::inject_verify::VerifyOpts {
+                                    require_prompt_first: false,
+                                    verify_echo: false,
+                                    verify_submit: true,
+                                    ..Default::default()
+                                },
+                            )
+                            .map_err(|error| error.to_string())
+                        },
+                    );
+                    result.map(|evidence| evidence.submit_observed)
+                });
+                let cleanup_error = if matches!(
+                    &consumption,
+                    Ok(crate::service::launch_delivery::LaunchConsumptionOutcome::Confirmed)
+                ) {
                     svc.confirm_pending_delivery(&pane_id)
                         .err()
                         .map(|error| error.to_string())
                 } else {
                     None
                 };
-                let delivery_error = cleanup_error
-                    .or_else(|| delivery_result.err().map(|error| error.to_string()))
-                    .or_else(|| result.err().map(|error| error.to_string()));
+                let delivery_error =
+                    cleanup_error.or_else(|| consumption.err().map(|error| error.to_string()));
                 if let Some(e) = delivery_error {
                     log::error!(
                         "launch_agent: task delivery failed for pane {} (pty {}): {}",
