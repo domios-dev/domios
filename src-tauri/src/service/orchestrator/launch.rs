@@ -22,6 +22,9 @@ pub(crate) fn role_onboarding_task(
     role: Option<&str>,
     role_profile: Option<&str>,
 ) -> Option<String> {
+    if task.is_some_and(|text| text.starts_with("## CodeTerm manager identity\n")) {
+        return task.map(str::to_string);
+    }
     match (role, role_profile) {
         (Some("Manager"), Some("planner")) => {
             task.map(|t| format!("{}{}", t, crate::prompts::planner_suffix()))

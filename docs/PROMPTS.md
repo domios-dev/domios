@@ -36,6 +36,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `planner_suffix.md` | `PLANNER_SUFFIX` | Compact role suffix | `{test_author_guidance}` | `service/orchestrator/launch.rs` — rendered and appended for Planner-profile workers; deep mechanics stay in embedded docs |
 | `orchestrator_suffix.md` | `ORCHESTRATOR_SUFFIX` | Compact role suffix | — | `service/orchestrator/launch.rs` — appended for `--role Orchestrator`; deep mechanics stay in embedded docs |
 | `orchestrator_onboarding.md` | `ORCHESTRATOR_ONBOARDING` | Promotion onboarding | `{planner_spawn_cmd}` `{orchestrator_suffix}` | `service/orchestrator_onboard.rs` — delivered when an existing agent tab becomes Orchestrator |
+| `manager_bootstrap.md` | `MANAGER_BOOTSTRAP_TEMPLATE` | Team manager bootstrap | role/team/plan/project placeholders | `service/role_identity.rs` — shared manager identity rendered before launch delivery |
 | `cron_report_hint.md` | `CRON_REPORT_HINT` | Cron suffix | — | `service/cron.rs` — appended when a cron job has a `creator_pane_id` |
 | `cron_complete_suffix.md` | `CRON_COMPLETE_SUFFIX` | Cron suffix | `{}` (run_id) | `service/cron.rs`, `cron/scheduler.rs` — always appended |
 | `codeterm_rule.md` | `CODETERM_RULE` | Framework rule | — | App loader: `service/general_agent/instructions.rs`; plugin loader: `codeterm-plugin/src/agent_claude/provider/integration.rs` writes `~/.claude/rules/codeterm.md` |
@@ -158,4 +159,4 @@ Behavioral prompt changes are gated by `evals/cli-agent` (baseline vs after)
 with sandboxes OUTSIDE the repo — in-repo sandboxes feed agents the repo's
 checked-in AGENTS.md instead of the generated one and invalidate the run.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

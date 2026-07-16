@@ -33,6 +33,10 @@ pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../prompts/orchestrator_suff
 /// Delivered when an existing agent tab becomes an Orchestrator.
 pub const ORCHESTRATOR_ONBOARDING: &str = include_str!("../prompts/orchestrator_onboarding.md");
 
+/// Contextual bootstrap for Team-staffed managers. Rendered by the shared
+/// role-identity builder before launch delivery chooses a provider channel.
+pub const MANAGER_BOOTSTRAP_TEMPLATE: &str = include_str!("../prompts/manager_bootstrap.md");
+
 /// Appended to cron tasks when creator_pane_id is set.
 pub const CRON_REPORT_HINT: &str = include_str!("../prompts/cron_report_hint.md");
 
