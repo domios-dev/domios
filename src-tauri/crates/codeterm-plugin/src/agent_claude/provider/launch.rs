@@ -29,6 +29,12 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
         parts.extend(extra.iter().cloned());
     }
 
+    if let Some(ref system_prompt) = params.system_prompt {
+        let path = ShellSyntax::task_file_path(system_prompt);
+        parts.push("--append-system-prompt-file".to_string());
+        parts.push(ShellSyntax::quote(&path));
+    }
+
     // Keep large worker prompts out of shell parsing and argv on every platform.
     if let Some(ref task) = params.task {
         let path = ShellSyntax::task_file_path(task);
@@ -64,6 +70,7 @@ mod tests {
         let params = AgentLaunchParams {
             agent_name: None,
             task: None,
+            system_prompt: None,
             args: None,
             skip_permissions: true,
             session_id: None,
@@ -87,6 +94,7 @@ mod tests {
         let params = AgentLaunchParams {
             agent_name: None,
             task: Some("line one\n<location>/repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод".to_string()),
+            system_prompt: None,
             args: None,
             skip_permissions: true,
             session_id: None,
@@ -112,6 +120,7 @@ mod tests {
         let params = AgentLaunchParams {
             agent_name: Some("architect".to_string()),
             task: None,
+            system_prompt: None,
             args: None,
             skip_permissions: true,
             session_id: None,
@@ -128,6 +137,7 @@ mod tests {
         let params = AgentLaunchParams {
             agent_name: None,
             task: Some("hello".to_string()),
+            system_prompt: None,
             args: Some(vec!["--model".into(), model_id.into()]),
             skip_permissions: true,
             session_id: None,
@@ -152,6 +162,7 @@ mod tests {
         let params = AgentLaunchParams {
             agent_name: None,
             task: None,
+            system_prompt: None,
             args: None,
             skip_permissions: true,
             session_id: Some("my-pre-generated-uuid".to_string()),
@@ -176,6 +187,7 @@ mod tests {
         let params = AgentLaunchParams {
             agent_name: None,
             task: Some("hello".to_string()),
+            system_prompt: None,
             args: None,
             skip_permissions: true,
             session_id: Some("sid-xyz".to_string()),

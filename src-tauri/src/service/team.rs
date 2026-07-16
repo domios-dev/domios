@@ -63,6 +63,35 @@ impl ServiceContext {
             )?
         };
         let mut spawn_params = prepared.spawn_params;
+        if prepared.expected_role == "Manager"
+            && prepared.expected_profile.as_deref() == Some("planner")
+        {
+            let (team, project) = {
+                let mux = self.mux.read();
+                let team = mux
+                    .get_team(team_id)
+                    .cloned()
+                    .ok_or_else(|| format!("Team {team_id} not found"))?;
+                let project = mux
+                    .get_workspace(&team.workspace_id)
+                    .and_then(|workspace| workspace.cwd.clone())
+                    .unwrap_or_default();
+                (team, project)
+            };
+            let plan = self
+                .plan_store
+                .list_full()
+                .into_iter()
+                .find(|plan| plan.team_id.as_deref() == Some(team_id))
+                .map(|plan| (plan.id, plan.title));
+            spawn_params.system_prompt = crate::prompts::staffed_manager_system_prompt(
+                "Planner",
+                &team.id,
+                team.name.as_deref(),
+                plan.as_ref().map(|plan| (plan.0.as_str(), plan.1.as_str())),
+                &project,
+            );
+        }
         let lane_label = format!("team-{team_id}");
         let service = self.clone();
         let (spawn_params, mut lane) = tauri::async_runtime::spawn_blocking(move || {

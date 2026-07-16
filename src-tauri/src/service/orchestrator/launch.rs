@@ -563,6 +563,7 @@ pub(crate) fn build_agent_command(
     let launch_params = AgentLaunchParams {
         agent_name: params.agent_name.clone(),
         task: task.map(|t| t.to_string()),
+        system_prompt: params.system_prompt.clone(),
         args: if args.is_empty() {
             None
         } else {

@@ -45,6 +45,9 @@ pub enum TaskDelivery {
 pub struct AgentLaunchParams {
     pub agent_name: Option<String>,
     pub task: Option<String>,
+    /// Host-composed launch-time identity. This is system context, never a
+    /// synthetic user turn.
+    pub system_prompt: Option<String>,
     pub args: Option<Vec<String>>,
     pub skip_permissions: bool,
     // ignore it (they generate ids themselves and CodeTerm has to detect after launch).
