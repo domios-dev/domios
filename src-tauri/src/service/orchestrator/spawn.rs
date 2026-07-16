@@ -448,7 +448,27 @@ impl ServiceContext {
             &params.cwd.clone().unwrap_or_default(),
         );
 
-        let bg_task = spawn_onboarding_task(&params);
+        let fallback_bootstrap = if let Some(bootstrap) = params.manager_bootstrap.as_ref() {
+            self.emit_boot_stage(
+                &pane_id,
+                crate::service::boot_stage::BootStage::PreparingRoleInstructions,
+                None,
+            );
+            let bootstrap = bootstrap.compose();
+            params.task = Some(match params.task.take() {
+                Some(task) => format!("{bootstrap}\n\n{task}"),
+                None => bootstrap.clone(),
+            });
+            Some(bootstrap)
+        } else {
+            None
+        };
+
+        let bg_task = if params.manager_bootstrap.is_some() {
+            params.task.clone()
+        } else {
+            spawn_onboarding_task(&params)
+        };
         // Planner gets a short display hint (pending_greeting, user-facing only)
         // plus its FULL onboarding as real launch input attributed to CodeTerm —
         // never a FROM-<orchestrator> relay, mirroring the Orchestrator's onboarding.
@@ -502,23 +522,27 @@ impl ServiceContext {
             let _ = self.close_pane(&pane_id);
             return Err(e);
         }
-        if let Some(task) = bg_task.as_deref().filter(|_| {
-            self.agent_registry
-                .with_provider(&agent_cmd, |provider| {
-                    matches!(
-                        crate::service::launch_delivery::mode_for_descriptor(
-                            &provider.system_prompt_delivery(),
-                        ),
-                        crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
-                    )
-                })
-                .unwrap_or(true)
-        }) {
-            if let Err(error) = self.create_pending_delivery(
-                &pane_id,
-                crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
-                task,
-            ) {
+        let fallback_delivery = self
+            .agent_registry
+            .with_provider(&agent_cmd, |provider| {
+                matches!(
+                    crate::service::launch_delivery::mode_for_descriptor(
+                        &provider.system_prompt_delivery(),
+                    ),
+                    crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
+                )
+            })
+            .unwrap_or(true);
+        if let Some(spec) = fallback_delivery
+            .then(|| {
+                crate::service::launch_delivery::fallback_delivery_spec(
+                    fallback_bootstrap.as_deref(),
+                    bg_task.as_deref(),
+                )
+            })
+            .flatten()
+        {
+            if let Err(error) = self.create_pending_delivery(&pane_id, spec.channel, spec.payload) {
                 let _ = self.close_pane(&pane_id);
                 return Err(error.to_string());
             }
@@ -538,6 +562,7 @@ impl ServiceContext {
             launch_cmd,
             agent_cmd.clone(),
             bg_task,
+            fallback_bootstrap,
             ready_tx,
         );
 

@@ -62,6 +62,7 @@ impl SpawnAgentParams {
             max_actions_per_tick: json_u64(params, "max_actions_per_tick")
                 .and_then(|v| u32::try_from(v).ok()),
             activate: params.get("activate").and_then(|v| v.as_bool()),
+            manager_bootstrap: None,
             structured_prompt_server: None,
         };
         out.normalize_role_profile()?;

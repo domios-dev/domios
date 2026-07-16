@@ -498,6 +498,7 @@ impl ServiceContext {
             launch_cmd,
             agent_cmd.clone(),
             role_suffixed_task,
+            None,
             ready_tx,
         );
 
