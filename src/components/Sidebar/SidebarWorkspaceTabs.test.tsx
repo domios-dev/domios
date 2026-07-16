@@ -433,8 +433,8 @@ test("team header renders the live compact status tally", async () => {
   });
 
   const tally = host.querySelector('[data-testid="team-status-tally"]');
-  assert(host.querySelector('[data-testid="team-icon"]'), "team identity remains in the header");
-  assert(!host.querySelector('[data-testid="team-donut"]'), "superseded donut is absent");
+  assert(host.querySelector('[data-testid="team-donut"]'), "bound team renders its status donut");
+  assert(!host.querySelector('[data-testid="team-donut"] svg'), "donut has no inner icon node");
   assert(!host.querySelector('[data-testid="team-open-effort"]'), "superseded effort row is absent");
   assert(
     Array.from(tally?.querySelectorAll('[data-testid^="team-status-"]') ?? []).map((item) => item.textContent?.trim()).join(",") === "3 todo,1 review,1 blocked,3 done",
@@ -453,7 +453,7 @@ test("team header renders the live compact status tally", async () => {
   const planButtons = host.querySelectorAll('[data-testid="team-plan-button"]');
   assert(planButtons.length === 1, "exactly one bound-plan button is rendered");
   assert(planButtons[0].textContent === "", "plan button is icon-only");
-  assert(!/\d+\s*\/\s*\d+/.test(host.querySelector(".sidebar-team-header")?.textContent ?? ""), "header has no progress fraction");
+  assert(/3\s*\/\s*8/.test(host.querySelector(".sidebar-team-header")?.textContent ?? ""), "header shows done/total progress fraction");
   assert(!host.textContent?.includes("Open effort"), "Team unit has no Open effort chrome");
   canvasFocusStore.closeWorkspace();
   await act(async () => (planButtons[0] as HTMLButtonElement).click());
