@@ -4,12 +4,11 @@ import {
   reduceToolEvents,
   lastSessionResetIndex,
   mergeById,
-  mergeTimelineMessages,
-  matchedOptimisticEchoes,
+  projectTranscriptMessages,
+  transcriptMessageIdentity,
   trimAfterSessionReset,
   type NormalizedChatMessage as ChatMessage,
   type TimelineItem,
-  type OptimisticEcho,
 } from "@codeterm/chat-core";
 import { detectChatPrefix, splitChatPrefixedMessages, type ChatOrigin } from "../../lib/chatPrefixes";
 import { CHAT_REATTACHED_EVENT } from "./chatReattach";
@@ -203,10 +202,6 @@ export function listenForTestChatReplies(
   };
 }
 
-function toEchoes(msgs: ChatMessage[]): OptimisticEcho[] {
-  return msgs.map((m) => ({ id: m.id, content: m.content, sentAtMs: Number(m.timestamp) || 0 }));
-}
-
 function withPreservedClientOrder(
   messages: ChatMessage[],
   previous: ChatMessage[],
@@ -254,6 +249,9 @@ export function useChatSession({
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
   const onErrorRef = useRef(onError);
   const nextClientOrderRef = useRef(0);
+  // JSONL line zero is the session metadata/context record; the first user
+  // transcript message is therefore parser sequence one on a fresh session.
+  const nextOptimisticSeqRef = useRef(1);
   const activeRef = useRef(active);
   const agentSessionIdRef = useRef(agentSessionId);
   const previousSessionIdRef = useRef(agentSessionId);
@@ -431,6 +429,11 @@ export function useChatSession({
 
   const parsed = useMemo<ChatMessage[]>(() => structured ?? [], [structured]);
   const resetParsed = useMemo(() => trimAfterSessionReset(parsed), [parsed]);
+  const nextParserSeq = useMemo(
+    () => resetParsed.reduce((next, message) => Math.max(next, (message.seq ?? -1) + 1), 0),
+    [resetParsed],
+  );
+  if (nextOptimisticSeqRef.current < nextParserSeq) nextOptimisticSeqRef.current = nextParserSeq;
   const resetCutoffMs = useMemo(() => {
     const index = lastSessionResetIndex(parsed);
     return index >= 0 ? timestampMs(parsed[index]?.timestamp) : null;
@@ -444,14 +447,8 @@ export function useChatSession({
   }, [optimistic, resetCutoffMs]);
 
   const allMessages = useMemo(() => {
-    if (liveOptimistic.length === 0) return resetParsed;
-    // content-collapse that would swallow a legitimately repeated message).
-    const parsedUsers = resetParsed.filter((m) => m.type === "user" || m.type === "local_command");
-    const { matchedIds } = matchedOptimisticEchoes(toEchoes(liveOptimistic), parsedUsers);
-    const matched = new Set(matchedIds);
-    const stillPending = liveOptimistic.filter((m) => !matched.has(m.id));
-    return mergeTimelineMessages(resetParsed, stillPending);
-  }, [resetParsed, liveOptimistic]);
+    return projectTranscriptMessages(resetParsed, liveOptimistic, agentSessionId);
+  }, [agentSessionId, resetParsed, liveOptimistic]);
 
   const allTimelineItems = useMemo(() => reduceToolEvents(allMessages), [allMessages]);
 
@@ -501,6 +498,7 @@ export function useChatSession({
 
   const addOptimistic = useCallback((content: string) => {
     const id = `opt-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const seq = nextOptimisticSeqRef.current++;
     setOptimistic((prev) => [
       ...prev,
       {
@@ -508,11 +506,13 @@ export function useChatSession({
         type: "user",
         content,
         timestamp: String(Date.now()),
+        seq,
+        transcriptIdentity: transcriptMessageIdentity({ id, seq }, agentSessionId),
         clientOrder: nextClientOrder(),
       },
     ]);
     return id;
-  }, [nextClientOrder]);
+  }, [agentSessionId, nextClientOrder]);
 
   /** Replace an optimistic bubble's content in place — used to morph a
    * "transcribing…" placeholder into the final transcript (or an error)
@@ -525,19 +525,19 @@ export function useChatSession({
 
   useEffect(() => {
     if (optimistic.length === 0) return;
-    const parsedUsers = resetParsed.filter((m) => m.type === "user" || m.type === "local_command");
-    const { matchedIds } = matchedOptimisticEchoes(toEchoes(optimistic), parsedUsers);
-    const matched = new Set(matchedIds);
+    const confirmedIdentities = new Set(
+      resetParsed.map((message) => transcriptMessageIdentity(message, agentSessionId)),
+    );
     setOptimistic((prev) => {
       const next = prev.filter((m) => {
-        if (matched.has(m.id)) return false;
+        if (confirmedIdentities.has(transcriptMessageIdentity(m, agentSessionId))) return false;
         if (resetCutoffMs == null) return true;
         const ts = timestampMs(m.timestamp);
         return ts == null || ts >= resetCutoffMs;
       });
       return next.length === prev.length ? prev : next;
     });
-  }, [resetParsed, resetCutoffMs, optimistic]);
+  }, [agentSessionId, resetParsed, resetCutoffMs, optimistic]);
 
   return {
     loading,

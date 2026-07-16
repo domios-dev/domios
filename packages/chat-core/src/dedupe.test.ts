@@ -1,5 +1,4 @@
-import { matchedOptimisticEchoes, type OptimisticEcho } from "./dedupe";
-import { markPane, markVoice } from "./markers";
+import { projectTranscriptMessages } from "./dedupe";
 import type { NormalizedChatMessage } from "./types";
 
 let passed = 0;
@@ -16,267 +15,52 @@ function eq(actual: unknown, expected: unknown, name: string) {
   }
 }
 
-function user(id: string, content: string, tsMs: number): NormalizedChatMessage {
-  return { id, type: "user", content, timestamp: new Date(tsMs).toISOString() };
-}
-function userSec(id: string, content: string, tsMs: number): NormalizedChatMessage {
-  return { id, type: "user", content, timestamp: String(Math.floor(tsMs / 1000)) };
-}
-// (opencode hands the frontend String(time_created) in ms).
-function userMsNum(id: string, content: string, tsMs: number): NormalizedChatMessage {
-  return { id, type: "user", content, timestamp: String(tsMs) };
-}
-function echo(id: string, content: string, sentAtMs: number): OptimisticEcho {
-  return { id, content, sentAtMs };
+const sessionId = "c73becde";
+const startupText = "You are Theo. You are a frontend worker fixing a transcript projection/dedup defect.";
+
+function parsed(id: string, seq: number, content = startupText): NormalizedChatMessage {
+  return { id, seq, type: "user", content, timestamp: "2026-07-16T10:00:00Z" };
 }
 
-const T0 = 1_700_000_000_000;
+function optimistic(id: string, seq: number, content = startupText): NormalizedChatMessage {
+  return {
+    id,
+    seq,
+    type: "user",
+    content,
+    timestamp: "1784196000000",
+    transcriptIdentity: `session:${sessionId}:seq:${seq}`,
+  };
+}
 
-//    the provider transcript proves the message landed.
+// RED before identity projection: parsed seq-1 plus its local launch echo
+// rendered as two identical bubbles on c73becde.
 {
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "deploy the thing", T0)],
+  const projection = projectTranscriptMessages(
+    [parsed("codex-persisted-seq-1", 1)],
+    [optimistic("opt-launch", 1)],
+    sessionId,
+  );
+  eq(projection.map((message) => message.id), ["codex-persisted-seq-1"], "c73becde startup projects one bubble");
+}
+
+// Identical content is not identity: separate parser sequences remain visible.
+{
+  const projection = projectTranscriptMessages(
+    [parsed("persisted-repeat-1", 1, "continue"), parsed("persisted-repeat-2", 2, "continue")],
     [],
+    sessionId,
   );
-  eq(matchedIds, [], "no echo → not matched");
-  eq(pendingIds, ["opt-1"], "no echo → stays pending");
+  eq(projection.map((message) => message.id), ["persisted-repeat-1", "persisted-repeat-2"], "distinct stable ids preserve true repeats");
 }
 
-//    turn. The combined transcript turn claims each covered optimistic bubble.
+// Re-running projection after reload has no stateful/content-based second pass.
 {
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [
-      echo("opt-1", "send many at once", T0),
-      echo("opt-2", "and check it", T0 + 100),
-    ],
-    [user("a-0", "send many at once and check it", T0 + 500)],
-  );
-  eq(matchedIds, ["opt-1", "opt-2"], "combined user turn clears covered bubbles");
-  eq(pendingIds, [], "combined user turn leaves no covered bubble pending");
-}
-
-//     match inside a longer token and repeated short sends need repeated tokens.
-{
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "й", T0), echo("opt-2", "йо", T0 + 100), echo("opt-3", "йо", T0 + 200)],
-    [user("a-0", "йо й", T0 + 500)],
-  );
-  eq(matchedIds, ["opt-1", "opt-2"], "token coverage consumes exact token occurrences");
-  eq(pendingIds, ["opt-3"], "missing repeated token stays pending");
-}
-
-// 11. A newer bubble is not cleared by an older combined history turn.
-{
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "fresh", T0)],
-    [user("old-0", "fresh other", T0 - 60_000)],
-  );
-  eq(matchedIds, [], "older combined turn does not clear fresh bubble");
-  eq(pendingIds, ["opt-1"], "fresh bubble remains pending");
-}
-
-{
-  const file = "C:\\tmp\\voice-note-123.webm";
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [echo("opt-voice", markVoice(file, null, "no transcriber daemon"), T0)],
-    [user("voice-0", markVoice(file, "transcribed later", null), T0 - 60_000)],
-  );
-  eq(matchedIds, ["opt-voice"], "voice marker clears by file identity");
-  eq(pendingIds, [], "voice marker leaves no duplicate pending bubble");
-}
-
-// 2. Real echo with equal content AND timestamp >= sentAt → matched (bubble cleared).
-{
-  const { matchedIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "hello world", T0)],
-    [user("uuid-a-0", "hello world", T0 + 500)],
-  );
-  eq(matchedIds, ["opt-1"], "real echo after send → matched");
-}
-
-//     user turn while the optimistic bubble contains only the visible body.
-{
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "check the cursor ordering bug", T0)],
-    [user("a-0", markPane("Andrey", "abc12345", "check the cursor ordering bug"), T0 + 500)],
-  );
-  eq(matchedIds, ["opt-1"], "transport-prefixed stored echo matches optimistic body");
-  eq(pendingIds, [], "transport-prefixed echo leaves no duplicate pending bubble");
-}
-
-// 3. An OLDER identical message (ts < sentAt) must NOT clear a fresh bubble.
-{
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "yes", T0)],
-    [user("old-0", "yes", T0 - 60_000)], // a minute-old "yes" in history
-  );
-  eq(matchedIds, [], "stale prior identical message → not matched");
-  eq(pendingIds, ["opt-1"], "fresh bubble stays pending until its own echo");
-}
-
-//    distinctly. The old loose/substring + content-dedup collapsed these.
-{
-  const { matchedIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "yes", T0), echo("opt-2", "yes", T0 + 10_000)],
-    [user("a-0", "yes", T0 + 300), user("b-0", "yes", T0 + 10_300)],
-  );
-  eq(matchedIds.sort(), ["opt-1", "opt-2"], "two sends → two distinct echoes matched");
-}
-
-//    one cleared, the other stays pending (no double-clear off a single message).
-{
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "continue", T0), echo("opt-2", "continue", T0 + 1_000)],
-    [user("a-0", "continue", T0 + 500)],
-  );
-  eq(matchedIds, ["opt-1"], "single echo clears exactly one bubble (oldest first)");
-  eq(pendingIds, ["opt-2"], "second identical bubble still pending");
-}
-
-// 6. Content normalization: CRLF / whitespace differences still match.
-{
-  const { matchedIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "line one\r\nline two", T0)],
-    [user("a-0", "line one\nline two", T0 + 100)],
-  );
-  eq(matchedIds, ["opt-1"], "normalized content (CRLF) matches");
-}
-
-// 7. A parsed message with no timestamp falls back to content+consume-once match.
-{
-  const { matchedIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "no ts here", T0)],
-    [{ id: "a-0", type: "user", content: "no ts here" }],
-  );
-  eq(matchedIds, ["opt-1"], "missing timestamp → matched on content");
-}
-
-// 8. Sub-second flooring is tolerated by the small skew (echo ts slightly < sentAt).
-{
-  const { matchedIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "edge", T0)],
-    [user("a-0", "edge", T0 - 800)], // floored within the 2s grace
-  );
-  eq(matchedIds, ["opt-1"], "sub-second floored echo within skew → matched");
-}
-
-{
-  const real = "cannot scroll inside the input make it bigger and move the timer";
-  const leaked = "YT" + real; // "YTcannot scroll ..." — first token diverges
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [echo("opt-1", leaked, T0)],
-    [user("a-0", real, T0 + 500)],
-  );
-  eq(matchedIds, ["opt-1"], "leaked-prefix echo clears via similarity");
-  eq(pendingIds, [], "leaked-prefix echo leaves no duplicate pending");
-}
-
-// 14. Optimistic bubbles carry the raw attachment path appended to the text;
-{
-  const text = "each time I press record this happens please fix";
-  const optimistic = `${text} /Users/me/.codeterm/uploads/2b9df9f1-shot.png /Users/me/.codeterm/uploads/2faa7ab5-shot.png`;
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [echo("opt-1", optimistic, T0)],
-    [user("a-0", text, T0 + 500)],
-  );
-  eq(matchedIds, ["opt-1"], "text+attachment echo clears against chip-rendered echo");
-  eq(pendingIds, [], "text+attachment echo leaves no duplicate pending");
-}
-
-{
-  const { matchedIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "fix this /Users/me/.codeterm/uploads/x.png", T0)],
-    [user("a-0", "fix this", T0 + 300)],
-  );
-  eq(matchedIds, ["opt-1"], "short text+attachment matches by stripped-path equality");
-}
-
-//     that merely share a couple of words.
-{
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "yes do it", T0)],
-    [user("a-0", "yes do that", T0 + 300)],
-  );
-  eq(matchedIds, [], "different short messages do not fuzzy-match");
-  eq(pendingIds, ["opt-1"], "distinct short message stays pending");
-}
-
-// 17. A stale older message must not fuzzy-clear a fresh bubble (time guard).
-{
-  const text = "cannot scroll inside the input make it bigger please";
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "YT" + text, T0)],
-    [user("old-0", text, T0 - 60_000)],
-  );
-  eq(matchedIds, [], "stale similar message does not fuzzy-clear fresh bubble");
-  eq(pendingIds, ["opt-1"], "fresh bubble stays pending despite similar history");
-}
-
-// 18. Real-data skew: a fresh echo stamped in Unix SECONDS clears its bubble.
-{
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "hi", T0)],
-    [userSec("a-0", "hi", T0 + 500)], // seconds-stamped echo, just after send
-  );
-  eq(matchedIds, ["opt-1"], "seconds-stamped fresh echo → matched (skew fix)");
-  eq(pendingIds, [], "seconds-stamped fresh echo leaves no stuck bubble");
-}
-
-//     message a minute older than the send still must NOT clear a fresh bubble.
-{
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "yes", T0)],
-    [userSec("old-0", "yes", T0 - 60_000)], // a minute-old "yes", seconds units
-  );
-  eq(matchedIds, [], "stale seconds-stamped identical message → not matched");
-  eq(pendingIds, ["opt-1"], "fresh bubble stays pending despite old seconds echo");
-}
-
-//     the NEW echo, never the stale identical line (units normalized to ms first).
-{
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "yes", T0)],
-    [userSec("old-0", "yes", T0 - 60_000), userSec("new-0", "yes", T0 + 400)],
-  );
-  eq(matchedIds, ["opt-1"], "fresh bubble matches the new seconds echo");
-  eq(pendingIds, [], "fresh bubble cleared by its own (not the stale) echo");
-}
-
-//     normalization must leave genuine ms values untouched.
-{
-  const { matchedIds } = matchedOptimisticEchoes(
-    [echo("opt-1", "deploy", T0)],
-    [userMsNum("a-0", "deploy", T0 + 700)],
-  );
-  eq(matchedIds, ["opt-1"], "ms-number-string echo matches (no double-scaling)");
-}
-
-// 22. A local_command echo (backend-normalized form of <command-name>/new</command-name>)
-//     clears the optimistic /new pill — exact content match.
-{
-  const localCmd = (id: string, content: string, tsMs: number): NormalizedChatMessage => ({
-    id, type: "local_command", content, timestamp: new Date(tsMs).toISOString(),
-  });
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [echo("opt-new", "/new", T0)],
-    [localCmd("lc-0", "/new", T0 + 200)],
-  );
-  eq(matchedIds, ["opt-new"], "local_command /new echo clears optimistic pill");
-  eq(pendingIds, [], "no stuck pill after local_command /new echo");
-}
-
-//     via coverage token matching.
-{
-  const localCmd = (id: string, content: string, tsMs: number): NormalizedChatMessage => ({
-    id, type: "local_command", content, timestamp: new Date(tsMs).toISOString(),
-  });
-  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
-    [echo("opt-clear", "/clear", T0)],
-    [localCmd("lc-1", "clear", T0 + 200)],
-  );
-  // but exact: "/clear" vs "clear" — no match, so pill stays pending (expected — content diverged)
-  eq(pendingIds, ["opt-clear"], "bare-name local_command /clear stays pending (content mismatch)");
-  void matchedIds; // suppress unused warning
+  const confirmed = [parsed("codex-persisted-seq-1", 1)];
+  const overlay = [optimistic("opt-launch", 1)];
+  const first = projectTranscriptMessages(confirmed, overlay, sessionId);
+  const reloaded = projectTranscriptMessages(confirmed, overlay, sessionId);
+  eq(reloaded.map((message) => message.id), first.map((message) => message.id), "reload projection is idempotent");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
