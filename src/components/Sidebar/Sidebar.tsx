@@ -44,6 +44,30 @@ import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorks
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
+export const SIDEBAR_WORKSPACES_SECTION_EXPANDED_KEY = "codeterm.sidebar.workspaces-section-expanded";
+
+export function loadWorkspacesSectionExpanded(): boolean {
+  try {
+    return window.localStorage.getItem(SIDEBAR_WORKSPACES_SECTION_EXPANDED_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function persistWorkspacesSectionExpanded(expanded: boolean) {
+  try {
+    window.localStorage.setItem(SIDEBAR_WORKSPACES_SECTION_EXPANDED_KEY, expanded ? "1" : "0");
+  } catch {}
+}
+
+export function workspaceSectionBodyVisible(isCompact: boolean, expanded: boolean): boolean {
+  return isCompact || expanded;
+}
+
+export function toggleWorkspacesSectionExpanded(expanded: boolean): boolean {
+  return !expanded;
+}
+
 interface SidebarProps {
   onCollapse?: () => void;
   onOpenMemory?: () => void;
@@ -205,6 +229,7 @@ export function Sidebar({
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => initialSidebarExpanded(state.workspaces, state.active_workspace_id),
   );
+  const [workspacesSectionExpanded, setWorkspacesSectionExpanded] = useState(loadWorkspacesSectionExpanded);
   const hydratedProtectedWorkspaceIdsRef = useRef<Set<string>>(new Set());
   const [meshEnabledOverride, setMeshEnabledOverride] = useState<boolean | null>(null);
   useEffect(() => {
@@ -277,6 +302,14 @@ export function Sidebar({
       } else {
         next.add(wsId);
       }
+      return next;
+    });
+  }, []);
+
+  const toggleWorkspacesSection = useCallback(() => {
+    setWorkspacesSectionExpanded((previous) => {
+      const next = toggleWorkspacesSectionExpanded(previous);
+      persistWorkspacesSectionExpanded(next);
       return next;
     });
   }, []);
@@ -560,14 +593,23 @@ export function Sidebar({
                 );
               })()}
               <div className={`sidebar-structural-header ${isCompact ? "justify-center" : ""}`}>
-                {!isCompact && <span className="sidebar-structural-label">WORKSPACES</span>}
+                {!isCompact && <button
+                  type="button"
+                  data-testid="workspaces-section-toggle"
+                  className="sidebar-structural-toggle"
+                  aria-expanded={workspacesSectionExpanded}
+                  onClick={toggleWorkspacesSection}
+                >
+                  <ChevronRight size={11} className={workspacesSectionExpanded ? "rotate-90" : ""} />
+                  <span className="sidebar-structural-label">WORKSPACES</span>
+                </button>}
                 <div className="sidebar-structural-action">
                   <button onClick={handleNewWorkspace} className="sidebar-new-workspace" title="New workspace">
                     <FolderPlusIcon size={12} />
                   </button>
                 </div>
               </div>
-              {isCompact ? (
+              {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (isCompact ? (
                 <div className="flex flex-col items-center py-1">
                   {ordinaryWorkspaces.map((ws) => {
                     const isActive = ws.id === state.active_workspace_id;
@@ -747,7 +789,7 @@ export function Sidebar({
               })}
                 </SortableContext>
                 </SidebarDnd>
-              )}
+              ))}
             </div>
             {!isCompact && (() => {
               const views = state.recently_closed ?? [];

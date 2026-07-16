@@ -1356,11 +1356,11 @@ button,
 .sidebar-team-unit {
   position: relative;
   min-width: 0;
-  margin: 3px 6px;
+  margin: 3px 4px;
   padding: 2px 0 4px;
   overflow: visible;
   border-radius: 9px;
-  background: color-mix(in srgb, var(--ct-fg) 3.5%, transparent);
+  background: color-mix(in srgb, var(--ct-fg) 5%, transparent);
   container-type: inline-size;
 }
 
@@ -1369,9 +1369,9 @@ button,
   grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
   min-width: 0;
   align-items: center;
-  gap: 8px;
-  margin: 0 3px;
-  padding: 5px 8px;
+  gap: 6px;
+  margin: 0 2px;
+  padding: 5px 6px;
   border-radius: 7px;
   color: var(--ct-fg);
   cursor: pointer;
@@ -1392,6 +1392,9 @@ button,
   padding: 0;
   background: transparent;
   color: color-mix(in srgb, var(--ct-muted-fg) 62%, var(--ct-bg));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
 }
 
 .sidebar-team-unit[data-expanded="true"] .sidebar-team-chevron svg,
@@ -1435,6 +1438,16 @@ button,
   font-size: 10px;
   font-weight: 700;
   letter-spacing: .14em;
+}
+
+.sidebar-structural-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ct-muted-fg);
 }
 
 .sidebar-structural-action {
@@ -1577,7 +1590,8 @@ button,
 
 .sidebar-team-name {
   font-size: 12.5px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .sidebar-team-effort {
@@ -1622,6 +1636,34 @@ button,
   color: var(--ct-muted-fg);
   font-size: 14px;
   font-weight: 700;
+}
+
+.sidebar-team-menu-root .sidebar-team-kebab {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+.sidebar-team-header:hover .sidebar-team-chevron,
+.sidebar-team-header:focus-within .sidebar-team-chevron,
+.sidebar-team-header:hover .sidebar-team-menu-root .sidebar-team-kebab,
+.sidebar-team-header:focus-within .sidebar-team-menu-root .sidebar-team-kebab {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .sidebar-team-chevron,
+  .sidebar-team-menu-root .sidebar-team-kebab {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+[data-touch-mode="true"] .sidebar-team-chevron,
+[data-touch-mode="true"] .sidebar-team-menu-root .sidebar-team-kebab {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .sidebar-team-kebab:hover {
