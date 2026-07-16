@@ -164,6 +164,57 @@ async function main() {
     assert(host.querySelector('[data-testid="chat-launch-show-log"]'), "second failure exposes log action");
   });
 
+  await test("ready overlaps the transcript only through its opacity transition", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const starting = pane("agent_launching");
+    const ready = pane("agent_ready");
+    const renderState = async (current: Pane) => {
+      await act(async () => {
+        root.render(<><div data-testid="incoming-transcript">Transcript</div><ChatSetupState pane={current} view={chatSetupView(current)} providerName="Codex" /></>);
+      });
+    };
+    await renderState(starting);
+    await renderState(ready);
+    const exiting = host.querySelector('[data-testid="chat-setup-state"]') as HTMLDivElement | null;
+    assert(exiting?.dataset.transitionState === "exiting", "ready begins event-driven exit");
+    assert(exiting.style.opacity === "0", "exit changes opacity");
+    assert(host.querySelector('[data-testid="incoming-transcript"]'), "transcript is present beneath exiting card");
+    const transitionEnd = new window.Event("transitionend", { bubbles: true });
+    Object.defineProperty(transitionEnd, "propertyName", { value: "opacity" });
+    await act(async () => {
+      exiting.dispatchEvent(transitionEnd);
+    });
+    assert(!host.querySelector('[data-testid="chat-setup-state"]'), "card unmounts after opacity transition");
+    assert(host.querySelector('[data-testid="incoming-transcript"]'), "transcript remains after card exits");
+  });
+
+  await test("reduced motion removes the card immediately on ready", async () => {
+    const matchMediaDescriptor = Object.getOwnPropertyDescriptor(window, "matchMedia");
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: () => ({ matches: true, addEventListener() {}, removeEventListener() {} }),
+    });
+    try {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const root = createRoot(host);
+      const starting = pane("agent_launching");
+      const ready = pane("agent_ready");
+      await act(async () => {
+        root.render(<ChatSetupState pane={starting} view={chatSetupView(starting)} providerName="Codex" />);
+      });
+      await act(async () => {
+        root.render(<ChatSetupState pane={ready} view={chatSetupView(ready)} providerName="Codex" />);
+      });
+      assert(!host.querySelector('[data-testid="chat-setup-state"]'), "reduced motion skips exit overlap");
+    } finally {
+      if (matchMediaDescriptor) Object.defineProperty(window, "matchMedia", matchMediaDescriptor);
+      else Reflect.deleteProperty(window, "matchMedia");
+    }
+  });
+
   await test("ready renders nothing (empty-state text stays the caller's job)", async () => {
     const p = pane("agent_ready");
     const host = await render(

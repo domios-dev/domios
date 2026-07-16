@@ -534,25 +534,11 @@ export function PaneSessionChat({
             <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-recovering-state">
               Recovering chat history…
             </div>
-          ) : bootSetupView.kind !== "none" ? (
-            <ChatSetupState
-              pane={pane}
-              view={bootSetupView}
-              providerName={provider?.displayName ?? "the agent"}
-              providerIconSvg={provider?.iconSvg}
-              providerIconColor={provider?.iconColor}
-              providerIconHint={provider?.iconHint}
-              teamName={teamName}
-              projectName={projectName}
-              onRetry={handleLaunchRetry}
-              onOpenTerminal={onOpenTerminalFallback}
-              onEscape={focusComposer}
-            />
-          ) : (
+          ) : bootSetupView.kind === "none" ? (
             <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-empty-state">
               No messages yet.
             </div>
-          )
+          ) : null
         )}
         {deferredEnrichedMessages.map(({ msg, item, origin }) => {
           let onOriginClick: (() => void) | undefined;
@@ -595,6 +581,19 @@ export function PaneSessionChat({
             </div>
           );
         })}
+        <ChatSetupState
+          pane={pane}
+          view={bootSetupView}
+          providerName={provider?.displayName ?? "the agent"}
+          providerIconSvg={provider?.iconSvg}
+          providerIconColor={provider?.iconColor}
+          providerIconHint={provider?.iconHint}
+          teamName={teamName}
+          projectName={projectName}
+          onRetry={handleLaunchRetry}
+          onOpenTerminal={onOpenTerminalFallback}
+          onEscape={focusComposer}
+        />
         {!inlinePrompt && (deferredEnrichedMessages.length > 0 || liveAgentState.state === "question") && (
           // with the message text instead of the far-left container edge.
           <div className="w-full max-w-4xl min-w-0 mx-auto">
