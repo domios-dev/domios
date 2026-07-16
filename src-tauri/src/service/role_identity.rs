@@ -96,4 +96,20 @@ mod tests {
             assert_eq!(compose_role_identity(context), before);
         }
     }
+
+    #[test]
+    fn pair_bootstrap_never_fabricates_team_or_plan_ids() {
+        let text = ManagerBootstrapInputs {
+            role: "Planner".into(),
+            team_id: "not yet established".into(),
+            team_name: "not yet established".into(),
+            plan_id: "no plan bound yet".into(),
+            project: "CodeTerm".into(),
+        }
+        .compose();
+        assert!(text.contains("not yet established"));
+        assert!(text.contains("no plan bound yet"));
+        assert!(!text.contains("team_"));
+        assert!(!text.contains("pl_"));
+    }
 }
