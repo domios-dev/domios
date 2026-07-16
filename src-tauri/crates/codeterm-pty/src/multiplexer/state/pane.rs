@@ -1,15 +1,23 @@
 use super::{short_id, MultiplexerState};
-use crate::multiplexer::types::{Pane, PaneBacking, PaneType, TitleLevel};
+use crate::multiplexer::types::{Pane, PaneBacking, PaneType, PendingDeliveryRecord, TitleLevel};
 
 impl MultiplexerState {
     /// Create a new terminal pane and register it. Returns the pane ID.
     pub fn create_pane(&mut self) -> String {
+        self.create_pane_with_pending_delivery(None)
+    }
+
+    pub fn create_pane_with_pending_delivery(
+        &mut self,
+        pending_delivery: Option<PendingDeliveryRecord>,
+    ) -> String {
         let pane_id = short_id();
         let pane = Pane {
             id: pane_id.clone(),
             pty_id: None,
             backing: PaneBacking::default(),
             pane_type: PaneType::Terminal,
+            pending_delivery,
             title: "Terminal".to_string(),
             description: None,
             cwd: None,
@@ -300,6 +308,30 @@ impl MultiplexerState {
             }
         }
         Err(format!("Pane {} not found in any tab", pane_id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryRecord};
+
+    #[test]
+    fn fresh_spawn_attaches_record_only_when_pending() {
+        let mut state = MultiplexerState::empty();
+        let pending =
+            PendingDeliveryRecord::new("digest".into(), PendingDeliveryChannel::InteractiveInput);
+        let with_pending = state.create_pane_with_pending_delivery(Some(pending.clone()));
+        let without_pending = state.create_pane_with_pending_delivery(None);
+
+        assert_eq!(
+            state.get_pane(&with_pending).unwrap().pending_delivery,
+            Some(pending)
+        );
+        assert_eq!(
+            state.get_pane(&without_pending).unwrap().pending_delivery,
+            None
+        );
     }
 }
 

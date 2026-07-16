@@ -31,6 +31,7 @@ fn chatbackend_leaf(pane_id: &str, plugin_id: &str, session_id: &str) -> SplitNo
         chatbackend_plugin_id: Some(plugin_id.into()),
         chatbackend_session_id: Some(session_id.into()),
         watcher: None,
+        pending_delivery: None,
     }
 }
 
@@ -98,6 +99,67 @@ fn team_snapshot_roundtrip() {
         Some("team_abc123"),
         "second member pane team_id must survive too"
     );
+}
+
+#[test]
+fn pending_record_snapshot_round_trip() {
+    use crate::multiplexer::types::{
+        DeliveryAttemptProvenance, PendingDeliveryChannel, PendingDeliveryRecord,
+    };
+
+    let (mut state, pane_id) = MultiplexerState::new();
+    let mut pending = PendingDeliveryRecord::new(
+        "e8b7be43c6c1de318beb5c4a99e5406d2d1861f55ad8c03b2b4591f8ac44d784".into(),
+        PendingDeliveryChannel::InteractiveInput,
+    );
+    pending
+        .begin_attempt(DeliveryAttemptProvenance {
+            attempt_id: "delivery-17".into(),
+            started_at_ms: 1_700_000_000_000,
+        })
+        .unwrap();
+    state.get_pane_mut(&pane_id).unwrap().pending_delivery = Some(pending);
+
+    let snapshot = state.to_session_snapshot();
+    let before = serde_json::to_vec(&snapshot.workspaces[0].tabs[0].split_tree).unwrap();
+    let restored = MultiplexerState::from_session_snapshot(&snapshot);
+    let after_snapshot = restored.to_session_snapshot();
+    let after = serde_json::to_vec(&after_snapshot.workspaces[0].tabs[0].split_tree).unwrap();
+
+    assert_eq!(before, after);
+}
+
+#[test]
+fn pending_record_absent_round_trips_absent() {
+    let (state, pane_id) = MultiplexerState::new();
+    assert_eq!(state.get_pane(&pane_id).unwrap().pending_delivery, None);
+
+    let snapshot = state.to_session_snapshot();
+    let restored = MultiplexerState::from_session_snapshot(&snapshot);
+    assert_eq!(restored.get_pane(&pane_id).unwrap().pending_delivery, None);
+}
+
+#[test]
+fn legacy_snapshot_without_field_deserializes() {
+    let snapshot: SessionSnapshot = serde_json::from_value(serde_json::json!({
+        "version": "legacy",
+        "timestamp": 0,
+        "workspaces": [{
+            "id": "ws",
+            "name": "ws",
+            "tabs": [{
+                "id": "tab",
+                "title": "tab",
+                "split_tree": { "type": "Leaf", "pane_id": "pane", "cwd": null }
+            }],
+            "active_tab_id": "tab"
+        }],
+        "active_workspace_id": "ws"
+    }))
+    .unwrap();
+
+    let restored = MultiplexerState::from_session_snapshot(&snapshot);
+    assert_eq!(restored.get_pane("pane").unwrap().pending_delivery, None);
 }
 
 #[test]
@@ -296,6 +358,7 @@ fn pty_pane_round_trips_without_chatbackend_fields() {
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
         watcher: None,
+        pending_delivery: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let pane = state.panes.get("p2").expect("pane restored");
@@ -333,6 +396,7 @@ fn pane_description_round_trips_through_snapshot() {
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
         watcher: None,
+        pending_delivery: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let pane = state.panes.get("p-desc").expect("pane restored");
@@ -387,6 +451,7 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
         watcher: None,
+        pending_delivery: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let pane = state.panes.get("worker-1").expect("pane restored");
@@ -434,6 +499,7 @@ fn legacy_tab_title_seeds_default_provider_pane_title() {
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
         watcher: None,
+        pending_delivery: None,
     };
     let mut snap = snapshot_with(leaf);
     snap.workspaces[0].tabs[0].title = "Euler".into();
@@ -680,6 +746,7 @@ fn spawned_by_round_trips_through_snapshot() {
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
         watcher: None,
+        pending_delivery: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let round = state.to_session_snapshot();
