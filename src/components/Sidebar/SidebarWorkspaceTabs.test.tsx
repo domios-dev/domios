@@ -11,6 +11,7 @@ import { TaskStatus, type Plan, type Task } from "../Canvas/types";
 import { SidebarDnd } from "./sortable";
 import { canvasFocusStore } from "../Canvas/canvasFocusStore";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
+import { forwardTerminalFallback } from "../../lib/terminalFallbackInput";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -622,6 +623,23 @@ test("Team card keeps plan activation separate from collapse and menu controls",
   await act(async () => chevron.click());
   assert(chevron.getAttribute("aria-expanded") === "false", "chevron changes only collapse state");
   assert(canvasFocusStore.getWorkspaceTarget() === null, "chevron never opens a plan");
+  const ptyWrites: string[] = [];
+  const chevronEnter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+  await act(async () => {
+    chevron.focus();
+    const forwarded = forwardTerminalFallback(chevronEnter, document.activeElement, (data) => ptyWrites.push(data));
+    assert(!forwarded, "focused Team chevron never forwards Enter to the PTY");
+    if (!chevronEnter.defaultPrevented) chevron.click();
+  });
+  assert(chevron.getAttribute("aria-expanded") === "true", "Enter on the Team chevron keeps native button toggling");
+  assert(ptyWrites.length === 0, "Team chevron Enter produces zero PTY writes");
+  const terminalFallbackSurface = document.createElement("div");
+  terminalFallbackSurface.tabIndex = 0;
+  host.append(terminalFallbackSurface);
+  const terminalEnter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+  terminalFallbackSurface.focus();
+  assert(forwardTerminalFallback(terminalEnter, document.activeElement, (data) => ptyWrites.push(data)), "unfocused terminal fallback forwards Enter");
+  assert(terminalEnter.defaultPrevented && ptyWrites.join("") === "\r", "terminal fallback preserves its PTY write");
   await act(async () => (host.querySelector('[data-testid="team-done-count"]') as HTMLElement).click());
   assert(canvasFocusStore.getWorkspaceTarget() === null, "same-slot done total never opens a plan");
   await act(async () => menu.click());
