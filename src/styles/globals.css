@@ -2039,6 +2039,10 @@ button,
   line-height: 0;
 }
 
+.chat-launch-ticks {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .chat-launch-ring {
     background: repeating-conic-gradient(var(--ct-accent, #58a6ff) 0deg 3deg, transparent 3deg 45deg);
@@ -2047,6 +2051,20 @@ button,
 
   .chat-launch-ring-failed {
     background: repeating-conic-gradient(var(--ct-red, #f85149) 0deg 3deg, transparent 3deg 45deg);
+  }
+
+  .chat-launch-ticks {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    inset: -2px;
+    pointer-events: none;
+    position: absolute;
+  }
+
+  .chat-launch-ticks i {
+    border-left: 1px solid var(--ct-muted-fg, #8b949e);
+    height: 4px;
+    justify-self: center;
   }
 }
 
