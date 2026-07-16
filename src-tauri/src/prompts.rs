@@ -169,6 +169,37 @@ pub fn planner_suffix() -> String {
     PLANNER_SUFFIX.replace("{test_author_guidance}", TEST_AUTHOR_GUIDANCE)
 }
 
+/// Launch-time identity for a staffed manager. This deliberately contains no
+/// task: providers receive it through their system-prompt channel, leaving the
+/// new pane idle until a real user or hierarchy turn arrives.
+pub fn staffed_manager_system_prompt(
+    role: &str,
+    team_id: &str,
+    team_name: Option<&str>,
+    plan: Option<(&str, &str)>,
+    project: &str,
+) -> Option<String> {
+    let guidance = match role {
+        "Orchestrator" => orchestrator_suffix(),
+        "Planner" => planner_suffix(),
+        _ => return None,
+    };
+    let team = team_name
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or(team_id);
+    let plan = plan
+        .map(|(id, title)| format!("{title} ({id})"))
+        .unwrap_or_else(|| "no plan is bound yet".to_string());
+    let hierarchy = match role {
+        "Orchestrator" => "You are the Team's Orchestrator: own execution, delegate work, and accept or bounce reports.",
+        "Planner" => "You are the Team's Planner: work under the Orchestrator, draft the goal/spec/plan, and cut well-formed tasks; do not execute an undelegated goal.",
+        _ => unreachable!(),
+    };
+    Some(format!(
+        "<codeterm-role-identity>\nYou are a CodeTerm {role}.\nTeam: {team} [{team_id}]\nPlan: {plan}\nProject: {project}\n{hierarchy}\nStart IDLE: do not invent work, submit a task, or treat this identity as a user request.\n\n{guidance}\n</codeterm-role-identity>"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,6 +250,23 @@ mod tests {
         assert!(suffix.contains("`executor_role=test-author`"));
         assert!(suffix.contains(TEST_AUTHOR_GUIDANCE));
         assert!(!suffix.contains("{test_author_guidance}"));
+    }
+
+    #[test]
+    fn staffed_manager_identity_contains_context_and_exact_role_guidance() {
+        let prompt = staffed_manager_system_prompt(
+            "Planner",
+            "team_alpha",
+            Some("Alpha"),
+            Some(("pl_1", "Bootstrap")),
+            "D:/project",
+        )
+        .unwrap();
+        assert!(prompt.contains("CodeTerm Planner"));
+        assert!(prompt.contains("Alpha [team_alpha]"));
+        assert!(prompt.contains("Bootstrap (pl_1)"));
+        assert!(prompt.contains("D:/project"));
+        assert!(prompt.contains(&planner_suffix()));
     }
 
     #[test]
