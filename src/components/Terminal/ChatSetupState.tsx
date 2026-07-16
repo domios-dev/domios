@@ -1,7 +1,20 @@
-import { AgentIcon } from "../AgentIcon";
-import { BusyState } from "../shared/BusyState";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ProviderGlyph } from "../ProviderGlyph";
 import type { Pane } from "../../lib/types";
 import { paneBootOverlayView, type PaneBootOverlayView } from "./bootOverlay";
+
+const STAGE_PROGRESS: Record<string, number> = {
+  spawn_accepted: 16,
+  pty_starting: 16,
+  pty_spawned: 32,
+  session_attached: 50,
+  shell_ready: 50,
+  preparing_role_instructions: 72,
+  agent_launching: 72,
+  delivering_instructions: 88,
+  ready: 100,
+  agent_ready: 100,
+};
 
 export function chatSetupSubject(pane: Pane | null | undefined, providerName: string): string {
   if (pane?.role === "Orchestrator") return "Orchestrator";
@@ -12,15 +25,21 @@ export function chatSetupSubject(pane: Pane | null | undefined, providerName: st
 }
 
 export function chatSetupStageLabel(stage: Pane["boot_stage"], subject: string): string {
-  switch (stage) {
+  switch (stage as string | null | undefined) {
+    case "spawn_accepted":
     case "pty_starting":
     case "pty_spawned":
-      return `Preparing ${subject}`;
+      return "Spawn accepted…";
+    case "session_attached":
     case "shell_ready":
+      return "Session attached…";
+    case "preparing_role_instructions":
     case "agent_launching":
-      return `Starting ${subject}`;
+      return `Preparing ${subject.toLowerCase()} instructions…`;
+    case "delivering_instructions":
+      return "Delivering instructions…";
     default:
-      return `Setting up ${subject}`;
+      return "Preparing launch…";
   }
 }
 
@@ -31,68 +50,108 @@ export function chatSetupView(pane: Pane | null | undefined): PaneBootOverlayVie
 interface ChatSetupStateProps {
   pane: Pane | null | undefined;
   view: PaneBootOverlayView;
-  providerId: string | null | undefined;
   providerName: string;
+  providerIconSvg?: string | null;
+  providerIconColor?: string | null;
+  providerIconHint?: string | null;
+  onRetry?: () => void;
   onOpenTerminal?: () => void;
+  onEscape?: () => void;
 }
 
-export function ChatSetupStatusLine({
-  pane,
-  providerName,
-}: {
-  pane: Pane | null | undefined;
+function projectFact(pane: Pane | null | undefined): string {
+  const cwd = pane?.cwd;
+  if (!cwd) return "workspace";
+  const normalized = cwd.replace(/\\/g, "/").replace(/\/$/, "");
+  return normalized.slice(normalized.lastIndexOf("/") + 1) || "workspace";
+}
+
+interface LaunchGlyphProps {
   providerName: string;
-}) {
+  iconSvg?: string | null;
+  iconColor?: string | null;
+  iconHint?: string | null;
+}
+
+function LaunchGlyph({ providerName, iconSvg, iconColor, iconHint }: LaunchGlyphProps) {
+  return (
+    <span
+      className="chat-launch-glyph"
+      data-testid="chat-launch-glyph"
+      role="img"
+      aria-label={providerName}
+      style={{ color: iconColor ?? "var(--ct-accent, #58a6ff)" }}
+    >
+      <ProviderGlyph iconSvg={iconSvg} iconColor={iconColor} iconHint={iconHint} title={providerName} className="text-[56px]" />
+    </span>
+  );
+}
+
+export function ChatSetupStatusLine({ pane, providerName }: { pane: Pane | null | undefined; providerName: string }) {
   if (chatSetupView(pane).kind !== "starting") return null;
-  const subject = chatSetupSubject(pane, providerName);
   return (
     <div
-      className="flex shrink-0 items-center border-t px-3 py-1.5"
+      className="flex shrink-0 items-center border-t px-3 py-1.5 text-[11px]"
       data-testid="chat-setup-status-line"
       style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}
+      aria-live="polite"
     >
-      <BusyState
-        labelKey="paneBoot"
-        label={chatSetupStageLabel(pane?.boot_stage, subject)}
-        phase="work"
-        inline
-        style={{ fontSize: 11 }}
-      />
+      {chatSetupStageLabel(pane?.boot_stage, chatSetupSubject(pane, providerName))}
     </div>
   );
 }
 
-export function ChatSetupState({ pane, view, providerId, providerName, onOpenTerminal }: ChatSetupStateProps) {
+export function ChatSetupState({
+  pane,
+  view,
+  providerName,
+  providerIconSvg,
+  providerIconColor,
+  providerIconHint,
+  onRetry,
+  onOpenTerminal,
+  onEscape,
+}: ChatSetupStateProps) {
+  const retryRef = useRef<HTMLButtonElement>(null);
+  const [failureCount, setFailureCount] = useState(0);
+  const wasFailed = useRef(false);
   const subject = chatSetupSubject(pane, providerName);
-  if (view.kind === "failed") {
+  const isFailed = view.kind === "failed";
+
+  useEffect(() => {
+    if (isFailed && !wasFailed.current) setFailureCount((count) => count + 1);
+    wasFailed.current = isFailed;
+  }, [isFailed]);
+
+  useEffect(() => {
+    if (isFailed) retryRef.current?.focus();
+  }, [isFailed]);
+
+  const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    onEscape?.();
+  }, [onEscape]);
+
+  if (isFailed) {
     return (
-      <div className="flex justify-center py-10 px-4" data-testid="chat-launch-failed">
-        <div
-          className="max-w-sm rounded-lg border px-4 py-3 text-center"
-          style={{
-            borderColor: "color-mix(in srgb, var(--ct-red, #f85149) 45%, transparent)",
-            background: "color-mix(in srgb, var(--ct-bg, #0d1117) 94%, var(--ct-red, #f85149) 6%)",
-          }}
-        >
-          <div className="text-sm font-semibold" style={{ color: "var(--ct-fg)" }}>
-            {subject} failed to launch
+      <div className="flex justify-center px-4 py-10" data-testid="chat-launch-failed" onKeyDown={handleKeyDown}>
+        <div className="flex w-full max-w-sm flex-col items-center text-center">
+          <div
+            className="chat-launch-ring chat-launch-ring-failed"
+            data-testid="chat-launch-ring"
+            style={{ "--launch-progress": "72%" } as React.CSSProperties}
+          >
+            <LaunchGlyph providerName={providerName} iconSvg={providerIconSvg} iconColor={providerIconColor} iconHint={providerIconHint} />
           </div>
-          {view.reason && (
-            <div className="mt-1 text-xs opacity-75 break-words" title={view.reason}>
-              {view.reason}
-            </div>
-          )}
-          {onOpenTerminal && (
-            <button
-              type="button"
-              data-testid="chat-launch-failed-open-terminal"
-              onClick={onOpenTerminal}
-              className="mt-2.5 rounded-md border px-2.5 py-1 text-xs font-medium hover:brightness-125"
-              style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)" }}
-            >
-              Inspect in Terminal
-            </button>
-          )}
+          <div className="mt-4 text-sm font-semibold" style={{ color: "var(--ct-fg)" }}>{subject} could not start</div>
+          <div className="mt-1 text-xs" style={{ color: "var(--ct-muted-fg)" }}>
+            Check the terminal details, then try again.
+          </div>
+          <div className="mt-4 flex gap-2">
+            {onRetry && <button ref={retryRef} type="button" data-testid="chat-launch-retry" onClick={onRetry} className="min-h-10 rounded-md border px-3 text-xs font-medium" style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)" }}>Retry</button>}
+            {failureCount >= 2 && onOpenTerminal && <button type="button" data-testid="chat-launch-show-log" onClick={onOpenTerminal} className="min-h-10 rounded-md border px-3 text-xs font-medium" style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)" }}>Show log</button>}
+          </div>
         </div>
       </div>
     );
@@ -100,33 +159,21 @@ export function ChatSetupState({ pane, view, providerId, providerName, onOpenTer
 
   if (view.kind !== "starting") return null;
 
-  const stageLabel = chatSetupStageLabel(pane?.boot_stage, subject);
+  const progress = STAGE_PROGRESS[pane?.boot_stage ?? ""] ?? 16;
+  const facts = [providerName, pane?.agent_session_model, projectFact(pane)].filter(Boolean).join(" · ");
   return (
-    <div
-      className="flex flex-col items-center justify-center gap-3 py-12 px-4 text-center"
-      data-testid="chat-setup-state"
-    >
-      <span
-        className="flex h-12 w-12 items-center justify-center rounded-xl border chat-setup-glyph"
-        style={{
-          background: "color-mix(in srgb, var(--ct-surface, #161b22) 86%, var(--ct-accent, #58a6ff) 14%)",
-          borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 28%, transparent)",
-        }}
-        aria-hidden
-      >
-        <AgentIcon providerId={providerId ?? undefined} className="text-[22px]" />
-      </span>
-      <BusyState
-        labelKey="paneBoot"
-        label={stageLabel}
-        phase="work"
-        inline
-        data-testid="chat-setup-stage"
-        style={{ color: "var(--ct-fg)", fontSize: 13 }}
-      />
-      <span className="text-xs" style={{ color: "var(--ct-muted-fg, #8b949e)" }}>
-        {providerName} is connecting. You can start as soon as this status clears.
-      </span>
+    <div className="flex justify-center px-4 py-12" data-testid="chat-setup-state" onKeyDown={handleKeyDown}>
+      <div className="flex w-full max-w-sm flex-col items-center text-center" style={{ transition: "opacity 120ms ease" }}>
+        <div className="chat-launch-ring" data-testid="chat-launch-ring" style={{ "--launch-progress": `${progress}%` } as React.CSSProperties}>
+          <LaunchGlyph providerName={providerName} iconSvg={providerIconSvg} iconColor={providerIconColor} iconHint={providerIconHint} />
+        </div>
+        <div className="mt-4 text-[10px] font-semibold uppercase tracking-[0.16em]" data-testid="chat-launch-eyebrow" style={{ color: "var(--ct-muted-fg)" }}>Team</div>
+        <div className="mt-1 text-sm font-semibold" data-testid="chat-launch-role" style={{ color: "var(--ct-fg)" }}>{subject}</div>
+        <div className="mt-1 font-mono text-[11px]" data-testid="chat-launch-facts" style={{ color: "var(--ct-muted-fg)" }}>{facts}</div>
+        <div className="mt-4 min-h-5 text-xs" data-testid="chat-setup-stage" aria-live="polite" style={{ color: "var(--ct-fg)" }}>
+          {chatSetupStageLabel(pane?.boot_stage, subject)}
+        </div>
+      </div>
     </div>
   );
 }
