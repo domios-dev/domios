@@ -49,6 +49,16 @@ print(json.dumps(value) if isinstance(value, (dict, list)) else value)
 ' "$1" "$2"
 }
 
+pane_by_title() {
+  dev_get /api/panes | python -c '
+import json, sys
+for pane in json.load(sys.stdin):
+    if pane.get("title") == sys.argv[1]:
+        print(pane["id"])
+        break
+' "$1"
+}
+
 wait_for() {
   local description="$1" predicate="$2" deadline=$((SECONDS + TIMEOUT))
   until eval "$predicate"; do
@@ -76,7 +86,9 @@ cleanup() {
       --data '{}' "http://127.0.0.1:7686/api/teams/$TEAM_ID/close" >/dev/null
   fi
   for pane in "${CREATED_PANES[@]:-}"; do
-    [ -z "$pane" ] || dc tab close "$pane" >/dev/null 2>&1 || true
+    [ -z "$pane" ] || curl -s --max-time 15 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+      -H "Content-Type: application/json" --data '{}' \
+      "http://127.0.0.1:7686/api/panes/$pane/close" >/dev/null || true
   done
   for cwd in "${LANE_CWDS[@]:-}"; do cleanup_lane "$cwd"; done
   [ -z "$PLAN_ID" ] || dc plan delete "$PLAN_ID" --yes >/dev/null 2>&1 || true
@@ -105,19 +117,25 @@ MANAGER_ID="$(printf '%s' "$manager_json" | json_value pane_id)"
 CREATED_PANES+=("$MANAGER_ID")
 dc agent set-orchestrator --tab "$MANAGER_ID" >/dev/null
 
-plan_json="$(dc plan create --title "CODEX-TRUST-$$" --project "$ROOT" --json)"
+plan_body="$(python -c 'import json,sys; print(json.dumps({
+    "title": sys.argv[1],
+    "project_path": sys.argv[2],
+    "owner": {"pane_id": sys.argv[3]},
+}))' "CODEX-TRUST-$$" "$ROOT" "$MANAGER_ID")"
+plan_json="$(curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+  -H "Content-Type: application/json" --data "$plan_body" \
+  http://127.0.0.1:7686/api/plans)"
 PLAN_ID="$(printf '%s' "$plan_json" | json_value plan_id)"
+TEAM_ID="$(printf '%s' "$plan_json" | json_value team_id)"
 
 dispatch_worker() {
-  local suffix="$1" task_json task_id dispatch pane cwd
-  task_json="$(dc plan task add "$PLAN_ID" --name "trust worker $suffix" \
-    --type test --model gpt-5.5 --executor-role test-infra-dev \
-    --body "Verify provisioned Codex trust for worker $suffix." \
-    --criterion "Worker reaches agent-ready without manual trust input." \
-    --test-plan "Inspect the exact dev mux state for agent_ready." --json)"
-  task_id="$(printf '%s' "$task_json" | json_value id)"
-  dispatch="$(dc plan task dispatch "$PLAN_ID" "$task_id" --agent codex \
-    --parent-tab "$MANAGER_ID" --workspace "$workspace" --cwd "$ROOT" --json)"
+  local suffix="$1" body dispatch pane cwd
+  body="$(python -c 'import json,sys; print(json.dumps({
+      "provider": "codex", "role": "worker", "title": sys.argv[1]
+  }))' "ct-trust-worker-$suffix")"
+  dispatch="$(curl -s --max-time 90 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+    -H "X-CodeTerm-Pane-Id: $MANAGER_ID" -H "Content-Type: application/json" \
+    --data "$body" "http://127.0.0.1:7686/api/teams/$TEAM_ID/members")"
   pane="$(printf '%s' "$dispatch" | json_value pane_id)"
   CREATED_PANES+=("$pane")
   wait_for "worker $suffix agent_ready" \
@@ -135,15 +153,22 @@ first="$LAST_PANE"
 dispatch_worker b
 second="$LAST_PANE"
 [ "${LANE_CWDS[0]}" != "${LANE_CWDS[1]}" ] || { echo "FAIL: workers reused one lane" >&2; exit 1; }
-TEAM_ID="$(pane_value "$MANAGER_ID" team_id)"
 
 mkdir -p "$FOREIGN"
-foreign_json="$(dc agent spawn codex --role Orchestrator --workspace "$workspace" \
-  --cwd "$FOREIGN" --title ct-trust-foreign --json)"
-foreign_pane="$(printf '%s' "$foreign_json" | json_value pane_id)"
+foreign_title="ct-trust-foreign-$$"
+set +e
+dc agent spawn codex --role Orchestrator --workspace "$workspace" \
+  --cwd "$FOREIGN" --json --title "$foreign_title" >/dev/null 2>&1
+set -e
+wait_for "foreign pane creation" "[ -n \"\$(pane_by_title '$foreign_title')\" ]"
+foreign_pane="$(pane_by_title "$foreign_title")"
 CREATED_PANES+=("$foreign_pane")
-wait_for "foreign trust prompt" \
-  "pane_value '$foreign_pane' pending_prompt 2>/dev/null | grep -qi 'trust the contents of this directory'"
+wait_for "foreign question state" \
+  "pane_value '$foreign_pane' agent_state 2>/dev/null | grep -q '\"state\": \"question\"'"
+dc tab get-text --tab "$foreign_pane" | grep -qi "trust the contents of this directory" || {
+  echo "FAIL: foreign trust prompt is not visible in terminal text" >&2
+  exit 1
+}
 [ "$(pane_value "$foreign_pane" cwd)" = "$FOREIGN" ] || { echo "FAIL: foreign cwd changed" >&2; exit 1; }
 [ "$(pane_value "$foreign_pane" boot_stage 2>/dev/null || true)" != agent_ready ] || {
   echo "FAIL: foreign pane bypassed the trust prompt" >&2
