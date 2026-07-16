@@ -1,12 +1,15 @@
 use super::{
     build_brief, build_brief_with_claimed_persona, build_brief_with_personality,
     dispatch_worker_identity, regression_blocked_error, resolve_dispatch_routing,
+    rollback_failed_dispatch,
 };
 use crate::plan::{IdentityProvenance, Task};
 use crate::service::plan::milestone_gates::RegressionGate;
 use crate::service::plan::task_queries::TaskSection;
-use crate::service::SpawnIdentityProvenance;
+use crate::service::{provision_lane_for_test, SpawnIdentityProvenance};
 use serde_json::json;
+use std::path::Path;
+use std::process::Command;
 
 #[test]
 fn regression_block_error_names_every_gate_in_message_and_data() {
@@ -37,6 +40,58 @@ fn regression_block_error_names_every_gate_in_message_and_data() {
 
 fn providers() -> Vec<String> {
     vec!["claude".into(), "codex".into(), "opencode".into()]
+}
+
+fn git(dir: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .current_dir(dir)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn dispatch_rollback_closes_pane_and_removes_provisioned_lane() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    git(&project, &["init", "-q"]);
+    git(&project, &["config", "user.email", "test@example.com"]);
+    git(&project, &["config", "user.name", "Test"]);
+    std::fs::write(project.join("README.md"), "fixture").unwrap();
+    git(&project, &["add", "README.md"]);
+    git(&project, &["commit", "-qm", "fixture"]);
+
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "dispatch_failure").unwrap();
+    let lane_path = std::path::PathBuf::from(&lane.cwd);
+    let branch = Command::new("git")
+        .current_dir(&lane_path)
+        .args(["branch", "--show-current"])
+        .output()
+        .unwrap();
+    let branch = String::from_utf8(branch.stdout).unwrap().trim().to_string();
+    let mut task_reverted = false;
+    let mut pane_closed = false;
+
+    rollback_failed_dispatch(Some(lane), || task_reverted = true, || pane_closed = true);
+
+    assert!(task_reverted);
+    assert!(pane_closed);
+    assert!(!lane_path.exists());
+    let branch_exists = Command::new("git")
+        .current_dir(&project)
+        .args(["branch", "--list", &branch])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8(branch_exists.stdout)
+        .unwrap()
+        .trim()
+        .is_empty());
 }
 
 #[test]

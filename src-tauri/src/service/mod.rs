@@ -72,6 +72,10 @@ pub mod tokens;
 pub mod transport;
 pub mod watcher;
 mod worker_identity;
+mod worker_lane;
+#[cfg(test)]
+pub(crate) use worker_lane::provision_lane_for_test;
+pub(crate) use worker_lane::ProvisionedWorkerLane;
 mod worker_persona;
 mod workspace;
 
