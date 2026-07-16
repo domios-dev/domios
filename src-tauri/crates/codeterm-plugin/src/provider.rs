@@ -57,6 +57,13 @@ pub struct AgentLaunchParams {
     pub structured_prompt_server: Option<StructuredPromptServer>,
 }
 
+/// A provider-owned response for its directory trust prompt. Core only asks
+/// for this after the spawn edge has attested the exact created directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectoryTrustPromptResponse {
+    pub steps: Vec<Vec<u8>>,
+}
+
 /// Bind address for a provider's structured-prompt server (opencode SSE bus).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -586,6 +593,16 @@ pub trait AgentProvider: Send + Sync {
         }
         steps.push(b"\r".to_vec()); // Enter
         steps
+    }
+
+    /// Recognize and answer this provider's directory-trust prompt. `None`
+    /// means the screen must remain a normal surfaced prompt.
+    fn directory_trust_prompt_response(
+        &self,
+        _prompt: &codeterm_types::pty::PendingPrompt,
+        _screen: &str,
+    ) -> Option<DirectoryTrustPromptResponse> {
+        None
     }
 
     /// Extract the agent's human-readable session display name from the

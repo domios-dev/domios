@@ -414,6 +414,25 @@ impl AgentProvider for JsProvider {
         steps
     }
 
+    fn directory_trust_prompt_response(
+        &self,
+        prompt: &PendingPrompt,
+        screen: &str,
+    ) -> Option<crate::provider::DirectoryTrustPromptResponse> {
+        let value = serde_json::to_value(prompt).ok()?;
+        let steps = self.try_call::<Option<Vec<String>>>(
+            "directoryTrustPromptResponse",
+            &[value, json!(screen)],
+        )??;
+        use base64::Engine;
+        let engine = base64::engine::general_purpose::STANDARD;
+        let steps = steps
+            .into_iter()
+            .map(|step| engine.decode(step.as_bytes()).ok())
+            .collect::<Option<Vec<_>>>()?;
+        (!steps.is_empty()).then_some(crate::provider::DirectoryTrustPromptResponse { steps })
+    }
+
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
         if let Some(p) =
             self.try_call::<Option<String>>("sessionFilePath", &[json!(cwd), json!(session_id)])

@@ -634,6 +634,38 @@ impl ServiceContext {
                 };
 
                 if auto_approve {
+                    let directory_trust = agent_type.as_deref().and_then(|provider| {
+                        self.agent_registry
+                            .with_provider(provider, |provider| {
+                                provider.directory_trust_prompt_response(
+                                    prompt,
+                                    screen_text.unwrap_or(""),
+                                )
+                            })
+                            .flatten()
+                    });
+                    if let Some(response) = directory_trust {
+                        let exact_provenance = {
+                            let mux = self.mux.read();
+                            mux.get_pane(pane_id).is_some_and(|pane| {
+                                pane.provisioned_cwd.as_deref().is_some_and(|provisioned| {
+                                    pane.cwd.as_deref().is_some_and(|cwd| {
+                                        crate::service::ServiceContext::paths_equal(
+                                            cwd,
+                                            provisioned,
+                                        )
+                                    })
+                                })
+                            })
+                        };
+                        if exact_provenance {
+                            self.prompt_detector.lock().mark_responded(pane_id);
+                            if let Some(pty_id) = pty_id {
+                                write_prompt_steps(self.pty.clone(), pty_id, response.steps);
+                            }
+                        }
+                        return;
+                    }
                     if is_general_pane {
                         if let Some(ack) = crate::service::general_agent::blocker::classify(
                             prompt,
