@@ -9,7 +9,6 @@ const isWindows = process.platform === "win32";
 const isMacOS = process.platform === "darwin";
 const exeExt = isWindows ? ".exe" : "";
 const repoRoot = path.resolve(__dirname, "..");
-const srcTauriDir = path.join(repoRoot, "src-tauri");
 
 // CARGO_BUILD_TARGET (cross-builds) wins over host triple so the suffix matches Tauri's lookup.
 const buildTarget = process.env.CARGO_BUILD_TARGET || "";
@@ -31,15 +30,20 @@ function resolveEmbedSource(env = process.env, root = repoRoot, binary = `codete
   return path.join(resolveEmbedReleaseDir(env, root), binary);
 }
 
-function bundleEmbed() {
-  const src = resolveEmbedSource();
-  const destDir = path.join(srcTauriDir, "bundled-embed");
-  const dest = path.join(destDir, `codeterm-embed-${triple}${exeExt}`);
+function bundleEmbed(env = process.env, root = repoRoot) {
+  const buildTriple = env.CARGO_BUILD_TARGET || triple;
+  const src = resolveEmbedSource(env, root);
+  const destDir = path.join(root, "src-tauri", "bundled-embed");
+  const dest = path.join(destDir, `codeterm-embed-${buildTriple}${exeExt}`);
 
   fs.mkdirSync(destDir, { recursive: true });
 
   if (!fs.existsSync(src)) {
     console.error(`codeterm-embed binary not found: ${src}`);
+    process.exit(1);
+  }
+  if (fs.statSync(src).size === 0) {
+    console.error(`codeterm-embed binary is an empty stub, refusing to bundle: ${src}`);
     process.exit(1);
   }
 
@@ -76,6 +80,7 @@ if (require.main === module) {
   bundleEmbed();
 } else {
   module.exports = {
+    bundleEmbed,
     resolveEmbedReleaseDir,
     resolveEmbedSource,
   };

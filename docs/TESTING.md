@@ -84,6 +84,21 @@ npx tsx src/lib/colors.test.ts
 ./build.sh test:all   # every non-LLM layer (see Runbook)
 ```
 
+### Capped Rust test preflight
+
+`scripts/test-capped.sh` is the required lane-local Rust-test wrapper. In a
+fresh worktree, it creates the ignored, zero-byte `bundled-embed` sidecar only
+when that sidecar is absent, then runs the requested test under its normal hard
+process-group cap. The wrapper logs that one test-only repair once; a later run
+and a real canonical sidecar are no-ops. The bundle script rejects empty
+sidecars, so this preflight cannot produce a release artifact.
+
+Verify the wrapper itself with the focused shell test:
+
+```bash
+bash scripts/test-capped.test.sh
+```
+
 **Windows: cargo test target isolation**
 Running `cargo test` against the app crate while a dev build occupies the same
 `target/` directory fails with `Os error 5` — tauri-build cannot overwrite the
@@ -362,4 +377,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->
