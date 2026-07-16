@@ -198,6 +198,7 @@ fn chat_backend_round_trips_symmetrically() {
         enabled: true,
         spawnable: true,
         watcher: false,
+        session_config: false,
     };
     let v = serde_json::to_value(&spawnable).unwrap();
     assert_eq!(v, serde_json::json!({ "spawnable": true }));
@@ -208,11 +209,23 @@ fn chat_backend_round_trips_symmetrically() {
         enabled: true,
         spawnable: false,
         watcher: true,
+        session_config: false,
     };
     let v = serde_json::to_value(&watcher).unwrap();
     assert_eq!(v, serde_json::json!({ "watcher": true }));
     let back: ChatBackendCap = serde_json::from_value(v).unwrap();
     assert!(back.enabled() && !back.spawnable() && back.watcher());
+
+    let session_config = ChatBackendCap {
+        enabled: true,
+        spawnable: false,
+        watcher: false,
+        session_config: true,
+    };
+    let v = serde_json::to_value(&session_config).unwrap();
+    assert_eq!(v, serde_json::json!({ "sessionConfig": true }));
+    let back: ChatBackendCap = serde_json::from_value(v).unwrap();
+    assert!(back.enabled() && back.session_config());
 }
 
 #[test]
