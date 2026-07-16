@@ -190,6 +190,31 @@ export CODETERM_VITE_PORT="$CT_VITE_PORT"
 export CODETERM_DEV_IDENTIFIER="$CT_IDENTIFIER"
 export CODETERM_CDP_PORT="$CT_CDP_PORT"
 
+CT_DEV_WAIT=0
+if [ "$CMD" = "dev" ]; then
+  for arg in "${@:2}"; do
+    case "$arg" in
+      --wait|--wait-build) CT_DEV_WAIT=1 ;;
+    esac
+  done
+fi
+
+named_dev_target_dir() {
+  printf '%s\n' "$CT_DATA_DIR/target"
+}
+
+named_dev_wait_isolated() {
+  [ -n "$CT_INSTANCE" ] && [ "$CT_DEV_WAIT" = "1" ]
+}
+
+prepare_named_dev_target() {
+  export CARGO_TARGET_DIR="$(named_dev_target_dir)"
+  export CODETERM_ALLOW_EXTERNAL_TARGET=1
+  mkdir -p "$CARGO_TARGET_DIR"
+  ct_verify_target_dir
+  echo "[isolated-dev] cargo target=$CARGO_TARGET_DIR"
+}
+
 CT_RELEASE_GATEWAY_AFTER_READY=0
 if [ "$CMD" = "dev" ]; then
   for arg in "${@:2}"; do
@@ -205,6 +230,15 @@ fi
 
 if [ "${CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY:-0}" = "1" ]; then
   printf 'instance=%s\nrelease_gateway_after_ready=%s\n' "$CT_INSTANCE" "$CT_RELEASE_GATEWAY_AFTER_READY"
+  exit 0
+fi
+
+if [ "${CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY:-0}" = "1" ]; then
+  if named_dev_wait_isolated; then
+    printf 'mode=isolated-named-wait\ntarget=%s\nbuild_gateway=skipped\n' "$(named_dev_target_dir)"
+  else
+    printf 'mode=shared\nbuild_gateway=required\n'
+  fi
   exit 0
 fi
 
@@ -473,6 +507,16 @@ dev_wait_process_alive() {
       kill -0 "$pid" 2>/dev/null
       ;;
   esac
+}
+
+dev_wait_stage() {
+  local log="$1" stage
+  stage="$(tail -80 "$log" 2>/dev/null | sed '/^[[:space:]]*$/d' | tail -n1 || true)"
+  if [ -n "$stage" ]; then
+    printf '%s\n' "$stage"
+  else
+    printf '%s\n' 'launcher spawned; waiting for compiler or daemon output'
+  fi
 }
 
 handoff_gateway_to_dev() {
@@ -886,7 +930,12 @@ case "$CMD" in
     ;;
   dev)
     require_integration_owner
-    enter_build_gateway "$CMD ${*:2}"
+    if named_dev_wait_isolated; then
+      prepare_named_dev_target
+      echo "[isolated-dev] named --wait startup bypasses the canonical dev gateway"
+    else
+      enter_build_gateway "$CMD ${*:2}"
+    fi
     prepare_dev_frontend_dist
     kill_dev || echo "WARNING: dev cleanup failed; continuing to startup health gate." >&2
     ensure_deps
@@ -911,23 +960,23 @@ case "$CMD" in
     start_web_watch
     start_dev_static_server
 
-    WAIT=0
-    for arg in "${@:2}"; do
-      case "$arg" in
-        --wait|--wait-build) WAIT=1 ;;
-      esac
-    done
-
-    if [ "$WAIT" -eq 1 ]; then
+    if [ "$CT_DEV_WAIT" -eq 1 ]; then
       LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
       : > "$LOG"
       EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
       DEV_PID=$(start_dev_wait_process "$LOG")
       echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to respond..."
       DEADLINE=$(( $(date +%s) + 600 ))
+      LAST_STAGE=""
       while : ; do
+        STAGE="$(dev_wait_stage "$LOG")"
+        if [ "$STAGE" != "$LAST_STAGE" ]; then
+          echo "Dev startup stage: $STAGE"
+          LAST_STAGE="$STAGE"
+        fi
+        echo "Dev startup heartbeat: stage=$LAST_STAGE"
         if [ "$(date +%s)" -gt "$DEADLINE" ]; then
-          echo "Timeout after 600s. Last log lines:"
+          echo "Timeout after 600s during stage: $LAST_STAGE. Last log lines:"
           tail -25 "$LOG"
           if [ -f "/tmp/codeterm-web-watch${CT_SUFFIX}.log" ]; then
             echo "Last web-watch log lines:"
@@ -936,7 +985,7 @@ case "$CMD" in
           exit 1
         fi
         if ! dev_wait_process_alive "$DEV_PID"; then
-          echo "Dev process exited before reporting ready. Last log lines:"
+          echo "Dev process exited before reporting ready during stage: $LAST_STAGE. Last log lines:"
           tail -25 "$LOG"
           exit 1
         fi
