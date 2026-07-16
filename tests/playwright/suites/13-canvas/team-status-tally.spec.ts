@@ -115,12 +115,12 @@ async function assertTeamHeaderGeometry(teamUnit: Locator): Promise<void> {
     const header = unit.querySelector(".sidebar-team-header")?.getBoundingClientRect();
     const donut = unit.querySelector('[data-testid="team-donut"]')?.getBoundingClientRect();
     const title = unit.querySelector(".sidebar-team-title-block")?.getBoundingClientRect();
-    const plan = unit.querySelector('[data-testid="team-plan-button"]')?.getBoundingClientRect();
+    const chevron = unit.querySelector('[data-testid="team-collapse-toggle"]')?.getBoundingClientRect();
     const kebab = unit.querySelector('[data-testid="team-menu-trigger"]')?.getBoundingClientRect();
     const slot = unit.querySelector('[data-testid="team-progress-slot"]')?.getBoundingClientRect();
     const hole = unit.querySelector('[data-testid="team-donut-hole"]')?.getBoundingClientRect();
     const donutCenter = donut && hole ? document.elementFromPoint(donut.left + donut.width / 2, donut.top + donut.height / 2) : null;
-    return { header, donut, title, plan, kebab, slot, hole, centerIsHole: donutCenter?.getAttribute("data-testid") === "team-donut-hole", hasInnerIcon: Boolean(unit.querySelector('[data-testid="team-donut"] svg')) };
+    return { header, donut, title, chevron, kebab, slot, hole, centerIsHole: donutCenter?.getAttribute("data-testid") === "team-donut-hole", hasInnerIcon: Boolean(unit.querySelector('[data-testid="team-donut"] svg')) };
   });
   expect(geometry.donut?.width, "donut is 22px").toBe(22);
   expect(geometry.donut?.height, "donut is 22px").toBe(22);
@@ -128,9 +128,9 @@ async function assertTeamHeaderGeometry(teamUnit: Locator): Promise<void> {
   expect(geometry.hole?.width, "donut center is visibly punctured").toBe(12);
   expect(geometry.centerIsHole, "center pixel belongs to the empty hole, not a color segment").toBe(true);
   expect(geometry.title && geometry.donut && Math.abs(geometry.title.y - geometry.donut.y) < geometry.donut.height, "title shares header row with identity").toBe(true);
-  expect(geometry.header && geometry.donut && geometry.donut.x - geometry.header.x, "donut keeps the deliberate 7px left inset").toBe(7);
-  expect(geometry.plan && geometry.kebab && geometry.slot && geometry.kebab.x === geometry.slot.x && geometry.kebab.width === geometry.slot.width && geometry.plan.right <= geometry.header!.right + 1, "kebab occupies the fixed progress slot beside right-anchored Plan").toBe(true);
-  expect(geometry.plan && geometry.donut && geometry.plan.left - geometry.donut.right > 16, "Plan is separated from the identity by flexible title space").toBe(true);
+  expect(geometry.chevron && geometry.donut && geometry.donut.x - geometry.chevron.right, "donut keeps its deliberate inset after the restored chevron").toBe(4);
+  expect(geometry.chevron?.width, "restored chevron glyph control is 20px wide").toBe(20);
+  expect(geometry.kebab && geometry.slot && geometry.kebab.x === geometry.slot.x && geometry.kebab.width === geometry.slot.width, "kebab occupies the fixed progress slot").toBe(true);
 }
 
 async function assertTeamTitleFits(teamUnit: Locator): Promise<void> {
@@ -162,7 +162,6 @@ async function assertOverlayControlsDoNotShiftPlan(teamUnit: Locator): Promise<v
       return rect && { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
     };
     return {
-      plan: box('[data-testid="team-plan-button"]'),
       title: box('.sidebar-team-title-block'),
       subtitle: box('[data-testid="team-effort"]'),
       donut: box('[data-testid="team-donut"]'),
@@ -193,8 +192,8 @@ async function assertOverlayControlsDoNotShiftPlan(teamUnit: Locator): Promise<v
       titleWidth: title.getBoundingClientRect().width,
     };
   });
-  expect(restSlots.columns.split(" "), "rest grid reserves only identity, title, same-slot progress, and Plan").toHaveLength(4);
-  expect(restSlots.hasChevron, "Team header never renders a collapse chevron").toBe(false);
+  expect(restSlots.columns.split(" "), "rest grid reserves chevron, card activation, and same-slot progress").toHaveLength(3);
+  expect(restSlots.hasChevron, "Team header restores the collapse chevron").toBe(true);
   expect(restSlots.kebabBox, "kebab and done/total have identical fixed-slot bounds").toEqual(restSlots.slotBox);
   expect(restSlots.countBox, "done/total and kebab have identical fixed-slot bounds").toEqual(restSlots.slotBox);
   expect(restSlots.countOpacity, "done/total is visible at rest").toBe("1");
@@ -281,7 +280,7 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     await page.mouse.click(500, 500);
     await expect(menuTrigger).toHaveCSS("opacity", "0");
     await expect(teamUnit.getByTestId("team-done-count")).toHaveCSS("opacity", "1");
-    await expect(teamUnit.locator('[data-testid="team-collapse-toggle"], .sidebar-team-chevron')).toHaveCount(0);
+    await expect(teamUnit.getByTestId("team-collapse-toggle")).toHaveAttribute("aria-expanded", "true");
     await setSidebarWidth(session, 220);
     await assertTeamTitleFits(teamUnit);
     await assertTally(teamUnit, false);
@@ -294,6 +293,13 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     await setSidebarWidth(session, 160);
     await assertTally(teamUnit, true);
     await page.screenshot({ path: testInfo.outputPath("wave2d-team-160.png"), fullPage: false });
+    const chevron = teamUnit.getByTestId("team-collapse-toggle");
+    await chevron.press("Enter");
+    await expect(chevron).toHaveAttribute("aria-expanded", "false");
+    await chevron.press("Enter");
+    await expect(chevron).toHaveAttribute("aria-expanded", "true");
+    await teamUnit.getByTestId("team-card-activation").press("Enter");
+    await expect(page.getByTestId("canvas-view")).toBeVisible();
   } finally {
     await closeTallyPage(session);
   }
