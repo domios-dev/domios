@@ -332,10 +332,7 @@ impl ServiceContext {
             .read()
             .get_pane(pane_id)
             .and_then(|pane| pane.pending_delivery.as_ref())
-            .filter(|record| {
-                record.state() == PendingDeliveryState::Pending
-                    && record.channel == PendingDeliveryChannel::InteractiveInput
-            })
+            .filter(|record| record.channel == PendingDeliveryChannel::InteractiveInput)
             .map(|record| record.content_digest.clone());
         let Some(digest) = digest else { return Ok(()) };
         let mut mux = self.mux.write();
@@ -346,12 +343,14 @@ impl ServiceContext {
             }
         })?;
         if let Some(record) = pane.pending_delivery.as_mut() {
-            record
-                .confirm()
-                .map_err(|error| pending_delivery_payloads::PayloadStoreError::Io {
-                    digest: record.content_digest.clone(),
-                    message: format!("{error:?}"),
+            if record.state() == PendingDeliveryState::Pending {
+                record.confirm().map_err(|error| {
+                    pending_delivery_payloads::PayloadStoreError::Io {
+                        digest: record.content_digest.clone(),
+                        message: format!("{error:?}"),
+                    }
                 })?;
+            }
         }
         drop(mux);
         crate::service::session_persist::persist_session_after_mutation(
