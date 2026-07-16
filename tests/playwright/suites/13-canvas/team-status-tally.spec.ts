@@ -168,14 +168,6 @@ async function assertOverlayControlsDoNotShiftPlan(teamUnit: Locator): Promise<v
       tally: box('[data-testid="team-status-tally"]'),
     };
   });
-  const before = await boxes();
-  await teamUnit.locator(".sidebar-team-header").hover();
-  const onHover = await boxes();
-  await teamUnit.getByTestId("team-menu-trigger").focus();
-  const onFocus = await boxes();
-  expect(onHover, "hover reveal preserves every Team geometry box").toEqual(before);
-  expect(onFocus, "focus reveal preserves every Team geometry box").toEqual(before);
-
   const restSlots = await teamUnit.evaluate((unit) => {
     const header = unit.querySelector('.sidebar-team-header') as HTMLElement;
     const kebab = unit.querySelector('[data-testid="team-menu-trigger"]') as HTMLElement;
@@ -192,6 +184,14 @@ async function assertOverlayControlsDoNotShiftPlan(teamUnit: Locator): Promise<v
       titleWidth: title.getBoundingClientRect().width,
     };
   });
+  const before = await boxes();
+  await teamUnit.locator(".sidebar-team-header").hover();
+  const onHover = await boxes();
+  await teamUnit.getByTestId("team-menu-trigger").focus();
+  const onFocus = await boxes();
+  expect(onHover, "hover reveal preserves every Team geometry box").toEqual(before);
+  expect(onFocus, "focus reveal preserves every Team geometry box").toEqual(before);
+
   expect(restSlots.columns.split(" "), "rest grid reserves chevron, card activation, and same-slot progress").toHaveLength(3);
   expect(restSlots.hasChevron, "Team header restores the collapse chevron").toBe(true);
   expect(restSlots.kebabBox, "kebab and done/total have identical fixed-slot bounds").toEqual(restSlots.slotBox);
