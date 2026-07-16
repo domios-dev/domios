@@ -458,7 +458,7 @@ mod tests {
     }
 
     #[test]
-    fn submit_transaction_text_present_enter_absent_red() {
+    fn submission_ack_harness_text_present_enter_absent_is_error() {
         let io = ControlledTransport::new(
             Some(Frame {
                 tail: "> hello",
@@ -552,7 +552,7 @@ mod tests {
     }
 
     #[test]
-    fn wake_safety_event_driven_no_double_submit() {
+    fn submission_ack_harness_exactly_once_on_submission_evidence() {
         let io = ControlledTransport::sequence(
             vec![
                 Frame {

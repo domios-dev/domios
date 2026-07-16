@@ -36,9 +36,10 @@ impl ManagerBootstrapInputs {
 }
 
 pub(crate) fn compose_role_identity(context: RoleIdentityContext<'_>) -> String {
+    let template = crate::prompts::MANAGER_BOOTSTRAP_TEMPLATE.replace("\r\n", "\n");
     codeterm_types::agent::role_identity::render(
         codeterm_types::agent::role_identity::RoleIdentity::Manager {
-            template: crate::prompts::MANAGER_BOOTSTRAP_TEMPLATE,
+            template: &template,
             role: context.role,
             team_id: context.team_id,
             team_name: context.team_name,
@@ -52,6 +53,10 @@ pub(crate) fn compose_role_identity(context: RoleIdentityContext<'_>) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn golden(text: &str) -> String {
+        text.replace("\r\n", "\n")
+    }
 
     #[test]
     fn shared_builder_reminder_output_byte_identical() {
@@ -130,5 +135,39 @@ mod tests {
         assert!(rendered.contains("team-{role_guidance}"));
         assert!(rendered.contains("plan-{role}"));
         assert!(rendered.contains("keep {plan_id}"));
+    }
+
+    #[test]
+    fn compose_orchestrator_golden() {
+        let rendered = compose_role_identity(RoleIdentityContext {
+            role: "Orchestrator",
+            team_id: "team_alpha",
+            team_name: "Alpha Team",
+            plan_id: "plan-alpha",
+            project: "project-alpha",
+            role_guidance: "Orchestrator guidance fixture.",
+        });
+        assert_eq!(
+            rendered,
+            golden(include_str!(
+                "fixtures/role_identity/orchestrator.golden.md"
+            ))
+        );
+    }
+
+    #[test]
+    fn compose_planner_golden() {
+        let rendered = compose_role_identity(RoleIdentityContext {
+            role: "Planner",
+            team_id: "team_beta",
+            team_name: "Beta Team",
+            plan_id: "plan-beta",
+            project: "project-beta",
+            role_guidance: "Planner guidance fixture.",
+        });
+        assert_eq!(
+            rendered,
+            golden(include_str!("fixtures/role_identity/planner.golden.md"))
+        );
     }
 }
