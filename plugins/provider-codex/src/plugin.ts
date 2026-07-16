@@ -20,7 +20,12 @@ const OUTPUT_FINGERPRINTS = [
   "codex>",
 ];
 const TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
-const TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
+const ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
+const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+
+function starterPrompt(params: LaunchParams): string {
+  return params.starterPrompt === "idle_wakeup" ? IDLE_WAKEUP_START_PROMPT : ASSIGNED_TASK_START_PROMPT;
+}
 
 const plugin: PluginModule = {
   detectFromTitle(title: string): boolean {
@@ -145,7 +150,7 @@ const plugin: PluginModule = {
         parts.push(`"developer_instructions=$(cat ${quotedPath})"`);
       }
       parts.push("--");
-      parts.push(host.shell.quoteFor(TASK_START_PROMPT, host.platform()));
+      parts.push(host.shell.quoteFor(starterPrompt(p), host.platform()));
       if (host.platform() === "windows") {
         return prefix + parts.join(" ") + " } finally { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue }";
       }

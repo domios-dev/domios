@@ -66,6 +66,27 @@ fn build_launch_command_shape() {
 }
 
 #[test]
+fn idle_starter_case() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = codex();
+    let task = "manager identity arrives in the developer channel";
+    let assigned = provider.build_launch_command(&AgentLaunchParams {
+        task: Some(task.into()),
+        ..Default::default()
+    });
+    let idle = provider.build_launch_command(&AgentLaunchParams {
+        task: Some(task.into()),
+        starter_prompt: crate::provider::StarterPrompt::IdleWakeup,
+        ..Default::default()
+    });
+    assert!(assigned.contains(crate::provider::StarterPrompt::AssignedTask.text()));
+    assert!(idle.contains(crate::provider::StarterPrompt::IdleWakeup.text()));
+    assert!(!idle.contains(crate::provider::StarterPrompt::AssignedTask.text()));
+}
+
+#[test]
 fn build_resume_command_shape() {
     if require_plugins().is_none() {
         return;

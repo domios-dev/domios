@@ -41,10 +41,33 @@ pub enum TaskDelivery {
     PtyInput,
 }
 
+/// The single visible turn that starts an interactive provider session.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StarterPrompt {
+    #[default]
+    AssignedTask,
+    IdleWakeup,
+}
+
+impl StarterPrompt {
+    pub const fn text(self) -> &'static str {
+        match self {
+            Self::AssignedTask => {
+                "Execute the assigned task. Follow the provided developer instructions."
+            }
+            Self::IdleWakeup => {
+                "You are a newly started agent. Wait for instructions from the user or your orchestration parent."
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct AgentLaunchParams {
     pub agent_name: Option<String>,
     pub task: Option<String>,
+    pub starter_prompt: StarterPrompt,
     pub args: Option<Vec<String>>,
     pub skip_permissions: bool,
     // ignore it (they generate ids themselves and CodeTerm has to detect after launch).

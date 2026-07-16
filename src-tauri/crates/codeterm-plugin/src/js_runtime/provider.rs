@@ -264,6 +264,7 @@ fn launch_params_to_json(p: &AgentLaunchParams) -> Value {
     json!({
         "agentName": p.agent_name,
         "task": p.task,
+        "starterPrompt": p.starter_prompt,
         "args": p.args,
         "skipPermissions": p.skip_permissions,
         "sessionId": p.session_id,

@@ -3,8 +3,17 @@
 use crate::provider::AgentLaunchParams;
 use codeterm_util::shell::ShellSyntax;
 
-const FILE_TASK_PROMPT: &str =
+const ASSIGNED_TASK_START_PROMPT: &str =
     "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
+const IDLE_WAKEUP_START_PROMPT: &str =
+    "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+
+fn starter_prompt(params: &AgentLaunchParams) -> &'static str {
+    match params.starter_prompt {
+        crate::provider::StarterPrompt::AssignedTask => ASSIGNED_TASK_START_PROMPT,
+        crate::provider::StarterPrompt::IdleWakeup => IDLE_WAKEUP_START_PROMPT,
+    }
+}
 
 pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
     let mut parts: Vec<String> = Vec::new();
@@ -35,7 +44,7 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
         parts.push("--append-system-prompt-file".to_string());
         parts.push(ShellSyntax::quote(&path));
         parts.push("--".to_string());
-        parts.push(ShellSyntax::quote(FILE_TASK_PROMPT));
+        parts.push(ShellSyntax::quote(starter_prompt(params)));
     }
 
     parts.join(" ")
@@ -68,6 +77,7 @@ mod tests {
             skip_permissions: true,
             session_id: None,
             structured_prompt_server: None,
+            starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
         if cfg!(target_os = "windows") {
@@ -91,6 +101,7 @@ mod tests {
             skip_permissions: true,
             session_id: None,
             structured_prompt_server: None,
+            starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
         assert!(cmd.contains("--dangerously-skip-permissions"));
@@ -104,7 +115,24 @@ mod tests {
         assert!(!cmd.contains("Get-Content"));
         assert!(!cmd.contains("$(cat "));
         assert!(!cmd.contains("<location>") && !cmd.contains("whoami") && !cmd.contains("юникод"));
-        assert!(cmd.contains(FILE_TASK_PROMPT));
+        assert!(cmd.contains(ASSIGNED_TASK_START_PROMPT));
+    }
+
+    #[test]
+    fn task_bound_starter_remains_byte_identical() {
+        assert_eq!(
+            starter_prompt(&AgentLaunchParams::default()),
+            ASSIGNED_TASK_START_PROMPT
+        );
+    }
+
+    #[test]
+    fn no_task_manager_starter_is_idle_only() {
+        let params = AgentLaunchParams {
+            starter_prompt: crate::provider::StarterPrompt::IdleWakeup,
+            ..Default::default()
+        };
+        assert_eq!(starter_prompt(&params), IDLE_WAKEUP_START_PROMPT);
     }
 
     #[test]
@@ -116,6 +144,7 @@ mod tests {
             skip_permissions: true,
             session_id: None,
             structured_prompt_server: None,
+            starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
         assert!(cmd.contains("--agent"));
@@ -132,6 +161,7 @@ mod tests {
             skip_permissions: true,
             session_id: None,
             structured_prompt_server: None,
+            starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
         assert!(cmd.contains(".ct-task-"));
@@ -156,6 +186,7 @@ mod tests {
             skip_permissions: true,
             session_id: Some("my-pre-generated-uuid".to_string()),
             structured_prompt_server: None,
+            starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
         assert!(
@@ -180,6 +211,7 @@ mod tests {
             skip_permissions: true,
             session_id: Some("sid-xyz".to_string()),
             structured_prompt_server: None,
+            starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
         assert!(cmd.contains("--session-id"));

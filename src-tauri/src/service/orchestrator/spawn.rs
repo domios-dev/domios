@@ -448,6 +448,10 @@ impl ServiceContext {
             &params.cwd.clone().unwrap_or_default(),
         );
 
+        let has_concrete_assignment = params
+            .task
+            .as_deref()
+            .is_some_and(|task| !task.trim().is_empty());
         let fallback_bootstrap = if let Some(bootstrap) = params.manager_bootstrap.as_ref() {
             self.emit_boot_stage(
                 &pane_id,
@@ -463,6 +467,11 @@ impl ServiceContext {
         } else {
             None
         };
+        if params.manager_bootstrap.is_some() {
+            params.starter_prompt = crate::service::launch_delivery::starter_prompt_for_assignment(
+                has_concrete_assignment,
+            );
+        }
 
         let bg_task = if params.manager_bootstrap.is_some() {
             params.task.clone()

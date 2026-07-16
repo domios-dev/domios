@@ -4,7 +4,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FIXTURES="$ROOT/evals/manager-bootstrap/fixtures"
 RUN="$ROOT/evals/manager-bootstrap/run.sh"
 source "$ROOT/evals/manager-bootstrap/helpers.sh"
-
 expect_failure() { "$@" >/dev/null 2>&1 && return 1 || return 0; }
 assert_tracked_fixtures() {
   local fixture
@@ -37,6 +36,19 @@ expect_failure new_team_id '[]' < "$FIXTURES/teams-after.json"
 [ "$(spawned_pane_id < "$FIXTURES/spawn.json")" = pane_worker ]
 [ "$(staffed_pane_id < "$FIXTURES/member.json")" = pane_staffed ]
 
+IDLE_STARTER='You are a newly started agent. Wait for instructions from the user or your orchestration parent.'
+rg -Fq "$IDLE_STARTER" "$ROOT/src-tauri/crates/codeterm-plugin/src/provider.rs"
+rg -Fq 'starter_prompt_for_assignment' "$ROOT/src-tauri/src/service/orchestrator/spawn.rs"
+rg -Fq 'starterPrompt === "idle_wakeup"' "$ROOT/plugins/provider-codex/src/plugin.ts"
+rg -Fq 'starterPrompt === "idle_wakeup"' "$ROOT/plugins/provider-opencode/src/plugin.ts"
+python - <<'PY'
+messages = [
+    {"id": "repeat-a", "content": "same inbound instruction"},
+    {"id": "repeat-b", "content": "same inbound instruction"},
+]
+assert len({message["id"] for message in messages}) == 2
+assert len(messages) == 2
+PY
 FAKE="$(mktemp -d)"; trap 'rm -rf "$FAKE"' EXIT
 printf '%s\n' '#!/usr/bin/env bash' "python -c 'print(\"[\" + \",\".join(\"0\" for _ in range(200000)) + \"]\")'" 'printf complete > "$1"' > "$FAKE/producer"
 chmod +x "$FAKE/producer"

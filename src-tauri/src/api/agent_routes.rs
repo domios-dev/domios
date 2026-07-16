@@ -207,6 +207,7 @@ pub async fn spawn_agent(
         plan_id: body.plan_id,
         can_spawn: body.can_spawn,
         task: body.task,
+        starter_prompt: Default::default(),
         task_id: body.task_id,
         plan_task: body.plan_task,
         allow_shared_checkout: body.allow_shared_checkout,
