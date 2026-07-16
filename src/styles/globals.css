@@ -1476,6 +1476,8 @@ button,
 .sidebar-footer > button,
 .sidebar-footer > div {
   margin: 0 5px;
+  width: calc(100% - 10px);
+  max-width: calc(100% - 10px);
 }
 
 .sidebar-new-session {
@@ -1502,7 +1504,6 @@ button,
   position: absolute;
   inset: 5px;
   border-radius: 50%;
-  pointer-events: none;
   background: var(--ct-sidebar-bg);
 }
 

@@ -9,3 +9,10 @@ export function partitionSidebarWorkspaces(workspaces: Workspace[]): {
     workspaces: workspaces.filter((workspace) => !workspace.protected),
   };
 }
+
+export function initialSidebarExpanded(workspaces: Workspace[], activeWorkspaceId: string | null): Set<string> {
+  return new Set([
+    ...workspaces.filter((workspace) => workspace.protected).map((workspace) => workspace.id),
+    ...(activeWorkspaceId ? [activeWorkspaceId] : []),
+  ]);
+}

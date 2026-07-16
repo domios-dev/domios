@@ -40,7 +40,7 @@ import { SidebarCollapsedActiveTab, SidebarWorkspaceTabs } from "./SidebarWorksp
 import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
-import { partitionSidebarWorkspaces } from "./sidebarSections";
+import { initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -203,7 +203,7 @@ export function Sidebar({
   }, [openSessionPicker, onNavigateToTab]);
 
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
-    () => new Set(state.workspaces.filter((workspace) => workspace.protected).map((workspace) => workspace.id).concat(state.active_workspace_id ? [state.active_workspace_id] : [])),
+    () => initialSidebarExpanded(state.workspaces, state.active_workspace_id),
   );
   const [meshEnabledOverride, setMeshEnabledOverride] = useState<boolean | null>(null);
   useEffect(() => {
