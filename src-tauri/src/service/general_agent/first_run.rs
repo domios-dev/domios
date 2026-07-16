@@ -387,7 +387,6 @@ mod tests {
                         chatbackend_plugin_id: None,
                         chatbackend_session_id: None,
                         watcher: None,
-                        pending_delivery: None,
                     },
                     sort_order: 0,
                 }],
