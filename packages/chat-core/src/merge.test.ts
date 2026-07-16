@@ -84,6 +84,34 @@ function msg(id: string, opts: Partial<M> = {}): M {
   eq(merged.map((m) => m.id), ["a", "b", "c"], "no signals → stable arrival order");
 }
 
+// ── c73becde launch race: chat_start snapshot and pane-chat-msg live event
+// have separate transport ids but share the parser's user sequence.
+{
+  const startupText = "You are Theo. You are a frontend worker fixing a transcript projection/dedup defect.";
+  const merged = mergeById(
+    [msg("snapshot-user-1", { content: startupText, seq: 1, sourceSessionId: "c73becde" })],
+    [msg("live-user-1", { content: startupText, seq: 1, sourceSessionId: "c73becde" })],
+  );
+  eq(merged.map((m) => m.id), ["live-user-1"], "snapshot/live user seq-1 projects one launch bubble");
+}
+
+// ── text is not identity: distinct parser sequences preserve true repeats.
+{
+  const merged = mergeById(
+    [],
+    [msg("repeat-1", { content: "continue", seq: 2, sourceSessionId: "c73becde" }), msg("repeat-2", { content: "continue", seq: 3, sourceSessionId: "c73becde" })],
+  );
+  eq(merged.map((m) => m.id), ["repeat-1", "repeat-2"], "distinct parser sequences preserve identical user text");
+}
+
+{
+  const merged = mergeById(
+    [msg("old-session", { content: "continue", seq: 1, sourceSessionId: "old" })],
+    [msg("new-session", { content: "continue", seq: 1, sourceSessionId: "new" })],
+  );
+  eq(merged.map((m) => m.id), ["old-session", "new-session"], "session scope preserves a later seq reset");
+}
+
 {
   const incoming = [
     msg("ctx", { type: "user", timestamp: "2026-06-21T08:35:53.795Z", seq: 0 }),

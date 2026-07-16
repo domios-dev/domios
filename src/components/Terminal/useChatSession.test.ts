@@ -160,7 +160,6 @@ type SessionView = {
   loading: boolean;
   recovering: boolean;
   messages: NormalizedChatMessage[];
-  addOptimistic: (content: string) => string;
 };
 
 function setupHookDom(): void {
@@ -185,15 +184,10 @@ async function mountSession(
   sessionId: string | null,
   active = true,
 ): Promise<{ root: Root; render: (nextSessionId: string | null, nextActive?: boolean) => Promise<void>; latest: () => SessionView }> {
-  let view: SessionView = { loading: true, recovering: false, messages: [], addOptimistic: () => "" };
+  let view: SessionView = { loading: true, recovering: false, messages: [] };
   function Harness({ currentSessionId, currentActive }: { currentSessionId: string | null; currentActive: boolean }) {
     const session = useChatSession({ paneId: "pane", agentSessionId: currentSessionId, active: currentActive });
-    view = {
-      loading: session.loading,
-      recovering: session.recovering,
-      messages: session.allMessages,
-      addOptimistic: session.addOptimistic,
-    };
+    view = { loading: session.loading, recovering: session.recovering, messages: session.allMessages };
     return null;
   }
   const host = document.createElement("div");
@@ -212,31 +206,6 @@ async function mountSession(
 async function runChatSessionHookTests(): Promise<void> {
   setupHookDom();
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
-
-  {
-    let handler: ((event: { payload: { pane_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
-    __setListenForTest(async (_event, nextHandler) => {
-      handler = nextHandler as typeof handler;
-      return () => {};
-    });
-    __setInvokeForTest((async (command: string) => {
-      if (command === "chat_start") return { text: "", offset: 0, messages: [{ id: "context", type: "system", content: "context", seq: 0 }] };
-      return {};
-    }) as never);
-    const session = await mountSession("c73becde");
-    const startupText = "You are Theo. You are a frontend worker fixing a transcript projection/dedup defect.";
-    await act(async () => { session.latest().addOptimistic(startupText); });
-    assert(session.latest().messages.length === 2, "P0 red fixture has parsed context plus optimistic seq-1 launch");
-    await act(async () => handler?.({ payload: { pane_id: "pane", messages: [{
-      id: "persisted-c73becde-user-1", type: "user", content: startupText, seq: 1,
-    }] } }));
-    assert(
-      session.latest().messages.filter((message) => message.type === "user").map((message) => message.id).join(",") === "persisted-c73becde-user-1",
-      "P0 parsed seq-1 supersedes optimistic launch by stable identity",
-    );
-    await act(async () => session.root.unmount());
-    console.log("PASS P0 c73becde identity projection renders one startup bubble");
-  }
 
   {
     const timers = new FakeTimers();
@@ -472,6 +441,40 @@ async function runChatSessionHookTests(): Promise<void> {
     await act(async () => session.root.unmount());
     restoreTimers();
     console.log("PASS T8 failed rotations coalesce without polling");
+  }
+  {
+    let handler: ((event: { payload: { pane_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
+    __setListenForTest(async (_event, nextHandler) => {
+      handler = nextHandler as typeof handler;
+      return () => {};
+    });
+    const startupText = "You are Theo. You are a frontend worker fixing a transcript projection/dedup defect.";
+    __setInvokeForTest((async (command: string) => {
+      if (command === "chat_start") {
+        return { text: "", offset: 1, messages: [{
+          id: "snapshot-c73becde-user-1", type: "user", content: startupText, seq: 1,
+        }] };
+      }
+      return {};
+    }) as never);
+    const session = await mountSession("c73becde");
+    await act(async () => handler?.({ payload: { pane_id: "pane", messages: [{
+      id: "live-c73becde-user-1", type: "user", content: startupText, seq: 1,
+    }] } }));
+    assert(
+      session.latest().messages.map((message) => message.id).join(",") === "live-c73becde-user-1",
+      "P0 launch snapshot/live pair projects one stable seq-1 user bubble",
+    );
+    await act(async () => handler?.({ payload: { pane_id: "pane", messages: [
+      { id: "repeat-user-2", type: "user", content: "continue", seq: 2 },
+      { id: "repeat-user-3", type: "user", content: "continue", seq: 3 },
+    ] } }));
+    assert(
+      session.latest().messages.filter((message) => message.content === "continue").length === 2,
+      "P0 distinct user sequences preserve true repeated text",
+    );
+    await act(async () => session.root.unmount());
+    console.log("PASS P0 snapshot/live stable identity reconciliation");
   }
   __setInvokeForTest(null);
   __setListenForTest(null);
