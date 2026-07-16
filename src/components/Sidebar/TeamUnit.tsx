@@ -55,6 +55,19 @@ export function deriveTeamTaskBuckets(
   }));
 }
 
+export function teamDonutBackground(buckets: TeamTaskBucket[]): string {
+  const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
+  if (total === 0) return "color-mix(in srgb, var(--ct-fg) 14%, transparent)";
+  let offset = 0;
+  const stops = buckets.flatMap((bucket) => {
+    if (bucket.count === 0) return [];
+    const start = (offset / total) * 100;
+    offset += bucket.count;
+    return [`${bucket.color} ${start}% ${(offset / total) * 100}%`];
+  });
+  return `conic-gradient(${stops.join(", ")})`;
+}
+
 interface TeamMenuProps {
   providers: ProviderDescriptor[];
   onRename?: () => void;
@@ -272,9 +285,16 @@ export function TeamUnit({
         >
           <ChevronRight size={11} />
         </button>
-        <span data-testid="team-icon" className="sidebar-team-icon" aria-hidden>
-          <UsersRound size={14} />
-        </span>
+        {plan ? (
+          <span
+            data-testid="team-donut"
+            className="sidebar-team-donut"
+            aria-label="Task status composition"
+            style={{ background: teamDonutBackground(buckets) }}
+          />
+        ) : (
+          <span data-testid="team-icon" className="sidebar-team-icon" aria-hidden><UsersRound size={14} /></span>
+        )}
         <span className="sidebar-team-title-block">
           {editing ? (
             <input
@@ -298,28 +318,12 @@ export function TeamUnit({
           ) : (
             <span data-testid="team-name" className="sidebar-team-name">{team.name?.trim() || "Team"}</span>
           )}
+          {plan && <span data-testid="team-effort" className="sidebar-team-effort">{plan.title}</span>}
           {renameError && <div data-testid="team-rename-error" role="alert">{renameError}</div>}
-          {plan && (
-            <span
-              data-testid="team-status-tally"
-              className="sidebar-team-readout"
-              style={{ margin: 0, textAlign: "center" }}
-            >
-              {buckets.map((bucket) => (
-                <span
-                  key={bucket.key}
-                  data-testid={`team-status-${bucket.key}`}
-                  className="sidebar-team-readout-item"
-                  style={{ color: bucket.color }}
-                >
-                  <span className="sidebar-team-readout-compact-dot" aria-hidden />
-                  <span>{bucket.count}</span>
-                  <span className="sidebar-team-readout-label"> {bucket.label}</span>
-                </span>
-              ))}
-            </span>
-          )}
         </span>
+        {!expanded && workingWorkerCount > 0 && <span className="sidebar-hierarchy-typing-dots" aria-hidden><span /><span /><span /></span>}
+        {plan && <span data-testid="team-done-count" className="sidebar-team-count">{buckets.find((bucket) => bucket.key === "done")?.count ?? 0}/{buckets.reduce((sum, bucket) => sum + bucket.count, 0)}</span>}
+        <span className="sidebar-team-controls">
         {plan && (
           <button
             type="button"
@@ -344,9 +348,20 @@ export function TeamUnit({
           onAddMember={onAddMember}
           onCloseTeam={onCloseTeam ? () => onCloseTeam(team.id) : undefined}
         />
+        </span>
       </div>
       {expanded && (
         <div className="sidebar-team-body">
+          {plan && (
+            <span data-testid="team-status-tally" className="sidebar-team-readout">
+              {buckets.map((bucket) => (
+                <span key={bucket.key} data-testid={`team-status-${bucket.key}`} className="sidebar-team-readout-item" style={{ color: bucket.color }}>
+                  <span className="sidebar-team-readout-compact-dot" aria-hidden />
+                  <span>{bucket.count}</span><span className="sidebar-team-readout-label"> {bucket.label}</span>
+                </span>
+              ))}
+            </span>
+          )}
           {managerCount > 0 && (
             <div data-testid="managers-section" className="sidebar-team-section">
               <div className="sidebar-team-section-label">MANAGERS {managerCount}</div>
